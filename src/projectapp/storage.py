@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import asdict
-from datetime import date, datetime
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +20,8 @@ def list_project_files(base_dir: Path = BASE_DIR) -> list[Path]:
 
 
 def _encode(value: object) -> str:
-    """JSONにない日付型をISO形式の文字列にする。"""
-    if isinstance(value, date):  # datetimeもdateのサブクラス
+    """JSONにない日付・時刻型をISO形式の文字列にする。"""
+    if isinstance(value, (date, time)):  # datetimeもdateのサブクラス
         return value.isoformat()
     raise TypeError(f"{type(value).__name__}はJSONに保存できません")
 
@@ -60,6 +60,7 @@ def load_project(path: Path) -> Project:
         name=raw["name"],
         base_date=date.fromisoformat(raw["base_date"]),
         daily_hours=raw["daily_hours"],
+        work_start=time.fromisoformat(raw.get("work_start", "09:00:00")),
         members=members,
         sections=sections,
         tasks=[_task(t) for t in raw.get("tasks", [])],

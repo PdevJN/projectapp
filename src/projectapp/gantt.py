@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from nicegui import ui
 
@@ -14,6 +14,7 @@ from projectapp.timeline import (
     Scale,
     bar_span,
     build_columns,
+    is_overdue,
     month_bands,
     year_bands,
 )
@@ -29,6 +30,7 @@ KIND_COLORS = {
 BAND_HEIGHT_PX = 22  # 年・月の帯の高さ
 HEADER_HEIGHT_PX = 44  # 日次の日付と(曜日)の2段
 WEEKDAYS = "月火水木金土日"
+OVERDUE_COLOR = "rgba(239, 83, 80, 0.18)"  # 予定超過のタスク行の背景
 GRID_BORDER = "1px solid rgba(128, 128, 128, 0.3)"  # 格子線。両テーマで見える半透明の灰色
 ADD_ROW_HEIGHT_PX = 24  # 追加行は通常の行より細くする
 ROW_STYLE = f"height: {ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
@@ -47,11 +49,16 @@ class GanttActions:
 
 class GanttChart:
     def __init__(
-        self, project: Project, holidays: dict[date, str], actions: GanttActions
+        self,
+        project: Project,
+        holidays: dict[date, str],
+        actions: GanttActions,
+        now: Callable[[], datetime] = datetime.now,
     ) -> None:
         self.project = project
         self.holidays = holidays
         self.actions = actions
+        self.now = now
         self.scale = Scale.DAY
 
     def set_project(self, project: Project) -> None:
@@ -176,7 +183,10 @@ class GanttChart:
         self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
     ) -> None:
         key = "top" if si is None else si
-        with ui.row().classes("items-center no-wrap gap-0").style(ROW_STYLE):
+        style = ROW_STYLE
+        if is_overdue(task, self.now()):
+            style += f"; background: {OVERDUE_COLOR}"
+        with ui.row().classes("items-center no-wrap gap-0").style(style):
             ui.label(task.name).classes("ellipsis cursor-pointer").style(
                 f"width: {NAME_WIDTH_PX}px; padding-left: 16px"
             ).on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti)).mark(

@@ -13,6 +13,7 @@ from projectapp.forms import open_section_dialog, open_task_dialog
 from projectapp.gantt import GanttActions, GanttChart
 from projectapp.models import Project, Section, Task
 from projectapp.storage import BASE_DIR, list_project_files, load_project
+from projectapp.timeline import fill_end
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
@@ -92,6 +93,7 @@ class MainView:
     def save_task(
         self, section_index: int | None, task_index: int | None, task: Task
     ) -> None:
+        task = fill_end(task, self.project, self.holidays)
         tasks = self.tasks_in(section_index)
         if task_index is None:
             tasks.append(task)

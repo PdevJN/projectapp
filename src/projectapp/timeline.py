@@ -1,13 +1,13 @@
 """スケールごとの列生成と、日時から位置・幅への変換(純粋関数)。"""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from itertools import groupby
-from math import ceil
+from math import ceil, isfinite
 
-from projectapp.models import Project, Task
+from projectapp.models import Project, Status, Task
 
 
 class Scale(StrEnum):
@@ -17,6 +17,7 @@ class Scale(StrEnum):
 
 
 MIN_COLUMNS = {Scale.DAY: 42, Scale.WEEK: 26, Scale.MONTH: 12}
+MAX_WORKDAYS = 3650  # 約14年分。誤入力で計算が長引くのを防ぐ
 
 
 @dataclass(frozen=True)
@@ -126,3 +127,72 @@ def month_bands(columns: list[Column]) -> list[Band]:
     return _bands(
         columns, lambda c: (c.start.year, c.start.month), lambda c: f"{c.start.month}月"
     )
+
+
+def is_workday(day: date, holidays: dict[date, str]) -> bool:
+    """月〜金で祝日でない日。"""
+    return day.weekday() < 5 and day not in holidays
+
+
+def _next_workday(day: date, holidays: dict[date, str]) -> date:
+    day += timedelta(days=1)
+    while not is_workday(day, holidays):
+        day += timedelta(days=1)
+    return day
+
+
+def calc_end(
+    start: datetime,
+    effort_hours: float,
+    daily_hours: float,
+    work_start: time,
+    holidays: dict[date, str],
+) -> datetime | None:
+    """稼働日の稼働枠(始業から連続daily_hours時間)に工数を割り当てた終了日時。
+
+    工数が不正(NaN・inf・0以下・稼働日数の上限超え)、daily_hoursが0以下・24超、
+    または日付が範囲を超えるときは、例外にせずNoneを返す。
+    """
+    if not isfinite(effort_hours) or effort_hours <= 0 or not 0 < daily_hours <= 24:
+        return None
+    if effort_hours > daily_hours * MAX_WORKDAYS:
+        return None
+    try:
+        return _calc_end(start, effort_hours, daily_hours, work_start, holidays)
+    except OverflowError:
+        return None
+
+
+def _calc_end(
+    start: datetime,
+    effort_hours: float,
+    daily_hours: float,
+    work_start: time,
+    holidays: dict[date, str],
+) -> datetime:
+    slot = timedelta(hours=daily_hours)
+    day = start.date()
+    if is_workday(day, holidays) and start < datetime.combine(day, work_start) + slot:
+        cursor = max(start, datetime.combine(day, work_start))
+    else:
+        cursor = datetime.combine(_next_workday(day, holidays), work_start)
+    remaining = timedelta(hours=effort_hours)
+    while True:
+        available = datetime.combine(cursor.date(), work_start) + slot - cursor
+        if remaining <= available:
+            return cursor + remaining
+        remaining -= available
+        cursor = datetime.combine(_next_workday(cursor.date(), holidays), work_start)
+
+
+def fill_end(task: Task, project: Project, holidays: dict[date, str]) -> Task:
+    """開始あり・終了なし・工数ありのタスクに、算出した終了を入れて返す。"""
+    if task.start is None or task.end is not None:
+        return task
+    end = calc_end(task.start, task.effort_hours, project.daily_hours, project.work_start, holidays)
+    return task if end is None else replace(task, end=end)
+
+
+def is_overdue(task: Task, now: datetime) -> bool:
+    """終了予定を過ぎていて、状態が「終了」でない。"""
+    return task.end is not None and task.status is not Status.DONE and now > task.end

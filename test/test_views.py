@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Callable
-from datetime import date
+from dataclasses import replace
+from datetime import date, datetime
 from pathlib import Path
 
 import httpx
@@ -207,3 +208,65 @@ async def test_refresh_holidays_button_is_right_next_to_the_project_title(
         ancestors.append(node)
     assert row in ancestors  # タイトルとボタンは同じ行にある
     assert title.id < button.id  # ボタンはタイトルの右
+
+
+def make_view(tmp_path: Path, views: list[MainView]) -> None:
+    @ui.page("/")
+    def index() -> None:
+        view = MainView(tmp_path, make_transport(200, []))
+        views.append(view)
+        view.build()
+
+
+async def test_saving_start_and_effort_fills_the_end(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    views[0].save_task(None, None, Task("a", start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    assert views[0].project.tasks[0].end == datetime(2026, 10, 13, 11)
+    await user.should_see(marker="bar-top-0")
+
+
+async def test_fill_end_uses_the_loaded_holidays(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    views[0].holidays = {date(2026, 10, 12): "スポーツの日"}
+    views[0].save_task(None, None, Task("a", start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    assert views[0].project.tasks[0].end == datetime(2026, 10, 14, 11)
+
+
+async def test_manual_end_is_kept_and_is_not_recomputed_on_edit(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    manual = datetime(2026, 10, 30, 18)
+    task = Task("a", start=datetime(2026, 10, 9, 9), end=manual, effort_hours=15.0)
+    views[0].save_task(None, None, task)
+    views[0].save_task(None, 0, replace(task, effort_hours=1.0))  # 工数だけ変える
+    assert views[0].project.tasks[0].end == manual
+
+
+async def test_clearing_the_end_recomputes_it(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    task = Task("a", start=datetime(2026, 10, 9, 9), end=datetime(2026, 10, 30), effort_hours=15.0)
+    views[0].save_task(None, None, task)
+    views[0].save_task(None, 0, replace(task, end=None))
+    assert views[0].project.tasks[0].end == datetime(2026, 10, 13, 11)
+
+
+async def test_task_without_effort_keeps_an_empty_end(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    views[0].save_task(None, None, Task("a", start=datetime(2026, 10, 9, 9)))
+    assert views[0].project.tasks[0].end is None

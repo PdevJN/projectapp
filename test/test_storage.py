@@ -1,5 +1,5 @@
 import json
-from datetime import date, datetime
+from datetime import date, datetime, time
 from pathlib import Path
 
 from projectapp.config import load_theme, save_theme
@@ -59,3 +59,17 @@ def test_file_without_top_level_tasks_loads_as_empty(tmp_path: Path) -> None:
     del raw["tasks"]
     path.write_text(json.dumps(raw), encoding="utf-8")
     assert load_project(path).tasks == []
+
+
+def test_work_start_roundtrip(tmp_path: Path) -> None:
+    project = Project("demo", work_start=time(8, 30))
+    loaded = load_project(save_project(project, tmp_path))
+    assert loaded.work_start == time(8, 30)
+
+
+def test_file_without_work_start_loads_with_the_default(tmp_path: Path) -> None:
+    path = save_project(Project("old"), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["work_start"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).work_start == time(9, 0)

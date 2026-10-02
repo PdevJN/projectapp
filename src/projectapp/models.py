@@ -1,10 +1,11 @@
 """プロジェクトのデータモデル。"""
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, time
 from enum import StrEnum
 
 DEFAULT_DAILY_HOURS = 6.5
+DEFAULT_WORK_START = time(9, 0)
 
 
 class Priority(StrEnum):
@@ -50,6 +51,7 @@ class Project:
     name: str
     base_date: date = field(default_factory=date.today)
     daily_hours: float = DEFAULT_DAILY_HOURS
+    work_start: time = DEFAULT_WORK_START  # 稼働日の始業時刻
     members: list[Member] = field(default_factory=list)
     sections: list[Section] = field(default_factory=list)
     tasks: list[Task] = field(default_factory=list)  # セクションに属さないタスク

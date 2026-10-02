@@ -5,8 +5,8 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.calendar import DayKind
-from projectapp.gantt import GRID_BORDER, KIND_COLORS, GanttActions, GanttChart
-from projectapp.models import Project, Section, Task
+from projectapp.gantt import GRID_BORDER, KIND_COLORS, OVERDUE_COLOR, GanttActions, GanttChart
+from projectapp.models import Project, Section, Status, Task
 from projectapp.timeline import Scale
 
 BASE = date(2026, 10, 5)  # 月曜
@@ -35,12 +35,16 @@ def sample_project() -> Project:
     return Project("demo", base_date=BASE, sections=[Section("開発", [task, Task("未設定")])])
 
 
-def mount(project: Project, holidays: dict[date, str] | None = None) -> Recorder:
+def mount(
+    project: Project,
+    holidays: dict[date, str] | None = None,
+    now: datetime = datetime(2026, 10, 1),
+) -> Recorder:
     recorder = Recorder()
 
     @ui.page("/")
     def index() -> None:
-        GanttChart(project, holidays or {}, recorder.actions).build()
+        GanttChart(project, holidays or {}, recorder.actions, now=lambda: now).build()
 
     return recorder
 
@@ -180,7 +184,8 @@ async def test_top_level_tasks_come_before_sections(user: User) -> None:
     project.sections.append(Section("開発"))
     mount(project)
     await user.open("/")
-    order = [e.text for e in user.find(kind=ui.label).elements if e.text in ("単独", "開発")]
+    labels = sorted(user.find(kind=ui.label).elements, key=lambda e: e.id)  # 作成順
+    order = [e.text for e in labels if e.text in ("単独", "開発")]
     assert order == ["単独", "開発"]
 
 
@@ -290,3 +295,41 @@ async def test_add_row_comes_after_top_level_tasks_and_before_sections(user: Use
         return user.find(marker=marker).elements.pop().id
 
     assert element_id("task-top-1") < element_id("add-task-top") < element_id("add-task-0")
+
+
+def row_background(user: User, marker: str) -> str | None:
+    row = user.find(marker=marker).elements.pop().parent_slot.parent
+    return row._style.get("background")
+
+
+async def test_overdue_task_row_is_red_and_others_are_not(user: User) -> None:
+    mount(sample_project(), now=datetime(2026, 10, 8))
+    await user.open("/")
+    assert row_background(user, "task-0-0") == OVERDUE_COLOR  # 終了10/7 12:00を過ぎた
+    assert row_background(user, "task-0-1") is None  # 終了なし
+
+
+async def test_task_not_yet_overdue_is_not_red(user: User) -> None:
+    mount(sample_project(), now=datetime(2026, 10, 6))
+    await user.open("/")
+    assert row_background(user, "task-0-0") is None
+
+
+async def test_done_task_is_not_red(user: User) -> None:
+    project = sample_project()
+    project.sections[0].tasks[0].status = Status.DONE
+    mount(project, now=datetime(2026, 10, 8))
+    await user.open("/")
+    assert row_background(user, "task-0-0") is None
+
+
+async def test_overdue_keeps_the_bar_color(user: User) -> None:
+    mount(sample_project(), now=datetime(2026, 10, 8))
+    await user.open("/")
+    assert user.find(marker="bar-0-0").elements.pop()._style["background"] == "#ff0000"
+
+
+async def test_overdue_applies_to_top_level_tasks(user: User) -> None:
+    mount(top_project(), now=datetime(2026, 10, 8))
+    await user.open("/")
+    assert row_background(user, "task-top-0") == OVERDUE_COLOR
