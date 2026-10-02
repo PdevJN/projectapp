@@ -52,3 +52,4 @@ class Project:
     daily_hours: float = DEFAULT_DAILY_HOURS
     members: list[Member] = field(default_factory=list)
     sections: list[Section] = field(default_factory=list)
+    tasks: list[Task] = field(default_factory=list)  # セクションに属さないタスク
