@@ -1,0 +1,21 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Test / type-check caches
+.pytest_cache/
+.mypy_cache/
+.coverage
+
+# Editor settings
+.vscode/
+
+# macOS
+.DS_Store
