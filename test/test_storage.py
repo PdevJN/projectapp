@@ -159,3 +159,17 @@ def test_list_excludes_files_that_cannot_be_saved_back(tmp_path: Path) -> None:
     for name in [" a.json", "a .json", "　b.json", ".foo.json"]:
         (tmp_path / name).write_text("{}", encoding="utf-8")
     assert [p.stem for p in list_project_files(tmp_path)] == ["ok"]
+
+
+def test_end_auto_roundtrip(tmp_path: Path) -> None:
+    project = Project("demo", sections=[Section("s", [Task("a", end_auto=True), Task("b")])])
+    loaded = load_project(save_project(project, tmp_path))
+    assert [t.end_auto for t in loaded.sections[0].tasks] == [True, False]
+
+
+def test_old_file_without_end_auto_reads_as_manual(tmp_path: Path) -> None:
+    path = save_project(Project("old", sections=[Section("s", [Task("a", end_auto=True)])]), tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["sections"][0]["tasks"][0]["end_auto"]
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert load_project(path).sections[0].tasks[0].end_auto is False

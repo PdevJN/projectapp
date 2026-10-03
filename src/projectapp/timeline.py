@@ -190,7 +190,29 @@ def fill_end(task: Task, project: Project, holidays: dict[date, str]) -> Task:
     if task.start is None or task.end is not None:
         return task
     end = calc_end(task.start, task.effort_hours, project.daily_hours, project.work_start, holidays)
-    return task if end is None else replace(task, end=end)
+    return task if end is None else replace(task, end=end, end_auto=True)
+
+
+def recalc_ends(project: Project, holidays: dict[date, str]) -> int:
+    """自動算出された終了(end_auto)だけを、現在の稼働設定で再計算する。変えた件数を返す。"""
+    changed = 0
+
+    def renew(task: Task) -> Task:
+        nonlocal changed
+        if not task.end_auto or task.start is None:
+            return task
+        end = calc_end(
+            task.start, task.effort_hours, project.daily_hours, project.work_start, holidays
+        )
+        if end is None or end == task.end:
+            return task
+        changed += 1
+        return replace(task, end=end)
+
+    project.tasks[:] = [renew(t) for t in project.tasks]
+    for section in project.sections:
+        section.tasks[:] = [renew(t) for t in section.tasks]
+    return changed
 
 
 def is_overdue(task: Task, now: datetime) -> bool:

@@ -38,6 +38,7 @@ class Task:
     color: str = "#4c8bf5"
     assignee: str | None = None
     predecessors: list[str] = field(default_factory=list)
+    end_auto: bool = False  # 終了が自動算出で、利用者が書き換えていない
 
 
 @dataclass

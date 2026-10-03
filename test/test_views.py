@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, time
 from pathlib import Path
 
 import httpx
@@ -11,6 +11,7 @@ from nicegui.testing import User
 
 from projectapp.calendar import DayKind, save_cache
 from projectapp.gantt import KIND_COLORS
+from projectapp.forms import build_task
 from projectapp.models import Project, Section, Task
 from projectapp.storage import load_project, save_project
 from projectapp.views import MainView
@@ -580,3 +581,130 @@ async def test_open_button_with_no_files_says_so(user: User, tmp_path: Path) -> 
     await user.open("/")
     user.find("開く").click()
     await user.should_see("プロジェクトファイルがありません")
+
+
+async def open_settings_and_apply(user: User, hours: str, start: str) -> None:
+    user.find(marker="open-settings").click()
+    user.find(marker="settings-hours").clear().type(hours)
+    user.find(marker="settings-start").clear().type(start)
+    user.find(marker="settings-apply").click()
+
+
+async def test_apply_settings_recalculates_only_auto_ends(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task(None, None, Task("自動", start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    manual_end = datetime(2026, 10, 30, 18)
+    view.save_task(
+        None, None, Task("手動", start=datetime(2026, 10, 9, 9), end=manual_end, effort_hours=15.0)
+    )
+    assert view.project.tasks[0].end == datetime(2026, 10, 13, 11)
+    await open_settings_and_apply(user, "8", "09:00")
+    assert await wait_until(lambda: user.notify.contains("1件の終了を再計算"))
+    assert view.project.daily_hours == 8.0
+    assert view.project.tasks[0].end == datetime(2026, 10, 12, 16)
+    assert view.project.tasks[1].end == manual_end
+
+
+async def test_apply_settings_with_the_same_values_does_nothing(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    user.find(marker="open-settings").click()
+    user.find(marker="settings-apply").click()
+    await asyncio.sleep(0.3)
+    assert not user.notify.contains("稼働時間を変更しました")
+    assert not view.is_dirty()
+
+
+async def test_invalid_settings_keep_the_dialog_and_the_values(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await open_settings_and_apply(user, "25", "09:00")
+    await user.should_see("1以上8以下")
+    assert view.project.daily_hours == 6.5
+
+
+async def test_settings_are_saved_with_the_project(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task(None, None, Task("自動", start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    await open_settings_and_apply(user, "8", "10:00")
+    assert await wait_until(lambda: view.is_dirty())
+    await save_new_as(user, "設定")
+    assert await wait_until(lambda: (tmp_path / "設定.json").exists())
+    saved = load_project(tmp_path / "設定.json")
+    assert saved.daily_hours == 8.0
+    assert saved.work_start == time(10, 0)
+    assert saved.tasks[0].end_auto is True
+
+
+async def test_changed_settings_ask_before_switching_projects(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存"), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    await open_settings_and_apply(user, "8", "09:00")
+    assert await wait_until(lambda: views[0].is_dirty())
+    await choose_in_combo(user, "既存")
+    await user.should_see(marker="unsaved-save")
+    assert views[0].path is None
+
+
+async def test_apply_settings_without_recalculated_tasks_shows_no_notification(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await open_settings_and_apply(user, "8", "09:00")
+    assert await wait_until(lambda: view.project.daily_hours == 8.0)
+    await asyncio.sleep(0.3)
+    assert not user.notify.contains("稼働時間を変更しました")
+
+
+async def test_editing_the_start_of_an_auto_end_task_recalculates_the_end(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task(None, None, Task("自動", start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    task = view.project.tasks[0]
+    assert task.end == datetime(2026, 10, 13, 11)
+    edited = build_task(
+        task,
+        name="自動",
+        start="2026-10-12T09:00",
+        end="2026-10-13T11:00",
+        effort_hours=15.0,
+        priority=task.priority,
+        status=task.status,
+        color=task.color,
+        assignee="",
+    )
+    view.save_task(None, 0, edited)
+    assert view.project.tasks[0].end == datetime(2026, 10, 14, 11)  # 月6.5h + 火6.5h + 水2h
+    assert view.project.tasks[0].end_auto is True

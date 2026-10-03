@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import date
+from datetime import date, time
 from pathlib import Path
 
 import httpx
@@ -15,6 +15,7 @@ from projectapp.forms import (
     open_file_dialog,
     open_name_dialog,
     open_section_dialog,
+    open_settings_dialog,
     open_task_dialog,
     open_unsaved_dialog,
 )
@@ -27,7 +28,7 @@ from projectapp.storage import (
     save_project,
     validate_name,
 )
-from projectapp.timeline import fill_end
+from projectapp.timeline import fill_end, recalc_ends
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
@@ -128,6 +129,21 @@ class MainView:
         names = sorted(self.files)
         self.file_select.set_options(names, value=self.current_name())
         open_file_dialog(names, self.request_open)
+
+    def open_settings(self) -> None:
+        open_settings_dialog(
+            self.project.daily_hours, self.project.work_start, self.apply_settings
+        )
+
+    def apply_settings(self, hours: float, start: time) -> None:
+        """稼働設定を更新し、自動算出された終了だけを再計算する。保存はしない。"""
+        if hours == self.project.daily_hours and start == self.project.work_start:
+            return
+        self.project.daily_hours, self.project.work_start = hours, start
+        count = recalc_ends(self.project, self.holidays)
+        self.gantt.set_project(self.project)
+        if count:
+            ui.notify(f"稼働時間を変更しました({count}件の終了を再計算)")
 
     def save_project_clicked(self) -> None:
         if self.path is None:
@@ -236,6 +252,9 @@ class MainView:
                 ui.button("開く", icon="folder_open", on_click=self.show_file_list)
                 ui.button("保存", icon="save", on_click=self.save_project_clicked).mark(
                     "save-project"
+                )
+                ui.button("設定", icon="settings", on_click=self.open_settings).mark(
+                    "open-settings"
                 )
 
     @ui.refreshable_method

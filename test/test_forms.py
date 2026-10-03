@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time
 
 import pytest
 from nicegui import ui
@@ -7,9 +7,13 @@ from nicegui.testing import User
 from projectapp.forms import (
     build_section_name,
     build_task,
+    build_work_settings,
+    exceeds_decimals,
+    in_hours_range,
     open_file_dialog,
     open_name_dialog,
     open_section_dialog,
+    open_settings_dialog,
     open_task_dialog,
     open_unsaved_dialog,
     parse_datetime,
@@ -228,3 +232,272 @@ async def test_unsaved_dialog_calls_the_matching_action(user: User, marker: str)
     user.find("open").click()
     user.find(marker=marker).click()
     assert calls == ([] if marker == "unsaved-cancel" else [marker])
+
+
+def test_build_task_keeps_end_auto_when_the_end_is_untouched() -> None:
+    existing = Task(
+        "旧", start=datetime(2026, 10, 5, 9), end=datetime(2026, 10, 7, 18),
+        effort_hours=8.0, end_auto=True,
+    )
+    assert make(existing).end_auto is True
+
+
+def test_build_task_clears_end_auto_when_the_end_is_edited() -> None:
+    existing = Task("旧", end=datetime(2026, 10, 7, 18), end_auto=True)
+    assert make(existing, end="2026-10-08T18:00").end_auto is False
+
+
+def test_build_task_clears_end_auto_when_the_end_is_emptied() -> None:
+    existing = Task("旧", end=datetime(2026, 10, 7, 18), end_auto=True)
+    edited = make(existing, end="")
+    assert edited.end is None
+    assert edited.end_auto is False
+
+
+def test_build_task_typed_end_of_a_new_task_is_manual() -> None:
+    assert make().end_auto is False
+
+
+@pytest.mark.parametrize(
+    ("hours", "start"),
+    [(6.5, "09:00"), (1.0, "09:00"), (8.0, "16:00"), (1.0, "23:00"), (6.5, "17:30"), (8.0, "9:00")],
+)
+def test_build_work_settings_accepts_valid_values(hours: float, start: str) -> None:
+    assert build_work_settings(hours, start)[0] == hours
+
+
+def test_build_work_settings_returns_hours_and_time() -> None:
+    assert build_work_settings(6.5, " 9:05 ") == (6.5, time(9, 5))
+
+
+@pytest.mark.parametrize(
+    ("hours", "start"),
+    [
+        (None, "09:00"),
+        (0.0, "09:00"),
+        (-1.0, "09:00"),
+        (8.01, "09:00"),
+        (8.5, "09:00"),
+        (24.0, "00:00"),
+        (0.99, "09:00"),
+        (float("nan"), "09:00"),
+        (float("inf"), "09:00"),
+        (6.5, ""),
+        (6.5, "25:00"),
+        (6.5, "abc"),
+        (6.5, "09:00:30"),
+        (6.5, "17:31"),
+        (8.0, "16:01"),
+        (1.0, "23:01"),
+    ],
+)
+def test_build_work_settings_rejects_invalid_values(hours: float | None, start: str) -> None:
+    with pytest.raises(ValueError):
+        build_work_settings(hours, start)
+
+
+async def test_settings_dialog_prefills_rejects_then_applies(user: User) -> None:
+    applied: list[tuple[float, time]] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda h, s: applied.append((h, s))
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    assert user.find(marker="settings-hours").elements.pop().value == 6.5
+    assert user.find(marker="settings-start").elements.pop().value == "09:00"
+    user.find(marker="settings-hours").clear().type("25")
+    user.find(marker="settings-apply").click()
+    await user.should_see("1以上8以下")
+    assert applied == []
+    user.find(marker="settings-hours").clear().type("8")
+    user.find(marker="settings-start").clear().type("10:00")
+    user.find(marker="settings-apply").click()
+    assert applied == [(8.0, time(10, 0))]
+
+
+SECONDS_END = datetime(2026, 10, 5, 10, 14, 4, 200000)  # 小数の工数で、終了に秒が付く
+
+
+def test_build_task_keeps_an_automatic_end_that_has_seconds() -> None:
+    existing = Task(
+        "旧", start=datetime(2026, 10, 5, 9), end=SECONDS_END, effort_hours=1.2345, end_auto=True
+    )
+    edited = make(existing, end="2026-10-05T10:14", effort_hours=1.2345)
+    assert edited.end == SECONDS_END
+    assert edited.end_auto is True
+
+
+async def test_task_dialog_roundtrip_keeps_an_automatic_end_that_has_seconds(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    task = Task(
+        "旧", start=datetime(2026, 10, 5, 9), end=SECONDS_END, effort_hours=1.2345, end_auto=True
+    )
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_task_dialog(task, saved.append))
+
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="task-save").click()
+    assert saved[0].end == SECONDS_END
+    assert saved[0].end_auto is True
+
+
+def auto_existing(**overrides: object) -> Task:
+    values: dict[str, object] = {
+        "start": datetime(2026, 10, 5, 9),
+        "end": datetime(2026, 10, 7, 18),
+        "effort_hours": 8.0,
+        "end_auto": True,
+    }
+    values.update(overrides)
+    return Task("旧", **values)  # type: ignore[arg-type]
+
+
+def test_changing_the_start_of_an_automatic_end_clears_the_end_for_recalculation() -> None:
+    edited = make(auto_existing(), start="2026-10-06T09:00")
+    assert edited.end is None
+    assert edited.end_auto is False
+
+
+def test_changing_the_effort_of_an_automatic_end_clears_the_end_for_recalculation() -> None:
+    edited = make(auto_existing(), effort_hours=10.0)
+    assert edited.end is None
+    assert edited.end_auto is False
+
+
+def test_moving_the_start_after_an_automatic_end_is_allowed() -> None:
+    edited = make(auto_existing(), start="2026-10-20T09:00")
+    assert edited.end is None
+
+
+def test_changing_the_start_keeps_a_manual_end() -> None:
+    edited = make(auto_existing(end_auto=False), start="2026-10-06T09:00")
+    assert edited.end == datetime(2026, 10, 7, 18)
+    assert edited.end_auto is False
+
+
+def test_moving_the_start_after_a_manual_end_is_still_rejected() -> None:
+    with pytest.raises(ValueError, match="終了は開始以降"):
+        make(auto_existing(end_auto=False), start="2026-10-20T09:00")
+
+
+def test_editing_only_other_fields_keeps_an_automatic_end() -> None:
+    edited = make(auto_existing(), name="新しい名前")
+    assert edited.end == datetime(2026, 10, 7, 18)
+    assert edited.end_auto is True
+
+
+async def test_settings_dialog_time_picker_and_field_stay_in_sync(user: User) -> None:
+    applied: list[tuple[float, time]] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda h, s: applied.append((h, s))
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="open-time-picker").click()
+    picker = user.find(marker="settings-time-picker").elements.pop()
+    start = user.find(marker="settings-start").elements.pop()
+    assert picker.value == "09:00"
+    with user.client:
+        picker.set_value("14:30")
+    assert start.value == "14:30"
+    user.find(marker="settings-start").clear().type("10:15")
+    assert picker.value == "10:15"
+    user.find(marker="settings-apply").click()
+    assert applied == [(6.5, time(10, 15))]
+
+
+async def test_clock_icon_opens_a_picker_dialog_and_ok_closes_it(user: User) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s: None))
+
+    await user.open("/")
+    user.find("open").click()
+    ok = user.find(marker="time-picker-ok").elements.pop()
+    picker = ok.parent_slot.parent.parent_slot.parent  # ボタン → カード → ダイアログ
+    assert isinstance(picker, ui.dialog)
+    assert picker.value is False
+    user.find(marker="open-time-picker").click()
+    assert picker.value is True
+    user.find(marker="time-picker-ok").click()
+    assert picker.value is False
+
+
+@pytest.mark.parametrize("hours", [6.25, 6.17, 1.01, 7.0, 6.5])
+def test_build_work_settings_accepts_up_to_two_decimal_places(hours: float) -> None:
+    assert build_work_settings(hours, "09:00")[0] == hours
+
+
+@pytest.mark.parametrize("hours", [6.123, 6.005, 1.001, 6.123456789, 7.999999999999])
+def test_build_work_settings_rejects_more_than_two_decimal_places(hours: float) -> None:
+    with pytest.raises(ValueError, match="小数点以下2桁"):
+        build_work_settings(hours, "09:00")
+
+
+@pytest.mark.parametrize(("hours", "expected"), [(6.25, False), (6.17, False), (7.0, False), (6.123, True), (6.005, True), (1.001, True)])
+def test_exceeds_decimals(hours: float, expected: bool) -> None:
+    assert exceeds_decimals(hours) is expected
+
+
+async def test_settings_dialog_hours_field_warns_instead_of_rounding(user: User) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s: None))
+
+    await user.open("/")
+    user.find("open").click()
+    hours = user.find(marker="settings-hours").elements.pop()
+    assert isinstance(hours, ui.number)
+    assert hours.precision is None  # 丸めない
+    with user.client:
+        hours.set_value(6.123)
+        assert hours.validate() is False
+        assert hours.error == "小数点以下2桁までで入力してください"
+        assert hours.value == 6.123
+        hours.set_value(6.25)
+        assert hours.validate() is True
+        assert hours.error is None
+
+
+@pytest.mark.parametrize(("hours", "ok"), [(1.0, True), (8.0, True), (0.99, False), (8.01, False), (0.0, False), (-1.0, False), (24.0, False)])
+def test_in_hours_range(hours: float, ok: bool) -> None:
+    assert in_hours_range(hours) is ok
+
+
+async def test_settings_dialog_hours_field_warns_when_out_of_range(user: User) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s: None))
+
+    await user.open("/")
+    user.find("open").click()
+    hours = user.find(marker="settings-hours").elements.pop()
+    assert isinstance(hours, ui.number)
+    assert hours.props["min"] == 1 and hours.props["max"] == 8
+    with user.client:
+        for bad in (9.0, 0.5):
+            hours.set_value(bad)
+            assert hours.validate() is False
+            assert hours.error == "稼働可能時間は1以上8以下で入力してください"
+        for good in (1.0, 8.0):
+            hours.set_value(good)
+            assert hours.validate() is True
