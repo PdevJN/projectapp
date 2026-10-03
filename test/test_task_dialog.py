@@ -461,3 +461,66 @@ async def test_delete_does_not_ask_about_unsaved_changes(user: User) -> None:
     user.find(marker="delete-confirm").click()
     assert deleted == ["deleted"]
     assert confirm_dialog_of(user).value is False
+
+
+def auto_end_task() -> Task:
+    return Task(
+        "旧",
+        start=datetime(2026, 10, 5, 9, 0),
+        end=datetime(2026, 10, 5, 15, 30),
+        effort_hours=6.5,
+        end_auto=True,
+    )
+
+
+async def test_an_automatic_end_locks_its_time_checkbox_on(user: User) -> None:
+    mount_dialog(auto_end_task(), [])
+    await open_dialog(user)
+    checkbox = user.find(marker="task-end-use-time").elements.pop()
+    assert checkbox.value is True
+    assert checkbox.enabled is False
+
+
+async def test_clicking_the_locked_checkbox_keeps_the_automatic_end(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(auto_end_task(), saved)
+    await open_dialog(user)
+    user.find(marker="task-end-use-time").click()
+    user.find(marker="task-save").click()
+    assert saved[0].end == datetime(2026, 10, 5, 15, 30)
+    assert saved[0].end_auto is True
+
+
+async def test_editing_the_time_of_an_automatic_end_makes_it_manual(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(auto_end_task(), saved)
+    await open_dialog(user)
+    user.find(marker="task-end-time").clear().type("16:45")
+    user.find(marker="task-save").click()
+    assert saved[0].end == datetime(2026, 10, 5, 16, 45)
+    assert saved[0].end_auto is False
+
+
+async def test_a_manual_end_with_a_custom_time_can_still_be_unchecked(user: User) -> None:
+    task = Task("手入力", start=datetime(2026, 10, 5, 9, 0), end=datetime(2026, 10, 5, 15, 30))
+    mount_dialog(task, [])
+    await open_dialog(user)
+    checkbox = user.find(marker="task-end-use-time").elements.pop()
+    assert checkbox.value is True
+    assert checkbox.enabled is True
+
+
+async def test_an_automatic_end_does_not_lock_the_start_checkbox(user: User) -> None:
+    mount_dialog(auto_end_task(), [])
+    await open_dialog(user)
+    assert user.find(marker="task-start-use-time").elements.pop().enabled is True
+
+
+async def test_an_automatic_end_at_the_default_time_is_not_locked(user: User) -> None:
+    # 補う終了(18:00)と同じ時刻なら、チェックはオフで開き、固定しない
+    task = Task("旧", start=datetime(2026, 10, 5, 9, 0), end=datetime(2026, 10, 5, 18, 0), end_auto=True)
+    mount_dialog(task, [])
+    await open_dialog(user)
+    checkbox = user.find(marker="task-end-use-time").elements.pop()
+    assert checkbox.value is False
+    assert checkbox.enabled is True
