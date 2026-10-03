@@ -7,9 +7,11 @@ from nicegui.testing import User
 from projectapp.forms import (
     build_section_name,
     build_task,
+    open_file_dialog,
     open_name_dialog,
     open_section_dialog,
     open_task_dialog,
+    open_unsaved_dialog,
     parse_datetime,
 )
 from projectapp.models import Priority, Status, Task
@@ -181,3 +183,48 @@ async def test_name_dialog_rejects_then_accepts_a_stripped_name(user: User) -> N
     user.find(marker="name-save").click()
     assert saved == ["デモ"]
     assert seen == ["bad", "デモ"]
+
+
+async def test_file_dialog_lists_names_and_selects_one(user: User) -> None:
+    chosen: list[str] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_file_dialog(["甲", "乙"], chosen.append))
+
+    await user.open("/")
+    user.find("open").click()
+    await user.should_see(marker="file-0")
+    await user.should_see("乙")
+    user.find(marker="file-1").click()
+    assert chosen == ["乙"]
+
+
+async def test_file_dialog_shows_a_message_when_empty(user: User) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_file_dialog([], lambda name: None))
+
+    await user.open("/")
+    user.find("open").click()
+    await user.should_see("プロジェクトファイルがありません")
+
+
+@pytest.mark.parametrize("marker", ["unsaved-save", "unsaved-discard", "unsaved-cancel"])
+async def test_unsaved_dialog_calls_the_matching_action(user: User, marker: str) -> None:
+    calls: list[str] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_unsaved_dialog(
+                lambda: calls.append("unsaved-save"),
+                lambda: calls.append("unsaved-discard"),
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker=marker).click()
+    assert calls == ([] if marker == "unsaved-cancel" else [marker])

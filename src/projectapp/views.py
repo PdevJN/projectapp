@@ -1,5 +1,7 @@
 """メイン画面。"""
 
+from collections.abc import Callable
+from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
@@ -9,7 +11,13 @@ from nicegui import ui
 from projectapp.calendar import load_cache
 from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import THEMES, load_theme, save_theme
-from projectapp.forms import open_name_dialog, open_section_dialog, open_task_dialog
+from projectapp.forms import (
+    open_file_dialog,
+    open_name_dialog,
+    open_section_dialog,
+    open_task_dialog,
+    open_unsaved_dialog,
+)
 from projectapp.gantt import GanttActions, GanttChart
 from projectapp.models import Project, Section, Task
 from projectapp.storage import (
@@ -39,8 +47,8 @@ class MainView:
         self.transport = transport
         self.project = Project(NEW_PROJECT_NAME)
         self.files: dict[str, Path] = {p.stem: p for p in list_project_files(base_dir)}
-        self.selected: str | None = None
         self.path: Path | None = None
+        self.mark_clean()
         self.theme = load_theme(base_dir)
         self.dark = ui.dark_mode()
         self.apply_theme(self.theme)
@@ -67,18 +75,59 @@ class MainView:
         save_theme(theme, self.base_dir)
         self.theme_buttons.refresh()
 
-    def open_selected(self) -> None:
-        if self.selected is None:
+    def mark_clean(self) -> None:
+        """いまの内容を、保存済み(または開いた直後)の状態として覚える。"""
+        self.snapshot = asdict(self.project)
+
+    def is_dirty(self) -> bool:
+        return asdict(self.project) != self.snapshot
+
+    def current_name(self) -> str | None:
+        return self.path.stem if self.path else None
+
+    def request_open(self, name: str | None) -> None:
+        """編集中なら確認してから開く。コンボボックスと一覧ダイアログの共通の入口。"""
+        if name is None or name == self.current_name():
             return
-        path = self.files[self.selected]
+        if not self.is_dirty():
+            self.open_project(name)
+            return
+        self.file_select.set_value(self.current_name())  # 確認中は表示を現状に戻す
+        open_unsaved_dialog(
+            on_save=lambda: self.save_then(lambda: self.open_project(name)),
+            on_discard=lambda: self.open_project(name),
+        )
+
+    def save_then(self, after: Callable[[], object]) -> None:
+        """保存に成功したときだけ、続きの処理を行う。"""
+        if self.path is None:
+            open_name_dialog(
+                lambda name: self.save_as_new(name) and after(),
+                lambda name: validate_name(name, self.base_dir, new=True),
+            )
+        elif self.write(overwrite=True):
+            after()
+
+    def open_project(self, name: str) -> None:
+        path = self.files[name]
         try:
             project = load_project(path)
         except (OSError, ValueError, KeyError) as exc:
             ui.notify(f"開けませんでした: {exc}", type="negative")
+            self.file_select.set_value(self.current_name())
             return
         self.path, self.project = path, project
+        self.mark_clean()
+        self.file_select.set_value(name)
         self.title.refresh()
         self.gantt.set_project(self.project)
+
+    def show_file_list(self) -> None:
+        """ファイルを走査し直して、一覧ダイアログを出す。"""
+        self.files = {p.stem: p for p in list_project_files(self.base_dir)}
+        names = sorted(self.files)
+        self.file_select.set_options(names, value=self.current_name())
+        open_file_dialog(names, self.request_open)
 
     def save_project_clicked(self) -> None:
         if self.path is None:
@@ -89,11 +138,13 @@ class MainView:
             return
         self.write(overwrite=True)
 
-    def save_as_new(self, name: str) -> None:
+    def save_as_new(self, name: str) -> bool:
         previous = self.project.name
         self.project.name = name
-        if not self.write(overwrite=False):
-            self.project.name = previous
+        if self.write(overwrite=False):
+            return True
+        self.project.name = previous
+        return False
 
     def write(self, *, overwrite: bool) -> bool:
         """保存して画面を更新する。失敗したら通知だけ出し、状態は変えない。"""
@@ -106,6 +157,7 @@ class MainView:
             ui.notify(f"保存できませんでした: {exc}", type="negative")
             return False
         self.path = path
+        self.mark_clean()
         self.files[path.stem] = path
         self.file_select.set_options(sorted(self.files), value=path.stem)
         self.title.refresh()
@@ -179,9 +231,9 @@ class MainView:
                 self.file_select = ui.select(
                     list(self.files),
                     label="プロジェクトファイル",
-                    on_change=lambda e: setattr(self, "selected", e.value),
+                    on_change=lambda e: self.request_open(e.value),
                 ).classes("w-64").mark("project-select")
-                ui.button("開く", icon="folder_open", on_click=self.open_selected)
+                ui.button("開く", icon="folder_open", on_click=self.show_file_list)
                 ui.button("保存", icon="save", on_click=self.save_project_clicked).mark(
                     "save-project"
                 )

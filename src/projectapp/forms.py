@@ -161,3 +161,42 @@ def open_name_dialog(
             ui.button("キャンセル", on_click=dialog.close).props("flat")
             ui.button("保存", on_click=save).mark("name-save")
     dialog.open()
+
+
+def open_file_dialog(names: list[str], on_select: Callable[[str], object]) -> None:
+    with ui.dialog() as dialog, ui.card().classes("w-80"):
+        ui.label("プロジェクトを開く").classes("text-h6")
+        if not names:
+            ui.label("プロジェクトファイルがありません")
+
+        def choose(name: str) -> None:
+            dialog.close()
+            on_select(name)
+
+        with ui.column().classes("w-full gap-1"):
+            for index, name in enumerate(names):
+                ui.button(name, on_click=lambda n=name: choose(n)).props(
+                    "flat align=left"
+                ).classes("w-full").mark(f"file-{index}")
+        ui.button("キャンセル", on_click=dialog.close).props("flat")
+    dialog.open()
+
+
+def open_unsaved_dialog(
+    on_save: Callable[[], object], on_discard: Callable[[], object]
+) -> None:
+    with ui.dialog() as dialog, ui.card().classes("w-96"):
+        ui.label("保存されていない変更があります").classes("text-h6")
+        ui.label("開く前に、現在のプロジェクトを保存しますか。")
+
+        def run(action: Callable[[], object]) -> None:
+            dialog.close()
+            action()
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark("unsaved-cancel")
+            ui.button("保存せず開く", on_click=lambda: run(on_discard)).props(
+                "flat color=negative"
+            ).mark("unsaved-discard")
+            ui.button("保存して開く", on_click=lambda: run(on_save)).mark("unsaved-save")
+    dialog.open()

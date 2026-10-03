@@ -44,6 +44,11 @@ def mount_capturing(base_dir: Path, views: list[MainView]) -> None:
         view.build()
 
 
+async def choose_in_combo(user: User, name: str) -> None:
+    user.find(kind=ui.select).click()
+    user.find(name).click()
+
+
 async def save_new_as(user: User, name: str) -> None:
     user.find(marker="save-project").click()
     user.find(marker="project-name").type(name)
@@ -325,8 +330,7 @@ async def test_save_an_opened_project_overwrites_without_asking(
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    view.selected = "既存"
-    user.find("開く").click()
+    await choose_in_combo(user, "既存")
     assert await wait_until(lambda: view.path == tmp_path / "既存.json")
     view.save_section("追加")
     user.find(marker="save-project").click()
@@ -389,8 +393,190 @@ async def test_failed_open_keeps_the_current_project_and_path(
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    view.selected = "壊れ"
-    user.find("開く").click()
+    await choose_in_combo(user, "壊れ")
     assert await wait_until(lambda: user.notify.contains("開けませんでした"))
     assert view.path is None
     assert view.project.name == "新規プロジェクト"
+
+
+async def test_choosing_in_the_combo_opens_a_clean_project_at_once(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("元")]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    await choose_in_combo(user, "既存")
+    view = views[0]
+    assert await wait_until(lambda: view.path == tmp_path / "既存.json")
+    assert view.project.sections[0].name == "元"
+    await user.should_not_see(marker="unsaved-save")
+
+
+async def test_is_dirty_follows_open_edit_and_save(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存"), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    assert not view.is_dirty()
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    assert not view.is_dirty()
+    view.save_section("追加")
+    assert view.is_dirty()
+    user.find(marker="save-project").click()
+    assert await wait_until(lambda: not view.is_dirty())
+
+
+async def test_saving_a_new_project_does_not_reload_it(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    before = view.project
+    view.save_section("追加")
+    await save_new_as(user, "デモ")
+    assert await wait_until(lambda: view.path == tmp_path / "デモ.json")
+    assert view.project is before
+    assert view.file_select.value == "デモ"
+
+
+async def test_dirty_project_asks_before_switching_and_cancel_keeps_it(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("元")]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_section("追加")
+    await choose_in_combo(user, "既存")
+    await user.should_see(marker="unsaved-save")
+    assert view.path is None
+    assert view.file_select.value is None
+    user.find(marker="unsaved-cancel").click()
+    assert view.path is None
+    assert [s.name for s in view.project.sections] == ["追加"]
+
+
+async def test_discard_and_open_drops_the_changes(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("元")]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_section("追加")
+    await choose_in_combo(user, "既存")
+    user.find(marker="unsaved-discard").click()
+    assert await wait_until(lambda: view.path == tmp_path / "既存.json")
+    assert [s.name for s in view.project.sections] == ["元"]
+    assert not view.is_dirty()
+
+
+async def test_save_and_open_saves_the_saved_project_first(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("甲"), tmp_path)
+    save_project(Project("乙", sections=[Section("乙の中身")]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "甲")
+    assert await wait_until(lambda: view.path == tmp_path / "甲.json")
+    view.save_section("追加")
+    await choose_in_combo(user, "乙")
+    user.find(marker="unsaved-save").click()
+    assert await wait_until(lambda: view.path == tmp_path / "乙.json")
+    assert [s.name for s in load_project(tmp_path / "甲.json").sections] == ["追加"]
+    assert [s.name for s in view.project.sections] == ["乙の中身"]
+
+
+async def test_save_and_open_for_a_new_project_goes_through_the_name_dialog(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("元")]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_section("追加")
+    await choose_in_combo(user, "既存")
+    user.find(marker="unsaved-save").click()
+    user.find(marker="project-name").type("新規保存")
+    user.find(marker="name-save").click()
+    assert await wait_until(lambda: view.path == tmp_path / "既存.json")
+    assert (tmp_path / "新規保存.json").exists()
+    assert [s.name for s in view.project.sections] == ["元"]
+
+
+async def test_save_and_open_does_not_switch_when_the_save_fails(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("元")]), tmp_path)
+
+    def boom(*args: object, **kwargs: object) -> Path:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("projectapp.views.save_project", boom)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_section("追加")
+    await choose_in_combo(user, "既存")
+    user.find(marker="unsaved-save").click()
+    user.find(marker="project-name").type("デモ")
+    user.find(marker="name-save").click()
+    assert await wait_until(lambda: user.notify.contains("保存できませんでした"))
+    assert view.path is None
+    assert [s.name for s in view.project.sections] == ["追加"]
+
+
+async def test_failed_open_from_the_combo_restores_the_display(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    (tmp_path / "壊れ.json").write_text("{not json", encoding="utf-8")
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    await choose_in_combo(user, "壊れ")
+    assert await wait_until(lambda: user.notify.contains("開けませんでした"))
+    assert views[0].file_select.value is None
+
+
+async def test_open_button_lists_files_and_opens_the_chosen_one(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("甲", sections=[Section("甲の中身")]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    save_project(Project("後から"), tmp_path)  # 起動後に増えたファイルも一覧に出る
+    user.find("開く").click()
+    await user.should_see(marker="file-0")
+    await user.should_see("後から")
+    user.find(marker="file-1").click()
+    assert await wait_until(lambda: view.path == tmp_path / "甲.json")
+    assert [s.name for s in view.project.sections] == ["甲の中身"]
+    assert "後から" in view.file_select.options
+
+
+async def test_open_button_with_no_files_says_so(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    mount(tmp_path, make_transport(200, []))
+    await user.open("/")
+    user.find("開く").click()
+    await user.should_see("プロジェクトファイルがありません")
