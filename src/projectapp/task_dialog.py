@@ -106,9 +106,10 @@ class DateTimeFields:
             )
         for key in ("start", "end", "deadline"):
             self._show_time(key, self._use(key).value)
-        for widget in (self.start_day, self.start_time):
+        for widget in (self.start_day, self.start_time, self.deadline_day, self.deadline_time):
             widget.on_value_change(self._refresh_end)
         self.use_start_time.on_value_change(self._refresh_end)
+        self.use_deadline_time.on_value_change(self._refresh_end)
         self._refresh_end()
 
     def _end_header(self, manual: bool) -> None:
@@ -175,17 +176,27 @@ class DateTimeFields:
         self.manual.set_visibility(has_effort)
         self.computed.set_visibility(computed_mode)
         self.end_editable.set_visibility(not computed_mode)
-        hint = "空なら工数から算出します" if has_effort else "空なら開始予定の翌日になります"
+        hint = (
+            "空なら工数から算出します"
+            if has_effort
+            else "空なら締切(なければ開始予定の翌日)になります"
+        )
         self.end_day.props(f'hint="{hint}"')
         self.computed.set_value(self._computed_text())
 
     def _computed_text(self) -> str:
         try:
             start = parse_datetime(self.start_text())
+            deadline = parse_datetime(self.deadline_text())
         except ValueError:
             return ""
         end = computed_end(
-            start, self.effort or 0.0, self._daily_hours, self._work_start, self._holidays
+            start,
+            self.effort or 0.0,
+            self._daily_hours,
+            self._work_start,
+            self._holidays,
+            deadline,
         )
         return end.strftime("%Y-%m-%d %H:%M") if end else ""
 
