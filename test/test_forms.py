@@ -592,6 +592,15 @@ def test_compose_datetime_joins_day_and_clock() -> None:
     assert compose_datetime(" 2026-10-05 ", " 09:00 ") == "2026-10-05T09:00"
 
 
+def test_compose_datetime_zero_pads_the_day() -> None:
+    assert compose_datetime("2026-10-5", "09:00") == "2026-10-05T09:00"
+    assert compose_datetime("2026-1-05", "09:00") == "2026-01-05T09:00"
+
+
+def test_compose_datetime_keeps_an_unparsable_day_for_build_task_to_report() -> None:
+    assert compose_datetime("abc", "09:00") == "abcT09:00"
+
+
 def test_compose_datetime_ignores_the_clock_when_the_day_is_empty() -> None:
     assert compose_datetime("", "09:00") == ""
     assert compose_datetime("  ", "") == ""

@@ -178,6 +178,7 @@ def open_task_dialog(
         opened = current()
 
         def save() -> None:
+            error.set_text("")
             try:
                 result = build_task(
                     task,

@@ -133,6 +133,10 @@ def compose_datetime(day: str, clock: str) -> str:
     if not day:
         return ""
     try:
+        day = datetime.strptime(day, "%Y-%m-%d").strftime("%Y-%m-%d")  # 2026-10-5 を正規化する
+    except ValueError:
+        pass  # 形式の誤りは build_task が報告する
+    try:
         datetime.strptime(clock, "%H:%M")
     except ValueError:
         raise ValueError("時刻の形式が正しくありません") from None
