@@ -750,3 +750,46 @@ async def test_delete_from_the_edit_dialog_removes_the_bar(user: User, tmp_path:
     user.find(marker="task-delete").click()
     user.find(marker="delete-confirm").click()
     await user.should_not_see(marker="task-top-0")
+
+
+async def test_apply_settings_warns_about_ends_that_cannot_be_recalculated(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.tasks.append(
+        Task(
+            "不能",
+            start=datetime(2026, 10, 9, 9),
+            end=datetime(2026, 10, 13, 11),
+            effort_hours=0.0,
+            end_auto=True,
+        )
+    )
+    await open_settings_and_apply(user, "8", "09:00")
+    assert await wait_until(lambda: user.notify.contains("1件の終了は再計算できませんでした"))
+    assert not user.notify.contains("件の終了を再計算)")
+
+
+async def test_refreshing_holidays_recalculates_auto_ends(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task(None, None, Task("自動", start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    assert view.project.tasks[0].end == datetime(2026, 10, 13, 11)
+
+    async def fake_download(base_dir: Path, transport: object = None) -> dict[date, str]:
+        return {date(2026, 10, 12): "スポーツの日"}
+
+    monkeypatch.setattr("projectapp.views.download_holidays", fake_download)
+    await view.refresh_holidays()
+    assert view.project.tasks[0].end == datetime(2026, 10, 14, 11)
+    assert await wait_until(lambda: user.notify.contains("祝日データの反映で1件の終了を再計算"))
+    assert view.is_dirty()
