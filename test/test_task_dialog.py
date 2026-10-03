@@ -665,3 +665,11 @@ async def test_closing_asks_for_confirmation_after_the_manual_check_changes(user
     user.find(marker="task-end-manual").click()
     user.find(marker="task-cancel").click()
     await user.should_see(marker="close-save")
+
+
+async def test_the_dialog_uses_the_planned_wording(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    await user.should_see("開始予定")
+    await user.should_see("完了予定")
+    await user.should_see("締切")
