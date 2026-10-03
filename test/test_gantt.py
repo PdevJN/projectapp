@@ -6,6 +6,7 @@ from nicegui.testing import User
 
 from projectapp.calendar import DayKind
 from projectapp.gantt import (
+    DEADLINE_MARKER_HALF_PX,
     GRID_BORDER,
     KIND_COLORS,
     MIN_BAR_PX,
@@ -369,3 +370,39 @@ async def test_a_zero_length_task_still_shows_a_thin_bar(user: User) -> None:
     await user.open("/")
     bar = user.find(marker="bar-0-0").elements.pop()
     assert bar._style["width"] == f"{MIN_BAR_PX:.1f}px"
+
+
+async def test_the_deadline_marker_is_placed_at_the_deadline(user: User) -> None:
+    project = sample_project()
+    project.sections[0].tasks[0].deadline = datetime(2026, 10, 8, 12)  # BASE は 10/5
+    mount(project)
+    await user.open("/")
+    marker = user.find(marker="deadline-0-0").elements.pop()
+    assert marker._style["left"] == f"{200 + 3.5 * 40 - DEADLINE_MARKER_HALF_PX:.1f}px"
+
+
+async def test_a_task_without_a_start_still_shows_its_deadline_marker(user: User) -> None:
+    project = Project(
+        "demo", base_date=BASE, tasks=[Task("締切のみ", deadline=datetime(2026, 10, 8, 12))]
+    )
+    mount(project)
+    await user.open("/")
+    await user.should_see(marker="deadline-top-0")
+    await user.should_not_see(marker="bar-top-0")
+
+
+async def test_a_deadline_outside_the_range_has_no_marker(user: User) -> None:
+    project = Project("demo", base_date=BASE, tasks=[Task("遠い", deadline=datetime(2030, 1, 1))])
+    mount(project)
+    await user.open("/")
+    await user.should_see("遠い")
+    await user.should_not_see(marker="deadline-top-0")
+
+
+async def test_clicking_the_deadline_marker_edits_the_task(user: User) -> None:
+    project = sample_project()
+    project.sections[0].tasks[0].deadline = datetime(2026, 10, 8, 12)
+    recorder = mount(project)
+    await user.open("/")
+    user.find(marker="deadline-0-0").click()
+    assert recorder.events == [("edit_task", (0, 0))]

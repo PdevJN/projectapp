@@ -115,6 +115,15 @@ def bar_span(
     return left, max(right - left, 0.0)
 
 
+def deadline_position(deadline: datetime, columns: list[Column]) -> float | None:
+    """締切の位置(列の単位)。表示範囲の外ならNone。"""
+    begin = datetime.combine(columns[0].start, time.min)
+    finish = datetime.combine(columns[-1].end, time.min)
+    if not begin <= deadline < finish:
+        return None
+    return _position(deadline, columns)
+
+
 def _bands(
     columns: list[Column], key: Callable[[Column], object], label: Callable[[Column], str]
 ) -> list[Band]:
