@@ -2,13 +2,20 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from projectapp.models import Project, Section, Status, Task
+from projectapp.models import Member, Project, Section, Status, Task
 from projectapp.timeline import (
     Band,
     Scale,
     bar_span,
     build_columns,
+    Overload,
     calc_end,
+    clip_overloads,
+    combine_rate,
+    conversion_rate,
+    effort_days,
+    interval_span,
+    overallocations,
     deadline_position,
     computed_end,
     effective_end,
@@ -403,3 +410,178 @@ def test_computed_end_takes_the_deadline_as_the_fallback() -> None:
     assert computed_end(FRI_START, 0.0, 6.5, time(9, 0), {}, None) == datetime(2026, 10, 10, 9)
     assert computed_end(None, 0.0, 6.5, time(9, 0), {}, DEADLINE) == DEADLINE
     assert computed_end(None, 0.0, 6.5, time(9, 0), {}, None) is None
+
+
+def member_project(*members: Member, tasks: list[Task] | None = None) -> Project:
+    return Project("p", base_date=BASE, members=list(members), tasks=tasks or [])
+
+
+def test_combine_rate_multiplies_and_guards_bad_values() -> None:
+    assert combine_rate(1.2, 0.5) == pytest.approx(0.6)
+    for bad in (0.0, -1.0, float("nan"), float("inf")):
+        assert combine_rate(bad, 1.0) == 1.0
+        assert combine_rate(1.0, bad) == 1.0
+
+
+def test_conversion_rate_uses_the_member_ratio_and_the_task_allocation() -> None:
+    project = member_project(Member("田中", 1.2))
+    assert conversion_rate(Task("t", assignee="田中", allocation=0.5), project) == pytest.approx(0.6)
+    assert conversion_rate(Task("t"), project) == 1.0  # 担当者なし
+    assert conversion_rate(Task("t", assignee="不明", allocation=0.5), project) == 1.0  # メンバーにいない
+
+
+def test_a_faster_member_finishes_earlier() -> None:
+    project = member_project(Member("田中", 1.5))
+    task = Task("t", planned_start=FRI_START, effort_hours=15.0, assignee="田中")
+    # 15h / 1.5 = 10h → 金6.5h + 月3.5h
+    assert effective_end(task, project, {}) == datetime(2026, 10, 12, 12, 30)
+
+
+def test_a_smaller_allocation_finishes_later() -> None:
+    project = member_project(Member("田中", 1.0))
+    task = Task("t", planned_start=FRI_START, effort_hours=6.5, assignee="田中", allocation=0.5)
+    # 6.5h / 0.5 = 13h → 金6.5h + 月6.5h
+    assert effective_end(task, project, {}) == datetime(2026, 10, 12, 15, 30)
+
+
+def test_a_rate_of_one_changes_nothing() -> None:
+    project = member_project(Member("田中", 1.0))
+    task = Task("t", planned_start=FRI_START, effort_hours=15.0, assignee="田中")
+    assert effective_end(task, project, {}) == datetime(2026, 10, 13, 11)
+
+
+def test_a_manual_planned_end_is_not_converted() -> None:
+    project = member_project(Member("田中", 0.1))
+    task = Task(
+        "t",
+        planned_start=FRI_START,
+        effort_hours=15.0,
+        assignee="田中",
+        planned_end=MANUAL_END,
+        planned_end_manual=True,
+    )
+    assert effective_end(task, project, {}) == MANUAL_END
+
+
+def test_an_extreme_rate_falls_back_instead_of_raising() -> None:
+    project = member_project(Member("田中", 0.1))
+    task = Task(
+        "t",
+        planned_start=FRI_START,
+        effort_hours=1000.0,
+        assignee="田中",
+        allocation=0.01,
+        deadline=DEADLINE,
+    )
+    assert effective_end(task, project, {}) == DEADLINE  # 1,000,000h は算出できない
+    no_deadline = Task(
+        "t", planned_start=FRI_START, effort_hours=1000.0, assignee="田中", allocation=0.01
+    )
+    assert effective_end(no_deadline, project, {}) == datetime(2026, 10, 10, 9)
+
+
+@pytest.mark.parametrize("rate", [0.0, -1.0, float("nan"), float("inf")])
+def test_computed_end_ignores_an_unusable_rate(rate: float) -> None:
+    assert computed_end(FRI_START, 15.0, 6.5, time(9, 0), {}, None, rate) == datetime(2026, 10, 13, 11)
+
+
+def test_effort_days() -> None:
+    assert effort_days(15.0, 1.0, 6.5) == pytest.approx(15 / 6.5)
+    assert effort_days(15.0, 1.2 * 0.8, 6.5) == pytest.approx(15 / 0.96 / 6.5)
+    assert effort_days(15.0, 0.0, 6.5) == pytest.approx(15 / 6.5)  # 使えない換算率は1.0
+    for bad in (0.0, -1.0, float("nan"), float("inf")):
+        assert effort_days(bad, 1.0, 6.5) is None
+    assert effort_days(8.0, 1.0, 0.0) is None
+
+
+def alloc_task(name: str, start_day: int, end_day: int, allocation: float, **fields: object) -> Task:
+    return Task(
+        name,
+        planned_start=datetime(2026, 10, start_day),
+        planned_end=datetime(2026, 10, end_day),
+        assignee="田中",
+        allocation=allocation,
+        **fields,  # type: ignore[arg-type]
+    )
+
+
+def over(*tasks: Task) -> list[Overload]:
+    return overallocations(member_project(Member("田中"), tasks=list(tasks)), {})
+
+
+def test_no_overload_when_the_periods_do_not_overlap() -> None:
+    assert over(alloc_task("a", 5, 7, 1.0), alloc_task("b", 7, 9, 1.0)) == []  # 端が接するだけ
+
+
+def test_exactly_one_hundred_percent_is_not_an_overload() -> None:
+    assert over(alloc_task("a", 5, 9, 0.7), alloc_task("b", 5, 9, 0.3)) == []
+    assert over(alloc_task("a", 5, 9, 0.1), alloc_task("b", 5, 9, 0.2), alloc_task("c", 5, 9, 0.7)) == []
+
+
+def test_an_overload_is_reported_with_the_overlapping_period_and_total() -> None:
+    result = over(alloc_task("a", 5, 9, 0.6), alloc_task("b", 7, 12, 0.6))
+    assert result == [Overload("田中", datetime(2026, 10, 7), datetime(2026, 10, 9), pytest.approx(1.2))]
+
+
+def test_three_tasks_partially_overlapping_merge_into_one_period_with_the_peak() -> None:
+    result = over(alloc_task("a", 5, 9, 0.6), alloc_task("b", 7, 12, 0.6), alloc_task("c", 8, 10, 0.3))
+    assert len(result) == 1
+    assert (result[0].start, result[0].end) == (datetime(2026, 10, 7), datetime(2026, 10, 9))
+    assert result[0].total == pytest.approx(1.5)  # 10/8〜10/9 が 0.6+0.6+0.3
+
+
+def test_separate_overload_periods_stay_separate() -> None:
+    result = over(
+        alloc_task("a", 5, 8, 0.6),
+        alloc_task("b", 6, 8, 0.6),
+        alloc_task("c", 12, 15, 0.6),
+        alloc_task("d", 13, 15, 0.6),
+    )
+    assert [(o.start.day, o.end.day) for o in result] == [(6, 8), (13, 15)]
+
+
+def test_done_tasks_unassigned_tasks_and_tasks_without_a_start_are_not_counted() -> None:
+    done = alloc_task("a", 5, 9, 0.6, status=Status.DONE)
+    other = Task("b", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9), allocation=0.6)
+    no_start = Task("c", planned_end=datetime(2026, 10, 9), assignee="田中", allocation=0.6)
+    assert over(done, other, no_start, alloc_task("d", 5, 9, 0.6)) == []
+
+
+def test_a_task_that_ends_before_it_starts_is_not_counted() -> None:
+    assert over(alloc_task("a", 9, 5, 0.6), alloc_task("b", 5, 9, 0.6)) == []
+
+
+def test_tasks_of_other_members_do_not_mix() -> None:
+    mine = alloc_task("a", 5, 9, 0.6)
+    theirs = Task(
+        "b",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 9),
+        assignee="鈴木",
+        allocation=0.6,
+    )
+    project = member_project(Member("田中"), Member("鈴木"), tasks=[mine, theirs])
+    assert overallocations(project, {}) == []
+
+
+def test_clip_overloads_returns_the_part_inside_the_task() -> None:
+    a, b = alloc_task("a", 5, 9, 0.6), alloc_task("b", 7, 12, 0.6)
+    project = member_project(Member("田中"), tasks=[a, b])
+    overloads = overallocations(project, {})
+    assert [(o.start.day, o.end.day) for o in clip_overloads(a, project, {}, overloads)] == [(7, 9)]
+    assert [(o.start.day, o.end.day) for o in clip_overloads(b, project, {}, overloads)] == [(7, 9)]
+
+
+def test_clip_overloads_is_empty_for_tasks_that_are_not_counted() -> None:
+    a, b = alloc_task("a", 5, 9, 0.6), alloc_task("b", 7, 12, 0.6)
+    done = alloc_task("c", 5, 12, 0.6, status=Status.DONE)
+    project = member_project(Member("田中"), tasks=[a, b, done])
+    overloads = overallocations(project, {})
+    assert clip_overloads(done, project, {}, overloads) == []
+    assert clip_overloads(Task("t"), project, {}, overloads) == []
+
+
+def test_interval_span_matches_bar_span() -> None:
+    columns = build_columns(Project("p", base_date=BASE), Scale.DAY)
+    start, end = datetime(2026, 10, 5, 12), datetime(2026, 10, 7, 12)
+    assert interval_span(start, end, columns) == bar_span(start, end, columns) == (0.5, 2.0)
