@@ -11,6 +11,8 @@ from nicegui import ui
 from projectapp.models import Priority, Status, Task
 
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
+STANDARD_WORK_HOURS = 8  # 時刻を指定しないときに補う終了の、標準稼働時間(固定)
+LUNCH_HOURS = 1  # 同じく、昼休憩(固定。稼働設定の対象外)
 MIN_YEAR, MAX_YEAR = 2000, 2100  # 入力ミスで表示範囲が際限なく広がるのを防ぐ
 MIN_DAILY_HOURS, MAX_DAILY_HOURS = 1.0, 8.0  # 稼働可能時間の範囲
 HOURS_RANGE_MESSAGE = f"稼働可能時間は{MIN_DAILY_HOURS:g}以上{MAX_DAILY_HOURS:g}以下で入力してください"
@@ -115,6 +117,38 @@ def build_section_name(text: str) -> str:
 
 def format_datetime(moment: datetime | None) -> str:
     return moment.strftime(DATETIME_FORMAT) if moment else ""
+
+
+def default_times(work_start: time) -> tuple[time, time]:
+    """時刻を指定しないときに補う開始・終了の時刻。終了は始業 + 標準稼働時間 + 昼休憩。"""
+    start = work_start.replace(second=0, microsecond=0)
+    minutes = start.hour * 60 + start.minute + (STANDARD_WORK_HOURS + LUNCH_HOURS) * 60
+    minutes = min(minutes, 24 * 60 - 1)  # 暫定: 24時以降は表せないので23:59で頭打ち(保留事項)
+    return start, time(minutes // 60, minutes % 60)
+
+
+def compose_datetime(day: str, clock: str) -> str:
+    """日付と時刻の入力から、build_taskに渡す文字列を作る。日付が空なら空(時刻は無視する)。"""
+    day, clock = day.strip(), clock.strip()
+    if not day:
+        return ""
+    try:
+        datetime.strptime(clock, "%H:%M")
+    except ValueError:
+        raise ValueError("時刻の形式が正しくありません") from None
+    return f"{day}T{clock}"
+
+
+def needs_time(start: datetime | None, end: datetime | None, work_start: time) -> bool:
+    """開始・終了が、補う時刻と違うか。違えば、ダイアログは時刻の入力を開いた状態で出す。"""
+    default_start, default_end = default_times(work_start)
+
+    def minute(moment: datetime) -> time:
+        return moment.time().replace(second=0, microsecond=0)
+
+    return (start is not None and minute(start) != default_start) or (
+        end is not None and minute(end) != default_end
+    )
 
 
 def open_section_dialog(on_save: Callable[[str], object]) -> None:

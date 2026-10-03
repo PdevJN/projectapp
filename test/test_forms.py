@@ -8,8 +8,11 @@ from projectapp.forms import (
     build_section_name,
     build_task,
     build_work_settings,
+    compose_datetime,
+    default_times,
     exceeds_decimals,
     in_hours_range,
+    needs_time,
     open_file_dialog,
     open_name_dialog,
     open_section_dialog,
@@ -568,3 +571,56 @@ async def test_settings_dialog_hours_field_warns_when_out_of_range(user: User) -
         for good in (1.0, 8.0):
             hours.set_value(good)
             assert hours.validate() is True
+
+
+def test_default_times_adds_the_standard_day_and_lunch() -> None:
+    assert default_times(time(9, 0)) == (time(9, 0), time(18, 0))
+    assert default_times(time(8, 30)) == (time(8, 30), time(17, 30))
+
+
+def test_default_times_caps_the_end_at_2359() -> None:
+    # 暫定: 始業が15:00以降だと始業+9hが24時以上になり、表せない(保留事項)
+    assert default_times(time(14, 59)) == (time(14, 59), time(23, 59))
+    assert default_times(time(15, 0)) == (time(15, 0), time(23, 59))
+    assert default_times(time(17, 0)) == (time(17, 0), time(23, 59))
+
+
+def test_compose_datetime_joins_day_and_clock() -> None:
+    assert compose_datetime("2026-10-05", "09:00") == "2026-10-05T09:00"
+    assert compose_datetime(" 2026-10-05 ", " 09:00 ") == "2026-10-05T09:00"
+
+
+def test_compose_datetime_ignores_the_clock_when_the_day_is_empty() -> None:
+    assert compose_datetime("", "09:00") == ""
+    assert compose_datetime("  ", "") == ""
+    assert compose_datetime("", "xx") == ""
+
+
+@pytest.mark.parametrize("clock", ["", "25:00", "9am", "09:60", "09"])
+def test_compose_datetime_rejects_a_bad_clock_when_the_day_is_given(clock: str) -> None:
+    with pytest.raises(ValueError, match="時刻の形式"):
+        compose_datetime("2026-10-05", clock)
+
+
+def test_needs_time_is_false_for_default_or_empty_times() -> None:
+    nine = time(9, 0)
+    assert needs_time(None, None, nine) is False
+    assert needs_time(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 7, 18, 0), nine) is False
+    assert needs_time(datetime(2026, 10, 5, 9, 0), None, nine) is False
+    assert needs_time(None, datetime(2026, 10, 7, 18, 0), nine) is False
+
+
+def test_needs_time_is_true_when_either_time_differs() -> None:
+    nine = time(9, 0)
+    assert needs_time(datetime(2026, 10, 5, 9, 30), None, nine) is True
+    assert needs_time(None, datetime(2026, 10, 7, 15, 30), nine) is True
+
+
+def test_needs_time_compares_in_minutes() -> None:
+    # 秒を持つ終了(自動算出)でも、同じ分なら補う時刻と同じとみなす
+    assert needs_time(None, datetime(2026, 10, 7, 18, 0, 30), time(9, 0)) is False
+
+
+def test_needs_time_follows_the_work_start() -> None:
+    assert needs_time(datetime(2026, 10, 5, 8, 30), datetime(2026, 10, 7, 17, 30), time(8, 30)) is False
+    assert needs_time(datetime(2026, 10, 5, 8, 30), datetime(2026, 10, 7, 17, 30), time(9, 0)) is True
