@@ -8,7 +8,7 @@ from math import isfinite
 
 from nicegui import ui
 
-from projectapp.models import Priority, Status, Task
+from projectapp.models import Priority, Status, Task, is_hex_color
 
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
 STANDARD_WORK_HOURS = 8  # 時刻を指定しないときに補う終了の、標準稼働時間(固定)
@@ -17,6 +17,26 @@ MIN_YEAR, MAX_YEAR = 2000, 2100  # 入力ミスで表示範囲が際限なく広
 MIN_DAILY_HOURS, MAX_DAILY_HOURS = 1.0, 8.0  # 稼働可能時間の範囲
 HOURS_RANGE_MESSAGE = f"稼働可能時間は{MIN_DAILY_HOURS:g}以上{MAX_DAILY_HOURS:g}以下で入力してください"
 HOURS_DECIMALS = 2  # 稼働時間の小数点以下の桁数(0.25=15分刻みを含む)
+
+
+def disposable(dialog: ui.dialog) -> ui.dialog:
+    """閉じたら要素ごと取り除く。開くたびに新しく作るダイアログが、閉じても溜まらないようにする。"""
+    dialog.on("hide", dialog.delete)
+    return dialog
+
+
+def bind_picker(picker: ui.date | ui.time, field: ui.input, fmt: str) -> None:
+    """入力欄と選択部品の値をそろえる。入力途中の(形式に合わない)文字列は部品に渡さない。"""
+
+    def valid_or_none(text: str | None) -> str | None:
+        try:
+            datetime.strptime(text or "", fmt)
+        except ValueError:
+            return None
+        return text
+
+    picker.bind_value_from(field, backward=valid_or_none)
+    picker.bind_value_to(field, forward=lambda value: value if value else field.value)
 
 
 def parse_datetime(text: str) -> datetime | None:
@@ -64,8 +84,10 @@ def build_task(
     recompute = base.end_auto and end_unchanged and inputs_changed
     if start_at and end_at and end_at < start_at and not recompute:
         raise ValueError("終了は開始以降の日時にしてください")
-    if hours < 0:
-        raise ValueError("工数は0以上で入力してください")
+    if not isfinite(hours) or hours < 0:
+        raise ValueError("工数は0以上の数値で入力してください")
+    if not is_hex_color(color):
+        raise ValueError("色は#RRGGBBの形式で入力してください")
     return replace(
         base,
         name=clean,
@@ -158,7 +180,7 @@ def needs_end_time(end: datetime | None, work_start: time) -> bool:
 
 
 def open_section_dialog(on_save: Callable[[str], object]) -> None:
-    with ui.dialog() as dialog, ui.card().classes("w-80"):
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-80"):
         ui.label("セクションの追加").classes("text-h6")
         name = ui.input("セクション名").mark("section-name")
         error = ui.label("").classes("text-negative").mark("form-error")
@@ -181,7 +203,8 @@ def open_section_dialog(on_save: Callable[[str], object]) -> None:
 def open_name_dialog(
     on_submit: Callable[[str], object], validate: Callable[[str], str | None]
 ) -> None:
-    with ui.dialog() as dialog, ui.card().classes("w-80"):
+    """名前を入力して保存する。on_submitがFalseを返したら(保存に失敗)、入力を残して開いたままにする。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-80"):
         ui.label("プロジェクトの保存").classes("text-h6")
         name = ui.input("プロジェクト名").mark("project-name")
         error = ui.label("").classes("text-negative").mark("name-error")
@@ -191,7 +214,8 @@ def open_name_dialog(
             if message := validate(clean):
                 error.set_text(message)
                 return
-            on_submit(clean)
+            if on_submit(clean) is False:
+                return
             dialog.close()
 
         with ui.row():
@@ -201,7 +225,7 @@ def open_name_dialog(
 
 
 def open_file_dialog(names: list[str], on_select: Callable[[str], object]) -> None:
-    with ui.dialog() as dialog, ui.card().classes("w-80"):
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-80"):
         ui.label("プロジェクトを開く").classes("text-h6")
         if not names:
             ui.label("プロジェクトファイルがありません")
@@ -222,7 +246,7 @@ def open_file_dialog(names: list[str], on_select: Callable[[str], object]) -> No
 def open_unsaved_dialog(
     on_save: Callable[[], object], on_discard: Callable[[], object]
 ) -> None:
-    with ui.dialog() as dialog, ui.card().classes("w-96"):
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
         ui.label("保存されていない変更があります").classes("text-h6")
         ui.label("開く前に、現在のプロジェクトを保存しますか。")
 
@@ -244,7 +268,7 @@ def open_settings_dialog(
     work_start: time,
     on_apply: Callable[[float, time], object],
 ) -> None:
-    with ui.dialog() as dialog, ui.card().classes("w-80"):
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-80"):
         ui.label("稼働時間の設定").classes("text-h6")
         hours = ui.number(
             "1日の稼働可能時間(h)",
@@ -263,7 +287,7 @@ def open_settings_dialog(
             "w-full"
         ).mark("settings-start")
         with ui.dialog() as picker, ui.card():  # 小さな画面でも切れないよう、中央のダイアログにする
-            ui.time().bind_value(start).mark("settings-time-picker")
+            bind_picker(ui.time().mark("settings-time-picker"), start, "%H:%M")
             ui.button("OK", on_click=picker.close).mark("time-picker-ok")
         with start.add_slot("append"):
             ui.icon("access_time").classes("cursor-pointer").on("click", picker.open).mark(

@@ -750,3 +750,99 @@ async def test_delete_from_the_edit_dialog_removes_the_bar(user: User, tmp_path:
     user.find(marker="task-delete").click()
     user.find(marker="delete-confirm").click()
     await user.should_not_see(marker="task-top-0")
+
+
+async def test_apply_settings_warns_about_ends_that_cannot_be_recalculated(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.tasks.append(
+        Task(
+            "不能",
+            start=datetime(2026, 10, 9, 9),
+            end=datetime(2026, 10, 13, 11),
+            effort_hours=0.0,
+            end_auto=True,
+        )
+    )
+    await open_settings_and_apply(user, "8", "09:00")
+    assert await wait_until(lambda: user.notify.contains("1件の終了は再計算できませんでした"))
+    assert not user.notify.contains("件の終了を再計算)")
+
+
+async def test_refreshing_holidays_recalculates_auto_ends(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task(None, None, Task("自動", start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    assert view.project.tasks[0].end == datetime(2026, 10, 13, 11)
+
+    async def fake_download(base_dir: Path, transport: object = None) -> dict[date, str]:
+        return {date(2026, 10, 12): "スポーツの日"}
+
+    monkeypatch.setattr("projectapp.views.download_holidays", fake_download)
+    await view.refresh_holidays()
+    assert view.project.tasks[0].end == datetime(2026, 10, 14, 11)
+    assert await wait_until(lambda: user.notify.contains("祝日データの反映で1件の終了を再計算"))
+    assert view.is_dirty()
+
+
+async def test_refresh_holidays_survives_a_cache_write_failure(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    save_cache({date(2026, 10, 12): "スポーツの日"}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+
+    async def failing_download(base_dir: Path, transport: object = None) -> dict[date, str]:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("projectapp.views.download_holidays", failing_download)
+    await views[0].refresh_holidays()
+    assert user.notify.contains("祝日データを取得できませんでした")
+    assert views[0].holidays == {date(2026, 10, 12): "スポーツの日"}
+
+
+async def test_save_as_new_refuses_a_file_created_after_the_name_was_checked(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    save_project(Project("競合", sections=[Section("先客")]), tmp_path)  # 検証のあとに作られた想定
+    assert view.save_as_new("競合") is False
+    assert user.notify.contains("同じ名前のファイルがすでにあります")
+    assert view.path is None
+    assert view.project.name != "競合"
+    assert load_project(tmp_path / "競合.json").sections[0].name == "先客"
+
+
+async def test_name_dialog_keeps_the_input_when_the_save_fails(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+
+    def boom(*args: object, **kwargs: object) -> Path:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("projectapp.views.save_project", boom)
+    user.find(marker="save-project").click()
+    user.find(marker="project-name").type("デモ")
+    user.find(marker="name-save").click()
+    assert await wait_until(lambda: user.notify.contains("保存できませんでした"))
+    await user.should_see(marker="project-name")  # ダイアログは開いたまま
+    assert views[0].path is None

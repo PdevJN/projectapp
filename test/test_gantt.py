@@ -5,8 +5,15 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.calendar import DayKind
-from projectapp.gantt import GRID_BORDER, KIND_COLORS, OVERDUE_COLOR, GanttActions, GanttChart
-from projectapp.models import Project, Section, Status, Task
+from projectapp.gantt import (
+    GRID_BORDER,
+    KIND_COLORS,
+    MIN_BAR_PX,
+    OVERDUE_COLOR,
+    GanttActions,
+    GanttChart,
+)
+from projectapp.models import DEFAULT_COLOR, Project, Section, Status, Task
 from projectapp.timeline import Scale
 
 BASE = date(2026, 10, 5)  # 月曜
@@ -333,3 +340,32 @@ async def test_overdue_applies_to_top_level_tasks(user: User) -> None:
     mount(top_project(), now=datetime(2026, 10, 8))
     await user.open("/")
     assert row_background(user, "task-top-0") == OVERDUE_COLOR
+
+
+async def test_a_bad_color_in_a_hand_edited_file_falls_back_to_the_default(user: User) -> None:
+    project = sample_project()
+    project.sections[0].tasks[0].color = "red; background: url(x)"
+    mount(project)
+    await user.open("/")
+    bar = user.find(marker="bar-0-0").elements.pop()
+    assert bar._style["background"] == DEFAULT_COLOR
+
+
+async def test_a_task_that_ends_before_it_starts_still_shows_a_thin_bar(user: User) -> None:
+    project = sample_project()
+    task = project.sections[0].tasks[0]
+    task.start, task.end = task.end, task.start
+    mount(project)
+    await user.open("/")
+    bar = user.find(marker="bar-0-0").elements.pop()
+    assert bar._style["width"] == f"{MIN_BAR_PX:.1f}px"
+
+
+async def test_a_zero_length_task_still_shows_a_thin_bar(user: User) -> None:
+    project = sample_project()
+    task = project.sections[0].tasks[0]
+    task.end = task.start
+    mount(project)
+    await user.open("/")
+    bar = user.find(marker="bar-0-0").elements.pop()
+    assert bar._style["width"] == f"{MIN_BAR_PX:.1f}px"

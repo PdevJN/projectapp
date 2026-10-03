@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, time
 
 from nicegui import ui
@@ -524,3 +525,59 @@ async def test_an_automatic_end_at_the_default_time_is_not_locked(user: User) ->
     checkbox = user.find(marker="task-end-use-time").elements.pop()
     assert checkbox.value is False
     assert checkbox.enabled is True
+
+
+async def test_hiding_the_dialog_removes_its_elements(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    dialog = dialog_of(user)
+    assert user.find(marker="task-name").elements
+    with user.client:
+        dialog.close()
+    user.find(kind=ui.dialog).trigger("hide")
+    assert dialog.id not in user.client.elements
+    await user.should_not_see(marker="task-name")
+
+
+async def test_reopening_does_not_pile_up_dialogs(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    with user.client:
+        dialog_of(user).close()
+    user.find(kind=ui.dialog).trigger("hide")
+    user.find("open").click()
+    assert len(user.find(marker="task-name").elements) == 1
+
+
+async def test_a_half_typed_date_is_not_passed_to_the_picker(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="open-start-date-picker").click()
+    picker = user.find(marker="start-date-picker").elements.pop()
+    user.find(marker="task-start-date").clear().type("2026-1")
+    await asyncio.sleep(0.3)
+    assert picker.value is None
+    user.find(marker="task-start-date").clear().type("2026-10-12")
+    await asyncio.sleep(0.3)
+    assert picker.value == "2026-10-12"
+
+
+async def test_a_half_typed_time_is_not_passed_to_the_picker(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-end-use-time").click()
+    user.find(marker="open-end-time-picker").click()
+    picker = user.find(marker="end-time-picker").elements.pop()
+    user.find(marker="task-end-time").clear().type("1")
+    await asyncio.sleep(0.3)
+    assert picker.value is None
+    user.find(marker="task-end-time").clear().type("15:30")
+    await asyncio.sleep(0.3)
+    assert picker.value == "15:30"
+
+
+async def test_the_end_date_explains_how_to_recalculate(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    end = user.find(marker="task-end-date").elements.pop()
+    assert "空にして保存" in end.props["hint"]

@@ -102,10 +102,14 @@ class MainView:
     def save_then(self, after: Callable[[], object]) -> None:
         """保存に成功したときだけ、続きの処理を行う。"""
         if self.path is None:
-            open_name_dialog(
-                lambda name: self.save_as_new(name) and after(),
-                lambda name: validate_name(name, self.base_dir, new=True),
-            )
+
+            def submit(name: str) -> bool:
+                saved = self.save_as_new(name)
+                if saved:
+                    after()
+                return saved
+
+            open_name_dialog(submit, lambda name: validate_name(name, self.base_dir, new=True))
         elif self.write(overwrite=True):
             after()
 
@@ -140,10 +144,15 @@ class MainView:
         if hours == self.project.daily_hours and start == self.project.work_start:
             return
         self.project.daily_hours, self.project.work_start = hours, start
-        count = recalc_ends(self.project, self.holidays)
+        result = recalc_ends(self.project, self.holidays)
         self.gantt.set_project(self.project)
-        if count:
-            ui.notify(f"稼働時間を変更しました({count}件の終了を再計算)")
+        if result.changed:
+            ui.notify(f"稼働時間を変更しました({result.changed}件の終了を再計算)")
+        self.warn_unresolved(result.failed)
+
+    def warn_unresolved(self, failed: int) -> None:
+        if failed:
+            ui.notify(f"{failed}件の終了は再計算できませんでした(古い終了のままです)", type="warning")
 
     def save_project_clicked(self) -> None:
         if self.path is None:
@@ -236,12 +245,16 @@ class MainView:
         """祝日を取得してチャートに反映する。失敗しても画面は変えず通知だけ出す。"""
         try:
             self.holidays = await download_holidays(self.base_dir, self.transport)
-        except (httpx.HTTPError, ValueError):
+        except (httpx.HTTPError, ValueError, OSError):  # OSErrorはキャッシュの書き込み失敗
             ui.notify("祝日データを取得できませんでした", type="warning")
             return
+        result = recalc_ends(self.project, self.holidays)  # 祝日が変わると自動算出の終了も変わる
         self.gantt.set_holidays(self.holidays)
-        if not quiet:
+        if result.changed:
+            ui.notify(f"祝日データの反映で{result.changed}件の終了を再計算しました")
+        elif not quiet:
             ui.notify("祝日データを更新しました")
+        self.warn_unresolved(result.failed if not quiet else 0)
 
     async def first_fetch(self) -> None:
         await self.refresh_holidays(quiet=True)

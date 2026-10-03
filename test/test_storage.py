@@ -1,3 +1,4 @@
+import os
 import json
 from datetime import date, datetime, time
 from pathlib import Path
@@ -173,3 +174,111 @@ def test_old_file_without_end_auto_reads_as_manual(tmp_path: Path) -> None:
     del data["sections"][0]["tasks"][0]["end_auto"]
     path.write_text(json.dumps(data), encoding="utf-8")
     assert load_project(path).sections[0].tasks[0].end_auto is False
+
+
+def _rewrite(path: Path, edit) -> None:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    edit(data)
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+@pytest.mark.parametrize("value", ["false", "true", None, 1, 0, []])
+def test_end_auto_that_is_not_a_bool_reads_as_manual(value: object, tmp_path: Path) -> None:
+    path = save_project(Project("odd", sections=[Section("s", [Task("a", end_auto=True)])]), tmp_path)
+    _rewrite(path, lambda d: d["sections"][0]["tasks"][0].update(end_auto=value))
+    assert load_project(path).sections[0].tasks[0].end_auto is False
+
+
+@pytest.mark.parametrize("value", ["6.5", None, True, [], 0, -1, 24.5, float("nan"), float("inf")])
+def test_load_rejects_an_invalid_daily_hours(value: object, tmp_path: Path) -> None:
+    path = save_project(Project("bad"), tmp_path)
+    _rewrite(path, lambda d: d.update(daily_hours=value))
+    with pytest.raises(ValueError, match="稼働可能時間"):
+        load_project(path)
+
+
+@pytest.mark.parametrize("value", [0.5, 6.5, 8, 24])
+def test_load_accepts_daily_hours_the_calculation_accepts(value: float, tmp_path: Path) -> None:
+    path = save_project(Project("ok"), tmp_path)
+    _rewrite(path, lambda d: d.update(daily_hours=value))
+    assert load_project(path).daily_hours == value
+
+
+@pytest.mark.parametrize("value", ["9", "25:00", "abc", 9, None, ""])
+def test_load_rejects_an_invalid_work_start(value: object, tmp_path: Path) -> None:
+    path = save_project(Project("bad"), tmp_path)
+    _rewrite(path, lambda d: d.update(work_start=value))
+    with pytest.raises(ValueError, match="始業時刻"):
+        load_project(path)
+
+
+@pytest.mark.parametrize("name", ["abc.", "abc. ", "a b."])
+def test_validate_name_rejects_a_trailing_dot(name: str, tmp_path: Path) -> None:
+    assert validate_name(name, tmp_path, new=True) == "名前は「.」で終われません"
+
+
+def test_save_project_honors_the_umask(tmp_path: Path) -> None:
+    old = os.umask(0o077)
+    try:
+        path = save_project(Project("private"), tmp_path)
+    finally:
+        os.umask(old)
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_save_project_default_mode_follows_the_umask(tmp_path: Path) -> None:
+    old = os.umask(0o022)
+    try:
+        path = save_project(Project("shared"), tmp_path)
+    finally:
+        os.umask(old)
+    assert path.stat().st_mode & 0o777 == 0o644
+
+
+def _no_hard_links(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(src: object, dst: object) -> None:
+        raise OSError(1, "Operation not permitted")  # FAT/exFAT などの挙動
+
+    monkeypatch.setattr("projectapp.storage.os.link", refuse)
+
+
+def test_new_save_works_where_hard_links_are_unsupported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _no_hard_links(monkeypatch)
+    path = save_project(Project("new"), tmp_path, overwrite=False)
+    assert load_project(path).name == "new"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["new.json"]
+
+
+def test_new_save_fallback_still_refuses_an_existing_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = save_project(Project("demo", sections=[Section("元")]), tmp_path)
+    _no_hard_links(monkeypatch)
+    with pytest.raises(FileExistsError):
+        save_project(Project("demo"), tmp_path, overwrite=False)
+    assert load_project(path).sections[0].name == "元"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["demo.json"]
+
+
+def test_save_project_syncs_the_data_to_disk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced: list[int] = []
+    real = os.fsync
+    monkeypatch.setattr("projectapp.storage.os.fsync", lambda fd: (synced.append(fd), real(fd)))
+    save_project(Project("demo"), tmp_path)
+    assert synced
+
+
+def test_failed_write_leaves_no_file_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(fd: int) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("projectapp.storage.os.fsync", boom)
+    with pytest.raises(OSError):
+        save_project(Project("demo"), tmp_path, overwrite=False)
+    assert list(tmp_path.iterdir()) == []

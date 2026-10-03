@@ -648,3 +648,22 @@ def test_needs_end_time_follows_the_work_start() -> None:
     moment = datetime(2026, 10, 7, 17, 30)
     assert needs_end_time(moment, time(8, 30)) is False
     assert needs_end_time(moment, time(9, 0)) is True
+
+
+@pytest.mark.parametrize("hours", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_effort_is_rejected(hours: float) -> None:
+    with pytest.raises(ValueError, match="工数"):
+        make(effort_hours=hours)
+
+
+@pytest.mark.parametrize("color", ["#abc", "#AABBCC", "#aabbccdd"])
+def test_hex_colors_are_accepted(color: str) -> None:
+    assert make(color=color).color == color
+
+
+@pytest.mark.parametrize(
+    "color", ["", "red", "#12", "#12345", "#gggggg", "red; background:url(x)", "#fff;x"]
+)
+def test_non_hex_colors_are_rejected(color: str) -> None:
+    with pytest.raises(ValueError, match="色"):
+        make(color=color)
