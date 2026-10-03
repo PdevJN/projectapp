@@ -4,7 +4,7 @@
 
 ## 現在の状況
 
-- `feature/task-edit-dialog` は 2026-10-03 に `develop` へマージ済み(マージコミット e054563)。ブランチ自体は未削除(削除は許可後)。現在のブランチは `develop`。
+- `feature/task-edit-dialog` は 2026-10-03 に `develop` へマージ済み(マージコミット e054563)。ブランチは削除済み。現在のブランチは `develop`。
 - このブランチで、タスク編集ダイアログの見直し(設計書 `2026-10-03-task-edit-dialog-design.md`、実装計画 `2026-10-03-task-edit-dialog.md`)を実装した: 優先度の色付きチップ、色のプレビュー、`task_dialog.py` への切り出し、日付の選択と時刻のチェック(開始・終了は横並び、チェックは側ごと)、閉じるときの確認、タスクの削除(確認つき)、自動算出の終了の保護。12 コミット(662e0c9..7cc5d5c)。
 - 最終レビュー(独立した reviewer)は、Critical・Important なし。その後に、利用者の指示で次を変えた(この差分は独立したレビューをしていない): 時刻のチェックを開始・終了で別々にした、チェックを外しても入力値を保つ、自動算出の終了はチェックをオンに固定した。
 - テスト 335 件が通り、`uvx ty check src` も通る(`uv run pytest --cov=projectapp -q`)。
@@ -17,10 +17,9 @@
 | ブランチ | 内容 |
 |---|---|
 | `main` | 初回コミットのみ(447c38f) |
-| `feature/task-edit-dialog` | タスク編集ダイアログの見直し(`develop` にマージ済み、削除は許可待ち) |
 | `develop` | 開発ブランチ。雛形とメイン画面、ガントチャートの基本表示、日程計算、保存 UI と開く動作の変更、稼働時間の設定画面を、すべてマージ済み(最新のマージコミット 0cbcac9) |
 
-以前の `feature/main-view`、`feature/gantt-basic`、`feature/schedule-calc`、`feature/project-save`、`feature/work-hours` は、`develop` にマージ済みで、すべて削除した(コミットは `develop` の履歴に残っている)。リモートへのプッシュは未実施で、リモートのブランチは確認していない。
+以前の `feature/main-view`、`feature/gantt-basic`、`feature/schedule-calc`、`feature/project-save`、`feature/work-hours` は、`develop` にマージ済みで、すべて削除した(`feature/task-edit-dialog` も同様。コミットは `develop` の履歴に残っている)。リモートへのプッシュは未実施で、リモートのブランチは確認していない。
 
 ## 実装済みの機能
 
@@ -126,7 +125,7 @@
 
 ## 次にやること(候補)
 
-1. プッシュと、マージ済みの `feature/task-edit-dialog` の削除(いずれも許可後)。
+1. プッシュ(許可後)。
 2. 後続のサブプロジェクト(設計 → 設計書 → 実装計画の順):
    - 実績の入力と、実績に基づく超過判定
    - ドラッグ&ドロップ(移動・コピー)、検索・担当者の絞り込み
