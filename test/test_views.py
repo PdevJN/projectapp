@@ -793,3 +793,20 @@ async def test_refreshing_holidays_recalculates_auto_ends(
     assert view.project.tasks[0].end == datetime(2026, 10, 14, 11)
     assert await wait_until(lambda: user.notify.contains("祝日データの反映で1件の終了を再計算"))
     assert view.is_dirty()
+
+
+async def test_refresh_holidays_survives_a_cache_write_failure(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    save_cache({date(2026, 10, 12): "スポーツの日"}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+
+    async def failing_download(base_dir: Path, transport: object = None) -> dict[date, str]:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("projectapp.views.download_holidays", failing_download)
+    await views[0].refresh_holidays()
+    assert user.notify.contains("祝日データを取得できませんでした")
+    assert views[0].holidays == {date(2026, 10, 12): "スポーツの日"}

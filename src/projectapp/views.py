@@ -241,7 +241,7 @@ class MainView:
         """祝日を取得してチャートに反映する。失敗しても画面は変えず通知だけ出す。"""
         try:
             self.holidays = await download_holidays(self.base_dir, self.transport)
-        except (httpx.HTTPError, ValueError):
+        except (httpx.HTTPError, ValueError, OSError):  # OSErrorはキャッシュの書き込み失敗
             ui.notify("祝日データを取得できませんでした", type="warning")
             return
         result = recalc_ends(self.project, self.holidays)  # 祝日が変わると自動算出の終了も変わる
