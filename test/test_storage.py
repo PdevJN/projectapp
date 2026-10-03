@@ -360,3 +360,34 @@ def test_planned_end_manual_that_is_not_a_bool_reads_as_false(
     path = save_project(Project("n", tasks=[Task("a", planned_end_manual=True)]), tmp_path)
     _rewrite(path, lambda d: d["tasks"][0].update(planned_end_manual=value))
     assert load_project(path).tasks[0].planned_end_manual is False
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("planned_start", "1999-12-31T23:59:00"),
+        ("planned_end", "9999-12-31T00:00:00"),
+        ("deadline", "2101-01-01T00:00:00"),
+    ],
+)
+def test_load_rejects_a_year_outside_the_supported_range(
+    key: str, value: str, tmp_path: Path
+) -> None:
+    path = save_project(Project("n", tasks=[Task("a")]), tmp_path)
+    _rewrite(path, lambda d: d["tasks"][0].update({key: value}))
+    with pytest.raises(ValueError, match="年"):
+        load_project(path)
+
+
+def test_load_rejects_a_legacy_end_outside_the_supported_range(tmp_path: Path) -> None:
+    path = _legacy_file(tmp_path, {"start": "2026-10-05T09:00:00", "end": "9999-12-31T00:00:00"})
+    with pytest.raises(ValueError, match="年"):
+        load_project(path)
+
+
+def test_an_explicit_deadline_wins_over_a_legacy_end(tmp_path: Path) -> None:
+    path = _legacy_file(
+        tmp_path,
+        {"start": "2026-10-05T09:00:00", "end": "2026-10-07T18:00:00", "deadline": "2026-10-20T18:00:00"},
+    )
+    assert load_project(path).tasks[0].deadline == datetime(2026, 10, 20, 18)
