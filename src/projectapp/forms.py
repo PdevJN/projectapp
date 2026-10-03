@@ -1,4 +1,4 @@
-"""タスク・セクションの追加・編集ダイアログと入力検証。"""
+"""タスク・セクションの追加・編集の入力検証と、ファイル・名前・設定のダイアログ。"""
 
 from collections.abc import Callable
 from dataclasses import replace
@@ -11,6 +11,8 @@ from nicegui import ui
 from projectapp.models import Priority, Status, Task
 
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
+STANDARD_WORK_HOURS = 8  # 時刻を指定しないときに補う終了の、標準稼働時間(固定)
+LUNCH_HOURS = 1  # 同じく、昼休憩(固定。稼働設定の対象外)
 MIN_YEAR, MAX_YEAR = 2000, 2100  # 入力ミスで表示範囲が際限なく広がるのを防ぐ
 MIN_DAILY_HOURS, MAX_DAILY_HOURS = 1.0, 8.0  # 稼働可能時間の範囲
 HOURS_RANGE_MESSAGE = f"稼働可能時間は{MIN_DAILY_HOURS:g}以上{MAX_DAILY_HOURS:g}以下で入力してください"
@@ -54,9 +56,9 @@ def build_task(
     hours = effort_hours or 0.0
     base = existing or Task(clean)
     # ダイアログは日時を分単位で表示するので、同じ分なら既存の終了(秒を含む)を残す
-    end_unchanged = existing is not None and _format(existing.end) == end.strip()
+    end_unchanged = existing is not None and format_datetime(existing.end) == end.strip()
     inputs_changed = existing is not None and (
-        _format(existing.start) != start.strip() or hours != existing.effort_hours
+        format_datetime(existing.start) != start.strip() or hours != existing.effort_hours
     )
     # 自動算出の終了は、開始か工数を変えたら捨てて、保存時に算出し直す
     recompute = base.end_auto and end_unchanged and inputs_changed
@@ -113,53 +115,46 @@ def build_section_name(text: str) -> str:
     return clean
 
 
-def _format(moment: datetime | None) -> str:
+def format_datetime(moment: datetime | None) -> str:
     return moment.strftime(DATETIME_FORMAT) if moment else ""
 
 
-def open_task_dialog(task: Task | None, on_save: Callable[[Task], object]) -> None:
-    initial = task or Task("")
-    with ui.dialog() as dialog, ui.card().classes("w-96"):
-        ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
-        name = ui.input("名前", value=initial.name).mark("task-name")
-        start = ui.input("開始日時", value=_format(initial.start)).props(
-            "type=datetime-local"
-        ).mark("task-start")
-        end = ui.input("終了日時", value=_format(initial.end)).props(
-            "type=datetime-local"
-        ).mark("task-end")
-        effort = ui.number("工数(時間)", value=initial.effort_hours, min=0)
-        priority = ui.select(
-            {p: p.value for p in Priority}, label="優先度", value=initial.priority
-        )
-        status = ui.select({s: s.value for s in Status}, label="状態", value=initial.status)
-        color = ui.color_input("色", value=initial.color)
-        assignee = ui.input("担当者", value=initial.assignee or "")
-        error = ui.label("").classes("text-negative").mark("form-error")
+def default_times(work_start: time) -> tuple[time, time]:
+    """時刻を指定しないときに補う開始・終了の時刻。終了は始業 + 標準稼働時間 + 昼休憩。"""
+    start = work_start.replace(second=0, microsecond=0)
+    minutes = start.hour * 60 + start.minute + (STANDARD_WORK_HOURS + LUNCH_HOURS) * 60
+    minutes = min(minutes, 24 * 60 - 1)  # 暫定: 24時以降は表せないので23:59で頭打ち(保留事項)
+    return start, time(minutes // 60, minutes % 60)
 
-        def save() -> None:
-            try:
-                result = build_task(
-                    task,
-                    name=name.value or "",
-                    start=start.value or "",
-                    end=end.value or "",
-                    effort_hours=effort.value,
-                    priority=Priority(priority.value),
-                    status=Status(status.value),
-                    color=color.value or initial.color,
-                    assignee=assignee.value or "",
-                )
-            except ValueError as exc:
-                error.set_text(str(exc))
-                return
-            on_save(result)
-            dialog.close()
 
-        with ui.row():
-            ui.button("キャンセル", on_click=dialog.close).props("flat")
-            ui.button("保存", on_click=save).mark("task-save")
-    dialog.open()
+def compose_datetime(day: str, clock: str) -> str:
+    """日付と時刻の入力から、build_taskに渡す文字列を作る。日付が空なら空(時刻は無視する)。"""
+    day, clock = day.strip(), clock.strip()
+    if not day:
+        return ""
+    try:
+        day = datetime.strptime(day, "%Y-%m-%d").strftime("%Y-%m-%d")  # 2026-10-5 を正規化する
+    except ValueError:
+        pass  # 形式の誤りは build_task が報告する
+    try:
+        datetime.strptime(clock, "%H:%M")
+    except ValueError:
+        raise ValueError("時刻の形式が正しくありません") from None
+    return f"{day}T{clock}"
+
+
+def _minute(moment: datetime) -> time:
+    return moment.time().replace(second=0, microsecond=0)
+
+
+def needs_start_time(start: datetime | None, work_start: time) -> bool:
+    """開始が、補う時刻(始業時刻)と違うか。違えば、ダイアログは開始の時刻入力を開いた状態で出す。"""
+    return start is not None and _minute(start) != default_times(work_start)[0]
+
+
+def needs_end_time(end: datetime | None, work_start: time) -> bool:
+    """終了が、補う時刻と違うか。自動算出の終了(例: 15:30)も、違えば開いた状態で出す。"""
+    return end is not None and _minute(end) != default_times(work_start)[1]
 
 
 def open_section_dialog(on_save: Callable[[str], object]) -> None:

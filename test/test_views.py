@@ -127,8 +127,8 @@ async def test_add_section_then_task_shows_a_bar(user: User, tmp_path: Path) -> 
     await user.should_see(marker="add-task-0")
     user.find(marker="add-task-0").click()
     user.find(marker="task-name").type("設計")
-    user.find(marker="task-start").type("2026-10-05T09:00")
-    user.find(marker="task-end").type("2026-10-07T18:00")
+    user.find(marker="task-start-date").type("2026-10-05")
+    user.find(marker="task-end-date").type("2026-10-07")
     user.find(marker="task-save").click()
     await user.should_see(marker="bar-0-0")
 
@@ -157,8 +157,8 @@ async def test_top_add_row_creates_a_task_without_a_section(
     await user.open("/")
     user.find(marker="add-task-top").click()
     user.find(marker="task-name").type("設計")
-    user.find(marker="task-start").type("2026-10-05T09:00")
-    user.find(marker="task-end").type("2026-10-07T18:00")
+    user.find(marker="task-start-date").type("2026-10-05")
+    user.find(marker="task-end-date").type("2026-10-07")
     user.find(marker="task-save").click()
     await user.should_see(marker="bar-top-0")
     await user.should_not_see(marker="add-task-0")
@@ -708,3 +708,45 @@ async def test_editing_the_start_of_an_auto_end_task_recalculates_the_end(
     view.save_task(None, 0, edited)
     assert view.project.tasks[0].end == datetime(2026, 10, 14, 11)  # 月6.5h + 火6.5h + 水2h
     assert view.project.tasks[0].end_auto is True
+
+
+async def test_delete_task_removes_only_that_task_and_makes_the_view_dirty(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    save_project(
+        Project(
+            "既存",
+            tasks=[Task("a"), Task("b")],
+            sections=[Section("開発", [Task("x"), Task("y")])],
+        ),
+        tmp_path,
+    )
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    assert not view.is_dirty()
+    view.delete_task(None, 0)
+    assert [t.name for t in view.project.tasks] == ["b"]
+    assert [t.name for t in view.project.sections[0].tasks] == ["x", "y"]
+    view.delete_task(0, 1)
+    assert [t.name for t in view.project.sections[0].tasks] == ["x"]
+    assert [t.name for t in view.project.tasks] == ["b"]
+    assert view.is_dirty()
+
+
+async def test_delete_from_the_edit_dialog_removes_the_bar(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    mount(tmp_path, make_transport(200, []))
+    await user.open("/")
+    user.find(marker="add-task-top").click()
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-save").click()
+    await user.should_see(marker="task-top-0")
+    user.find(marker="task-top-0").click()
+    user.find(marker="task-delete").click()
+    user.find(marker="delete-confirm").click()
+    await user.should_not_see(marker="task-top-0")

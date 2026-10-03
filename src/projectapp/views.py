@@ -16,7 +16,6 @@ from projectapp.forms import (
     open_name_dialog,
     open_section_dialog,
     open_settings_dialog,
-    open_task_dialog,
     open_unsaved_dialog,
 )
 from projectapp.gantt import GanttActions, GanttChart
@@ -28,6 +27,7 @@ from projectapp.storage import (
     save_project,
     validate_name,
 )
+from projectapp.task_dialog import open_task_dialog
 from projectapp.timeline import fill_end, recalc_ends
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
@@ -188,14 +188,32 @@ class MainView:
         self.gantt.set_project(self.project)
 
     def add_task(self, section_index: int) -> None:
-        open_task_dialog(None, lambda task: self.save_task(section_index, None, task))
+        open_task_dialog(
+            None,
+            lambda task: self.save_task(section_index, None, task),
+            work_start=self.project.work_start,
+        )
 
     def add_top_task(self) -> None:
-        open_task_dialog(None, lambda task: self.save_task(None, None, task))
+        open_task_dialog(
+            None,
+            lambda task: self.save_task(None, None, task),
+            work_start=self.project.work_start,
+        )
 
     def edit_task(self, section_index: int | None, task_index: int) -> None:
         task = self.tasks_in(section_index)[task_index]
-        open_task_dialog(task, lambda t: self.save_task(section_index, task_index, t))
+        open_task_dialog(
+            task,
+            lambda t: self.save_task(section_index, task_index, t),
+            work_start=self.project.work_start,
+            on_delete=lambda: self.delete_task(section_index, task_index),
+        )
+
+    def delete_task(self, section_index: int | None, task_index: int) -> None:
+        """タスクを取り除いて再描画する。保存は自動では行わない(編集中の判定に入る)。"""
+        del self.tasks_in(section_index)[task_index]
+        self.gantt.set_project(self.project)
 
     def tasks_in(self, section_index: int | None) -> list[Task]:
         """セクション番号のタスク一覧。Noneはセクションに属さないタスク。"""

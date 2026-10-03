@@ -8,17 +8,21 @@ from projectapp.forms import (
     build_section_name,
     build_task,
     build_work_settings,
+    compose_datetime,
+    default_times,
     exceeds_decimals,
     in_hours_range,
+    needs_end_time,
+    needs_start_time,
     open_file_dialog,
     open_name_dialog,
     open_section_dialog,
     open_settings_dialog,
-    open_task_dialog,
     open_unsaved_dialog,
     parse_datetime,
 )
 from projectapp.models import Priority, Status, Task
+from projectapp.task_dialog import open_task_dialog
 
 
 def make(existing: Task | None = None, **overrides: object) -> Task:
@@ -116,10 +120,11 @@ async def test_task_dialog_saves_a_valid_task(user: User) -> None:
     await user.open("/")
     user.find("open").click()
     user.find(marker="task-name").type("設計")
-    user.find(marker="task-start").type("2026-10-05T09:00")
-    user.find(marker="task-end").type("2026-10-07T18:00")
+    user.find(marker="task-start-date").type("2026-10-05")
+    user.find(marker="task-end-date").type("2026-10-07")
     user.find(marker="task-save").click()
     assert [t.name for t in saved] == ["設計"]
+    assert saved[0].start == datetime(2026, 10, 5, 9, 0)
     assert saved[0].end == datetime(2026, 10, 7, 18, 0)
 
 
@@ -146,7 +151,74 @@ async def test_task_dialog_prefills_when_editing(user: User) -> None:
     await user.open("/")
     user.find("open").click()
     assert user.find(marker="task-name").elements.pop().value == "既存"
-    assert user.find(marker="task-start").elements.pop().value == "2026-10-05T09:00"
+    assert user.find(marker="task-start-date").elements.pop().value == "2026-10-05"
+
+
+async def test_task_dialog_color_shows_a_preview(user: User) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_task_dialog(None, lambda t: None))
+
+    await user.open("/")
+    user.find("open").click()
+    color = user.find(marker="task-color").elements.pop()
+    assert color.preview is True
+
+
+async def test_task_dialog_status_select_uses_full_width(user: User) -> None:
+    # 幅が内容に縮むと、浮いたラベルが「優.」のように省略される
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_task_dialog(None, lambda t: None))
+
+    await user.open("/")
+    user.find("open").click()
+    select = user.find(marker="task-status").elements.pop()
+    assert "w-full" in select.classes
+
+
+def _selected_priorities(user: User) -> list[str]:
+    chips = {p: user.find(marker=f"priority-{p.name}").elements.pop() for p in Priority}
+    return [p.value for p, chip in chips.items() if "outline" not in chip.props]
+
+
+async def test_task_dialog_priority_defaults_to_medium(user: User) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_task_dialog(None, lambda t: None))
+
+    await user.open("/")
+    user.find("open").click()
+    assert _selected_priorities(user) == ["中"]
+
+
+async def test_task_dialog_priority_prefills_when_editing(user: User) -> None:
+    @ui.page("/")
+    def index() -> None:
+        task = Task("既存", priority=Priority.LOW)
+        ui.button("open", on_click=lambda: open_task_dialog(task, lambda t: None))
+
+    await user.open("/")
+    user.find("open").click()
+    assert _selected_priorities(user) == ["低"]
+
+
+async def test_task_dialog_priority_chip_click_selects_only_that_chip(user: User) -> None:
+    saved: list[Task] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_task_dialog(None, saved.append))
+
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="task-name").type("設計")
+    user.find(marker="priority-HIGH").click()
+    assert _selected_priorities(user) == ["高"]
+    user.find(marker="priority-LOW").click()
+    assert _selected_priorities(user) == ["低"]
+    user.find(marker="task-save").click()
+    assert saved[0].priority == Priority.LOW
 
 
 async def test_section_dialog(user: User) -> None:
@@ -501,3 +573,78 @@ async def test_settings_dialog_hours_field_warns_when_out_of_range(user: User) -
         for good in (1.0, 8.0):
             hours.set_value(good)
             assert hours.validate() is True
+
+
+def test_default_times_adds_the_standard_day_and_lunch() -> None:
+    assert default_times(time(9, 0)) == (time(9, 0), time(18, 0))
+    assert default_times(time(8, 30)) == (time(8, 30), time(17, 30))
+
+
+def test_default_times_caps_the_end_at_2359() -> None:
+    # 暫定: 始業が15:00以降だと始業+9hが24時以上になり、表せない(保留事項)
+    assert default_times(time(14, 59)) == (time(14, 59), time(23, 59))
+    assert default_times(time(15, 0)) == (time(15, 0), time(23, 59))
+    assert default_times(time(17, 0)) == (time(17, 0), time(23, 59))
+
+
+def test_compose_datetime_joins_day_and_clock() -> None:
+    assert compose_datetime("2026-10-05", "09:00") == "2026-10-05T09:00"
+    assert compose_datetime(" 2026-10-05 ", " 09:00 ") == "2026-10-05T09:00"
+
+
+def test_compose_datetime_zero_pads_the_day() -> None:
+    assert compose_datetime("2026-10-5", "09:00") == "2026-10-05T09:00"
+    assert compose_datetime("2026-1-05", "09:00") == "2026-01-05T09:00"
+
+
+def test_compose_datetime_keeps_an_unparsable_day_for_build_task_to_report() -> None:
+    assert compose_datetime("abc", "09:00") == "abcT09:00"
+
+
+def test_compose_datetime_ignores_the_clock_when_the_day_is_empty() -> None:
+    assert compose_datetime("", "09:00") == ""
+    assert compose_datetime("  ", "") == ""
+    assert compose_datetime("", "xx") == ""
+
+
+@pytest.mark.parametrize("clock", ["", "25:00", "9am", "09:60", "09"])
+def test_compose_datetime_rejects_a_bad_clock_when_the_day_is_given(clock: str) -> None:
+    with pytest.raises(ValueError, match="時刻の形式"):
+        compose_datetime("2026-10-05", clock)
+
+
+def test_needs_start_time_is_false_for_the_work_start_or_empty() -> None:
+    nine = time(9, 0)
+    assert needs_start_time(None, nine) is False
+    assert needs_start_time(datetime(2026, 10, 5, 9, 0), nine) is False
+
+
+def test_needs_start_time_is_true_for_another_time() -> None:
+    assert needs_start_time(datetime(2026, 10, 5, 9, 30), time(9, 0)) is True
+
+
+def test_needs_start_time_follows_the_work_start() -> None:
+    moment = datetime(2026, 10, 5, 8, 30)
+    assert needs_start_time(moment, time(8, 30)) is False
+    assert needs_start_time(moment, time(9, 0)) is True
+
+
+def test_needs_end_time_is_false_for_the_default_end_or_empty() -> None:
+    nine = time(9, 0)
+    assert needs_end_time(None, nine) is False
+    assert needs_end_time(datetime(2026, 10, 7, 18, 0), nine) is False
+
+
+def test_needs_end_time_is_true_for_another_time() -> None:
+    assert needs_end_time(datetime(2026, 10, 7, 15, 30), time(9, 0)) is True
+
+
+def test_needs_end_time_compares_in_minutes() -> None:
+    # 秒を持つ終了(自動算出)でも、同じ分なら補う時刻と同じとみなす
+    assert needs_end_time(datetime(2026, 10, 7, 18, 0, 30), time(9, 0)) is False
+
+
+def test_needs_end_time_follows_the_work_start() -> None:
+    moment = datetime(2026, 10, 7, 17, 30)
+    assert needs_end_time(moment, time(8, 30)) is False
+    assert needs_end_time(moment, time(9, 0)) is True

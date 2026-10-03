@@ -1,0 +1,251 @@
+"""タスクの追加・編集ダイアログ。入力の検証は forms.py の build_task に任せる。"""
+
+from collections.abc import Callable
+from datetime import datetime, time
+
+from nicegui import ui
+
+from projectapp.forms import (
+    build_task,
+    compose_datetime,
+    default_times,
+    needs_end_time,
+    needs_start_time,
+)
+from projectapp.models import DEFAULT_WORK_START, Priority, Status, Task
+
+# 赤は「予定超過」の背景色と意味が競合するため、優先度には使わない
+PRIORITY_COLORS = {Priority.HIGH: "orange", Priority.MEDIUM: "amber", Priority.LOW: "blue"}
+
+
+class PriorityChips:
+    """優先度を色付きチップで選ぶ。選択は常に1つで、選択中は塗りつぶし、未選択は枠線のみ。"""
+
+    def __init__(self, value: Priority) -> None:
+        self.value = value
+        ui.label("優先度").classes("text-caption text-grey")
+        self._chips: dict[Priority, ui.chip] = {}
+        with ui.row().classes("gap-2"):
+            for priority in Priority:
+                self._chips[priority] = ui.chip(
+                    priority.value,
+                    color=PRIORITY_COLORS[priority],
+                    on_click=lambda _, p=priority: self.select(p),
+                ).mark(f"priority-{priority.name}")
+        self._refresh()
+
+    def select(self, priority: Priority) -> None:
+        self.value = priority
+        self._refresh()
+
+    def _refresh(self) -> None:
+        for priority, chip in self._chips.items():
+            selected = priority == self.value
+            chip.props(remove="outline" if selected else "", add="" if selected else "outline")
+            filled_text = "black" if priority == Priority.MEDIUM else "white"  # 黄は白だと読みにくい
+            chip.props["text-color"] = filled_text if selected else PRIORITY_COLORS[priority]
+            chip.update()
+
+
+def add_picker(
+    field: ui.input, picker_factory: Callable[[], ui.date | ui.time], icon: str, key: str
+) -> None:
+    """入力欄の右端のアイコンで、選択部品のダイアログを開く。小さな画面でも切れない。"""
+    with ui.dialog() as picker, ui.card():
+        picker_factory().bind_value(field).mark(f"{key}-picker")
+        ui.button("OK", on_click=picker.close).mark(f"{key}-picker-ok")
+    with field.add_slot("append"):
+        ui.icon(icon).classes("cursor-pointer").on("click", picker.open).mark(
+            f"open-{key}-picker"
+        )
+
+
+class DateTimeFields:
+    """開始・終了を、日付の入力(横並び)と、側ごとのチェックで出す時刻の入力で受け取る。"""
+
+    def __init__(
+        self,
+        start: datetime | None,
+        end: datetime | None,
+        work_start: time,
+        end_auto: bool = False,
+    ) -> None:
+        default_start, default_end = default_times(work_start)
+        # 自動算出の終了は、チェックを外すと補う時刻に変わってしまうので、チェックをオンに固定する
+        lock_end = end_auto and needs_end_time(end, work_start)
+        self._defaults = {"start": default_start, "end": default_end}
+        with ui.row().classes("w-full no-wrap gap-4"):
+            self.start_day, self.start_time, self.use_start_time = self._column(
+                "開始", "start", start, default_start, needs_start_time(start, work_start)
+            )
+            self.end_day, self.end_time, self.use_end_time = self._column(
+                "終了", "end", end, default_end, needs_end_time(end, work_start), lock_end
+            )
+        self._show_time("start", self.use_start_time.value)
+        self._show_time("end", self.use_end_time.value)
+
+    def _column(
+        self,
+        label: str,
+        key: str,
+        moment: datetime | None,
+        default: time,
+        use_time: bool,
+        locked: bool = False,
+    ) -> tuple[ui.input, ui.input, ui.checkbox]:
+        with ui.column().classes("flex-1 gap-0"):
+            ui.label(label).classes("text-caption text-grey")
+            day = ui.input("日付", value=moment.strftime("%Y-%m-%d") if moment else "")
+            day.classes("w-full").mark(f"task-{key}-date")
+            add_picker(day, ui.date, "event", f"{key}-date")
+            checkbox = ui.checkbox(
+                "時刻を指定",
+                value=use_time,
+                on_change=lambda e, k=key: self._show_time(k, e.value),
+            ).mark(f"task-{key}-use-time")
+            if locked:
+                checkbox.disable()
+                checkbox.tooltip("自動算出された終了のため、時刻を指定した状態で固定されます")
+            clock = ui.input("時刻", value=(moment.time() if moment else default).strftime("%H:%M"))
+            clock.classes("w-full").mark(f"task-{key}-time")
+            add_picker(clock, ui.time, "access_time", f"{key}-time")
+        return day, clock, checkbox
+
+    def _show_time(self, key: str, show: bool) -> None:
+        """側ごとに時刻入力を出し入れする。隠しても入力の値は保ち、入れ直すと元の値が出る。"""
+        (self.start_time if key == "start" else self.end_time).set_visibility(show)
+
+    def _clock(self, key: str) -> str:
+        """保存と変更判定に使う時刻。チェックのない側は、入力の値ではなく補う時刻を使う。"""
+        if key == "start":
+            checked, clock = self.use_start_time.value, self.start_time
+        else:
+            checked, clock = self.use_end_time.value, self.end_time
+        return (clock.value or "") if checked else self._defaults[key].strftime("%H:%M")
+
+    def start_text(self) -> str:
+        return compose_datetime(self.start_day.value or "", self._clock("start"))
+
+    def end_text(self) -> str:
+        return compose_datetime(self.end_day.value or "", self._clock("end"))
+
+    def state(self) -> tuple[str, str, str, str]:
+        """入力の生の値。開いた時点との比較(変更の判定)に使う。隠れた時刻は含めない。"""
+        return (
+            self.start_day.value or "",
+            self._clock("start"),
+            self.end_day.value or "",
+            self._clock("end"),
+        )
+
+
+def open_task_dialog(
+    task: Task | None,
+    on_save: Callable[[Task], object],
+    work_start: time = DEFAULT_WORK_START,
+    on_delete: Callable[[], object] | None = None,
+) -> ui.dialog:
+    initial = task or Task("")
+    with ui.dialog().props("persistent") as dialog, ui.card().classes("w-[36rem] max-w-full"):
+        ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
+        name = ui.input("名前", value=initial.name).mark("task-name")
+        fields = DateTimeFields(initial.start, initial.end, work_start, initial.end_auto)
+        effort = ui.number("工数(時間)", value=initial.effort_hours, min=0)
+        priority = PriorityChips(initial.priority)
+        status = (
+            ui.select({s: s.value for s in Status}, label="状態", value=initial.status)
+            .classes("w-full")
+            .mark("task-status")
+        )
+        color = ui.color_input("色", value=initial.color, preview=True).classes("w-full").mark(
+            "task-color"
+        )
+        assignee = ui.input("担当者", value=initial.assignee or "")
+        error = ui.label("").classes("text-negative").mark("form-error")
+
+        def current() -> tuple[object, ...]:
+            """入力の現在値。開いた時点と比べて、変更があるかを判定する。"""
+            return (
+                name.value,
+                *fields.state(),
+                effort.value,
+                priority.value,
+                status.value,
+                color.value,
+                assignee.value,
+            )
+
+        opened = current()
+
+        def save() -> None:
+            error.set_text("")
+            try:
+                result = build_task(
+                    task,
+                    name=name.value or "",
+                    start=fields.start_text(),
+                    end=fields.end_text(),
+                    effort_hours=effort.value,
+                    priority=priority.value,
+                    status=Status(status.value),
+                    color=color.value or initial.color,
+                    assignee=assignee.value or "",
+                )
+            except ValueError as exc:
+                error.set_text(str(exc))
+                return
+            on_save(result)
+            dialog.close()
+
+        with ui.dialog() as confirm, ui.card():
+            ui.label("編集内容を確定しますか?")
+
+            def confirm_save() -> None:
+                confirm.close()
+                save()
+
+            def discard() -> None:
+                confirm.close()
+                dialog.close()
+
+            with ui.row():
+                ui.button("保存", on_click=confirm_save).mark("close-save")
+                ui.button("破棄して閉じる", on_click=discard).props("flat").mark("close-discard")
+                ui.button("編集に戻る", on_click=confirm.close).props("flat").mark("close-back")
+
+        delete_confirm: ui.dialog | None = None
+        if task is not None and on_delete is not None:
+            handler = on_delete
+            with ui.dialog() as delete_confirm, ui.card():
+                ui.label(f"「{task.name}」を削除しますか?")
+
+                def delete() -> None:
+                    delete_confirm.close()
+                    dialog.close()
+                    handler()
+
+                with ui.row():
+                    ui.button("キャンセル", on_click=delete_confirm.close).props("flat").mark(
+                        "delete-cancel"
+                    )
+                    ui.button("削除", on_click=delete).props("color=negative").mark(
+                        "delete-confirm"
+                    )
+
+        def request_close() -> None:
+            if current() == opened:
+                dialog.close()
+            else:
+                confirm.open()
+
+        dialog.on("escape-key", request_close)  # persistent なので、ESCでは自動で閉じない
+        with ui.row().classes("w-full items-center"):
+            if delete_confirm is not None:
+                ui.button("削除", on_click=delete_confirm.open).props(
+                    "flat color=negative"
+                ).mark("task-delete")
+            ui.space()
+            ui.button("キャンセル", on_click=request_close).props("flat").mark("task-cancel")
+            ui.button("保存", on_click=save).mark("task-save")
+    dialog.open()
+    return dialog
