@@ -54,14 +54,15 @@ def build_task(
     existing: Task | None,
     *,
     name: str,
-    start: str,
-    end: str,
+    planned_start: str,
+    planned_end: str,
+    planned_end_manual: bool = False,
+    deadline: str | None = None,
     effort_hours: float | None,
     priority: Priority,
     status: Status,
     color: str,
     assignee: str,
-    deadline: str | None = None,
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。
 
@@ -71,7 +72,7 @@ def build_task(
     if not clean:
         raise ValueError("名前を入力してください")
     try:
-        start_at, end_at = parse_datetime(start), parse_datetime(end)
+        start_at, end_at = parse_datetime(planned_start), parse_datetime(planned_end)
         deadline_at = parse_datetime(deadline) if deadline is not None else None
     except ValueError:
         raise ValueError("日時の形式が正しくありません") from None
@@ -79,32 +80,27 @@ def build_task(
         if moment and not MIN_YEAR <= moment.year <= MAX_YEAR:
             raise ValueError(f"年は{MIN_YEAR}〜{MAX_YEAR}の範囲で入力してください")
     hours = effort_hours or 0.0
-    base = existing or Task(clean)
-    # ダイアログは日時を分単位で表示するので、同じ分なら既存の終了(秒を含む)を残す
-    end_unchanged = existing is not None and format_datetime(existing.end) == end.strip()
-    inputs_changed = existing is not None and (
-        format_datetime(existing.planned_start) != start.strip() or hours != existing.effort_hours
-    )
-    # 自動算出の終了は、開始か工数を変えたら捨てて、保存時に算出し直す
-    recompute = base.end_auto and end_unchanged and inputs_changed
-    if start_at and end_at and end_at < start_at and not recompute:
-        raise ValueError("終了は開始以降の日時にしてください")
     if not isfinite(hours) or hours < 0:
         raise ValueError("工数は0以上の数値で入力してください")
     if not is_hex_color(color):
         raise ValueError("色は#RRGGBBの形式で入力してください")
+    manual = planned_end_manual and hours > 0
+    uses_planned_end = hours <= 0 or manual  # 工数ありで手指定なしの値は、使われないので検証しない
+    if uses_planned_end and start_at and end_at and end_at < start_at:
+        raise ValueError("完了予定は開始予定以降の日時にしてください")
+    base = existing or Task(clean)
     return replace(
         base,
         name=clean,
         planned_start=start_at,
-        end=None if recompute else (existing.end if existing and end_unchanged else end_at),
-        end_auto=base.end_auto and end_unchanged and not inputs_changed,
+        planned_end=end_at,
+        planned_end_manual=manual,
+        deadline=base.deadline if deadline is None else deadline_at,
         effort_hours=hours,
         priority=priority,
         status=status,
         color=color,
         assignee=assignee.strip() or None,
-        deadline=base.deadline if deadline is None else deadline_at,
     )
 
 

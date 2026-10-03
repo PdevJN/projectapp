@@ -39,15 +39,15 @@ class Member:
 class Task:
     name: str
     planned_start: datetime | None = None
-    end: datetime | None = None
     effort_hours: float = 0.0
     priority: Priority = Priority.MEDIUM
     status: Status = Status.STARTED
     color: str = DEFAULT_COLOR
     assignee: str | None = None
     predecessors: list[str] = field(default_factory=list)
-    end_auto: bool = False  # 終了が自動算出で、利用者が書き換えていない
     deadline: datetime | None = None  # 締切(納期)
+    planned_end: datetime | None = None  # 完了予定の手入力値
+    planned_end_manual: bool = False  # 工数があるときに、完了予定を手で指定するか
 
 
 @dataclass

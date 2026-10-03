@@ -70,18 +70,15 @@ class DateTimeFields:
         start: datetime | None,
         end: datetime | None,
         work_start: time,
-        end_auto: bool = False,
     ) -> None:
         default_start, default_end = default_times(work_start)
-        # 自動算出の終了は、チェックを外すと補う時刻に変わってしまうので、チェックをオンに固定する
-        lock_end = end_auto and needs_end_time(end, work_start)
         self._defaults = {"start": default_start, "end": default_end}
         with ui.row().classes("w-full no-wrap gap-4"):
             self.start_day, self.start_time, self.use_start_time = self._column(
                 "開始", "start", start, default_start, needs_start_time(start, work_start)
             )
             self.end_day, self.end_time, self.use_end_time = self._column(
-                "終了", "end", end, default_end, needs_end_time(end, work_start), lock_end
+                "終了", "end", end, default_end, needs_end_time(end, work_start)
             )
         self._show_time("start", self.use_start_time.value)
         self._show_time("end", self.use_end_time.value)
@@ -93,23 +90,17 @@ class DateTimeFields:
         moment: datetime | None,
         default: time,
         use_time: bool,
-        locked: bool = False,
     ) -> tuple[ui.input, ui.input, ui.checkbox]:
         with ui.column().classes("flex-1 gap-0"):
             ui.label(label).classes("text-caption text-grey")
             day = ui.input("日付", value=moment.strftime("%Y-%m-%d") if moment else "")
             day.classes("w-full").mark(f"task-{key}-date")
-            if key == "end":
-                day.props('hint="空にして保存すると、開始と工数から算出します"')
             add_picker(day, ui.date, "event", f"{key}-date", "%Y-%m-%d")
             checkbox = ui.checkbox(
                 "時刻を指定",
                 value=use_time,
                 on_change=lambda e, k=key: self._show_time(k, e.value),
             ).mark(f"task-{key}-use-time")
-            if locked:
-                checkbox.disable()
-                checkbox.tooltip("自動算出された終了のため、時刻を指定した状態で固定されます")
             clock = ui.input("時刻", value=(moment.time() if moment else default).strftime("%H:%M"))
             clock.classes("w-full").mark(f"task-{key}-time")
             add_picker(clock, ui.time, "access_time", f"{key}-time", "%H:%M")
@@ -153,7 +144,7 @@ def open_task_dialog(
     with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[36rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
         name = ui.input("名前", value=initial.name).mark("task-name")
-        fields = DateTimeFields(initial.planned_start, initial.end, work_start, initial.end_auto)
+        fields = DateTimeFields(initial.planned_start, initial.planned_end, work_start)
         effort = ui.number("工数(時間)", value=initial.effort_hours, min=0)
         priority = PriorityChips(initial.priority)
         status = (
@@ -187,8 +178,9 @@ def open_task_dialog(
                 result = build_task(
                     task,
                     name=name.value or "",
-                    start=fields.start_text(),
-                    end=fields.end_text(),
+                    planned_start=fields.start_text(),
+                    planned_end=fields.end_text(),
+                    planned_end_manual=bool(fields.end_text()),  # 暫定: Task 5 で「手で指定」のチェックに置き換える
                     effort_hours=effort.value,
                     priority=priority.value,
                     status=Status(status.value),

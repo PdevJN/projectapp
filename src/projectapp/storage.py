@@ -111,18 +111,28 @@ def _datetime(text: str | None) -> datetime | None:
 
 
 def _task(raw: dict[str, Any]) -> Task:
+    if "planned_end_manual" in raw:  # 新形式
+        planned_start = _datetime(raw.get("planned_start"))
+        planned_end = _datetime(raw.get("planned_end"))
+        manual = raw["planned_end_manual"] is True  # bool以外(手編集の誤り)は偽
+        deadline = _datetime(raw.get("deadline"))
+    else:  # 旧形式: start は開始予定、手入力の end は締切、自動算出の end は捨てる
+        planned_start = _datetime(raw.get("planned_start", raw.get("start")))
+        planned_end, manual = None, False
+        legacy_end = None if raw.get("end_auto") is True else _datetime(raw.get("end"))
+        deadline = legacy_end or _datetime(raw.get("deadline"))
     return Task(
         name=raw["name"],
-        planned_start=_datetime(raw.get("planned_start", raw.get("start"))),  # 旧形式は start
-        end=_datetime(raw.get("end")),
+        planned_start=planned_start,
+        planned_end=planned_end,
+        planned_end_manual=manual,
+        deadline=deadline,
         effort_hours=raw["effort_hours"],
         priority=Priority(raw["priority"]),
         status=Status(raw["status"]),
         color=raw["color"],
         assignee=raw.get("assignee"),
         predecessors=list(raw["predecessors"]),
-        end_auto=raw.get("end_auto") is True,  # bool以外(手編集の誤り)は手入力扱い
-        deadline=_datetime(raw.get("deadline")),
     )
 
 

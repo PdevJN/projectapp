@@ -28,7 +28,6 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.task_dialog import open_task_dialog
-from projectapp.timeline import fill_end, recalc_ends
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
@@ -140,19 +139,11 @@ class MainView:
         )
 
     def apply_settings(self, hours: float, start: time) -> None:
-        """稼働設定を更新し、自動算出された終了だけを再計算する。保存はしない。"""
+        """稼働設定を更新して再描画する。完了予定は表示のたびに計算されるので、再計算の処理は要らない。保存はしない。"""
         if hours == self.project.daily_hours and start == self.project.work_start:
             return
         self.project.daily_hours, self.project.work_start = hours, start
-        result = recalc_ends(self.project, self.holidays)
         self.gantt.set_project(self.project)
-        if result.changed:
-            ui.notify(f"稼働時間を変更しました({result.changed}件の終了を再計算)")
-        self.warn_unresolved(result.failed)
-
-    def warn_unresolved(self, failed: int) -> None:
-        if failed:
-            ui.notify(f"{failed}件の終了は再計算できませんでした(古い終了のままです)", type="warning")
 
     def save_project_clicked(self) -> None:
         if self.path is None:
@@ -233,7 +224,6 @@ class MainView:
     def save_task(
         self, section_index: int | None, task_index: int | None, task: Task
     ) -> None:
-        task = fill_end(task, self.project, self.holidays)
         tasks = self.tasks_in(section_index)
         if task_index is None:
             tasks.append(task)
@@ -248,13 +238,9 @@ class MainView:
         except (httpx.HTTPError, ValueError, OSError):  # OSErrorはキャッシュの書き込み失敗
             ui.notify("祝日データを取得できませんでした", type="warning")
             return
-        result = recalc_ends(self.project, self.holidays)  # 祝日が変わると自動算出の終了も変わる
         self.gantt.set_holidays(self.holidays)
-        if result.changed:
-            ui.notify(f"祝日データの反映で{result.changed}件の終了を再計算しました")
-        elif not quiet:
+        if not quiet:
             ui.notify("祝日データを更新しました")
-        self.warn_unresolved(result.failed if not quiet else 0)
 
     async def first_fetch(self) -> None:
         await self.refresh_holidays(quiet=True)
