@@ -36,7 +36,7 @@
 
 | ファイル | 変更 |
 |---|---|
-| `storage.py` | `validate_name` を追加。`save_project` が名前を検証し(不正なら `ValueError`)、一時ファイルへ書いてから置き換える。`load_project` が `name` をファイル名にそろえる |
+| `storage.py` | `validate_name` を追加。`save_project` が名前を検証し(不正なら `ValueError`)、一時ファイルへ書いてから置き換える。`save_project(project, base_dir, *, overwrite=True)` の `overwrite=False` は、同名のファイルがあれば `FileExistsError` にする(新規保存の競合対策)。`load_project` が `name` をファイル名にそろえる |
 | `forms.py` | `open_name_dialog(on_submit, validate)` を追加(既存の `open_section_dialog` と同じ作り) |
 | `views.py` | `MainView.path`、`save_project_clicked`、「保存」ボタン、保存後の一覧更新を追加 |
 | `models.py` | 変更なし |

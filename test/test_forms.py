@@ -7,6 +7,7 @@ from nicegui.testing import User
 from projectapp.forms import (
     build_section_name,
     build_task,
+    open_name_dialog,
     open_section_dialog,
     open_task_dialog,
     parse_datetime,
@@ -156,3 +157,27 @@ async def test_section_dialog(user: User) -> None:
     user.find(marker="section-name").type("開発")
     user.find(marker="section-save").click()
     assert saved == ["開発"]
+
+
+async def test_name_dialog_rejects_then_accepts_a_stripped_name(user: User) -> None:
+    saved: list[str] = []
+    seen: list[str] = []
+
+    def validate(name: str) -> str | None:
+        seen.append(name)
+        return "使えない名前です" if name == "bad" else None
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_name_dialog(saved.append, validate))
+
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="project-name").type("bad")
+    user.find(marker="name-save").click()
+    await user.should_see("使えない名前です")
+    assert saved == []
+    user.find(marker="project-name").clear().type("\u3000デモ ")
+    user.find(marker="name-save").click()
+    assert saved == ["デモ"]
+    assert seen == ["bad", "デモ"]

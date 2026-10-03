@@ -9,10 +9,16 @@ from nicegui import ui
 from projectapp.calendar import load_cache
 from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import THEMES, load_theme, save_theme
-from projectapp.forms import open_section_dialog, open_task_dialog
+from projectapp.forms import open_name_dialog, open_section_dialog, open_task_dialog
 from projectapp.gantt import GanttActions, GanttChart
 from projectapp.models import Project, Section, Task
-from projectapp.storage import BASE_DIR, list_project_files, load_project
+from projectapp.storage import (
+    BASE_DIR,
+    list_project_files,
+    load_project,
+    save_project,
+    validate_name,
+)
 from projectapp.timeline import fill_end
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
@@ -34,6 +40,7 @@ class MainView:
         self.project = Project(NEW_PROJECT_NAME)
         self.files: dict[str, Path] = {p.stem: p for p in list_project_files(base_dir)}
         self.selected: str | None = None
+        self.path: Path | None = None
         self.theme = load_theme(base_dir)
         self.dark = ui.dark_mode()
         self.apply_theme(self.theme)
@@ -63,9 +70,47 @@ class MainView:
     def open_selected(self) -> None:
         if self.selected is None:
             return
-        self.project = load_project(self.files[self.selected])
+        path = self.files[self.selected]
+        try:
+            project = load_project(path)
+        except (OSError, ValueError, KeyError) as exc:
+            ui.notify(f"開けませんでした: {exc}", type="negative")
+            return
+        self.path, self.project = path, project
         self.title.refresh()
         self.gantt.set_project(self.project)
+
+    def save_project_clicked(self) -> None:
+        if self.path is None:
+            open_name_dialog(
+                self.save_as_new,
+                lambda name: validate_name(name, self.base_dir, new=True),
+            )
+            return
+        self.write(overwrite=True)
+
+    def save_as_new(self, name: str) -> None:
+        previous = self.project.name
+        self.project.name = name
+        if not self.write(overwrite=False):
+            self.project.name = previous
+
+    def write(self, *, overwrite: bool) -> bool:
+        """保存して画面を更新する。失敗したら通知だけ出し、状態は変えない。"""
+        try:
+            path = save_project(self.project, self.base_dir, overwrite=overwrite)
+        except FileExistsError:
+            ui.notify("同じ名前のファイルがすでにあります", type="negative")
+            return False
+        except (ValueError, OSError) as exc:
+            ui.notify(f"保存できませんでした: {exc}", type="negative")
+            return False
+        self.path = path
+        self.files[path.stem] = path
+        self.file_select.set_options(sorted(self.files), value=path.stem)
+        self.title.refresh()
+        ui.notify("保存しました")
+        return True
 
     def add_section(self) -> None:
         open_section_dialog(self.save_section)
@@ -131,12 +176,15 @@ class MainView:
                     "flat"
                 ).mark("refresh-holidays")
             with ui.row().classes("w-full items-center justify-start gap-4"):
-                ui.select(
+                self.file_select = ui.select(
                     list(self.files),
                     label="プロジェクトファイル",
                     on_change=lambda e: setattr(self, "selected", e.value),
-                ).classes("w-64")
+                ).classes("w-64").mark("project-select")
                 ui.button("開く", icon="folder_open", on_click=self.open_selected)
+                ui.button("保存", icon="save", on_click=self.save_project_clicked).mark(
+                    "save-project"
+                )
 
     @ui.refreshable_method
     def title(self) -> None:

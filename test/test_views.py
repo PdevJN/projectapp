@@ -5,12 +5,14 @@ from datetime import date, datetime
 from pathlib import Path
 
 import httpx
+import pytest
 from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.calendar import DayKind, save_cache
 from projectapp.gantt import KIND_COLORS
-from projectapp.models import Task
+from projectapp.models import Project, Section, Task
+from projectapp.storage import load_project, save_project
 from projectapp.views import MainView
 
 
@@ -32,6 +34,20 @@ def mount(base_dir: Path, transport: httpx.MockTransport) -> None:
     @ui.page("/")
     def index() -> None:
         MainView(base_dir, transport).build()
+
+
+def mount_capturing(base_dir: Path, views: list[MainView]) -> None:
+    @ui.page("/")
+    def index() -> None:
+        view = MainView(base_dir, make_transport(200, []))
+        views.append(view)
+        view.build()
+
+
+async def save_new_as(user: User, name: str) -> None:
+    user.find(marker="save-project").click()
+    user.find(marker="project-name").type(name)
+    user.find(marker="name-save").click()
 
 
 async def wait_until(condition: Callable[[], bool], timeout: float = 3.0) -> bool:
@@ -270,3 +286,111 @@ async def test_task_without_effort_keeps_an_empty_end(user: User, tmp_path: Path
     await user.open("/")
     views[0].save_task(None, None, Task("a", start=datetime(2026, 10, 9, 9)))
     assert views[0].project.tasks[0].end is None
+
+
+async def test_save_new_project_asks_for_a_name_then_writes_the_file(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    await save_new_as(user, "デモ")
+    assert await wait_until(lambda: (tmp_path / "デモ.json").exists())
+    assert await wait_until(lambda: user.notify.contains("保存しました"))
+    view = views[0]
+    assert view.path == tmp_path / "デモ.json"
+    assert "デモ" in view.file_select.options
+    await user.should_see("デモ")
+
+
+async def test_save_new_project_rejects_an_existing_name(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    original = save_project(Project("既存", sections=[Section("元")]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    await save_new_as(user, "既存")
+    await user.should_see("同じ名前のプロジェクトがすでにあります")
+    assert load_project(original).sections[0].name == "元"
+    assert views[0].path is None
+
+
+async def test_save_an_opened_project_overwrites_without_asking(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("元")]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.selected = "既存"
+    user.find("開く").click()
+    assert await wait_until(lambda: view.path == tmp_path / "既存.json")
+    view.save_section("追加")
+    user.find(marker="save-project").click()
+    assert await wait_until(lambda: user.notify.contains("保存しました"))
+    await user.should_not_see(marker="project-name")
+    saved = load_project(tmp_path / "既存.json")
+    assert [s.name for s in saved.sections] == ["元", "追加"]
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (OSError("disk full"), "保存できませんでした"),
+        (FileExistsError(), "同じ名前のファイルがすでにあります"),
+    ],
+)
+async def test_failed_save_keeps_the_state(
+    user: User,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: OSError,
+    message: str,
+) -> None:
+    save_cache({}, tmp_path)
+
+    def boom(*args: object, **kwargs: object) -> Path:
+        raise error
+
+    monkeypatch.setattr("projectapp.views.save_project", boom)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    await save_new_as(user, "デモ")
+    assert await wait_until(lambda: user.notify.contains(message))
+    view = views[0]
+    assert view.path is None
+    assert view.project.name == "新規プロジェクト"
+    assert not (tmp_path / "デモ.json").exists()
+
+
+async def test_saving_with_an_unusable_name_notifies(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.path = tmp_path / "x.json"
+    view.project.name = "a:b"
+    user.find(marker="save-project").click()
+    assert await wait_until(lambda: user.notify.contains("名前に使えない文字が含まれています"))
+    assert view.path == tmp_path / "x.json"
+
+
+async def test_failed_open_keeps_the_current_project_and_path(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    (tmp_path / "壊れ.json").write_text("{not json", encoding="utf-8")
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.selected = "壊れ"
+    user.find("開く").click()
+    assert await wait_until(lambda: user.notify.contains("開けませんでした"))
+    assert view.path is None
+    assert view.project.name == "新規プロジェクト"
