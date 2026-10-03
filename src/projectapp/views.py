@@ -192,6 +192,8 @@ class MainView:
             None,
             lambda task: self.save_task(section_index, None, task),
             work_start=self.project.work_start,
+            daily_hours=self.project.daily_hours,
+            holidays=self.holidays,
         )
 
     def add_top_task(self) -> None:
@@ -199,6 +201,8 @@ class MainView:
             None,
             lambda task: self.save_task(None, None, task),
             work_start=self.project.work_start,
+            daily_hours=self.project.daily_hours,
+            holidays=self.holidays,
         )
 
     def edit_task(self, section_index: int | None, task_index: int) -> None:
@@ -207,6 +211,8 @@ class MainView:
             task,
             lambda t: self.save_task(section_index, task_index, t),
             work_start=self.project.work_start,
+            daily_hours=self.project.daily_hours,
+            holidays=self.holidays,
             on_delete=lambda: self.delete_task(section_index, task_index),
         )
 

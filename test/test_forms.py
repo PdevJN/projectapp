@@ -577,10 +577,9 @@ def test_deadline_is_parsed_and_may_precede_the_start() -> None:
     assert task.deadline == datetime(2026, 10, 1, 18, 0)  # 開始予定(10/5)より前でもよい
 
 
-def test_blank_deadline_clears_it_and_none_keeps_it() -> None:
+def test_blank_deadline_clears_it() -> None:
     existing = Task("旧", deadline=datetime(2026, 10, 9, 18))
     assert make(existing, deadline="").deadline is None
-    assert make(existing, deadline=None).deadline == datetime(2026, 10, 9, 18)
 
 
 @pytest.mark.parametrize("deadline", ["1999-12-31T18:00", "2101-01-01T00:00"])
@@ -620,3 +619,18 @@ def test_planned_end_manual_is_saved_only_with_effort() -> None:
 def test_planned_end_year_is_limited() -> None:
     with pytest.raises(ValueError, match="年は"):
         make(planned_end="2101-01-01T00:00")
+
+
+def test_build_task_requires_the_deadline_text() -> None:
+    with pytest.raises(TypeError):
+        build_task(  # type: ignore[call-arg]
+            None,
+            name="a",
+            planned_start="",
+            planned_end="",
+            effort_hours=0.0,
+            priority=Priority.HIGH,
+            status=Status.RUNNING,
+            color="#112233",
+            assignee="",
+        )

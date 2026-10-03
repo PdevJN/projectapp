@@ -57,23 +57,20 @@ def build_task(
     planned_start: str,
     planned_end: str,
     planned_end_manual: bool = False,
-    deadline: str | None = None,
+    deadline: str,
     effort_hours: float | None,
     priority: Priority,
     status: Status,
     color: str,
     assignee: str,
 ) -> Task:
-    """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。
-
-    deadlineがNoneのときは既存の締切を保つ(空文字は締切なし)。
-    """
+    """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。"""
     clean = name.strip()
     if not clean:
         raise ValueError("名前を入力してください")
     try:
         start_at, end_at = parse_datetime(planned_start), parse_datetime(planned_end)
-        deadline_at = parse_datetime(deadline) if deadline is not None else None
+        deadline_at = parse_datetime(deadline)
     except ValueError:
         raise ValueError("日時の形式が正しくありません") from None
     for moment in (start_at, end_at, deadline_at):
@@ -95,7 +92,7 @@ def build_task(
         planned_start=start_at,
         planned_end=end_at,
         planned_end_manual=manual,
-        deadline=base.deadline if deadline is None else deadline_at,
+        deadline=deadline_at,
         effort_hours=hours,
         priority=priority,
         status=status,
