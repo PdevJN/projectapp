@@ -102,10 +102,14 @@ class MainView:
     def save_then(self, after: Callable[[], object]) -> None:
         """保存に成功したときだけ、続きの処理を行う。"""
         if self.path is None:
-            open_name_dialog(
-                lambda name: self.save_as_new(name) and after(),
-                lambda name: validate_name(name, self.base_dir, new=True),
-            )
+
+            def submit(name: str) -> bool:
+                saved = self.save_as_new(name)
+                if saved:
+                    after()
+                return saved
+
+            open_name_dialog(submit, lambda name: validate_name(name, self.base_dir, new=True))
         elif self.write(overwrite=True):
             after()
 

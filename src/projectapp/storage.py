@@ -2,12 +2,12 @@
 
 import json
 import os
-import tempfile
+import secrets
 from dataclasses import asdict
 from datetime import date, datetime, time
 from math import isfinite
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from projectapp.models import Member, Priority, Project, Section, Status, Task
 
@@ -43,11 +43,42 @@ def validate_name(name: str, base_dir: Path, *, new: bool) -> str | None:
         return "名前に使えない文字が含まれています"
     if name.startswith("."):
         return "名前は「.」で始められません"
+    if name.endswith("."):
+        return "名前は「.」で終われません"  # Windowsは末尾の . を落とす
     if name in RESERVED:
         return "この名前は使えません"
     if new and (base_dir / f"{name}.json").exists():
         return "同じ名前のプロジェクトがすでにあります"
     return None
+
+
+class _Temp(NamedTuple):
+    fd: int
+    path: Path
+
+
+def _create_temp(base_dir: Path) -> _Temp:
+    """一時ファイルを作る。権限はumaskに従う(mkstempは所有者のみ)。"""
+    while True:
+        path = base_dir / f".save-{secrets.token_hex(8)}.tmp"
+        try:
+            return _Temp(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666), path)
+        except FileExistsError:
+            continue
+
+
+def _publish_new(tmp: Path, path: Path) -> None:
+    """既存のファイルを上書きせずに、一時ファイルを本来の名前にする。"""
+    try:
+        os.link(tmp, path)  # 既存ならFileExistsError。書き込み済みの内容が一度に現れる
+    except FileExistsError:
+        raise
+    except OSError:
+        # ハードリンクに対応しない場所(FAT/exFATなど)。同名の有無を確かめて置き換える。
+        # 確認と置き換えの間の競合は防げないが、壊れたファイルは残らない。
+        if path.exists():
+            raise FileExistsError(path) from None
+        os.replace(tmp, path)
 
 
 def save_project(
@@ -60,18 +91,18 @@ def save_project(
     data = json.dumps(asdict(project), ensure_ascii=False, indent=2, default=_encode)
     base_dir.mkdir(parents=True, exist_ok=True)
     path = base_dir / f"{name}.json"
-    fd, tmp_name = tempfile.mkstemp(dir=base_dir, prefix=".save-", suffix=".tmp")
-    tmp = Path(tmp_name)
+    tmp = _create_temp(base_dir)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as file:
+        with open(tmp.fd, "w", encoding="utf-8") as file:
             file.write(data)
-        tmp.chmod(0o644)  # mkstempは所有者のみの権限で作る
+            file.flush()
+            os.fsync(file.fileno())  # 電源断で空ファイルが残るのを防ぐ
         if overwrite:
-            os.replace(tmp, path)
+            os.replace(tmp.path, path)
         else:
-            os.link(tmp, path)  # 既存ならFileExistsError
+            _publish_new(tmp.path, path)
     finally:
-        tmp.unlink(missing_ok=True)
+        tmp.path.unlink(missing_ok=True)
     return path
 
 

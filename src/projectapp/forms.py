@@ -181,6 +181,7 @@ def open_section_dialog(on_save: Callable[[str], object]) -> None:
 def open_name_dialog(
     on_submit: Callable[[str], object], validate: Callable[[str], str | None]
 ) -> None:
+    """名前を入力して保存する。on_submitがFalseを返したら(保存に失敗)、入力を残して開いたままにする。"""
     with ui.dialog() as dialog, ui.card().classes("w-80"):
         ui.label("プロジェクトの保存").classes("text-h6")
         name = ui.input("プロジェクト名").mark("project-name")
@@ -191,7 +192,8 @@ def open_name_dialog(
             if message := validate(clean):
                 error.set_text(message)
                 return
-            on_submit(clean)
+            if on_submit(clean) is False:
+                return
             dialog.close()
 
         with ui.row():
