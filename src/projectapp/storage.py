@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from projectapp.models import (
+    MAX_ALLOCATION,
+    MAX_RATIO,
     MAX_YEAR,
+    MIN_ALLOCATION,
+    MIN_RATIO,
     MIN_YEAR,
     Member,
     Priority,
@@ -146,9 +150,43 @@ def _task(raw: dict[str, Any]) -> Task:
         priority=Priority(raw["priority"]),
         status=Status(raw["status"]),
         color=raw["color"],
-        assignee=raw.get("assignee"),
+        assignee=_assignee(raw.get("assignee")),
         predecessors=list(raw["predecessors"]),
+        allocation=_allocation(raw.get("allocation", 1.0)),
     )
+
+
+def _number_in_range(value: Any, low: float, high: float, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{label}が数値ではありません")
+    if not isfinite(value) or not low - 1e-9 <= value <= high + 1e-9:
+        raise ValueError(f"{label}が範囲外です({low:g}以上{high:g}以下)")
+    return float(value)
+
+
+def _allocation(value: Any) -> float:
+    return _number_in_range(value, MIN_ALLOCATION, MAX_ALLOCATION, "割り当て率")
+
+
+def _assignee(value: Any) -> str | None:
+    """担当者名。前後の空白を取り除き、空はNone。"""
+    if not isinstance(value, str):
+        return None
+    return value.strip() or None
+
+
+def _members(raw_members: list[dict[str, Any]]) -> list[Member]:
+    """メンバーを読む。相対比率は検証し、空の名前と重複は(最初の1件を残して)捨てる。"""
+    members: list[Member] = []
+    seen: set[str] = set()
+    for raw in raw_members:
+        name = str(raw["name"]).strip()
+        ratio = _number_in_range(raw.get("ratio", 1.0), MIN_RATIO, MAX_RATIO, "相対比率")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        members.append(Member(name, ratio))
+    return members
 
 
 def _daily_hours(value: Any) -> float:
@@ -172,8 +210,8 @@ def _work_start(value: Any) -> time:
 def load_project(path: Path) -> Project:
     raw = json.loads(path.read_text(encoding="utf-8"))
     sections = [Section(s["name"], [_task(t) for t in s["tasks"]]) for s in raw["sections"]]
-    members = [Member(**m) for m in raw["members"]]
-    return Project(
+    members = _members(raw["members"])
+    project = Project(
         name=path.stem,
         base_date=date.fromisoformat(raw["base_date"]),
         daily_hours=_daily_hours(raw["daily_hours"]),
@@ -182,3 +220,9 @@ def load_project(path: Path) -> Project:
         sections=sections,
         tasks=[_task(t) for t in raw.get("tasks", [])],
     )
+    known = {m.name for m in project.members}
+    for task in project.all_tasks():  # 古いファイルの自由入力の担当者を、メンバーとして補う
+        if task.assignee and task.assignee not in known:
+            known.add(task.assignee)
+            project.members.append(Member(task.assignee, 1.0))
+    return project

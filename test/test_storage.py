@@ -391,3 +391,88 @@ def test_an_explicit_deadline_wins_over_a_legacy_end(tmp_path: Path) -> None:
         {"start": "2026-10-05T09:00:00", "end": "2026-10-07T18:00:00", "deadline": "2026-10-20T18:00:00"},
     )
     assert load_project(path).tasks[0].deadline == datetime(2026, 10, 20, 18)
+
+
+def test_allocation_roundtrip_and_default(tmp_path: Path) -> None:
+    project = Project(
+        "r",
+        members=[Member("田中", 1.2)],
+        tasks=[Task("a", assignee="田中", allocation=0.6), Task("b")],
+    )
+    loaded = load_project(save_project(project, tmp_path))
+    assert [t.allocation for t in loaded.tasks] == [0.6, 1.0]
+    assert loaded.members == [Member("田中", 1.2)]
+
+
+def test_file_without_allocation_loads_as_one(tmp_path: Path) -> None:
+    path = save_project(Project("old", tasks=[Task("a")]), tmp_path)
+    _rewrite(path, lambda d: d["tasks"][0].pop("allocation"))
+    assert load_project(path).tasks[0].allocation == 1.0
+
+
+@pytest.mark.parametrize("value", [0, -0.5, 0.0099, 1.01, float("nan"), float("inf"), True, "1", None, []])
+def test_load_rejects_an_invalid_allocation(value: object, tmp_path: Path) -> None:
+    path = save_project(Project("r", tasks=[Task("a")]), tmp_path)
+    _rewrite(path, lambda d: d["tasks"][0].update(allocation=value))
+    with pytest.raises(ValueError, match="割り当て率"):
+        load_project(path)
+
+
+@pytest.mark.parametrize("value", [0, 0.09, 3.01, -1, float("nan"), float("inf"), True, "1", None])
+def test_load_rejects_an_invalid_member_ratio(value: object, tmp_path: Path) -> None:
+    path = save_project(Project("r", members=[Member("田中")]), tmp_path)
+    _rewrite(path, lambda d: d["members"][0].update(ratio=value))
+    with pytest.raises(ValueError, match="相対比率"):
+        load_project(path)
+
+
+def test_load_accepts_the_ratio_and_allocation_boundaries(tmp_path: Path) -> None:
+    project = Project(
+        "r",
+        members=[Member("低", 0.1), Member("高", 3.0)],
+        tasks=[Task("a", assignee="低", allocation=0.01), Task("b", assignee="高", allocation=1.0)],
+    )
+    loaded = load_project(save_project(project, tmp_path))
+    assert [m.ratio for m in loaded.members] == [0.1, 3.0]
+    assert [t.allocation for t in loaded.tasks] == [0.01, 1.0]
+
+
+def test_an_assignee_missing_from_the_members_is_added_as_a_member(tmp_path: Path) -> None:
+    project = Project("old", members=[Member("田中", 1.2)], tasks=[Task("a", assignee="佐藤")])
+    loaded = load_project(save_project(project, tmp_path))
+    assert loaded.members == [Member("田中", 1.2), Member("佐藤", 1.0)]
+    assert loaded.tasks[0].assignee == "佐藤"
+
+
+def test_added_members_are_not_duplicated_and_keep_the_task_order(tmp_path: Path) -> None:
+    project = Project(
+        "old",
+        tasks=[Task("a", assignee="佐藤"), Task("b", assignee="鈴木"), Task("c", assignee="佐藤")],
+    )
+    loaded = load_project(save_project(project, tmp_path))
+    assert [m.name for m in loaded.members] == ["佐藤", "鈴木"]
+
+
+def test_assignee_whitespace_is_trimmed_and_blank_becomes_none(tmp_path: Path) -> None:
+    project = Project(
+        "old", tasks=[Task("a", assignee=" 佐藤 "), Task("b", assignee="  "), Task("c", assignee="")]
+    )
+    loaded = load_project(save_project(project, tmp_path))
+    assert [t.assignee for t in loaded.tasks] == ["佐藤", None, None]
+    assert [m.name for m in loaded.members] == ["佐藤"]
+
+
+def test_duplicate_member_names_keep_the_first(tmp_path: Path) -> None:
+    project = Project("r", members=[Member("田中", 1.2), Member("田中", 0.5)])
+    assert load_project(save_project(project, tmp_path)).members == [Member("田中", 1.2)]
+
+
+def test_a_blank_member_name_is_dropped(tmp_path: Path) -> None:
+    project = Project("r", members=[Member("  ", 1.0), Member("田中", 1.0)])
+    assert [m.name for m in load_project(save_project(project, tmp_path)).members] == ["田中"]
+
+
+def test_project_all_tasks_lists_top_level_then_sections() -> None:
+    top, inner = Task("top"), Task("in")
+    project = Project("p", tasks=[top], sections=[Section("s", [inner])])
+    assert project.all_tasks() == [top, inner]
