@@ -188,14 +188,26 @@ class MainView:
         self.gantt.set_project(self.project)
 
     def add_task(self, section_index: int) -> None:
-        open_task_dialog(None, lambda task: self.save_task(section_index, None, task))
+        open_task_dialog(
+            None,
+            lambda task: self.save_task(section_index, None, task),
+            work_start=self.project.work_start,
+        )
 
     def add_top_task(self) -> None:
-        open_task_dialog(None, lambda task: self.save_task(None, None, task))
+        open_task_dialog(
+            None,
+            lambda task: self.save_task(None, None, task),
+            work_start=self.project.work_start,
+        )
 
     def edit_task(self, section_index: int | None, task_index: int) -> None:
         task = self.tasks_in(section_index)[task_index]
-        open_task_dialog(task, lambda t: self.save_task(section_index, task_index, t))
+        open_task_dialog(
+            task,
+            lambda t: self.save_task(section_index, task_index, t),
+            work_start=self.project.work_start,
+        )
 
     def tasks_in(self, section_index: int | None) -> list[Task]:
         """セクション番号のタスク一覧。Noneはセクションに属さないタスク。"""

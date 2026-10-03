@@ -119,10 +119,11 @@ async def test_task_dialog_saves_a_valid_task(user: User) -> None:
     await user.open("/")
     user.find("open").click()
     user.find(marker="task-name").type("設計")
-    user.find(marker="task-start").type("2026-10-05T09:00")
-    user.find(marker="task-end").type("2026-10-07T18:00")
+    user.find(marker="task-start-date").type("2026-10-05")
+    user.find(marker="task-end-date").type("2026-10-07")
     user.find(marker="task-save").click()
     assert [t.name for t in saved] == ["設計"]
+    assert saved[0].start == datetime(2026, 10, 5, 9, 0)
     assert saved[0].end == datetime(2026, 10, 7, 18, 0)
 
 
@@ -149,7 +150,7 @@ async def test_task_dialog_prefills_when_editing(user: User) -> None:
     await user.open("/")
     user.find("open").click()
     assert user.find(marker="task-name").elements.pop().value == "既存"
-    assert user.find(marker="task-start").elements.pop().value == "2026-10-05T09:00"
+    assert user.find(marker="task-start-date").elements.pop().value == "2026-10-05"
 
 
 async def test_task_dialog_color_shows_a_preview(user: User) -> None:
