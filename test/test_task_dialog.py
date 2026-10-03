@@ -100,6 +100,51 @@ async def test_unchecking_resets_the_times_to_the_defaults(user: User) -> None:
     assert saved[0].end == datetime(2026, 10, 7, 16, 45)  # 終了は変わらない
 
 
+async def test_a_typed_start_time_is_kept_when_the_checkbox_is_toggled(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-start-use-time").click()
+    user.find(marker="task-start-time").clear().type("11:00")
+    user.find(marker="task-start-use-time").click()  # 外す
+    user.find(marker="task-start-use-time").click()  # 入れ直す
+    assert user.find(marker="task-start-time").elements.pop().value == "11:00"
+
+
+async def test_an_existing_end_time_is_kept_when_the_checkbox_is_toggled(user: User) -> None:
+    task = Task("旧", start=datetime(2026, 10, 5, 9, 0), end=datetime(2026, 10, 5, 15, 30))
+    mount_dialog(task, [])
+    await open_dialog(user)
+    user.find(marker="task-end-use-time").click()  # 外す
+    user.find(marker="task-end-use-time").click()  # 入れ直す
+    assert user.find(marker="task-end-time").elements.pop().value == "15:30"
+
+
+async def test_unchecked_end_is_saved_with_the_default_time_even_if_a_time_was_typed(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-start-date").type("2026-10-05")
+    user.find(marker="task-end-date").type("2026-10-07")
+    user.find(marker="task-end-use-time").click()
+    user.find(marker="task-end-time").clear().type("16:45")
+    user.find(marker="task-end-use-time").click()  # 外す: 値は残るが、保存には使わない
+    user.find(marker="task-save").click()
+    assert saved[0].end == datetime(2026, 10, 7, 18, 0)
+
+
+async def test_a_hidden_time_left_behind_is_not_a_change(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-start-use-time").click()
+    user.find(marker="task-start-time").clear().type("11:00")
+    user.find(marker="task-start-use-time").click()  # 外す
+    user.find(marker="task-cancel").click()
+    assert dialog_of(user).value is False
+
+
 async def test_only_the_start_time_can_be_specified(user: User) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved)

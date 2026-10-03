@@ -73,8 +73,8 @@ class DateTimeFields:
             self.end_day, self.end_time, self.use_end_time = self._column(
                 "終了", "end", end, default_end, needs_end_time(end, work_start)
             )
-        self._show_time("start", self.use_start_time.value, reset=False)
-        self._show_time("end", self.use_end_time.value, reset=False)
+        self._show_time("start", self.use_start_time.value)
+        self._show_time("end", self.use_end_time.value)
 
     def _column(
         self, label: str, key: str, moment: datetime | None, default: time, use_time: bool
@@ -94,26 +94,31 @@ class DateTimeFields:
             add_picker(clock, ui.time, "access_time", f"{key}-time")
         return day, clock, checkbox
 
-    def _show_time(self, key: str, show: bool, *, reset: bool = True) -> None:
-        """側ごとに時刻入力を出し入れする。外すと、その側の時刻だけを補う時刻に戻す。"""
-        clock = self.start_time if key == "start" else self.end_time
-        clock.set_visibility(show)
-        if not show and reset:
-            clock.set_value(self._defaults[key].strftime("%H:%M"))
+    def _show_time(self, key: str, show: bool) -> None:
+        """側ごとに時刻入力を出し入れする。隠しても入力の値は保ち、入れ直すと元の値が出る。"""
+        (self.start_time if key == "start" else self.end_time).set_visibility(show)
+
+    def _clock(self, key: str) -> str:
+        """保存と変更判定に使う時刻。チェックのない側は、入力の値ではなく補う時刻を使う。"""
+        if key == "start":
+            checked, clock = self.use_start_time.value, self.start_time
+        else:
+            checked, clock = self.use_end_time.value, self.end_time
+        return (clock.value or "") if checked else self._defaults[key].strftime("%H:%M")
 
     def start_text(self) -> str:
-        return compose_datetime(self.start_day.value or "", self.start_time.value or "")
+        return compose_datetime(self.start_day.value or "", self._clock("start"))
 
     def end_text(self) -> str:
-        return compose_datetime(self.end_day.value or "", self.end_time.value or "")
+        return compose_datetime(self.end_day.value or "", self._clock("end"))
 
     def state(self) -> tuple[str, str, str, str]:
-        """入力の生の値。開いた時点との比較(変更の判定)に使う。"""
+        """入力の生の値。開いた時点との比較(変更の判定)に使う。隠れた時刻は含めない。"""
         return (
             self.start_day.value or "",
-            self.start_time.value or "",
+            self._clock("start"),
             self.end_day.value or "",
-            self.end_time.value or "",
+            self._clock("end"),
         )
 
 
