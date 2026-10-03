@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, time
+from datetime import date, datetime, time
 
 from nicegui import ui
 from nicegui.testing import User
@@ -13,6 +13,8 @@ def mount_dialog(
     saved: list[Task],
     work_start: time = time(9, 0),
     deleted: list[str] | None = None,
+    daily_hours: float = 6.5,
+    holidays: dict[date, str] | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -23,6 +25,8 @@ def mount_dialog(
                 saved.append,
                 work_start=work_start,
                 on_delete=None if deleted is None else lambda: deleted.append("deleted"),
+                daily_hours=daily_hours,
+                holidays=holidays,
             ),
         )
 
@@ -266,8 +270,9 @@ async def test_clearing_the_end_date_saves_an_empty_end(user: User) -> None:
 async def test_start_and_end_are_side_by_side(user: User) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
-    start_column = user.find(marker="task-start-date").elements.pop().parent_slot.parent
-    end_column = user.find(marker="task-end-date").elements.pop().parent_slot.parent
+    # 日付の入力は、側ごとの列の中の「編集用の入れ物」に入っている
+    start_column = user.find(marker="task-start-date").elements.pop().parent_slot.parent.parent_slot.parent
+    end_column = user.find(marker="task-end-date").elements.pop().parent_slot.parent.parent_slot.parent
     assert start_column is not end_column
     assert start_column.parent_slot.parent is end_column.parent_slot.parent
     assert isinstance(start_column.parent_slot.parent, ui.row)
@@ -518,3 +523,145 @@ async def test_a_half_typed_time_is_not_passed_to_the_picker(user: User) -> None
     user.find(marker="task-end-time").clear().type("15:30")
     await asyncio.sleep(0.3)
     assert picker.value == "15:30"
+
+
+async def test_without_effort_the_planned_end_is_editable_and_has_no_manual_check(
+    user: User,
+) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    await user.should_see(marker="task-end-date")
+    await user.should_not_see(marker="task-end-manual")
+    await user.should_not_see(marker="task-end-computed")
+    end = user.find(marker="task-end-date").elements.pop()
+    assert "翌日" in end.props["hint"]
+
+
+async def test_with_effort_the_planned_end_is_computed_and_read_only(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-start-date").type("2026-10-09")
+    user.find(marker="task-effort").clear().type("15")
+    await user.should_see(marker="task-end-manual")
+    await user.should_see(marker="task-end-computed")
+    await user.should_not_see(marker="task-end-date")
+    computed = user.find(marker="task-end-computed").elements.pop()
+    assert computed.value == "2026-10-13 11:00"
+    assert computed.props.get("readonly") is not None
+
+
+async def test_the_computed_end_follows_the_start_and_effort(user: User) -> None:
+    mount_dialog(None, [], daily_hours=8.0)
+    await open_dialog(user)
+    user.find(marker="task-start-date").type("2026-10-09")
+    user.find(marker="task-effort").clear().type("15")
+    computed = user.find(marker="task-end-computed").elements.pop()
+    assert computed.value == "2026-10-12 16:00"  # 金8h + 月7h
+    user.find(marker="task-start-date").clear().type("2026-10-12")
+    assert computed.value == "2026-10-13 16:00"  # 月8h(9-17時) + 火7h
+
+
+async def test_the_computed_end_follows_the_holidays(user: User) -> None:
+    mount_dialog(None, [], holidays={date(2026, 10, 12): "祝日"})
+    await open_dialog(user)
+    user.find(marker="task-start-date").type("2026-10-09")
+    user.find(marker="task-effort").clear().type("15")
+    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-14 11:00"
+
+
+async def test_manual_check_makes_the_planned_end_editable_and_keeps_the_typed_value(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-start-date").type("2026-10-09")
+    user.find(marker="task-end-date").type("2026-10-20")
+    user.find(marker="task-effort").clear().type("15")
+    await user.should_not_see(marker="task-end-date")  # 工数ありで手指定なしなので隠れる
+    user.find(marker="task-end-manual").click()
+    await user.should_see(marker="task-end-date")
+    assert user.find(marker="task-end-date").elements.pop().value == "2026-10-20"  # 値は保たれている
+    await user.should_not_see(marker="task-end-computed")
+    user.find(marker="task-save").click()
+    assert saved[0].planned_end_manual is True
+    assert saved[0].planned_end == datetime(2026, 10, 20, 18, 0)
+
+
+async def test_unchecking_manual_returns_to_the_computed_value(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-start-date").type("2026-10-09")
+    user.find(marker="task-effort").clear().type("15")
+    user.find(marker="task-end-manual").click()
+    user.find(marker="task-end-manual").click()
+    await user.should_see(marker="task-end-computed")
+    await user.should_not_see(marker="task-end-date")
+
+
+async def test_clearing_the_effort_while_manual_is_on_makes_the_end_editable_and_not_manual(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-start-date").type("2026-10-09")
+    user.find(marker="task-effort").clear().type("15")
+    user.find(marker="task-end-manual").click()
+    user.find(marker="task-effort").clear()
+    await user.should_see(marker="task-end-date")
+    await user.should_not_see(marker="task-end-manual")
+    user.find(marker="task-save").click()
+    assert saved[0].planned_end_manual is False
+
+
+async def test_the_deadline_is_entered_with_a_date_and_an_optional_time(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-deadline-date").type("2026-10-30")
+    await user.should_not_see(marker="task-deadline-time")
+    user.find(marker="task-save").click()
+    assert saved[0].deadline == datetime(2026, 10, 30, 18, 0)  # 時刻なしは終業時刻
+    assert saved[0].planned_start is None
+
+
+async def test_the_deadline_time_can_be_specified(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-deadline-date").type("2026-10-30")
+    user.find(marker="task-deadline-use-time").click()
+    user.find(marker="task-deadline-time").clear().type("12:00")
+    user.find(marker="task-save").click()
+    assert saved[0].deadline == datetime(2026, 10, 30, 12, 0)
+
+
+async def test_an_existing_task_opens_with_its_values(user: User) -> None:
+    task = Task(
+        "旧",
+        planned_start=datetime(2026, 10, 5, 9),
+        planned_end=datetime(2026, 10, 9, 15, 30),
+        planned_end_manual=True,
+        deadline=datetime(2026, 10, 12, 18),
+        effort_hours=8.0,
+    )
+    mount_dialog(task, [])
+    await open_dialog(user)
+    assert user.find(marker="task-end-manual").elements.pop().value is True
+    assert user.find(marker="task-end-date").elements.pop().value == "2026-10-09"
+    assert user.find(marker="task-end-time").elements.pop().value == "15:30"
+    assert user.find(marker="task-deadline-date").elements.pop().value == "2026-10-12"
+
+
+async def test_closing_asks_for_confirmation_after_the_manual_check_changes(user: User) -> None:
+    task = Task("旧", planned_start=datetime(2026, 10, 5, 9), effort_hours=8.0)
+    mount_dialog(task, [])
+    await open_dialog(user)
+    user.find(marker="task-end-manual").click()
+    user.find(marker="task-cancel").click()
+    await user.should_see(marker="close-save")
