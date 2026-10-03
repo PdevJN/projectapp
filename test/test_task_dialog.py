@@ -60,8 +60,10 @@ async def test_time_inputs_are_hidden_until_the_checkbox_is_checked(user: User) 
     await open_dialog(user)
     await user.should_not_see(marker="task-start-time")
     await user.should_not_see(marker="task-end-time")
-    user.find(marker="task-use-time").click()
+    user.find(marker="task-start-use-time").click()
     await user.should_see(marker="task-start-time")
+    await user.should_not_see(marker="task-end-time")  # 終了は、終了のチェックで出る
+    user.find(marker="task-end-use-time").click()
     await user.should_see(marker="task-end-time")
 
 
@@ -72,7 +74,8 @@ async def test_checked_times_are_used(user: User) -> None:
     user.find(marker="task-name").type("設計")
     user.find(marker="task-start-date").type("2026-10-05")
     user.find(marker="task-end-date").type("2026-10-07")
-    user.find(marker="task-use-time").click()
+    user.find(marker="task-start-use-time").click()
+    user.find(marker="task-end-use-time").click()
     user.find(marker="task-start-time").clear().type("10:15")
     user.find(marker="task-end-time").clear().type("16:45")
     user.find(marker="task-save").click()
@@ -87,11 +90,42 @@ async def test_unchecking_resets_the_times_to_the_defaults(user: User) -> None:
     user.find(marker="task-name").type("設計")
     user.find(marker="task-start-date").type("2026-10-05")
     user.find(marker="task-end-date").type("2026-10-07")
-    user.find(marker="task-use-time").click()
+    user.find(marker="task-start-use-time").click()
+    user.find(marker="task-end-use-time").click()
     user.find(marker="task-start-time").clear().type("10:15")
-    user.find(marker="task-use-time").click()  # 外す
+    user.find(marker="task-end-time").clear().type("16:45")
+    user.find(marker="task-start-use-time").click()  # 開始だけ外す
     user.find(marker="task-save").click()
-    assert saved[0].start == datetime(2026, 10, 5, 9, 0)
+    assert saved[0].start == datetime(2026, 10, 5, 9, 0)  # 開始は補う時刻に戻る
+    assert saved[0].end == datetime(2026, 10, 7, 16, 45)  # 終了は変わらない
+
+
+async def test_only_the_start_time_can_be_specified(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-start-date").type("2026-10-05")
+    user.find(marker="task-end-date").type("2026-10-07")
+    user.find(marker="task-start-use-time").click()
+    user.find(marker="task-start-time").clear().type("10:15")
+    user.find(marker="task-save").click()
+    assert saved[0].start == datetime(2026, 10, 5, 10, 15)
+    assert saved[0].end == datetime(2026, 10, 7, 18, 0)  # 終了は補う時刻のまま
+
+
+async def test_only_the_end_time_can_be_specified(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-start-date").type("2026-10-05")
+    user.find(marker="task-end-date").type("2026-10-07")
+    user.find(marker="task-end-use-time").click()
+    user.find(marker="task-end-time").clear().type("16:45")
+    user.find(marker="task-save").click()
+    assert saved[0].start == datetime(2026, 10, 5, 9, 0)  # 開始は補う時刻のまま
+    assert saved[0].end == datetime(2026, 10, 7, 16, 45)
 
 
 async def test_a_task_with_non_default_times_opens_with_the_times_shown(user: User) -> None:
@@ -99,6 +133,7 @@ async def test_a_task_with_non_default_times_opens_with_the_times_shown(user: Us
     mount_dialog(task, [])
     await open_dialog(user)
     await user.should_see(marker="task-start-time")
+    await user.should_see(marker="task-end-time")
     assert user.find(marker="task-start-time").elements.pop().value == "10:15"
     assert user.find(marker="task-end-time").elements.pop().value == "16:45"
 
@@ -108,6 +143,16 @@ async def test_a_task_with_default_times_opens_with_the_times_hidden(user: User)
     mount_dialog(task, [])
     await open_dialog(user)
     await user.should_not_see(marker="task-start-time")
+    await user.should_not_see(marker="task-end-time")
+
+
+async def test_an_automatic_end_shows_only_the_end_time(user: User) -> None:
+    # 開始は始業時刻のままなので、時刻入力が出るのは終了側だけ
+    task = Task("旧", start=datetime(2026, 10, 5, 9, 0), end=datetime(2026, 10, 5, 15, 30))
+    mount_dialog(task, [])
+    await open_dialog(user)
+    await user.should_not_see(marker="task-start-time")
+    await user.should_see(marker="task-end-time")
 
 
 async def test_an_automatic_end_is_kept_when_nothing_is_edited(user: User) -> None:
@@ -134,7 +179,7 @@ async def test_checked_but_empty_time_is_rejected(user: User) -> None:
     await open_dialog(user)
     user.find(marker="task-name").type("設計")
     user.find(marker="task-start-date").type("2026-10-05")
-    user.find(marker="task-use-time").click()
+    user.find(marker="task-start-use-time").click()
     user.find(marker="task-start-time").clear()
     user.find(marker="task-save").click()
     await user.should_see("時刻の形式が正しくありません")
@@ -200,7 +245,7 @@ async def test_date_picker_and_field_stay_in_sync(user: User) -> None:
 async def test_time_picker_and_field_stay_in_sync(user: User) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
-    user.find(marker="task-use-time").click()
+    user.find(marker="task-end-use-time").click()
     user.find(marker="open-end-time-picker").click()
     picker = user.find(marker="end-time-picker").elements.pop()
     field = user.find(marker="task-end-time").elements.pop()
@@ -304,7 +349,8 @@ async def test_close_confirm_save_with_an_invalid_input_shows_the_error_and_stay
 async def test_changing_only_the_checkbox_is_not_a_change(user: User) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
-    user.find(marker="task-use-time").click()
+    user.find(marker="task-start-use-time").click()
+    user.find(marker="task-end-use-time").click()
     user.find(marker="task-cancel").click()
     assert dialog_of(user).value is False
 

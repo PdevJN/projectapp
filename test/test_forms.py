@@ -12,7 +12,8 @@ from projectapp.forms import (
     default_times,
     exceeds_decimals,
     in_hours_range,
-    needs_time,
+    needs_end_time,
+    needs_start_time,
     open_file_dialog,
     open_name_dialog,
     open_section_dialog,
@@ -603,25 +604,38 @@ def test_compose_datetime_rejects_a_bad_clock_when_the_day_is_given(clock: str) 
         compose_datetime("2026-10-05", clock)
 
 
-def test_needs_time_is_false_for_default_or_empty_times() -> None:
+def test_needs_start_time_is_false_for_the_work_start_or_empty() -> None:
     nine = time(9, 0)
-    assert needs_time(None, None, nine) is False
-    assert needs_time(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 7, 18, 0), nine) is False
-    assert needs_time(datetime(2026, 10, 5, 9, 0), None, nine) is False
-    assert needs_time(None, datetime(2026, 10, 7, 18, 0), nine) is False
+    assert needs_start_time(None, nine) is False
+    assert needs_start_time(datetime(2026, 10, 5, 9, 0), nine) is False
 
 
-def test_needs_time_is_true_when_either_time_differs() -> None:
+def test_needs_start_time_is_true_for_another_time() -> None:
+    assert needs_start_time(datetime(2026, 10, 5, 9, 30), time(9, 0)) is True
+
+
+def test_needs_start_time_follows_the_work_start() -> None:
+    moment = datetime(2026, 10, 5, 8, 30)
+    assert needs_start_time(moment, time(8, 30)) is False
+    assert needs_start_time(moment, time(9, 0)) is True
+
+
+def test_needs_end_time_is_false_for_the_default_end_or_empty() -> None:
     nine = time(9, 0)
-    assert needs_time(datetime(2026, 10, 5, 9, 30), None, nine) is True
-    assert needs_time(None, datetime(2026, 10, 7, 15, 30), nine) is True
+    assert needs_end_time(None, nine) is False
+    assert needs_end_time(datetime(2026, 10, 7, 18, 0), nine) is False
 
 
-def test_needs_time_compares_in_minutes() -> None:
+def test_needs_end_time_is_true_for_another_time() -> None:
+    assert needs_end_time(datetime(2026, 10, 7, 15, 30), time(9, 0)) is True
+
+
+def test_needs_end_time_compares_in_minutes() -> None:
     # 秒を持つ終了(自動算出)でも、同じ分なら補う時刻と同じとみなす
-    assert needs_time(None, datetime(2026, 10, 7, 18, 0, 30), time(9, 0)) is False
+    assert needs_end_time(datetime(2026, 10, 7, 18, 0, 30), time(9, 0)) is False
 
 
-def test_needs_time_follows_the_work_start() -> None:
-    assert needs_time(datetime(2026, 10, 5, 8, 30), datetime(2026, 10, 7, 17, 30), time(8, 30)) is False
-    assert needs_time(datetime(2026, 10, 5, 8, 30), datetime(2026, 10, 7, 17, 30), time(9, 0)) is True
+def test_needs_end_time_follows_the_work_start() -> None:
+    moment = datetime(2026, 10, 7, 17, 30)
+    assert needs_end_time(moment, time(8, 30)) is False
+    assert needs_end_time(moment, time(9, 0)) is True

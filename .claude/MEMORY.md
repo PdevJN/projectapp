@@ -39,7 +39,7 @@
   - 「保存して開く」は、保存に成功したときだけ開く(新規の未保存は名前入力を経由)。読込に失敗したら、現在のプロジェクトと `path` を変えず、コンボボックスの表示を戻す。
 - タスク編集ダイアログ(`task_dialog.py`、検証は `forms.py` の `build_task`):
   - 優先度は色付きチップ(`PriorityChips`。高=オレンジ、中=黄、低=青。赤は予定超過と競合するため使わない)。色の入力は `preview=True`。
-  - 開始・終了は横並びの日付入力(テキスト + `ui.date` のダイアログ)。「時刻も指定する」のチェックで時刻入力(`ui.time` のダイアログ)が出る。時刻なしは、開始=始業時刻(`Project.work_start`)、終了=始業+8h+昼休憩1h(`default_times`。固定の定数 `STANDARD_WORK_HOURS`・`LUNCH_HOURS`)。日付と時刻は `compose_datetime` で文字列にして `build_task` に渡す(検証と `end_auto` の判定は不変)。開くとき、開始・終了が補う時刻と違えば(自動算出の終了を含む)チェック済みで出る(`needs_time`)。
+  - 開始・終了は横並びの日付入力(テキスト + `ui.date` のダイアログ)。開始・終了の各列の「時刻を指定」のチェックで、その側の時刻入力(`ui.time` のダイアログ)が出る(チェックは側ごと。外すとその側だけ補う時刻に戻る)。時刻なしは、開始=始業時刻(`Project.work_start`)、終了=始業+8h+昼休憩1h(`default_times`。固定の定数 `STANDARD_WORK_HOURS`・`LUNCH_HOURS`)。日付と時刻は `compose_datetime` で文字列にして `build_task` に渡す(検証と `end_auto` の判定は不変)。開くとき、側ごとに、補う時刻と違えば(自動算出の終了を含む)チェック済みで出る(`needs_start_time`・`needs_end_time`)。
   - 閉じる: `persistent`。「キャンセル」と `ESC` は、変更があるときだけ確認(保存・破棄して閉じる・編集に戻る)。変更の判定は、開いた時点の入力値との比較(`current()`)。
   - 削除: 編集時だけ左端に削除ボタン。確認ダイアログ → `MainView.delete_task`。保存は自動では行わず、「編集中」になる。
 - ガントチャート(`gantt.py`):

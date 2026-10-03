@@ -139,16 +139,18 @@ def compose_datetime(day: str, clock: str) -> str:
     return f"{day}T{clock}"
 
 
-def needs_time(start: datetime | None, end: datetime | None, work_start: time) -> bool:
-    """開始・終了が、補う時刻と違うか。違えば、ダイアログは時刻の入力を開いた状態で出す。"""
-    default_start, default_end = default_times(work_start)
+def _minute(moment: datetime) -> time:
+    return moment.time().replace(second=0, microsecond=0)
 
-    def minute(moment: datetime) -> time:
-        return moment.time().replace(second=0, microsecond=0)
 
-    return (start is not None and minute(start) != default_start) or (
-        end is not None and minute(end) != default_end
-    )
+def needs_start_time(start: datetime | None, work_start: time) -> bool:
+    """開始が、補う時刻(始業時刻)と違うか。違えば、ダイアログは開始の時刻入力を開いた状態で出す。"""
+    return start is not None and _minute(start) != default_times(work_start)[0]
+
+
+def needs_end_time(end: datetime | None, work_start: time) -> bool:
+    """終了が、補う時刻と違うか。自動算出の終了(例: 15:30)も、違えば開いた状態で出す。"""
+    return end is not None and _minute(end) != default_times(work_start)[1]
 
 
 def open_section_dialog(on_save: Callable[[str], object]) -> None:

@@ -5,7 +5,13 @@ from datetime import datetime, time
 
 from nicegui import ui
 
-from projectapp.forms import build_task, compose_datetime, default_times, needs_time
+from projectapp.forms import (
+    build_task,
+    compose_datetime,
+    default_times,
+    needs_end_time,
+    needs_start_time,
+)
 from projectapp.models import DEFAULT_WORK_START, Priority, Status, Task
 
 # 赤は「予定超過」の背景色と意味が競合するため、優先度には使わない
@@ -55,40 +61,45 @@ def add_picker(
 
 
 class DateTimeFields:
-    """開始・終了を、日付の入力(横並び)と、チェックで出す時刻の入力で受け取る。"""
+    """開始・終了を、日付の入力(横並び)と、側ごとのチェックで出す時刻の入力で受け取る。"""
 
     def __init__(self, start: datetime | None, end: datetime | None, work_start: time) -> None:
         default_start, default_end = default_times(work_start)
         self._defaults = {"start": default_start, "end": default_end}
         with ui.row().classes("w-full no-wrap gap-4"):
-            self.start_day, self.start_time = self._column("開始", "start", start, default_start)
-            self.end_day, self.end_time = self._column("終了", "end", end, default_end)
-        self.use_time = ui.checkbox(
-            "時刻も指定する",
-            value=needs_time(start, end, work_start),
-            on_change=lambda e: self._show_times(e.value),
-        ).mark("task-use-time")
-        self._show_times(self.use_time.value, reset=False)
+            self.start_day, self.start_time, self.use_start_time = self._column(
+                "開始", "start", start, default_start, needs_start_time(start, work_start)
+            )
+            self.end_day, self.end_time, self.use_end_time = self._column(
+                "終了", "end", end, default_end, needs_end_time(end, work_start)
+            )
+        self._show_time("start", self.use_start_time.value, reset=False)
+        self._show_time("end", self.use_end_time.value, reset=False)
 
-    @staticmethod
     def _column(
-        label: str, key: str, moment: datetime | None, default: time
-    ) -> tuple[ui.input, ui.input]:
+        self, label: str, key: str, moment: datetime | None, default: time, use_time: bool
+    ) -> tuple[ui.input, ui.input, ui.checkbox]:
         with ui.column().classes("flex-1 gap-0"):
             ui.label(label).classes("text-caption text-grey")
             day = ui.input("日付", value=moment.strftime("%Y-%m-%d") if moment else "")
             day.classes("w-full").mark(f"task-{key}-date")
             add_picker(day, ui.date, "event", f"{key}-date")
+            checkbox = ui.checkbox(
+                "時刻を指定",
+                value=use_time,
+                on_change=lambda e, k=key: self._show_time(k, e.value),
+            ).mark(f"task-{key}-use-time")
             clock = ui.input("時刻", value=(moment.time() if moment else default).strftime("%H:%M"))
             clock.classes("w-full").mark(f"task-{key}-time")
             add_picker(clock, ui.time, "access_time", f"{key}-time")
-        return day, clock
+        return day, clock, checkbox
 
-    def _show_times(self, show: bool, *, reset: bool = True) -> None:
-        for key, clock in (("start", self.start_time), ("end", self.end_time)):
-            clock.set_visibility(show)
-            if not show and reset:
-                clock.set_value(self._defaults[key].strftime("%H:%M"))
+    def _show_time(self, key: str, show: bool, *, reset: bool = True) -> None:
+        """側ごとに時刻入力を出し入れする。外すと、その側の時刻だけを補う時刻に戻す。"""
+        clock = self.start_time if key == "start" else self.end_time
+        clock.set_visibility(show)
+        if not show and reset:
+            clock.set_value(self._defaults[key].strftime("%H:%M"))
 
     def start_text(self) -> str:
         return compose_datetime(self.start_day.value or "", self.start_time.value or "")
