@@ -9,7 +9,16 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from projectapp.models import Member, Priority, Project, Section, Status, Task
+from projectapp.models import (
+    MAX_YEAR,
+    MIN_YEAR,
+    Member,
+    Priority,
+    Project,
+    Section,
+    Status,
+    Task,
+)
 
 BASE_DIR = Path.home() / ".projectapp"
 RESERVED = {"config", "holidays"}
@@ -107,7 +116,13 @@ def save_project(
 
 
 def _datetime(text: str | None) -> datetime | None:
-    return datetime.fromisoformat(text) if text else None
+    """日時を読む。年が範囲外(手編集の誤り)なら、描画が止まるのを防ぐためにValueError。"""
+    if not text:
+        return None
+    moment = datetime.fromisoformat(text)
+    if not MIN_YEAR <= moment.year <= MAX_YEAR:
+        raise ValueError(f"日時の年は{MIN_YEAR}〜{MAX_YEAR}の範囲で指定してください: {text}")
+    return moment
 
 
 def _task(raw: dict[str, Any]) -> Task:
@@ -120,7 +135,7 @@ def _task(raw: dict[str, Any]) -> Task:
         planned_start = _datetime(raw.get("planned_start", raw.get("start")))
         planned_end, manual = None, False
         legacy_end = None if raw.get("end_auto") is True else _datetime(raw.get("end"))
-        deadline = legacy_end or _datetime(raw.get("deadline"))
+        deadline = _datetime(raw.get("deadline")) or legacy_end  # 明示された締切を優先
     return Task(
         name=raw["name"],
         planned_start=planned_start,

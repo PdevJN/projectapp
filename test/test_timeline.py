@@ -356,3 +356,9 @@ def test_deadline_position_at_the_boundaries() -> None:
     assert deadline_position(datetime(2026, 10, 5, 0, 0), columns) == 0.0
     last = datetime.combine(columns[-1].end, time.min) - timedelta(minutes=1)
     assert deadline_position(last, columns) is not None
+
+
+def test_visible_range_survives_a_planned_end_at_the_end_of_time() -> None:
+    task = Task("t", planned_start=datetime.max, planned_end=datetime.max)
+    first, last = visible_range(project_with(task))  # 手編集のファイルでも例外にしない
+    assert (first, last) == (BASE, BASE)  # 日付を足せないタスクは範囲に入れない

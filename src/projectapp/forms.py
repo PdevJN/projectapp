@@ -8,12 +8,11 @@ from math import isfinite
 
 from nicegui import ui
 
-from projectapp.models import Priority, Status, Task, is_hex_color
+from projectapp.models import MAX_YEAR, MIN_YEAR, Priority, Status, Task, is_hex_color
 
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
 STANDARD_WORK_HOURS = 8  # 時刻を指定しないときに補う終了の、標準稼働時間(固定)
 LUNCH_HOURS = 1  # 同じく、昼休憩(固定。稼働設定の対象外)
-MIN_YEAR, MAX_YEAR = 2000, 2100  # 入力ミスで表示範囲が際限なく広がるのを防ぐ
 MIN_DAILY_HOURS, MAX_DAILY_HOURS = 1.0, 8.0  # 稼働可能時間の範囲
 HOURS_RANGE_MESSAGE = f"稼働可能時間は{MIN_DAILY_HOURS:g}以上{MAX_DAILY_HOURS:g}以下で入力してください"
 HOURS_DECIMALS = 2  # 稼働時間の小数点以下の桁数(0.25=15分刻みを含む)
@@ -50,6 +49,20 @@ def parse_datetime(text: str) -> datetime | None:
     return value
 
 
+def _parse_planned_end(text: str, *, strict: bool, fallback: datetime | None) -> datetime | None:
+    """完了予定の入力を解析する。使われない値(工数ありで手指定なし)は、不正でも保存を妨げず、
+    形式や年が不正なら前の値を保つ。"""
+    try:
+        value = parse_datetime(text)
+    except ValueError:
+        if strict:
+            raise
+        return fallback
+    if not strict and value and not MIN_YEAR <= value.year <= MAX_YEAR:
+        return fallback
+    return value
+
+
 def build_task(
     existing: Task | None,
     *,
@@ -68,24 +81,24 @@ def build_task(
     clean = name.strip()
     if not clean:
         raise ValueError("名前を入力してください")
+    base = existing or Task(clean)
+    hours = effort_hours or 0.0
+    manual = planned_end_manual and hours > 0
+    uses_planned_end = hours <= 0 or manual
     try:
-        start_at, end_at = parse_datetime(planned_start), parse_datetime(planned_end)
-        deadline_at = parse_datetime(deadline)
+        start_at, deadline_at = parse_datetime(planned_start), parse_datetime(deadline)
+        end_at = _parse_planned_end(planned_end, strict=uses_planned_end, fallback=base.planned_end)
     except ValueError:
         raise ValueError("日時の形式が正しくありません") from None
-    for moment in (start_at, end_at, deadline_at):
+    for moment in (start_at, deadline_at, end_at if uses_planned_end else None):
         if moment and not MIN_YEAR <= moment.year <= MAX_YEAR:
             raise ValueError(f"年は{MIN_YEAR}〜{MAX_YEAR}の範囲で入力してください")
-    hours = effort_hours or 0.0
     if not isfinite(hours) or hours < 0:
         raise ValueError("工数は0以上の数値で入力してください")
     if not is_hex_color(color):
         raise ValueError("色は#RRGGBBの形式で入力してください")
-    manual = planned_end_manual and hours > 0
-    uses_planned_end = hours <= 0 or manual  # 工数ありで手指定なしの値は、使われないので検証しない
     if uses_planned_end and start_at and end_at and end_at < start_at:
         raise ValueError("完了予定は開始予定以降の日時にしてください")
-    base = existing or Task(clean)
     return replace(
         base,
         name=clean,

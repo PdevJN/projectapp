@@ -47,8 +47,12 @@ def visible_range(
         if task.planned_start is None or task_end is None:
             continue
         first, last = sorted((task.planned_start.date(), task_end.date()))
+        try:
+            task_last = last + timedelta(days=1)
+        except OverflowError:  # 日付の上限(手編集のファイル)。範囲に入れない
+            continue
         start = min(start, first)
-        end = max(end, last + timedelta(days=1))
+        end = max(end, task_last)
     return start, end
 
 

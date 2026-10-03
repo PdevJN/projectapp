@@ -82,7 +82,7 @@ def test_year_outside_range_is_rejected(text: str) -> None:
     with pytest.raises(ValueError, match="年"):
         make(planned_start=text, planned_end="")
     with pytest.raises(ValueError, match="年"):
-        make(planned_start="", planned_end=text)
+        make(planned_start="", planned_end=text, effort_hours=0.0)
 
 
 def test_year_boundaries_are_accepted() -> None:
@@ -618,7 +618,7 @@ def test_planned_end_manual_is_saved_only_with_effort() -> None:
 
 def test_planned_end_year_is_limited() -> None:
     with pytest.raises(ValueError, match="年は"):
-        make(planned_end="2101-01-01T00:00")
+        make(planned_end="2101-01-01T00:00", effort_hours=0.0)
 
 
 def test_build_task_requires_the_deadline_text() -> None:
@@ -634,3 +634,21 @@ def test_build_task_requires_the_deadline_text() -> None:
             color="#112233",
             assignee="",
         )
+
+
+def test_a_hidden_planned_end_with_a_bad_format_does_not_block_saving() -> None:
+    existing = Task("旧", planned_end=datetime(2026, 10, 9, 18), effort_hours=8.0)
+    task = make(existing, effort_hours=8.0, planned_end_manual=False, planned_end="abc")
+    assert task.planned_end == datetime(2026, 10, 9, 18)  # 使われない値は、前の値を保つ
+
+
+def test_a_hidden_planned_end_outside_the_year_range_does_not_block_saving() -> None:
+    task = make(effort_hours=8.0, planned_end_manual=False, planned_end="9999-01-01T00:00")
+    assert task.planned_end is None
+
+
+def test_a_used_planned_end_with_a_bad_format_is_still_rejected() -> None:
+    with pytest.raises(ValueError, match="日時"):
+        make(effort_hours=0.0, planned_end="abc")
+    with pytest.raises(ValueError, match="日時"):
+        make(effort_hours=8.0, planned_end_manual=True, planned_end="abc")
