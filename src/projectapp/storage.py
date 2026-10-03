@@ -5,6 +5,7 @@ import os
 import tempfile
 from dataclasses import asdict
 from datetime import date, datetime, time
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -89,8 +90,26 @@ def _task(raw: dict[str, Any]) -> Task:
         color=raw["color"],
         assignee=raw.get("assignee"),
         predecessors=list(raw["predecessors"]),
-        end_auto=raw.get("end_auto", False),
+        end_auto=raw.get("end_auto") is True,  # bool以外(手編集の誤り)は手入力扱い
     )
+
+
+def _daily_hours(value: Any) -> float:
+    """算出側(calc_end)が受け付ける範囲: 有限の数値で、0より大きく24以下。"""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError("稼働可能時間が数値ではありません")
+    if not isfinite(value) or not 0 < value <= 24:
+        raise ValueError("稼働可能時間が範囲外です(0より大きく24以下)")
+    return value
+
+
+def _work_start(value: Any) -> time:
+    if not isinstance(value, str):
+        raise ValueError("始業時刻が文字列ではありません")
+    try:
+        return time.fromisoformat(value)
+    except ValueError:
+        raise ValueError(f"始業時刻の形式が正しくありません: {value!r}") from None
 
 
 def load_project(path: Path) -> Project:
@@ -100,8 +119,8 @@ def load_project(path: Path) -> Project:
     return Project(
         name=path.stem,
         base_date=date.fromisoformat(raw["base_date"]),
-        daily_hours=raw["daily_hours"],
-        work_start=time.fromisoformat(raw.get("work_start", "09:00:00")),
+        daily_hours=_daily_hours(raw["daily_hours"]),
+        work_start=_work_start(raw.get("work_start", "09:00:00")),
         members=members,
         sections=sections,
         tasks=[_task(t) for t in raw.get("tasks", [])],

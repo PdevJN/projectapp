@@ -173,3 +173,39 @@ def test_old_file_without_end_auto_reads_as_manual(tmp_path: Path) -> None:
     del data["sections"][0]["tasks"][0]["end_auto"]
     path.write_text(json.dumps(data), encoding="utf-8")
     assert load_project(path).sections[0].tasks[0].end_auto is False
+
+
+def _rewrite(path: Path, edit) -> None:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    edit(data)
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+@pytest.mark.parametrize("value", ["false", "true", None, 1, 0, []])
+def test_end_auto_that_is_not_a_bool_reads_as_manual(value: object, tmp_path: Path) -> None:
+    path = save_project(Project("odd", sections=[Section("s", [Task("a", end_auto=True)])]), tmp_path)
+    _rewrite(path, lambda d: d["sections"][0]["tasks"][0].update(end_auto=value))
+    assert load_project(path).sections[0].tasks[0].end_auto is False
+
+
+@pytest.mark.parametrize("value", ["6.5", None, True, [], 0, -1, 24.5, float("nan"), float("inf")])
+def test_load_rejects_an_invalid_daily_hours(value: object, tmp_path: Path) -> None:
+    path = save_project(Project("bad"), tmp_path)
+    _rewrite(path, lambda d: d.update(daily_hours=value))
+    with pytest.raises(ValueError, match="稼働可能時間"):
+        load_project(path)
+
+
+@pytest.mark.parametrize("value", [0.5, 6.5, 8, 24])
+def test_load_accepts_daily_hours_the_calculation_accepts(value: float, tmp_path: Path) -> None:
+    path = save_project(Project("ok"), tmp_path)
+    _rewrite(path, lambda d: d.update(daily_hours=value))
+    assert load_project(path).daily_hours == value
+
+
+@pytest.mark.parametrize("value", ["9", "25:00", "abc", 9, None, ""])
+def test_load_rejects_an_invalid_work_start(value: object, tmp_path: Path) -> None:
+    path = save_project(Project("bad"), tmp_path)
+    _rewrite(path, lambda d: d.update(work_start=value))
+    with pytest.raises(ValueError, match="始業時刻"):
+        load_project(path)
