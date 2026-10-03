@@ -78,7 +78,7 @@ def build_task(
     # ダイアログは日時を分単位で表示するので、同じ分なら既存の終了(秒を含む)を残す
     end_unchanged = existing is not None and format_datetime(existing.end) == end.strip()
     inputs_changed = existing is not None and (
-        format_datetime(existing.start) != start.strip() or hours != existing.effort_hours
+        format_datetime(existing.planned_start) != start.strip() or hours != existing.effort_hours
     )
     # 自動算出の終了は、開始か工数を変えたら捨てて、保存時に算出し直す
     recompute = base.end_auto and end_unchanged and inputs_changed
@@ -91,7 +91,7 @@ def build_task(
     return replace(
         base,
         name=clean,
-        start=start_at,
+        planned_start=start_at,
         end=None if recompute else (existing.end if existing and end_unchanged else end_at),
         end_auto=base.end_auto and end_unchanged and not inputs_changed,
         effort_hours=hours,

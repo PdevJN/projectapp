@@ -113,7 +113,7 @@ def _datetime(text: str | None) -> datetime | None:
 def _task(raw: dict[str, Any]) -> Task:
     return Task(
         name=raw["name"],
-        start=_datetime(raw.get("start")),
+        planned_start=_datetime(raw.get("planned_start", raw.get("start"))),  # 旧形式は start
         end=_datetime(raw.get("end")),
         effort_hours=raw["effort_hours"],
         priority=Priority(raw["priority"]),

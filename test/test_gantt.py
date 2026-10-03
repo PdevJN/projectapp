@@ -35,7 +35,7 @@ class Recorder:
 def sample_project() -> Project:
     task = Task(
         "設計",
-        start=datetime(2026, 10, 5, 12),
+        planned_start=datetime(2026, 10, 5, 12),
         end=datetime(2026, 10, 7, 12),
         color="#ff0000",
     )
@@ -159,7 +159,7 @@ async def test_week_and_month_headers_have_no_weekday(user: User) -> None:
 def top_project() -> Project:
     task = Task(
         "単独",
-        start=datetime(2026, 10, 5, 12),
+        planned_start=datetime(2026, 10, 5, 12),
         end=datetime(2026, 10, 7, 12),
         color="#00ff00",
     )
@@ -354,7 +354,7 @@ async def test_a_bad_color_in_a_hand_edited_file_falls_back_to_the_default(user:
 async def test_a_task_that_ends_before_it_starts_still_shows_a_thin_bar(user: User) -> None:
     project = sample_project()
     task = project.sections[0].tasks[0]
-    task.start, task.end = task.end, task.start
+    task.planned_start, task.end = task.end, task.planned_start
     mount(project)
     await user.open("/")
     bar = user.find(marker="bar-0-0").elements.pop()
@@ -364,7 +364,7 @@ async def test_a_task_that_ends_before_it_starts_still_shows_a_thin_bar(user: Us
 async def test_a_zero_length_task_still_shows_a_thin_bar(user: User) -> None:
     project = sample_project()
     task = project.sections[0].tasks[0]
-    task.end = task.start
+    task.end = task.planned_start
     mount(project)
     await user.open("/")
     bar = user.find(marker="bar-0-0").elements.pop()
