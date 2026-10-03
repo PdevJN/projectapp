@@ -14,6 +14,7 @@ from projectapp.timeline import (
     Scale,
     bar_span,
     build_columns,
+    effective_end,
     is_overdue,
     month_bands,
     year_bands,
@@ -88,7 +89,7 @@ class GanttChart:
 
     @ui.refreshable_method
     def render(self) -> None:
-        columns = build_columns(self.project, self.scale)
+        columns = build_columns(self.project, self.scale, self.holidays)
         width = COLUMN_WIDTH_PX[self.scale]
         total = NAME_WIDTH_PX + width * len(columns)
         with ui.element("div").classes("w-full").style("overflow-x: auto"):
@@ -185,7 +186,7 @@ class GanttChart:
     ) -> None:
         key = "top" if si is None else si
         style = ROW_STYLE
-        if is_overdue(task, self.now()):
+        if is_overdue(task, self.project, self.holidays, self.now()):
             style += f"; background: {OVERDUE_COLOR}"
         with ui.row().classes("items-center no-wrap gap-0").style(style):
             ui.label(task.name).classes("ellipsis cursor-pointer").style(
@@ -193,7 +194,8 @@ class GanttChart:
             ).on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti)).mark(
                 f"task-{key}-{ti}"
             )
-            span = bar_span(task, columns)
+            end = effective_end(task, self.project, self.holidays)
+            span = bar_span(task.planned_start, end, columns)
             if span is None:
                 return
             left, length = span

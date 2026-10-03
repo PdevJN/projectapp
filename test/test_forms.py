@@ -28,8 +28,10 @@ from projectapp.task_dialog import open_task_dialog
 def make(existing: Task | None = None, **overrides: object) -> Task:
     values: dict[str, object] = {
         "name": "設計",
-        "start": "2026-10-05T09:00",
-        "end": "2026-10-07T18:00",
+        "planned_start": "2026-10-05T09:00",
+        "planned_end": "2026-10-07T18:00",
+        "planned_end_manual": False,
+        "deadline": "",
         "effort_hours": 8.0,
         "priority": Priority.HIGH,
         "status": Status.RUNNING,
@@ -44,14 +46,14 @@ def test_build_task_normalizes_input() -> None:
     task = make(name="  設計  ", assignee=" 佐藤 ")
     assert task.name == "設計"
     assert task.planned_start == datetime(2026, 10, 5, 9, 0)
-    assert task.end == datetime(2026, 10, 7, 18, 0)
+    assert task.planned_end == datetime(2026, 10, 7, 18, 0)
     assert task.effort_hours == 8.0
     assert task.assignee == "佐藤"
 
 
 def test_blank_assignee_and_dates_become_none() -> None:
-    task = make(start="", end="", assignee="  ", effort_hours=None)
-    assert (task.planned_start, task.end, task.assignee, task.effort_hours) == (None, None, None, 0.0)
+    task = make(planned_start="", planned_end="", assignee="  ", effort_hours=None)
+    assert (task.planned_start, task.planned_end, task.assignee, task.effort_hours) == (None, None, None, 0.0)
 
 
 @pytest.mark.parametrize("name", ["", "   ", "　"])
@@ -61,9 +63,10 @@ def test_blank_name_is_rejected(name: str) -> None:
 
 
 def test_end_before_start_is_rejected_but_equal_is_allowed() -> None:
-    with pytest.raises(ValueError, match="終了"):
-        make(start="2026-10-07T09:00", end="2026-10-05T09:00")
-    assert make(start="2026-10-05T09:00", end="2026-10-05T09:00").name == "設計"
+    with pytest.raises(ValueError, match="完了予定は開始予定以降"):
+        make(effort_hours=0.0, planned_start="2026-10-07T09:00", planned_end="2026-10-05T09:00")
+    same = make(effort_hours=0.0, planned_start="2026-10-05T09:00", planned_end="2026-10-05T09:00")
+    assert same.name == "設計"
 
 
 @pytest.mark.parametrize(
@@ -71,21 +74,21 @@ def test_end_before_start_is_rejected_but_equal_is_allowed() -> None:
 )
 def test_bad_or_timezone_aware_datetime_is_rejected(text: str) -> None:
     with pytest.raises(ValueError, match="形式"):
-        make(start=text)
+        make(planned_start=text)
 
 
 @pytest.mark.parametrize("text", ["0026-10-05T09:00", "1999-12-31T23:59", "2101-01-01T00:00", "2926-10-05T09:00"])
 def test_year_outside_range_is_rejected(text: str) -> None:
     with pytest.raises(ValueError, match="年"):
-        make(start=text, end="")
+        make(planned_start=text, planned_end="")
     with pytest.raises(ValueError, match="年"):
-        make(start="", end=text)
+        make(planned_start="", planned_end=text)
 
 
 def test_year_boundaries_are_accepted() -> None:
-    task = make(start="2000-01-01T00:00", end="2100-12-31T23:59")
+    task = make(planned_start="2000-01-01T00:00", planned_end="2100-12-31T23:59")
     assert task.planned_start == datetime(2000, 1, 1)
-    assert task.end == datetime(2100, 12, 31, 23, 59)
+    assert task.planned_end == datetime(2100, 12, 31, 23, 59)
 
 
 def test_negative_effort_is_rejected() -> None:
@@ -125,7 +128,7 @@ async def test_task_dialog_saves_a_valid_task(user: User) -> None:
     user.find(marker="task-save").click()
     assert [t.name for t in saved] == ["設計"]
     assert saved[0].planned_start == datetime(2026, 10, 5, 9, 0)
-    assert saved[0].end == datetime(2026, 10, 7, 18, 0)
+    assert saved[0].planned_end == datetime(2026, 10, 7, 18, 0)
 
 
 async def test_task_dialog_shows_error_and_does_not_save(user: User) -> None:
@@ -145,7 +148,7 @@ async def test_task_dialog_shows_error_and_does_not_save(user: User) -> None:
 async def test_task_dialog_prefills_when_editing(user: User) -> None:
     @ui.page("/")
     def index() -> None:
-        task = Task("既存", planned_start=datetime(2026, 10, 5, 9), end=datetime(2026, 10, 6, 9))
+        task = Task("既存", planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 6, 9))
         ui.button("open", on_click=lambda: open_task_dialog(task, lambda t: None))
 
     await user.open("/")
@@ -306,30 +309,6 @@ async def test_unsaved_dialog_calls_the_matching_action(user: User, marker: str)
     assert calls == ([] if marker == "unsaved-cancel" else [marker])
 
 
-def test_build_task_keeps_end_auto_when_the_end_is_untouched() -> None:
-    existing = Task(
-        "旧", planned_start=datetime(2026, 10, 5, 9), end=datetime(2026, 10, 7, 18),
-        effort_hours=8.0, end_auto=True,
-    )
-    assert make(existing).end_auto is True
-
-
-def test_build_task_clears_end_auto_when_the_end_is_edited() -> None:
-    existing = Task("旧", end=datetime(2026, 10, 7, 18), end_auto=True)
-    assert make(existing, end="2026-10-08T18:00").end_auto is False
-
-
-def test_build_task_clears_end_auto_when_the_end_is_emptied() -> None:
-    existing = Task("旧", end=datetime(2026, 10, 7, 18), end_auto=True)
-    edited = make(existing, end="")
-    assert edited.end is None
-    assert edited.end_auto is False
-
-
-def test_build_task_typed_end_of_a_new_task_is_manual() -> None:
-    assert make().end_auto is False
-
-
 @pytest.mark.parametrize(
     ("hours", "start"),
     [(6.5, "09:00"), (1.0, "09:00"), (8.0, "16:00"), (1.0, "23:00"), (6.5, "17:30"), (8.0, "9:00")],
@@ -392,82 +371,6 @@ async def test_settings_dialog_prefills_rejects_then_applies(user: User) -> None
     user.find(marker="settings-start").clear().type("10:00")
     user.find(marker="settings-apply").click()
     assert applied == [(8.0, time(10, 0))]
-
-
-SECONDS_END = datetime(2026, 10, 5, 10, 14, 4, 200000)  # 小数の工数で、終了に秒が付く
-
-
-def test_build_task_keeps_an_automatic_end_that_has_seconds() -> None:
-    existing = Task(
-        "旧", planned_start=datetime(2026, 10, 5, 9), end=SECONDS_END, effort_hours=1.2345, end_auto=True
-    )
-    edited = make(existing, end="2026-10-05T10:14", effort_hours=1.2345)
-    assert edited.end == SECONDS_END
-    assert edited.end_auto is True
-
-
-async def test_task_dialog_roundtrip_keeps_an_automatic_end_that_has_seconds(
-    user: User,
-) -> None:
-    saved: list[Task] = []
-    task = Task(
-        "旧", planned_start=datetime(2026, 10, 5, 9), end=SECONDS_END, effort_hours=1.2345, end_auto=True
-    )
-
-    @ui.page("/")
-    def index() -> None:
-        ui.button("open", on_click=lambda: open_task_dialog(task, saved.append))
-
-    await user.open("/")
-    user.find("open").click()
-    user.find(marker="task-save").click()
-    assert saved[0].end == SECONDS_END
-    assert saved[0].end_auto is True
-
-
-def auto_existing(**overrides: object) -> Task:
-    values: dict[str, object] = {
-        "planned_start": datetime(2026, 10, 5, 9),
-        "end": datetime(2026, 10, 7, 18),
-        "effort_hours": 8.0,
-        "end_auto": True,
-    }
-    values.update(overrides)
-    return Task("旧", **values)  # type: ignore[arg-type]
-
-
-def test_changing_the_start_of_an_automatic_end_clears_the_end_for_recalculation() -> None:
-    edited = make(auto_existing(), start="2026-10-06T09:00")
-    assert edited.end is None
-    assert edited.end_auto is False
-
-
-def test_changing_the_effort_of_an_automatic_end_clears_the_end_for_recalculation() -> None:
-    edited = make(auto_existing(), effort_hours=10.0)
-    assert edited.end is None
-    assert edited.end_auto is False
-
-
-def test_moving_the_start_after_an_automatic_end_is_allowed() -> None:
-    edited = make(auto_existing(), start="2026-10-20T09:00")
-    assert edited.end is None
-
-
-def test_changing_the_start_keeps_a_manual_end() -> None:
-    edited = make(auto_existing(end_auto=False), start="2026-10-06T09:00")
-    assert edited.end == datetime(2026, 10, 7, 18)
-    assert edited.end_auto is False
-
-
-def test_moving_the_start_after_a_manual_end_is_still_rejected() -> None:
-    with pytest.raises(ValueError, match="終了は開始以降"):
-        make(auto_existing(end_auto=False), start="2026-10-20T09:00")
-
-
-def test_editing_only_other_fields_keeps_an_automatic_end() -> None:
-    edited = make(auto_existing(), name="新しい名前")
-    assert edited.end == datetime(2026, 10, 7, 18)
-    assert edited.end_auto is True
 
 
 async def test_settings_dialog_time_picker_and_field_stay_in_sync(user: User) -> None:
@@ -677,7 +580,7 @@ def test_deadline_is_parsed_and_may_precede_the_start() -> None:
 def test_blank_deadline_clears_it_and_none_keeps_it() -> None:
     existing = Task("旧", deadline=datetime(2026, 10, 9, 18))
     assert make(existing, deadline="").deadline is None
-    assert make(existing).deadline == datetime(2026, 10, 9, 18)
+    assert make(existing, deadline=None).deadline == datetime(2026, 10, 9, 18)
 
 
 @pytest.mark.parametrize("deadline", ["1999-12-31T18:00", "2101-01-01T00:00"])
@@ -690,3 +593,30 @@ def test_deadline_year_is_limited(deadline: str) -> None:
 def test_deadline_rejects_a_bad_format_and_a_timezone(bad: str) -> None:
     with pytest.raises(ValueError, match="日時"):
         make(deadline=bad)
+
+
+def test_planned_end_before_the_start_is_rejected_without_effort() -> None:
+    with pytest.raises(ValueError, match="完了予定は開始予定以降"):
+        make(effort_hours=0.0, planned_end="2026-10-04T09:00")
+
+
+def test_planned_end_before_the_start_is_rejected_when_manual() -> None:
+    with pytest.raises(ValueError, match="完了予定は開始予定以降"):
+        make(effort_hours=8.0, planned_end_manual=True, planned_end="2026-10-04T09:00")
+
+
+def test_a_hidden_planned_end_is_not_validated() -> None:
+    task = make(effort_hours=8.0, planned_end_manual=False, planned_end="2026-10-04T09:00")
+    assert task.planned_end == datetime(2026, 10, 4, 9)  # 工数あり・手で指定なしなので無視される値
+    assert task.planned_end_manual is False
+
+
+def test_planned_end_manual_is_saved_only_with_effort() -> None:
+    assert make(effort_hours=8.0, planned_end_manual=True).planned_end_manual is True
+    assert make(effort_hours=0.0, planned_end_manual=True).planned_end_manual is False
+    assert make(effort_hours=None, planned_end_manual=True).planned_end_manual is False
+
+
+def test_planned_end_year_is_limited() -> None:
+    with pytest.raises(ValueError, match="年は"):
+        make(planned_end="2101-01-01T00:00")

@@ -35,7 +35,7 @@ def test_roundtrip_restores_dates_enums_and_base_date(tmp_path: Path) -> None:
     task = Task(
         "t1",
         planned_start=datetime(2026, 10, 5, 9, 30),
-        end=datetime(2026, 10, 7, 18),
+        planned_end=datetime(2026, 10, 7, 18),
         effort_hours=8.0,
         priority=Priority.HIGH,
         status=Status.RUNNING,
@@ -49,7 +49,7 @@ def test_roundtrip_restores_dates_enums_and_base_date(tmp_path: Path) -> None:
         daily_hours=7.0,
         members=[Member("佐藤", 0.5)],
         sections=[Section("s1", [task])],
-        tasks=[Task("top", planned_start=datetime(2026, 10, 6), end=datetime(2026, 10, 8))],
+        tasks=[Task("top", planned_start=datetime(2026, 10, 6), planned_end=datetime(2026, 10, 8))],
     )
     loaded = load_project(save_project(project, tmp_path))
     assert loaded == project
@@ -162,31 +162,10 @@ def test_list_excludes_files_that_cannot_be_saved_back(tmp_path: Path) -> None:
     assert [p.stem for p in list_project_files(tmp_path)] == ["ok"]
 
 
-def test_end_auto_roundtrip(tmp_path: Path) -> None:
-    project = Project("demo", sections=[Section("s", [Task("a", end_auto=True), Task("b")])])
-    loaded = load_project(save_project(project, tmp_path))
-    assert [t.end_auto for t in loaded.sections[0].tasks] == [True, False]
-
-
-def test_old_file_without_end_auto_reads_as_manual(tmp_path: Path) -> None:
-    path = save_project(Project("old", sections=[Section("s", [Task("a", end_auto=True)])]), tmp_path)
-    data = json.loads(path.read_text(encoding="utf-8"))
-    del data["sections"][0]["tasks"][0]["end_auto"]
-    path.write_text(json.dumps(data), encoding="utf-8")
-    assert load_project(path).sections[0].tasks[0].end_auto is False
-
-
 def _rewrite(path: Path, edit) -> None:
     data = json.loads(path.read_text(encoding="utf-8"))
     edit(data)
     path.write_text(json.dumps(data), encoding="utf-8")
-
-
-@pytest.mark.parametrize("value", ["false", "true", None, 1, 0, []])
-def test_end_auto_that_is_not_a_bool_reads_as_manual(value: object, tmp_path: Path) -> None:
-    path = save_project(Project("odd", sections=[Section("s", [Task("a", end_auto=True)])]), tmp_path)
-    _rewrite(path, lambda d: d["sections"][0]["tasks"][0].update(end_auto=value))
-    assert load_project(path).sections[0].tasks[0].end_auto is False
 
 
 @pytest.mark.parametrize("value", ["6.5", None, True, [], 0, -1, 24.5, float("nan"), float("inf")])
@@ -291,7 +270,11 @@ def test_planned_start_is_saved_and_the_legacy_start_key_is_still_read(tmp_path:
     assert data["tasks"][0]["planned_start"] == "2026-10-05T09:00:00"
     assert "start" not in data["tasks"][0]
 
-    legacy = dict(data["tasks"][0])
+    legacy = {
+        k: v
+        for k, v in data["tasks"][0].items()
+        if k not in ("planned_end", "planned_end_manual", "deadline")
+    }
     legacy["start"] = legacy.pop("planned_start")
     data["tasks"][0] = legacy
     path.write_text(json.dumps(data), encoding="utf-8")
@@ -305,3 +288,75 @@ def test_deadline_roundtrip(tmp_path: Path) -> None:
     )
     loaded = load_project(save_project(project, tmp_path))
     assert [t.deadline for t in loaded.sections[0].tasks] == [datetime(2026, 10, 9, 18, 0), None]
+
+
+def _legacy_file(tmp_path: Path, raw_task: dict[str, object]) -> Path:
+    """新形式で保存したファイルの最初のタスクを、旧形式の項目で置き換える。"""
+    path = save_project(Project("old", tasks=[Task("a")]), tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    kept = {
+        k: v
+        for k, v in data["tasks"][0].items()
+        if k not in ("planned_start", "planned_end", "planned_end_manual", "deadline")
+    }
+    data["tasks"][0] = {**kept, **raw_task}
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def test_legacy_manual_end_becomes_the_deadline(tmp_path: Path) -> None:
+    path = _legacy_file(
+        tmp_path,
+        {"start": "2026-10-05T09:00:00", "end": "2026-10-07T18:00:00", "end_auto": False},
+    )
+    task = load_project(path).tasks[0]
+    assert task.planned_start == datetime(2026, 10, 5, 9)
+    assert task.deadline == datetime(2026, 10, 7, 18)
+    assert (task.planned_end, task.planned_end_manual) == (None, False)
+
+
+def test_legacy_end_without_end_auto_is_treated_as_manual(tmp_path: Path) -> None:
+    path = _legacy_file(tmp_path, {"start": "2026-10-05T09:00:00", "end": "2026-10-07T18:00:00"})
+    assert load_project(path).tasks[0].deadline == datetime(2026, 10, 7, 18)
+
+
+def test_legacy_auto_end_is_dropped(tmp_path: Path) -> None:
+    path = _legacy_file(
+        tmp_path,
+        {"start": "2026-10-05T09:00:00", "end": "2026-10-07T18:00:00", "end_auto": True},
+    )
+    assert load_project(path).tasks[0].deadline is None
+
+
+def test_legacy_end_without_a_start_still_becomes_the_deadline(tmp_path: Path) -> None:
+    path = _legacy_file(tmp_path, {"end": "2026-10-07T18:00:00", "end_auto": False})
+    task = load_project(path).tasks[0]
+    assert (task.planned_start, task.deadline) == (None, datetime(2026, 10, 7, 18))
+
+
+def test_new_format_roundtrip_keeps_the_planned_fields(tmp_path: Path) -> None:
+    task = Task(
+        "a",
+        planned_start=datetime(2026, 10, 5, 9),
+        planned_end=datetime(2026, 10, 9, 18),
+        planned_end_manual=True,
+        deadline=datetime(2026, 10, 12, 18),
+        effort_hours=8.0,
+    )
+    loaded = load_project(save_project(Project("n", tasks=[task]), tmp_path)).tasks[0]
+    assert loaded == task
+
+
+def test_new_format_has_no_end_or_end_auto(tmp_path: Path) -> None:
+    path = save_project(Project("n", tasks=[Task("a")]), tmp_path)
+    saved = json.loads(path.read_text(encoding="utf-8"))["tasks"][0]
+    assert "end" not in saved and "end_auto" not in saved and "start" not in saved
+
+
+@pytest.mark.parametrize("value", ["true", "false", 1, 0, None, []])
+def test_planned_end_manual_that_is_not_a_bool_reads_as_false(
+    value: object, tmp_path: Path
+) -> None:
+    path = save_project(Project("n", tasks=[Task("a", planned_end_manual=True)]), tmp_path)
+    _rewrite(path, lambda d: d["tasks"][0].update(planned_end_manual=value))
+    assert load_project(path).tasks[0].planned_end_manual is False
