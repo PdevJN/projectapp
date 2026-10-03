@@ -149,6 +149,17 @@ async def test_task_dialog_prefills_when_editing(user: User) -> None:
     assert user.find(marker="task-start").elements.pop().value == "2026-10-05T09:00"
 
 
+async def test_task_dialog_color_shows_a_preview(user: User) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_task_dialog(None, lambda t: None))
+
+    await user.open("/")
+    user.find("open").click()
+    color = user.find(marker="task-color").elements.pop()
+    assert color.preview is True
+
+
 async def test_task_dialog_status_select_uses_full_width(user: User) -> None:
     # 幅が内容に縮むと、浮いたラベルが「優.」のように省略される
     @ui.page("/")

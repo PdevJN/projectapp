@@ -168,7 +168,9 @@ def open_task_dialog(task: Task | None, on_save: Callable[[Task], object]) -> No
             .classes("w-full")
             .mark("task-status")
         )
-        color = ui.color_input("色", value=initial.color)
+        color = ui.color_input("色", value=initial.color, preview=True).classes("w-full").mark(
+            "task-color"
+        )
         assignee = ui.input("担当者", value=initial.assignee or "")
         error = ui.label("").classes("text-negative").mark("form-error")
 
