@@ -248,7 +248,9 @@ def open_task_dialog(
     members: list[Member] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
-    member_list = members or []
+    member_list = list(members or [])
+    if initial.assignee and all(m.name != initial.assignee for m in member_list):
+        member_list.append(Member(initial.assignee, 1.0))  # 一覧にいない担当者も、保存で失わない
     initial_member = next((m for m in member_list if m.name == initial.assignee), None)
     initial_rate = (
         combine_rate(initial_member.ratio, initial.allocation) if initial_member else 1.0

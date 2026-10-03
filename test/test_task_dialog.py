@@ -812,3 +812,15 @@ async def test_changing_the_assignee_asks_for_confirmation_on_close(user: User) 
         user.find(marker="task-assignee").elements.pop().set_value("田中")
     user.find(marker="task-cancel").click()
     await user.should_see(marker="close-save")
+
+
+async def test_an_assignee_missing_from_the_members_is_kept_when_saving(user: User) -> None:
+    saved: list[Task] = []
+    task = Task("旧", assignee="不明", allocation=0.5)
+    mount_dialog(task, saved, members=[TANAKA])
+    await open_dialog(user)
+    assert user.find(marker="task-assignee").elements.pop().value == "不明"
+    assert user.find(marker="task-allocation").elements.pop().value == 50
+    user.find(marker="task-save").click()
+    assert saved[0].assignee == "不明"
+    assert saved[0].allocation == pytest.approx(0.5)

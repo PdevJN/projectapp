@@ -903,3 +903,17 @@ async def test_saving_a_task_that_does_not_overload_shows_no_warning(
             ),
         )
     assert not user.notify.contains("割り当て")
+
+
+async def test_swapping_two_member_names_swaps_the_assignees_once(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("A", 1.0), Member("B", 1.0)]
+    view.project.tasks = [Task("t1", assignee="A"), Task("t2", assignee="B")]
+    view.mark_clean()
+    user.find(marker="open-members").click()
+    user.find(marker="member-name-0").clear().type("B")
+    user.find(marker="member-name-1").clear().type("A")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.tasks[0].assignee == "B")
+    assert [t.assignee for t in view.project.tasks] == ["B", "A"]
+    assert [m.name for m in view.project.members] == ["B", "A"]
