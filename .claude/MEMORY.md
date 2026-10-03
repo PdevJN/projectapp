@@ -67,9 +67,9 @@
 
 補う終了(始業+9h)は、始業が15:00以降だと24時以上になる。このブランチでは暫定で `23:59` に頭打ちにしているだけ。本来の対応と、稼働設定のオプション「始業時刻を制限する」(オンのとき始業は 00:00〜14:59 のみ、ほか制限事項7点)は、設計書 `2026-10-03-task-edit-dialog-design.md` の「保留事項」に記載。未決: オフのときの本来の対応(頭打ちを残す・翌日にまたぐ・時刻の入力を必須にする)、昼休憩を設定にするか。
 
-## 軽微な指摘の修正(`feature/fix_base/base`、`develop` へのマージは未実施)
+## 軽微な指摘の修正(2026-10-03 に `develop` へマージ済み。マージコミット 36e46a1。`feature/fix_base/*` は削除済み)
 
-`develop` から `feature/fix_base/base` を切り、関心ごとごとの6ブランチ(`feature/fix_base/<関心ごと>`)で直して `base` にマージした(Git は `feature/fix_base` と `feature/fix_base/...` を同時に作れないため、統合用は `base`)。テスト 396 件と `ty check` が通る。実機は未確認。
+`develop` から `feature/fix_base/base` を切り、関心ごとごとの6ブランチ(`feature/fix_base/<関心ごと>`)で直して `base` にマージした(Git は `feature/fix_base` と `feature/fix_base/...` を同時に作れないため、統合用は `base`)。テスト 396 件と `ty check` が通る。実機で確認済み。
 
 - `load-validation`: 読込時に `end_auto` は `true` のときだけ自動算出、`daily_hours`(有限・0超24以下)と `work_start` を検証(不正は「開けませんでした」)。
 - `recalc`: `recalc_ends` は `Recalc(changed, failed)` を返す。算出できなかった終了は「N件の終了は再計算できませんでした」と通知。祝日の取得・更新後にも再計算(「祝日データの反映でN件…」)。古いファイルの移行の注意を `docs/development.md` に追記。
@@ -87,7 +87,7 @@
 
 ## 次にやること(候補)
 
-1. `feature/fix_base/base` の実機確認 → `develop` へのマージ、プッシュ(いずれも許可後)。マージ後は `feature/fix_base/*` を削除してよいか確認する。
+1. プッシュ(許可後)。
 2. 後続のサブプロジェクト(設計 → 設計書 → 実装計画の順):
    - 実績の入力と、実績に基づく超過判定
    - ドラッグ&ドロップ(移動・コピー)、検索・担当者の絞り込み
