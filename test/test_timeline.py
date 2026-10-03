@@ -9,6 +9,8 @@ from projectapp.timeline import (
     bar_span,
     build_columns,
     calc_end,
+    computed_end,
+    effective_end,
     fill_end,
     is_overdue,
     is_workday,
@@ -356,3 +358,69 @@ def test_is_overdue_when_the_deadline_has_passed() -> None:
 def test_is_not_overdue_by_deadline_when_done() -> None:
     task = Task("t", deadline=datetime(2026, 10, 1, 18), status=Status.DONE)
     assert is_overdue(task, datetime(2026, 10, 2)) is False
+
+
+FRI_START = datetime(2026, 10, 9, 9, 0)
+MANUAL_END = datetime(2026, 10, 20, 18, 0)
+
+
+def eff(
+    project: Project | None = None, holidays: dict[date, str] | None = None, **fields: object
+) -> datetime | None:
+    values: dict[str, object] = {"planned_start": FRI_START}
+    values.update(fields)
+    task = Task("t", **values)  # type: ignore[arg-type]
+    return effective_end(task, project or Project("p"), holidays or {})
+
+
+def test_effective_end_uses_planned_end_when_there_is_no_effort() -> None:
+    assert eff(planned_end=MANUAL_END) == MANUAL_END
+
+
+def test_effective_end_ignores_planned_end_when_effort_is_not_manual() -> None:
+    assert eff(planned_end=MANUAL_END, effort_hours=15.0) == datetime(2026, 10, 13, 11)
+
+
+def test_effective_end_uses_planned_end_when_manual() -> None:
+    assert eff(planned_end=MANUAL_END, planned_end_manual=True, effort_hours=15.0) == MANUAL_END
+
+
+def test_effective_end_computes_when_manual_but_planned_end_is_empty() -> None:
+    assert eff(planned_end_manual=True, effort_hours=15.0) == datetime(2026, 10, 13, 11)
+
+
+def test_effective_end_follows_the_project_settings_and_holidays() -> None:
+    project = Project("p", daily_hours=8.0)
+    assert eff(project, effort_hours=15.0) == datetime(2026, 10, 12, 16)
+    assert eff(holidays={date(2026, 10, 12): "祝日"}, effort_hours=15.0) == datetime(
+        2026, 10, 14, 11
+    )
+    project.work_start = time(10, 0)
+    assert eff(project, effort_hours=15.0) == datetime(2026, 10, 12, 17)  # 金10-18時の8h + 月7h
+
+
+def test_effective_end_is_the_next_day_without_effort_and_planned_end() -> None:
+    assert eff() == datetime(2026, 10, 10, 9, 0)
+
+
+@pytest.mark.parametrize("effort", [float("inf"), float("nan"), 10**9])
+def test_effective_end_falls_back_to_the_next_day_when_it_cannot_compute(effort: float) -> None:
+    assert eff(effort_hours=effort) == datetime(2026, 10, 10, 9, 0)
+
+
+def test_effective_end_is_none_without_a_start() -> None:
+    assert eff(planned_start=None) is None
+    assert eff(planned_start=None, effort_hours=8.0) is None
+
+
+def test_effective_end_returns_planned_end_even_without_a_start() -> None:
+    assert eff(planned_start=None, planned_end=MANUAL_END) == MANUAL_END
+
+
+def test_effective_end_does_not_crash_at_the_end_of_time() -> None:
+    assert eff(planned_start=datetime.max) is None
+
+
+def test_computed_end_ignores_planned_end_fields() -> None:
+    assert computed_end(FRI_START, 15.0, 6.5, time(9, 0), {}) == datetime(2026, 10, 13, 11)
+    assert computed_end(None, 15.0, 6.5, time(9, 0), {}) is None
