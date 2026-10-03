@@ -34,7 +34,7 @@ def test_theme_default(tmp_path: Path) -> None:
 def test_roundtrip_restores_dates_enums_and_base_date(tmp_path: Path) -> None:
     task = Task(
         "t1",
-        start=datetime(2026, 10, 5, 9, 30),
+        planned_start=datetime(2026, 10, 5, 9, 30),
         end=datetime(2026, 10, 7, 18),
         effort_hours=8.0,
         priority=Priority.HIGH,
@@ -49,7 +49,7 @@ def test_roundtrip_restores_dates_enums_and_base_date(tmp_path: Path) -> None:
         daily_hours=7.0,
         members=[Member("佐藤", 0.5)],
         sections=[Section("s1", [task])],
-        tasks=[Task("top", start=datetime(2026, 10, 6), end=datetime(2026, 10, 8))],
+        tasks=[Task("top", planned_start=datetime(2026, 10, 6), end=datetime(2026, 10, 8))],
     )
     loaded = load_project(save_project(project, tmp_path))
     assert loaded == project
@@ -282,3 +282,17 @@ def test_failed_write_leaves_no_file_behind(
     with pytest.raises(OSError):
         save_project(Project("demo"), tmp_path, overwrite=False)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_planned_start_is_saved_and_the_legacy_start_key_is_still_read(tmp_path: Path) -> None:
+    project = Project("p", tasks=[Task("a", planned_start=datetime(2026, 10, 5, 9))])
+    path = save_project(project, tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["tasks"][0]["planned_start"] == "2026-10-05T09:00:00"
+    assert "start" not in data["tasks"][0]
+
+    legacy = dict(data["tasks"][0])
+    legacy["start"] = legacy.pop("planned_start")
+    data["tasks"][0] = legacy
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert load_project(path).tasks[0].planned_start == datetime(2026, 10, 5, 9)

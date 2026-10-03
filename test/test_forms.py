@@ -43,7 +43,7 @@ def make(existing: Task | None = None, **overrides: object) -> Task:
 def test_build_task_normalizes_input() -> None:
     task = make(name="  設計  ", assignee=" 佐藤 ")
     assert task.name == "設計"
-    assert task.start == datetime(2026, 10, 5, 9, 0)
+    assert task.planned_start == datetime(2026, 10, 5, 9, 0)
     assert task.end == datetime(2026, 10, 7, 18, 0)
     assert task.effort_hours == 8.0
     assert task.assignee == "佐藤"
@@ -51,7 +51,7 @@ def test_build_task_normalizes_input() -> None:
 
 def test_blank_assignee_and_dates_become_none() -> None:
     task = make(start="", end="", assignee="  ", effort_hours=None)
-    assert (task.start, task.end, task.assignee, task.effort_hours) == (None, None, None, 0.0)
+    assert (task.planned_start, task.end, task.assignee, task.effort_hours) == (None, None, None, 0.0)
 
 
 @pytest.mark.parametrize("name", ["", "   ", "　"])
@@ -84,7 +84,7 @@ def test_year_outside_range_is_rejected(text: str) -> None:
 
 def test_year_boundaries_are_accepted() -> None:
     task = make(start="2000-01-01T00:00", end="2100-12-31T23:59")
-    assert task.start == datetime(2000, 1, 1)
+    assert task.planned_start == datetime(2000, 1, 1)
     assert task.end == datetime(2100, 12, 31, 23, 59)
 
 
@@ -124,7 +124,7 @@ async def test_task_dialog_saves_a_valid_task(user: User) -> None:
     user.find(marker="task-end-date").type("2026-10-07")
     user.find(marker="task-save").click()
     assert [t.name for t in saved] == ["設計"]
-    assert saved[0].start == datetime(2026, 10, 5, 9, 0)
+    assert saved[0].planned_start == datetime(2026, 10, 5, 9, 0)
     assert saved[0].end == datetime(2026, 10, 7, 18, 0)
 
 
@@ -145,7 +145,7 @@ async def test_task_dialog_shows_error_and_does_not_save(user: User) -> None:
 async def test_task_dialog_prefills_when_editing(user: User) -> None:
     @ui.page("/")
     def index() -> None:
-        task = Task("既存", start=datetime(2026, 10, 5, 9), end=datetime(2026, 10, 6, 9))
+        task = Task("既存", planned_start=datetime(2026, 10, 5, 9), end=datetime(2026, 10, 6, 9))
         ui.button("open", on_click=lambda: open_task_dialog(task, lambda t: None))
 
     await user.open("/")
@@ -308,7 +308,7 @@ async def test_unsaved_dialog_calls_the_matching_action(user: User, marker: str)
 
 def test_build_task_keeps_end_auto_when_the_end_is_untouched() -> None:
     existing = Task(
-        "旧", start=datetime(2026, 10, 5, 9), end=datetime(2026, 10, 7, 18),
+        "旧", planned_start=datetime(2026, 10, 5, 9), end=datetime(2026, 10, 7, 18),
         effort_hours=8.0, end_auto=True,
     )
     assert make(existing).end_auto is True
@@ -399,7 +399,7 @@ SECONDS_END = datetime(2026, 10, 5, 10, 14, 4, 200000)  # 小数の工数で、�
 
 def test_build_task_keeps_an_automatic_end_that_has_seconds() -> None:
     existing = Task(
-        "旧", start=datetime(2026, 10, 5, 9), end=SECONDS_END, effort_hours=1.2345, end_auto=True
+        "旧", planned_start=datetime(2026, 10, 5, 9), end=SECONDS_END, effort_hours=1.2345, end_auto=True
     )
     edited = make(existing, end="2026-10-05T10:14", effort_hours=1.2345)
     assert edited.end == SECONDS_END
@@ -411,7 +411,7 @@ async def test_task_dialog_roundtrip_keeps_an_automatic_end_that_has_seconds(
 ) -> None:
     saved: list[Task] = []
     task = Task(
-        "旧", start=datetime(2026, 10, 5, 9), end=SECONDS_END, effort_hours=1.2345, end_auto=True
+        "旧", planned_start=datetime(2026, 10, 5, 9), end=SECONDS_END, effort_hours=1.2345, end_auto=True
     )
 
     @ui.page("/")
@@ -427,7 +427,7 @@ async def test_task_dialog_roundtrip_keeps_an_automatic_end_that_has_seconds(
 
 def auto_existing(**overrides: object) -> Task:
     values: dict[str, object] = {
-        "start": datetime(2026, 10, 5, 9),
+        "planned_start": datetime(2026, 10, 5, 9),
         "end": datetime(2026, 10, 7, 18),
         "effort_hours": 8.0,
         "end_auto": True,

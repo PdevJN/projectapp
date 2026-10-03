@@ -38,7 +38,7 @@ class Member:
 @dataclass
 class Task:
     name: str
-    start: datetime | None = None
+    planned_start: datetime | None = None
     end: datetime | None = None
     effort_hours: float = 0.0
     priority: Priority = Priority.MEDIUM

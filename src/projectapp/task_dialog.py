@@ -153,7 +153,7 @@ def open_task_dialog(
     with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[36rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
         name = ui.input("名前", value=initial.name).mark("task-name")
-        fields = DateTimeFields(initial.start, initial.end, work_start, initial.end_auto)
+        fields = DateTimeFields(initial.planned_start, initial.end, work_start, initial.end_auto)
         effort = ui.number("工数(時間)", value=initial.effort_hours, min=0)
         priority = PriorityChips(initial.priority)
         status = (

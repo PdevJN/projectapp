@@ -39,14 +39,14 @@ def test_day_columns_start_at_base_and_are_contiguous() -> None:
 
 
 def test_range_extends_to_the_day_after_last_end() -> None:
-    task = Task("t", start=datetime(2026, 10, 5, 9), end=datetime(2026, 12, 31, 18))
+    task = Task("t", planned_start=datetime(2026, 10, 5, 9), end=datetime(2026, 12, 31, 18))
     columns = build_columns(project_with(task), Scale.DAY)
     assert len(columns) == 88
     assert columns[-1].end == date(2027, 1, 1)
 
 
 def test_range_extends_before_base_date() -> None:
-    task = Task("t", start=datetime(2026, 9, 20, 9), end=datetime(2026, 9, 22, 9))
+    task = Task("t", planned_start=datetime(2026, 9, 20, 9), end=datetime(2026, 9, 22, 9))
     assert build_columns(project_with(task), Scale.DAY)[0].start == date(2026, 9, 20)
 
 
@@ -58,7 +58,7 @@ def test_week_columns_start_on_monday() -> None:
 
 
 def test_month_columns_cross_the_year() -> None:
-    task = Task("t", start=datetime(2026, 11, 15), end=datetime(2027, 2, 10))
+    task = Task("t", planned_start=datetime(2026, 11, 15), end=datetime(2027, 2, 10))
     columns = build_columns(project_with(task, base=date(2026, 11, 15)), Scale.MONTH)
     assert [c.label for c in columns[:4]] == ["11月", "12月", "1月", "2月"]
     assert (columns[2].start, columns[2].end) == (date(2027, 1, 1), date(2027, 2, 1))
@@ -66,19 +66,19 @@ def test_month_columns_cross_the_year() -> None:
 
 
 def test_bar_span_in_day_scale() -> None:
-    task = Task("t", start=datetime(2026, 10, 5, 12), end=datetime(2026, 10, 7, 12))
+    task = Task("t", planned_start=datetime(2026, 10, 5, 12), end=datetime(2026, 10, 7, 12))
     columns = build_columns(project_with(task), Scale.DAY)
     assert bar_span(task, columns) == (0.5, 2.0)
 
 
 def test_bar_span_in_week_scale() -> None:
-    task = Task("t", start=datetime(2026, 10, 5), end=datetime(2026, 10, 12))
+    task = Task("t", planned_start=datetime(2026, 10, 5), end=datetime(2026, 10, 12))
     columns = build_columns(project_with(task), Scale.WEEK)
     assert bar_span(task, columns) == (0.0, 1.0)
 
 
 def test_bar_span_in_month_scale_is_proportional() -> None:
-    task = Task("t", start=datetime(2026, 1, 16), end=datetime(2026, 2, 1))
+    task = Task("t", planned_start=datetime(2026, 1, 16), end=datetime(2026, 2, 1))
     columns = build_columns(project_with(task, base=date(2026, 1, 1)), Scale.MONTH)
     left, width = bar_span(task, columns) or (-1.0, -1.0)
     assert left == pytest.approx(15 / 31)
@@ -88,18 +88,18 @@ def test_bar_span_in_month_scale_is_proportional() -> None:
 def test_bar_span_is_none_without_start_or_end() -> None:
     columns = build_columns(Project("p", base_date=BASE), Scale.DAY)
     assert bar_span(Task("a"), columns) is None
-    assert bar_span(Task("b", start=datetime(2026, 10, 5)), columns) is None
+    assert bar_span(Task("b", planned_start=datetime(2026, 10, 5)), columns) is None
     assert bar_span(Task("c", end=datetime(2026, 10, 5)), columns) is None
 
 
 def test_end_before_start_gives_zero_width_without_error() -> None:
-    task = Task("bad", start=datetime(2026, 10, 8), end=datetime(2026, 10, 6))
+    task = Task("bad", planned_start=datetime(2026, 10, 8), end=datetime(2026, 10, 6))
     columns = build_columns(project_with(task), Scale.DAY)
     assert bar_span(task, columns) == (3.0, 0.0)
 
 
 def test_top_level_task_extends_the_range() -> None:
-    task = Task("t", start=datetime(2026, 9, 20, 9), end=datetime(2026, 12, 31, 18))
+    task = Task("t", planned_start=datetime(2026, 9, 20, 9), end=datetime(2026, 12, 31, 18))
     columns = build_columns(Project("p", base_date=BASE, tasks=[task]), Scale.DAY)
     assert columns[0].start == date(2026, 9, 20)
     assert columns[-1].end == date(2027, 1, 1)
@@ -207,7 +207,7 @@ def test_calc_end_with_unusable_daily_hours_is_none(daily: float) -> None:
 
 def test_fill_end_fills_an_empty_end() -> None:
     project = Project("p")
-    task = Task("t", start=datetime(2026, 10, 9, 9), effort_hours=15.0)
+    task = Task("t", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0)
     filled = fill_end(task, project, NO_HOLIDAYS)
     assert filled.end == datetime(2026, 10, 13, 11)
     assert task.end is None  # 元のTaskは変えない
@@ -215,13 +215,13 @@ def test_fill_end_fills_an_empty_end() -> None:
 
 def test_fill_end_keeps_a_manual_end() -> None:
     manual = datetime(2026, 10, 30, 18)
-    task = Task("t", start=datetime(2026, 10, 9, 9), end=manual, effort_hours=15.0)
+    task = Task("t", planned_start=datetime(2026, 10, 9, 9), end=manual, effort_hours=15.0)
     assert fill_end(task, Project("p"), NO_HOLIDAYS).end == manual
 
 
 @pytest.mark.parametrize(
     "task",
-    [Task("no start", effort_hours=8.0), Task("no effort", start=datetime(2026, 10, 9, 9))],
+    [Task("no start", effort_hours=8.0), Task("no effort", planned_start=datetime(2026, 10, 9, 9))],
 )
 def test_fill_end_leaves_tasks_it_cannot_compute(task: Task) -> None:
     assert fill_end(task, Project("p"), NO_HOLIDAYS) is task
@@ -254,17 +254,17 @@ def test_calc_end_near_the_max_date_is_none_instead_of_raising() -> None:
 
 
 def test_fill_end_leaves_a_task_with_nan_effort() -> None:
-    task = Task("t", start=datetime(2026, 10, 5, 9), effort_hours=float("nan"))
+    task = Task("t", planned_start=datetime(2026, 10, 5, 9), effort_hours=float("nan"))
     assert fill_end(task, Project("p"), NO_HOLIDAYS) is task
 
 
 def test_fill_end_marks_the_end_as_automatic() -> None:
-    task = Task("t", start=datetime(2026, 10, 9, 9), effort_hours=15.0)
+    task = Task("t", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0)
     assert fill_end(task, Project("p"), NO_HOLIDAYS).end_auto is True
 
 
 def test_fill_end_does_not_mark_a_manual_end() -> None:
-    task = Task("t", start=datetime(2026, 10, 9, 9), end=datetime(2026, 10, 30, 18), effort_hours=15.0)
+    task = Task("t", planned_start=datetime(2026, 10, 9, 9), end=datetime(2026, 10, 30, 18), effort_hours=15.0)
     assert fill_end(task, Project("p"), NO_HOLIDAYS).end_auto is False
 
 
@@ -274,7 +274,7 @@ AUTO_END = datetime(2026, 10, 13, 11)  # 6.5h/日・工数15hの終了(火曜)
 
 def auto_task(name: str = "t", **overrides: object) -> Task:
     values: dict[str, object] = {
-        "start": AUTO_START,
+        "planned_start": AUTO_START,
         "end": AUTO_END,
         "effort_hours": 15.0,
         "end_auto": True,
@@ -319,7 +319,7 @@ def test_recalc_ends_leaves_manual_ends() -> None:
 
 
 def test_recalc_ends_keeps_the_end_of_a_task_it_cannot_compute() -> None:
-    project = project_with(auto_task(effort_hours=0.0), auto_task("no start", start=None))
+    project = project_with(auto_task(effort_hours=0.0), auto_task("no start", planned_start=None))
     project.daily_hours = 8.0
     assert recalc_ends(project, NO_HOLIDAYS).changed == 0
     assert [t.end for t in project.sections[0].tasks] == [AUTO_END, AUTO_END]
@@ -338,7 +338,7 @@ def test_recalc_ends_covers_sections_and_top_level_tasks_and_keeps_the_lists() -
 def test_recalc_ends_counts_the_auto_ends_it_cannot_compute() -> None:
     project = project_with(
         auto_task("zero effort", effort_hours=0.0),
-        auto_task("no start", start=None),
+        auto_task("no start", planned_start=None),
         auto_task("ok"),
         auto_task("manual", end_auto=False, effort_hours=0.0),
     )

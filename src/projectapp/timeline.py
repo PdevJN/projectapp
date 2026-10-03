@@ -41,9 +41,9 @@ def visible_range(project: Project) -> tuple[date, date]:
     start = end = project.base_date
     tasks = [*project.tasks, *(t for section in project.sections for t in section.tasks)]
     for task in tasks:
-        if task.start is None or task.end is None:
+        if task.planned_start is None or task.end is None:
             continue
-        first, last = sorted((task.start.date(), task.end.date()))
+        first, last = sorted((task.planned_start.date(), task.end.date()))
         start = min(start, first)
         end = max(end, last + timedelta(days=1))
     return start, end
@@ -101,9 +101,9 @@ def _position(moment: datetime, columns: list[Column]) -> float:
 
 def bar_span(task: Task, columns: list[Column]) -> tuple[float, float] | None:
     """バーの(左端, 幅)を列の単位で返す。開始・終了が未設定ならNone。"""
-    if task.start is None or task.end is None:
+    if task.planned_start is None or task.end is None:
         return None
-    left = _position(task.start, columns)
+    left = _position(task.planned_start, columns)
     right = _position(task.end, columns)
     return left, max(right - left, 0.0)
 
@@ -188,10 +188,10 @@ def _calc_end(
 
 def fill_end(task: Task, project: Project, holidays: dict[date, str]) -> Task:
     """開始あり・終了なし・工数ありのタスクに、算出した終了を入れて返す。"""
-    if task.start is None or task.end is not None:
+    if task.planned_start is None or task.end is not None:
         return task
     end = calc_end(
-        task.start, task.effort_hours, project.daily_hours, project.work_start, holidays
+        task.planned_start, task.effort_hours, project.daily_hours, project.work_start, holidays
     )
     return task if end is None else replace(task, end=end, end_auto=True)
 
@@ -207,10 +207,10 @@ def recalc_ends(project: Project, holidays: dict[date, str]) -> Recalc:
 
     def renew(task: Task) -> Task:
         nonlocal changed, failed
-        if not task.end_auto or task.start is None:
+        if not task.end_auto or task.planned_start is None:
             return task
         end = calc_end(
-            task.start, task.effort_hours, project.daily_hours, project.work_start, holidays
+            task.planned_start, task.effort_hours, project.daily_hours, project.work_start, holidays
         )
         if end is None:
             failed += 1
