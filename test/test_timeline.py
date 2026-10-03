@@ -345,3 +345,14 @@ def test_recalc_ends_counts_the_auto_ends_it_cannot_compute() -> None:
     project.daily_hours = 8.0
     result = recalc_ends(project, NO_HOLIDAYS)
     assert (result.changed, result.failed) == (1, 1)  # 開始なしは対象外、手入力は数えない
+
+
+def test_is_overdue_when_the_deadline_has_passed() -> None:
+    task = Task("t", deadline=datetime(2026, 10, 1, 18), status=Status.RUNNING)
+    assert is_overdue(task, datetime(2026, 10, 2)) is True
+    assert is_overdue(task, datetime(2026, 10, 1, 17)) is False
+
+
+def test_is_not_overdue_by_deadline_when_done() -> None:
+    task = Task("t", deadline=datetime(2026, 10, 1, 18), status=Status.DONE)
+    assert is_overdue(task, datetime(2026, 10, 2)) is False

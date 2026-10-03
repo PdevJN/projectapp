@@ -296,3 +296,12 @@ def test_planned_start_is_saved_and_the_legacy_start_key_is_still_read(tmp_path:
     data["tasks"][0] = legacy
     path.write_text(json.dumps(data), encoding="utf-8")
     assert load_project(path).tasks[0].planned_start == datetime(2026, 10, 5, 9)
+
+
+def test_deadline_roundtrip(tmp_path: Path) -> None:
+    project = Project(
+        "d",
+        sections=[Section("s", [Task("a", deadline=datetime(2026, 10, 9, 18, 0)), Task("b")])],
+    )
+    loaded = load_project(save_project(project, tmp_path))
+    assert [t.deadline for t in loaded.sections[0].tasks] == [datetime(2026, 10, 9, 18, 0), None]

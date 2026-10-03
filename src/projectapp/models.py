@@ -47,6 +47,7 @@ class Task:
     assignee: str | None = None
     predecessors: list[str] = field(default_factory=list)
     end_auto: bool = False  # 終了が自動算出で、利用者が書き換えていない
+    deadline: datetime | None = None  # 締切(納期)
 
 
 @dataclass

@@ -227,5 +227,9 @@ def recalc_ends(project: Project, holidays: dict[date, str]) -> Recalc:
 
 
 def is_overdue(task: Task, now: datetime) -> bool:
-    """終了予定を過ぎていて、状態が「終了」でない。"""
-    return task.end is not None and task.status is not Status.DONE and now > task.end
+    """終了予定か締切を過ぎていて、状態が「終了」でない。"""
+    if task.status is Status.DONE:
+        return False
+    if task.deadline is not None and now > task.deadline:
+        return True
+    return task.end is not None and now > task.end
