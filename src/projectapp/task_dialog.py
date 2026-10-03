@@ -110,6 +110,7 @@ def open_task_dialog(
     task: Task | None,
     on_save: Callable[[Task], object],
     work_start: time = DEFAULT_WORK_START,
+    on_delete: Callable[[], object] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
     with ui.dialog().props("persistent") as dialog, ui.card().classes("w-[36rem] max-w-full"):
@@ -178,6 +179,25 @@ def open_task_dialog(
                 ui.button("破棄して閉じる", on_click=discard).props("flat").mark("close-discard")
                 ui.button("編集に戻る", on_click=confirm.close).props("flat").mark("close-back")
 
+        delete_confirm: ui.dialog | None = None
+        if task is not None and on_delete is not None:
+            handler = on_delete
+            with ui.dialog() as delete_confirm, ui.card():
+                ui.label(f"「{task.name}」を削除しますか?")
+
+                def delete() -> None:
+                    delete_confirm.close()
+                    dialog.close()
+                    handler()
+
+                with ui.row():
+                    ui.button("キャンセル", on_click=delete_confirm.close).props("flat").mark(
+                        "delete-cancel"
+                    )
+                    ui.button("削除", on_click=delete).props("color=negative").mark(
+                        "delete-confirm"
+                    )
+
         def request_close() -> None:
             if current() == opened:
                 dialog.close()
@@ -185,7 +205,12 @@ def open_task_dialog(
                 confirm.open()
 
         dialog.on("escape-key", request_close)  # persistent なので、ESCでは自動で閉じない
-        with ui.row():
+        with ui.row().classes("w-full items-center"):
+            if delete_confirm is not None:
+                ui.button("削除", on_click=delete_confirm.open).props(
+                    "flat color=negative"
+                ).mark("task-delete")
+            ui.space()
             ui.button("キャンセル", on_click=request_close).props("flat").mark("task-cancel")
             ui.button("保存", on_click=save).mark("task-save")
     dialog.open()

@@ -8,13 +8,21 @@ from projectapp.task_dialog import open_task_dialog
 
 
 def mount_dialog(
-    task: Task | None, saved: list[Task], work_start: time = time(9, 0)
+    task: Task | None,
+    saved: list[Task],
+    work_start: time = time(9, 0),
+    deleted: list[str] | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
         ui.button(
             "open",
-            on_click=lambda: open_task_dialog(task, saved.append, work_start=work_start),
+            on_click=lambda: open_task_dialog(
+                task,
+                saved.append,
+                work_start=work_start,
+                on_delete=None if deleted is None else lambda: deleted.append("deleted"),
+            ),
         )
 
 
@@ -316,3 +324,49 @@ async def test_priority_changes_count_as_changes(user: User) -> None:
     user.find(marker="priority-HIGH").click()
     user.find(marker="task-cancel").click()
     await user.should_see(marker="close-save")
+
+
+async def test_a_new_task_has_no_delete_button(user: User) -> None:
+    mount_dialog(None, [], deleted=[])
+    await open_dialog(user)
+    await user.should_not_see(marker="task-delete")
+
+
+async def test_an_existing_task_without_a_delete_callback_has_no_delete_button(
+    user: User,
+) -> None:
+    mount_dialog(Task("既存"), [])
+    await open_dialog(user)
+    await user.should_not_see(marker="task-delete")
+
+
+async def test_delete_asks_for_confirmation_and_cancel_keeps_the_task(user: User) -> None:
+    deleted: list[str] = []
+    mount_dialog(Task("既存"), [], deleted=deleted)
+    await open_dialog(user)
+    user.find(marker="task-delete").click()
+    await user.should_see("「既存」を削除しますか?")
+    user.find(marker="delete-cancel").click()
+    assert deleted == []
+    assert dialog_of(user).value is True
+
+
+async def test_delete_confirm_calls_the_callback_and_closes_the_dialog(user: User) -> None:
+    deleted: list[str] = []
+    mount_dialog(Task("既存"), [], deleted=deleted)
+    await open_dialog(user)
+    user.find(marker="task-delete").click()
+    user.find(marker="delete-confirm").click()
+    assert deleted == ["deleted"]
+    assert dialog_of(user).value is False
+
+
+async def test_delete_does_not_ask_about_unsaved_changes(user: User) -> None:
+    deleted: list[str] = []
+    mount_dialog(Task("既存"), [], deleted=deleted)
+    await open_dialog(user)
+    user.find(marker="task-name").type("変更")
+    user.find(marker="task-delete").click()
+    user.find(marker="delete-confirm").click()
+    assert deleted == ["deleted"]
+    assert confirm_dialog_of(user).value is False

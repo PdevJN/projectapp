@@ -207,7 +207,13 @@ class MainView:
             task,
             lambda t: self.save_task(section_index, task_index, t),
             work_start=self.project.work_start,
+            on_delete=lambda: self.delete_task(section_index, task_index),
         )
+
+    def delete_task(self, section_index: int | None, task_index: int) -> None:
+        """タスクを取り除いて再描画する。保存は自動では行わない(編集中の判定に入る)。"""
+        del self.tasks_in(section_index)[task_index]
+        self.gantt.set_project(self.project)
 
     def tasks_in(self, section_index: int | None) -> list[Task]:
         """セクション番号のタスク一覧。Noneはセクションに属さないタスク。"""
