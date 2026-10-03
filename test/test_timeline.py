@@ -1,4 +1,4 @@
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 import pytest
 
@@ -9,6 +9,7 @@ from projectapp.timeline import (
     bar_span,
     build_columns,
     calc_end,
+    deadline_position,
     computed_end,
     effective_end,
     is_overdue,
@@ -337,3 +338,21 @@ def test_visible_range_survives_a_planned_end_before_the_start() -> None:
     task = Task("t", planned_start=datetime(2026, 10, 9, 9), planned_end=datetime(2026, 10, 1, 9))
     first, last = visible_range(project_with(task))
     assert first == date(2026, 10, 1)
+
+
+def test_deadline_position_inside_the_range() -> None:
+    columns = build_columns(Project("p", base_date=BASE), Scale.DAY)
+    assert deadline_position(datetime(2026, 10, 7, 12), columns) == 2.5
+
+
+def test_deadline_position_outside_the_range_is_none() -> None:
+    columns = build_columns(Project("p", base_date=BASE), Scale.DAY)
+    assert deadline_position(datetime(2026, 10, 4, 23, 59), columns) is None
+    assert deadline_position(datetime.combine(columns[-1].end, time.min), columns) is None
+
+
+def test_deadline_position_at_the_boundaries() -> None:
+    columns = build_columns(Project("p", base_date=BASE), Scale.DAY)
+    assert deadline_position(datetime(2026, 10, 5, 0, 0), columns) == 0.0
+    last = datetime.combine(columns[-1].end, time.min) - timedelta(minutes=1)
+    assert deadline_position(last, columns) is not None

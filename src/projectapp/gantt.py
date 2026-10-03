@@ -14,6 +14,7 @@ from projectapp.timeline import (
     Scale,
     bar_span,
     build_columns,
+    deadline_position,
     effective_end,
     is_overdue,
     month_bands,
@@ -31,6 +32,8 @@ KIND_COLORS = {
 BAND_HEIGHT_PX = 22  # 年・月の帯の高さ
 HEADER_HEIGHT_PX = 44  # 日次の日付と(曜日)の2段
 WEEKDAYS = "月火水木金土日"
+DEADLINE_MARKER_HALF_PX = 6  # 「◆」の幅の半分。締切の位置が目印の中心に来るようにずらす
+DEADLINE_COLOR = "#f57c00"  # 赤は予定超過の背景と競合するので使わない
 MIN_BAR_PX = 4  # 幅0や終了が開始より前のタスクも、見える細い棒で出す
 OVERDUE_COLOR = "rgba(239, 83, 80, 0.18)"  # 予定超過のタスク行の背景
 GRID_BORDER = "1px solid rgba(128, 128, 128, 0.3)"  # 格子線。両テーマで見える半透明の灰色
@@ -196,15 +199,33 @@ class GanttChart:
             )
             end = effective_end(task, self.project, self.holidays)
             span = bar_span(task.planned_start, end, columns)
-            if span is None:
-                return
-            left, length = span
-            ui.element("div").style(
-                f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
-                f" width: {max(length * width, MIN_BAR_PX):.1f}px; top: 6px;"
-                f" height: {ROW_HEIGHT_PX - 12}px;"
-                f" background: {task.color if is_hex_color(task.color) else DEFAULT_COLOR};"
-                " border-radius: 4px; cursor: pointer"
-            ).on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti)).mark(
-                f"bar-{key}-{ti}"
-            )
+            if span is not None:
+                left, length = span
+                ui.element("div").style(
+                    f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
+                    f" width: {max(length * width, MIN_BAR_PX):.1f}px; top: 6px;"
+                    f" height: {ROW_HEIGHT_PX - 12}px;"
+                    f" background: {task.color if is_hex_color(task.color) else DEFAULT_COLOR};"
+                    " border-radius: 4px; cursor: pointer"
+                ).on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti)).mark(
+                    f"bar-{key}-{ti}"
+                )
+            self.deadline_marker(si, ti, task, columns, width)
+
+    def deadline_marker(
+        self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
+    ) -> None:
+        """締切がある行に、締切の位置へ「◆」を出す。表示範囲の外なら出さない。"""
+        if task.deadline is None:
+            return
+        position = deadline_position(task.deadline, columns)
+        if position is None:
+            return
+        key = "top" if si is None else si
+        left = NAME_WIDTH_PX + position * width - DEADLINE_MARKER_HALF_PX
+        ui.label("◆").style(
+            f"position: absolute; left: {left:.1f}px; top: 4px; line-height: 1;"
+            f" color: {DEADLINE_COLOR}; cursor: pointer"
+        ).on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti)).tooltip(
+            f"締切 {task.deadline:%Y-%m-%d %H:%M}"
+        ).mark(f"deadline-{key}-{ti}")
