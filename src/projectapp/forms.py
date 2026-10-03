@@ -8,7 +8,7 @@ from math import isfinite
 
 from nicegui import ui
 
-from projectapp.models import Priority, Status, Task
+from projectapp.models import Priority, Status, Task, is_hex_color
 
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
 STANDARD_WORK_HOURS = 8  # 時刻を指定しないときに補う終了の、標準稼働時間(固定)
@@ -64,8 +64,10 @@ def build_task(
     recompute = base.end_auto and end_unchanged and inputs_changed
     if start_at and end_at and end_at < start_at and not recompute:
         raise ValueError("終了は開始以降の日時にしてください")
-    if hours < 0:
-        raise ValueError("工数は0以上で入力してください")
+    if not isfinite(hours) or hours < 0:
+        raise ValueError("工数は0以上の数値で入力してください")
+    if not is_hex_color(color):
+        raise ValueError("色は#RRGGBBの形式で入力してください")
     return replace(
         base,
         name=clean,

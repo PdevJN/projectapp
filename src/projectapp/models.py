@@ -2,10 +2,18 @@
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
+import re
 from enum import StrEnum
 
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
+DEFAULT_COLOR = "#4c8bf5"
+HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
+
+
+def is_hex_color(value: str) -> bool:
+    """#RGB / #RRGGBB / #RRGGBBAA。CSSにそのまま入れても安全な形式だけを通す。"""
+    return HEX_COLOR.fullmatch(value) is not None
 
 
 class Priority(StrEnum):
@@ -35,7 +43,7 @@ class Task:
     effort_hours: float = 0.0
     priority: Priority = Priority.MEDIUM
     status: Status = Status.STARTED
-    color: str = "#4c8bf5"
+    color: str = DEFAULT_COLOR
     assignee: str | None = None
     predecessors: list[str] = field(default_factory=list)
     end_auto: bool = False  # 終了が自動算出で、利用者が書き換えていない
