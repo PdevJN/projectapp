@@ -7,7 +7,7 @@ from datetime import date, datetime
 from nicegui import ui
 
 from projectapp.calendar import DayKind, day_kind
-from projectapp.models import Project, Section, Task
+from projectapp.models import DEFAULT_COLOR, Project, Section, Task, is_hex_color
 from projectapp.timeline import (
     Band,
     Column,
@@ -30,6 +30,7 @@ KIND_COLORS = {
 BAND_HEIGHT_PX = 22  # 年・月の帯の高さ
 HEADER_HEIGHT_PX = 44  # 日次の日付と(曜日)の2段
 WEEKDAYS = "月火水木金土日"
+MIN_BAR_PX = 4  # 幅0や終了が開始より前のタスクも、見える細い棒で出す
 OVERDUE_COLOR = "rgba(239, 83, 80, 0.18)"  # 予定超過のタスク行の背景
 GRID_BORDER = "1px solid rgba(128, 128, 128, 0.3)"  # 格子線。両テーマで見える半透明の灰色
 ADD_ROW_HEIGHT_PX = 24  # 追加行は通常の行より細くする
@@ -198,8 +199,9 @@ class GanttChart:
             left, length = span
             ui.element("div").style(
                 f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
-                f" width: {length * width:.1f}px; top: 6px;"
-                f" height: {ROW_HEIGHT_PX - 12}px; background: {task.color};"
+                f" width: {max(length * width, MIN_BAR_PX):.1f}px; top: 6px;"
+                f" height: {ROW_HEIGHT_PX - 12}px;"
+                f" background: {task.color if is_hex_color(task.color) else DEFAULT_COLOR};"
                 " border-radius: 4px; cursor: pointer"
             ).on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti)).mark(
                 f"bar-{key}-{ti}"
