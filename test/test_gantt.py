@@ -14,7 +14,7 @@ from projectapp.gantt import (
     GanttActions,
     GanttChart,
 )
-from projectapp.models import DEFAULT_COLOR, Project, Section, Status, Task
+from projectapp.models import DEFAULT_COLOR, Member, Project, Section, Status, Task
 from projectapp.timeline import Scale
 
 BASE = date(2026, 10, 5)  # 月曜
@@ -426,3 +426,89 @@ async def test_a_task_with_a_start_and_a_deadline_draws_the_bar_up_to_the_deadli
     await user.open("/")
     bar = user.find(marker="bar-top-0").elements.pop()
     assert bar._style["width"] == "80.0px"  # 完了予定は空なので、締切(2日後)まで
+
+
+def overloaded_project() -> Project:
+    a = Task(
+        "A",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 9),
+        assignee="田中",
+        allocation=0.6,
+    )
+    b = Task(
+        "B",
+        planned_start=datetime(2026, 10, 7),
+        planned_end=datetime(2026, 10, 12),
+        assignee="田中",
+        allocation=0.6,
+    )
+    return Project("demo", base_date=BASE, members=[Member("田中")], tasks=[a, b])
+
+
+async def test_stripes_cover_only_the_overloaded_part_of_each_bar(user: User) -> None:
+    mount(overloaded_project())
+    await user.open("/")
+    a = user.find(marker="overload-top-0-0").elements.pop()
+    b = user.find(marker="overload-top-1-0").elements.pop()
+    # 超過は 10/7〜10/9。Aの棒は 10/5 から、Bの棒は 10/7 から始まる
+    assert (a._style["left"], a._style["width"]) == ("80.0px", "80.0px")
+    assert (b._style["left"], b._style["width"]) == ("0.0px", "80.0px")
+
+
+async def test_stripes_do_not_block_clicks_on_the_bar(user: User) -> None:
+    recorder = mount(overloaded_project())
+    await user.open("/")
+    assert user.find(marker="overload-top-0-0").elements.pop()._style["pointer-events"] == "none"
+    user.find(marker="bar-top-0").click()
+    assert recorder.events == [("edit_task", (None, 0))]
+
+
+async def test_the_bar_tooltip_names_the_member_and_the_peak(user: User) -> None:
+    mount(overloaded_project())
+    await user.open("/")
+    bar = user.find(marker="bar-top-0").elements.pop()
+    tooltips = [c for c in bar.default_slot.children if isinstance(c, ui.tooltip)]
+    assert len(tooltips) == 1
+    assert "田中 の割り当てが最大120%" in tooltips[0].text
+    assert "2026-10-07" in tooltips[0].text
+
+
+async def test_no_stripes_without_an_overload(user: User) -> None:
+    project = overloaded_project()
+    project.tasks[1].allocation = 0.4  # 合計ちょうど100%
+    mount(project)
+    await user.open("/")
+    await user.should_see(marker="bar-top-0")
+    await user.should_not_see(marker="overload-top-0-0")
+    await user.should_not_see(marker="overload-top-1-0")
+
+
+async def test_tasks_that_are_done_get_no_stripes(user: User) -> None:
+    project = overloaded_project()
+    project.tasks[1].status = Status.DONE
+    mount(project)
+    await user.open("/")
+    await user.should_see(marker="bar-top-0")
+    await user.should_not_see(marker="overload-top-0-0")
+    await user.should_not_see(marker="overload-top-1-0")
+
+
+async def test_stripes_stay_inside_a_thin_bar(user: User) -> None:
+    def thin(name: str) -> Task:
+        return Task(
+            name,
+            planned_start=datetime(2026, 10, 5),
+            planned_end=datetime(2026, 10, 5, 0, 1),
+            assignee="田中",
+            allocation=0.6,
+        )
+
+    mount(Project("demo", base_date=BASE, members=[Member("田中")], tasks=[thin("A"), thin("B")]))
+    await user.open("/")
+    stripe = user.find(marker="overload-top-0-0").elements.pop()
+    bar = user.find(marker="bar-top-0").elements.pop()
+    bar_width = float(bar._style["width"].removesuffix("px"))
+    left = float(stripe._style["left"].removesuffix("px"))
+    width = float(stripe._style["width"].removesuffix("px"))
+    assert 0.0 <= left and left + width <= bar_width + 1e-6
