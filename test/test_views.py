@@ -845,3 +845,61 @@ async def test_the_members_dialog_leaves_no_elements_after_hide(user: User, tmp_
     await user.should_see(marker="member-add")
     user.find(kind=ui.dialog).trigger("hide")
     await user.should_not_see(marker="member-add")
+
+
+async def test_saving_a_task_that_overloads_the_assignee_warns(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.members = [Member("田中", 1.0)]
+    view.save_task(
+        None,
+        None,
+        Task(
+            "a",
+            planned_start=datetime(2026, 10, 5),
+            planned_end=datetime(2026, 10, 9),
+            assignee="田中",
+            allocation=0.6,
+        ),
+    )
+    assert not user.notify.contains("割り当て")
+    view.save_task(
+        None,
+        None,
+        Task(
+            "b",
+            planned_start=datetime(2026, 10, 7),
+            planned_end=datetime(2026, 10, 12),
+            assignee="田中",
+            allocation=0.6,
+        ),
+    )
+    assert user.notify.contains("田中 の割り当てが最大120%")
+    assert len(view.project.tasks) == 2  # 警告しても保存はされる
+
+
+async def test_saving_a_task_that_does_not_overload_shows_no_warning(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.members = [Member("田中", 1.0)]
+    for name, start, end, allocation in (("a", 5, 9, 0.7), ("b", 7, 12, 0.3)):
+        view.save_task(
+            None,
+            None,
+            Task(
+                name,
+                planned_start=datetime(2026, 10, start),
+                planned_end=datetime(2026, 10, end),
+                assignee="田中",
+                allocation=allocation,
+            ),
+        )
+    assert not user.notify.contains("割り当て")

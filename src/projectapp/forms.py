@@ -9,8 +9,10 @@ from math import isfinite
 from nicegui import ui
 
 from projectapp.models import (
+    MAX_ALLOCATION,
     MAX_RATIO,
     MAX_YEAR,
+    MIN_ALLOCATION,
     MIN_RATIO,
     MIN_YEAR,
     Member,
@@ -86,6 +88,7 @@ def build_task(
     status: Status,
     color: str,
     assignee: str,
+    allocation_percent: float | None,
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。"""
     clean = name.strip()
@@ -109,6 +112,18 @@ def build_task(
         raise ValueError("色は#RRGGBBの形式で入力してください")
     if uses_planned_end and start_at and end_at and end_at < start_at:
         raise ValueError("完了予定は開始予定以降の日時にしてください")
+    assignee_name = assignee.strip()
+    allocation = 1.0
+    if assignee_name:
+        if (
+            allocation_percent is None
+            or not isfinite(allocation_percent)
+            or not MIN_ALLOCATION * 100 <= allocation_percent <= MAX_ALLOCATION * 100
+        ):
+            raise ValueError(
+                f"割り当て率は{MIN_ALLOCATION * 100:g}〜{MAX_ALLOCATION * 100:g}%で入力してください"
+            )
+        allocation = round(allocation_percent / 100, 4)
     return replace(
         base,
         name=clean,
@@ -120,7 +135,8 @@ def build_task(
         priority=priority,
         status=status,
         color=color,
-        assignee=assignee.strip() or None,
+        assignee=assignee_name or None,
+        allocation=allocation,
     )
 
 

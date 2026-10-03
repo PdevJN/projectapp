@@ -39,6 +39,7 @@ def make(existing: Task | None = None, **overrides: object) -> Task:
         "status": Status.RUNNING,
         "color": "#112233",
         "assignee": "",
+        "allocation_percent": 100.0,
     }
     values.update(overrides)
     return build_task(existing, **values)  # type: ignore[arg-type]
@@ -717,3 +718,24 @@ def test_build_members_rejects_taking_the_name_of_a_member_that_is_deleted_with_
     counts = {"B": 1}
     with pytest.raises(ValueError, match="B.*1件"):
         build_members(rows(("A", "B", 100.0)), ["A", "B"], lambda name: counts.get(name, 0))
+
+
+def test_allocation_is_stored_as_a_fraction_when_there_is_an_assignee() -> None:
+    task = make(assignee="田中", allocation_percent=60.0)
+    assert task.allocation == pytest.approx(0.6)
+
+
+def test_allocation_is_one_without_an_assignee() -> None:
+    assert make(assignee="", allocation_percent=60.0).allocation == 1.0
+    assert make(assignee="  ", allocation_percent=None).allocation == 1.0
+
+
+@pytest.mark.parametrize("percent", [None, 0.0, 0.99, 100.01, -5.0, float("nan"), float("inf")])
+def test_a_bad_allocation_is_rejected_when_there_is_an_assignee(percent: float | None) -> None:
+    with pytest.raises(ValueError, match="割り当て率"):
+        make(assignee="田中", allocation_percent=percent)
+
+
+@pytest.mark.parametrize("percent", [1.0, 100.0, 33.33])
+def test_allocation_boundaries_are_accepted(percent: float) -> None:
+    assert make(assignee="田中", allocation_percent=percent).allocation == pytest.approx(percent / 100)
