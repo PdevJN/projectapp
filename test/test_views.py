@@ -12,7 +12,7 @@ from nicegui.testing import User
 from projectapp.calendar import DayKind, save_cache
 from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
-from projectapp.models import Project, Section, Task
+from projectapp.models import Member, Project, Section, Task
 from projectapp.storage import load_project, save_project
 from projectapp.views import MainView
 
@@ -757,3 +757,163 @@ async def test_refreshing_holidays_rerenders_the_bar(
     await view.refresh_holidays()
     assert await wait_until(lambda: bar_width(user) != before)
     assert user.notify.contains("祝日データを更新しました")
+
+
+async def open_members_view(user: User, tmp_path: Path) -> MainView:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    return views[0]
+
+
+async def test_the_members_dialog_adds_a_member(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    user.find(marker="open-members").click()
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-0")  # 再描画を待つ
+    user.find(marker="member-name-0").type("田中")
+    user.find(marker="member-ratio-0").clear().type("120")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members == [Member("田中", 1.2)])
+    assert view.is_dirty()
+
+
+async def test_the_members_dialog_rejects_a_duplicate_name(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("田中", 1.0)]
+    view.mark_clean()
+    user.find(marker="open-members").click()
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-1")
+    user.find(marker="member-name-1").type("田中")
+    user.find(marker="member-apply").click()
+    await user.should_see("重複")
+    assert view.project.members == [Member("田中", 1.0)]
+
+
+async def test_applying_the_same_members_changes_nothing(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("田中", 1.2)]
+    view.mark_clean()
+    user.find(marker="open-members").click()
+    user.find(marker="member-apply").click()
+    await asyncio.sleep(0.3)
+    assert not view.is_dirty()
+
+
+async def test_renaming_a_member_renames_the_assignee_of_its_tasks(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("田中", 1.0), Member("鈴木", 1.0)]
+    view.project.tasks = [Task("a", assignee="田中"), Task("b", assignee="鈴木"), Task("c")]
+    view.mark_clean()
+    user.find(marker="open-members").click()
+    user.find(marker="member-name-0").clear().type("田中太郎")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.tasks[0].assignee == "田中太郎")
+    assert [t.assignee for t in view.project.tasks] == ["田中太郎", "鈴木", None]
+    assert [m.name for m in view.project.members] == ["田中太郎", "鈴木"]
+
+
+async def test_a_member_with_tasks_cannot_be_deleted(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("田中", 1.0)]
+    view.project.tasks = [Task("a", assignee="田中")]
+    view.mark_clean()
+    user.find(marker="open-members").click()
+    user.find(marker="member-delete-0").click()
+    user.find(marker="member-apply").click()
+    await user.should_see("1件")
+    assert view.project.members == [Member("田中", 1.0)]
+
+
+async def test_a_member_without_tasks_can_be_deleted(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("田中", 1.0)]
+    view.mark_clean()
+    user.find(marker="open-members").click()
+    user.find(marker="member-delete-0").click()
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members == [])
+
+
+async def test_the_members_dialog_leaves_no_elements_after_hide(user: User, tmp_path: Path) -> None:
+    await open_members_view(user, tmp_path)
+    user.find(marker="open-members").click()
+    await user.should_see(marker="member-add")
+    user.find(kind=ui.dialog).trigger("hide")
+    await user.should_not_see(marker="member-add")
+
+
+async def test_saving_a_task_that_overloads_the_assignee_warns(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.members = [Member("田中", 1.0)]
+    view.save_task(
+        None,
+        None,
+        Task(
+            "a",
+            planned_start=datetime(2026, 10, 5),
+            planned_end=datetime(2026, 10, 9),
+            assignee="田中",
+            allocation=0.6,
+        ),
+    )
+    assert not user.notify.contains("割り当て")
+    view.save_task(
+        None,
+        None,
+        Task(
+            "b",
+            planned_start=datetime(2026, 10, 7),
+            planned_end=datetime(2026, 10, 12),
+            assignee="田中",
+            allocation=0.6,
+        ),
+    )
+    assert user.notify.contains("田中 の割り当てが最大120%")
+    assert len(view.project.tasks) == 2  # 警告しても保存はされる
+
+
+async def test_saving_a_task_that_does_not_overload_shows_no_warning(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.members = [Member("田中", 1.0)]
+    for name, start, end, allocation in (("a", 5, 9, 0.7), ("b", 7, 12, 0.3)):
+        view.save_task(
+            None,
+            None,
+            Task(
+                name,
+                planned_start=datetime(2026, 10, start),
+                planned_end=datetime(2026, 10, end),
+                assignee="田中",
+                allocation=allocation,
+            ),
+        )
+    assert not user.notify.contains("割り当て")
+
+
+async def test_swapping_two_member_names_swaps_the_assignees_once(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("A", 1.0), Member("B", 1.0)]
+    view.project.tasks = [Task("t1", assignee="A"), Task("t2", assignee="B")]
+    view.mark_clean()
+    user.find(marker="open-members").click()
+    user.find(marker="member-name-0").clear().type("B")
+    user.find(marker="member-name-1").clear().type("A")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.tasks[0].assignee == "B")
+    assert [t.assignee for t in view.project.tasks] == ["B", "A"]
+    assert [m.name for m in view.project.members] == ["B", "A"]

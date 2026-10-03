@@ -9,6 +9,8 @@ DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
 MIN_YEAR, MAX_YEAR = 2000, 2100  # 入力ミスで表示範囲が際限なく広がるのを防ぐ
+MIN_RATIO, MAX_RATIO = 0.1, 3.0  # 相対比率(10%〜300%)
+MIN_ALLOCATION, MAX_ALLOCATION = 0.01, 1.0  # 割り当て率(1%〜100%)
 HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
 
@@ -49,6 +51,7 @@ class Task:
     deadline: datetime | None = None  # 締切(納期)
     planned_end: datetime | None = None  # 完了予定の手入力値
     planned_end_manual: bool = False  # 工数があるときに、完了予定を手で指定するか
+    allocation: float = 1.0  # 担当者の時間のうち、このタスクに使う割合(1.0 = 100%)
 
 
 @dataclass
@@ -66,3 +69,7 @@ class Project:
     members: list[Member] = field(default_factory=list)
     sections: list[Section] = field(default_factory=list)
     tasks: list[Task] = field(default_factory=list)  # セクションに属さないタスク
+
+    def all_tasks(self) -> list[Task]:
+        """セクションなしのタスク、続いてセクションのタスク。"""
+        return [*self.tasks, *(t for section in self.sections for t in section.tasks)]

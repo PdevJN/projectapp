@@ -15,8 +15,17 @@ from projectapp.forms import (
     needs_end_time,
     needs_start_time,
 )
-from projectapp.models import DEFAULT_DAILY_HOURS, DEFAULT_WORK_START, Priority, Status, Task
-from projectapp.timeline import computed_end
+from projectapp.models import (
+    DEFAULT_DAILY_HOURS,
+    DEFAULT_WORK_START,
+    MAX_ALLOCATION,
+    MIN_ALLOCATION,
+    Member,
+    Priority,
+    Status,
+    Task,
+)
+from projectapp.timeline import combine_rate, computed_end, effort_days
 
 # 赤は「予定超過」の背景色と意味が競合するため、優先度には使わない
 PRIORITY_COLORS = {Priority.HIGH: "orange", Priority.MEDIUM: "amber", Priority.LOW: "blue"}
@@ -77,11 +86,13 @@ class DateTimeFields:
         work_start: time,
         daily_hours: float,
         holidays: dict[date, str],
+        rate: float = 1.0,
     ) -> None:
         default_start, default_end = default_times(work_start)
         self._defaults = {"start": default_start, "end": default_end, "deadline": default_end}
         self._work_start, self._daily_hours, self._holidays = work_start, daily_hours, holidays
         self.effort = task.effort_hours
+        self._rate = rate
         with ui.row().classes("w-full no-wrap gap-4"):
             self.start_day, self.start_time, self.use_start_time, _ = self._column(
                 "開始予定",
@@ -165,6 +176,10 @@ class DateTimeFields:
             return self._time(key).value or ""
         return self._defaults[key].strftime("%H:%M")
 
+    def set_rate(self, rate: float) -> None:
+        self._rate = rate
+        self._refresh_end()
+
     def set_effort(self, value: float | None) -> None:
         self.effort = value or 0.0
         self._refresh_end()
@@ -197,6 +212,7 @@ class DateTimeFields:
             self._work_start,
             self._holidays,
             deadline,
+            self._rate,
         )
         return end.strftime("%Y-%m-%d %H:%M") if end else ""
 
@@ -229,19 +245,75 @@ def open_task_dialog(
     on_delete: Callable[[], object] | None = None,
     daily_hours: float = DEFAULT_DAILY_HOURS,
     holidays: dict[date, str] | None = None,
+    members: list[Member] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
+    member_list = list(members or [])
+    if initial.assignee and all(m.name != initial.assignee for m in member_list):
+        member_list.append(Member(initial.assignee, 1.0))  # 一覧にいない担当者も、保存で失わない
+    initial_member = next((m for m in member_list if m.name == initial.assignee), None)
+    initial_rate = (
+        combine_rate(initial_member.ratio, initial.allocation) if initial_member else 1.0
+    )
     with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[36rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
         name = ui.input("名前", value=initial.name).mark("task-name")
-        fields = DateTimeFields(initial, work_start, daily_hours, holidays or {})
+        fields = DateTimeFields(initial, work_start, daily_hours, holidays or {}, initial_rate)
         with fields.second_row:
             effort = (
                 ui.number("工数(時間)", value=initial.effort_hours, min=0)
                 .classes("flex-1")
                 .mark("task-effort")
             )
-        effort.on_value_change(lambda e: fields.set_effort(e.value))
+        with ui.row().classes("w-full no-wrap gap-4"):
+            assignee = (
+                ui.select(
+                    {"": "(なし)", **{m.name: m.name for m in member_list}},
+                    label="担当者",
+                    value=initial.assignee if initial_member else "",
+                )
+                .classes("flex-1")
+                .mark("task-assignee")
+            )
+            allocation = (
+                ui.number(
+                    "割り当て率(%)",
+                    value=round(initial.allocation * 100, 2),
+                    min=MIN_ALLOCATION * 100,
+                    max=MAX_ALLOCATION * 100,
+                    step=5,
+                )
+                .classes("flex-1")
+                .mark("task-allocation")
+            )
+        conversion = ui.label("").classes("text-caption text-grey").mark("task-conversion")
+
+        def current_member() -> Member | None:
+            return next((m for m in member_list if m.name == assignee.value), None)
+
+        def refresh_conversion(_event: object = None) -> None:
+            member = current_member()
+            allocation.set_enabled(member is not None)
+            fraction = (allocation.value or 100) / 100 if member else 1.0
+            rate = combine_rate(member.ratio, fraction) if member else 1.0
+            fields.set_rate(rate)
+            days = effort_days(effort.value or 0.0, rate, daily_hours) if member else None
+            if member is None or days is None:
+                conversion.set_text("")
+                return
+            conversion.set_text(
+                f"{effort.value:g}h → {days:.1f}日分"
+                f"(相対比率 {member.ratio * 100:g}% × 割り当て {fraction * 100:g}%)"
+            )
+
+        def on_effort_change(e: object) -> None:
+            fields.set_effort(getattr(e, "value", None))
+            refresh_conversion()
+
+        effort.on_value_change(on_effort_change)
+        assignee.on_value_change(refresh_conversion)
+        allocation.on_value_change(refresh_conversion)
+        refresh_conversion()
         priority = PriorityChips(initial.priority)
         status = (
             ui.select({s: s.value for s in Status}, label="状態", value=initial.status)
@@ -251,7 +323,6 @@ def open_task_dialog(
         color = ui.color_input("色", value=initial.color, preview=True).classes("w-full").mark(
             "task-color"
         )
-        assignee = ui.input("担当者", value=initial.assignee or "")
         error = ui.label("").classes("text-negative").mark("form-error")
 
         def current() -> tuple[object, ...]:
@@ -264,6 +335,7 @@ def open_task_dialog(
                 status.value,
                 color.value,
                 assignee.value,
+                allocation.value,
             )
 
         opened = current()
@@ -283,6 +355,7 @@ def open_task_dialog(
                     status=Status(status.value),
                     color=color.value or initial.color,
                     assignee=assignee.value or "",
+                    allocation_percent=allocation.value,
                 )
             except ValueError as exc:
                 error.set_text(str(exc))

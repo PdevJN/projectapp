@@ -13,13 +13,14 @@ from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import THEMES, load_theme, save_theme
 from projectapp.forms import (
     open_file_dialog,
+    open_members_dialog,
     open_name_dialog,
     open_section_dialog,
     open_settings_dialog,
     open_unsaved_dialog,
 )
 from projectapp.gantt import GanttActions, GanttChart
-from projectapp.models import Project, Section, Task
+from projectapp.models import Member, Project, Section, Task
 from projectapp.storage import (
     BASE_DIR,
     list_project_files,
@@ -28,6 +29,7 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.task_dialog import open_task_dialog
+from projectapp.timeline import clip_overloads, overallocations
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
@@ -138,6 +140,23 @@ class MainView:
             self.project.daily_hours, self.project.work_start, self.apply_settings
         )
 
+    def open_members(self) -> None:
+        open_members_dialog(self.project.members, self.assigned_count, self.apply_members)
+
+    def assigned_count(self, name: str) -> int:
+        return sum(1 for task in self.project.all_tasks() if task.assignee == name)
+
+    def apply_members(self, members: list[Member], renames: dict[str, str]) -> None:
+        """メンバーを更新し、改名をタスクの担当者に伝える。保存はしない(編集中の判定に入る)。"""
+        if members == self.project.members and not renames:
+            return
+        self.project.members = members
+        if renames:
+            for task in self.project.all_tasks():
+                if task.assignee in renames:
+                    task.assignee = renames[task.assignee]
+        self.gantt.set_project(self.project)
+
     def apply_settings(self, hours: float, start: time) -> None:
         """稼働設定を更新して再描画する。完了予定は表示のたびに計算されるので、再計算の処理は要らない。保存はしない。"""
         if hours == self.project.daily_hours and start == self.project.work_start:
@@ -194,6 +213,7 @@ class MainView:
             work_start=self.project.work_start,
             daily_hours=self.project.daily_hours,
             holidays=self.holidays,
+            members=self.project.members,
         )
 
     def add_top_task(self) -> None:
@@ -203,6 +223,7 @@ class MainView:
             work_start=self.project.work_start,
             daily_hours=self.project.daily_hours,
             holidays=self.holidays,
+            members=self.project.members,
         )
 
     def edit_task(self, section_index: int | None, task_index: int) -> None:
@@ -213,6 +234,7 @@ class MainView:
             work_start=self.project.work_start,
             daily_hours=self.project.daily_hours,
             holidays=self.holidays,
+            members=self.project.members,
             on_delete=lambda: self.delete_task(section_index, task_index),
         )
 
@@ -236,6 +258,20 @@ class MainView:
         else:
             tasks[task_index] = task
         self.gantt.set_project(self.project)
+        self.warn_overallocation(task)
+
+    def warn_overallocation(self, task: Task) -> None:
+        """保存したタスクが担当者の割り当て合計の超過に関わるなら、通知する(保存は妨げない)。"""
+        if not task.assignee:
+            return
+        overloads = overallocations(self.project, self.holidays)
+        mine = clip_overloads(task, self.project, self.holidays, overloads)
+        if mine:
+            peak = max(o.total for o in mine)
+            ui.notify(
+                f"{task.assignee} の割り当てが最大{round(peak * 100)}%になる期間があります",
+                type="warning",
+            )
 
     async def refresh_holidays(self, quiet: bool = False) -> None:
         """祝日を取得してチャートに反映する。失敗しても画面は変えず通知だけ出す。"""
@@ -278,6 +314,9 @@ class MainView:
                 )
                 ui.button("設定", icon="settings", on_click=self.open_settings).mark(
                     "open-settings"
+                )
+                ui.button("メンバー", icon="group", on_click=self.open_members).mark(
+                    "open-members"
                 )
 
     @ui.refreshable_method

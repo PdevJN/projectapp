@@ -1,7 +1,7 @@
 """スケールごとの列生成と、日時から位置・幅への変換(純粋関数)。"""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from itertools import groupby
@@ -128,6 +128,86 @@ def deadline_position(deadline: datetime, columns: list[Column]) -> float | None
     return _position(deadline, columns)
 
 
+def interval_span(start: datetime, end: datetime, columns: list[Column]) -> tuple[float, float]:
+    """区間の(左端, 幅)を列の単位で返す。幅は0以上。"""
+    left = _position(start, columns)
+    right = _position(end, columns)
+    return left, max(right - left, 0.0)
+
+
+@dataclass(frozen=True)
+class Overload:
+    """担当者の割り当て合計が100%を超える期間。totalは期間内の合計の最大値(1.0 = 100%)。"""
+
+    member: str
+    start: datetime
+    end: datetime
+    total: float
+
+
+OVERLOAD_EPSILON = 1e-9  # 浮動小数の誤差で、ちょうど100%を超過にしない
+
+
+def _counted_span(
+    task: Task, project: Project, holidays: dict[date, str]
+) -> tuple[datetime, datetime] | None:
+    """割り当ての合計に数えるタスクの期間。数えない(担当者なし・終了・開始予定なしなど)ときはNone。"""
+    if not task.assignee or task.status is Status.DONE or task.planned_start is None:
+        return None
+    if all(m.name != task.assignee for m in project.members):
+        return None
+    end = effective_end(task, project, holidays)
+    if end is None or end <= task.planned_start:
+        return None
+    return task.planned_start, end
+
+
+def overallocations(project: Project, holidays: dict[date, str]) -> list[Overload]:
+    """同じ担当者の、期間が重なるタスクの割り当て率の合計が100%を超える期間。"""
+    spans: dict[str, list[tuple[datetime, datetime, float]]] = {}
+    for task in project.all_tasks():
+        counted = _counted_span(task, project, holidays)
+        if counted is not None and task.assignee is not None:
+            spans.setdefault(task.assignee, []).append((*counted, task.allocation))
+    result: list[Overload] = []
+    for name, items in spans.items():
+        points = sorted({p for start, end, _ in items for p in (start, end)})
+        current: Overload | None = None
+        for left, right in zip(points, points[1:]):
+            total = sum(a for start, end, a in items if start <= left and right <= end)
+            if total > 1.0 + OVERLOAD_EPSILON:
+                if current is not None and current.end == left:
+                    current = replace(current, end=right, total=max(current.total, total))
+                else:
+                    if current is not None:
+                        result.append(current)
+                    current = Overload(name, left, right, total)
+            elif current is not None:
+                result.append(current)
+                current = None
+        if current is not None:
+            result.append(current)
+    return result
+
+
+def clip_overloads(
+    task: Task, project: Project, holidays: dict[date, str], overloads: list[Overload]
+) -> list[Overload]:
+    """そのタスクの期間に重なる超過区間を、タスクの期間に切り詰めて返す。"""
+    counted = _counted_span(task, project, holidays)
+    if counted is None:
+        return []
+    start, end = counted
+    clipped: list[Overload] = []
+    for overload in overloads:
+        if overload.member != task.assignee:
+            continue
+        left, right = max(overload.start, start), min(overload.end, end)
+        if left < right:
+            clipped.append(replace(overload, start=left, end=right))
+    return clipped
+
+
 def _bands(
     columns: list[Column], key: Callable[[Column], object], label: Callable[[Column], str]
 ) -> list[Band]:
@@ -206,6 +286,28 @@ def _calc_end(
         cursor = datetime.combine(_next_workday(cursor.date(), holidays), work_start)
 
 
+def combine_rate(ratio: float, allocation: float) -> float:
+    """換算率 = 相対比率 × 割り当て率。使えない値(0以下・NaN・inf)のときは換算しない(1.0)。"""
+    rate = ratio * allocation
+    return rate if isfinite(rate) and rate > 0 else 1.0
+
+
+def conversion_rate(task: Task, project: Project) -> float:
+    member = next((m for m in project.members if m.name == task.assignee), None)
+    if member is None:
+        return 1.0
+    return combine_rate(member.ratio, task.allocation)
+
+
+def effort_days(effort_hours: float, rate: float, daily_hours: float) -> float | None:
+    """基準の人の工数(h)を、換算率と稼働可能時間で日数にする。使えない値はNone。"""
+    if not isfinite(effort_hours) or effort_hours <= 0:
+        return None
+    if not isfinite(daily_hours) or daily_hours <= 0:
+        return None
+    return effort_hours / combine_rate(rate, 1.0) / daily_hours
+
+
 def computed_end(
     start: datetime | None,
     effort_hours: float,
@@ -213,10 +315,13 @@ def computed_end(
     work_start: time,
     holidays: dict[date, str],
     deadline: datetime | None = None,
+    rate: float = 1.0,
 ) -> datetime | None:
-    """手入力を使わない完了予定。工数があれば算出し、算出できなければ締切、締切もなければ開始予定の1日後。"""
+    """手入力を使わない完了予定。工数を換算率で割って算出し、算出できなければ締切、締切もなければ開始予定の1日後。"""
     if start is not None and effort_hours > 0:
-        end = calc_end(start, effort_hours, daily_hours, work_start, holidays)
+        end = calc_end(
+            start, effort_hours / combine_rate(rate, 1.0), daily_hours, work_start, holidays
+        )
         if end is not None:
             return end
     if deadline is not None:
@@ -240,6 +345,7 @@ def effective_end(task: Task, project: Project, holidays: dict[date, str]) -> da
         project.work_start,
         holidays,
         task.deadline,
+        conversion_rate(task, project),
     )
 
 

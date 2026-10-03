@@ -11,13 +11,17 @@ from projectapp.models import DEFAULT_COLOR, Project, Section, Task, is_hex_colo
 from projectapp.timeline import (
     Band,
     Column,
+    Overload,
     Scale,
     bar_span,
     build_columns,
+    clip_overloads,
     deadline_position,
     effective_end,
+    interval_span,
     is_overdue,
     month_bands,
+    overallocations,
     year_bands,
 )
 
@@ -34,6 +38,9 @@ HEADER_HEIGHT_PX = 44  # 日次の日付と(曜日)の2段
 WEEKDAYS = "月火水木金土日"
 DEADLINE_MARKER_HALF_PX = 6  # 「◆」の幅の半分。締切の位置が目印の中心に来るようにずらす
 DEADLINE_COLOR = "#f57c00"  # 赤は予定超過の背景と競合するので使わない
+OVERLOAD_STRIPES = (  # 割り当て合計が100%を超える期間の縞。タスクの色に依存しないよう白と黒の半透明を重ねる
+    "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 4px, rgba(0,0,0,0.35) 4px 8px)"
+)
 MIN_BAR_PX = 4  # 幅0や終了が開始より前のタスクも、見える細い棒で出す
 OVERDUE_COLOR = "rgba(239, 83, 80, 0.18)"  # 予定超過のタスク行の背景
 GRID_BORDER = "1px solid rgba(128, 128, 128, 0.3)"  # 格子線。両テーマで見える半透明の灰色
@@ -64,6 +71,7 @@ class GanttChart:
         self.holidays = holidays
         self.actions = actions
         self.now = now
+        self.overloads: list[Overload] = []
         self.scale = Scale.DAY
 
     def set_project(self, project: Project) -> None:
@@ -93,6 +101,7 @@ class GanttChart:
     @ui.refreshable_method
     def render(self) -> None:
         columns = build_columns(self.project, self.scale, self.holidays)
+        self.overloads = overallocations(self.project, self.holidays)
         width = COLUMN_WIDTH_PX[self.scale]
         total = NAME_WIDTH_PX + width * len(columns)
         with ui.element("div").classes("w-full").style("overflow-x: auto"):
@@ -201,16 +210,48 @@ class GanttChart:
             span = bar_span(task.planned_start, end, columns)
             if span is not None:
                 left, length = span
-                ui.element("div").style(
+                bar_width = max(length * width, MIN_BAR_PX)
+                with ui.element("div").style(
                     f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
-                    f" width: {max(length * width, MIN_BAR_PX):.1f}px; top: 6px;"
+                    f" width: {bar_width:.1f}px; top: 6px;"
                     f" height: {ROW_HEIGHT_PX - 12}px;"
                     f" background: {task.color if is_hex_color(task.color) else DEFAULT_COLOR};"
-                    " border-radius: 4px; cursor: pointer"
+                    " border-radius: 4px; cursor: pointer; overflow: hidden"
                 ).on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti)).mark(
                     f"bar-{key}-{ti}"
-                )
+                ):
+                    self.overload_stripes(key, ti, task, left, bar_width, columns, width)
             self.deadline_marker(si, ti, task, columns, width)
+
+    def overload_stripes(
+        self,
+        key: int | str,
+        ti: int,
+        task: Task,
+        bar_left: float,
+        bar_width: float,
+        columns: list[Column],
+        width: int,
+    ) -> None:
+        """棒の内側に、割り当て合計が100%を超える期間の縞を重ねる。棒の外にははみ出さない。"""
+        clipped = clip_overloads(task, self.project, self.holidays, self.overloads)
+        for n, overload in enumerate(clipped):
+            start, length = interval_span(overload.start, overload.end, columns)
+            left_px = max((start - bar_left) * width, 0.0)
+            width_px = min(length * width, bar_width - left_px)
+            if width_px <= 0:
+                continue
+            ui.element("div").style(
+                f"position: absolute; left: {left_px:.1f}px; width: {width_px:.1f}px;"
+                f" top: 0; bottom: 0; background: {OVERLOAD_STRIPES}; pointer-events: none"
+            ).mark(f"overload-{key}-{ti}-{n}")
+        if clipped:
+            peak = round(max(o.total for o in clipped) * 100)
+            first, last = clipped[0], clipped[-1]
+            ui.tooltip(
+                f"{first.member} の割り当てが最大{peak}%"
+                f"({first.start:%Y-%m-%d}〜{last.end:%Y-%m-%d})"
+            )
 
     def deadline_marker(
         self, si: int | None, ti: int, task: Task, columns: list[Column], width: int

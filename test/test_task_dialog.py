@@ -1,10 +1,12 @@
 import asyncio
+
+import pytest
 from datetime import date, datetime, time
 
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.models import Task
+from projectapp.models import Member, Task
 from projectapp.task_dialog import open_task_dialog
 
 
@@ -15,6 +17,7 @@ def mount_dialog(
     deleted: list[str] | None = None,
     daily_hours: float = 6.5,
     holidays: dict[date, str] | None = None,
+    members: list[Member] | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -27,6 +30,7 @@ def mount_dialog(
                 on_delete=None if deleted is None else lambda: deleted.append("deleted"),
                 daily_hours=daily_hours,
                 holidays=holidays,
+                members=members,
             ),
         )
 
@@ -704,3 +708,119 @@ async def test_changing_the_deadline_updates_the_computed_end(user: User) -> Non
     assert computed.value == "2026-10-10 09:00"  # 締切なしは開始予定の翌日
     user.find(marker="task-deadline-date").type("2026-10-30")
     assert computed.value == "2026-10-30 18:00"
+
+
+TANAKA = Member("田中", 1.2)
+SUZUKI = Member("鈴木", 1.0)
+
+
+async def test_the_assignee_is_chosen_from_the_members(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, members=[TANAKA, SUZUKI])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    select = user.find(marker="task-assignee").elements.pop()
+    assert select.options == {"": "(なし)", "田中": "田中", "鈴木": "鈴木"}
+    with user.client:
+        select.set_value("田中")
+    user.find(marker="task-save").click()
+    assert saved[0].assignee == "田中"
+
+
+async def test_without_an_assignee_the_allocation_is_disabled_and_saved_as_one(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, members=[TANAKA])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    allocation = user.find(marker="task-allocation").elements.pop()
+    assert allocation.enabled is False
+    user.find(marker="task-save").click()
+    assert saved[0].assignee is None and saved[0].allocation == 1.0
+
+
+async def test_the_allocation_is_enabled_with_an_assignee_and_saved(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, members=[TANAKA])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("田中")
+    allocation = user.find(marker="task-allocation").elements.pop()
+    assert allocation.enabled is True
+    with user.client:
+        allocation.set_value(60)
+    user.find(marker="task-save").click()
+    assert saved[0].allocation == pytest.approx(0.6)
+
+
+async def test_returning_the_assignee_to_none_saves_an_allocation_of_one(user: User) -> None:
+    saved: list[Task] = []
+    task = Task("旧", assignee="田中", allocation=0.5)
+    mount_dialog(task, saved, members=[TANAKA])
+    await open_dialog(user)
+    assert user.find(marker="task-allocation").elements.pop().value == 50
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("")
+    user.find(marker="task-save").click()
+    assert saved[0].assignee is None and saved[0].allocation == 1.0
+
+
+async def test_the_conversion_is_shown_with_an_assignee_and_effort(user: User) -> None:
+    mount_dialog(None, [], members=[TANAKA])
+    await open_dialog(user)
+    conversion = user.find(marker="task-conversion").elements.pop()
+    assert conversion.text == ""
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("田中")
+        user.find(marker="task-allocation").elements.pop().set_value(80)
+    user.find(marker="task-effort").clear().type("15")
+    # 15h / (1.2 * 0.8) / 6.5h = 2.40日
+    assert conversion.text == "15h → 2.4日分(相対比率 120% × 割り当て 80%)"
+
+
+async def test_the_conversion_disappears_without_effort_or_assignee(user: User) -> None:
+    mount_dialog(None, [], members=[TANAKA])
+    await open_dialog(user)
+    conversion = user.find(marker="task-conversion").elements.pop()
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("田中")
+    user.find(marker="task-effort").clear().type("15")
+    assert conversion.text != ""
+    user.find(marker="task-effort").clear()
+    assert conversion.text == ""
+    user.find(marker="task-effort").type("15")
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("")
+    assert conversion.text == ""
+
+
+async def test_the_computed_end_reflects_the_conversion(user: User) -> None:
+    mount_dialog(None, [], members=[Member("田中", 1.5)])
+    await open_dialog(user)
+    user.find(marker="task-start-date").type("2026-10-09")
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("田中")
+    user.find(marker="task-effort").clear().type("15")
+    # 15h / 1.5 = 10h → 金6.5h + 月3.5h
+    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-12 12:30"
+
+
+async def test_changing_the_assignee_asks_for_confirmation_on_close(user: User) -> None:
+    mount_dialog(Task("旧"), [], members=[TANAKA])
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("田中")
+    user.find(marker="task-cancel").click()
+    await user.should_see(marker="close-save")
+
+
+async def test_an_assignee_missing_from_the_members_is_kept_when_saving(user: User) -> None:
+    saved: list[Task] = []
+    task = Task("旧", assignee="不明", allocation=0.5)
+    mount_dialog(task, saved, members=[TANAKA])
+    await open_dialog(user)
+    assert user.find(marker="task-assignee").elements.pop().value == "不明"
+    assert user.find(marker="task-allocation").elements.pop().value == 50
+    user.find(marker="task-save").click()
+    assert saved[0].assignee == "不明"
+    assert saved[0].allocation == pytest.approx(0.5)
