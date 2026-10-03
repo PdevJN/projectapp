@@ -16,7 +16,6 @@ from projectapp.forms import (
     open_name_dialog,
     open_section_dialog,
     open_settings_dialog,
-    open_task_dialog,
     open_unsaved_dialog,
 )
 from projectapp.gantt import GanttActions, GanttChart
@@ -28,6 +27,7 @@ from projectapp.storage import (
     save_project,
     validate_name,
 )
+from projectapp.task_dialog import open_task_dialog
 from projectapp.timeline import fill_end, recalc_ends
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}

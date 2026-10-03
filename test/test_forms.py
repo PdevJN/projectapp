@@ -14,11 +14,11 @@ from projectapp.forms import (
     open_name_dialog,
     open_section_dialog,
     open_settings_dialog,
-    open_task_dialog,
     open_unsaved_dialog,
     parse_datetime,
 )
 from projectapp.models import Priority, Status, Task
+from projectapp.task_dialog import open_task_dialog
 
 
 def make(existing: Task | None = None, **overrides: object) -> Task:
