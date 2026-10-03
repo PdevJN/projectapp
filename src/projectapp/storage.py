@@ -9,7 +9,16 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from projectapp.models import Member, Priority, Project, Section, Status, Task
+from projectapp.models import (
+    MAX_YEAR,
+    MIN_YEAR,
+    Member,
+    Priority,
+    Project,
+    Section,
+    Status,
+    Task,
+)
 
 BASE_DIR = Path.home() / ".projectapp"
 RESERVED = {"config", "holidays"}
@@ -107,21 +116,38 @@ def save_project(
 
 
 def _datetime(text: str | None) -> datetime | None:
-    return datetime.fromisoformat(text) if text else None
+    """日時を読む。年が範囲外(手編集の誤り)なら、描画が止まるのを防ぐためにValueError。"""
+    if not text:
+        return None
+    moment = datetime.fromisoformat(text)
+    if not MIN_YEAR <= moment.year <= MAX_YEAR:
+        raise ValueError(f"日時の年は{MIN_YEAR}〜{MAX_YEAR}の範囲で指定してください: {text}")
+    return moment
 
 
 def _task(raw: dict[str, Any]) -> Task:
+    if "planned_end_manual" in raw:  # 新形式
+        planned_start = _datetime(raw.get("planned_start"))
+        planned_end = _datetime(raw.get("planned_end"))
+        manual = raw["planned_end_manual"] is True  # bool以外(手編集の誤り)は偽
+        deadline = _datetime(raw.get("deadline"))
+    else:  # 旧形式: start は開始予定、手入力の end は締切、自動算出の end は捨てる
+        planned_start = _datetime(raw.get("planned_start", raw.get("start")))
+        planned_end, manual = None, False
+        legacy_end = None if raw.get("end_auto") is True else _datetime(raw.get("end"))
+        deadline = _datetime(raw.get("deadline")) or legacy_end  # 明示された締切を優先
     return Task(
         name=raw["name"],
-        start=_datetime(raw.get("start")),
-        end=_datetime(raw.get("end")),
+        planned_start=planned_start,
+        planned_end=planned_end,
+        planned_end_manual=manual,
+        deadline=deadline,
         effort_hours=raw["effort_hours"],
         priority=Priority(raw["priority"]),
         status=Status(raw["status"]),
         color=raw["color"],
         assignee=raw.get("assignee"),
         predecessors=list(raw["predecessors"]),
-        end_auto=raw.get("end_auto") is True,  # bool以外(手編集の誤り)は手入力扱い
     )
 
 

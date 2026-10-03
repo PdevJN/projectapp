@@ -6,6 +6,7 @@ from nicegui.testing import User
 
 from projectapp.calendar import DayKind
 from projectapp.gantt import (
+    DEADLINE_MARKER_HALF_PX,
     GRID_BORDER,
     KIND_COLORS,
     MIN_BAR_PX,
@@ -35,8 +36,8 @@ class Recorder:
 def sample_project() -> Project:
     task = Task(
         "設計",
-        start=datetime(2026, 10, 5, 12),
-        end=datetime(2026, 10, 7, 12),
+        planned_start=datetime(2026, 10, 5, 12),
+        planned_end=datetime(2026, 10, 7, 12),
         color="#ff0000",
     )
     return Project("demo", base_date=BASE, sections=[Section("開発", [task, Task("未設定")])])
@@ -159,8 +160,8 @@ async def test_week_and_month_headers_have_no_weekday(user: User) -> None:
 def top_project() -> Project:
     task = Task(
         "単独",
-        start=datetime(2026, 10, 5, 12),
-        end=datetime(2026, 10, 7, 12),
+        planned_start=datetime(2026, 10, 5, 12),
+        planned_end=datetime(2026, 10, 7, 12),
         color="#00ff00",
     )
     return Project("demo", base_date=BASE, tasks=[task, Task("未設定の単独")])
@@ -354,7 +355,7 @@ async def test_a_bad_color_in_a_hand_edited_file_falls_back_to_the_default(user:
 async def test_a_task_that_ends_before_it_starts_still_shows_a_thin_bar(user: User) -> None:
     project = sample_project()
     task = project.sections[0].tasks[0]
-    task.start, task.end = task.end, task.start
+    task.planned_start, task.planned_end = task.planned_end, task.planned_start
     mount(project)
     await user.open("/")
     bar = user.find(marker="bar-0-0").elements.pop()
@@ -364,8 +365,64 @@ async def test_a_task_that_ends_before_it_starts_still_shows_a_thin_bar(user: Us
 async def test_a_zero_length_task_still_shows_a_thin_bar(user: User) -> None:
     project = sample_project()
     task = project.sections[0].tasks[0]
-    task.end = task.start
+    task.planned_end = task.planned_start
     mount(project)
     await user.open("/")
     bar = user.find(marker="bar-0-0").elements.pop()
     assert bar._style["width"] == f"{MIN_BAR_PX:.1f}px"
+
+
+async def test_the_deadline_marker_is_placed_at_the_deadline(user: User) -> None:
+    project = sample_project()
+    project.sections[0].tasks[0].deadline = datetime(2026, 10, 8, 12)  # BASE は 10/5
+    mount(project)
+    await user.open("/")
+    marker = user.find(marker="deadline-0-0").elements.pop()
+    assert marker._style["left"] == f"{200 + 3.5 * 40 - DEADLINE_MARKER_HALF_PX:.1f}px"
+
+
+async def test_a_task_without_a_start_still_shows_its_deadline_marker(user: User) -> None:
+    project = Project(
+        "demo", base_date=BASE, tasks=[Task("締切のみ", deadline=datetime(2026, 10, 8, 12))]
+    )
+    mount(project)
+    await user.open("/")
+    await user.should_see(marker="deadline-top-0")
+    await user.should_not_see(marker="bar-top-0")
+
+
+async def test_a_deadline_outside_the_range_has_no_marker(user: User) -> None:
+    project = Project("demo", base_date=BASE, tasks=[Task("遠い", deadline=datetime(2030, 1, 1))])
+    mount(project)
+    await user.open("/")
+    await user.should_see("遠い")
+    await user.should_not_see(marker="deadline-top-0")
+
+
+async def test_clicking_the_deadline_marker_edits_the_task(user: User) -> None:
+    project = sample_project()
+    project.sections[0].tasks[0].deadline = datetime(2026, 10, 8, 12)
+    recorder = mount(project)
+    await user.open("/")
+    user.find(marker="deadline-0-0").click()
+    assert recorder.events == [("edit_task", (0, 0))]
+
+
+async def test_a_task_with_a_start_and_a_deadline_draws_the_bar_up_to_the_deadline(
+    user: User,
+) -> None:
+    project = Project(
+        "demo",
+        base_date=BASE,
+        tasks=[
+            Task(
+                "締切まで",
+                planned_start=datetime(2026, 10, 5, 12),
+                deadline=datetime(2026, 10, 7, 12),
+            )
+        ],
+    )
+    mount(project)
+    await user.open("/")
+    bar = user.find(marker="bar-top-0").elements.pop()
+    assert bar._style["width"] == "80.0px"  # 完了予定は空なので、締切(2日後)まで

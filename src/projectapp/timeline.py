@@ -1,12 +1,11 @@
 """スケールごとの列生成と、日時から位置・幅への変換(純粋関数)。"""
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from itertools import groupby
 from math import ceil, isfinite
-from typing import NamedTuple
 
 from projectapp.models import Project, Status, Task
 
@@ -36,21 +35,31 @@ class Band:
     count: int
 
 
-def visible_range(project: Project) -> tuple[date, date]:
+def visible_range(
+    project: Project, holidays: dict[date, str] | None = None
+) -> tuple[date, date]:
     """基準日とバーを持つタスクから、表示範囲[開始日, 終了日)を返す。"""
+    holidays = holidays or {}
     start = end = project.base_date
     tasks = [*project.tasks, *(t for section in project.sections for t in section.tasks)]
     for task in tasks:
-        if task.start is None or task.end is None:
+        task_end = effective_end(task, project, holidays)
+        if task.planned_start is None or task_end is None:
             continue
-        first, last = sorted((task.start.date(), task.end.date()))
+        first, last = sorted((task.planned_start.date(), task_end.date()))
+        try:
+            task_last = last + timedelta(days=1)
+        except OverflowError:  # 日付の上限(手編集のファイル)。範囲に入れない
+            continue
         start = min(start, first)
-        end = max(end, last + timedelta(days=1))
+        end = max(end, task_last)
     return start, end
 
 
-def build_columns(project: Project, scale: Scale) -> list[Column]:
-    start, end = visible_range(project)
+def build_columns(
+    project: Project, scale: Scale, holidays: dict[date, str] | None = None
+) -> list[Column]:
+    start, end = visible_range(project, holidays)
     if scale is Scale.WEEK:
         return _week_columns(start, end)
     if scale is Scale.MONTH:
@@ -99,13 +108,24 @@ def _position(moment: datetime, columns: list[Column]) -> float:
     return float(len(columns))
 
 
-def bar_span(task: Task, columns: list[Column]) -> tuple[float, float] | None:
-    """バーの(左端, 幅)を列の単位で返す。開始・終了が未設定ならNone。"""
-    if task.start is None or task.end is None:
+def bar_span(
+    start: datetime | None, end: datetime | None, columns: list[Column]
+) -> tuple[float, float] | None:
+    """バーの(左端, 幅)を列の単位で返す。開始・終了が無ければNone。"""
+    if start is None or end is None:
         return None
-    left = _position(task.start, columns)
-    right = _position(task.end, columns)
+    left = _position(start, columns)
+    right = _position(end, columns)
     return left, max(right - left, 0.0)
+
+
+def deadline_position(deadline: datetime, columns: list[Column]) -> float | None:
+    """締切の位置(列の単位)。表示範囲の外ならNone。"""
+    begin = datetime.combine(columns[0].start, time.min)
+    finish = datetime.combine(columns[-1].end, time.min)
+    if not begin <= deadline < finish:
+        return None
+    return _position(deadline, columns)
 
 
 def _bands(
@@ -186,46 +206,50 @@ def _calc_end(
         cursor = datetime.combine(_next_workday(cursor.date(), holidays), work_start)
 
 
-def fill_end(task: Task, project: Project, holidays: dict[date, str]) -> Task:
-    """開始あり・終了なし・工数ありのタスクに、算出した終了を入れて返す。"""
-    if task.start is None or task.end is not None:
-        return task
-    end = calc_end(
-        task.start, task.effort_hours, project.daily_hours, project.work_start, holidays
+def computed_end(
+    start: datetime | None,
+    effort_hours: float,
+    daily_hours: float,
+    work_start: time,
+    holidays: dict[date, str],
+    deadline: datetime | None = None,
+) -> datetime | None:
+    """手入力を使わない完了予定。工数があれば算出し、算出できなければ締切、締切もなければ開始予定の1日後。"""
+    if start is not None and effort_hours > 0:
+        end = calc_end(start, effort_hours, daily_hours, work_start, holidays)
+        if end is not None:
+            return end
+    if deadline is not None:
+        return deadline  # 開始予定より前でも、そのまま使う(遅れている状態が見える)
+    if start is None:
+        return None
+    try:
+        return start + timedelta(days=1)
+    except OverflowError:
+        return None
+
+
+def effective_end(task: Task, project: Project, holidays: dict[date, str]) -> datetime | None:
+    """完了予定。工数が無い、または手で指定のときは planned_end、それ以外は算出する。"""
+    if task.planned_end is not None and (task.effort_hours <= 0 or task.planned_end_manual):
+        return task.planned_end
+    return computed_end(
+        task.planned_start,
+        task.effort_hours,
+        project.daily_hours,
+        project.work_start,
+        holidays,
+        task.deadline,
     )
-    return task if end is None else replace(task, end=end, end_auto=True)
 
 
-class Recalc(NamedTuple):
-    changed: int  # 終了が変わった件数
-    failed: int  # 自動算出の終了だが、算出できず古い終了のまま残った件数
-
-
-def recalc_ends(project: Project, holidays: dict[date, str]) -> Recalc:
-    """自動算出された終了(end_auto)だけを、現在の稼働設定で再計算する。"""
-    changed = failed = 0
-
-    def renew(task: Task) -> Task:
-        nonlocal changed, failed
-        if not task.end_auto or task.start is None:
-            return task
-        end = calc_end(
-            task.start, task.effort_hours, project.daily_hours, project.work_start, holidays
-        )
-        if end is None:
-            failed += 1
-            return task
-        if end == task.end:
-            return task
-        changed += 1
-        return replace(task, end=end)
-
-    project.tasks[:] = [renew(t) for t in project.tasks]
-    for section in project.sections:
-        section.tasks[:] = [renew(t) for t in section.tasks]
-    return Recalc(changed, failed)
-
-
-def is_overdue(task: Task, now: datetime) -> bool:
-    """終了予定を過ぎていて、状態が「終了」でない。"""
-    return task.end is not None and task.status is not Status.DONE and now > task.end
+def is_overdue(
+    task: Task, project: Project, holidays: dict[date, str], now: datetime
+) -> bool:
+    """締切か完了予定を過ぎていて、状態が「終了」でない。"""
+    if task.status is Status.DONE:
+        return False
+    if task.deadline is not None and now > task.deadline:
+        return True
+    end = effective_end(task, project, holidays)
+    return end is not None and now > end

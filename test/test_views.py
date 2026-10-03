@@ -240,58 +240,28 @@ def make_view(tmp_path: Path, views: list[MainView]) -> None:
         view.build()
 
 
-async def test_saving_start_and_effort_fills_the_end(user: User, tmp_path: Path) -> None:
-    save_cache({}, tmp_path)
-    views: list[MainView] = []
-    make_view(tmp_path, views)
-    await user.open("/")
-    views[0].save_task(None, None, Task("a", start=datetime(2026, 10, 9, 9), effort_hours=15.0))
-    assert views[0].project.tasks[0].end == datetime(2026, 10, 13, 11)
-    await user.should_see(marker="bar-top-0")
-
-
-async def test_fill_end_uses_the_loaded_holidays(user: User, tmp_path: Path) -> None:
-    save_cache({}, tmp_path)
-    views: list[MainView] = []
-    make_view(tmp_path, views)
-    await user.open("/")
-    views[0].holidays = {date(2026, 10, 12): "スポーツの日"}
-    views[0].save_task(None, None, Task("a", start=datetime(2026, 10, 9, 9), effort_hours=15.0))
-    assert views[0].project.tasks[0].end == datetime(2026, 10, 14, 11)
-
-
-async def test_manual_end_is_kept_and_is_not_recomputed_on_edit(
+async def test_saving_start_and_effort_shows_a_bar_without_storing_the_end(
     user: User, tmp_path: Path
 ) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
     await user.open("/")
-    manual = datetime(2026, 10, 30, 18)
-    task = Task("a", start=datetime(2026, 10, 9, 9), end=manual, effort_hours=15.0)
-    views[0].save_task(None, None, task)
-    views[0].save_task(None, 0, replace(task, effort_hours=1.0))  # 工数だけ変える
-    assert views[0].project.tasks[0].end == manual
+    views[0].save_task(None, None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    assert views[0].project.tasks[0].planned_end is None  # 完了予定は保存せず、その都度計算する
+    await user.should_see(marker="bar-top-0")
 
 
-async def test_clearing_the_end_recomputes_it(user: User, tmp_path: Path) -> None:
+async def test_a_task_with_only_a_start_shows_a_one_day_bar(user: User, tmp_path: Path) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
     await user.open("/")
-    task = Task("a", start=datetime(2026, 10, 9, 9), end=datetime(2026, 10, 30), effort_hours=15.0)
-    views[0].save_task(None, None, task)
-    views[0].save_task(None, 0, replace(task, end=None))
-    assert views[0].project.tasks[0].end == datetime(2026, 10, 13, 11)
-
-
-async def test_task_without_effort_keeps_an_empty_end(user: User, tmp_path: Path) -> None:
-    save_cache({}, tmp_path)
-    views: list[MainView] = []
-    make_view(tmp_path, views)
-    await user.open("/")
-    views[0].save_task(None, None, Task("a", start=datetime(2026, 10, 9, 9)))
-    assert views[0].project.tasks[0].end is None
+    views[0].save_task(None, None, Task("a", planned_start=datetime(2026, 10, 9, 9)))
+    assert views[0].project.tasks[0].planned_end is None
+    await user.should_see(marker="bar-top-0")
+    bar = user.find(marker="bar-top-0").elements.pop()
+    assert bar._style["width"] == "40.0px"  # 完了予定は開始予定の翌日
 
 
 async def test_save_new_project_asks_for_a_name_then_writes_the_file(
@@ -590,25 +560,6 @@ async def open_settings_and_apply(user: User, hours: str, start: str) -> None:
     user.find(marker="settings-apply").click()
 
 
-async def test_apply_settings_recalculates_only_auto_ends(user: User, tmp_path: Path) -> None:
-    save_cache({}, tmp_path)
-    views: list[MainView] = []
-    mount_capturing(tmp_path, views)
-    await user.open("/")
-    view = views[0]
-    view.save_task(None, None, Task("自動", start=datetime(2026, 10, 9, 9), effort_hours=15.0))
-    manual_end = datetime(2026, 10, 30, 18)
-    view.save_task(
-        None, None, Task("手動", start=datetime(2026, 10, 9, 9), end=manual_end, effort_hours=15.0)
-    )
-    assert view.project.tasks[0].end == datetime(2026, 10, 13, 11)
-    await open_settings_and_apply(user, "8", "09:00")
-    assert await wait_until(lambda: user.notify.contains("1件の終了を再計算"))
-    assert view.project.daily_hours == 8.0
-    assert view.project.tasks[0].end == datetime(2026, 10, 12, 16)
-    assert view.project.tasks[1].end == manual_end
-
-
 async def test_apply_settings_with_the_same_values_does_nothing(
     user: User, tmp_path: Path
 ) -> None:
@@ -643,7 +594,7 @@ async def test_settings_are_saved_with_the_project(user: User, tmp_path: Path) -
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    view.save_task(None, None, Task("自動", start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    view.save_task(None, None, Task("自動", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
     await open_settings_and_apply(user, "8", "10:00")
     assert await wait_until(lambda: view.is_dirty())
     await save_new_as(user, "設定")
@@ -651,7 +602,7 @@ async def test_settings_are_saved_with_the_project(user: User, tmp_path: Path) -
     saved = load_project(tmp_path / "設定.json")
     assert saved.daily_hours == 8.0
     assert saved.work_start == time(10, 0)
-    assert saved.tasks[0].end_auto is True
+    assert saved.tasks[0].planned_end is None
 
 
 async def test_changed_settings_ask_before_switching_projects(
@@ -667,47 +618,6 @@ async def test_changed_settings_ask_before_switching_projects(
     await choose_in_combo(user, "既存")
     await user.should_see(marker="unsaved-save")
     assert views[0].path is None
-
-
-async def test_apply_settings_without_recalculated_tasks_shows_no_notification(
-    user: User, tmp_path: Path
-) -> None:
-    save_cache({}, tmp_path)
-    views: list[MainView] = []
-    mount_capturing(tmp_path, views)
-    await user.open("/")
-    view = views[0]
-    await open_settings_and_apply(user, "8", "09:00")
-    assert await wait_until(lambda: view.project.daily_hours == 8.0)
-    await asyncio.sleep(0.3)
-    assert not user.notify.contains("稼働時間を変更しました")
-
-
-async def test_editing_the_start_of_an_auto_end_task_recalculates_the_end(
-    user: User, tmp_path: Path
-) -> None:
-    save_cache({}, tmp_path)
-    views: list[MainView] = []
-    mount_capturing(tmp_path, views)
-    await user.open("/")
-    view = views[0]
-    view.save_task(None, None, Task("自動", start=datetime(2026, 10, 9, 9), effort_hours=15.0))
-    task = view.project.tasks[0]
-    assert task.end == datetime(2026, 10, 13, 11)
-    edited = build_task(
-        task,
-        name="自動",
-        start="2026-10-12T09:00",
-        end="2026-10-13T11:00",
-        effort_hours=15.0,
-        priority=task.priority,
-        status=task.status,
-        color=task.color,
-        assignee="",
-    )
-    view.save_task(None, 0, edited)
-    assert view.project.tasks[0].end == datetime(2026, 10, 14, 11)  # 月6.5h + 火6.5h + 水2h
-    assert view.project.tasks[0].end_auto is True
 
 
 async def test_delete_task_removes_only_that_task_and_makes_the_view_dirty(
@@ -750,49 +660,6 @@ async def test_delete_from_the_edit_dialog_removes_the_bar(user: User, tmp_path:
     user.find(marker="task-delete").click()
     user.find(marker="delete-confirm").click()
     await user.should_not_see(marker="task-top-0")
-
-
-async def test_apply_settings_warns_about_ends_that_cannot_be_recalculated(
-    user: User, tmp_path: Path
-) -> None:
-    save_cache({}, tmp_path)
-    views: list[MainView] = []
-    mount_capturing(tmp_path, views)
-    await user.open("/")
-    view = views[0]
-    view.project.tasks.append(
-        Task(
-            "不能",
-            start=datetime(2026, 10, 9, 9),
-            end=datetime(2026, 10, 13, 11),
-            effort_hours=0.0,
-            end_auto=True,
-        )
-    )
-    await open_settings_and_apply(user, "8", "09:00")
-    assert await wait_until(lambda: user.notify.contains("1件の終了は再計算できませんでした"))
-    assert not user.notify.contains("件の終了を再計算)")
-
-
-async def test_refreshing_holidays_recalculates_auto_ends(
-    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    save_cache({}, tmp_path)
-    views: list[MainView] = []
-    mount_capturing(tmp_path, views)
-    await user.open("/")
-    view = views[0]
-    view.save_task(None, None, Task("自動", start=datetime(2026, 10, 9, 9), effort_hours=15.0))
-    assert view.project.tasks[0].end == datetime(2026, 10, 13, 11)
-
-    async def fake_download(base_dir: Path, transport: object = None) -> dict[date, str]:
-        return {date(2026, 10, 12): "スポーツの日"}
-
-    monkeypatch.setattr("projectapp.views.download_holidays", fake_download)
-    await view.refresh_holidays()
-    assert view.project.tasks[0].end == datetime(2026, 10, 14, 11)
-    assert await wait_until(lambda: user.notify.contains("祝日データの反映で1件の終了を再計算"))
-    assert view.is_dirty()
 
 
 async def test_refresh_holidays_survives_a_cache_write_failure(
@@ -846,3 +713,47 @@ async def test_name_dialog_keeps_the_input_when_the_save_fails(
     assert await wait_until(lambda: user.notify.contains("保存できませんでした"))
     await user.should_see(marker="project-name")  # ダイアログは開いたまま
     assert views[0].path is None
+
+
+def bar_width(user: User) -> str | None:
+    found = user.find(marker="bar-top-0").elements
+    return next(iter(found))._style["width"] if found else None
+
+
+async def test_apply_settings_rerenders_without_a_recalculation_notice(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task(None, None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    await user.should_see(marker="bar-top-0")
+    before = bar_width(user)
+    await open_settings_and_apply(user, "8", "09:00")
+    assert await wait_until(lambda: view.project.daily_hours == 8.0)
+    assert await wait_until(lambda: bar_width(user) != before)  # 稼働時間で完了予定が変わり、棒の長さが変わる
+    assert not user.notify.contains("再計算")
+    assert view.project.tasks[0].planned_end is None  # 完了予定は保存されない
+
+
+async def test_refreshing_holidays_rerenders_the_bar(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task(None, None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    await user.should_see(marker="bar-top-0")
+    before = bar_width(user)
+
+    async def fake_download(base_dir: Path, transport: object = None) -> dict[date, str]:
+        return {date(2026, 10, 12): "スポーツの日"}
+
+    monkeypatch.setattr("projectapp.views.download_holidays", fake_download)
+    await view.refresh_holidays()
+    assert await wait_until(lambda: bar_width(user) != before)
+    assert user.notify.contains("祝日データを更新しました")

@@ -1,7 +1,7 @@
 """タスクの追加・編集ダイアログ。入力の検証は forms.py の build_task に任せる。"""
 
 from collections.abc import Callable
-from datetime import datetime, time
+from datetime import date, datetime, time
 
 from nicegui import ui
 
@@ -11,10 +11,12 @@ from projectapp.forms import (
     compose_datetime,
     default_times,
     disposable,
+    parse_datetime,
     needs_end_time,
     needs_start_time,
 )
-from projectapp.models import DEFAULT_WORK_START, Priority, Status, Task
+from projectapp.models import DEFAULT_DAILY_HOURS, DEFAULT_WORK_START, Priority, Status, Task
+from projectapp.timeline import computed_end
 
 # 赤は「予定超過」の背景色と意味が競合するため、優先度には使わない
 PRIORITY_COLORS = {Priority.HIGH: "orange", Priority.MEDIUM: "amber", Priority.LOW: "blue"}
@@ -63,69 +65,140 @@ def add_picker(
 
 
 class DateTimeFields:
-    """開始・終了を、日付の入力(横並び)と、側ごとのチェックで出す時刻の入力で受け取る。"""
+    """開始予定・完了予定・締切を、日付の入力と、側ごとのチェックで出す時刻の入力で受け取る。
+
+    完了予定は、工数があって「手で指定」がオフのときは、算出値を読み取り専用で出す
+    (入力欄は隠すだけで、入力済みの値は保つ)。
+    """
 
     def __init__(
         self,
-        start: datetime | None,
-        end: datetime | None,
+        task: Task,
         work_start: time,
-        end_auto: bool = False,
+        daily_hours: float,
+        holidays: dict[date, str],
     ) -> None:
         default_start, default_end = default_times(work_start)
-        # 自動算出の終了は、チェックを外すと補う時刻に変わってしまうので、チェックをオンに固定する
-        lock_end = end_auto and needs_end_time(end, work_start)
-        self._defaults = {"start": default_start, "end": default_end}
+        self._defaults = {"start": default_start, "end": default_end, "deadline": default_end}
+        self._work_start, self._daily_hours, self._holidays = work_start, daily_hours, holidays
+        self.effort = task.effort_hours
         with ui.row().classes("w-full no-wrap gap-4"):
-            self.start_day, self.start_time, self.use_start_time = self._column(
-                "開始", "start", start, default_start, needs_start_time(start, work_start)
+            self.start_day, self.start_time, self.use_start_time, _ = self._column(
+                "開始予定",
+                "start",
+                task.planned_start,
+                needs_start_time(task.planned_start, work_start),
             )
-            self.end_day, self.end_time, self.use_end_time = self._column(
-                "終了", "end", end, default_end, needs_end_time(end, work_start), lock_end
+            self.end_day, self.end_time, self.use_end_time, self.end_editable = self._column(
+                "完了予定",
+                "end",
+                task.planned_end,
+                needs_end_time(task.planned_end, work_start),
+                header=lambda: self._end_header(task.planned_end_manual),
             )
-        self._show_time("start", self.use_start_time.value)
-        self._show_time("end", self.use_end_time.value)
+        self.second_row = ui.row().classes("w-full no-wrap gap-4")
+        with self.second_row:
+            self.deadline_day, self.deadline_time, self.use_deadline_time, _ = self._column(
+                "締切",
+                "deadline",
+                task.deadline,
+                needs_end_time(task.deadline, work_start),
+            )
+        for key in ("start", "end", "deadline"):
+            self._show_time(key, self._use(key).value)
+        for widget in (self.start_day, self.start_time, self.deadline_day, self.deadline_time):
+            widget.on_value_change(self._refresh_end)
+        self.use_start_time.on_value_change(self._refresh_end)
+        self.use_deadline_time.on_value_change(self._refresh_end)
+        self._refresh_end()
+
+    def _end_header(self, manual: bool) -> None:
+        self.manual = ui.checkbox("手で指定", value=manual, on_change=self._refresh_end).mark(
+            "task-end-manual"
+        )
+        self.computed = (
+            ui.input("算出値", value="").props("readonly").classes("w-full").mark("task-end-computed")
+        )
 
     def _column(
         self,
         label: str,
         key: str,
         moment: datetime | None,
-        default: time,
         use_time: bool,
-        locked: bool = False,
-    ) -> tuple[ui.input, ui.input, ui.checkbox]:
+        header: Callable[[], None] | None = None,
+    ) -> tuple[ui.input, ui.input, ui.checkbox, ui.column]:
+        default = self._defaults[key]
         with ui.column().classes("flex-1 gap-0"):
             ui.label(label).classes("text-caption text-grey")
-            day = ui.input("日付", value=moment.strftime("%Y-%m-%d") if moment else "")
-            day.classes("w-full").mark(f"task-{key}-date")
-            if key == "end":
-                day.props('hint="空にして保存すると、開始と工数から算出します"')
-            add_picker(day, ui.date, "event", f"{key}-date", "%Y-%m-%d")
-            checkbox = ui.checkbox(
-                "時刻を指定",
-                value=use_time,
-                on_change=lambda e, k=key: self._show_time(k, e.value),
-            ).mark(f"task-{key}-use-time")
-            if locked:
-                checkbox.disable()
-                checkbox.tooltip("自動算出された終了のため、時刻を指定した状態で固定されます")
-            clock = ui.input("時刻", value=(moment.time() if moment else default).strftime("%H:%M"))
-            clock.classes("w-full").mark(f"task-{key}-time")
-            add_picker(clock, ui.time, "access_time", f"{key}-time", "%H:%M")
-        return day, clock, checkbox
+            if header is not None:
+                header()
+            with ui.column().classes("w-full gap-0") as editable:
+                day = ui.input("日付", value=moment.strftime("%Y-%m-%d") if moment else "")
+                day.classes("w-full").mark(f"task-{key}-date")
+                add_picker(day, ui.date, "event", f"{key}-date", "%Y-%m-%d")
+                checkbox = ui.checkbox(
+                    "時刻を指定",
+                    value=use_time,
+                    on_change=lambda e, k=key: self._show_time(k, e.value),
+                ).mark(f"task-{key}-use-time")
+                clock = ui.input(
+                    "時刻", value=(moment.time() if moment else default).strftime("%H:%M")
+                )
+                clock.classes("w-full").mark(f"task-{key}-time")
+                add_picker(clock, ui.time, "access_time", f"{key}-time", "%H:%M")
+        return day, clock, checkbox, editable
+
+    def _use(self, key: str) -> ui.checkbox:
+        return getattr(self, f"use_{key}_time")
+
+    def _time(self, key: str) -> ui.input:
+        return getattr(self, f"{key}_time")
 
     def _show_time(self, key: str, show: bool) -> None:
         """側ごとに時刻入力を出し入れする。隠しても入力の値は保ち、入れ直すと元の値が出る。"""
-        (self.start_time if key == "start" else self.end_time).set_visibility(show)
+        self._time(key).set_visibility(show)
 
     def _clock(self, key: str) -> str:
         """保存と変更判定に使う時刻。チェックのない側は、入力の値ではなく補う時刻を使う。"""
-        if key == "start":
-            checked, clock = self.use_start_time.value, self.start_time
-        else:
-            checked, clock = self.use_end_time.value, self.end_time
-        return (clock.value or "") if checked else self._defaults[key].strftime("%H:%M")
+        if self._use(key).value:
+            return self._time(key).value or ""
+        return self._defaults[key].strftime("%H:%M")
+
+    def set_effort(self, value: float | None) -> None:
+        self.effort = value or 0.0
+        self._refresh_end()
+
+    def _refresh_end(self, _event: object = None) -> None:
+        """完了予定の欄を、工数と「手で指定」に合わせて切り替え、算出値を更新する。"""
+        has_effort = (self.effort or 0.0) > 0
+        computed_mode = has_effort and not self.manual.value
+        self.manual.set_visibility(has_effort)
+        self.computed.set_visibility(computed_mode)
+        self.end_editable.set_visibility(not computed_mode)
+        hint = (
+            "空なら工数から算出します"
+            if has_effort
+            else "空なら締切(なければ開始予定の翌日)になります"
+        )
+        self.end_day.props(f'hint="{hint}"')
+        self.computed.set_value(self._computed_text())
+
+    def _computed_text(self) -> str:
+        try:
+            start = parse_datetime(self.start_text())
+            deadline = parse_datetime(self.deadline_text())
+        except ValueError:
+            return ""
+        end = computed_end(
+            start,
+            self.effort or 0.0,
+            self._daily_hours,
+            self._work_start,
+            self._holidays,
+            deadline,
+        )
+        return end.strftime("%Y-%m-%d %H:%M") if end else ""
 
     def start_text(self) -> str:
         return compose_datetime(self.start_day.value or "", self._clock("start"))
@@ -133,13 +206,19 @@ class DateTimeFields:
     def end_text(self) -> str:
         return compose_datetime(self.end_day.value or "", self._clock("end"))
 
-    def state(self) -> tuple[str, str, str, str]:
+    def deadline_text(self) -> str:
+        return compose_datetime(self.deadline_day.value or "", self._clock("deadline"))
+
+    def state(self) -> tuple[object, ...]:
         """入力の生の値。開いた時点との比較(変更の判定)に使う。隠れた時刻は含めない。"""
         return (
             self.start_day.value or "",
             self._clock("start"),
             self.end_day.value or "",
             self._clock("end"),
+            bool(self.manual.value),
+            self.deadline_day.value or "",
+            self._clock("deadline"),
         )
 
 
@@ -148,13 +227,21 @@ def open_task_dialog(
     on_save: Callable[[Task], object],
     work_start: time = DEFAULT_WORK_START,
     on_delete: Callable[[], object] | None = None,
+    daily_hours: float = DEFAULT_DAILY_HOURS,
+    holidays: dict[date, str] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
     with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[36rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
         name = ui.input("名前", value=initial.name).mark("task-name")
-        fields = DateTimeFields(initial.start, initial.end, work_start, initial.end_auto)
-        effort = ui.number("工数(時間)", value=initial.effort_hours, min=0)
+        fields = DateTimeFields(initial, work_start, daily_hours, holidays or {})
+        with fields.second_row:
+            effort = (
+                ui.number("工数(時間)", value=initial.effort_hours, min=0)
+                .classes("flex-1")
+                .mark("task-effort")
+            )
+        effort.on_value_change(lambda e: fields.set_effort(e.value))
         priority = PriorityChips(initial.priority)
         status = (
             ui.select({s: s.value for s in Status}, label="状態", value=initial.status)
@@ -187,8 +274,10 @@ def open_task_dialog(
                 result = build_task(
                     task,
                     name=name.value or "",
-                    start=fields.start_text(),
-                    end=fields.end_text(),
+                    planned_start=fields.start_text(),
+                    planned_end=fields.end_text(),
+                    planned_end_manual=bool(fields.manual.value),
+                    deadline=fields.deadline_text(),
                     effort_hours=effort.value,
                     priority=priority.value,
                     status=Status(status.value),

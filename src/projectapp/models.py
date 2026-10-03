@@ -8,6 +8,7 @@ from enum import StrEnum
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
+MIN_YEAR, MAX_YEAR = 2000, 2100  # 入力ミスで表示範囲が際限なく広がるのを防ぐ
 HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
 
@@ -38,15 +39,16 @@ class Member:
 @dataclass
 class Task:
     name: str
-    start: datetime | None = None
-    end: datetime | None = None
+    planned_start: datetime | None = None
     effort_hours: float = 0.0
     priority: Priority = Priority.MEDIUM
     status: Status = Status.STARTED
     color: str = DEFAULT_COLOR
     assignee: str | None = None
     predecessors: list[str] = field(default_factory=list)
-    end_auto: bool = False  # 終了が自動算出で、利用者が書き換えていない
+    deadline: datetime | None = None  # 締切(納期)
+    planned_end: datetime | None = None  # 完了予定の手入力値
+    planned_end_manual: bool = False  # 工数があるときに、完了予定を手で指定するか
 
 
 @dataclass
