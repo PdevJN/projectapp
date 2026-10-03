@@ -13,6 +13,7 @@ from projectapp.timeline import (
     is_overdue,
     is_workday,
     month_bands,
+    recalc_ends,
     year_bands,
 )
 
@@ -255,3 +256,80 @@ def test_calc_end_near_the_max_date_is_none_instead_of_raising() -> None:
 def test_fill_end_leaves_a_task_with_nan_effort() -> None:
     task = Task("t", start=datetime(2026, 10, 5, 9), effort_hours=float("nan"))
     assert fill_end(task, Project("p"), NO_HOLIDAYS) is task
+
+
+def test_fill_end_marks_the_end_as_automatic() -> None:
+    task = Task("t", start=datetime(2026, 10, 9, 9), effort_hours=15.0)
+    assert fill_end(task, Project("p"), NO_HOLIDAYS).end_auto is True
+
+
+def test_fill_end_does_not_mark_a_manual_end() -> None:
+    task = Task("t", start=datetime(2026, 10, 9, 9), end=datetime(2026, 10, 30, 18), effort_hours=15.0)
+    assert fill_end(task, Project("p"), NO_HOLIDAYS).end_auto is False
+
+
+AUTO_START = datetime(2026, 10, 9, 9)  # 金曜
+AUTO_END = datetime(2026, 10, 13, 11)  # 6.5h/日・工数15hの終了(火曜)
+
+
+def auto_task(name: str = "t", **overrides: object) -> Task:
+    values: dict[str, object] = {
+        "start": AUTO_START,
+        "end": AUTO_END,
+        "effort_hours": 15.0,
+        "end_auto": True,
+    }
+    values.update(overrides)
+    return Task(name, **values)  # type: ignore[arg-type]
+
+
+def test_recalc_ends_follows_daily_hours() -> None:
+    project = project_with(auto_task())
+    project.daily_hours = 8.0
+    assert recalc_ends(project, NO_HOLIDAYS) == 1
+    task = project.sections[0].tasks[0]
+    assert task.end == datetime(2026, 10, 12, 16)  # 金8h + 月7h
+    assert task.end_auto is True
+
+
+def test_recalc_ends_follows_work_start() -> None:
+    project = project_with(auto_task())
+    project.work_start = time(10, 0)
+    assert recalc_ends(project, NO_HOLIDAYS) == 1
+    assert project.sections[0].tasks[0].end == datetime(2026, 10, 13, 12)
+
+
+def test_recalc_ends_follows_holidays() -> None:
+    project = project_with(auto_task())
+    assert recalc_ends(project, {date(2026, 10, 12): "祝日"}) == 1
+    assert project.sections[0].tasks[0].end == datetime(2026, 10, 14, 11)
+
+
+def test_recalc_ends_returns_zero_when_nothing_changes() -> None:
+    project = project_with(auto_task())
+    assert recalc_ends(project, NO_HOLIDAYS) == 0
+
+
+def test_recalc_ends_leaves_manual_ends() -> None:
+    manual = auto_task(end=datetime(2026, 10, 30, 18), end_auto=False)
+    project = project_with(manual)
+    project.daily_hours = 8.0
+    assert recalc_ends(project, NO_HOLIDAYS) == 0
+    assert project.sections[0].tasks[0].end == datetime(2026, 10, 30, 18)
+
+
+def test_recalc_ends_keeps_the_end_of_a_task_it_cannot_compute() -> None:
+    project = project_with(auto_task(effort_hours=0.0), auto_task("no start", start=None))
+    project.daily_hours = 8.0
+    assert recalc_ends(project, NO_HOLIDAYS) == 0
+    assert [t.end for t in project.sections[0].tasks] == [AUTO_END, AUTO_END]
+
+
+def test_recalc_ends_covers_sections_and_top_level_tasks_and_keeps_the_lists() -> None:
+    project = Project("p", sections=[Section("s", [auto_task("a")])], tasks=[auto_task("b")])
+    section_tasks, top_tasks = project.sections[0].tasks, project.tasks
+    project.daily_hours = 8.0
+    assert recalc_ends(project, NO_HOLIDAYS) == 2
+    assert project.sections[0].tasks is section_tasks
+    assert project.tasks is top_tasks
+    assert [t.end for t in section_tasks + top_tasks] == [datetime(2026, 10, 12, 16)] * 2

@@ -89,6 +89,7 @@ def _task(raw: dict[str, Any]) -> Task:
         color=raw["color"],
         assignee=raw.get("assignee"),
         predecessors=list(raw["predecessors"]),
+        end_auto=raw.get("end_auto", False),
     )
 
 
