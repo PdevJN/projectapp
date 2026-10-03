@@ -61,16 +61,21 @@ def build_task(
     status: Status,
     color: str,
     assignee: str,
+    deadline: str | None = None,
 ) -> Task:
-    """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。"""
+    """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。
+
+    deadlineがNoneのときは既存の締切を保つ(空文字は締切なし)。
+    """
     clean = name.strip()
     if not clean:
         raise ValueError("名前を入力してください")
     try:
         start_at, end_at = parse_datetime(start), parse_datetime(end)
+        deadline_at = parse_datetime(deadline) if deadline is not None else None
     except ValueError:
         raise ValueError("日時の形式が正しくありません") from None
-    for moment in (start_at, end_at):
+    for moment in (start_at, end_at, deadline_at):
         if moment and not MIN_YEAR <= moment.year <= MAX_YEAR:
             raise ValueError(f"年は{MIN_YEAR}〜{MAX_YEAR}の範囲で入力してください")
     hours = effort_hours or 0.0
@@ -99,6 +104,7 @@ def build_task(
         status=status,
         color=color,
         assignee=assignee.strip() or None,
+        deadline=base.deadline if deadline is None else deadline_at,
     )
 
 

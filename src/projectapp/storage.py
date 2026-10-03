@@ -122,6 +122,7 @@ def _task(raw: dict[str, Any]) -> Task:
         assignee=raw.get("assignee"),
         predecessors=list(raw["predecessors"]),
         end_auto=raw.get("end_auto") is True,  # bool以外(手編集の誤り)は手入力扱い
+        deadline=_datetime(raw.get("deadline")),
     )
 
 

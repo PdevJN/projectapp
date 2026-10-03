@@ -667,3 +667,26 @@ def test_hex_colors_are_accepted(color: str) -> None:
 def test_non_hex_colors_are_rejected(color: str) -> None:
     with pytest.raises(ValueError, match="色"):
         make(color=color)
+
+
+def test_deadline_is_parsed_and_may_precede_the_start() -> None:
+    task = make(deadline="2026-10-01T18:00")
+    assert task.deadline == datetime(2026, 10, 1, 18, 0)  # 開始予定(10/5)より前でもよい
+
+
+def test_blank_deadline_clears_it_and_none_keeps_it() -> None:
+    existing = Task("旧", deadline=datetime(2026, 10, 9, 18))
+    assert make(existing, deadline="").deadline is None
+    assert make(existing).deadline == datetime(2026, 10, 9, 18)
+
+
+@pytest.mark.parametrize("deadline", ["1999-12-31T18:00", "2101-01-01T00:00"])
+def test_deadline_year_is_limited(deadline: str) -> None:
+    with pytest.raises(ValueError, match="年は"):
+        make(deadline=deadline)
+
+
+@pytest.mark.parametrize("bad", ["abc", "2026-10-05T18:00+09:00"])
+def test_deadline_rejects_a_bad_format_and_a_timezone(bad: str) -> None:
+    with pytest.raises(ValueError, match="日時"):
+        make(deadline=bad)
