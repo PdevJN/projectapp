@@ -6,9 +6,11 @@ from datetime import datetime, time
 from nicegui import ui
 
 from projectapp.forms import (
+    bind_picker,
     build_task,
     compose_datetime,
     default_times,
+    disposable,
     needs_end_time,
     needs_start_time,
 )
@@ -48,11 +50,11 @@ class PriorityChips:
 
 
 def add_picker(
-    field: ui.input, picker_factory: Callable[[], ui.date | ui.time], icon: str, key: str
+    field: ui.input, picker_factory: Callable[[], ui.date | ui.time], icon: str, key: str, fmt: str
 ) -> None:
     """入力欄の右端のアイコンで、選択部品のダイアログを開く。小さな画面でも切れない。"""
     with ui.dialog() as picker, ui.card():
-        picker_factory().bind_value(field).mark(f"{key}-picker")
+        bind_picker(picker_factory().mark(f"{key}-picker"), field, fmt)
         ui.button("OK", on_click=picker.close).mark(f"{key}-picker-ok")
     with field.add_slot("append"):
         ui.icon(icon).classes("cursor-pointer").on("click", picker.open).mark(
@@ -97,7 +99,9 @@ class DateTimeFields:
             ui.label(label).classes("text-caption text-grey")
             day = ui.input("日付", value=moment.strftime("%Y-%m-%d") if moment else "")
             day.classes("w-full").mark(f"task-{key}-date")
-            add_picker(day, ui.date, "event", f"{key}-date")
+            if key == "end":
+                day.props('hint="空にして保存すると、開始と工数から算出します"')
+            add_picker(day, ui.date, "event", f"{key}-date", "%Y-%m-%d")
             checkbox = ui.checkbox(
                 "時刻を指定",
                 value=use_time,
@@ -108,7 +112,7 @@ class DateTimeFields:
                 checkbox.tooltip("自動算出された終了のため、時刻を指定した状態で固定されます")
             clock = ui.input("時刻", value=(moment.time() if moment else default).strftime("%H:%M"))
             clock.classes("w-full").mark(f"task-{key}-time")
-            add_picker(clock, ui.time, "access_time", f"{key}-time")
+            add_picker(clock, ui.time, "access_time", f"{key}-time", "%H:%M")
         return day, clock, checkbox
 
     def _show_time(self, key: str, show: bool) -> None:
@@ -146,7 +150,7 @@ def open_task_dialog(
     on_delete: Callable[[], object] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
-    with ui.dialog().props("persistent") as dialog, ui.card().classes("w-[36rem] max-w-full"):
+    with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[36rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
         name = ui.input("名前", value=initial.name).mark("task-name")
         fields = DateTimeFields(initial.start, initial.end, work_start, initial.end_auto)
