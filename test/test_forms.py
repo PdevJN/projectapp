@@ -149,6 +149,62 @@ async def test_task_dialog_prefills_when_editing(user: User) -> None:
     assert user.find(marker="task-start").elements.pop().value == "2026-10-05T09:00"
 
 
+async def test_task_dialog_status_select_uses_full_width(user: User) -> None:
+    # 幅が内容に縮むと、浮いたラベルが「優.」のように省略される
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_task_dialog(None, lambda t: None))
+
+    await user.open("/")
+    user.find("open").click()
+    select = user.find(marker="task-status").elements.pop()
+    assert "w-full" in select.classes
+
+
+def _selected_priorities(user: User) -> list[str]:
+    chips = {p: user.find(marker=f"priority-{p.name}").elements.pop() for p in Priority}
+    return [p.value for p, chip in chips.items() if "outline" not in chip.props]
+
+
+async def test_task_dialog_priority_defaults_to_medium(user: User) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_task_dialog(None, lambda t: None))
+
+    await user.open("/")
+    user.find("open").click()
+    assert _selected_priorities(user) == ["中"]
+
+
+async def test_task_dialog_priority_prefills_when_editing(user: User) -> None:
+    @ui.page("/")
+    def index() -> None:
+        task = Task("既存", priority=Priority.LOW)
+        ui.button("open", on_click=lambda: open_task_dialog(task, lambda t: None))
+
+    await user.open("/")
+    user.find("open").click()
+    assert _selected_priorities(user) == ["低"]
+
+
+async def test_task_dialog_priority_chip_click_selects_only_that_chip(user: User) -> None:
+    saved: list[Task] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_task_dialog(None, saved.append))
+
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="task-name").type("設計")
+    user.find(marker="priority-HIGH").click()
+    assert _selected_priorities(user) == ["高"]
+    user.find(marker="priority-LOW").click()
+    assert _selected_priorities(user) == ["低"]
+    user.find(marker="task-save").click()
+    assert saved[0].priority == Priority.LOW
+
+
 async def test_section_dialog(user: User) -> None:
     saved: list[str] = []
 
