@@ -200,3 +200,119 @@ async def test_time_picker_and_field_stay_in_sync(user: User) -> None:
     with user.client:
         picker.set_value("15:30")
     assert field.value == "15:30"
+
+
+def dialog_of(user: User) -> ui.dialog:
+    """画面にある、タスク編集ダイアログ(`persistent` なダイアログ)。"""
+    return next(
+        e
+        for e in user.client.elements.values()
+        if isinstance(e, ui.dialog) and e.props.get("persistent")
+    )
+
+
+def confirm_dialog_of(user: User) -> ui.dialog:
+    """閉じる確認のダイアログ(「保存」ボタンを含むダイアログ)。"""
+    element = user.find(marker="close-save").elements.pop()
+    while not isinstance(element, ui.dialog):
+        element = element.parent_slot.parent
+    return element
+
+
+async def test_the_dialog_is_persistent_and_listens_for_escape(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    dialog = dialog_of(user)
+    assert dialog.props.get("persistent") is True
+    assert "escapeKey" in {listener.type for listener in dialog._event_listeners.values()}
+
+
+async def test_cancel_without_changes_closes_without_asking(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-cancel").click()
+    assert dialog_of(user).value is False
+    assert confirm_dialog_of(user).value is False
+
+
+async def test_cancel_with_changes_asks_first(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-cancel").click()
+    assert confirm_dialog_of(user).value is True
+    assert dialog_of(user).value is True
+    assert saved == []
+
+
+async def test_close_confirm_save_saves_and_closes(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-cancel").click()
+    user.find(marker="close-save").click()
+    assert [t.name for t in saved] == ["設計"]
+    assert dialog_of(user).value is False
+
+
+async def test_close_confirm_discard_closes_without_saving(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-cancel").click()
+    user.find(marker="close-discard").click()
+    assert saved == []
+    assert dialog_of(user).value is False
+
+
+async def test_close_confirm_back_keeps_the_dialog_and_the_input(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-cancel").click()
+    user.find(marker="close-back").click()
+    assert dialog_of(user).value is True
+    assert user.find(marker="task-name").elements.pop().value == "設計"
+
+
+async def test_close_confirm_save_with_an_invalid_input_shows_the_error_and_stays(
+    user: User,
+) -> None:
+    # 名前を空にしたまま「保存」を選ぶ: エラーを出して、編集ダイアログに入力を残す
+    saved: list[Task] = []
+    mount_dialog(Task("既存", effort_hours=2.0), saved)
+    await open_dialog(user)
+    user.find(marker="task-name").clear()
+    user.find(marker="task-cancel").click()
+    user.find(marker="close-save").click()
+    await user.should_see("名前を入力してください")
+    assert dialog_of(user).value is True
+    assert saved == []
+
+
+async def test_changing_only_the_checkbox_is_not_a_change(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-use-time").click()
+    user.find(marker="task-cancel").click()
+    assert dialog_of(user).value is False
+
+
+async def test_changing_a_date_counts_as_a_change(user: User) -> None:
+    task = Task("既存", start=datetime(2026, 10, 5, 9, 0), end=datetime(2026, 10, 7, 18, 0))
+    mount_dialog(task, [])
+    await open_dialog(user)
+    user.find(marker="task-end-date").clear().type("2026-10-08")
+    user.find(marker="task-cancel").click()
+    await user.should_see(marker="close-save")
+
+
+async def test_priority_changes_count_as_changes(user: User) -> None:
+    mount_dialog(Task("既存"), [])
+    await open_dialog(user)
+    user.find(marker="priority-HIGH").click()
+    user.find(marker="task-cancel").click()
+    await user.should_see(marker="close-save")

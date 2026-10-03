@@ -110,9 +110,9 @@ def open_task_dialog(
     task: Task | None,
     on_save: Callable[[Task], object],
     work_start: time = DEFAULT_WORK_START,
-) -> None:
+) -> ui.dialog:
     initial = task or Task("")
-    with ui.dialog() as dialog, ui.card().classes("w-[36rem] max-w-full"):
+    with ui.dialog().props("persistent") as dialog, ui.card().classes("w-[36rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
         name = ui.input("名前", value=initial.name).mark("task-name")
         fields = DateTimeFields(initial.start, initial.end, work_start)
@@ -128,6 +128,20 @@ def open_task_dialog(
         )
         assignee = ui.input("担当者", value=initial.assignee or "")
         error = ui.label("").classes("text-negative").mark("form-error")
+
+        def current() -> tuple[object, ...]:
+            """入力の現在値。開いた時点と比べて、変更があるかを判定する。"""
+            return (
+                name.value,
+                *fields.state(),
+                effort.value,
+                priority.value,
+                status.value,
+                color.value,
+                assignee.value,
+            )
+
+        opened = current()
 
         def save() -> None:
             try:
@@ -148,7 +162,31 @@ def open_task_dialog(
             on_save(result)
             dialog.close()
 
+        with ui.dialog() as confirm, ui.card():
+            ui.label("編集内容を確定しますか?")
+
+            def confirm_save() -> None:
+                confirm.close()
+                save()
+
+            def discard() -> None:
+                confirm.close()
+                dialog.close()
+
+            with ui.row():
+                ui.button("保存", on_click=confirm_save).mark("close-save")
+                ui.button("破棄して閉じる", on_click=discard).props("flat").mark("close-discard")
+                ui.button("編集に戻る", on_click=confirm.close).props("flat").mark("close-back")
+
+        def request_close() -> None:
+            if current() == opened:
+                dialog.close()
+            else:
+                confirm.open()
+
+        dialog.on("escape-key", request_close)  # persistent なので、ESCでは自動で閉じない
         with ui.row():
-            ui.button("キャンセル", on_click=dialog.close).props("flat")
+            ui.button("キャンセル", on_click=request_close).props("flat").mark("task-cancel")
             ui.button("保存", on_click=save).mark("task-save")
     dialog.open()
+    return dialog
