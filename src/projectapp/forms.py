@@ -1,14 +1,24 @@
 """タスク・セクションの追加・編集の入力検証と、ファイル・名前・設定のダイアログ。"""
 
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, time
 from decimal import Decimal
 from math import isfinite
 
 from nicegui import ui
 
-from projectapp.models import MAX_YEAR, MIN_YEAR, Priority, Status, Task, is_hex_color
+from projectapp.models import (
+    MAX_RATIO,
+    MAX_YEAR,
+    MIN_RATIO,
+    MIN_YEAR,
+    Member,
+    Priority,
+    Status,
+    Task,
+    is_hex_color,
+)
 
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
 STANDARD_WORK_HOURS = 8  # 時刻を指定しないときに補う終了の、標準稼働時間(固定)
@@ -140,6 +150,45 @@ def build_work_settings(hours: float | None, start: str) -> tuple[float, time]:
     if minutes > 24 * 60 + 1e-9:  # 稼働枠が日をまたぐと算出が曖昧になる
         raise ValueError("始業時刻と稼働可能時間の合計が24時を超えています")
     return hours, work_start
+
+
+@dataclass
+class MemberRow:
+    """メンバーのダイアログの1行。originalは、開いた時点の名前(新しい行はNone)。"""
+
+    original: str | None
+    name: str
+    ratio_percent: float | None
+
+
+def build_members(
+    rows: list[MemberRow], originals: list[str], assigned: Callable[[str], int]
+) -> tuple[list[Member], dict[str, str]]:
+    """ダイアログの行を検証して、メンバー一覧と、改名の対応({旧: 新})を返す。"""
+    members: list[Member] = []
+    renames: dict[str, str] = {}
+    seen: set[str] = set()
+    low, high = MIN_RATIO * 100, MAX_RATIO * 100
+    for row in rows:
+        name = (row.name or "").strip()
+        if not name:
+            raise ValueError("名前を入力してください")
+        if name in seen:
+            raise ValueError(f"名前が重複しています: {name}")
+        seen.add(name)
+        ratio = row.ratio_percent
+        if ratio is None or not isfinite(ratio) or not low - 1e-9 <= ratio <= high + 1e-9:
+            raise ValueError(f"相対比率は{low:g}〜{high:g}%で入力してください")
+        if exceeds_decimals(ratio):
+            raise ValueError(f"相対比率は小数点以下{HOURS_DECIMALS}桁までで入力してください")
+        members.append(Member(name, round(ratio / 100, 4)))
+        if row.original is not None and row.original != name:
+            renames[row.original] = name
+    kept = {row.original for row in rows if row.original is not None}
+    for original in originals:
+        if original not in kept and (count := assigned(original)):
+            raise ValueError(f"{original} を担当するタスクが{count}件あります")
+    return members, renames
 
 
 def build_section_name(text: str) -> str:
@@ -319,4 +368,65 @@ def open_settings_dialog(
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")
             ui.button("適用", on_click=apply).mark("settings-apply")
+    dialog.open()
+
+
+def open_members_dialog(
+    members: list[Member],
+    assigned: Callable[[str], int],
+    on_apply: Callable[[list[Member], dict[str, str]], object],
+) -> None:
+    rows = [MemberRow(m.name, m.name, round(m.ratio * 100, 2)) for m in members]
+    originals = [m.name for m in members]
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[28rem] max-w-full"):
+        ui.label("メンバー").classes("text-h6")
+
+        @ui.refreshable
+        def table() -> None:
+            with ui.column().classes("w-full gap-1"):
+                if not rows:
+                    ui.label("メンバーがいません").classes("text-grey")
+                for index, row in enumerate(rows):
+                    with ui.row().classes("w-full items-center no-wrap gap-2"):
+                        ui.input(
+                            "名前",
+                            value=row.name,
+                            on_change=lambda e, r=row: setattr(r, "name", e.value or ""),
+                        ).classes("flex-1").mark(f"member-name-{index}")
+                        ui.number(
+                            "相対比率(%)",
+                            value=row.ratio_percent,
+                            min=MIN_RATIO * 100,
+                            max=MAX_RATIO * 100,
+                            step=5,
+                            on_change=lambda e, r=row: setattr(r, "ratio_percent", e.value),
+                        ).classes("w-32").mark(f"member-ratio-{index}")
+                        ui.button(icon="delete", on_click=lambda r=row: remove(r)).props(
+                            "flat dense round"
+                        ).mark(f"member-delete-{index}")
+
+        def remove(row: MemberRow) -> None:
+            rows.remove(row)
+            table.refresh()
+
+        def add() -> None:
+            rows.append(MemberRow(None, "", 100.0))
+            table.refresh()
+
+        table()
+        ui.button("メンバーを追加", icon="add", on_click=add).props("flat").mark("member-add")
+        error = ui.label("").classes("text-negative").mark("member-error")
+
+        def apply() -> None:
+            try:
+                result = build_members(rows, originals, assigned)
+            except ValueError as exc:
+                error.set_text(str(exc))
+                return
+            on_apply(*result)
+            dialog.close()
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat")
+            ui.button("適用", on_click=apply).mark("member-apply")
     dialog.open()
