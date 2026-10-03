@@ -6,6 +6,7 @@ from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from itertools import groupby
 from math import ceil, isfinite
+from typing import NamedTuple
 
 from projectapp.models import Project, Status, Task
 
@@ -193,18 +194,26 @@ def fill_end(task: Task, project: Project, holidays: dict[date, str]) -> Task:
     return task if end is None else replace(task, end=end, end_auto=True)
 
 
-def recalc_ends(project: Project, holidays: dict[date, str]) -> int:
-    """自動算出された終了(end_auto)だけを、現在の稼働設定で再計算する。変えた件数を返す。"""
-    changed = 0
+class Recalc(NamedTuple):
+    changed: int  # 終了が変わった件数
+    failed: int  # 自動算出の終了だが、算出できず古い終了のまま残った件数
+
+
+def recalc_ends(project: Project, holidays: dict[date, str]) -> Recalc:
+    """自動算出された終了(end_auto)だけを、現在の稼働設定で再計算する。"""
+    changed = failed = 0
 
     def renew(task: Task) -> Task:
-        nonlocal changed
+        nonlocal changed, failed
         if not task.end_auto or task.start is None:
             return task
         end = calc_end(
             task.start, task.effort_hours, project.daily_hours, project.work_start, holidays
         )
-        if end is None or end == task.end:
+        if end is None:
+            failed += 1
+            return task
+        if end == task.end:
             return task
         changed += 1
         return replace(task, end=end)
@@ -212,7 +221,7 @@ def recalc_ends(project: Project, holidays: dict[date, str]) -> int:
     project.tasks[:] = [renew(t) for t in project.tasks]
     for section in project.sections:
         section.tasks[:] = [renew(t) for t in section.tasks]
-    return changed
+    return Recalc(changed, failed)
 
 
 def is_overdue(task: Task, now: datetime) -> bool:
