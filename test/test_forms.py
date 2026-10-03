@@ -5,6 +5,8 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.forms import (
+    MemberRow,
+    build_members,
     build_section_name,
     build_task,
     build_work_settings,
@@ -21,7 +23,7 @@ from projectapp.forms import (
     open_unsaved_dialog,
     parse_datetime,
 )
-from projectapp.models import Priority, Status, Task
+from projectapp.models import Member, Priority, Status, Task
 from projectapp.task_dialog import open_task_dialog
 
 
@@ -652,3 +654,66 @@ def test_a_used_planned_end_with_a_bad_format_is_still_rejected() -> None:
         make(effort_hours=0.0, planned_end="abc")
     with pytest.raises(ValueError, match="日時"):
         make(effort_hours=8.0, planned_end_manual=True, planned_end="abc")
+
+
+def rows(*pairs: tuple[str | None, str, float | None]) -> list[MemberRow]:
+    return [MemberRow(o, n, r) for o, n, r in pairs]
+
+
+def no_tasks(_name: str) -> int:
+    return 0
+
+
+def test_build_members_converts_percent_to_ratio_and_trims_names() -> None:
+    members, renames = build_members(rows((None, " 田中 ", 120.0)), [], no_tasks)
+    assert members == [Member("田中", 1.2)]
+    assert renames == {}
+
+
+def test_build_members_rejects_a_blank_name() -> None:
+    with pytest.raises(ValueError, match="名前"):
+        build_members(rows((None, "  ", 100.0)), [], no_tasks)
+
+
+def test_build_members_rejects_duplicate_names() -> None:
+    with pytest.raises(ValueError, match="重複"):
+        build_members(rows((None, "田中", 100.0), (None, "田中 ", 80.0)), [], no_tasks)
+
+
+@pytest.mark.parametrize("ratio", [None, 9.99, 300.01, 0.0, -10.0, float("nan"), float("inf"), 100.123])
+def test_build_members_rejects_a_bad_ratio(ratio: float | None) -> None:
+    with pytest.raises(ValueError, match="相対比率"):
+        build_members(rows((None, "田中", ratio)), [], no_tasks)
+
+
+@pytest.mark.parametrize("ratio", [10.0, 300.0, 100.25])
+def test_build_members_accepts_the_boundaries(ratio: float) -> None:
+    members, _ = build_members(rows((None, "田中", ratio)), [], no_tasks)
+    assert members[0].ratio == pytest.approx(ratio / 100)
+
+
+def test_build_members_reports_renames() -> None:
+    _, renames = build_members(rows(("田中", "田中太郎", 100.0)), ["田中"], no_tasks)
+    assert renames == {"田中": "田中太郎"}
+
+
+def test_build_members_allows_swapping_two_names() -> None:
+    _, renames = build_members(rows(("A", "B", 100.0), ("B", "A", 100.0)), ["A", "B"], no_tasks)
+    assert renames == {"A": "B", "B": "A"}
+
+
+def test_build_members_rejects_deleting_a_member_with_tasks() -> None:
+    counts = {"田中": 2}
+    with pytest.raises(ValueError, match="田中.*2件"):
+        build_members([], ["田中"], lambda name: counts.get(name, 0))
+
+
+def test_build_members_allows_deleting_a_member_without_tasks() -> None:
+    members, _ = build_members([], ["田中"], no_tasks)
+    assert members == []
+
+
+def test_build_members_rejects_taking_the_name_of_a_member_that_is_deleted_with_tasks() -> None:
+    counts = {"B": 1}
+    with pytest.raises(ValueError, match="B.*1件"):
+        build_members(rows(("A", "B", 100.0)), ["A", "B"], lambda name: counts.get(name, 0))
