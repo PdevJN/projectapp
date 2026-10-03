@@ -190,7 +190,9 @@ def fill_end(task: Task, project: Project, holidays: dict[date, str]) -> Task:
     """開始あり・終了なし・工数ありのタスクに、算出した終了を入れて返す。"""
     if task.start is None or task.end is not None:
         return task
-    end = calc_end(task.start, task.effort_hours, project.daily_hours, project.work_start, holidays)
+    end = calc_end(
+        task.start, task.effort_hours, project.daily_hours, project.work_start, holidays
+    )
     return task if end is None else replace(task, end=end, end_auto=True)
 
 
