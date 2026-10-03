@@ -810,3 +810,39 @@ async def test_refresh_holidays_survives_a_cache_write_failure(
     await views[0].refresh_holidays()
     assert user.notify.contains("祝日データを取得できませんでした")
     assert views[0].holidays == {date(2026, 10, 12): "スポーツの日"}
+
+
+async def test_save_as_new_refuses_a_file_created_after_the_name_was_checked(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    save_project(Project("競合", sections=[Section("先客")]), tmp_path)  # 検証のあとに作られた想定
+    assert view.save_as_new("競合") is False
+    assert user.notify.contains("同じ名前のファイルがすでにあります")
+    assert view.path is None
+    assert view.project.name != "競合"
+    assert load_project(tmp_path / "競合.json").sections[0].name == "先客"
+
+
+async def test_name_dialog_keeps_the_input_when_the_save_fails(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+
+    def boom(*args: object, **kwargs: object) -> Path:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("projectapp.views.save_project", boom)
+    user.find(marker="save-project").click()
+    user.find(marker="project-name").type("デモ")
+    user.find(marker="name-save").click()
+    assert await wait_until(lambda: user.notify.contains("保存できませんでした"))
+    await user.should_see(marker="project-name")  # ダイアログは開いたまま
+    assert views[0].path is None
