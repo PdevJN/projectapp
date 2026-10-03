@@ -212,14 +212,17 @@ def computed_end(
     daily_hours: float,
     work_start: time,
     holidays: dict[date, str],
+    deadline: datetime | None = None,
 ) -> datetime | None:
-    """手入力を使わない完了予定。工数があれば算出し、算出できなければ開始予定の1日後。"""
-    if start is None:
-        return None
-    if effort_hours > 0:
+    """手入力を使わない完了予定。工数があれば算出し、算出できなければ締切、締切もなければ開始予定の1日後。"""
+    if start is not None and effort_hours > 0:
         end = calc_end(start, effort_hours, daily_hours, work_start, holidays)
         if end is not None:
             return end
+    if deadline is not None:
+        return deadline  # 開始予定より前でも、そのまま使う(遅れている状態が見える)
+    if start is None:
+        return None
     try:
         return start + timedelta(days=1)
     except OverflowError:
@@ -231,7 +234,12 @@ def effective_end(task: Task, project: Project, holidays: dict[date, str]) -> da
     if task.planned_end is not None and (task.effort_hours <= 0 or task.planned_end_manual):
         return task.planned_end
     return computed_end(
-        task.planned_start, task.effort_hours, project.daily_hours, project.work_start, holidays
+        task.planned_start,
+        task.effort_hours,
+        project.daily_hours,
+        project.work_start,
+        holidays,
+        task.deadline,
     )
 
 

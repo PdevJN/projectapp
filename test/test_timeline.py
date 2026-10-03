@@ -362,3 +362,44 @@ def test_visible_range_survives_a_planned_end_at_the_end_of_time() -> None:
     task = Task("t", planned_start=datetime.max, planned_end=datetime.max)
     first, last = visible_range(project_with(task))  # 手編集のファイルでも例外にしない
     assert (first, last) == (BASE, BASE)  # 日付を足せないタスクは範囲に入れない
+
+
+DEADLINE = datetime(2026, 10, 30, 18, 0)
+
+
+def test_effective_end_is_the_deadline_when_the_planned_end_is_empty() -> None:
+    assert eff(deadline=DEADLINE) == DEADLINE
+
+
+def test_effective_end_uses_the_deadline_even_when_it_precedes_the_start() -> None:
+    early = datetime(2026, 10, 1, 18, 0)
+    assert eff(deadline=early) == early  # 遅れている状態が、そのまま見える
+
+
+def test_effective_end_prefers_the_computed_end_over_the_deadline() -> None:
+    assert eff(deadline=DEADLINE, effort_hours=15.0) == datetime(2026, 10, 13, 11)
+
+
+@pytest.mark.parametrize("effort", [float("inf"), 10**9])
+def test_effective_end_falls_back_to_the_deadline_when_it_cannot_compute(effort: float) -> None:
+    assert eff(deadline=DEADLINE, effort_hours=effort) == DEADLINE
+
+
+def test_effective_end_prefers_the_planned_end_over_the_deadline() -> None:
+    assert eff(planned_end=MANUAL_END, deadline=DEADLINE) == MANUAL_END
+    assert eff(planned_end=MANUAL_END, planned_end_manual=True, effort_hours=15.0, deadline=DEADLINE) == MANUAL_END
+
+
+def test_effective_end_with_manual_but_empty_planned_end_computes_before_the_deadline() -> None:
+    assert eff(planned_end_manual=True, effort_hours=15.0, deadline=DEADLINE) == datetime(2026, 10, 13, 11)
+
+
+def test_effective_end_is_the_deadline_even_without_a_start() -> None:
+    assert eff(planned_start=None, deadline=DEADLINE) == DEADLINE
+
+
+def test_computed_end_takes_the_deadline_as_the_fallback() -> None:
+    assert computed_end(FRI_START, 0.0, 6.5, time(9, 0), {}, DEADLINE) == DEADLINE
+    assert computed_end(FRI_START, 0.0, 6.5, time(9, 0), {}, None) == datetime(2026, 10, 10, 9)
+    assert computed_end(None, 0.0, 6.5, time(9, 0), {}, DEADLINE) == DEADLINE
+    assert computed_end(None, 0.0, 6.5, time(9, 0), {}, None) is None

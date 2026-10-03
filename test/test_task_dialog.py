@@ -673,3 +673,34 @@ async def test_the_dialog_uses_the_planned_wording(user: User) -> None:
     await user.should_see("開始予定")
     await user.should_see("完了予定")
     await user.should_see("締切")
+
+
+async def test_the_end_hint_mentions_the_deadline(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    end = user.find(marker="task-end-date").elements.pop()
+    assert "締切" in end.props["hint"]
+    assert "翌日" in end.props["hint"]
+
+
+async def test_the_computed_end_falls_back_to_the_deadline_when_it_cannot_compute(
+    user: User,
+) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-start-date").type("2026-10-09")
+    user.find(marker="task-deadline-date").type("2026-10-30")
+    user.find(marker="task-effort").clear().type("1000000000")
+    computed = user.find(marker="task-end-computed").elements.pop()
+    assert computed.value == "2026-10-30 18:00"  # 締切(時刻なしは終業時刻)
+
+
+async def test_changing_the_deadline_updates_the_computed_end(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-start-date").type("2026-10-09")
+    user.find(marker="task-effort").clear().type("1000000000")
+    computed = user.find(marker="task-end-computed").elements.pop()
+    assert computed.value == "2026-10-10 09:00"  # 締切なしは開始予定の翌日
+    user.find(marker="task-deadline-date").type("2026-10-30")
+    assert computed.value == "2026-10-30 18:00"

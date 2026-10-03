@@ -406,3 +406,23 @@ async def test_clicking_the_deadline_marker_edits_the_task(user: User) -> None:
     await user.open("/")
     user.find(marker="deadline-0-0").click()
     assert recorder.events == [("edit_task", (0, 0))]
+
+
+async def test_a_task_with_a_start_and_a_deadline_draws_the_bar_up_to_the_deadline(
+    user: User,
+) -> None:
+    project = Project(
+        "demo",
+        base_date=BASE,
+        tasks=[
+            Task(
+                "締切まで",
+                planned_start=datetime(2026, 10, 5, 12),
+                deadline=datetime(2026, 10, 7, 12),
+            )
+        ],
+    )
+    mount(project)
+    await user.open("/")
+    bar = user.find(marker="bar-top-0").elements.pop()
+    assert bar._style["width"] == "80.0px"  # 完了予定は空なので、締切(2日後)まで
