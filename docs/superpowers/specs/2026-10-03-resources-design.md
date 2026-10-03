@@ -69,7 +69,7 @@
 
 ### 日工数
 
-`effort_days(task, project) -> float | None`:工数が 0 より大きく、有限のとき、`工数 ÷ 換算率 ÷ project.daily_hours`。それ以外は `None`。ダイアログの表示に使う。
+`effort_days(effort_hours, rate, daily_hours) -> float | None`:工数が 0 より大きく有限、`daily_hours` が 0 より大きいとき、`工数 ÷ 換算率 ÷ daily_hours`。それ以外は `None`。ダイアログの表示に使う(入力途中の値で計算するため、タスクではなく数値を受け取る)。
 
 ### 割り当て合計の超過
 
@@ -79,7 +79,7 @@
 - 対象のタスク: 担当者がメンバーに見つかり、状態が「終了」でなく、開始予定と `effective_end` が両方あり、`effective_end` が開始予定より後。
 - 期間は [開始予定, `effective_end`)(終端は含まない)。同じ人のタスクについて、区間の境界で切って、各区間の割り当て率の合計を求める。合計が 1.0 を超える連続した区間を、1つの `Overload` にまとめる。端が接するだけ(終了 = 次の開始)は、重ならない。
 - 浮動小数の誤差のため、合計の比較には小さな余裕(`1.0 + 1e-9`)を持たせる。ちょうど 100% は超過にしない。
-- タスクごとに、自分に重なる超過の区間を取り出す補助関数 `overloads_for(task, overloads)` を持つ。
+- タスクごとに、自分に重なる超過の区間を取り出す補助関数 `clip_overloads(task, project, holidays, overloads)` を持つ。
 
 ## 画面
 
