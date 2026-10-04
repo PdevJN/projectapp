@@ -349,13 +349,24 @@ def effective_end(task: Task, project: Project, holidays: dict[date, str]) -> da
     )
 
 
+def actual_end(task: Task) -> datetime | None:
+    """実績の終了。実績がない、または終了のない区間があれば None。複数あるときは最後の区間の終了。"""
+    if not task.actuals or any(a.end is None for a in task.actuals):
+        return None
+    return task.actuals[-1].end
+
+
 def is_overdue(
     task: Task, project: Project, holidays: dict[date, str], now: datetime
 ) -> bool:
-    """締切か完了予定を過ぎていて、状態が「終了」でない。"""
-    if task.status is Status.DONE:
-        return False
-    if task.deadline is not None and now > task.deadline:
+    """締切か完了予定を過ぎている。実績の終了があれば、その時刻で判定する(遅れて終わったものも超過)。
+    実績の終了がなければ、状態が「終了」でない間だけ、現在時刻と比べる。"""
+    moment = actual_end(task)
+    if moment is None:
+        if task.status is Status.DONE:
+            return False
+        moment = now
+    if task.deadline is not None and moment > task.deadline:
         return True
     end = effective_end(task, project, holidays)
-    return end is not None and now > end
+    return end is not None and moment > end
