@@ -377,7 +377,9 @@ class GanttChart:
         header.mark(f"section-{si}")
         with header:
             name = ui.row().classes("items-center no-wrap gap-2 gantt-sticky")
-            name.style(f"align-self: stretch; {sticky_left(STICKY_Z_NAME)}")
+            name.style(  # 名前の列の全体を覆う(狭いと、残りの透明な部分に縞や格子線が見える)
+                f"min-width: {NAME_WIDTH_PX}px; align-self: stretch; {sticky_left(STICKY_Z_NAME)}"
+            )
             with name.mark(f"section-name-{si}"):
                 ui.label(section.name).classes("text-subtitle2")
                 ui.button(

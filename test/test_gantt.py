@@ -21,6 +21,7 @@ from projectapp.gantt import (
     planned_background,
     DEADLINE_MARKER_HALF_PX,
     GRID_BORDER,
+    NAME_WIDTH_PX,
     KIND_COLORS,
     MIN_BAR_PX,
     SCROLLBAR_ROOM_PX,
@@ -944,6 +945,8 @@ async def test_section_name_is_pinned_to_the_left(user: User) -> None:
     assert name._style["left"] == "0px"
     assert name._style["z-index"] == str(STICKY_Z_NAME)
     assert "gantt-sticky" in name.classes
+    # 名前の列(200px)の全体を覆う。狭いと、残りの透明な部分に縞や格子線が見える
+    assert name._style["min-width"] == f"{NAME_WIDTH_PX}px"
     assert pinned(user, "add-task-0").parent_slot.parent is name  # 追加ボタンも一緒に固定される
 
 
