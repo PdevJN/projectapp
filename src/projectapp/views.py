@@ -132,6 +132,7 @@ class MainView:
         self.title.refresh()
         self.gantt.set_project(self.project)
         self.gantt.reset_filter()
+        self.gantt.reset_scroll()  # 別のプロジェクトは、先頭から見せる(編集後の再描画では動かさない)
 
     def show_file_list(self) -> None:
         """ファイルを走査し直して、一覧ダイアログを出す。"""

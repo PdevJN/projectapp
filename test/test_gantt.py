@@ -13,6 +13,8 @@ from projectapp.gantt import (
     CHART_TOP_OFFSET_PX,
     REFRESH_SCROLLBARS_JS,
     FAB_ZONE_PX,
+    SCROLL_RESET_JS,
+    SCROLL_TO_LEFT_JS,
     SCROLL_TO_TOP_JS,
     STICKY_CSS,
     STICKY_Z_HEADER,
@@ -1024,3 +1026,55 @@ def test_refreshing_the_scrollbars_keeps_the_scroll_position() -> None:
     assert "style.overflow" in REFRESH_SCROLLBARS_JS
     assert "scrollTop" in REFRESH_SCROLLBARS_JS and "scrollLeft" in REFRESH_SCROLLBARS_JS
     assert "scrollTo" in REFRESH_SCROLLBARS_JS
+
+
+def record_javascript(chart: GanttChart) -> list[str]:
+    """チャートが画面へ送る JavaScript を記録する(実際には送らない)。"""
+    sent: list[str] = []
+    assert chart.client is not None
+    chart.client.run_javascript = lambda code, **_: sent.append(code)  # type: ignore[method-assign]
+    return sent
+
+
+async def test_the_scroll_box_survives_a_redraw_so_the_scroll_position_is_kept(user: User) -> None:
+    # 行の移動などで描き直しても、スクロールする枠は作り直さない(作り直すと位置が先頭に戻る)
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    before = user.find(marker="chart-scroll").elements.pop()
+    charts[0].render.refresh()
+    after = user.find(marker="chart-scroll").elements.pop()
+    assert after is before
+    assert not before.is_deleted
+    await user.should_see(marker="bar-top-0")  # 中身は描き直されている
+
+
+async def test_changing_the_scale_resets_only_the_horizontal_scroll(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    sent = record_javascript(charts[0])
+    charts[0].set_scale(Scale.WEEK)
+    assert sent == [SCROLL_TO_LEFT_JS]
+
+
+async def test_set_project_does_not_touch_the_scroll_position(user: User) -> None:
+    # 行の移動・タスクの編集・削除など、すべての編集のあとの再描画に使われる
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    sent = record_javascript(charts[0])
+    charts[0].set_project(filter_project())
+    assert sent == []
+
+
+async def test_a_plain_redraw_does_not_touch_the_scroll_position(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    sent = record_javascript(charts[0])
+    charts[0].set_holidays({})
+    assert sent == []
+
+
+def test_scroll_scripts_target_the_chart_box() -> None:
+    for code in (SCROLL_TO_LEFT_JS, SCROLL_RESET_JS):
+        assert "[data-chart-scroll]" in code
+    assert "left: 0" in SCROLL_TO_LEFT_JS and "top" not in SCROLL_TO_LEFT_JS
+    assert "left: 0" in SCROLL_RESET_JS and "top: 0" in SCROLL_RESET_JS

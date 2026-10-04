@@ -79,6 +79,11 @@ body.body--dark [data-chart-scroll]::-webkit-scrollbar-thumb { background: #555;
 body.body--dark [data-chart-scroll]::-webkit-scrollbar-corner { background: var(--q-dark-page, #121212); }
 """
 # 絞り込みの変更時に、チャートの枠とページの両方を先頭へ戻す
+SCROLL_TO_LEFT_JS = "document.querySelector('[data-chart-scroll]')?.scrollTo({left: 0})"
+SCROLL_RESET_JS = (
+    "document.querySelector('[data-chart-scroll]')?.scrollTo({top: 0, left: 0});"
+    " window.scrollTo({top: 0})"
+)
 SCROLL_TO_TOP_JS = (
     "document.querySelector('[data-chart-scroll]')?.scrollTo({top: 0});"
     " window.scrollTo({top: 0})"
@@ -214,6 +219,14 @@ class GanttChart:
         if self.client is not None:
             self.client.run_javascript(REFRESH_SCROLLBARS_JS)
 
+    def scroll_to_left(self) -> None:
+        if self.client is not None:
+            self.client.run_javascript(SCROLL_TO_LEFT_JS)
+
+    def reset_scroll(self) -> None:
+        if self.client is not None:
+            self.client.run_javascript(SCROLL_RESET_JS)
+
     def scroll_to_top(self) -> None:
         if self.client is not None:
             self.client.run_javascript(SCROLL_TO_TOP_JS)
@@ -225,6 +238,7 @@ class GanttChart:
     def set_scale(self, scale: Scale) -> None:
         self.scale = scale
         self.render.refresh()
+        self.scroll_to_left()  # 列の幅が変わるので、横の位置は意味を持たない(縦は保つ)
 
     def build(self) -> None:
         self.client = context.client
@@ -272,7 +286,14 @@ class GanttChart:
                 .style("flex: 1 1 8rem; min-width: 7rem; max-width: 12rem")
                 .mark("assignee-filter")
             )
-        self.render()
+        # スクロールする枠は一度だけ作る。render は中身だけを作り直すので、描き直してもスクロール位置が保たれる
+        scroll_style = (
+            f"overflow: auto; max-height: {CHART_MAX_HEIGHT};"
+            f" padding-bottom: {SCROLLBAR_ROOM_PX}px"
+        )
+        scroll = ui.element("div").classes("w-full").style(scroll_style)
+        with scroll.props("data-chart-scroll").mark("chart-scroll"):
+            self.render()
 
     @ui.refreshable_method
     def render(self) -> None:
@@ -280,25 +301,19 @@ class GanttChart:
         self.overloads = overallocations(self.project, self.holidays)
         width = COLUMN_WIDTH_PX[self.scale]
         total = NAME_WIDTH_PX + width * len(columns)
-        scroll_style = (
-            f"overflow: auto; max-height: {CHART_MAX_HEIGHT};"
-            f" padding-bottom: {SCROLLBAR_ROOM_PX}px"
-        )
-        scroll = ui.element("div").classes("w-full").style(scroll_style)
-        with scroll.props("data-chart-scroll").mark("chart-scroll"):
-            with ui.element("div").style(f"position: relative; width: {total}px"):
-                top = BAND_HEIGHT_PX * (1 if self.scale is Scale.MONTH else 2)
-                self.gridlines(columns, width, top)
-                if self.scale is Scale.DAY:
-                    self.stripes(columns, width, top)
-                self.header(columns, width)
-                self.no_match_message()
-                for ti, task in enumerate(self.project.tasks):
-                    if matches(task, self.task_filter):
-                        self.task_row(None, ti, task, columns, width)
-                self.top_add_row()
-                for si, section in enumerate(self.project.sections):
-                    self.section_rows(si, section, columns, width)
+        with ui.element("div").style(f"position: relative; width: {total}px"):
+            top = BAND_HEIGHT_PX * (1 if self.scale is Scale.MONTH else 2)
+            self.gridlines(columns, width, top)
+            if self.scale is Scale.DAY:
+                self.stripes(columns, width, top)
+            self.header(columns, width)
+            self.no_match_message()
+            for ti, task in enumerate(self.project.tasks):
+                if matches(task, self.task_filter):
+                    self.task_row(None, ti, task, columns, width)
+            self.top_add_row()
+            for si, section in enumerate(self.project.sections):
+                self.section_rows(si, section, columns, width)
 
     def no_match_message(self) -> None:
         """絞り込み中に1件も一致しないとき(タスクが1つもないときは出さない)。"""

@@ -1127,3 +1127,25 @@ async def test_switching_the_theme_refreshes_the_chart_scrollbars(user: User, tm
     views[0].set_theme("dark")
     assert calls == ["refresh"]
     assert views[0].theme == "dark"
+
+
+async def test_opening_another_project_resets_the_chart_scroll(user: User, tmp_path: Path) -> None:
+    save_project(Project("別", tasks=[Task("t")]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    calls: list[str] = []
+    views[0].gantt.reset_scroll = lambda: calls.append("reset")  # type: ignore[method-assign]
+    await choose_in_combo(user, "別")
+    assert calls == ["reset"]
+
+
+async def test_editing_a_task_keeps_the_chart_scroll(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    calls: list[str] = []
+    views[0].gantt.reset_scroll = lambda: calls.append("reset")  # type: ignore[method-assign]
+    views[0].project.tasks.append(Task("追加"))
+    views[0].gantt.set_project(views[0].project)  # 編集のあとの再描画
+    assert calls == []
