@@ -64,6 +64,8 @@ PROGRESS_STATE_COLORS = {
     ProgressState.DONE: "#757575",
     ProgressState.LATE_DONE: "#8e24aa",
 }
+MARK_WIDTH_PX = 18  # 印(✓! が最も広い)が占める幅の見積もり。◆との重なりの判定に使う
+MARK_GAP_PX = 4  # 印と、棒・◆との間の余白
 FINISHED_ACTUAL_COLOR = "#9e9e9e"  # 完了・遅延完了(状態が「終了」)のタスクの実績の棒。タスクの色の代わりに灰にする
 PROGRESS_STATE_MARKS = {
     ProgressState.DELAYED: "▼",
@@ -525,9 +527,10 @@ class GanttChart:
                 with bar:
                     self.progress_fill(key, ti, task)
                     self.overload_stripes(key, ti, task, left, bar_width, columns, width)
-                self.progress_marker(
-                    key, ti, task, state, NAME_WIDTH_PX + left * width + bar_width, end
+                mark_left = self.marker_left(
+                    task, columns, width, NAME_WIDTH_PX + left * width + bar_width
                 )
+                self.progress_marker(key, ti, task, state, mark_left, end)
             self.actual_bars(si, ti, task, columns, width, finished)
             self.deadline_marker(si, ti, task, columns, width)
 
@@ -542,16 +545,35 @@ class GanttChart:
             f" background: {color}; pointer-events: none"
         ).mark(f"progress-fill-{key}-{ti}")
 
+    def marker_left(
+        self, task: Task, columns: list[Column], width: int, bar_right: float
+    ) -> float:
+        """印の左端。予定の棒と、それより右へ伸びる実績の棒(完了の遅れや進行中)の右に置き、
+        締切の◆と重なるときは◆の右へずらす。"""
+        right = bar_right
+        for actual in task.actuals:
+            finish = actual.end if actual.end is not None else self.now()
+            start, length = interval_span(actual.start, finish, columns)
+            right = max(right, NAME_WIDTH_PX + start * width + max(length * width, MIN_BAR_PX))
+        left = right + MARK_GAP_PX
+        position = None if task.deadline is None else deadline_position(task.deadline, columns)
+        if position is not None:
+            center = NAME_WIDTH_PX + position * width
+            diamond_left, diamond_right = center - DEADLINE_MARKER_HALF_PX, center + DEADLINE_MARKER_HALF_PX
+            if diamond_left < left + MARK_WIDTH_PX and left < diamond_right:
+                left = diamond_right + MARK_GAP_PX
+        return left
+
     def progress_marker(
         self,
         key: int | str,
         ti: int,
         task: Task,
         state: ProgressState | None,
-        bar_right: float,
+        mark_left: float,
         end: datetime | None,
     ) -> None:
-        """棒の右に、状態の印を小さく出す。通常と判定できないときは出さない。"""
+        """棒の右に、状態の印を小さく出す(位置は marker_left)。通常と判定できないときは出さない。"""
         if state not in PROGRESS_STATE_MARKS:
             return
         color = PROGRESS_STATE_COLORS[state]
@@ -562,7 +584,7 @@ class GanttChart:
                 expected = expected_progress(task.planned_start, end, self.now())
                 tip = f"{state.value}(進捗 {percent}% / 予定 {expected:.0f}%)"
         ui.label(PROGRESS_STATE_MARKS[state]).style(
-            f"position: absolute; left: {bar_right + 4:.1f}px; top: {BAR_TOP_PX}px;"
+            f"position: absolute; left: {mark_left:.1f}px; top: {BAR_TOP_PX}px;"
             f" line-height: {BAR_HEIGHT_PX}px; font-size: 11px; color: {color}"
         ).tooltip(tip).mark(f"progress-state-{key}-{ti}")
 

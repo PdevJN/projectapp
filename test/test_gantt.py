@@ -1165,6 +1165,48 @@ async def test_finished_task_keeps_the_planned_fill_and_the_overdue_background(u
     assert OVERDUE_COLOR in user.find(marker="row-0-0").elements.pop()._style["background"]
 
 
+async def test_late_done_mark_does_not_overlap_the_longer_actual_bar(user: User) -> None:
+    mount(finished_project(datetime(2026, 10, 8, 12)), now=datetime(2026, 10, 20))
+    await user.open("/")
+    actual = user.find(marker="actual-0-0-0").elements.pop()
+    actual_right = float(actual._style["left"][:-2]) + float(actual._style["width"][:-2])
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert actual_right == 340.0  # 200 + 3.5 * 40
+    assert mark._style["left"] == "344.0px"  # 実績の棒の右端 + 4
+
+
+async def test_mark_stays_next_to_the_planned_bar_when_the_actual_is_shorter(user: User) -> None:
+    mount(finished_project(datetime(2026, 10, 7, 10)), now=datetime(2026, 10, 20))
+    await user.open("/")
+    assert user.find(marker="progress-state-0-0").elements.pop()._style["left"] == "304.0px"
+
+
+async def test_delayed_mark_clears_an_in_progress_actual_bar_that_runs_past_the_plan(
+    user: User,
+) -> None:
+    mount(progress_project(10), now=datetime(2026, 10, 9, 12))  # 進行中の実績が、予定の終了より先まで伸びる
+    await user.open("/")
+    actual = user.find(marker="actual-0-0-0").elements.pop()
+    actual_right = float(actual._style["left"][:-2]) + float(actual._style["width"][:-2])
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert float(mark._style["left"][:-2]) >= actual_right + 4
+
+
+async def test_mark_does_not_overlap_the_deadline_diamond(user: User) -> None:
+    deadline = datetime(2026, 10, 7, 12)  # 完了予定と同じ。◆は x=300 を中心に 294〜306
+    mount(progress_project(10, deadline=deadline), now=MID)
+    await user.open("/")
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert mark._style["left"] == "310.0px"  # ◆の右端 306 + 4
+    assert user.find(marker="deadline-0-0").elements.pop()  # ◆は今のまま出る
+
+
+async def test_mark_ignores_a_far_away_deadline(user: User) -> None:
+    mount(progress_project(10, deadline=datetime(2026, 10, 20, 12)), now=MID)
+    await user.open("/")
+    assert user.find(marker="progress-state-0-0").elements.pop()._style["left"] == "304.0px"
+
+
 async def test_clicking_an_actual_bar_edits_the_task(user: User) -> None:
     recorder = mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))))
     await user.open("/")
