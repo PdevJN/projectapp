@@ -778,3 +778,15 @@ async def test_changing_the_filter_scrolls_to_the_top_but_set_project_does_not(
     assert calls == ["scroll"]
     charts[0].reset_filter()
     assert calls == ["scroll", "scroll"]
+
+
+async def test_the_toolbar_never_wraps_and_the_filters_shrink(user: User) -> None:
+    mount_chart(filter_project())
+    await user.open("/")
+    toolbar = user.find(marker="chart-toolbar").elements.pop()
+    assert "no-wrap" in toolbar.classes
+    for marker in ("search-input", "assignee-filter"):
+        style = user.find(marker=marker).elements.pop()._style
+        assert style["flex"].startswith("1 1")
+        assert style["min-width"]
+

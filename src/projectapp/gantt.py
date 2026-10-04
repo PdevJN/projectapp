@@ -141,15 +141,15 @@ class GanttChart:
 
     def build(self) -> None:
         self.client = context.client
-        with ui.row().classes("w-full items-center gap-4"):
+        with ui.row().classes("w-full items-center no-wrap gap-4").mark("chart-toolbar"):
             ui.toggle(
                 {scale: scale.value for scale in Scale},
                 value=self.scale,
                 on_change=lambda e: self.set_scale(Scale(e.value)),
-            ).mark("scale-toggle")
+            ).classes("shrink-0").mark("scale-toggle")
             ui.button("セクション追加", icon="add", on_click=self.actions.add_section).props(
                 "flat"
-            ).mark("add-section")
+            ).classes("shrink-0").mark("add-section")
             self.search_input = (
                 ui.input(
                     placeholder="タスク名で検索(Enterで確定)",
@@ -157,7 +157,7 @@ class GanttChart:
                     on_change=self.on_search_changed,
                 )
                 .props("clearable dense outlined")
-                .classes("w-64")
+                .style("flex: 1 1 8rem; min-width: 6rem; max-width: 16rem")
                 .on(
                     "keydown.enter",
                     lambda e: self.commit_query(e.args),
@@ -177,7 +177,7 @@ class GanttChart:
                     ),
                 )
                 .props("dense outlined")
-                .classes("w-48")
+                .style("flex: 1 1 8rem; min-width: 7rem; max-width: 12rem")
                 .mark("assignee-filter")
             )
         self.render()
