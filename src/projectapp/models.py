@@ -11,6 +11,7 @@ DEFAULT_COLOR = "#4c8bf5"
 MIN_YEAR, MAX_YEAR = 2000, 2100  # 入力ミスで表示範囲が際限なく広がるのを防ぐ
 MIN_RATIO, MAX_RATIO = 0.1, 3.0  # 相対比率(10%〜300%)
 MIN_ALLOCATION, MAX_ALLOCATION = 0.01, 1.0  # 割り当て率(1%〜100%)
+MIN_PROGRESS, MAX_PROGRESS = 0, 100  # 実績の進捗度(%)
 HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
 
@@ -44,6 +45,7 @@ class Actual:
 
     start: datetime
     end: datetime | None = None
+    progress: int | None = None  # 区間の終わり時点の累積(0〜100%)。Noneは未入力
 
 
 @dataclass

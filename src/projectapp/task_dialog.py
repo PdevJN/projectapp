@@ -21,7 +21,9 @@ from projectapp.models import (
     DEFAULT_DAILY_HOURS,
     DEFAULT_WORK_START,
     MAX_ALLOCATION,
+    MAX_PROGRESS,
     MIN_ALLOCATION,
+    MIN_PROGRESS,
     Member,
     Priority,
     Status,
@@ -269,6 +271,17 @@ class ActualFields:
             self.end_day, self.end_time = self._column(
                 "終了", "end", actual.end if actual else None
             )
+        self.progress = (
+            ui.number(
+                "進捗度(%)",
+                value=actual.progress if actual else None,
+                min=MIN_PROGRESS,
+                max=MAX_PROGRESS,
+                precision=0,
+            )
+            .classes("w-full")
+            .mark("task-actual-progress")
+        )
 
     def _column(self, label: str, key: str, moment: datetime | None) -> tuple[ui.input, ui.input]:
         with ui.column().classes("flex-1 gap-0"):
@@ -280,10 +293,15 @@ class ActualFields:
             add_picker(clock, ui.time, "access_time", f"actual-{key}-time", "%H:%M")
         return day, clock
 
-    def inputs(self) -> list[ui.input]:
+    def inputs(self) -> list[ui.input | ui.number]:
         if self.read_only:
             return []
-        return [self.start_day, self.start_time, self.end_day, self.end_time]
+        return [self.start_day, self.start_time, self.end_day, self.end_time, self.progress]
+
+    def progress_value(self) -> float | None:
+        if self.read_only:
+            return None
+        return self.progress.value
 
     def start_text(self) -> str:
         if self.read_only:
@@ -305,7 +323,9 @@ class ActualFields:
         )
 
     def state(self) -> tuple[object, ...]:
-        return tuple(widget.value or "" for widget in self.inputs())
+        """変更の判定に使う入力値。進捗度は 0 と空を区別する。"""
+        texts = tuple(widget.value or "" for widget in self.inputs()[:4])
+        return (*texts, None if self.read_only else self.progress.value)
 
 
 def open_task_dialog(
@@ -405,7 +425,7 @@ def open_task_dialog(
         def on_actual_change(_event: object = None) -> None:
             if suggest["manual"]:
                 return
-            suggested = suggest_status(*actual_fields.filled())
+            suggested = suggest_status(*actual_fields.filled(), actual_fields.progress_value())
             if suggested is None or suggested == status.value:
                 return
             suggest["setting"] = True
@@ -457,6 +477,7 @@ def open_task_dialog(
                     allocation_percent=allocation.value,
                     actual_start=actual_fields.start_text(),
                     actual_end=actual_fields.end_text(),
+                    actual_progress=actual_fields.progress_value(),
                 )
             except ValueError as exc:
                 error.set_text(str(exc))

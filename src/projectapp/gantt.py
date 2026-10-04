@@ -508,10 +508,17 @@ class GanttChart:
                 f" width: {max(length * width, MIN_BAR_PX):.1f}px;"
                 f" top: {ACTUAL_TOP_PX}px; height: {ACTUAL_HEIGHT_PX}px;"
                 f" background: {color}; border-radius: 3px; cursor: pointer;"
-                " user-select: none"
+                " user-select: none; overflow: hidden"
             )
             bar.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
             bar.mark(f"actual-{key}-{ti}-{n}")
+            if actual.progress is not None:
+                with bar:
+                    ui.label(f"{actual.progress}%").style(
+                        f"font-size: 10px; line-height: {ACTUAL_HEIGHT_PX}px; padding: 0 4px;"
+                        " color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);"
+                        " white-space: nowrap; pointer-events: none"
+                    ).mark(f"actual-progress-{key}-{ti}-{n}")
 
     def overload_stripes(
         self,

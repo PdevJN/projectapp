@@ -349,6 +349,14 @@ def effective_end(task: Task, project: Project, holidays: dict[date, str]) -> da
     )
 
 
+def current_progress(task: Task) -> int | None:
+    """進捗度の入っている最後の区間の値(累積)。ひとつもなければ None。0 は入力ありとして返す。"""
+    for actual in reversed(task.actuals):
+        if actual.progress is not None:
+            return actual.progress
+    return None
+
+
 def actual_end(task: Task) -> datetime | None:
     """実績の終了。実績がない、または終了のない区間があれば None。複数あるときは最後の区間の終了。"""
     if not task.actuals or any(a.end is None for a in task.actuals):
