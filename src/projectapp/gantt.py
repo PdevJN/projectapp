@@ -7,9 +7,11 @@ from datetime import date, datetime
 from nicegui import Client, context, ui
 from nicegui.events import ValueChangeEventArguments
 
+from projectapp import arrange
 from projectapp.arrange import Position
 from projectapp.calendar import DayKind, day_kind
 from projectapp.filtering import TaskFilter, matches
+from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS
 from projectapp.models import DEFAULT_COLOR, Project, Section, Task, is_hex_color
 from projectapp.timeline import (
     Band,
@@ -111,6 +113,22 @@ class GanttChart:
         if not e.value:
             self.commit_query("")
 
+    def handle_move(self, args: object) -> None:
+        """行のドロップを受ける。絞り込み中と、不正な値は無視する。"""
+        if self.task_filter.active:
+            return
+        parsed = arrange.parse_move(args)
+        if parsed is not None:
+            self.actions.move_task(*parsed)
+
+    def drag_props(self, kind: str, key: int | str, **extra: object) -> str:
+        """ドロップ先の `data-*` 属性。絞り込み中は空(ドロップできない)。"""
+        if self.task_filter.active:
+            return ""
+        parts = [f"data-drop={kind}", f"data-si={key}"]
+        parts += [f"data-{name}={value}" for name, value in extra.items()]
+        return " ".join(parts)
+
     def reset_filter(self) -> None:
         """条件を空に戻し、入力欄と選択にも反映する。別のプロジェクトを開いたときに使う。"""
         self.task_filter = TaskFilter()
@@ -145,6 +163,9 @@ class GanttChart:
 
     def build(self) -> None:
         self.client = context.client
+        ui.add_css(CHART_DRAG_CSS)
+        ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
+        ui.on("chart_move", lambda e: self.handle_move(e.args))
         with ui.row().classes("w-full items-center no-wrap gap-4").mark("chart-toolbar"):
             ui.toggle(
                 {scale: scale.value for scale in Scale},
@@ -221,7 +242,10 @@ class GanttChart:
 
     def top_add_row(self) -> None:
         """セクションなしのタスクの末尾に置く追加行。名前の列の右端にボタンを置く。"""
-        with ui.row().classes("items-center no-wrap gap-0").style(ADD_ROW_STYLE):
+        row = ui.row().classes("items-center no-wrap gap-0").style(ADD_ROW_STYLE)
+        row.props(self.drag_props("top-end", "top", count=len(self.project.tasks)))
+        row.mark("top-end")
+        with row:
             cell = ui.row().classes("items-center justify-end no-wrap")
             cell.style(f"width: {NAME_WIDTH_PX}px; padding-right: 8px")
             with cell:
@@ -291,7 +315,10 @@ class GanttChart:
             matches(task, self.task_filter) for task in section.tasks
         ):
             return
-        with ui.row().classes("items-center no-wrap gap-2").style(ROW_STYLE):
+        header = ui.row().classes("items-center no-wrap gap-2").style(ROW_STYLE)
+        header.props(self.drag_props("section", si, count=len(section.tasks)))
+        header.mark(f"section-{si}")
+        with header:
             ui.label(section.name).classes("text-subtitle2")
             ui.button(
                 icon="add", on_click=lambda si=si: self.actions.add_task(si)
@@ -307,12 +334,16 @@ class GanttChart:
         style = ROW_STYLE
         if is_overdue(task, self.project, self.holidays, self.now()):
             style += f"; background: {OVERDUE_COLOR}"
-        with ui.row().classes("items-center no-wrap gap-0").style(style):
-            ui.label(task.name).classes("ellipsis cursor-pointer").style(
+        row = ui.row().classes("items-center no-wrap gap-0").style(style)
+        row.props(self.drag_props("row", key, ti=ti)).mark(f"row-{key}-{ti}")
+        with row:
+            label = ui.label(task.name).classes("ellipsis cursor-pointer").style(
                 f"width: {NAME_WIDTH_PX}px; padding-left: 16px"
-            ).on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti)).mark(
-                f"task-{key}-{ti}"
             )
+            label.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
+            label.mark(f"task-{key}-{ti}")
+            if not self.task_filter.active:
+                label.props(f"draggable=true data-drag-handle data-si={key} data-ti={ti}")
             end = effective_end(task, self.project, self.holidays)
             span = bar_span(task.planned_start, end, columns)
             if span is not None:
