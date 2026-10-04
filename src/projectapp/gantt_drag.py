@@ -77,6 +77,7 @@ CHART_DRAG_JS = """
 
   // バーの横移動。1日分の列幅に吸着し、放したときに日数だけを送る。
   const MOVE_THRESHOLD_PX = 4;
+  const RESET_MS = 1500;  // サーバーが受け付けず、再描画されなかったときの保険
   let bar = null;
   let suppressClick = false;
 
@@ -116,15 +117,21 @@ CHART_DRAG_JS = """
     if (!bar) return;
     const done = bar;
     bar = null;
-    done.el.style.transform = "";
-    if (!done.moved) return;  // 動かしていなければ、ふつうのクリック
+    if (!done.moved) {  // 動かしていなければ、ふつうのクリック
+      done.el.style.transform = "";
+      return;
+    }
     suppressClick = true;  // 動かしたあとの click で編集ダイアログが開かないようにする
     setTimeout(() => { suppressClick = false; }, 0);
-    if (!done.cancelled && done.days !== 0) {
-      emitEvent("chart_shift", {
-        si: section(done.el.dataset.si), ti: Number(done.el.dataset.ti), days: done.days,
-      });
+    if (done.cancelled || done.days === 0) {
+      done.el.style.transform = "";
+      return;
     }
+    // 再描画で要素が置き換わるまで位置を保つ(元に戻って見えないように)。残っていたら戻す
+    setTimeout(() => { if (done.el.isConnected) done.el.style.transform = ""; }, RESET_MS);
+    emitEvent("chart_shift", {
+      si: section(done.el.dataset.si), ti: Number(done.el.dataset.ti), days: done.days,
+    });
   });
 
   document.addEventListener("pointercancel", abortBar);

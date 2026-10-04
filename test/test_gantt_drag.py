@@ -196,6 +196,7 @@ const fire = (type, event) => (listeners[type] || []).forEach((fn) => fn(event))
 const bar = {
   dataset: { si: "0", ti: "0", dayWidth: "40", minDays: "-5" },
   style: {},
+  isConnected: true,
   setPointerCapture() {},
   closest(selector) { return selector === "[data-bar]" ? this : null; },
 };
@@ -212,7 +213,24 @@ const flush = () => timers.splice(0).forEach((fn) => fn());
 // 通常の移動(100px = 3日に吸着)
 fire("pointerdown", pointer(0)); fire("pointermove", pointer(100)); fire("pointerup", pointer(100));
 scenarios.normal = { emitted: emitted.splice(0), transform: bar.style.transform, suppressed: click() };
+// 再描画で要素が置き換わるまで位置を保ち(元に戻って見えないように)、残っていたら保険で戻す
+scenarios.afterUp = bar.style.transform;
 flush();
+scenarios.afterTimeout = bar.style.transform;
+
+// 再描画で要素が置き換わったなら、古い要素には触らない
+bar.style.transform = "";
+fire("pointerdown", pointer(0)); fire("pointermove", pointer(100)); fire("pointerup", pointer(100));
+bar.isConnected = false; bar.style.transform = "kept";
+flush();
+scenarios.replaced = bar.style.transform;
+bar.isConnected = true; bar.style.transform = "";
+emitted.splice(0); click();
+
+// 0日のままなら、送らずにすぐ戻す
+fire("pointerdown", pointer(0)); fire("pointermove", pointer(10)); fire("pointerup", pointer(10));
+scenarios.zero = { emitted: emitted.splice(0), transform: bar.style.transform };
+click(); flush();
 
 // pointercancel のあとは、動かしても放しても何も送らず、バーを戻す
 fire("pointerdown", pointer(0)); fire("pointermove", pointer(100));
@@ -271,8 +289,19 @@ def js_scenarios(tmp_path_factory: pytest.TempPathFactory) -> dict:
 def test_js_normal_shift_emits_the_snapped_days_and_swallows_the_click(js_scenarios: dict) -> None:
     normal = js_scenarios["normal"]
     assert normal["emitted"] == [["chart_shift", {"si": 0, "ti": 0, "days": 3}]]
-    assert normal["transform"] == ""
     assert normal["suppressed"] is True
+
+
+def test_js_the_bar_keeps_its_place_until_the_redraw_then_a_fallback_resets_it(
+    js_scenarios: dict,
+) -> None:
+    assert js_scenarios["afterUp"] == "translateX(120px)"
+    assert js_scenarios["afterTimeout"] == ""
+    assert js_scenarios["replaced"] == "kept"  # 置き換わった古い要素には触らない
+
+
+def test_js_a_zero_day_move_goes_back_at_once_without_sending(js_scenarios: dict) -> None:
+    assert js_scenarios["zero"] == {"emitted": [], "transform": ""}
 
 
 def test_js_pointercancel_releases_the_bar_without_sending(js_scenarios: dict) -> None:
