@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime
 
 from nicegui import Client, context, ui
+from nicegui.events import ValueChangeEventArguments
 
 from projectapp.calendar import DayKind, day_kind
 from projectapp.filtering import TaskFilter, matches
@@ -48,6 +49,8 @@ GRID_BORDER = "1px solid rgba(128, 128, 128, 0.3)"  # 格子線。両テーマ�
 ADD_ROW_HEIGHT_PX = 24  # 追加行は通常の行より細くする
 ROW_STYLE = f"height: {ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
 ADD_ROW_STYLE = f"height: {ADD_ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
+# IME の変換確定の Enter は無視する。Safari 系は確定時に isComposing が偽でも keyCode が 229 になる
+SEARCH_ENTER_JS = "(e) => { if (!e.isComposing && e.keyCode !== 229) emit(e.target.value); }"
 ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メンバー名は空にできない
 
 
@@ -96,6 +99,14 @@ class GanttChart:
         self.render.refresh()
         self.scroll_to_top()
 
+    def commit_query(self, query: str | None) -> None:
+        self.set_filter(replace(self.task_filter, query=(query or "").strip()))
+
+    def on_search_changed(self, e: ValueChangeEventArguments) -> None:
+        """入力中は反映しない(IME の変換中を避ける)。空になったときだけ、すぐ条件を外す。"""
+        if not e.value:
+            self.commit_query("")
+
     def reset_filter(self) -> None:
         """条件を空に戻し、入力欄と選択にも反映する。別のプロジェクトを開いたときに使う。"""
         self.task_filter = TaskFilter()
@@ -141,14 +152,17 @@ class GanttChart:
             ).mark("add-section")
             self.search_input = (
                 ui.input(
-                    placeholder="タスク名で検索",
+                    placeholder="タスク名で検索(Enterで確定)",
                     value=self.task_filter.query,
-                    on_change=lambda e: self.set_filter(
-                        replace(self.task_filter, query=e.value or "")
-                    ),
+                    on_change=self.on_search_changed,
                 )
-                .props("clearable dense outlined debounce=300")
+                .props("clearable dense outlined")
                 .classes("w-64")
+                .on(
+                    "keydown.enter",
+                    lambda e: self.commit_query(e.args),
+                    js_handler=SEARCH_ENTER_JS,
+                )
                 .mark("search-input")
             )
             self.assignee_select = (

@@ -12,6 +12,7 @@ from projectapp.gantt import (
     GRID_BORDER,
     KIND_COLORS,
     MIN_BAR_PX,
+    SEARCH_ENTER_JS,
     OVERDUE_COLOR,
     GanttActions,
     GanttChart,
@@ -669,21 +670,43 @@ async def test_set_project_keeps_the_filter_but_drops_a_vanished_assignee(user: 
     assert chart.task_filter == TaskFilter(query="設", assignee=None)
 
 
-async def test_the_search_input_filters_the_rows(user: User) -> None:
-    mount_chart(filter_project())
+async def test_typing_in_the_search_input_does_not_filter_until_enter(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
     await user.open("/")
     await user.should_see(marker="search-input")
     user.find(marker="search-input").type("実")
+    assert charts[0].task_filter == TaskFilter()
+    await user.should_see(marker="task-top-0")
+
+
+async def test_enter_in_the_search_input_filters_the_rows(user: User) -> None:
+    mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="search-input").type("実").trigger("keydown.enter", args="実")
     await user.should_see(marker="task-0-1")
     await user.should_not_see(marker="task-top-0")
+
+
+async def test_enter_with_blank_text_means_no_condition(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="search-input").trigger("keydown.enter", args="\u3000 ")
+    assert charts[0].task_filter == TaskFilter()
+    await user.should_see(marker="task-top-0")
+
+
+def test_the_enter_script_ignores_ime_composition() -> None:
+    assert "isComposing" in SEARCH_ENTER_JS
+    assert "229" in SEARCH_ENTER_JS
+    assert "emit(e.target.value)" in SEARCH_ENTER_JS
 
 
 async def test_clearing_the_search_input_shows_every_row_again(user: User) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
-    box = user.find(marker="search-input").elements.pop()
-    box.set_value("実")
+    user.find(marker="search-input").trigger("keydown.enter", args="実")
     await user.should_not_see(marker="task-top-0")
+    box = user.find(marker="search-input").elements.pop()
     box.set_value(None)
     assert charts[0].task_filter == TaskFilter()
     await user.should_see(marker="task-top-0")
@@ -731,6 +754,7 @@ async def test_reset_filter_clears_the_inputs_and_shows_every_row(user: User) ->
     charts, _ = mount_chart(filter_project())
     await user.open("/")
     user.find(marker="search-input").elements.pop().set_value("実")
+    charts[0].set_filter(TaskFilter(query="実"))
     user.find(marker="assignee-filter").elements.pop().set_value("鈴木")
     charts[0].reset_filter()
     assert charts[0].task_filter == TaskFilter()
