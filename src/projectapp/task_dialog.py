@@ -8,12 +8,14 @@ from nicegui import ui
 from projectapp.forms import (
     bind_picker,
     build_task,
+    compose_actual,
     compose_datetime,
     default_times,
     disposable,
     parse_datetime,
     needs_end_time,
     needs_start_time,
+    suggest_status,
 )
 from projectapp.models import (
     DEFAULT_DAILY_HOURS,
@@ -238,6 +240,64 @@ class DateTimeFields:
         )
 
 
+class ActualFields:
+    """実績の開始・終了。日付と時刻を両方入れる(補う時刻はない)。2件以上の実績は編集できない。"""
+
+    def __init__(self, task: Task) -> None:
+        self.read_only = len(task.actuals) > 1
+        ui.label("実績").classes("text-caption text-grey")
+        if self.read_only:
+            ui.label("複数の区間があるため、このバージョンでは編集できません").classes(
+                "text-caption"
+            ).mark("task-actuals-readonly")
+            return
+        actual = task.actuals[0] if task.actuals else None
+        with ui.row().classes("w-full no-wrap gap-4"):
+            self.start_day, self.start_time = self._column(
+                "開始", "start", actual.start if actual else None
+            )
+            self.end_day, self.end_time = self._column(
+                "終了", "end", actual.end if actual else None
+            )
+
+    def _column(self, label: str, key: str, moment: datetime | None) -> tuple[ui.input, ui.input]:
+        with ui.column().classes("flex-1 gap-0"):
+            day = ui.input(f"{label}の日付", value=moment.strftime("%Y-%m-%d") if moment else "")
+            day.classes("w-full").mark(f"task-actual-{key}-date")
+            add_picker(day, ui.date, "event", f"actual-{key}-date", "%Y-%m-%d")
+            clock = ui.input(f"{label}の時刻", value=moment.strftime("%H:%M") if moment else "")
+            clock.classes("w-full").mark(f"task-actual-{key}-time")
+            add_picker(clock, ui.time, "access_time", f"actual-{key}-time", "%H:%M")
+        return day, clock
+
+    def inputs(self) -> list[ui.input]:
+        if self.read_only:
+            return []
+        return [self.start_day, self.start_time, self.end_day, self.end_time]
+
+    def start_text(self) -> str:
+        if self.read_only:
+            return ""
+        return compose_actual(self.start_day.value or "", self.start_time.value or "")
+
+    def end_text(self) -> str:
+        if self.read_only:
+            return ""
+        return compose_actual(self.end_day.value or "", self.end_time.value or "")
+
+    def filled(self) -> tuple[bool, bool]:
+        """開始・終了の日付と時刻がそろっているか(状態の提案に使う)。"""
+        if self.read_only:
+            return False, False
+        return (
+            bool((self.start_day.value or "").strip() and (self.start_time.value or "").strip()),
+            bool((self.end_day.value or "").strip() and (self.end_time.value or "").strip()),
+        )
+
+    def state(self) -> tuple[object, ...]:
+        return tuple(widget.value or "" for widget in self.inputs())
+
+
 def open_task_dialog(
     task: Task | None,
     on_save: Callable[[Task], object],
@@ -315,11 +375,39 @@ def open_task_dialog(
         allocation.on_value_change(refresh_conversion)
         refresh_conversion()
         priority = PriorityChips(initial.priority)
+        actual_fields = ActualFields(initial)
         status = (
             ui.select({s: s.value for s in Status}, label="状態", value=initial.status)
             .classes("w-full")
             .mark("task-status")
         )
+        hint = ui.label("").classes("text-caption text-grey").mark("task-status-hint")
+        hint.set_visibility(False)
+        suggest = {"manual": False, "setting": False}
+
+        def on_status_change(_event: object) -> None:
+            if not suggest["setting"]:
+                suggest["manual"] = True  # 手で選んだら、以降は提案しない
+                hint.set_visibility(False)
+
+        status.on_value_change(on_status_change)
+
+        def on_actual_change(_event: object = None) -> None:
+            if suggest["manual"]:
+                return
+            suggested = suggest_status(*actual_fields.filled())
+            if suggested is None or suggested == status.value:
+                return
+            suggest["setting"] = True
+            try:
+                status.set_value(suggested)
+            finally:
+                suggest["setting"] = False
+            hint.set_text("実績に合わせて状態を変えました")
+            hint.set_visibility(True)
+
+        for widget in actual_fields.inputs():
+            widget.on_value_change(on_actual_change)
         color = ui.color_input("色", value=initial.color, preview=True).classes("w-full").mark(
             "task-color"
         )
@@ -336,6 +424,7 @@ def open_task_dialog(
                 color.value,
                 assignee.value,
                 allocation.value,
+                *actual_fields.state(),
             )
 
         opened = current()
@@ -356,6 +445,8 @@ def open_task_dialog(
                     color=color.value or initial.color,
                     assignee=assignee.value or "",
                     allocation_percent=allocation.value,
+                    actual_start=actual_fields.start_text(),
+                    actual_end=actual_fields.end_text(),
                 )
             except ValueError as exc:
                 error.set_text(str(exc))

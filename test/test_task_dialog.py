@@ -6,7 +6,7 @@ from datetime import date, datetime, time
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.models import Member, Task
+from projectapp.models import Actual, Member, Status, Task
 from projectapp.task_dialog import open_task_dialog
 
 
@@ -824,3 +824,123 @@ async def test_an_assignee_missing_from_the_members_is_kept_when_saving(user: Us
     user.find(marker="task-save").click()
     assert saved[0].assignee == "不明"
     assert saved[0].allocation == pytest.approx(0.5)
+
+
+def value_of(user: User, marker: str) -> object:
+    return user.find(marker=marker).elements.pop().value
+
+
+async def test_actual_inputs_save_an_actual(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-actual-start-date").type("2026-10-05")
+    user.find(marker="task-actual-start-time").type("09:15")
+    user.find(marker="task-actual-end-date").type("2026-10-05")
+    user.find(marker="task-actual-end-time").type("17:45")
+    user.find(marker="task-save").click()
+    assert saved[0].actuals == [Actual(datetime(2026, 10, 5, 9, 15), datetime(2026, 10, 5, 17, 45))]
+
+
+async def test_existing_actual_is_shown_in_the_inputs(user: User) -> None:
+    task = Task("旧", actuals=[Actual(datetime(2026, 10, 5, 9, 15), None)])
+    mount_dialog(task, [])
+    await open_dialog(user)
+    assert value_of(user, "task-actual-start-date") == "2026-10-05"
+    assert value_of(user, "task-actual-start-time") == "09:15"
+    assert value_of(user, "task-actual-end-date") == ""
+
+
+async def test_a_date_without_a_time_is_an_error_and_not_saved(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-actual-start-date").type("2026-10-05")
+    user.find(marker="task-save").click()
+    assert saved == []
+    await user.should_see("日付と時刻を両方入れてください")
+
+
+async def test_an_end_without_a_start_is_an_error(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-actual-end-date").type("2026-10-05")
+    user.find(marker="task-actual-end-time").type("17:00")
+    user.find(marker="task-save").click()
+    assert saved == []
+    await user.should_see("実績の開始を入れてください")
+
+
+async def test_clearing_the_actual_inputs_removes_the_actual(user: User) -> None:
+    saved: list[Task] = []
+    task = Task("旧", actuals=[Actual(datetime(2026, 10, 5, 9, 15), None)])
+    mount_dialog(task, saved)
+    await open_dialog(user)
+    user.find(marker="task-actual-start-date").clear()
+    user.find(marker="task-actual-start-time").clear()
+    user.find(marker="task-save").click()
+    assert saved[0].actuals == []
+
+
+async def test_entering_a_start_suggests_running(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-actual-start-date").type("2026-10-05")
+    user.find(marker="task-actual-start-time").type("09:00")
+    assert value_of(user, "task-status") == Status.RUNNING
+    await user.should_see("実績に合わせて状態を変えました")
+
+
+async def test_entering_an_end_suggests_done(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    for marker, text in (
+        ("task-actual-start-date", "2026-10-05"),
+        ("task-actual-start-time", "09:00"),
+        ("task-actual-end-date", "2026-10-05"),
+        ("task-actual-end-time", "17:00"),
+    ):
+        user.find(marker=marker).type(text)
+    assert value_of(user, "task-status") == Status.DONE
+
+
+async def test_no_suggestion_while_the_actual_is_empty(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    assert value_of(user, "task-status") == Status.STARTED
+    await user.should_not_see("実績に合わせて状態を変えました")
+
+
+async def test_a_manual_status_choice_stops_the_suggestions(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-status").elements.pop().set_value(Status.PAUSED)  # 手で選ぶ
+    user.find(marker="task-actual-start-date").type("2026-10-05")
+    user.find(marker="task-actual-start-time").type("09:00")
+    assert value_of(user, "task-status") == Status.PAUSED
+
+
+async def test_changing_the_actual_counts_as_a_change_when_closing(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-actual-start-date").type("2026-10-05")
+    user.find(marker="task-cancel").click()
+    await user.should_see(marker="close-save")  # 確認が出る
+
+
+async def test_two_actuals_are_read_only_and_kept_on_save(user: User) -> None:
+    saved: list[Task] = []
+    kept = [
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0)),
+        Actual(datetime(2026, 10, 6, 9, 0), None),
+    ]
+    mount_dialog(Task("旧", actuals=list(kept)), saved)
+    await open_dialog(user)
+    await user.should_see(marker="task-actuals-readonly")
+    await user.should_not_see(marker="task-actual-start-date")
+    user.find(marker="task-save").click()
+    assert saved[0].actuals == kept
