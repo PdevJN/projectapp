@@ -67,6 +67,24 @@ PROGRESS_STATE_COLORS = {
 MARK_WIDTH_PX = 18  # 印(✓! が最も広い)が占める幅の見積もり。◆との重なりの判定に使う
 MARK_GAP_PX = 4  # 印と、棒・◆との間の余白
 FINISHED_ACTUAL_COLOR = "#9e9e9e"  # 完了・遅延完了(状態が「終了」)のタスクの実績の棒。タスクの色の代わりに灰にする
+# ダークテーマでは、同じ色が暗い背景(とのせる赤み)に沈むので、明るい色に替える。どちらも CSS 変数 --pstate 経由
+PROGRESS_STATE_DARK_COLORS = {
+    ProgressState.DELAYED: "#ffb74d",
+    ProgressState.AHEAD: "#4db6ac",
+    ProgressState.DONE: "#bdbdbd",
+    ProgressState.LATE_DONE: "#ce93d8",
+}
+PROGRESS_STATE_CLASSES = {
+    ProgressState.DELAYED: "pstate-delayed",
+    ProgressState.AHEAD: "pstate-ahead",
+    ProgressState.DONE: "pstate-done",
+    ProgressState.LATE_DONE: "pstate-late-done",
+}
+PROGRESS_CSS = "\n".join(
+    f".{cls} {{ --pstate: {PROGRESS_STATE_COLORS[state]}; }}\n"
+    f"body.body--dark .{cls} {{ --pstate: {PROGRESS_STATE_DARK_COLORS[state]}; }}"
+    for state, cls in PROGRESS_STATE_CLASSES.items()
+)
 PROGRESS_STATE_MARKS = {
     ProgressState.DELAYED: "▼",
     ProgressState.AHEAD: "▲",
@@ -272,6 +290,7 @@ class GanttChart:
         self.client = context.client
         ui.add_css(CHART_DRAG_CSS)
         ui.add_css(STICKY_CSS)
+        ui.add_css(PROGRESS_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
@@ -507,7 +526,7 @@ class GanttChart:
                 cursor = "grab" if draggable else "pointer"
                 outline = ""
                 if state in PROGRESS_STATE_COLORS:
-                    outline = f" outline: 2px solid {PROGRESS_STATE_COLORS[state]}; outline-offset: -2px;"
+                    outline = " outline: 2px solid var(--pstate); outline-offset: -2px;"
                 bar = ui.element("div").style(
                     f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
                     f" width: {bar_width:.1f}px; top: {BAR_TOP_PX}px;"
@@ -516,6 +535,8 @@ class GanttChart:
                     f" border-radius: 4px; cursor: {cursor}; overflow: hidden;{outline}"
                     " user-select: none; touch-action: none"
                 )
+                if state in PROGRESS_STATE_CLASSES:
+                    bar.classes(PROGRESS_STATE_CLASSES[state])
                 bar.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
                 bar.mark(f"bar-{key}-{ti}")
                 if draggable:
@@ -576,7 +597,6 @@ class GanttChart:
         """棒の右に、状態の印を小さく出す(位置は marker_left)。通常と判定できないときは出さない。"""
         if state not in PROGRESS_STATE_MARKS:
             return
-        color = PROGRESS_STATE_COLORS[state]
         tip = state.value
         percent = current_progress(task)
         if state in (ProgressState.DELAYED, ProgressState.AHEAD) and percent is not None:
@@ -585,8 +605,8 @@ class GanttChart:
                 tip = f"{state.value}(進捗 {percent}% / 予定 {expected:.0f}%)"
         ui.label(PROGRESS_STATE_MARKS[state]).style(
             f"position: absolute; left: {mark_left:.1f}px; top: {BAR_TOP_PX}px;"
-            f" line-height: {BAR_HEIGHT_PX}px; font-size: 11px; color: {color}"
-        ).tooltip(tip).mark(f"progress-state-{key}-{ti}")
+            f" line-height: {BAR_HEIGHT_PX}px; font-size: 11px; color: var(--pstate)"
+        ).classes(PROGRESS_STATE_CLASSES[state]).tooltip(tip).mark(f"progress-state-{key}-{ti}")
 
     def actual_bars(
         self,

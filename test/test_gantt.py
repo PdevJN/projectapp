@@ -28,6 +28,9 @@ from projectapp.gantt import (
     PROGRESS_STATE_COLORS,
     PROGRESS_STATE_MARKS,
     FINISHED_ACTUAL_COLOR,
+    PROGRESS_CSS,
+    PROGRESS_STATE_CLASSES,
+    PROGRESS_STATE_DARK_COLORS,
     DEADLINE_MARKER_HALF_PX,
     GRID_BORDER,
     NAME_WIDTH_PX,
@@ -1038,11 +1041,13 @@ async def test_bar_outline_and_mark_follow_the_state(
     mount(progress_project(progress), now=MID)
     await user.open("/")
     bar = user.find(marker="bar-0-0").elements.pop()
-    assert bar._style["outline"] == f"2px solid {PROGRESS_STATE_COLORS[state]}"
+    assert bar._style["outline"] == "2px solid var(--pstate)"
     assert bar._style["outline-offset"] == "-2px"
+    assert PROGRESS_STATE_CLASSES[state] in bar.classes
     mark = user.find(marker="progress-state-0-0").elements.pop()
     assert mark.text == PROGRESS_STATE_MARKS[state]
-    assert mark._style["color"] == PROGRESS_STATE_COLORS[state]
+    assert mark._style["color"] == "var(--pstate)"
+    assert PROGRESS_STATE_CLASSES[state] in mark.classes
     assert mark._style["left"] == "304.0px"  # 200 + 0.5 * 40 + 2.0 * 40 + 4
 
 
@@ -1074,7 +1079,10 @@ async def test_late_done_state_is_marked(user: User) -> None:
     await user.open("/")
     assert user.find(marker="progress-state-0-0").elements.pop().text == "✓!"
     bar = user.find(marker="bar-0-0").elements.pop()
-    assert bar._style["outline"] == f"2px solid {PROGRESS_STATE_COLORS[ProgressState.LATE_DONE]}"
+    assert bar._style["outline"] == "2px solid var(--pstate)"
+    assert PROGRESS_STATE_CLASSES[ProgressState.LATE_DONE] in bar.classes
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert PROGRESS_STATE_CLASSES[ProgressState.LATE_DONE] in mark.classes
 
 
 def tooltip_texts(user: User, target: ui.element) -> list[str]:
@@ -1205,6 +1213,65 @@ async def test_mark_ignores_a_far_away_deadline(user: User) -> None:
     mount(progress_project(10, deadline=datetime(2026, 10, 20, 12)), now=MID)
     await user.open("/")
     assert user.find(marker="progress-state-0-0").elements.pop()._style["left"] == "304.0px"
+
+
+def luminance(color: str) -> float:
+    r, g, b = (int(color[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in (r, g, b)]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def contrast(foreground: str, background: str) -> float:
+    high, low = sorted((luminance(foreground), luminance(background)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+def over(overlay: tuple[int, int, int, float], base: str) -> str:
+    """半透明の色を、不透明な背景に重ねた色(#rrggbb)。"""
+    red, green, blue, alpha = overlay
+    mixed = [
+        round(alpha * c + (1 - alpha) * int(base[i : i + 2], 16))
+        for c, i in zip((red, green, blue), (1, 3, 5))
+    ]
+    return "#" + "".join(f"{c:02x}" for c in mixed)
+
+
+DARK_PAGE = "#121212"  # ダークテーマのページの背景(gantt.py の --q-dark-page の既定値)
+OVERDUE_ON_DARK = over((239, 83, 80, 0.18), DARK_PAGE)  # 予定超過の行の背景(赤みが乗る)
+
+
+@pytest.mark.parametrize("state", list(PROGRESS_STATE_COLORS))
+def test_dark_state_colors_are_readable_on_the_dark_page(state: ProgressState) -> None:
+    color = PROGRESS_STATE_DARK_COLORS[state]
+    assert contrast(color, DARK_PAGE) >= 4.5
+    assert contrast(color, OVERDUE_ON_DARK) >= 4.5  # 遅延完了の行は赤みの背景になる
+
+
+@pytest.mark.parametrize("state", list(PROGRESS_STATE_COLORS))
+def test_light_state_colors_are_readable_on_white(state: ProgressState) -> None:
+    assert contrast(PROGRESS_STATE_COLORS[state], "#ffffff") >= 4.0
+
+
+def test_dark_state_colors_cover_the_same_states_and_differ_from_light() -> None:
+    assert PROGRESS_STATE_DARK_COLORS.keys() == PROGRESS_STATE_COLORS.keys()
+    assert all(PROGRESS_STATE_DARK_COLORS[s] != PROGRESS_STATE_COLORS[s] for s in PROGRESS_STATE_COLORS)
+
+
+@pytest.mark.parametrize("state", list(PROGRESS_STATE_COLORS))
+def test_progress_css_defines_the_variable_for_both_themes(state: ProgressState) -> None:
+    cls = PROGRESS_STATE_CLASSES[state]
+    assert f".{cls} {{ --pstate: {PROGRESS_STATE_COLORS[state]}; }}" in PROGRESS_CSS
+    dark = f"body.body--dark .{cls} {{ --pstate: {PROGRESS_STATE_DARK_COLORS[state]}; }}"
+    assert dark in PROGRESS_CSS
+
+
+async def test_progress_css_is_added_to_the_page(user: User) -> None:
+    mount(progress_project(10), now=MID)
+    response = await user.http_client.get("/")
+    rules = PROGRESS_CSS.splitlines()
+    assert len(rules) == 2 * len(PROGRESS_STATE_CLASSES)
+    for rule in rules:  # ページでは add_css が改行を \\n に変えて埋め込むので、ルールごとに確かめる
+        assert rule in response.text
 
 
 async def test_clicking_an_actual_bar_edits_the_task(user: User) -> None:
