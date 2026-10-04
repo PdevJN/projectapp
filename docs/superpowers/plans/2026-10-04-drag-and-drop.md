@@ -212,7 +212,7 @@ def test_move_between_the_top_list_and_sections() -> None:
     project = sample()
     assert arrange.move_task(project, (0, 0), (None, 1))
     assert names(project.tasks) == ["t0", "a0", "t1"]
-    assert arrange.move_task(project, (None, 0), (0, 2))
+    assert arrange.move_task(project, (None, 0), (0, 1))
     assert names(project.tasks) == ["a0", "t1"]
     assert names(project.sections[0].tasks) == ["a1", "t0", "a2"]
 

@@ -7,8 +7,11 @@ from datetime import date, datetime
 from nicegui import Client, context, ui
 from nicegui.events import ValueChangeEventArguments
 
+from projectapp import arrange
+from projectapp.arrange import Position
 from projectapp.calendar import DayKind, day_kind
 from projectapp.filtering import TaskFilter, matches
+from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS
 from projectapp.models import DEFAULT_COLOR, Project, Section, Task, is_hex_color
 from projectapp.timeline import (
     Band,
@@ -63,6 +66,8 @@ class GanttActions:
     add_task: Callable[[int], object]
     add_top_task: Callable[[], object]
     edit_task: Callable[[int | None, int], object]  # セクション番号(Noneはセクションなし), タスク番号
+    move_task: Callable[[Position, Position, bool], object]  # 元, 挿入先, コピーか
+    shift_task: Callable[[int | None, int, int], object]  # セクション番号, タスク番号, 日数
 
 
 class GanttChart:
@@ -108,6 +113,31 @@ class GanttChart:
         if not e.value:
             self.commit_query("")
 
+    def handle_move(self, args: object) -> None:
+        """行のドロップを受ける。絞り込み中と、不正な値は無視する。"""
+        if self.task_filter.active:
+            return
+        parsed = arrange.parse_move(args)
+        if parsed is not None:
+            self.actions.move_task(*parsed)
+
+    def handle_shift(self, args: object) -> None:
+        """バーの横移動を受ける。日次スケール以外と、不正な値は無視する。"""
+        if self.scale is not Scale.DAY:
+            return
+        parsed = arrange.parse_shift(args)
+        if parsed is not None:
+            (section, index), days = parsed
+            self.actions.shift_task(section, index, days)
+
+    def drag_props(self, kind: str, key: int | str, **extra: object) -> str:
+        """ドロップ先の `data-*` 属性。絞り込み中は空(ドロップできない)。"""
+        if self.task_filter.active:
+            return ""
+        parts = [f"data-drop={kind}", f"data-si={key}"]
+        parts += [f"data-{name}={value}" for name, value in extra.items()]
+        return " ".join(parts)
+
     def reset_filter(self) -> None:
         """条件を空に戻し、入力欄と選択にも反映する。別のプロジェクトを開いたときに使う。"""
         self.task_filter = TaskFilter()
@@ -142,6 +172,10 @@ class GanttChart:
 
     def build(self) -> None:
         self.client = context.client
+        ui.add_css(CHART_DRAG_CSS)
+        ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
+        ui.on("chart_move", lambda e: self.handle_move(e.args))
+        ui.on("chart_shift", lambda e: self.handle_shift(e.args))
         with ui.row().classes("w-full items-center no-wrap gap-4").mark("chart-toolbar"):
             ui.toggle(
                 {scale: scale.value for scale in Scale},
@@ -218,7 +252,10 @@ class GanttChart:
 
     def top_add_row(self) -> None:
         """セクションなしのタスクの末尾に置く追加行。名前の列の右端にボタンを置く。"""
-        with ui.row().classes("items-center no-wrap gap-0").style(ADD_ROW_STYLE):
+        row = ui.row().classes("items-center no-wrap gap-0").style(ADD_ROW_STYLE)
+        row.props(self.drag_props("top-end", "top", count=len(self.project.tasks)))
+        row.mark("top-end")
+        with row:
             cell = ui.row().classes("items-center justify-end no-wrap")
             cell.style(f"width: {NAME_WIDTH_PX}px; padding-right: 8px")
             with cell:
@@ -288,7 +325,10 @@ class GanttChart:
             matches(task, self.task_filter) for task in section.tasks
         ):
             return
-        with ui.row().classes("items-center no-wrap gap-2").style(ROW_STYLE):
+        header = ui.row().classes("items-center no-wrap gap-2").style(ROW_STYLE)
+        header.props(self.drag_props("section", si, count=len(section.tasks)))
+        header.mark(f"section-{si}")
+        with header:
             ui.label(section.name).classes("text-subtitle2")
             ui.button(
                 icon="add", on_click=lambda si=si: self.actions.add_task(si)
@@ -304,26 +344,40 @@ class GanttChart:
         style = ROW_STYLE
         if is_overdue(task, self.project, self.holidays, self.now()):
             style += f"; background: {OVERDUE_COLOR}"
-        with ui.row().classes("items-center no-wrap gap-0").style(style):
-            ui.label(task.name).classes("ellipsis cursor-pointer").style(
+        row = ui.row().classes("items-center no-wrap gap-0").style(style)
+        row.props(self.drag_props("row", key, ti=ti)).mark(f"row-{key}-{ti}")
+        with row:
+            label = ui.label(task.name).classes("ellipsis cursor-pointer").style(
                 f"width: {NAME_WIDTH_PX}px; padding-left: 16px"
-            ).on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti)).mark(
-                f"task-{key}-{ti}"
             )
+            label.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
+            label.mark(f"task-{key}-{ti}")
+            if not self.task_filter.active:
+                label.props(f"draggable=true data-drag-handle data-si={key} data-ti={ti}")
             end = effective_end(task, self.project, self.holidays)
             span = bar_span(task.planned_start, end, columns)
             if span is not None:
                 left, length = span
                 bar_width = max(length * width, MIN_BAR_PX)
-                with ui.element("div").style(
+                draggable = self.scale is Scale.DAY
+                cursor = "grab" if draggable else "pointer"
+                bar = ui.element("div").style(
                     f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
                     f" width: {bar_width:.1f}px; top: 6px;"
                     f" height: {ROW_HEIGHT_PX - 12}px;"
                     f" background: {task.color if is_hex_color(task.color) else DEFAULT_COLOR};"
-                    " border-radius: 4px; cursor: pointer; overflow: hidden"
-                ).on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti)).mark(
-                    f"bar-{key}-{ti}"
-                ):
+                    f" border-radius: 4px; cursor: {cursor}; overflow: hidden;"
+                    " user-select: none; touch-action: none"
+                )
+                bar.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
+                bar.mark(f"bar-{key}-{ti}")
+                if draggable:
+                    least = arrange.min_shift_days(task, self.project.base_date)
+                    bar.props(
+                        f"data-bar data-si={key} data-ti={ti} data-day-width={width}"
+                        f" data-min-days={least}"
+                    )
+                with bar:
                     self.overload_stripes(key, ti, task, left, bar_width, columns, width)
             self.deadline_marker(si, ti, task, columns, width)
 

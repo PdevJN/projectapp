@@ -19,6 +19,7 @@ from projectapp.forms import (
     open_settings_dialog,
     open_unsaved_dialog,
 )
+from projectapp import arrange
 from projectapp.gantt import GanttActions, GanttChart
 from projectapp.models import Member, Project, Section, Task
 from projectapp.storage import (
@@ -65,6 +66,8 @@ class MainView:
                 add_task=self.add_task,
                 add_top_task=self.add_top_task,
                 edit_task=self.edit_task,
+                move_task=self.move_task,
+                shift_task=self.shift_task,
             ),
         )
 
@@ -243,6 +246,33 @@ class MainView:
         """タスクを取り除いて再描画する。保存は自動では行わない(編集中の判定に入る)。"""
         del self.tasks_in(section_index)[task_index]
         self.gantt.set_project(self.project)
+
+    def move_task(self, src: arrange.Position, dst: arrange.Position, copy: bool) -> None:
+        """行を動かす(copy が真なら複製を置く)。位置が不正・変化なしなら何もしない。"""
+        if not arrange.has_task(self.project, src) or not arrange.has_list(self.project, dst):
+            return
+        name = arrange.tasks_at(self.project, src[0])[src[1]].name
+        if copy:
+            arrange.copy_task(self.project, src, dst)
+            ui.notify(f"「{name}」をコピーしました")
+        elif not arrange.move_task(self.project, src, dst):
+            return
+        self.gantt.set_project(self.project)
+
+    def shift_task(self, section_index: int | None, task_index: int, days: int) -> None:
+        """開始予定(と入っていれば完了予定)を days 日ずらす。締切は動かさず、基準日より前へは動かさない。"""
+        if days == 0 or not arrange.has_task(self.project, (section_index, task_index)):
+            return
+        task = self.tasks_in(section_index)[task_index]
+        days = max(days, arrange.min_shift_days(task, self.project.base_date))
+        if days == 0:
+            return
+        if not arrange.shift_task(task, days):
+            if task.planned_start is not None:
+                ui.notify("日付の範囲を超えるため動かせません", type="warning")
+            return
+        self.gantt.set_project(self.project)
+        self.warn_overallocation(task)
 
     def tasks_in(self, section_index: int | None) -> list[Task]:
         """セクション番号のタスク一覧。Noneはセクションに属さないタスク。"""
