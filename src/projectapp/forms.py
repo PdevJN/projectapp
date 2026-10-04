@@ -10,9 +10,11 @@ from nicegui import ui
 
 from projectapp.models import (
     MAX_ALLOCATION,
+    MAX_PROGRESS,
     MAX_RATIO,
     MAX_YEAR,
     MIN_ALLOCATION,
+    MIN_PROGRESS,
     MIN_RATIO,
     MIN_YEAR,
     Actual,
@@ -92,6 +94,7 @@ def build_task(
     allocation_percent: float | None,
     actual_start: str = "",
     actual_end: str = "",
+    actual_progress: float | None = None,
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。"""
     clean = name.strip()
@@ -127,7 +130,11 @@ def build_task(
                 f"割り当て率は{MIN_ALLOCATION * 100:g}〜{MAX_ALLOCATION * 100:g}%で入力してください"
             )
         allocation = round(allocation_percent / 100, 4)
-    actuals = base.actuals if len(base.actuals) > 1 else build_actuals(actual_start, actual_end)
+    actuals = (
+        base.actuals
+        if len(base.actuals) > 1
+        else build_actuals(actual_start, actual_end, actual_progress)
+    )
     return replace(
         base,
         name=clean,
@@ -145,14 +152,17 @@ def build_task(
     )
 
 
-def build_actuals(start_text: str, end_text: str) -> list[Actual]:
-    """実績の入力(compose_actual の結果)を検証して、0件か1件の区間にする。"""
+def build_actuals(
+    start_text: str, end_text: str, progress: float | None = None
+) -> list[Actual]:
+    """実績の入力(compose_actual の結果と進捗度)を検証して、0件か1件の区間にする。"""
     try:
         start_at, end_at = parse_datetime(start_text), parse_datetime(end_text)
     except ValueError:
         raise ValueError("実績の日時の形式が正しくありません") from None
+    percent = _check_progress(progress)
     if start_at is None:
-        if end_at is not None:
+        if end_at is not None or percent is not None:
             raise ValueError("実績の開始を入れてください")
         return []
     for moment in (start_at, end_at):
@@ -160,7 +170,16 @@ def build_actuals(start_text: str, end_text: str) -> list[Actual]:
             raise ValueError(f"年は{MIN_YEAR}〜{MAX_YEAR}の範囲で入力してください")
     if end_at is not None and end_at < start_at:
         raise ValueError("実績の終了は開始以降の日時にしてください")
-    return [Actual(start_at, end_at)]
+    return [Actual(start_at, end_at, percent)]
+
+
+def _check_progress(value: float | None) -> int | None:
+    """進捗度の入力を検証する。空は None。0〜100の整数だけを通す。"""
+    if value is None:
+        return None
+    if not isfinite(value) or value != int(value) or not MIN_PROGRESS <= value <= MAX_PROGRESS:
+        raise ValueError(f"進捗度は{MIN_PROGRESS}〜{MAX_PROGRESS}の整数で入力してください")
+    return int(value)
 
 
 def in_hours_range(hours: float) -> bool:
@@ -274,11 +293,16 @@ def compose_actual(day: str, clock: str) -> str:
     return compose_datetime(day, clock)
 
 
-def suggest_status(has_start: bool, has_end: bool) -> Status | None:
-    """実績の入力から、提案する状態。開始なし(終了だけを含む)と一時停止は提案しない。"""
+def suggest_status(
+    has_start: bool, has_end: bool, progress: float | None = None
+) -> Status | None:
+    """実績の入力から、提案する状態。開始なし(終了だけを含む)と一時停止は提案しない。
+    終了が空で進捗度が100のときは、完了とはみなさず、状態を変えない。"""
     if not has_start:
         return None
-    return Status.DONE if has_end else Status.RUNNING
+    if has_end:
+        return Status.DONE
+    return None if progress == MAX_PROGRESS else Status.RUNNING
 
 
 def _minute(moment: datetime) -> time:

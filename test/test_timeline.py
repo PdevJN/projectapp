@@ -14,6 +14,7 @@ from projectapp.timeline import (
     clip_overloads,
     combine_rate,
     conversion_rate,
+    current_progress,
     effort_days,
     interval_span,
     overallocations,
@@ -637,3 +638,24 @@ def test_not_done_without_an_actual_end_uses_now() -> None:
     task = done_task(None, status=Status.RUNNING)
     assert is_overdue(task, Project("p"), {}, datetime(2026, 10, 8)) is True
     assert is_overdue(task, Project("p"), {}, datetime(2026, 10, 6)) is False
+
+
+def test_current_progress_is_none_without_actuals_or_values() -> None:
+    assert current_progress(Task("t")) is None
+    assert current_progress(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9))])) is None
+
+
+def test_current_progress_keeps_zero() -> None:
+    assert current_progress(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9), None, 0)])) == 0
+
+
+def test_current_progress_is_the_last_entered_value() -> None:
+    task = Task(
+        "t",
+        actuals=[
+            Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12), 30),
+            Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12), 60),
+            Actual(datetime(2026, 10, 7, 9), None, None),
+        ],
+    )
+    assert current_progress(task) == 60

@@ -787,6 +787,60 @@ def test_two_or_more_actuals_are_kept_and_the_inputs_are_ignored() -> None:
     assert make(existing, actual_start="2030-01-01T09:00").actuals == kept
 
 
+def test_progress_is_saved_in_the_actual() -> None:
+    task = make(actual_start="2026-10-05T09:00", actual_progress=40)
+    assert task.actuals == [Actual(datetime(2026, 10, 5, 9, 0), None, 40)]
+
+
+def test_progress_zero_and_hundred_are_accepted() -> None:
+    assert make(actual_start="2026-10-05T09:00", actual_progress=0).actuals[0].progress == 0
+    assert make(actual_start="2026-10-05T09:00", actual_progress=100.0).actuals[0].progress == 100
+
+
+def test_empty_progress_is_none() -> None:
+    assert make(actual_start="2026-10-05T09:00", actual_progress=None).actuals[0].progress is None
+
+
+@pytest.mark.parametrize("bad", [-1, 101, 40.5, float("nan"), float("inf")])
+def test_bad_progress_is_rejected(bad: float) -> None:
+    with pytest.raises(ValueError, match="進捗度"):
+        make(actual_start="2026-10-05T09:00", actual_progress=bad)
+
+
+def test_progress_without_a_start_is_rejected() -> None:
+    with pytest.raises(ValueError, match="実績の開始"):
+        make(actual_progress=40)
+
+
+def test_two_or_more_actuals_keep_their_progress_and_ignore_the_input() -> None:
+    kept = [
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 30),
+        Actual(datetime(2026, 10, 6, 9, 0), None, 60),
+    ]
+    existing = Task("t", actuals=list(kept))
+    assert make(existing, actual_progress=None).actuals == kept
+    assert make(existing, actual_progress=90).actuals == kept
+
+
+@pytest.mark.parametrize(
+    ("has_start", "has_end", "progress", "expected"),
+    [
+        (True, False, 100, None),
+        (True, False, 100.0, None),
+        (True, False, 99, Status.RUNNING),
+        (True, False, 0, Status.RUNNING),
+        (True, False, None, Status.RUNNING),
+        (True, True, 100, Status.DONE),
+        (True, True, None, Status.DONE),
+        (False, False, 100, None),
+    ],
+)
+def test_suggest_status_with_progress(
+    has_start: bool, has_end: bool, progress: float | None, expected: Status | None
+) -> None:
+    assert suggest_status(has_start, has_end, progress) is expected
+
+
 def test_compose_actual() -> None:
     assert compose_actual("", "") == ""
     assert compose_actual(" 2026-10-5 ", "09:00") == "2026-10-05T09:00"
