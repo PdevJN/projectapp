@@ -9,7 +9,9 @@
 | `calendar.py` | 祝日の取得・キャッシュ(`holidays.json`)と日付種別の判定 |
 | `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |
 | `filtering.py` | 絞り込み条件(`TaskFilter`)とタスクの判定(`matches`)(純粋関数) |
-| `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み |
+| `arrange.py` | タスクの移動(`move_task`)・コピー(`copy_task`)・日程のずらし(`shift_task`、左へずらせる限度 `min_shift_days`)と、画面から届く値の検証(`parse_move`・`parse_shift`)(純粋関数) |
+| `gantt_drag.py` | ガントチャートのドラッグ操作用の JS と CSS(定数のみ。行は HTML5 の drag、バーは pointer イベント) |
+| `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、行のドラッグ移動・コピー、バーの横移動(日次のみ) |
 | `forms.py` | タスク・セクションの入力検証、プロジェクト名の入力・ファイル一覧・未保存の確認ダイアログ、稼働時間の設定ダイアログと入力検証、メンバーのダイアログと検証(`build_members`) |
 | `task_dialog.py` | タスクの追加・編集ダイアログ(優先度チップ、日付・時刻の入力、閉じる確認、削除) |
 | `models.py` | Project / Section / Task / Member のデータモデル(`Task.planned_start` / `planned_end` / `planned_end_manual` / `deadline`) |
