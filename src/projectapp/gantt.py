@@ -64,6 +64,7 @@ PROGRESS_STATE_COLORS = {
     ProgressState.DONE: "#757575",
     ProgressState.LATE_DONE: "#8e24aa",
 }
+FINISHED_ACTUAL_COLOR = "#9e9e9e"  # 完了・遅延完了(状態が「終了」)のタスクの実績の棒。タスクの色の代わりに灰にする
 PROGRESS_STATE_MARKS = {
     ProgressState.DELAYED: "▼",
     ProgressState.AHEAD: "▲",
@@ -472,6 +473,8 @@ class GanttChart:
         key = "top" if si is None else si
         style = ROW_STYLE
         overdue = is_overdue(task, self.project, self.holidays, self.now())
+        state = progress_state(task, self.project, self.holidays, self.now())
+        finished = state in (ProgressState.DONE, ProgressState.LATE_DONE)
         if overdue:
             style += f"; background: {OVERDUE_COLOR}"
         row = ui.row().classes("items-center no-wrap gap-0").style(style)
@@ -482,6 +485,8 @@ class GanttChart:
                 f"width: {NAME_WIDTH_PX}px; padding-left: 16px; align-self: stretch;"
                 f" line-height: {ROW_HEIGHT_PX - 1}px; {sticky_left(STICKY_Z_NAME)}"
             )
+            if finished:  # 終了したタスクは、名前に取り消し線を引く
+                label_style += "; text-decoration: line-through"
             if overdue:  # 不透明な背景の上に、行と同じ赤みを重ねる
                 label_style += (
                     f"; background-image: linear-gradient({OVERDUE_COLOR}, {OVERDUE_COLOR})"
@@ -498,7 +503,6 @@ class GanttChart:
                 bar_width = max(length * width, MIN_BAR_PX)
                 draggable = self.scale is Scale.DAY
                 cursor = "grab" if draggable else "pointer"
-                state = progress_state(task, self.project, self.holidays, self.now())
                 outline = ""
                 if state in PROGRESS_STATE_COLORS:
                     outline = f" outline: 2px solid {PROGRESS_STATE_COLORS[state]}; outline-offset: -2px;"
@@ -524,7 +528,7 @@ class GanttChart:
                 self.progress_marker(
                     key, ti, task, state, NAME_WIDTH_PX + left * width + bar_width, end
                 )
-            self.actual_bars(si, ti, task, columns, width)
+            self.actual_bars(si, ti, task, columns, width, finished)
             self.deadline_marker(si, ti, task, columns, width)
 
     def progress_fill(self, key: int | str, ti: int, task: Task) -> None:
@@ -563,11 +567,20 @@ class GanttChart:
         ).tooltip(tip).mark(f"progress-state-{key}-{ti}")
 
     def actual_bars(
-        self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
+        self,
+        si: int | None,
+        ti: int,
+        task: Task,
+        columns: list[Column],
+        width: int,
+        finished: bool = False,
     ) -> None:
-        """実績の棒。予定の棒の下半分に、不透明で重ねる。進行中は現在時刻まで。ドラッグはできない。"""
+        """実績の棒。予定の棒の下半分に、不透明で重ねる。進行中は現在時刻まで。ドラッグはできない。
+        終了したタスクは、タスクの色の代わりに灰にする。"""
         key = "top" if si is None else si
         color = task.color if is_hex_color(task.color) else DEFAULT_COLOR
+        if finished:
+            color = FINISHED_ACTUAL_COLOR
         for n, actual in enumerate(task.actuals):
             finish = actual.end if actual.end is not None else self.now()
             left, length = interval_span(actual.start, finish, columns)

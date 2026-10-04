@@ -27,6 +27,7 @@ from projectapp.gantt import (
     fill_percent,
     PROGRESS_STATE_COLORS,
     PROGRESS_STATE_MARKS,
+    FINISHED_ACTUAL_COLOR,
     DEADLINE_MARKER_HALF_PX,
     GRID_BORDER,
     NAME_WIDTH_PX,
@@ -1113,6 +1114,55 @@ async def test_overdue_background_and_state_outline_coexist(user: User) -> None:
     await user.open("/")
     row = user.find(marker="row-0-0").elements.pop()
     assert OVERDUE_COLOR in row._style["background"]
+
+
+def finished_project(end: datetime) -> Project:
+    return progress_project(
+        100, status=Status.DONE, actuals=[Actual(datetime(2026, 10, 5, 12), end, 100)]
+    )
+
+
+@pytest.mark.parametrize(
+    "end", [datetime(2026, 10, 7, 10), datetime(2026, 10, 8, 12)], ids=["done", "late-done"]
+)
+async def test_finished_task_has_a_gray_actual_bar_and_a_struck_through_name(
+    user: User, end: datetime
+) -> None:
+    mount(finished_project(end), now=datetime(2026, 10, 20))
+    await user.open("/")
+    bar = user.find(marker="actual-0-0-0").elements.pop()
+    assert bar._style["background"] == FINISHED_ACTUAL_COLOR
+    name = user.find(marker="task-0-0").elements.pop()
+    assert name._style["text-decoration"] == "line-through"
+
+
+async def test_running_task_keeps_its_color_and_name(user: User) -> None:
+    mount(progress_project(50), now=MID)
+    await user.open("/")
+    assert user.find(marker="actual-0-0-0").elements.pop()._style["background"] == "#ff0000"
+    assert "text-decoration" not in user.find(marker="task-0-0").elements.pop()._style
+
+
+async def test_finished_task_without_a_planned_bar_is_also_grayed(user: User) -> None:
+    task = Task(
+        "設計",
+        status=Status.DONE,
+        color="#ff0000",
+        actuals=[Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 7, 12), 100)],
+    )
+    mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
+    await user.open("/")
+    bar = user.find(marker="actual-0-0-0").elements.pop()
+    assert bar._style["background"] == FINISHED_ACTUAL_COLOR
+    assert user.find(marker="task-0-0").elements.pop()._style["text-decoration"] == "line-through"
+
+
+async def test_finished_task_keeps_the_planned_fill_and_the_overdue_background(user: User) -> None:
+    mount(finished_project(datetime(2026, 10, 8, 12)), now=datetime(2026, 10, 20))
+    await user.open("/")
+    fill = user.find(marker="progress-fill-0-0").elements.pop()
+    assert fill._style["background"] == "#ff0000"  # 予定の棒の塗りはタスクの色のまま
+    assert OVERDUE_COLOR in user.find(marker="row-0-0").elements.pop()._style["background"]
 
 
 async def test_clicking_an_actual_bar_edits_the_task(user: User) -> None:
