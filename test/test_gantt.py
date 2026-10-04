@@ -8,6 +8,9 @@ from nicegui.testing import User
 from projectapp.calendar import DayKind
 from projectapp.filtering import TaskFilter
 from projectapp.gantt import (
+    ACTUAL_HEIGHT_PX,
+    ACTUAL_TOP_PX,
+    PLANNED_OPACITY,
     DEADLINE_MARKER_HALF_PX,
     GRID_BORDER,
     KIND_COLORS,
@@ -18,7 +21,7 @@ from projectapp.gantt import (
     GanttActions,
     GanttChart,
 )
-from projectapp.models import DEFAULT_COLOR, Member, Project, Section, Status, Task
+from projectapp.models import DEFAULT_COLOR, Actual, Member, Project, Section, Status, Task
 from projectapp.timeline import Scale
 
 BASE = date(2026, 10, 5)  # 月曜
@@ -801,3 +804,77 @@ async def test_the_chart_scroll_box_has_room_for_the_horizontal_scrollbar(user: 
     assert style["overflow-x"] == "auto"
     assert style["overflow-y"] == "hidden"  # 縦のスクロールバーを出さない
     assert style["padding-bottom"] == f"{SCROLLBAR_ROOM_PX}px"  # 横のスクロールバーが最下行に重ならない
+
+
+def actual_project(*actuals: Actual) -> Project:
+    task = Task(
+        "設計",
+        planned_start=datetime(2026, 10, 5, 12),
+        planned_end=datetime(2026, 10, 7, 12),
+        color="#ff0000",
+        actuals=list(actuals),
+    )
+    return Project("demo", base_date=BASE, sections=[Section("開発", [task])])
+
+
+async def test_planned_bar_is_semi_transparent(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    bar = user.find(marker="bar-0-0").elements.pop()
+    assert bar._style["opacity"] == str(PLANNED_OPACITY)
+
+
+async def test_actual_bar_is_drawn_in_the_lower_half_with_the_task_color(user: User) -> None:
+    mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))))
+    await user.open("/")
+    bar = user.find(marker="actual-0-0-0").elements.pop()
+    assert bar._style["left"] == "260.0px"  # 200 + 1.5 * 40
+    assert bar._style["width"] == "80.0px"  # 2.0 * 40
+    assert bar._style["background"] == "#ff0000"
+    assert bar._style["top"] == f"{ACTUAL_TOP_PX}px"
+    assert bar._style["height"] == f"{ACTUAL_HEIGHT_PX}px"
+    assert "opacity" not in bar._style
+
+
+async def test_no_actual_bar_without_actuals(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    await user.should_not_see(marker="actual-0-0-0")
+
+
+async def test_in_progress_actual_bar_extends_to_now(user: User) -> None:
+    mount(actual_project(Actual(datetime(2026, 10, 6, 12), None)), now=datetime(2026, 10, 8, 12))
+    await user.open("/")
+    bar = user.find(marker="actual-0-0-0").elements.pop()
+    assert bar._style["width"] == "80.0px"
+
+
+async def test_in_progress_actual_starting_in_the_future_is_a_minimum_width_bar(user: User) -> None:
+    mount(actual_project(Actual(datetime(2026, 10, 9, 12), None)), now=datetime(2026, 10, 6))
+    await user.open("/")
+    bar = user.find(marker="actual-0-0-0").elements.pop()
+    assert bar._style["width"] == f"{MIN_BAR_PX:.1f}px"
+
+
+async def test_actual_bar_is_drawn_without_a_planned_bar(user: User) -> None:
+    task = Task("設計", actuals=[Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 7, 12))])
+    mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
+    await user.open("/")
+    await user.should_see(marker="actual-0-0-0")
+    await user.should_not_see(marker="bar-0-0")
+
+
+async def test_clicking_an_actual_bar_edits_the_task(user: User) -> None:
+    recorder = mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))))
+    await user.open("/")
+    user.find(marker="actual-0-0-0").click()
+    assert recorder.events == [("edit_task", (0, 0))]
+
+
+async def test_actual_bar_follows_the_week_scale(user: User) -> None:
+    mount(actual_project(Actual(datetime(2026, 10, 5, 0), datetime(2026, 10, 12, 0))))
+    await user.open("/")
+    user.find(kind=ui.toggle).elements.pop().set_value(Scale.WEEK)
+    await user.should_not_see(marker="stripes")  # 週次に切り替わった(再描画の完了を待つ)
+    bar = user.find(marker="actual-0-0-0").elements.pop()
+    assert bar._style["width"] == "56.0px"  # 1週 = 1列

@@ -47,6 +47,11 @@ OVERLOAD_STRIPES = (  # 割り当て合計が100%を超える期間の縞。タ�
     "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 4px, rgba(0,0,0,0.35) 4px 8px)"
 )
 MIN_BAR_PX = 4  # 幅0や終了が開始より前のタスクも、見える細い棒で出す
+PLANNED_OPACITY = 0.4  # 実績を重ねるため、予定の棒は半透明にする
+BAR_TOP_PX = 6
+BAR_HEIGHT_PX = ROW_HEIGHT_PX - 12
+ACTUAL_HEIGHT_PX = BAR_HEIGHT_PX // 2  # 実績の棒は、予定の棒の下半分
+ACTUAL_TOP_PX = BAR_TOP_PX + BAR_HEIGHT_PX - ACTUAL_HEIGHT_PX
 OVERDUE_COLOR = "rgba(239, 83, 80, 0.18)"  # 予定超過のタスク行の背景
 GRID_BORDER = "1px solid rgba(128, 128, 128, 0.3)"  # 格子線。両テーマで見える半透明の灰色
 ADD_ROW_HEIGHT_PX = 24  # 追加行は通常の行より細くする
@@ -363,9 +368,10 @@ class GanttChart:
                 cursor = "grab" if draggable else "pointer"
                 bar = ui.element("div").style(
                     f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
-                    f" width: {bar_width:.1f}px; top: 6px;"
-                    f" height: {ROW_HEIGHT_PX - 12}px;"
+                    f" width: {bar_width:.1f}px; top: {BAR_TOP_PX}px;"
+                    f" height: {BAR_HEIGHT_PX}px;"
                     f" background: {task.color if is_hex_color(task.color) else DEFAULT_COLOR};"
+                    f" opacity: {PLANNED_OPACITY};"
                     f" border-radius: 4px; cursor: {cursor}; overflow: hidden;"
                     " user-select: none; touch-action: none"
                 )
@@ -379,7 +385,27 @@ class GanttChart:
                     )
                 with bar:
                     self.overload_stripes(key, ti, task, left, bar_width, columns, width)
+            self.actual_bars(si, ti, task, columns, width)
             self.deadline_marker(si, ti, task, columns, width)
+
+    def actual_bars(
+        self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
+    ) -> None:
+        """実績の棒。予定の棒の下半分に、不透明で重ねる。進行中は現在時刻まで。ドラッグはできない。"""
+        key = "top" if si is None else si
+        color = task.color if is_hex_color(task.color) else DEFAULT_COLOR
+        for n, actual in enumerate(task.actuals):
+            finish = actual.end if actual.end is not None else self.now()
+            left, length = interval_span(actual.start, finish, columns)
+            bar = ui.element("div").style(
+                f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
+                f" width: {max(length * width, MIN_BAR_PX):.1f}px;"
+                f" top: {ACTUAL_TOP_PX}px; height: {ACTUAL_HEIGHT_PX}px;"
+                f" background: {color}; border-radius: 3px; cursor: pointer;"
+                " user-select: none"
+            )
+            bar.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
+            bar.mark(f"actual-{key}-{ti}-{n}")
 
     def overload_stripes(
         self,
