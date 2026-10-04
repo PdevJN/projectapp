@@ -8,6 +8,10 @@ CHART_DRAG_CSS = """
 .drop-before { box-shadow: inset 0 3px 0 0 #1976d2; }
 .drop-after { box-shadow: inset 0 -3px 0 0 #1976d2; }
 .drop-into { outline: 2px solid #1976d2; outline-offset: -2px; }
+/* 左に固定した列は不透明な背景で行の線を隠すので、同じ線を列にも出す */
+.drop-before > .gantt-sticky { box-shadow: inset 0 3px 0 0 #1976d2; }
+.drop-after > .gantt-sticky { box-shadow: inset 0 -3px 0 0 #1976d2; }
+.drop-into > .gantt-sticky { box-shadow: inset 2px 2px 0 0 #1976d2, inset 0 -2px 0 0 #1976d2; }
 [data-drag-handle] { cursor: grab; }
 """
 

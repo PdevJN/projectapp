@@ -60,12 +60,32 @@ ADD_ROW_STYLE = f"height: {ADD_ROW_HEIGHT_PX}px; position: relative; border-bott
 # IME の変換確定の Enter は無視する。Safari 系は確定時に isComposing が偽でも keyCode が 229 になる
 SEARCH_ENTER_JS = "(e) => { if (!e.isComposing && e.keyCode !== 229) emit(e.target.value); }"
 SCROLLBAR_ROOM_PX = 16  # 横スクロールバーの分の余白。WebKit は高さ auto にバーの厚みを含めない
+# チャートの枠は縦横ともここでスクロールする。上のヘッダー(タイトル・ファイル選択・ボタン)と
+# ツールバーの分を引いた高さを上限にする(固定の見積もり。実機で合わせる)
+CHART_MAX_HEIGHT = "calc(100vh - 220px)"
+# 固定する要素の重なり。見出し > タスク名の列 > 棒・縞・格子線。見出しの中では左端の空白が帯より手前
+STICKY_Z_SPACER, STICKY_Z_NAME, STICKY_Z_HEADER = 1, 2, 3
+# 固定した要素の下を棒や縞が通るので、不透明な背景が要る(ページの背景色に合わせる)
+STICKY_CSS = """
+.gantt-sticky { background-color: #fff; }
+body.body--dark .gantt-sticky { background-color: var(--q-dark-page, #121212); }
+"""
+# 絞り込みの変更時に、チャートの枠とページの両方を先頭へ戻す
+SCROLL_TO_TOP_JS = (
+    "document.querySelector('[data-chart-scroll]')?.scrollTo({top: 0});"
+    " window.scrollTo({top: 0})"
+)
 ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メンバー名は空にできない
 
 
 def planned_background(color: str) -> str:
     """予定の棒の背景。要素の opacity ではなく背景だけを半透明にし、中の縞は不透明のまま残す。"""
     return f"color-mix(in srgb, {color} {PLANNED_OPACITY * 100:g}%, transparent)"
+
+
+def sticky_left(z_index: int) -> str:
+    """横スクロールで左に残す要素のスタイル。"""
+    return f"position: sticky; left: 0px; z-index: {z_index}"
 
 
 @dataclass
@@ -170,7 +190,7 @@ class GanttChart:
 
     def scroll_to_top(self) -> None:
         if self.client is not None:
-            self.client.run_javascript("window.scrollTo({top: 0})")
+            self.client.run_javascript(SCROLL_TO_TOP_JS)
 
     def set_holidays(self, holidays: dict[date, str]) -> None:
         self.holidays = holidays
@@ -183,6 +203,7 @@ class GanttChart:
     def build(self) -> None:
         self.client = context.client
         ui.add_css(CHART_DRAG_CSS)
+        ui.add_css(STICKY_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
@@ -233,8 +254,12 @@ class GanttChart:
         self.overloads = overallocations(self.project, self.holidays)
         width = COLUMN_WIDTH_PX[self.scale]
         total = NAME_WIDTH_PX + width * len(columns)
-        scroll_style = f"overflow-x: auto; overflow-y: hidden; padding-bottom: {SCROLLBAR_ROOM_PX}px"
-        with ui.element("div").classes("w-full").style(scroll_style).mark("chart-scroll"):
+        scroll_style = (
+            f"overflow: auto; max-height: {CHART_MAX_HEIGHT};"
+            f" padding-bottom: {SCROLLBAR_ROOM_PX}px"
+        )
+        scroll = ui.element("div").classes("w-full").style(scroll_style)
+        with scroll.props("data-chart-scroll").mark("chart-scroll"):
             with ui.element("div").style(f"position: relative; width: {total}px"):
                 top = BAND_HEIGHT_PX * (1 if self.scale is Scale.MONTH else 2)
                 self.gridlines(columns, width, top)
@@ -266,8 +291,11 @@ class GanttChart:
         row.props(self.drag_props("top-end", "top", count=len(self.project.tasks)))
         row.mark("top-end")
         with row:
-            cell = ui.row().classes("items-center justify-end no-wrap")
-            cell.style(f"width: {NAME_WIDTH_PX}px; padding-right: 8px")
+            cell = ui.row().classes("items-center justify-end no-wrap gantt-sticky")
+            cell.style(
+                f"width: {NAME_WIDTH_PX}px; padding-right: 8px; align-self: stretch;"
+                f" {sticky_left(STICKY_Z_NAME)}"
+            )
             with cell:
                 ui.button("タスク追加", icon="add", on_click=self.actions.add_top_task).props(
                     "flat dense size=sm"
@@ -296,16 +324,25 @@ class GanttChart:
 
     def header(self, columns: list[Column], width: int) -> None:
         """年・月の帯(結合セル)と、日・曜日の見出し。月次スケールに月の帯はない。"""
-        with ui.column().classes("gap-0"):
+        header_style = f"position: sticky; top: 0px; z-index: {STICKY_Z_HEADER}"
+        with ui.column().classes("gap-0 gantt-sticky").style(header_style).mark("chart-header"):
             self.band_row(year_bands(columns), width, "year-band")
             if self.scale is not Scale.MONTH:
                 self.band_row(month_bands(columns), width, "month-band")
             self.label_row(columns, width)
 
+    def header_spacer(self, marker: str) -> None:
+        """見出しの左端の空白。縦にも横にも固定された見出しの中で、横スクロールでも左に残る。"""
+        spacer = ui.element("div").classes("gantt-sticky")
+        spacer.style(
+            f"width: {NAME_WIDTH_PX}px; align-self: stretch; {sticky_left(STICKY_Z_SPACER)}"
+        )
+        spacer.mark(marker)
+
     def band_row(self, bands: list[Band], width: int, marker: str) -> None:
         style = f"height: {BAND_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
         with ui.row().classes("items-center no-wrap gap-0").style(style):
-            ui.element("div").style(f"width: {NAME_WIDTH_PX}px")
+            self.header_spacer(f"{marker}-spacer")
             for band in bands:
                 ui.label(band.label).classes("text-caption text-center").style(
                     f"width: {band.count * width}px; border-left: {GRID_BORDER};"
@@ -316,7 +353,7 @@ class GanttChart:
         height = HEADER_HEIGHT_PX if self.scale is Scale.DAY else ROW_HEIGHT_PX
         style = f"height: {height}px; position: relative; border-bottom: {GRID_BORDER}"
         with ui.row().classes("items-center no-wrap gap-0").style(style):
-            ui.element("div").style(f"width: {NAME_WIDTH_PX}px")
+            self.header_spacer("label-row-spacer")
             for column in columns:
                 with ui.column().classes("items-center gap-0").style(f"width: {width}px"):
                     ui.label(column.label).classes("text-caption").mark(
@@ -339,10 +376,13 @@ class GanttChart:
         header.props(self.drag_props("section", si, count=len(section.tasks)))
         header.mark(f"section-{si}")
         with header:
-            ui.label(section.name).classes("text-subtitle2")
-            ui.button(
-                icon="add", on_click=lambda si=si: self.actions.add_task(si)
-            ).props("flat dense round size=sm").tooltip("タスク追加").mark(f"add-task-{si}")
+            name = ui.row().classes("items-center no-wrap gap-2 gantt-sticky")
+            name.style(f"align-self: stretch; {sticky_left(STICKY_Z_NAME)}")
+            with name.mark(f"section-name-{si}"):
+                ui.label(section.name).classes("text-subtitle2")
+                ui.button(
+                    icon="add", on_click=lambda si=si: self.actions.add_task(si)
+                ).props("flat dense round size=sm").tooltip("タスク追加").mark(f"add-task-{si}")
         for ti, task in enumerate(section.tasks):
             if matches(task, self.task_filter):
                 self.task_row(si, ti, task, columns, width)
@@ -352,14 +392,22 @@ class GanttChart:
     ) -> None:
         key = "top" if si is None else si
         style = ROW_STYLE
-        if is_overdue(task, self.project, self.holidays, self.now()):
+        overdue = is_overdue(task, self.project, self.holidays, self.now())
+        if overdue:
             style += f"; background: {OVERDUE_COLOR}"
         row = ui.row().classes("items-center no-wrap gap-0").style(style)
         row.props(self.drag_props("row", key, ti=ti)).mark(f"row-{key}-{ti}")
         with row:
-            label = ui.label(task.name).classes("ellipsis cursor-pointer").style(
-                f"width: {NAME_WIDTH_PX}px; padding-left: 16px"
+            label = ui.label(task.name).classes("ellipsis cursor-pointer gantt-sticky")
+            label_style = (
+                f"width: {NAME_WIDTH_PX}px; padding-left: 16px; align-self: stretch;"
+                f" line-height: {ROW_HEIGHT_PX - 1}px; {sticky_left(STICKY_Z_NAME)}"
             )
+            if overdue:  # 不透明な背景の上に、行と同じ赤みを重ねる
+                label_style += (
+                    f"; background-image: linear-gradient({OVERDUE_COLOR}, {OVERDUE_COLOR})"
+                )
+            label.style(label_style)
             label.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
             label.mark(f"task-{key}-{ti}")
             if not self.task_filter.active:

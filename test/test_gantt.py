@@ -7,7 +7,14 @@ from nicegui.testing import User
 
 from projectapp.calendar import DayKind
 from projectapp.filtering import TaskFilter
+from projectapp.gantt_drag import CHART_DRAG_CSS
 from projectapp.gantt import (
+    CHART_MAX_HEIGHT,
+    SCROLL_TO_TOP_JS,
+    STICKY_CSS,
+    STICKY_Z_HEADER,
+    STICKY_Z_NAME,
+    STICKY_Z_SPACER,
     ACTUAL_HEIGHT_PX,
     ACTUAL_TOP_PX,
     PLANNED_OPACITY,
@@ -230,7 +237,7 @@ async def test_horizontal_grid_lines_under_every_row(user: User) -> None:
         return label.parent_slot.parent
 
     assert row_of(marker="task-0-0")._style["border-bottom"] == GRID_BORDER
-    assert row_of(content="開発")._style["border-bottom"] == GRID_BORDER
+    assert user.find(marker="section-0").elements.pop()._style["border-bottom"] == GRID_BORDER
     header = row_of(marker="col-2026-10-05").parent_slot.parent
     assert header._style["border-bottom"] == GRID_BORDER
 
@@ -802,8 +809,8 @@ async def test_the_chart_scroll_box_has_room_for_the_horizontal_scrollbar(user: 
     mount_chart(filter_project())
     await user.open("/")
     style = user.find(marker="chart-scroll").elements.pop()._style
-    assert style["overflow-x"] == "auto"
-    assert style["overflow-y"] == "hidden"  # 縦のスクロールバーを出さない
+    assert style["overflow"] == "auto"  # 縦横とも枠の中でスクロールする(見出しの固定の基準になる)
+    assert style["max-height"] == CHART_MAX_HEIGHT
     assert style["padding-bottom"] == f"{SCROLLBAR_ROOM_PX}px"  # 横のスクロールバーが最下行に重ならない
 
 
@@ -883,3 +890,93 @@ async def test_actual_bar_follows_the_week_scale(user: User) -> None:
     await user.should_not_see(marker="stripes")  # 週次に切り替わった(再描画の完了を待つ)
     bar = user.find(marker="actual-0-0-0").elements.pop()
     assert bar._style["width"] == "56.0px"  # 1週 = 1列
+
+
+def pinned(user: User, marker: str) -> object:
+    return user.find(marker=marker).elements.pop()
+
+
+async def test_task_name_is_pinned_to_the_left(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    label = pinned(user, "task-0-0")
+    assert label._style["position"] == "sticky"
+    assert label._style["left"] == "0px"
+    assert label._style["z-index"] == str(STICKY_Z_NAME)
+    assert label._style["align-self"] == "stretch"  # 行の高さいっぱいを不透明な背景で覆う
+    assert "gantt-sticky" in label.classes
+
+
+async def test_pinned_name_keeps_the_overdue_tint(user: User) -> None:
+    mount(sample_project(), now=datetime(2026, 10, 8))
+    await user.open("/")
+    assert OVERDUE_COLOR in pinned(user, "task-0-0")._style["background-image"]
+    assert "background-image" not in pinned(user, "task-0-1")._style
+
+
+async def test_header_is_pinned_to_the_top(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    header = pinned(user, "chart-header")
+    assert header._style["position"] == "sticky"
+    assert header._style["top"] == "0px"
+    assert header._style["z-index"] == str(STICKY_Z_HEADER)
+    assert "gantt-sticky" in header.classes
+    assert STICKY_Z_HEADER > STICKY_Z_NAME  # 見出しは、スクロールしてくるタスク名の列より手前
+
+
+async def test_header_left_spacers_are_pinned_to_the_left(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    for marker in ("year-band-spacer", "month-band-spacer", "label-row-spacer"):
+        spacer = pinned(user, marker)
+        assert spacer._style["position"] == "sticky", marker
+        assert spacer._style["left"] == "0px", marker
+        assert spacer._style["z-index"] == str(STICKY_Z_SPACER), marker
+        assert "gantt-sticky" in spacer.classes, marker
+
+
+async def test_section_name_is_pinned_to_the_left(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    name = pinned(user, "section-name-0")
+    assert name._style["position"] == "sticky"
+    assert name._style["left"] == "0px"
+    assert name._style["z-index"] == str(STICKY_Z_NAME)
+    assert "gantt-sticky" in name.classes
+    assert pinned(user, "add-task-0").parent_slot.parent is name  # 追加ボタンも一緒に固定される
+
+
+async def test_add_row_cell_is_pinned_to_the_left(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    cell = pinned(user, "add-task-top").parent_slot.parent
+    assert cell._style["position"] == "sticky"
+    assert cell._style["left"] == "0px"
+    assert cell._style["z-index"] == str(STICKY_Z_NAME)
+    assert "gantt-sticky" in cell.classes
+
+
+async def test_chart_scroll_box_is_marked_for_scrolling_to_the_top(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    assert pinned(user, "chart-scroll").props.get("data-chart-scroll") is True
+
+
+def test_scroll_to_top_resets_the_chart_box_and_the_page() -> None:
+    assert "[data-chart-scroll]" in SCROLL_TO_TOP_JS
+    assert "window.scrollTo" in SCROLL_TO_TOP_JS
+
+
+def test_pinned_cells_have_an_opaque_background_for_both_themes() -> None:
+    assert ".gantt-sticky" in STICKY_CSS
+    assert "background-color: #fff" in STICKY_CSS
+    assert "body.body--dark .gantt-sticky" in STICKY_CSS
+    assert "--q-dark-page" in STICKY_CSS
+
+
+def test_drop_marks_are_repeated_on_pinned_cells() -> None:
+    # 不透明な背景が、行の「ここに入る」の線を左の列で隠さないように
+    assert ".drop-before > .gantt-sticky" in CHART_DRAG_CSS
+    assert ".drop-after > .gantt-sticky" in CHART_DRAG_CSS
+    assert ".drop-into > .gantt-sticky" in CHART_DRAG_CSS
