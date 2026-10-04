@@ -911,7 +911,7 @@ async def test_entering_an_end_suggests_done(user: User) -> None:
 async def test_no_suggestion_while_the_actual_is_empty(user: User) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
-    assert value_of(user, "task-status") == Status.STARTED
+    assert value_of(user, "task-status") == Status.NOT_STARTED
     await user.should_not_see("実績に合わせて状態を変えました")
 
 
@@ -951,7 +951,7 @@ async def test_a_partly_typed_date_does_not_suggest_a_status(user: User) -> None
     await open_dialog(user)
     user.find(marker="task-actual-start-time").type("09:00")  # 時刻を先に入れる
     user.find(marker="task-actual-start-date").type("2026-1")  # 日付は入力の途中
-    assert value_of(user, "task-status") == Status.STARTED
+    assert value_of(user, "task-status") == Status.NOT_STARTED
     await user.should_not_see("実績に合わせて状態を変えました")
     user.find(marker="task-actual-start-date").clear().type("2026-10-05")
     assert value_of(user, "task-status") == Status.RUNNING
@@ -1033,7 +1033,7 @@ async def test_hundred_percent_without_an_end_does_not_suggest_a_status(user: Us
     await open_dialog(user)
     progress_input(user).set_value(100)
     start_actual(user)
-    assert value_of(user, "task-status") == Status.STARTED
+    assert value_of(user, "task-status") == Status.NOT_STARTED
 
 
 async def test_changing_the_progress_counts_as_a_change_when_closing(user: User) -> None:
