@@ -24,6 +24,7 @@ from projectapp.gantt import (
     ACTUAL_TOP_PX,
     PLANNED_OPACITY,
     planned_background,
+    fill_percent,
     DEADLINE_MARKER_HALF_PX,
     GRID_BORDER,
     NAME_WIDTH_PX,
@@ -936,6 +937,74 @@ async def test_actual_bar_clips_its_progress_text(user: User) -> None:
     await user.open("/")
     bar = user.find(marker="actual-0-0-0").elements.pop()
     assert bar._style["overflow"] == "hidden"
+
+
+def progress_project(progress: int | None, **overrides: object) -> Project:
+    actuals = [Actual(datetime(2026, 10, 5, 12), None, progress)] if progress is not None else []
+    values: dict[str, object] = {
+        "planned_start": datetime(2026, 10, 5, 12),
+        "planned_end": datetime(2026, 10, 7, 12),
+        "color": "#ff0000",
+        "status": Status.RUNNING,
+        "actuals": actuals,
+    }
+    values.update(overrides)
+    task = Task("設計", **values)  # type: ignore[arg-type]
+    return Project("demo", base_date=BASE, sections=[Section("開発", [task])])
+
+
+def test_fill_percent() -> None:
+    assert fill_percent(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9), None, 40)])) == 40
+    assert fill_percent(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9), None, 0)])) == 0
+    assert fill_percent(Task("t")) is None
+    assert fill_percent(Task("t", status=Status.DONE)) == 100
+    done = Task("t", status=Status.DONE, actuals=[Actual(datetime(2026, 10, 5, 9), None, 80)])
+    assert fill_percent(done) == 80
+
+
+async def test_planned_bar_is_filled_by_the_progress(user: User) -> None:
+    mount(progress_project(40))
+    await user.open("/")
+    fill = user.find(marker="progress-fill-0-0").elements.pop()
+    assert fill._style["width"] == "40%"
+    assert fill._style["left"] == "0"
+    assert fill._style["background"] == "#ff0000"
+    assert fill._style["pointer-events"] == "none"
+
+
+async def test_progress_zero_makes_a_zero_width_fill(user: User) -> None:
+    mount(progress_project(0))
+    await user.open("/")
+    assert user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "0%"
+
+
+async def test_no_fill_without_progress(user: User) -> None:
+    mount(progress_project(None))
+    await user.open("/")
+    await user.should_see(marker="bar-0-0")
+    await user.should_not_see(marker="progress-fill-0-0")
+
+
+async def test_done_without_progress_is_filled_completely(user: User) -> None:
+    mount(progress_project(None, status=Status.DONE))
+    await user.open("/")
+    assert user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "100%"
+
+
+async def test_no_fill_without_a_planned_bar(user: User) -> None:
+    task = Task("設計", actuals=[Actual(datetime(2026, 10, 6, 12), None, 40)])
+    mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
+    await user.open("/")
+    await user.should_see(marker="actual-0-0-0")
+    await user.should_not_see(marker="progress-fill-0-0")
+
+
+async def test_fill_is_inside_the_bar_and_below_the_overload_stripes(user: User) -> None:
+    mount(progress_project(40))
+    await user.open("/")
+    bar = user.find(marker="bar-0-0").elements.pop()
+    markers = [m for child in bar.default_slot.children for m in child._markers]
+    assert markers[0].startswith("progress-fill-")  # 縞(overload-)より先に置く = 縞が手前
 
 
 async def test_clicking_an_actual_bar_edits_the_task(user: User) -> None:

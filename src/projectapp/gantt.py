@@ -12,7 +12,7 @@ from projectapp.arrange import Position
 from projectapp.calendar import DayKind, day_kind
 from projectapp.filtering import TaskFilter, matches
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS
-from projectapp.models import DEFAULT_COLOR, Project, Section, Task, is_hex_color
+from projectapp.models import DEFAULT_COLOR, Project, Section, Status, Task, is_hex_color
 from projectapp.timeline import (
     Band,
     Column,
@@ -21,6 +21,7 @@ from projectapp.timeline import (
     bar_span,
     build_columns,
     clip_overloads,
+    current_progress,
     deadline_position,
     effective_end,
     interval_span,
@@ -107,6 +108,14 @@ ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メン�
 def planned_background(color: str) -> str:
     """予定の棒の背景。要素の opacity ではなく背景だけを半透明にし、中の縞は不透明のまま残す。"""
     return f"color-mix(in srgb, {color} {PLANNED_OPACITY * 100:g}%, transparent)"
+
+
+def fill_percent(task: Task) -> int | None:
+    """予定の棒を塗る進捗度の割合。進捗度がなくても、終了なら100。それ以外で進捗度がなければ None。"""
+    percent = current_progress(task)
+    if percent is None and task.status is Status.DONE:
+        return 100
+    return percent
 
 
 def sticky_left(z_index: int) -> str:
@@ -490,9 +499,21 @@ class GanttChart:
                         f" data-min-days={least}"
                     )
                 with bar:
+                    self.progress_fill(key, ti, task)
                     self.overload_stripes(key, ti, task, left, bar_width, columns, width)
             self.actual_bars(si, ti, task, columns, width)
             self.deadline_marker(si, ti, task, columns, width)
+
+    def progress_fill(self, key: int | str, ti: int, task: Task) -> None:
+        """予定の棒の左端から、進捗度の割合の幅を、タスクの色で不透明に塗る。縞より先に置いて、縞を手前にする。"""
+        percent = fill_percent(task)
+        if percent is None:
+            return
+        color = task.color if is_hex_color(task.color) else DEFAULT_COLOR
+        ui.element("div").style(
+            f"position: absolute; left: 0; top: 0; bottom: 0; width: {percent}%;"
+            f" background: {color}; pointer-events: none"
+        ).mark(f"progress-fill-{key}-{ti}")
 
     def actual_bars(
         self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
