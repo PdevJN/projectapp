@@ -58,7 +58,7 @@ def progress_state(
 |---|---|---|
 | 1 | 状態が「終了」かつ `is_overdue` が偽 | `DONE` |
 | 2 | 状態が「終了」かつ `is_overdue` が真 | `LATE_DONE` |
-| 3 | 進捗度(`current_progress`)・開始予定・完了予定(`effective_end`)のどれかがない | `None` |
+| 3 | 進捗度(`current_progress`)か開始予定がない(完了予定は `effective_end`。空でも締切か開始予定の翌日で補われるので、実際に `None` になるのは開始予定がないとき) | `None` |
 | 4 | 進捗度 < 進んでいるはずの割合 − `PROGRESS_TOLERANCE` | `DELAYED` |
 | 5 | 進捗度 > 進んでいるはずの割合 + `PROGRESS_TOLERANCE` | `AHEAD` |
 | 6 | それ以外 | `NORMAL` |
