@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 
-from nicegui import ui
+from nicegui import Client, context, ui
 
 from projectapp.calendar import DayKind, day_kind
 from projectapp.filtering import TaskFilter, matches
@@ -48,6 +48,7 @@ GRID_BORDER = "1px solid rgba(128, 128, 128, 0.3)"  # 格子線。両テーマ�
 ADD_ROW_HEIGHT_PX = 24  # 追加行は通常の行より細くする
 ROW_STYLE = f"height: {ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
 ADD_ROW_STYLE = f"height: {ADD_ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
+ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メンバー名は空にできない
 
 
 @dataclass
@@ -75,6 +76,9 @@ class GanttChart:
         self.overloads: list[Overload] = []
         self.scale = Scale.DAY
         self.task_filter = TaskFilter()
+        self.search_input: ui.input | None = None
+        self.assignee_select: ui.select | None = None
+        self.client: Client | None = None
 
     def set_project(self, project: Project) -> None:
         """条件は保つ。担当者がメンバーからいなくなったときだけ、担当者の指定を外す。"""
@@ -82,6 +86,7 @@ class GanttChart:
         names = {member.name for member in project.members}
         if self.task_filter.assignee not in (None, *names):
             self.task_filter = replace(self.task_filter, assignee=None)
+        self.sync_assignee_select()
         self.render.refresh()
 
     def set_filter(self, task_filter: TaskFilter) -> None:
@@ -89,6 +94,31 @@ class GanttChart:
             return
         self.task_filter = task_filter
         self.render.refresh()
+        self.scroll_to_top()
+
+    def reset_filter(self) -> None:
+        """条件を空に戻し、入力欄と選択にも反映する。別のプロジェクトを開いたときに使う。"""
+        self.task_filter = TaskFilter()
+        if self.search_input is not None:
+            self.search_input.set_value("")
+        if self.assignee_select is not None:
+            self.assignee_select.set_value(ALL_ASSIGNEES)
+        self.render.refresh()
+        self.scroll_to_top()
+
+    def assignee_options(self) -> dict[str, str]:
+        options = {ALL_ASSIGNEES: "すべての担当者"}
+        options.update({member.name: member.name for member in self.project.members})
+        return options
+
+    def sync_assignee_select(self) -> None:
+        if self.assignee_select is not None:
+            value = self.task_filter.assignee or ALL_ASSIGNEES
+            self.assignee_select.set_options(self.assignee_options(), value=value)
+
+    def scroll_to_top(self) -> None:
+        if self.client is not None:
+            self.client.run_javascript("window.scrollTo({top: 0})")
 
     def set_holidays(self, holidays: dict[date, str]) -> None:
         self.holidays = holidays
@@ -99,6 +129,7 @@ class GanttChart:
         self.render.refresh()
 
     def build(self) -> None:
+        self.client = context.client
         with ui.row().classes("w-full items-center gap-4"):
             ui.toggle(
                 {scale: scale.value for scale in Scale},
@@ -108,6 +139,33 @@ class GanttChart:
             ui.button("セクション追加", icon="add", on_click=self.actions.add_section).props(
                 "flat"
             ).mark("add-section")
+            self.search_input = (
+                ui.input(
+                    placeholder="タスク名で検索",
+                    value=self.task_filter.query,
+                    on_change=lambda e: self.set_filter(
+                        replace(self.task_filter, query=e.value or "")
+                    ),
+                )
+                .props("clearable dense outlined debounce=300")
+                .classes("w-64")
+                .mark("search-input")
+            )
+            self.assignee_select = (
+                ui.select(
+                    self.assignee_options(),
+                    value=self.task_filter.assignee or ALL_ASSIGNEES,
+                    on_change=lambda e: self.set_filter(
+                        replace(
+                            self.task_filter,
+                            assignee=None if e.value == ALL_ASSIGNEES else e.value,
+                        )
+                    ),
+                )
+                .props("dense outlined")
+                .classes("w-48")
+                .mark("assignee-filter")
+            )
         self.render()
 
     @ui.refreshable_method

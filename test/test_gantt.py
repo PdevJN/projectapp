@@ -1,6 +1,7 @@
 import asyncio
 from datetime import date, datetime
 
+import pytest
 from nicegui import ui
 from nicegui.testing import User
 
@@ -666,3 +667,90 @@ async def test_set_project_keeps_the_filter_but_drops_a_vanished_assignee(user: 
     other.members = [Member("鈴木")]
     chart.set_project(other)
     assert chart.task_filter == TaskFilter(query="設", assignee=None)
+
+
+async def test_the_search_input_filters_the_rows(user: User) -> None:
+    mount_chart(filter_project())
+    await user.open("/")
+    await user.should_see(marker="search-input")
+    user.find(marker="search-input").type("実")
+    await user.should_see(marker="task-0-1")
+    await user.should_not_see(marker="task-top-0")
+
+
+async def test_clearing_the_search_input_shows_every_row_again(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    box = user.find(marker="search-input").elements.pop()
+    box.set_value("実")
+    await user.should_not_see(marker="task-top-0")
+    box.set_value(None)
+    assert charts[0].task_filter == TaskFilter()
+    await user.should_see(marker="task-top-0")
+
+
+async def test_the_assignee_select_lists_the_members_and_filters(user: User) -> None:
+    mount_chart(filter_project())
+    await user.open("/")
+    select = user.find(marker="assignee-filter").elements.pop()
+    assert select.options == {"": "すべての担当者", "田中": "田中", "鈴木": "鈴木"}
+    assert select.value == ""
+    select.set_value("鈴木")
+    await user.should_see(marker="task-0-1")
+    await user.should_not_see(marker="task-top-0")
+    select.set_value("")
+    await user.should_see(marker="task-top-0")
+
+
+async def test_set_project_updates_the_assignee_options_and_resets_a_vanished_choice(
+    user: User,
+) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    select = user.find(marker="assignee-filter").elements.pop()
+    select.set_value("田中")
+    other = filter_project()
+    other.members = [Member("鈴木"), Member("佐藤")]
+    charts[0].set_project(other)
+    assert select.options == {"": "すべての担当者", "鈴木": "鈴木", "佐藤": "佐藤"}
+    assert select.value == ""
+    assert charts[0].task_filter.assignee is None
+
+
+async def test_set_project_keeps_a_chosen_assignee_that_still_exists(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    select = user.find(marker="assignee-filter").elements.pop()
+    select.set_value("鈴木")
+    charts[0].set_project(filter_project())
+    assert select.value == "鈴木"
+    assert charts[0].task_filter.assignee == "鈴木"
+
+
+async def test_reset_filter_clears_the_inputs_and_shows_every_row(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="search-input").elements.pop().set_value("実")
+    user.find(marker="assignee-filter").elements.pop().set_value("鈴木")
+    charts[0].reset_filter()
+    assert charts[0].task_filter == TaskFilter()
+    assert user.find(marker="search-input").elements.pop().value == ""
+    assert user.find(marker="assignee-filter").elements.pop().value == ""
+    await user.should_see(marker="task-top-0")
+    await user.should_see(marker="task-1-0")
+
+
+async def test_changing_the_filter_scrolls_to_the_top_but_set_project_does_not(
+    user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    calls: list[str] = []
+    monkeypatch.setattr(charts[0], "scroll_to_top", lambda: calls.append("scroll"))
+    charts[0].set_filter(TaskFilter(query="実"))
+    charts[0].set_filter(TaskFilter(query="実"))  # 同じ条件では動かない
+    assert calls == ["scroll"]
+    charts[0].set_project(filter_project())
+    assert calls == ["scroll"]
+    charts[0].reset_filter()
+    assert calls == ["scroll", "scroll"]
