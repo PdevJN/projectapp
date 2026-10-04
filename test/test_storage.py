@@ -584,3 +584,33 @@ def test_unset_progress_between_actuals_is_skipped_when_checking_order(tmp_path:
     )
     loaded = load_project(save_project(project, tmp_path))
     assert [a.progress for a in loaded.tasks[0].actuals] == [40, None, 40]
+
+
+def test_not_started_status_is_saved_as_the_new_name(tmp_path: Path) -> None:
+    path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["tasks"][0]["status"] == "未着手"
+    assert load_project(path).tasks[0].status is Status.NOT_STARTED
+
+
+def test_legacy_status_started_loads_as_not_started(tmp_path: Path) -> None:
+    path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["tasks"][0]["status"] = "開始"  # 旧名
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).tasks[0].status is Status.NOT_STARTED
+
+
+@pytest.mark.parametrize("status", [Status.RUNNING, Status.PAUSED, Status.DONE])
+def test_other_statuses_are_unchanged(tmp_path: Path, status: Status) -> None:
+    path = save_project(Project("demo", tasks=[Task("t", status=status)]), tmp_path)
+    assert load_project(path).tasks[0].status is status
+
+
+def test_unknown_status_is_still_rejected(tmp_path: Path) -> None:
+    path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["tasks"][0]["status"] = "不明"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_project(path)

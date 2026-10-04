@@ -27,7 +27,7 @@ class Priority(StrEnum):
 
 
 class Status(StrEnum):
-    STARTED = "開始"
+    NOT_STARTED = "未着手"
     RUNNING = "実行中"
     PAUSED = "一時停止"
     DONE = "終了"
@@ -54,7 +54,7 @@ class Task:
     planned_start: datetime | None = None
     effort_hours: float = 0.0
     priority: Priority = Priority.MEDIUM
-    status: Status = Status.STARTED
+    status: Status = Status.NOT_STARTED
     color: str = DEFAULT_COLOR
     assignee: str | None = None
     predecessors: list[str] = field(default_factory=list)

@@ -151,7 +151,7 @@ def _task(raw: dict[str, Any]) -> Task:
         deadline=deadline,
         effort_hours=raw["effort_hours"],
         priority=Priority(raw["priority"]),
-        status=Status(raw["status"]),
+        status=_status(raw["status"]),
         color=raw["color"],
         assignee=_assignee(raw.get("assignee")),
         predecessors=list(raw["predecessors"]),
@@ -179,6 +179,16 @@ def _actual_moment(value: Any, label: str) -> datetime:
     if moment is None or moment.tzinfo is not None:
         raise ValueError(f"実績の{label}の形式が正しくありません: {value!r}")
     return moment
+
+
+LEGACY_STATUSES = {"開始": Status.NOT_STARTED}  # 旧名。「開始」は「未着手」に改名した
+
+
+def _status(value: Any) -> Status:
+    """状態を読む。旧名は新名として読む(移行は要らない)。不正はValueError。"""
+    if isinstance(value, str) and value in LEGACY_STATUSES:
+        return LEGACY_STATUSES[value]
+    return Status(value)
 
 
 def _progress(value: Any) -> int | None:
