@@ -11,6 +11,7 @@ from projectapp.gantt import (
     ACTUAL_HEIGHT_PX,
     ACTUAL_TOP_PX,
     PLANNED_OPACITY,
+    planned_background,
     DEADLINE_MARKER_HALF_PX,
     GRID_BORDER,
     KIND_COLORS,
@@ -82,7 +83,7 @@ async def test_bar_geometry_and_color(user: User) -> None:
     bar = user.find(marker="bar-0-0").elements.pop()
     assert bar._style["left"] == "220.0px"  # 200 + 0.5 * 40
     assert bar._style["width"] == "80.0px"  # 2.0 * 40
-    assert bar._style["background"] == "#ff0000"
+    assert bar._style["background"] == planned_background("#ff0000")
 
 
 async def test_day_scale_colors_weekends_and_holidays(user: User) -> None:
@@ -185,7 +186,7 @@ async def test_top_level_tasks_render_without_any_section(user: User) -> None:
     await user.should_not_see(marker="add-task-0")
     bar = user.find(marker="bar-top-0").elements.pop()
     assert bar._style["left"] == "220.0px"
-    assert bar._style["background"] == "#00ff00"
+    assert bar._style["background"] == planned_background("#00ff00")
 
 
 async def test_top_level_task_clicks_call_edit_with_no_section(user: User) -> None:
@@ -343,7 +344,7 @@ async def test_done_task_is_not_red(user: User) -> None:
 async def test_overdue_keeps_the_bar_color(user: User) -> None:
     mount(sample_project(), now=datetime(2026, 10, 8))
     await user.open("/")
-    assert user.find(marker="bar-0-0").elements.pop()._style["background"] == "#ff0000"
+    assert user.find(marker="bar-0-0").elements.pop()._style["background"] == planned_background("#ff0000")
 
 
 async def test_overdue_applies_to_top_level_tasks(user: User) -> None:
@@ -358,7 +359,7 @@ async def test_a_bad_color_in_a_hand_edited_file_falls_back_to_the_default(user:
     mount(project)
     await user.open("/")
     bar = user.find(marker="bar-0-0").elements.pop()
-    assert bar._style["background"] == DEFAULT_COLOR
+    assert bar._style["background"] == planned_background(DEFAULT_COLOR)
 
 
 async def test_a_task_that_ends_before_it_starts_still_shows_a_thin_bar(user: User) -> None:
@@ -817,11 +818,15 @@ def actual_project(*actuals: Actual) -> Project:
     return Project("demo", base_date=BASE, sections=[Section("開発", [task])])
 
 
-async def test_planned_bar_is_semi_transparent(user: User) -> None:
+async def test_planned_bar_is_semi_transparent_without_fading_its_children(user: User) -> None:
     mount(sample_project())
     await user.open("/")
     bar = user.find(marker="bar-0-0").elements.pop()
-    assert bar._style["opacity"] == str(PLANNED_OPACITY)
+    # 棒全体の opacity は使わない(中の割り当て超過の縞まで薄くなるため)。背景の色だけを半透明にする
+    assert "opacity" not in bar._style
+    assert bar._style["background"] == planned_background("#ff0000")
+    assert bar._style["background"].startswith("color-mix(")
+    assert f"{PLANNED_OPACITY * 100:g}%" in bar._style["background"]
 
 
 async def test_actual_bar_is_drawn_in_the_lower_half_with_the_task_color(user: User) -> None:

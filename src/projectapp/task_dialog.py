@@ -240,6 +240,16 @@ class DateTimeFields:
         )
 
 
+def _parses(day: str | None, clock: str | None) -> bool:
+    """日付と時刻が、どちらも完成した形式か。入力の途中の値で状態を提案しないために使う。"""
+    try:
+        datetime.strptime((day or "").strip(), "%Y-%m-%d")
+        datetime.strptime((clock or "").strip(), "%H:%M")
+    except ValueError:
+        return False
+    return True
+
+
 class ActualFields:
     """実績の開始・終了。日付と時刻を両方入れる(補う時刻はない)。2件以上の実績は編集できない。"""
 
@@ -290,8 +300,8 @@ class ActualFields:
         if self.read_only:
             return False, False
         return (
-            bool((self.start_day.value or "").strip() and (self.start_time.value or "").strip()),
-            bool((self.end_day.value or "").strip() and (self.end_time.value or "").strip()),
+            _parses(self.start_day.value, self.start_time.value),
+            _parses(self.end_day.value, self.end_time.value),
         )
 
     def state(self) -> tuple[object, ...]:

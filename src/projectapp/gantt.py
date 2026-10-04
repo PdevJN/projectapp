@@ -47,7 +47,7 @@ OVERLOAD_STRIPES = (  # 割り当て合計が100%を超える期間の縞。タ�
     "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 4px, rgba(0,0,0,0.35) 4px 8px)"
 )
 MIN_BAR_PX = 4  # 幅0や終了が開始より前のタスクも、見える細い棒で出す
-PLANNED_OPACITY = 0.4  # 実績を重ねるため、予定の棒は半透明にする
+PLANNED_OPACITY = 0.4  # 実績を重ねるため、予定の棒は半透明にする(背景の色だけ。縞は薄くしない)
 BAR_TOP_PX = 6
 BAR_HEIGHT_PX = ROW_HEIGHT_PX - 12
 ACTUAL_HEIGHT_PX = BAR_HEIGHT_PX // 2  # 実績の棒は、予定の棒の下半分
@@ -61,6 +61,11 @@ ADD_ROW_STYLE = f"height: {ADD_ROW_HEIGHT_PX}px; position: relative; border-bott
 SEARCH_ENTER_JS = "(e) => { if (!e.isComposing && e.keyCode !== 229) emit(e.target.value); }"
 SCROLLBAR_ROOM_PX = 16  # 横スクロールバーの分の余白。WebKit は高さ auto にバーの厚みを含めない
 ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メンバー名は空にできない
+
+
+def planned_background(color: str) -> str:
+    """予定の棒の背景。要素の opacity ではなく背景だけを半透明にし、中の縞は不透明のまま残す。"""
+    return f"color-mix(in srgb, {color} {PLANNED_OPACITY * 100:g}%, transparent)"
 
 
 @dataclass
@@ -370,8 +375,7 @@ class GanttChart:
                     f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
                     f" width: {bar_width:.1f}px; top: {BAR_TOP_PX}px;"
                     f" height: {BAR_HEIGHT_PX}px;"
-                    f" background: {task.color if is_hex_color(task.color) else DEFAULT_COLOR};"
-                    f" opacity: {PLANNED_OPACITY};"
+                    f" background: {planned_background(task.color if is_hex_color(task.color) else DEFAULT_COLOR)};"
                     f" border-radius: 4px; cursor: {cursor}; overflow: hidden;"
                     " user-select: none; touch-action: none"
                 )

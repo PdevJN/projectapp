@@ -944,3 +944,14 @@ async def test_two_actuals_are_read_only_and_kept_on_save(user: User) -> None:
     await user.should_not_see(marker="task-actual-start-date")
     user.find(marker="task-save").click()
     assert saved[0].actuals == kept
+
+
+async def test_a_partly_typed_date_does_not_suggest_a_status(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-actual-start-time").type("09:00")  # 時刻を先に入れる
+    user.find(marker="task-actual-start-date").type("2026-1")  # 日付は入力の途中
+    assert value_of(user, "task-status") == Status.STARTED
+    await user.should_not_see("実績に合わせて状態を変えました")
+    user.find(marker="task-actual-start-date").clear().type("2026-10-05")
+    assert value_of(user, "task-status") == Status.RUNNING
