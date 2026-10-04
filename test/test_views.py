@@ -10,6 +10,7 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.calendar import DayKind, save_cache
+from projectapp.filtering import TaskFilter
 from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.models import Member, Project, Section, Task
@@ -383,6 +384,35 @@ async def test_choosing_in_the_combo_opens_a_clean_project_at_once(
     assert await wait_until(lambda: view.path == tmp_path / "既存.json")
     assert view.project.sections[0].name == "元"
     await user.should_not_see(marker="unsaved-save")
+
+
+async def test_opening_a_project_resets_the_filter_but_editing_keeps_it(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", members=[Member("田中")]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.gantt.set_filter(TaskFilter(query="設"))
+    view.apply_members([Member("鈴木")], {})
+    assert view.gantt.task_filter == TaskFilter(query="設")
+    assert view.is_dirty()  # メンバーの変更は編集中になる(条件は関係しない)
+    view.open_project("既存")
+    assert view.gantt.task_filter == TaskFilter()
+    assert user.find(marker="search-input").elements.pop().value == ""
+
+
+async def test_the_filter_does_not_make_the_project_dirty(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    assert not view.is_dirty()
+    view.gantt.set_filter(TaskFilter(query="設", assignee=None))
+    assert not view.is_dirty()
 
 
 async def test_is_dirty_follows_open_edit_and_save(user: User, tmp_path: Path) -> None:

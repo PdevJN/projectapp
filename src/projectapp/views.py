@@ -127,6 +127,7 @@ class MainView:
         self.file_select.set_value(name)
         self.title.refresh()
         self.gantt.set_project(self.project)
+        self.gantt.reset_filter()
 
     def show_file_list(self) -> None:
         """ファイルを走査し直して、一覧ダイアログを出す。"""

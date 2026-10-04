@@ -1,9 +1,10 @@
 # 作業記録
 
-最終更新: 2026-10-03(メンバーと割り当て率の実装を反映)
+最終更新: 2026-10-04(絞り込みの実装を反映)
 
 ## 現在の状況
 
+- 絞り込み(検索・担当者)を `feature/filtering` で実装済み(2026-10-04。`develop` へは未マージ)。**実機確認は未実施**(実装計画 Task 4 Step 5 の項目)。設計書 `2026-10-04-filtering-design.md`、実装計画 `2026-10-04-filtering.md`。テスト 567 件と `ty check` が通る。`filtering.py`(`TaskFilter`・`matches`)、`GanttChart` の `set_filter` / `reset_filter`、検索入力(300ms デバウンス)と担当者の選択、絞り込み変更時の `window.scrollTo`、`open_project` での条件リセット。次のサブプロジェクトは、ドラッグ&ドロップ(行の縦移動とコピー〔Alt/Option〕、バーの横移動)。仮定は、開始予定を日単位でずらす、手指定の完了予定は同じ日数ずらす、締切は動かさない、絞り込み中は行の並べ替えを無効にする。
 - 見積もりのバッファ換算とリソース割り当て比率(メンバー、割り当て率、換算、割り当て超過の縞)は、2026-10-03 に `develop` へマージ済み(マージコミット 6dc7972)。実機で確認済み。ブランチ `feature/resources` と `feature/resources-*`(7本)は削除済み。実機確認用のサンプル(`~/.projectapp/サンプル_*.json`)は削除済み。テスト 539 件が通る。設計書 `2026-10-03-resources-design.md`、実装計画 `2026-10-03-resources.md`。
 - 開始予定・完了予定・締切の変更は、2026-10-03 に `develop` へマージ済み(マージコミット 5a45807)。実機で確認済み。ブランチ `feature/planned-dates` と `feature/planned-dates-*`(9本)は削除済み。テスト 432 件が通る。
 
