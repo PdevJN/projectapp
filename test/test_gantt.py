@@ -5,6 +5,7 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.calendar import DayKind
+from projectapp.filtering import TaskFilter
 from projectapp.gantt import (
     DEADLINE_MARKER_HALF_PX,
     GRID_BORDER,
@@ -512,3 +513,156 @@ async def test_stripes_stay_inside_a_thin_bar(user: User) -> None:
     left = float(stripe._style["left"].removesuffix("px"))
     width = float(stripe._style["width"].removesuffix("px"))
     assert 0.0 <= left and left + width <= bar_width + 1e-6
+
+
+def mount_chart(
+    project: Project, holidays: dict[date, str] | None = None
+) -> tuple[list[GanttChart], Recorder]:
+    charts: list[GanttChart] = []
+    recorder = Recorder()
+
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(
+            project, holidays or {}, recorder.actions, now=lambda: datetime(2026, 10, 1)
+        )
+        charts.append(chart)
+        chart.build()
+
+    return charts, recorder
+
+
+def filter_project() -> Project:
+    def task(name: str, assignee: str) -> Task:
+        return Task(
+            name,
+            planned_start=datetime(2026, 10, 5, 12),
+            planned_end=datetime(2026, 10, 7, 12),
+            assignee=assignee,
+        )
+
+    return Project(
+        "demo",
+        base_date=BASE,
+        members=[Member("田中"), Member("鈴木")],
+        tasks=[task("調査", "田中")],
+        sections=[
+            Section("開発", [task("設計", "田中"), task("実装", "鈴木")]),
+            Section("試験", [task("結合試験", "鈴木")]),
+        ],
+    )
+
+
+async def test_a_query_hides_rows_that_do_not_match(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="実"))
+    await user.should_see(marker="task-0-1")
+    await user.should_not_see(marker="task-top-0")
+    await user.should_not_see(marker="task-0-0")
+    await user.should_not_see(marker="task-1-0")
+
+
+async def test_an_empty_filter_shows_every_row(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="実"))
+    charts[0].set_filter(TaskFilter())
+    for marker in ("task-top-0", "task-0-0", "task-0-1", "task-1-0"):
+        await user.should_see(marker=marker)
+
+
+async def test_original_indexes_are_kept_for_clicks_and_markers(user: User) -> None:
+    charts, recorder = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(assignee="鈴木"))
+    await user.should_see(marker="bar-0-1")
+    await user.should_see(marker="bar-1-0")
+    await user.should_not_see(marker="bar-0-0")
+    user.find(marker="task-0-1").click()
+    user.find(marker="bar-1-0").click()
+    assert recorder.events == [("edit_task", (0, 1)), ("edit_task", (1, 0))]
+
+
+async def test_query_and_assignee_are_combined(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="計", assignee="田中"))
+    await user.should_see(marker="task-0-0")
+    await user.should_not_see(marker="task-top-0")
+    await user.should_not_see(marker="task-0-1")
+    await user.should_not_see(marker="task-1-0")
+
+
+async def test_a_section_without_a_match_is_hidden_with_its_add_button(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="設計"))
+    await user.should_see(marker="add-task-0")
+    await user.should_not_see(marker="add-task-1")
+
+
+async def test_an_empty_section_is_hidden_only_while_filtering(user: User) -> None:
+    project = filter_project()
+    project.sections.append(Section("空", []))
+    charts, _ = mount_chart(project)
+    await user.open("/")
+    await user.should_see(marker="add-task-2")
+    charts[0].set_filter(TaskFilter(query="設計"))
+    await user.should_not_see(marker="add-task-2")
+
+
+async def test_the_top_add_row_stays_while_filtering(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="zzz"))
+    await user.should_see(marker="add-task-top")
+
+
+async def test_no_match_message_appears_only_when_nothing_matches(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    await user.should_not_see(marker="no-match")
+    charts[0].set_filter(TaskFilter(query="設計"))
+    await user.should_not_see(marker="no-match")
+    charts[0].set_filter(TaskFilter(query="zzz"))
+    await user.should_see(marker="no-match")
+    await user.should_see("条件に一致するタスクがありません")
+
+
+async def test_no_match_message_is_not_shown_for_a_project_without_tasks(user: User) -> None:
+    charts, _ = mount_chart(Project("空", base_date=BASE))
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="何か"))
+    await user.should_not_see(marker="no-match")
+
+
+async def test_stripes_do_not_change_while_filtering(user: User) -> None:
+    charts, _ = mount_chart(overloaded_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="A"))
+    a = user.find(marker="overload-top-0-0").elements.pop()
+    assert (a._style["left"], a._style["width"]) == ("80.0px", "80.0px")
+    await user.should_not_see(marker="bar-top-1")
+
+
+async def test_the_filter_survives_a_scale_change(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="実"))
+    user.find(kind=ui.toggle).elements.pop().set_value(Scale.WEEK)
+    await user.should_see(marker="task-0-1")
+    await user.should_not_see(marker="task-0-0")
+
+
+async def test_set_project_keeps_the_filter_but_drops_a_vanished_assignee(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    chart = charts[0]
+    chart.set_filter(TaskFilter(query="設", assignee="田中"))
+    chart.set_project(filter_project())
+    assert chart.task_filter == TaskFilter(query="設", assignee="田中")
+    other = filter_project()
+    other.members = [Member("鈴木")]
+    chart.set_project(other)
+    assert chart.task_filter == TaskFilter(query="設", assignee=None)

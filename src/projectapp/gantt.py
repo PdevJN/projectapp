@@ -1,12 +1,13 @@
 """ガントチャートの描画(NiceGUI要素とCSS)。"""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 
 from nicegui import ui
 
 from projectapp.calendar import DayKind, day_kind
+from projectapp.filtering import TaskFilter, matches
 from projectapp.models import DEFAULT_COLOR, Project, Section, Task, is_hex_color
 from projectapp.timeline import (
     Band,
@@ -73,9 +74,20 @@ class GanttChart:
         self.now = now
         self.overloads: list[Overload] = []
         self.scale = Scale.DAY
+        self.task_filter = TaskFilter()
 
     def set_project(self, project: Project) -> None:
+        """条件は保つ。担当者がメンバーからいなくなったときだけ、担当者の指定を外す。"""
         self.project = project
+        names = {member.name for member in project.members}
+        if self.task_filter.assignee not in (None, *names):
+            self.task_filter = replace(self.task_filter, assignee=None)
+        self.render.refresh()
+
+    def set_filter(self, task_filter: TaskFilter) -> None:
+        if task_filter == self.task_filter:
+            return
+        self.task_filter = task_filter
         self.render.refresh()
 
     def set_holidays(self, holidays: dict[date, str]) -> None:
@@ -111,11 +123,24 @@ class GanttChart:
                 if self.scale is Scale.DAY:
                     self.stripes(columns, width, top)
                 self.header(columns, width)
+                self.no_match_message()
                 for ti, task in enumerate(self.project.tasks):
-                    self.task_row(None, ti, task, columns, width)
+                    if matches(task, self.task_filter):
+                        self.task_row(None, ti, task, columns, width)
                 self.top_add_row()
                 for si, section in enumerate(self.project.sections):
                     self.section_rows(si, section, columns, width)
+
+    def no_match_message(self) -> None:
+        """絞り込み中に1件も一致しないとき(タスクが1つもないときは出さない)。"""
+        tasks = self.project.all_tasks()
+        if not (self.task_filter.active and tasks):
+            return
+        if any(matches(task, self.task_filter) for task in tasks):
+            return
+        ui.label("条件に一致するタスクがありません").classes("text-caption").style(
+            "position: relative; padding: 8px 16px"
+        ).mark("no-match")
 
     def top_add_row(self) -> None:
         """セクションなしのタスクの末尾に置く追加行。名前の列の右端にボタンを置く。"""
@@ -185,13 +210,18 @@ class GanttChart:
     def section_rows(
         self, si: int, section: Section, columns: list[Column], width: int
     ) -> None:
+        if self.task_filter.active and not any(
+            matches(task, self.task_filter) for task in section.tasks
+        ):
+            return
         with ui.row().classes("items-center no-wrap gap-2").style(ROW_STYLE):
             ui.label(section.name).classes("text-subtitle2")
             ui.button(
                 icon="add", on_click=lambda si=si: self.actions.add_task(si)
             ).props("flat dense round size=sm").tooltip("タスク追加").mark(f"add-task-{si}")
         for ti, task in enumerate(section.tasks):
-            self.task_row(si, ti, task, columns, width)
+            if matches(task, self.task_filter):
+                self.task_row(si, ti, task, columns, width)
 
     def task_row(
         self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
