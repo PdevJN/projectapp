@@ -25,6 +25,8 @@ from projectapp.gantt import (
     PLANNED_OPACITY,
     planned_background,
     fill_percent,
+    PROGRESS_STATE_COLORS,
+    PROGRESS_STATE_MARKS,
     DEADLINE_MARKER_HALF_PX,
     GRID_BORDER,
     NAME_WIDTH_PX,
@@ -37,7 +39,7 @@ from projectapp.gantt import (
     GanttChart,
 )
 from projectapp.models import DEFAULT_COLOR, Actual, Member, Project, Section, Status, Task
-from projectapp.timeline import Scale
+from projectapp.timeline import ProgressState, Scale
 
 BASE = date(2026, 10, 5)  # 月曜
 
@@ -1005,6 +1007,112 @@ async def test_fill_is_inside_the_bar_and_below_the_overload_stripes(user: User)
     bar = user.find(marker="bar-0-0").elements.pop()
     markers = [m for child in bar.default_slot.children for m in child._markers]
     assert markers[0].startswith("progress-fill-")  # 縞(overload-)より先に置く = 縞が手前
+
+
+MID = datetime(2026, 10, 6, 12)  # 予定の中間(進んでいるはずの割合は50%)
+
+
+def test_state_colors_and_marks_cover_the_visible_states() -> None:
+    assert PROGRESS_STATE_COLORS == {
+        ProgressState.DELAYED: "#b26a00",
+        ProgressState.AHEAD: "#00897b",
+        ProgressState.DONE: "#757575",
+        ProgressState.LATE_DONE: "#8e24aa",
+    }
+    assert PROGRESS_STATE_MARKS == {
+        ProgressState.DELAYED: "▼",
+        ProgressState.AHEAD: "▲",
+        ProgressState.DONE: "✓",
+        ProgressState.LATE_DONE: "✓!",
+    }
+
+
+@pytest.mark.parametrize(
+    ("progress", "state"),
+    [(10, ProgressState.DELAYED), (90, ProgressState.AHEAD)],
+)
+async def test_bar_outline_and_mark_follow_the_state(
+    user: User, progress: int, state: ProgressState
+) -> None:
+    mount(progress_project(progress), now=MID)
+    await user.open("/")
+    bar = user.find(marker="bar-0-0").elements.pop()
+    assert bar._style["outline"] == f"2px solid {PROGRESS_STATE_COLORS[state]}"
+    assert bar._style["outline-offset"] == "-2px"
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert mark.text == PROGRESS_STATE_MARKS[state]
+    assert mark._style["color"] == PROGRESS_STATE_COLORS[state]
+    assert mark._style["left"] == "304.0px"  # 200 + 0.5 * 40 + 2.0 * 40 + 4
+
+
+async def test_normal_state_has_no_outline_and_no_mark(user: User) -> None:
+    mount(progress_project(50), now=MID)
+    await user.open("/")
+    bar = user.find(marker="bar-0-0").elements.pop()
+    assert "outline" not in bar._style
+    await user.should_not_see(marker="progress-state-0-0")
+
+
+async def test_no_state_without_progress_has_no_outline_and_no_mark(user: User) -> None:
+    mount(progress_project(None), now=MID)
+    await user.open("/")
+    assert "outline" not in user.find(marker="bar-0-0").elements.pop()._style
+    await user.should_not_see(marker="progress-state-0-0")
+
+
+async def test_done_state_is_marked(user: User) -> None:
+    in_time = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 7, 10), 100)
+    mount(progress_project(100, status=Status.DONE, actuals=[in_time]), now=datetime(2026, 10, 20))
+    await user.open("/")
+    assert user.find(marker="progress-state-0-0").elements.pop().text == "✓"
+
+
+async def test_late_done_state_is_marked(user: User) -> None:
+    late = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 8, 12), 100)
+    mount(progress_project(100, status=Status.DONE, actuals=[late]), now=datetime(2026, 10, 20))
+    await user.open("/")
+    assert user.find(marker="progress-state-0-0").elements.pop().text == "✓!"
+    bar = user.find(marker="bar-0-0").elements.pop()
+    assert bar._style["outline"] == f"2px solid {PROGRESS_STATE_COLORS[ProgressState.LATE_DONE]}"
+
+
+def tooltip_texts(user: User, target: ui.element) -> list[str]:
+    """要素に付いたツールチップの文字。tooltip() は作成時の親の子として作り、target で対象を指す。"""
+    return [
+        t.text
+        for t in user.find(kind=ui.tooltip).elements
+        if t.props.get("target") == f"#{target.html_id}"
+    ]
+
+
+async def test_state_mark_tooltips(user: User) -> None:
+    mount(progress_project(10), now=MID)
+    await user.open("/")
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert tooltip_texts(user, mark) == ["遅延(進捗 10% / 予定 50%)"]
+
+
+async def test_done_mark_tooltip_has_no_progress_part(user: User) -> None:
+    mount(progress_project(None, status=Status.DONE), now=datetime(2026, 10, 20))
+    await user.open("/")
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert tooltip_texts(user, mark) == ["完了"]
+
+
+async def test_no_outline_or_mark_without_a_planned_bar(user: User) -> None:
+    task = Task("設計", status=Status.DONE, actuals=[Actual(datetime(2026, 10, 6, 12), None, 40)])
+    mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
+    await user.open("/")
+    await user.should_see(marker="actual-0-0-0")
+    await user.should_not_see(marker="progress-state-0-0")
+
+
+async def test_overdue_background_and_state_outline_coexist(user: User) -> None:
+    late = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 8, 12), 100)
+    mount(progress_project(100, status=Status.DONE, actuals=[late]), now=datetime(2026, 10, 20))
+    await user.open("/")
+    row = user.find(marker="row-0-0").elements.pop()
+    assert OVERDUE_COLOR in row._style["background"]
 
 
 async def test_clicking_an_actual_bar_edits_the_task(user: User) -> None:

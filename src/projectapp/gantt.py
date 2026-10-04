@@ -17,6 +17,7 @@ from projectapp.timeline import (
     Band,
     Column,
     Overload,
+    ProgressState,
     Scale,
     bar_span,
     build_columns,
@@ -24,10 +25,12 @@ from projectapp.timeline import (
     current_progress,
     deadline_position,
     effective_end,
+    expected_progress,
     interval_span,
     is_overdue,
     month_bands,
     overallocations,
+    progress_state,
     year_bands,
 )
 
@@ -54,6 +57,19 @@ BAR_HEIGHT_PX = ROW_HEIGHT_PX - 12
 ACTUAL_HEIGHT_PX = BAR_HEIGHT_PX // 2  # 実績の棒は、予定の棒の下半分
 ACTUAL_TOP_PX = BAR_TOP_PX + BAR_HEIGHT_PX - ACTUAL_HEIGHT_PX
 OVERDUE_COLOR = "rgba(239, 83, 80, 0.18)"  # 予定超過のタスク行の背景
+# 進捗の状態を示す枠線の色と印。赤は予定超過の背景、橙は◆(締切)と競合するので使わない。通常は何も出さない
+PROGRESS_STATE_COLORS = {
+    ProgressState.DELAYED: "#b26a00",
+    ProgressState.AHEAD: "#00897b",
+    ProgressState.DONE: "#757575",
+    ProgressState.LATE_DONE: "#8e24aa",
+}
+PROGRESS_STATE_MARKS = {
+    ProgressState.DELAYED: "▼",
+    ProgressState.AHEAD: "▲",
+    ProgressState.DONE: "✓",
+    ProgressState.LATE_DONE: "✓!",
+}
 GRID_BORDER = "1px solid rgba(128, 128, 128, 0.3)"  # 格子線。両テーマで見える半透明の灰色
 ADD_ROW_HEIGHT_PX = 24  # 追加行は通常の行より細くする
 ROW_STYLE = f"height: {ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
@@ -482,12 +498,16 @@ class GanttChart:
                 bar_width = max(length * width, MIN_BAR_PX)
                 draggable = self.scale is Scale.DAY
                 cursor = "grab" if draggable else "pointer"
+                state = progress_state(task, self.project, self.holidays, self.now())
+                outline = ""
+                if state in PROGRESS_STATE_COLORS:
+                    outline = f" outline: 2px solid {PROGRESS_STATE_COLORS[state]}; outline-offset: -2px;"
                 bar = ui.element("div").style(
                     f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
                     f" width: {bar_width:.1f}px; top: {BAR_TOP_PX}px;"
                     f" height: {BAR_HEIGHT_PX}px;"
                     f" background: {planned_background(task.color if is_hex_color(task.color) else DEFAULT_COLOR)};"
-                    f" border-radius: 4px; cursor: {cursor}; overflow: hidden;"
+                    f" border-radius: 4px; cursor: {cursor}; overflow: hidden;{outline}"
                     " user-select: none; touch-action: none"
                 )
                 bar.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
@@ -501,6 +521,9 @@ class GanttChart:
                 with bar:
                     self.progress_fill(key, ti, task)
                     self.overload_stripes(key, ti, task, left, bar_width, columns, width)
+                self.progress_marker(
+                    key, ti, task, state, NAME_WIDTH_PX + left * width + bar_width, end
+                )
             self.actual_bars(si, ti, task, columns, width)
             self.deadline_marker(si, ti, task, columns, width)
 
@@ -514,6 +537,30 @@ class GanttChart:
             f"position: absolute; left: 0; top: 0; bottom: 0; width: {percent}%;"
             f" background: {color}; pointer-events: none"
         ).mark(f"progress-fill-{key}-{ti}")
+
+    def progress_marker(
+        self,
+        key: int | str,
+        ti: int,
+        task: Task,
+        state: ProgressState | None,
+        bar_right: float,
+        end: datetime | None,
+    ) -> None:
+        """棒の右に、状態の印を小さく出す。通常と判定できないときは出さない。"""
+        if state not in PROGRESS_STATE_MARKS:
+            return
+        color = PROGRESS_STATE_COLORS[state]
+        tip = state.value
+        percent = current_progress(task)
+        if state in (ProgressState.DELAYED, ProgressState.AHEAD) and percent is not None:
+            if task.planned_start is not None and end is not None:
+                expected = expected_progress(task.planned_start, end, self.now())
+                tip = f"{state.value}(進捗 {percent}% / 予定 {expected:.0f}%)"
+        ui.label(PROGRESS_STATE_MARKS[state]).style(
+            f"position: absolute; left: {bar_right + 4:.1f}px; top: {BAR_TOP_PX}px;"
+            f" line-height: {BAR_HEIGHT_PX}px; font-size: 11px; color: {color}"
+        ).tooltip(tip).mark(f"progress-state-{key}-{ti}")
 
     def actual_bars(
         self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
