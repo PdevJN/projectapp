@@ -45,7 +45,7 @@ def move_task(project: Project, src: Position, dst: Position) -> bool:
 
 def copy_task(project: Project, src: Position, dst: Position) -> Task:
     original = tasks_at(project, src[0])[src[1]]
-    copy = replace(original, name=f"{original.name}{COPY_SUFFIX}", predecessors=[])
+    copy = replace(original, name=f"{original.name}{COPY_SUFFIX}", predecessors=[], actuals=[])
     target = tasks_at(project, dst[0])
     target.insert(min(dst[1], len(target)), copy)
     return copy

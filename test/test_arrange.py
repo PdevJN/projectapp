@@ -2,7 +2,7 @@ from dataclasses import replace
 from datetime import date, datetime
 
 from projectapp import arrange
-from projectapp.models import Priority, Project, Section, Status, Task
+from projectapp.models import Actual, Priority, Project, Section, Status, Task
 
 
 def names(tasks: list[Task]) -> list[str]:
@@ -204,3 +204,28 @@ def test_min_shift_days_lets_a_task_already_before_the_base_date_move_only_right
 
 def test_min_shift_days_without_a_start_is_zero() -> None:
     assert arrange.min_shift_days(Task("x"), date(2026, 10, 5)) == 0
+
+
+def test_copy_does_not_copy_actuals() -> None:
+    project = sample()
+    original = project.sections[0].tasks[1]
+    original.actuals = [Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12))]
+    copy = arrange.copy_task(project, (0, 1), (1, 0))
+    assert copy.actuals == []
+    assert len(original.actuals) == 1
+
+
+def test_shift_moves_only_the_planned_dates() -> None:
+    actuals = [Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12))]
+    task = Task("t", planned_start=datetime(2026, 10, 5, 9), actuals=list(actuals))
+    assert arrange.shift_task(task, 2) is True
+    assert task.planned_start == datetime(2026, 10, 7, 9)
+    assert task.actuals == actuals
+
+
+def test_move_keeps_actuals() -> None:
+    project = sample()
+    moved = project.sections[0].tasks[1]
+    moved.actuals = [Actual(datetime(2026, 10, 5, 9), None)]
+    arrange.move_task(project, (0, 1), (1, 0))
+    assert project.sections[1].tasks[0].actuals == [Actual(datetime(2026, 10, 5, 9), None)]
