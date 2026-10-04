@@ -60,9 +60,12 @@ ADD_ROW_STYLE = f"height: {ADD_ROW_HEIGHT_PX}px; position: relative; border-bott
 # IME の変換確定の Enter は無視する。Safari 系は確定時に isComposing が偽でも keyCode が 229 になる
 SEARCH_ENTER_JS = "(e) => { if (!e.isComposing && e.keyCode !== 229) emit(e.target.value); }"
 SCROLLBAR_ROOM_PX = 16  # 横スクロールバーの分の余白。WebKit は高さ auto にバーの厚みを含めない
-# チャートの枠は縦横ともここでスクロールする。上のヘッダー(タイトル・ファイル選択・ボタン)と
-# ツールバーの分を引いた高さを上限にする(固定の見積もり。実機で合わせる)
-CHART_MAX_HEIGHT = "calc(100vh - 220px)"
+# チャートの枠は縦横ともここでスクロールする。高さの上限は、画面の高さから、上のヘッダー
+# (タイトル・ファイル選択・ボタン・ツールバー)と、右下のヘルプのボタンの分を引いた値
+# (どちらも固定の見積もり。実機で合わせる)
+CHART_TOP_OFFSET_PX = 190
+FAB_ZONE_PX = 100  # ヘルプのボタン: 下から18px + 高さ56px + 余白
+CHART_MAX_HEIGHT = f"calc(100vh - {CHART_TOP_OFFSET_PX + FAB_ZONE_PX}px)"
 # 固定する要素の重なり。見出し > タスク名の列 > 棒・縞・格子線。見出しの中では左端の空白が帯より手前
 STICKY_Z_SPACER, STICKY_Z_NAME, STICKY_Z_HEADER = 1, 2, 3
 # 固定した要素の下を棒や縞が通るので、不透明な背景が要る(ページの背景色に合わせる)
@@ -377,14 +380,19 @@ class GanttChart:
         header.mark(f"section-{si}")
         with header:
             name = ui.row().classes("items-center no-wrap gap-2 gantt-sticky")
-            name.style(  # 名前の列の全体を覆う(狭いと、残りの透明な部分に縞や格子線が見える)
-                f"min-width: {NAME_WIDTH_PX}px; align-self: stretch; {sticky_left(STICKY_Z_NAME)}"
+            name.style(  # 名前の列にちょうど収める(狭いと縞や格子線が見え、広いと棒を隠す)
+                f"width: {NAME_WIDTH_PX}px; overflow: hidden; align-self: stretch;"
+                f" {sticky_left(STICKY_Z_NAME)}"
             )
             with name.mark(f"section-name-{si}"):
-                ui.label(section.name).classes("text-subtitle2")
+                label = ui.label(section.name).classes("text-subtitle2 ellipsis")
+                label.style("min-width: 0; padding-left: 4px")  # 長い名前は縮めて、ボタンを残す
+                label.tooltip(section.name).mark(f"section-label-{si}")
                 ui.button(
                     icon="add", on_click=lambda si=si: self.actions.add_task(si)
-                ).props("flat dense round size=sm").tooltip("タスク追加").mark(f"add-task-{si}")
+                ).props("flat dense round size=sm").classes("shrink-0").tooltip(
+                    "タスク追加"
+                ).mark(f"add-task-{si}")
         for ti, task in enumerate(section.tasks):
             if matches(task, self.task_filter):
                 self.task_row(si, ti, task, columns, width)

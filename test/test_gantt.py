@@ -10,6 +10,8 @@ from projectapp.filtering import TaskFilter
 from projectapp.gantt_drag import CHART_DRAG_CSS
 from projectapp.gantt import (
     CHART_MAX_HEIGHT,
+    CHART_TOP_OFFSET_PX,
+    FAB_ZONE_PX,
     SCROLL_TO_TOP_JS,
     STICKY_CSS,
     STICKY_Z_HEADER,
@@ -945,8 +947,9 @@ async def test_section_name_is_pinned_to_the_left(user: User) -> None:
     assert name._style["left"] == "0px"
     assert name._style["z-index"] == str(STICKY_Z_NAME)
     assert "gantt-sticky" in name.classes
-    # 名前の列(200px)の全体を覆う。狭いと、残りの透明な部分に縞や格子線が見える
-    assert name._style["min-width"] == f"{NAME_WIDTH_PX}px"
+    # 名前の列(200px)の全体を覆い、それを越えない。狭いと縞や格子線が見え、広いと棒を隠す
+    assert name._style["width"] == f"{NAME_WIDTH_PX}px"
+    assert name._style["overflow"] == "hidden"
     assert pinned(user, "add-task-0").parent_slot.parent is name  # 追加ボタンも一緒に固定される
 
 
@@ -983,3 +986,21 @@ def test_drop_marks_are_repeated_on_pinned_cells() -> None:
     assert ".drop-before > .gantt-sticky" in CHART_DRAG_CSS
     assert ".drop-after > .gantt-sticky" in CHART_DRAG_CSS
     assert ".drop-into > .gantt-sticky" in CHART_DRAG_CSS
+
+
+async def test_a_long_section_name_is_shortened_inside_the_name_column(user: User) -> None:
+    project = sample_project()
+    project.sections[0].name = "とても長いセクション名" * 10
+    mount(project)
+    await user.open("/")
+    label = pinned(user, "section-label-0")
+    assert "ellipsis" in label.classes
+    assert label._style["min-width"] == "0"  # 縮められる(縮まないと追加ボタンが列の外へ出る)
+    assert "shrink-0" in pinned(user, "add-task-0").classes  # 追加ボタンは常に見える
+    assert pinned(user, "section-name-0")._style["width"] == f"{NAME_WIDTH_PX}px"
+
+
+def test_the_chart_box_stops_above_the_help_button() -> None:
+    # 右下のヘルプのボタン(下から18px + 高さ56px)に、枠の右下が重ならない
+    assert FAB_ZONE_PX >= 18 + 56
+    assert CHART_MAX_HEIGHT == f"calc(100vh - {CHART_TOP_OFFSET_PX + FAB_ZONE_PX}px)"
