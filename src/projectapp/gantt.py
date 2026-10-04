@@ -121,6 +121,15 @@ class GanttChart:
         if parsed is not None:
             self.actions.move_task(*parsed)
 
+    def handle_shift(self, args: object) -> None:
+        """バーの横移動を受ける。日次スケール以外と、不正な値は無視する。"""
+        if self.scale is not Scale.DAY:
+            return
+        parsed = arrange.parse_shift(args)
+        if parsed is not None:
+            (section, index), days = parsed
+            self.actions.shift_task(section, index, days)
+
     def drag_props(self, kind: str, key: int | str, **extra: object) -> str:
         """ドロップ先の `data-*` 属性。絞り込み中は空(ドロップできない)。"""
         if self.task_filter.active:
@@ -166,6 +175,7 @@ class GanttChart:
         ui.add_css(CHART_DRAG_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
+        ui.on("chart_shift", lambda e: self.handle_shift(e.args))
         with ui.row().classes("w-full items-center no-wrap gap-4").mark("chart-toolbar"):
             ui.toggle(
                 {scale: scale.value for scale in Scale},
@@ -349,15 +359,21 @@ class GanttChart:
             if span is not None:
                 left, length = span
                 bar_width = max(length * width, MIN_BAR_PX)
-                with ui.element("div").style(
+                draggable = self.scale is Scale.DAY
+                cursor = "grab" if draggable else "pointer"
+                bar = ui.element("div").style(
                     f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
                     f" width: {bar_width:.1f}px; top: 6px;"
                     f" height: {ROW_HEIGHT_PX - 12}px;"
                     f" background: {task.color if is_hex_color(task.color) else DEFAULT_COLOR};"
-                    " border-radius: 4px; cursor: pointer; overflow: hidden"
-                ).on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti)).mark(
-                    f"bar-{key}-{ti}"
-                ):
+                    f" border-radius: 4px; cursor: {cursor}; overflow: hidden;"
+                    " user-select: none; touch-action: none"
+                )
+                bar.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
+                bar.mark(f"bar-{key}-{ti}")
+                if draggable:
+                    bar.props(f"data-bar data-si={key} data-ti={ti} data-day-width={width}")
+                with bar:
                     self.overload_stripes(key, ti, task, left, bar_width, columns, width)
             self.deadline_marker(si, ti, task, columns, width)
 

@@ -71,5 +71,57 @@ CHART_DRAG_JS = """
     clearMarks();
     source = null;
   });
+
+  // バーの横移動。1日分の列幅に吸着し、放したときに日数だけを送る。
+  const MOVE_THRESHOLD_PX = 4;
+  let bar = null;
+  let suppressClick = false;
+
+  document.addEventListener("pointerdown", (event) => {
+    const el = event.target.closest ? event.target.closest("[data-bar]") : null;
+    if (!el || event.button !== 0) return;
+    bar = {
+      el, x0: event.clientX, width: Number(el.dataset.dayWidth),
+      moved: false, cancelled: false, days: 0,
+    };
+    el.setPointerCapture(event.pointerId);
+  });
+
+  document.addEventListener("pointermove", (event) => {
+    if (!bar || bar.cancelled) return;
+    const dx = event.clientX - bar.x0;
+    if (!bar.moved && Math.abs(dx) < MOVE_THRESHOLD_PX) return;
+    bar.moved = true;
+    bar.days = Math.round(dx / bar.width);
+    bar.el.style.transform = `translateX(${bar.days * bar.width}px)`;
+  });
+
+  document.addEventListener("pointerup", () => {
+    if (!bar) return;
+    const done = bar;
+    bar = null;
+    done.el.style.transform = "";
+    if (!done.moved && !done.cancelled) return;
+    suppressClick = true;  // 動かしたあとの click で編集ダイアログが開かないようにする
+    setTimeout(() => { suppressClick = false; }, 0);
+    if (!done.cancelled && done.days !== 0) {
+      emitEvent("chart_shift", {
+        si: section(done.el.dataset.si), ti: Number(done.el.dataset.ti), days: done.days,
+      });
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !bar) return;
+    bar.cancelled = true;
+    bar.el.style.transform = "";
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!suppressClick) return;
+    suppressClick = false;
+    event.stopPropagation();
+    event.preventDefault();
+  }, true);
 })();
 """
