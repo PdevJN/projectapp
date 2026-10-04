@@ -955,3 +955,104 @@ async def test_a_partly_typed_date_does_not_suggest_a_status(user: User) -> None
     await user.should_not_see("実績に合わせて状態を変えました")
     user.find(marker="task-actual-start-date").clear().type("2026-10-05")
     assert value_of(user, "task-status") == Status.RUNNING
+
+
+def progress_input(user: User):  # noqa: ANN202
+    return user.find(marker="task-actual-progress").elements.pop()
+
+
+def start_actual(user: User) -> None:
+    user.find(marker="task-actual-start-date").type("2026-10-05")
+    user.find(marker="task-actual-start-time").type("09:00")
+
+
+async def test_progress_input_saves_into_the_actual(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    start_actual(user)
+    progress_input(user).set_value(40)
+    user.find(marker="task-save").click()
+    assert saved[0].actuals[0].progress == 40
+
+
+async def test_progress_zero_is_saved_as_zero(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    start_actual(user)
+    progress_input(user).set_value(0)
+    user.find(marker="task-save").click()
+    assert saved[0].actuals[0].progress == 0
+
+
+async def test_existing_progress_is_shown(user: User) -> None:
+    task = Task("旧", actuals=[Actual(datetime(2026, 10, 5, 9, 0), None, 70)])
+    mount_dialog(task, [])
+    await open_dialog(user)
+    assert progress_input(user).value == 70
+
+
+async def test_clearing_the_progress_saves_none(user: User) -> None:
+    saved: list[Task] = []
+    task = Task("旧", actuals=[Actual(datetime(2026, 10, 5, 9, 0), None, 70)])
+    mount_dialog(task, saved)
+    await open_dialog(user)
+    progress_input(user).set_value(None)
+    user.find(marker="task-save").click()
+    assert saved[0].actuals[0].progress is None
+
+
+async def test_progress_without_a_start_is_an_error(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    progress_input(user).set_value(40)
+    user.find(marker="task-save").click()
+    assert saved == []
+    await user.should_see("実績の開始を入れてください")
+
+
+async def test_progress_out_of_range_is_an_error(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    start_actual(user)
+    progress_input(user).set_value(120)
+    user.find(marker="task-save").click()
+    assert saved == []
+    await user.should_see("進捗度は0〜100の整数で入力してください")
+
+
+async def test_hundred_percent_without_an_end_does_not_suggest_a_status(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    progress_input(user).set_value(100)
+    start_actual(user)
+    assert value_of(user, "task-status") == Status.STARTED
+
+
+async def test_changing_the_progress_counts_as_a_change_when_closing(user: User) -> None:
+    task = Task("旧", actuals=[Actual(datetime(2026, 10, 5, 9, 0), None, 10)])
+    mount_dialog(task, [])
+    await open_dialog(user)
+    progress_input(user).set_value(20)
+    user.find(marker="task-cancel").click()
+    await user.should_see(marker="close-save")
+
+
+async def test_two_actuals_keep_their_progress_and_hide_the_input(user: User) -> None:
+    saved: list[Task] = []
+    kept = [
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 30),
+        Actual(datetime(2026, 10, 6, 9, 0), None, 60),
+    ]
+    mount_dialog(Task("旧", actuals=list(kept)), saved)
+    await open_dialog(user)
+    await user.should_not_see(marker="task-actual-progress")
+    user.find(marker="task-save").click()
+    assert saved[0].actuals == kept
