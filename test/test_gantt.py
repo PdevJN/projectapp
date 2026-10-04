@@ -981,6 +981,12 @@ def test_pinned_cells_have_an_opaque_background_for_both_themes() -> None:
     assert "--q-dark-page" in STICKY_CSS
 
 
+def test_the_chart_scrollbars_follow_the_dark_theme() -> None:
+    # 標準のスクロールバーがライト用の白いまま残らないように
+    assert "body.body--dark [data-chart-scroll]" in STICKY_CSS
+    assert "color-scheme: dark" in STICKY_CSS
+
+
 def test_drop_marks_are_repeated_on_pinned_cells() -> None:
     # 不透明な背景が、行の「ここに入る」の線を左の列で隠さないように
     assert ".drop-before > .gantt-sticky" in CHART_DRAG_CSS

@@ -72,6 +72,7 @@ STICKY_Z_SPACER, STICKY_Z_NAME, STICKY_Z_HEADER = 1, 2, 3
 STICKY_CSS = """
 .gantt-sticky { background-color: #fff; }
 body.body--dark .gantt-sticky { background-color: var(--q-dark-page, #121212); }
+body.body--dark [data-chart-scroll] { color-scheme: dark; }
 """
 # 絞り込みの変更時に、チャートの枠とページの両方を先頭へ戻す
 SCROLL_TO_TOP_JS = (
