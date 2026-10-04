@@ -77,6 +77,7 @@ class MainView:
 
     def set_theme(self, theme: str) -> None:
         self.apply_theme(theme)
+        self.gantt.refresh_scrollbars()  # 標準のスクロールバーは、切り替えだけでは配色が変わらない
         save_theme(theme, self.base_dir)
         self.theme_buttons.refresh()
 

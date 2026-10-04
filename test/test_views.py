@@ -1116,3 +1116,14 @@ async def test_shift_task_before_the_base_date_can_only_move_right(
     assert task.planned_start == datetime(2026, 10, 3, 9)
     view.shift_task(None, 0, 1)
     assert task.planned_start == datetime(2026, 10, 4, 9)
+
+
+async def test_switching_the_theme_refreshes_the_chart_scrollbars(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    calls: list[str] = []
+    views[0].gantt.refresh_scrollbars = lambda: calls.append("refresh")  # type: ignore[method-assign]
+    views[0].set_theme("dark")
+    assert calls == ["refresh"]
+    assert views[0].theme == "dark"

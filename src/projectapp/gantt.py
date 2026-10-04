@@ -72,13 +72,30 @@ STICKY_Z_SPACER, STICKY_Z_NAME, STICKY_Z_HEADER = 1, 2, 3
 STICKY_CSS = """
 .gantt-sticky { background-color: #fff; }
 body.body--dark .gantt-sticky { background-color: var(--q-dark-page, #121212); }
-body.body--dark [data-chart-scroll] { color-scheme: dark; }
+body.body--dark [data-chart-scroll] { color-scheme: dark; background-color: var(--q-dark-page, #121212); }
+body.body--dark [data-chart-scroll]::-webkit-scrollbar { width: 12px; height: 12px; }
+body.body--dark [data-chart-scroll]::-webkit-scrollbar-track { background: var(--q-dark-page, #121212); }
+body.body--dark [data-chart-scroll]::-webkit-scrollbar-thumb { background: #555; border-radius: 6px; }
+body.body--dark [data-chart-scroll]::-webkit-scrollbar-corner { background: var(--q-dark-page, #121212); }
 """
 # 絞り込みの変更時に、チャートの枠とページの両方を先頭へ戻す
 SCROLL_TO_TOP_JS = (
     "document.querySelector('[data-chart-scroll]')?.scrollTo({top: 0});"
     " window.scrollTo({top: 0})"
 )
+# WebKit は、親のクラス(body--dark)が実行中に変わっても、標準のスクロールバーを描き直さない。
+# overflow を一度切り替えて描き直させ、スクロール位置と元の overflow は戻す
+REFRESH_SCROLLBARS_JS = """
+setTimeout(() => {
+  const el = document.querySelector('[data-chart-scroll]');
+  if (!el) return;
+  const top = el.scrollTop, left = el.scrollLeft, overflow = el.style.overflow;
+  el.style.overflow = 'hidden';
+  void el.offsetHeight;
+  el.style.overflow = overflow;
+  el.scrollTo(left, top);
+}, 50);
+"""
 ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メンバー名は空にできない
 
 
@@ -191,6 +208,11 @@ class GanttChart:
         if self.assignee_select is not None:
             value = self.task_filter.assignee or ALL_ASSIGNEES
             self.assignee_select.set_options(self.assignee_options(), value=value)
+
+    def refresh_scrollbars(self) -> None:
+        """テーマの切り替え後に、枠のスクロールバーを新しい配色で描き直させる。"""
+        if self.client is not None:
+            self.client.run_javascript(REFRESH_SCROLLBARS_JS)
 
     def scroll_to_top(self) -> None:
         if self.client is not None:

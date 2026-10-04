@@ -11,6 +11,7 @@ from projectapp.gantt_drag import CHART_DRAG_CSS
 from projectapp.gantt import (
     CHART_MAX_HEIGHT,
     CHART_TOP_OFFSET_PX,
+    REFRESH_SCROLLBARS_JS,
     FAB_ZONE_PX,
     SCROLL_TO_TOP_JS,
     STICKY_CSS,
@@ -985,6 +986,10 @@ def test_the_chart_scrollbars_follow_the_dark_theme() -> None:
     # 標準のスクロールバーがライト用の白いまま残らないように
     assert "body.body--dark [data-chart-scroll]" in STICKY_CSS
     assert "color-scheme: dark" in STICKY_CSS
+    # 枠の余白(横スクロールバーの下)やトラックが、白いまま残らないように、暗い色を明示する
+    assert "body.body--dark [data-chart-scroll] { color-scheme: dark; background-color:" in STICKY_CSS
+    for part in ("::-webkit-scrollbar {", "::-webkit-scrollbar-track", "::-webkit-scrollbar-thumb", "::-webkit-scrollbar-corner"):
+        assert f"body.body--dark [data-chart-scroll]{part}" in STICKY_CSS, part
 
 
 def test_drop_marks_are_repeated_on_pinned_cells() -> None:
@@ -1010,3 +1015,12 @@ def test_the_chart_box_stops_above_the_help_button() -> None:
     # 右下のヘルプのボタン(下から18px + 高さ56px)に、枠の右下が重ならない
     assert FAB_ZONE_PX >= 18 + 56
     assert CHART_MAX_HEIGHT == f"calc(100vh - {CHART_TOP_OFFSET_PX + FAB_ZONE_PX}px)"
+
+
+def test_refreshing_the_scrollbars_keeps_the_scroll_position() -> None:
+    # WebKit は、親のクラス(body--dark)が実行中に変わっても、標準のスクロールバーを描き直さない。
+    # overflow を一度切り替えて描き直させ、スクロール位置は戻す
+    assert "[data-chart-scroll]" in REFRESH_SCROLLBARS_JS
+    assert "style.overflow" in REFRESH_SCROLLBARS_JS
+    assert "scrollTop" in REFRESH_SCROLLBARS_JS and "scrollLeft" in REFRESH_SCROLLBARS_JS
+    assert "scrollTo" in REFRESH_SCROLLBARS_JS
