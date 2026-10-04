@@ -1,15 +1,19 @@
 import asyncio
 from datetime import date, datetime
 
+import pytest
 from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.calendar import DayKind
+from projectapp.filtering import TaskFilter
 from projectapp.gantt import (
     DEADLINE_MARKER_HALF_PX,
     GRID_BORDER,
     KIND_COLORS,
     MIN_BAR_PX,
+    SCROLLBAR_ROOM_PX,
+    SEARCH_ENTER_JS,
     OVERDUE_COLOR,
     GanttActions,
     GanttChart,
@@ -512,3 +516,286 @@ async def test_stripes_stay_inside_a_thin_bar(user: User) -> None:
     left = float(stripe._style["left"].removesuffix("px"))
     width = float(stripe._style["width"].removesuffix("px"))
     assert 0.0 <= left and left + width <= bar_width + 1e-6
+
+
+def mount_chart(
+    project: Project, holidays: dict[date, str] | None = None
+) -> tuple[list[GanttChart], Recorder]:
+    charts: list[GanttChart] = []
+    recorder = Recorder()
+
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(
+            project, holidays or {}, recorder.actions, now=lambda: datetime(2026, 10, 1)
+        )
+        charts.append(chart)
+        chart.build()
+
+    return charts, recorder
+
+
+def filter_project() -> Project:
+    def task(name: str, assignee: str) -> Task:
+        return Task(
+            name,
+            planned_start=datetime(2026, 10, 5, 12),
+            planned_end=datetime(2026, 10, 7, 12),
+            assignee=assignee,
+        )
+
+    return Project(
+        "demo",
+        base_date=BASE,
+        members=[Member("田中"), Member("鈴木")],
+        tasks=[task("調査", "田中")],
+        sections=[
+            Section("開発", [task("設計", "田中"), task("実装", "鈴木")]),
+            Section("試験", [task("結合試験", "鈴木")]),
+        ],
+    )
+
+
+async def test_a_query_hides_rows_that_do_not_match(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="実"))
+    await user.should_see(marker="task-0-1")
+    await user.should_not_see(marker="task-top-0")
+    await user.should_not_see(marker="task-0-0")
+    await user.should_not_see(marker="task-1-0")
+
+
+async def test_an_empty_filter_shows_every_row(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="実"))
+    charts[0].set_filter(TaskFilter())
+    for marker in ("task-top-0", "task-0-0", "task-0-1", "task-1-0"):
+        await user.should_see(marker=marker)
+
+
+async def test_original_indexes_are_kept_for_clicks_and_markers(user: User) -> None:
+    charts, recorder = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(assignee="鈴木"))
+    await user.should_see(marker="bar-0-1")
+    await user.should_see(marker="bar-1-0")
+    await user.should_not_see(marker="bar-0-0")
+    user.find(marker="task-0-1").click()
+    user.find(marker="bar-1-0").click()
+    assert recorder.events == [("edit_task", (0, 1)), ("edit_task", (1, 0))]
+
+
+async def test_query_and_assignee_are_combined(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="計", assignee="田中"))
+    await user.should_see(marker="task-0-0")
+    await user.should_not_see(marker="task-top-0")
+    await user.should_not_see(marker="task-0-1")
+    await user.should_not_see(marker="task-1-0")
+
+
+async def test_a_section_without_a_match_is_hidden_with_its_add_button(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="設計"))
+    await user.should_see(marker="add-task-0")
+    await user.should_not_see(marker="add-task-1")
+
+
+async def test_an_empty_section_is_hidden_only_while_filtering(user: User) -> None:
+    project = filter_project()
+    project.sections.append(Section("空", []))
+    charts, _ = mount_chart(project)
+    await user.open("/")
+    await user.should_see(marker="add-task-2")
+    charts[0].set_filter(TaskFilter(query="設計"))
+    await user.should_not_see(marker="add-task-2")
+
+
+async def test_the_top_add_row_stays_while_filtering(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="zzz"))
+    await user.should_see(marker="add-task-top")
+
+
+async def test_no_match_message_appears_only_when_nothing_matches(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    await user.should_not_see(marker="no-match")
+    charts[0].set_filter(TaskFilter(query="設計"))
+    await user.should_not_see(marker="no-match")
+    charts[0].set_filter(TaskFilter(query="zzz"))
+    await user.should_see(marker="no-match")
+    await user.should_see("条件に一致するタスクがありません")
+
+
+async def test_no_match_message_is_not_shown_for_a_project_without_tasks(user: User) -> None:
+    charts, _ = mount_chart(Project("空", base_date=BASE))
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="何か"))
+    await user.should_not_see(marker="no-match")
+
+
+async def test_stripes_do_not_change_while_filtering(user: User) -> None:
+    charts, _ = mount_chart(overloaded_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="A"))
+    a = user.find(marker="overload-top-0-0").elements.pop()
+    assert (a._style["left"], a._style["width"]) == ("80.0px", "80.0px")
+    await user.should_not_see(marker="bar-top-1")
+
+
+async def test_the_filter_survives_a_scale_change(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="実"))
+    user.find(kind=ui.toggle).elements.pop().set_value(Scale.WEEK)
+    await user.should_see(marker="task-0-1")
+    await user.should_not_see(marker="task-0-0")
+
+
+async def test_set_project_keeps_the_filter_but_drops_a_vanished_assignee(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    chart = charts[0]
+    chart.set_filter(TaskFilter(query="設", assignee="田中"))
+    chart.set_project(filter_project())
+    assert chart.task_filter == TaskFilter(query="設", assignee="田中")
+    other = filter_project()
+    other.members = [Member("鈴木")]
+    chart.set_project(other)
+    assert chart.task_filter == TaskFilter(query="設", assignee=None)
+
+
+async def test_typing_in_the_search_input_does_not_filter_until_enter(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    await user.should_see(marker="search-input")
+    user.find(marker="search-input").type("実")
+    assert charts[0].task_filter == TaskFilter()
+    await user.should_see(marker="task-top-0")
+
+
+async def test_enter_in_the_search_input_filters_the_rows(user: User) -> None:
+    mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="search-input").type("実").trigger("keydown.enter", args="実")
+    await user.should_see(marker="task-0-1")
+    await user.should_not_see(marker="task-top-0")
+
+
+async def test_enter_with_blank_text_means_no_condition(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="search-input").trigger("keydown.enter", args="\u3000 ")
+    assert charts[0].task_filter == TaskFilter()
+    await user.should_see(marker="task-top-0")
+
+
+def test_the_enter_script_ignores_ime_composition() -> None:
+    assert "isComposing" in SEARCH_ENTER_JS
+    assert "229" in SEARCH_ENTER_JS
+    assert "emit(e.target.value)" in SEARCH_ENTER_JS
+
+
+async def test_clearing_the_search_input_shows_every_row_again(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="search-input").trigger("keydown.enter", args="実")
+    await user.should_not_see(marker="task-top-0")
+    box = user.find(marker="search-input").elements.pop()
+    box.set_value(None)
+    assert charts[0].task_filter == TaskFilter()
+    await user.should_see(marker="task-top-0")
+
+
+async def test_the_assignee_select_lists_the_members_and_filters(user: User) -> None:
+    mount_chart(filter_project())
+    await user.open("/")
+    select = user.find(marker="assignee-filter").elements.pop()
+    assert select.options == {"": "すべての担当者", "田中": "田中", "鈴木": "鈴木"}
+    assert select.value == ""
+    select.set_value("鈴木")
+    await user.should_see(marker="task-0-1")
+    await user.should_not_see(marker="task-top-0")
+    select.set_value("")
+    await user.should_see(marker="task-top-0")
+
+
+async def test_set_project_updates_the_assignee_options_and_resets_a_vanished_choice(
+    user: User,
+) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    select = user.find(marker="assignee-filter").elements.pop()
+    select.set_value("田中")
+    other = filter_project()
+    other.members = [Member("鈴木"), Member("佐藤")]
+    charts[0].set_project(other)
+    assert select.options == {"": "すべての担当者", "鈴木": "鈴木", "佐藤": "佐藤"}
+    assert select.value == ""
+    assert charts[0].task_filter.assignee is None
+
+
+async def test_set_project_keeps_a_chosen_assignee_that_still_exists(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    select = user.find(marker="assignee-filter").elements.pop()
+    select.set_value("鈴木")
+    charts[0].set_project(filter_project())
+    assert select.value == "鈴木"
+    assert charts[0].task_filter.assignee == "鈴木"
+
+
+async def test_reset_filter_clears_the_inputs_and_shows_every_row(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="search-input").elements.pop().set_value("実")
+    charts[0].set_filter(TaskFilter(query="実"))
+    user.find(marker="assignee-filter").elements.pop().set_value("鈴木")
+    charts[0].reset_filter()
+    assert charts[0].task_filter == TaskFilter()
+    assert user.find(marker="search-input").elements.pop().value == ""
+    assert user.find(marker="assignee-filter").elements.pop().value == ""
+    await user.should_see(marker="task-top-0")
+    await user.should_see(marker="task-1-0")
+
+
+async def test_changing_the_filter_scrolls_to_the_top_but_set_project_does_not(
+    user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    calls: list[str] = []
+    monkeypatch.setattr(charts[0], "scroll_to_top", lambda: calls.append("scroll"))
+    charts[0].set_filter(TaskFilter(query="実"))
+    charts[0].set_filter(TaskFilter(query="実"))  # 同じ条件では動かない
+    assert calls == ["scroll"]
+    charts[0].set_project(filter_project())
+    assert calls == ["scroll"]
+    charts[0].reset_filter()
+    assert calls == ["scroll", "scroll"]
+
+
+async def test_the_toolbar_never_wraps_and_the_filters_shrink(user: User) -> None:
+    mount_chart(filter_project())
+    await user.open("/")
+    toolbar = user.find(marker="chart-toolbar").elements.pop()
+    assert "no-wrap" in toolbar.classes
+    for marker in ("search-input", "assignee-filter"):
+        style = user.find(marker=marker).elements.pop()._style
+        assert style["flex"].startswith("1 1")
+        assert style["min-width"]
+
+
+async def test_the_chart_scroll_box_has_room_for_the_horizontal_scrollbar(user: User) -> None:
+    mount_chart(filter_project())
+    await user.open("/")
+    style = user.find(marker="chart-scroll").elements.pop()._style
+    assert style["overflow-x"] == "auto"
+    assert style["overflow-y"] == "hidden"  # 縦のスクロールバーを出さない
+    assert style["padding-bottom"] == f"{SCROLLBAR_ROOM_PX}px"  # 横のスクロールバーが最下行に重ならない

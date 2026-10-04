@@ -1,12 +1,14 @@
 """ガントチャートの描画(NiceGUI要素とCSS)。"""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 
-from nicegui import ui
+from nicegui import Client, context, ui
+from nicegui.events import ValueChangeEventArguments
 
 from projectapp.calendar import DayKind, day_kind
+from projectapp.filtering import TaskFilter, matches
 from projectapp.models import DEFAULT_COLOR, Project, Section, Task, is_hex_color
 from projectapp.timeline import (
     Band,
@@ -47,6 +49,10 @@ GRID_BORDER = "1px solid rgba(128, 128, 128, 0.3)"  # 格子線。両テーマ�
 ADD_ROW_HEIGHT_PX = 24  # 追加行は通常の行より細くする
 ROW_STYLE = f"height: {ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
 ADD_ROW_STYLE = f"height: {ADD_ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
+# IME の変換確定の Enter は無視する。Safari 系は確定時に isComposing が偽でも keyCode が 229 になる
+SEARCH_ENTER_JS = "(e) => { if (!e.isComposing && e.keyCode !== 229) emit(e.target.value); }"
+SCROLLBAR_ROOM_PX = 16  # 横スクロールバーの分の余白。WebKit は高さ auto にバーの厚みを含めない
+ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メンバー名は空にできない
 
 
 @dataclass
@@ -73,10 +79,58 @@ class GanttChart:
         self.now = now
         self.overloads: list[Overload] = []
         self.scale = Scale.DAY
+        self.task_filter = TaskFilter()
+        self.search_input: ui.input | None = None
+        self.assignee_select: ui.select | None = None
+        self.client: Client | None = None
 
     def set_project(self, project: Project) -> None:
+        """条件は保つ。担当者がメンバーからいなくなったときだけ、担当者の指定を外す。"""
         self.project = project
+        names = {member.name for member in project.members}
+        if self.task_filter.assignee not in (None, *names):
+            self.task_filter = replace(self.task_filter, assignee=None)
+        self.sync_assignee_select()
         self.render.refresh()
+
+    def set_filter(self, task_filter: TaskFilter) -> None:
+        if task_filter == self.task_filter:
+            return
+        self.task_filter = task_filter
+        self.render.refresh()
+        self.scroll_to_top()
+
+    def commit_query(self, query: str | None) -> None:
+        self.set_filter(replace(self.task_filter, query=(query or "").strip()))
+
+    def on_search_changed(self, e: ValueChangeEventArguments) -> None:
+        """入力中は反映しない(IME の変換中を避ける)。空になったときだけ、すぐ条件を外す。"""
+        if not e.value:
+            self.commit_query("")
+
+    def reset_filter(self) -> None:
+        """条件を空に戻し、入力欄と選択にも反映する。別のプロジェクトを開いたときに使う。"""
+        self.task_filter = TaskFilter()
+        if self.search_input is not None:
+            self.search_input.set_value("")
+        if self.assignee_select is not None:
+            self.assignee_select.set_value(ALL_ASSIGNEES)
+        self.render.refresh()
+        self.scroll_to_top()
+
+    def assignee_options(self) -> dict[str, str]:
+        options = {ALL_ASSIGNEES: "すべての担当者"}
+        options.update({member.name: member.name for member in self.project.members})
+        return options
+
+    def sync_assignee_select(self) -> None:
+        if self.assignee_select is not None:
+            value = self.task_filter.assignee or ALL_ASSIGNEES
+            self.assignee_select.set_options(self.assignee_options(), value=value)
+
+    def scroll_to_top(self) -> None:
+        if self.client is not None:
+            self.client.run_javascript("window.scrollTo({top: 0})")
 
     def set_holidays(self, holidays: dict[date, str]) -> None:
         self.holidays = holidays
@@ -87,15 +141,46 @@ class GanttChart:
         self.render.refresh()
 
     def build(self) -> None:
-        with ui.row().classes("w-full items-center gap-4"):
+        self.client = context.client
+        with ui.row().classes("w-full items-center no-wrap gap-4").mark("chart-toolbar"):
             ui.toggle(
                 {scale: scale.value for scale in Scale},
                 value=self.scale,
                 on_change=lambda e: self.set_scale(Scale(e.value)),
-            ).mark("scale-toggle")
+            ).classes("shrink-0").mark("scale-toggle")
             ui.button("セクション追加", icon="add", on_click=self.actions.add_section).props(
                 "flat"
-            ).mark("add-section")
+            ).classes("shrink-0").mark("add-section")
+            self.search_input = (
+                ui.input(
+                    placeholder="タスク名で検索(Enterで確定)",
+                    value=self.task_filter.query,
+                    on_change=self.on_search_changed,
+                )
+                .props("clearable dense outlined")
+                .style("flex: 1 1 8rem; min-width: 6rem; max-width: 16rem")
+                .on(
+                    "keydown.enter",
+                    lambda e: self.commit_query(e.args),
+                    js_handler=SEARCH_ENTER_JS,
+                )
+                .mark("search-input")
+            )
+            self.assignee_select = (
+                ui.select(
+                    self.assignee_options(),
+                    value=self.task_filter.assignee or ALL_ASSIGNEES,
+                    on_change=lambda e: self.set_filter(
+                        replace(
+                            self.task_filter,
+                            assignee=None if e.value == ALL_ASSIGNEES else e.value,
+                        )
+                    ),
+                )
+                .props("dense outlined")
+                .style("flex: 1 1 8rem; min-width: 7rem; max-width: 12rem")
+                .mark("assignee-filter")
+            )
         self.render()
 
     @ui.refreshable_method
@@ -104,18 +189,32 @@ class GanttChart:
         self.overloads = overallocations(self.project, self.holidays)
         width = COLUMN_WIDTH_PX[self.scale]
         total = NAME_WIDTH_PX + width * len(columns)
-        with ui.element("div").classes("w-full").style("overflow-x: auto"):
+        scroll_style = f"overflow-x: auto; overflow-y: hidden; padding-bottom: {SCROLLBAR_ROOM_PX}px"
+        with ui.element("div").classes("w-full").style(scroll_style).mark("chart-scroll"):
             with ui.element("div").style(f"position: relative; width: {total}px"):
                 top = BAND_HEIGHT_PX * (1 if self.scale is Scale.MONTH else 2)
                 self.gridlines(columns, width, top)
                 if self.scale is Scale.DAY:
                     self.stripes(columns, width, top)
                 self.header(columns, width)
+                self.no_match_message()
                 for ti, task in enumerate(self.project.tasks):
-                    self.task_row(None, ti, task, columns, width)
+                    if matches(task, self.task_filter):
+                        self.task_row(None, ti, task, columns, width)
                 self.top_add_row()
                 for si, section in enumerate(self.project.sections):
                     self.section_rows(si, section, columns, width)
+
+    def no_match_message(self) -> None:
+        """絞り込み中に1件も一致しないとき(タスクが1つもないときは出さない)。"""
+        tasks = self.project.all_tasks()
+        if not (self.task_filter.active and tasks):
+            return
+        if any(matches(task, self.task_filter) for task in tasks):
+            return
+        ui.label("条件に一致するタスクがありません").classes("text-caption").style(
+            "position: relative; padding: 8px 16px"
+        ).mark("no-match")
 
     def top_add_row(self) -> None:
         """セクションなしのタスクの末尾に置く追加行。名前の列の右端にボタンを置く。"""
@@ -185,13 +284,18 @@ class GanttChart:
     def section_rows(
         self, si: int, section: Section, columns: list[Column], width: int
     ) -> None:
+        if self.task_filter.active and not any(
+            matches(task, self.task_filter) for task in section.tasks
+        ):
+            return
         with ui.row().classes("items-center no-wrap gap-2").style(ROW_STYLE):
             ui.label(section.name).classes("text-subtitle2")
             ui.button(
                 icon="add", on_click=lambda si=si: self.actions.add_task(si)
             ).props("flat dense round size=sm").tooltip("タスク追加").mark(f"add-task-{si}")
         for ti, task in enumerate(section.tasks):
-            self.task_row(si, ti, task, columns, width)
+            if matches(task, self.task_filter):
+                self.task_row(si, ti, task, columns, width)
 
     def task_row(
         self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
