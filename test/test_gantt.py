@@ -898,6 +898,46 @@ async def test_actual_bar_is_drawn_without_a_planned_bar(user: User) -> None:
     await user.should_not_see(marker="bar-0-0")
 
 
+async def test_actual_bar_shows_the_progress(user: User) -> None:
+    mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12), 40)))
+    await user.open("/")
+    label = user.find(marker="actual-progress-0-0-0").elements.pop()
+    assert label.text == "40%"
+    assert label._style["pointer-events"] == "none"
+
+
+async def test_actual_bar_shows_zero_percent(user: User) -> None:
+    mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12), 0)))
+    await user.open("/")
+    assert user.find(marker="actual-progress-0-0-0").elements.pop().text == "0%"
+
+
+async def test_actual_bar_without_progress_shows_no_text(user: User) -> None:
+    mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))))
+    await user.open("/")
+    await user.should_see(marker="actual-0-0-0")
+    await user.should_not_see(marker="actual-progress-0-0-0")
+
+
+async def test_each_actual_shows_its_own_progress(user: User) -> None:
+    mount(
+        actual_project(
+            Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 7, 12), 30),
+            Actual(datetime(2026, 10, 8, 12), None, 60),
+        )
+    )
+    await user.open("/")
+    assert user.find(marker="actual-progress-0-0-0").elements.pop().text == "30%"
+    assert user.find(marker="actual-progress-0-0-1").elements.pop().text == "60%"
+
+
+async def test_actual_bar_clips_its_progress_text(user: User) -> None:
+    mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 6, 13), 40)))
+    await user.open("/")
+    bar = user.find(marker="actual-0-0-0").elements.pop()
+    assert bar._style["overflow"] == "hidden"
+
+
 async def test_clicking_an_actual_bar_edits_the_task(user: User) -> None:
     recorder = mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))))
     await user.open("/")
