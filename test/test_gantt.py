@@ -28,12 +28,14 @@ class Recorder:
     """操作のコールバックを記録する。"""
 
     def __init__(self) -> None:
-        self.events: list[tuple[str, tuple[int | None, ...]]] = []
+        self.events: list[tuple[str, tuple[object, ...]]] = []
         self.actions = GanttActions(
             add_section=lambda: self.events.append(("add_section", ())),
             add_task=lambda si: self.events.append(("add_task", (si,))),
             add_top_task=lambda: self.events.append(("add_top_task", ())),
             edit_task=lambda si, ti: self.events.append(("edit_task", (si, ti))),
+            move_task=lambda src, dst, copy: self.events.append(("move_task", (src, dst, copy))),
+            shift_task=lambda si, ti, days: self.events.append(("shift_task", (si, ti, days))),
         )
 
 

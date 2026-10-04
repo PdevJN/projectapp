@@ -7,6 +7,7 @@ from datetime import date, datetime
 from nicegui import Client, context, ui
 from nicegui.events import ValueChangeEventArguments
 
+from projectapp.arrange import Position
 from projectapp.calendar import DayKind, day_kind
 from projectapp.filtering import TaskFilter, matches
 from projectapp.models import DEFAULT_COLOR, Project, Section, Task, is_hex_color
@@ -63,6 +64,8 @@ class GanttActions:
     add_task: Callable[[int], object]
     add_top_task: Callable[[], object]
     edit_task: Callable[[int | None, int], object]  # セクション番号(Noneはセクションなし), タスク番号
+    move_task: Callable[[Position, Position, bool], object]  # 元, 挿入先, コピーか
+    shift_task: Callable[[int | None, int, int], object]  # セクション番号, タスク番号, 日数
 
 
 class GanttChart:

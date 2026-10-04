@@ -947,3 +947,129 @@ async def test_swapping_two_member_names_swaps_the_assignees_once(user: User, tm
     assert await wait_until(lambda: view.project.tasks[0].assignee == "B")
     assert [t.assignee for t in view.project.tasks] == ["B", "A"]
     assert [m.name for m in view.project.members] == ["B", "A"]
+
+
+async def test_move_task_moves_marks_dirty_and_redraws(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_section("開発")
+    view.project.tasks.append(Task("上"))
+    view.project.sections[0].tasks.extend([Task("a"), Task("b")])
+    view.mark_clean()
+    view.move_task((0, 0), (None, 1), False)
+    assert [t.name for t in view.project.tasks] == ["上", "a"]
+    assert [t.name for t in view.project.sections[0].tasks] == ["b"]
+    assert view.is_dirty()
+    await user.should_see(marker="task-top-1")
+
+
+async def test_move_task_to_the_same_place_does_nothing(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.tasks.extend([Task("a"), Task("b")])
+    view.mark_clean()
+    view.move_task((None, 0), (None, 1), False)
+    assert [t.name for t in view.project.tasks] == ["a", "b"]
+    assert not view.is_dirty()
+
+
+async def test_move_task_with_stale_positions_is_ignored(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.tasks.append(Task("a"))
+    view.mark_clean()
+    view.move_task((None, 5), (None, 0), False)
+    view.move_task((3, 0), (None, 0), False)
+    view.move_task((None, 0), (7, 0), False)
+    view.move_task((None, 0), (None, -1), True)
+    assert [t.name for t in view.project.tasks] == ["a"]
+    assert not view.is_dirty()
+
+
+async def test_copy_task_adds_a_copy_and_notifies(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_section("開発")
+    view.project.tasks.append(Task("設計"))
+    view.mark_clean()
+    view.move_task((None, 0), (0, 0), True)
+    assert [t.name for t in view.project.tasks] == ["設計"]
+    assert [t.name for t in view.project.sections[0].tasks] == ["設計(コピー)"]
+    assert view.is_dirty()
+    await user.should_see("「設計」をコピーしました")
+
+
+async def test_shift_task_moves_the_dates_and_marks_dirty(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.tasks.append(
+        Task("a", planned_start=datetime(2026, 10, 5, 9), deadline=datetime(2026, 10, 9))
+    )
+    view.mark_clean()
+    view.shift_task(None, 0, 2)
+    task = view.project.tasks[0]
+    assert task.planned_start == datetime(2026, 10, 7, 9)
+    assert task.deadline == datetime(2026, 10, 9)
+    assert view.is_dirty()
+
+
+async def test_shift_task_ignores_zero_and_stale_positions(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.tasks.append(Task("a", planned_start=datetime(2026, 10, 5, 9)))
+    view.mark_clean()
+    view.shift_task(None, 0, 0)
+    view.shift_task(None, 4, 1)
+    view.shift_task(2, 0, 1)
+    assert view.project.tasks[0].planned_start == datetime(2026, 10, 5, 9)
+    assert not view.is_dirty()
+
+
+async def test_shift_task_out_of_the_year_range_notifies_and_keeps_the_dates(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.tasks.append(Task("a", planned_start=datetime(2100, 12, 31, 9)))
+    view.mark_clean()
+    view.shift_task(None, 0, 1)
+    assert view.project.tasks[0].planned_start == datetime(2100, 12, 31, 9)
+    assert not view.is_dirty()
+    await user.should_see("日付の範囲を超えるため動かせません")
+
+
+async def test_shift_task_warns_when_the_assignee_goes_over_100_percent(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.apply_members([Member("田中")], {})
+    first = Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5, assignee="田中")
+    second = Task("b", planned_start=datetime(2026, 10, 6, 9), effort_hours=6.5, assignee="田中")
+    view.project.tasks.extend([first, second])
+    view.shift_task(None, 1, -1)  # 同じ日に重なる(割り当て 100% + 100%)
+    await user.should_see("田中 の割り当てが最大200%になる期間があります")
