@@ -11,9 +11,11 @@ from typing import Any, NamedTuple
 
 from projectapp.models import (
     MAX_ALLOCATION,
+    MAX_PROGRESS,
     MAX_RATIO,
     MAX_YEAR,
     MIN_ALLOCATION,
+    MIN_PROGRESS,
     MIN_RATIO,
     MIN_YEAR,
     Actual,
@@ -179,6 +181,17 @@ def _actual_moment(value: Any, label: str) -> datetime:
     return moment
 
 
+def _progress(value: Any) -> int | None:
+    """実績の進捗度を読む。null・キーなしは未入力。整数(boolは不可)で0〜100。"""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("実績の進捗度が整数ではありません")
+    if not MIN_PROGRESS <= value <= MAX_PROGRESS:
+        raise ValueError(f"実績の進捗度は{MIN_PROGRESS}〜{MAX_PROGRESS}で指定してください")
+    return value
+
+
 def _actuals(value: Any) -> list[Actual]:
     """実績を読む。キーがない・nullは実績なし。不正はValueError(開けませんでした)。"""
     if value is None:
@@ -186,6 +199,7 @@ def _actuals(value: Any) -> list[Actual]:
     if not isinstance(value, list):
         raise ValueError("実績がリストではありません")
     actuals: list[Actual] = []
+    previous: int | None = None  # 直前に入力のあった区間の進捗度(累積なので減らない)
     for raw in value:
         if not isinstance(raw, dict) or "start" not in raw:
             raise ValueError("実績に開始がありません")
@@ -193,7 +207,12 @@ def _actuals(value: Any) -> list[Actual]:
         end = None if raw.get("end") is None else _actual_moment(raw["end"], "終了")
         if end is not None and end < start:
             raise ValueError("実績の終了が開始より前です")
-        actuals.append(Actual(start, end))
+        progress = _progress(raw.get("progress"))
+        if progress is not None:
+            if previous is not None and progress < previous:
+                raise ValueError("実績の進捗度が前の区間より小さくなっています")
+            previous = progress
+        actuals.append(Actual(start, end, progress))
     return actuals
 
 

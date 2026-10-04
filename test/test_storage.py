@@ -529,3 +529,58 @@ def test_invalid_actuals_are_rejected(tmp_path: Path, bad: object) -> None:
     path.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(ValueError):
         load_project(path)
+
+
+def test_actual_progress_roundtrip(tmp_path: Path) -> None:
+    project = _project_with_actuals(
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 0),
+        Actual(datetime(2026, 10, 6, 9, 0), None, 40),
+        Actual(datetime(2026, 10, 7, 9, 0), None, None),
+    )
+    loaded = load_project(save_project(project, tmp_path))
+    assert [a.progress for a in loaded.tasks[0].actuals] == [0, 40, None]
+
+
+def test_file_without_progress_loads_as_none(tmp_path: Path) -> None:
+    path = save_project(_project_with_actuals(Actual(datetime(2026, 10, 5, 9, 0))), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["tasks"][0]["actuals"][0]["progress"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).tasks[0].actuals[0].progress is None
+
+
+@pytest.mark.parametrize("bad", [True, False, 40.5, 40.0, "40", -1, 101, [40]])
+def test_invalid_progress_is_rejected(tmp_path: Path, bad: object) -> None:
+    path = save_project(_project_with_actuals(Actual(datetime(2026, 10, 5, 9, 0))), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["tasks"][0]["actuals"][0]["progress"] = bad
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_project(path)
+
+
+@pytest.mark.parametrize("value", [0, 100])
+def test_progress_boundaries_are_accepted(tmp_path: Path, value: int) -> None:
+    project = _project_with_actuals(Actual(datetime(2026, 10, 5, 9, 0), None, value))
+    loaded = load_project(save_project(project, tmp_path))
+    assert loaded.tasks[0].actuals[0].progress == value
+
+
+def test_progress_that_decreases_across_actuals_is_rejected(tmp_path: Path) -> None:
+    project = _project_with_actuals(
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 60),
+        Actual(datetime(2026, 10, 6, 9, 0), None, 40),
+    )
+    path = save_project(project, tmp_path)
+    with pytest.raises(ValueError):
+        load_project(path)
+
+
+def test_unset_progress_between_actuals_is_skipped_when_checking_order(tmp_path: Path) -> None:
+    project = _project_with_actuals(
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 40),
+        Actual(datetime(2026, 10, 6, 9, 0), datetime(2026, 10, 6, 12, 0), None),
+        Actual(datetime(2026, 10, 7, 9, 0), None, 40),
+    )
+    loaded = load_project(save_project(project, tmp_path))
+    assert [a.progress for a in loaded.tasks[0].actuals] == [40, None, 40]
