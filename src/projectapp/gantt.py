@@ -385,10 +385,16 @@ class GanttChart:
         with ui.row().classes("items-center no-wrap gap-0").style(style):
             self.header_spacer(f"{marker}-spacer")
             for band in bands:
-                ui.label(band.label).classes("text-caption text-center").style(
+                cell = ui.element("div").style(
                     f"width: {band.count * width}px; border-left: {GRID_BORDER};"
-                    " overflow: hidden; white-space: nowrap"
-                ).mark(marker)
+                    " white-space: nowrap"
+                )
+                with cell.mark(marker):
+                    # 帯が画面より広くても、名前の列の右端に文字が残るよう、帯の中で固定する
+                    ui.label(band.label).classes("text-caption").style(
+                        f"position: sticky; left: {NAME_WIDTH_PX}px; display: inline-block;"
+                        " padding-left: 8px"
+                    ).mark(f"{marker}-label")
 
     def label_row(self, columns: list[Column], width: int) -> None:
         height = HEADER_HEIGHT_PX if self.scale is Scale.DAY else ROW_HEIGHT_PX

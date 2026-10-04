@@ -249,7 +249,23 @@ async def test_horizontal_grid_lines_under_every_row(user: User) -> None:
 
 
 def band_widths(user: User, marker: str) -> dict[str, str]:
-    return {e.text: e._style["width"] for e in user.find(marker=marker).elements}
+    return {
+        label.text: band._style["width"]
+        for band in user.find(marker=marker).elements
+        for label in user.find(marker=f"{marker}-label").elements
+        if label.parent_slot.parent is band
+    }
+
+
+async def test_band_labels_stay_visible_when_scrolled_horizontally(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    for marker in ("year-band-label", "month-band-label"):
+        labels = user.find(marker=marker).elements
+        assert labels, marker
+        for label in labels:
+            assert label._style["position"] == "sticky", marker
+            assert label._style["left"] == f"{NAME_WIDTH_PX}px", marker
 
 
 async def test_day_scale_has_year_and_month_bands_merging_cells(user: User) -> None:
