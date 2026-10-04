@@ -12,6 +12,7 @@ from projectapp.gantt import (
     GRID_BORDER,
     KIND_COLORS,
     MIN_BAR_PX,
+    SCROLLBAR_ROOM_PX,
     SEARCH_ENTER_JS,
     OVERDUE_COLOR,
     GanttActions,
@@ -790,3 +791,11 @@ async def test_the_toolbar_never_wraps_and_the_filters_shrink(user: User) -> Non
         assert style["flex"].startswith("1 1")
         assert style["min-width"]
 
+
+async def test_the_chart_scroll_box_has_room_for_the_horizontal_scrollbar(user: User) -> None:
+    mount_chart(filter_project())
+    await user.open("/")
+    style = user.find(marker="chart-scroll").elements.pop()._style
+    assert style["overflow-x"] == "auto"
+    assert style["overflow-y"] == "hidden"  # 縦のスクロールバーを出さない
+    assert style["padding-bottom"] == f"{SCROLLBAR_ROOM_PX}px"  # 横のスクロールバーが最下行に重ならない

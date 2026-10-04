@@ -51,6 +51,7 @@ ROW_STYLE = f"height: {ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRI
 ADD_ROW_STYLE = f"height: {ADD_ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
 # IME の変換確定の Enter は無視する。Safari 系は確定時に isComposing が偽でも keyCode が 229 になる
 SEARCH_ENTER_JS = "(e) => { if (!e.isComposing && e.keyCode !== 229) emit(e.target.value); }"
+SCROLLBAR_ROOM_PX = 16  # 横スクロールバーの分の余白。WebKit は高さ auto にバーの厚みを含めない
 ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メンバー名は空にできない
 
 
@@ -188,7 +189,8 @@ class GanttChart:
         self.overloads = overallocations(self.project, self.holidays)
         width = COLUMN_WIDTH_PX[self.scale]
         total = NAME_WIDTH_PX + width * len(columns)
-        with ui.element("div").classes("w-full").style("overflow-x: auto"):
+        scroll_style = f"overflow-x: auto; overflow-y: hidden; padding-bottom: {SCROLLBAR_ROOM_PX}px"
+        with ui.element("div").classes("w-full").style(scroll_style).mark("chart-scroll"):
             with ui.element("div").style(f"position: relative; width: {total}px"):
                 top = BAND_HEIGHT_PX * (1 if self.scale is Scale.MONTH else 2)
                 self.gridlines(columns, width, top)
