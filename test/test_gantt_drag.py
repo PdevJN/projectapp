@@ -1,3 +1,4 @@
+import json
 import shutil
 import subprocess
 from datetime import datetime
@@ -173,3 +174,125 @@ def test_the_script_has_the_bar_drag_pieces() -> None:
     assert "pointerdown" in CHART_DRAG_JS
     assert "Escape" in CHART_DRAG_JS
     assert "minDays" in CHART_DRAG_JS
+
+
+# --- JS の状態機械を、偽の document で実際に動かす(Node がなければ skip) ---
+
+HARNESS = r"""
+const fs = require("fs");
+const code = fs.readFileSync(process.argv[2], "utf8");
+const listeners = {};
+const emitted = [];
+const timers = [];
+global.window = {};
+global.document = {
+  addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
+  querySelectorAll: () => [],
+};
+global.emitEvent = (name, message) => emitted.push([name, message]);
+global.setTimeout = (fn) => { timers.push(fn); };
+eval(code);
+const fire = (type, event) => (listeners[type] || []).forEach((fn) => fn(event));
+const bar = {
+  dataset: { si: "0", ti: "0", dayWidth: "40", minDays: "-5" },
+  style: {},
+  setPointerCapture() {},
+  closest(selector) { return selector === "[data-bar]" ? this : null; },
+};
+const pointer = (x) => ({ target: bar, button: 0, pointerId: 1, clientX: x, buttons: 1 });
+const scenarios = {};
+
+const click = () => {
+  const event = { stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} };
+  fire("click", event);
+  return event.stopped;
+};
+const flush = () => timers.splice(0).forEach((fn) => fn());
+
+// 通常の移動(100px = 3日に吸着)
+fire("pointerdown", pointer(0)); fire("pointermove", pointer(100)); fire("pointerup", pointer(100));
+scenarios.normal = { emitted: emitted.splice(0), transform: bar.style.transform, suppressed: click() };
+flush();
+
+// pointercancel のあとは、動かしても放しても何も送らず、バーを戻す
+fire("pointerdown", pointer(0)); fire("pointermove", pointer(100));
+fire("pointercancel", pointer(100));
+fire("pointermove", pointer(200)); fire("pointerup", pointer(200));
+scenarios.cancel = { emitted: emitted.splice(0), transform: bar.style.transform };
+
+// ボタンが離れているのに pointermove が来たら、つかんだ状態を捨てる
+fire("pointerdown", pointer(0)); fire("pointermove", pointer(100));
+fire("pointermove", { ...pointer(200), buttons: 0 });
+fire("pointermove", pointer(300)); fire("pointerup", pointer(300));
+scenarios.released = { emitted: emitted.splice(0), transform: bar.style.transform };
+
+// 動かす前に Esc → クリックとして扱う(打ち消さない)
+fire("pointerdown", pointer(0)); fire("keydown", { key: "Escape" }); fire("pointerup", pointer(0));
+scenarios.escapeBeforeMove = { emitted: emitted.splice(0), suppressed: click() };
+flush();
+
+// 動かしている途中で Esc → 送らず、そのあとの click は打ち消す
+fire("pointerdown", pointer(0)); fire("pointermove", pointer(100)); fire("keydown", { key: "Escape" });
+fire("pointerup", pointer(100));
+scenarios.escapeAfterMove = { emitted: emitted.splice(0), suppressed: click() };
+flush();
+
+// 行の drag: 自分が始めた drag でないもの(外から持ち込んだ物)の drop は無視する
+const handle = { dataset: { si: "top", ti: "1" }, textContent: "x", closest(s) { return s === "[data-drag-handle]" ? this : null; } };
+const row = { dataset: { drop: "row", si: "0", ti: "0" }, classList: { add() {} }, getBoundingClientRect: () => ({ top: 0, height: 10 }), closest(s) { return s === "[data-drop]" ? this : null; } };
+const transfer = { types: [], setData(type) { this.types.push(type); } };
+fire("dragstart", { target: handle, dataTransfer: transfer });
+const drop = (types) => { fire("drop", { target: row, clientY: 1, altKey: true, dataTransfer: { types }, preventDefault() {} }); return emitted.splice(0); };
+scenarios.foreignDrop = drop(["Files"]);
+fire("dragstart", { target: handle, dataTransfer: transfer });
+scenarios.ownDrop = drop(transfer.types);
+
+console.log(JSON.stringify(scenarios));
+"""
+
+
+@pytest.fixture(scope="module")
+def js_scenarios(tmp_path_factory: pytest.TempPathFactory) -> dict:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node がないので JS の動作を確かめない")
+    directory = tmp_path_factory.mktemp("js")
+    (directory / "drag.js").write_text(CHART_DRAG_JS, encoding="utf-8")
+    (directory / "harness.js").write_text(HARNESS, encoding="utf-8")
+    result = subprocess.run(
+        [node, str(directory / "harness.js"), str(directory / "drag.js")],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def test_js_normal_shift_emits_the_snapped_days_and_swallows_the_click(js_scenarios: dict) -> None:
+    normal = js_scenarios["normal"]
+    assert normal["emitted"] == [["chart_shift", {"si": 0, "ti": 0, "days": 3}]]
+    assert normal["transform"] == ""
+    assert normal["suppressed"] is True
+
+
+def test_js_pointercancel_releases_the_bar_without_sending(js_scenarios: dict) -> None:
+    assert js_scenarios["cancel"] == {"emitted": [], "transform": ""}
+
+
+def test_js_a_pointermove_without_buttons_drops_the_grab(js_scenarios: dict) -> None:
+    assert js_scenarios["released"] == {"emitted": [], "transform": ""}
+
+
+def test_js_escape_before_moving_is_still_a_click(js_scenarios: dict) -> None:
+    assert js_scenarios["escapeBeforeMove"] == {"emitted": [], "suppressed": False}
+
+
+def test_js_escape_after_moving_sends_nothing_and_swallows_the_click(js_scenarios: dict) -> None:
+    assert js_scenarios["escapeAfterMove"] == {"emitted": [], "suppressed": True}
+
+
+def test_js_a_drop_that_did_not_start_from_a_row_is_ignored(js_scenarios: dict) -> None:
+    assert js_scenarios["foreignDrop"] == []
+    assert js_scenarios["ownDrop"] == [
+        ["chart_move", {"src": [None, 1], "dst": [0, 0], "copy": True}]
+    ]

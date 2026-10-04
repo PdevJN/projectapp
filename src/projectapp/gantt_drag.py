@@ -16,8 +16,10 @@ CHART_DRAG_JS = """
   if (window.__ganttDragInstalled) return;
   window.__ganttDragInstalled = true;
   const section = (value) => (value === "top" ? null : Number(value));
+  const ROW_TYPE = "application/x-gantt-row";  // 自分が始めた drag かを見分ける
   let source = null;
 
+  const isRowDrag = (event) => Array.from((event.dataTransfer || {}).types || []).includes(ROW_TYPE);
   const clearMarks = () => {
     document.querySelectorAll(".drop-before, .drop-after, .drop-into").forEach((el) => {
       el.classList.remove("drop-before", "drop-after", "drop-into");
@@ -34,11 +36,12 @@ CHART_DRAG_JS = """
     if (!handle) return;
     source = [section(handle.dataset.si), Number(handle.dataset.ti)];
     event.dataTransfer.effectAllowed = "copyMove";
+    event.dataTransfer.setData(ROW_TYPE, "1");
     event.dataTransfer.setData("text/plain", handle.textContent || "");
   });
 
   document.addEventListener("dragover", (event) => {
-    const el = source ? target(event) : null;
+    const el = source && isRowDrag(event) ? target(event) : null;
     if (!el) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = event.altKey ? "copy" : "move";
@@ -51,7 +54,7 @@ CHART_DRAG_JS = """
   });
 
   document.addEventListener("drop", (event) => {
-    const el = source ? target(event) : null;
+    const el = source && isRowDrag(event) ? target(event) : null;
     if (!el) return;
     event.preventDefault();
     const index = el.dataset.drop === "row"
@@ -77,9 +80,16 @@ CHART_DRAG_JS = """
   let bar = null;
   let suppressClick = false;
 
+  const abortBar = () => {  // 送らずに、つかんだ状態を捨てる
+    if (!bar) return;
+    bar.el.style.transform = "";
+    bar = null;
+  };
+
   document.addEventListener("pointerdown", (event) => {
     const el = event.target.closest ? event.target.closest("[data-bar]") : null;
     if (!el || event.button !== 0) return;
+    abortBar();
     bar = {
       el, x0: event.clientX, width: Number(el.dataset.dayWidth),
       minDays: Number(el.dataset.minDays),  // 基準日より前へは動かさない
@@ -89,7 +99,12 @@ CHART_DRAG_JS = """
   });
 
   document.addEventListener("pointermove", (event) => {
-    if (!bar || bar.cancelled) return;
+    if (!bar) return;
+    if (event.buttons === 0) {  // 放したのに pointerup が届かなかった
+      abortBar();
+      return;
+    }
+    if (bar.cancelled) return;
     const dx = event.clientX - bar.x0;
     if (!bar.moved && Math.abs(dx) < MOVE_THRESHOLD_PX) return;
     bar.moved = true;
@@ -102,7 +117,7 @@ CHART_DRAG_JS = """
     const done = bar;
     bar = null;
     done.el.style.transform = "";
-    if (!done.moved && !done.cancelled) return;
+    if (!done.moved) return;  // 動かしていなければ、ふつうのクリック
     suppressClick = true;  // 動かしたあとの click で編集ダイアログが開かないようにする
     setTimeout(() => { suppressClick = false; }, 0);
     if (!done.cancelled && done.days !== 0) {
@@ -111,6 +126,9 @@ CHART_DRAG_JS = """
       });
     }
   });
+
+  document.addEventListener("pointercancel", abortBar);
+  document.addEventListener("lostpointercapture", abortBar);
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || !bar) return;
