@@ -16,6 +16,7 @@ from projectapp.models import (
     MIN_ALLOCATION,
     MIN_RATIO,
     MIN_YEAR,
+    Actual,
     Member,
     Priority,
     Project,
@@ -153,6 +154,7 @@ def _task(raw: dict[str, Any]) -> Task:
         assignee=_assignee(raw.get("assignee")),
         predecessors=list(raw["predecessors"]),
         allocation=_allocation(raw.get("allocation", 1.0)),
+        actuals=_actuals(raw.get("actuals")),
     )
 
 
@@ -166,6 +168,33 @@ def _number_in_range(value: Any, low: float, high: float, label: str) -> float:
 
 def _allocation(value: Any) -> float:
     return _number_in_range(value, MIN_ALLOCATION, MAX_ALLOCATION, "割り当て率")
+
+
+def _actual_moment(value: Any, label: str) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError(f"実績の{label}が文字列ではありません")
+    moment = _datetime(value)
+    if moment is None or moment.tzinfo is not None:
+        raise ValueError(f"実績の{label}の形式が正しくありません: {value!r}")
+    return moment
+
+
+def _actuals(value: Any) -> list[Actual]:
+    """実績を読む。キーがない・nullは実績なし。不正はValueError(開けませんでした)。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("実績がリストではありません")
+    actuals: list[Actual] = []
+    for raw in value:
+        if not isinstance(raw, dict) or "start" not in raw:
+            raise ValueError("実績に開始がありません")
+        start = _actual_moment(raw["start"], "開始")
+        end = None if raw.get("end") is None else _actual_moment(raw["end"], "終了")
+        if end is not None and end < start:
+            raise ValueError("実績の終了が開始より前です")
+        actuals.append(Actual(start, end))
+    return actuals
 
 
 def _assignee(value: Any) -> str | None:
