@@ -39,6 +39,14 @@ class Member:
 
 
 @dataclass
+class Actual:
+    """実績の1区間。endがNoneのときは進行中。"""
+
+    start: datetime
+    end: datetime | None = None
+
+
+@dataclass
 class Task:
     name: str
     planned_start: datetime | None = None
@@ -52,6 +60,7 @@ class Task:
     planned_end: datetime | None = None  # 完了予定の手入力値
     planned_end_manual: bool = False  # 工数があるときに、完了予定を手で指定するか
     allocation: float = 1.0  # 担当者の時間のうち、このタスクに使う割合(1.0 = 100%)
+    actuals: list[Actual] = field(default_factory=list)  # 実績の区間(今回の画面は0〜1件)
 
 
 @dataclass

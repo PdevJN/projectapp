@@ -2,8 +2,9 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from projectapp.models import Member, Project, Section, Status, Task
+from projectapp.models import Actual, Member, Project, Section, Status, Task
 from projectapp.timeline import (
+    actual_end,
     Band,
     Scale,
     bar_span,
@@ -585,3 +586,54 @@ def test_interval_span_matches_bar_span() -> None:
     columns = build_columns(Project("p", base_date=BASE), Scale.DAY)
     start, end = datetime(2026, 10, 5, 12), datetime(2026, 10, 7, 12)
     assert interval_span(start, end, columns) == bar_span(start, end, columns) == (0.5, 2.0)
+
+
+def done_task(end: datetime | None, *, status: Status = Status.DONE, deadline: datetime | None = None) -> Task:
+    return Task(
+        "t",
+        planned_start=datetime(2026, 10, 5, 9),
+        planned_end=datetime(2026, 10, 7, 18),
+        deadline=deadline,
+        status=status,
+        actuals=[Actual(datetime(2026, 10, 5, 9), end)],
+    )
+
+
+def test_actual_end_is_the_last_end_or_none() -> None:
+    assert actual_end(Task("t")) is None
+    assert actual_end(done_task(None)) is None
+    assert actual_end(done_task(datetime(2026, 10, 6, 18))) == datetime(2026, 10, 6, 18)
+    two = Task(
+        "t",
+        actuals=[
+            Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
+            Actual(datetime(2026, 10, 6, 9), None),
+        ],
+    )
+    assert actual_end(two) is None
+
+
+def test_finished_late_stays_overdue_after_the_actual_end() -> None:
+    task = done_task(datetime(2026, 10, 8, 10))  # 完了予定 10/7 18:00 より後に終了
+    assert is_overdue(task, Project("p"), {}, datetime(2026, 10, 20)) is True
+
+
+def test_finished_in_time_is_not_overdue_even_if_now_is_later() -> None:
+    task = done_task(datetime(2026, 10, 7, 17), status=Status.RUNNING)
+    assert is_overdue(task, Project("p"), {}, datetime(2026, 10, 20)) is False
+
+
+def test_finished_after_the_deadline_is_overdue() -> None:
+    task = done_task(datetime(2026, 10, 6, 18), deadline=datetime(2026, 10, 6, 12))
+    assert is_overdue(task, Project("p"), {}, datetime(2026, 10, 20)) is True
+
+
+def test_done_without_an_actual_end_is_not_overdue() -> None:
+    task = done_task(None)  # 終了なしの実績 + 状態は終了
+    assert is_overdue(task, Project("p"), {}, datetime(2026, 10, 20)) is False
+
+
+def test_not_done_without_an_actual_end_uses_now() -> None:
+    task = done_task(None, status=Status.RUNNING)
+    assert is_overdue(task, Project("p"), {}, datetime(2026, 10, 8)) is True
+    assert is_overdue(task, Project("p"), {}, datetime(2026, 10, 6)) is False

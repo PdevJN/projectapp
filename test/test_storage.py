@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from projectapp.config import load_theme, save_theme
-from projectapp.models import Member, Priority, Project, Section, Status, Task
+from projectapp.models import Actual, Member, Priority, Project, Section, Status, Task
 from projectapp.timeline import Scale, build_columns
 from projectapp.storage import list_project_files, load_project, save_project, validate_name
 
@@ -476,3 +476,56 @@ def test_project_all_tasks_lists_top_level_then_sections() -> None:
     top, inner = Task("top"), Task("in")
     project = Project("p", tasks=[top], sections=[Section("s", [inner])])
     assert project.all_tasks() == [top, inner]
+
+
+def _project_with_actuals(*actuals: Actual) -> Project:
+    return Project("demo", tasks=[Task("t", actuals=list(actuals))])
+
+
+def test_actuals_roundtrip(tmp_path: Path) -> None:
+    project = _project_with_actuals(
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 17, 30)),
+        Actual(datetime(2026, 10, 6, 9, 0), None),
+    )
+    loaded = load_project(save_project(project, tmp_path))
+    assert loaded.tasks[0].actuals == project.tasks[0].actuals
+
+
+def test_file_without_actuals_loads_as_empty(tmp_path: Path) -> None:
+    path = save_project(_project_with_actuals(), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["tasks"][0]["actuals"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).tasks[0].actuals == []
+
+
+def test_file_with_null_actuals_loads_as_empty(tmp_path: Path) -> None:
+    path = save_project(_project_with_actuals(), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["tasks"][0]["actuals"] = None
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).tasks[0].actuals == []
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "x",
+        {"start": "2026-10-05T09:00:00"},
+        [{"end": "2026-10-05T09:00:00"}],
+        [{"start": None}],
+        [{"start": 5}],
+        [{"start": "2026-10-05T09:00:00", "end": 5}],
+        [{"start": "2026-10-05T09:00:00", "end": "2026-10-05T08:00:00"}],
+        [{"start": "2026-10-05T09:00:00+09:00"}],
+        [{"start": "1999-10-05T09:00:00"}],
+        ["2026-10-05T09:00:00"],
+    ],
+)
+def test_invalid_actuals_are_rejected(tmp_path: Path, bad: object) -> None:
+    path = save_project(_project_with_actuals(), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["tasks"][0]["actuals"] = bad
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_project(path)

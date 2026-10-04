@@ -10,6 +10,7 @@ from projectapp.forms import (
     build_section_name,
     build_task,
     build_work_settings,
+    compose_actual,
     compose_datetime,
     default_times,
     exceeds_decimals,
@@ -22,8 +23,9 @@ from projectapp.forms import (
     open_settings_dialog,
     open_unsaved_dialog,
     parse_datetime,
+    suggest_status,
 )
-from projectapp.models import Member, Priority, Status, Task
+from projectapp.models import Actual, Member, Priority, Status, Task
 from projectapp.task_dialog import open_task_dialog
 
 
@@ -739,3 +741,65 @@ def test_a_bad_allocation_is_rejected_when_there_is_an_assignee(percent: float |
 @pytest.mark.parametrize("percent", [1.0, 100.0, 33.33])
 def test_allocation_boundaries_are_accepted(percent: float) -> None:
     assert make(assignee="田中", allocation_percent=percent).allocation == pytest.approx(percent / 100)
+
+
+def test_actuals_default_to_none() -> None:
+    assert make().actuals == []
+
+
+def test_start_and_end_make_one_actual() -> None:
+    task = make(actual_start="2026-10-05T09:00", actual_end="2026-10-05T17:30")
+    assert task.actuals == [Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 17, 30))]
+
+
+def test_start_only_is_in_progress() -> None:
+    assert make(actual_start="2026-10-05T09:00").actuals == [Actual(datetime(2026, 10, 5, 9, 0), None)]
+
+
+def test_end_without_start_is_rejected() -> None:
+    with pytest.raises(ValueError, match="実績の開始"):
+        make(actual_end="2026-10-05T17:30")
+
+
+def test_actual_end_before_start_is_rejected() -> None:
+    with pytest.raises(ValueError, match="実績の終了"):
+        make(actual_start="2026-10-05T09:00", actual_end="2026-10-05T08:59")
+
+
+@pytest.mark.parametrize("bad", ["2026-10-05T09:00+09:00", "abc", "1999-10-05T09:00", "2101-01-01T09:00"])
+def test_bad_actual_start_is_rejected(bad: str) -> None:
+    with pytest.raises(ValueError):
+        make(actual_start=bad)
+
+
+def test_clearing_the_inputs_removes_the_actual() -> None:
+    existing = Task("t", actuals=[Actual(datetime(2026, 10, 5, 9, 0), None)])
+    assert make(existing).actuals == []
+
+
+def test_two_or_more_actuals_are_kept_and_the_inputs_are_ignored() -> None:
+    kept = [
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0)),
+        Actual(datetime(2026, 10, 6, 9, 0), None),
+    ]
+    existing = Task("t", actuals=list(kept))
+    assert make(existing, actual_start="", actual_end="").actuals == kept
+    assert make(existing, actual_start="2030-01-01T09:00").actuals == kept
+
+
+def test_compose_actual() -> None:
+    assert compose_actual("", "") == ""
+    assert compose_actual(" 2026-10-5 ", "09:00") == "2026-10-05T09:00"
+    for day, clock in (("2026-10-05", ""), ("", "09:00")):
+        with pytest.raises(ValueError, match="両方"):
+            compose_actual(day, clock)
+    with pytest.raises(ValueError):
+        compose_actual("2026-10-05", "9時")
+
+
+@pytest.mark.parametrize(
+    ("has_start", "has_end", "expected"),
+    [(False, False, None), (True, False, Status.RUNNING), (True, True, Status.DONE), (False, True, None)],
+)
+def test_suggest_status(has_start: bool, has_end: bool, expected: Status | None) -> None:
+    assert suggest_status(has_start, has_end) is expected

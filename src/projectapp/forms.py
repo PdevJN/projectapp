@@ -15,6 +15,7 @@ from projectapp.models import (
     MIN_ALLOCATION,
     MIN_RATIO,
     MIN_YEAR,
+    Actual,
     Member,
     Priority,
     Status,
@@ -89,6 +90,8 @@ def build_task(
     color: str,
     assignee: str,
     allocation_percent: float | None,
+    actual_start: str = "",
+    actual_end: str = "",
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。"""
     clean = name.strip()
@@ -124,6 +127,7 @@ def build_task(
                 f"割り当て率は{MIN_ALLOCATION * 100:g}〜{MAX_ALLOCATION * 100:g}%で入力してください"
             )
         allocation = round(allocation_percent / 100, 4)
+    actuals = base.actuals if len(base.actuals) > 1 else build_actuals(actual_start, actual_end)
     return replace(
         base,
         name=clean,
@@ -137,7 +141,26 @@ def build_task(
         color=color,
         assignee=assignee_name or None,
         allocation=allocation,
+        actuals=actuals,
     )
+
+
+def build_actuals(start_text: str, end_text: str) -> list[Actual]:
+    """実績の入力(compose_actual の結果)を検証して、0件か1件の区間にする。"""
+    try:
+        start_at, end_at = parse_datetime(start_text), parse_datetime(end_text)
+    except ValueError:
+        raise ValueError("実績の日時の形式が正しくありません") from None
+    if start_at is None:
+        if end_at is not None:
+            raise ValueError("実績の開始を入れてください")
+        return []
+    for moment in (start_at, end_at):
+        if moment and not MIN_YEAR <= moment.year <= MAX_YEAR:
+            raise ValueError(f"年は{MIN_YEAR}〜{MAX_YEAR}の範囲で入力してください")
+    if end_at is not None and end_at < start_at:
+        raise ValueError("実績の終了は開始以降の日時にしてください")
+    return [Actual(start_at, end_at)]
 
 
 def in_hours_range(hours: float) -> bool:
@@ -240,6 +263,22 @@ def compose_datetime(day: str, clock: str) -> str:
     except ValueError:
         raise ValueError("時刻の形式が正しくありません") from None
     return f"{day}T{clock}"
+
+
+def compose_actual(day: str, clock: str) -> str:
+    """実績の日付と時刻から文字列を作る。両方空は空、片方だけはエラー(実績は時刻を補わない)。"""
+    if not day.strip() and not clock.strip():
+        return ""
+    if not day.strip() or not clock.strip():
+        raise ValueError("日付と時刻を両方入れてください")
+    return compose_datetime(day, clock)
+
+
+def suggest_status(has_start: bool, has_end: bool) -> Status | None:
+    """実績の入力から、提案する状態。開始なし(終了だけを含む)と一時停止は提案しない。"""
+    if not has_start:
+        return None
+    return Status.DONE if has_end else Status.RUNNING
 
 
 def _minute(moment: datetime) -> time:
