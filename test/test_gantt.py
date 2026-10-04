@@ -24,6 +24,13 @@ from projectapp.gantt import (
     ACTUAL_TOP_PX,
     PLANNED_OPACITY,
     planned_background,
+    fill_percent,
+    PROGRESS_STATE_COLORS,
+    PROGRESS_STATE_MARKS,
+    FINISHED_ACTUAL_COLOR,
+    PROGRESS_CSS,
+    PROGRESS_STATE_CLASSES,
+    PROGRESS_STATE_DARK_COLORS,
     DEADLINE_MARKER_HALF_PX,
     GRID_BORDER,
     NAME_WIDTH_PX,
@@ -36,7 +43,7 @@ from projectapp.gantt import (
     GanttChart,
 )
 from projectapp.models import DEFAULT_COLOR, Actual, Member, Project, Section, Status, Task
-from projectapp.timeline import Scale
+from projectapp.timeline import ProgressState, Scale
 
 BASE = date(2026, 10, 5)  # 月曜
 
@@ -936,6 +943,335 @@ async def test_actual_bar_clips_its_progress_text(user: User) -> None:
     await user.open("/")
     bar = user.find(marker="actual-0-0-0").elements.pop()
     assert bar._style["overflow"] == "hidden"
+
+
+def progress_project(progress: int | None, **overrides: object) -> Project:
+    actuals = [Actual(datetime(2026, 10, 5, 12), None, progress)] if progress is not None else []
+    values: dict[str, object] = {
+        "planned_start": datetime(2026, 10, 5, 12),
+        "planned_end": datetime(2026, 10, 7, 12),
+        "color": "#ff0000",
+        "status": Status.RUNNING,
+        "actuals": actuals,
+    }
+    values.update(overrides)
+    task = Task("設計", **values)  # type: ignore[arg-type]
+    return Project("demo", base_date=BASE, sections=[Section("開発", [task])])
+
+
+def test_fill_percent() -> None:
+    assert fill_percent(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9), None, 40)])) == 40
+    assert fill_percent(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9), None, 0)])) == 0
+    assert fill_percent(Task("t")) is None
+    assert fill_percent(Task("t", status=Status.DONE)) == 100
+    done = Task("t", status=Status.DONE, actuals=[Actual(datetime(2026, 10, 5, 9), None, 80)])
+    assert fill_percent(done) == 80
+
+
+async def test_planned_bar_is_filled_by_the_progress(user: User) -> None:
+    mount(progress_project(40))
+    await user.open("/")
+    fill = user.find(marker="progress-fill-0-0").elements.pop()
+    assert fill._style["width"] == "40%"
+    assert fill._style["left"] == "0"
+    assert fill._style["background"] == "#ff0000"
+    assert fill._style["pointer-events"] == "none"
+
+
+async def test_progress_zero_makes_a_zero_width_fill(user: User) -> None:
+    mount(progress_project(0))
+    await user.open("/")
+    assert user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "0%"
+
+
+async def test_no_fill_without_progress(user: User) -> None:
+    mount(progress_project(None))
+    await user.open("/")
+    await user.should_see(marker="bar-0-0")
+    await user.should_not_see(marker="progress-fill-0-0")
+
+
+async def test_done_without_progress_is_filled_completely(user: User) -> None:
+    mount(progress_project(None, status=Status.DONE))
+    await user.open("/")
+    assert user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "100%"
+
+
+async def test_no_fill_without_a_planned_bar(user: User) -> None:
+    task = Task("設計", actuals=[Actual(datetime(2026, 10, 6, 12), None, 40)])
+    mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
+    await user.open("/")
+    await user.should_see(marker="actual-0-0-0")
+    await user.should_not_see(marker="progress-fill-0-0")
+
+
+async def test_fill_is_inside_the_bar_and_below_the_overload_stripes(user: User) -> None:
+    mount(progress_project(40))
+    await user.open("/")
+    bar = user.find(marker="bar-0-0").elements.pop()
+    markers = [m for child in bar.default_slot.children for m in child._markers]
+    assert markers[0].startswith("progress-fill-")  # 縞(overload-)より先に置く = 縞が手前
+
+
+MID = datetime(2026, 10, 6, 12)  # 予定の中間(進んでいるはずの割合は50%)
+
+
+def test_state_colors_and_marks_cover_the_visible_states() -> None:
+    assert PROGRESS_STATE_COLORS == {
+        ProgressState.DELAYED: "#b26a00",
+        ProgressState.AHEAD: "#00897b",
+        ProgressState.DONE: "#757575",
+        ProgressState.LATE_DONE: "#8e24aa",
+    }
+    assert PROGRESS_STATE_MARKS == {
+        ProgressState.DELAYED: "▼",
+        ProgressState.AHEAD: "▲",
+        ProgressState.DONE: "✓",
+        ProgressState.LATE_DONE: "✓!",
+    }
+
+
+@pytest.mark.parametrize(
+    ("progress", "state"),
+    [(10, ProgressState.DELAYED), (90, ProgressState.AHEAD)],
+)
+async def test_bar_outline_and_mark_follow_the_state(
+    user: User, progress: int, state: ProgressState
+) -> None:
+    mount(progress_project(progress), now=MID)
+    await user.open("/")
+    bar = user.find(marker="bar-0-0").elements.pop()
+    assert bar._style["outline"] == "2px solid var(--pstate)"
+    assert bar._style["outline-offset"] == "-2px"
+    assert PROGRESS_STATE_CLASSES[state] in bar.classes
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert mark.text == PROGRESS_STATE_MARKS[state]
+    assert mark._style["color"] == "var(--pstate)"
+    assert PROGRESS_STATE_CLASSES[state] in mark.classes
+    assert mark._style["left"] == "304.0px"  # 200 + 0.5 * 40 + 2.0 * 40 + 4
+
+
+async def test_normal_state_has_no_outline_and_no_mark(user: User) -> None:
+    mount(progress_project(50), now=MID)
+    await user.open("/")
+    bar = user.find(marker="bar-0-0").elements.pop()
+    assert "outline" not in bar._style
+    await user.should_not_see(marker="progress-state-0-0")
+
+
+async def test_no_state_without_progress_has_no_outline_and_no_mark(user: User) -> None:
+    mount(progress_project(None), now=MID)
+    await user.open("/")
+    assert "outline" not in user.find(marker="bar-0-0").elements.pop()._style
+    await user.should_not_see(marker="progress-state-0-0")
+
+
+async def test_done_state_is_marked(user: User) -> None:
+    in_time = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 7, 10), 100)
+    mount(progress_project(100, status=Status.DONE, actuals=[in_time]), now=datetime(2026, 10, 20))
+    await user.open("/")
+    assert user.find(marker="progress-state-0-0").elements.pop().text == "✓"
+
+
+async def test_late_done_state_is_marked(user: User) -> None:
+    late = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 8, 12), 100)
+    mount(progress_project(100, status=Status.DONE, actuals=[late]), now=datetime(2026, 10, 20))
+    await user.open("/")
+    assert user.find(marker="progress-state-0-0").elements.pop().text == "✓!"
+    bar = user.find(marker="bar-0-0").elements.pop()
+    assert bar._style["outline"] == "2px solid var(--pstate)"
+    assert PROGRESS_STATE_CLASSES[ProgressState.LATE_DONE] in bar.classes
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert PROGRESS_STATE_CLASSES[ProgressState.LATE_DONE] in mark.classes
+
+
+def tooltip_texts(user: User, target: ui.element) -> list[str]:
+    """要素に付いたツールチップの文字。tooltip() は作成時の親の子として作り、target で対象を指す。"""
+    return [
+        t.text
+        for t in user.find(kind=ui.tooltip).elements
+        if t.props.get("target") == f"#{target.html_id}"
+    ]
+
+
+async def test_state_mark_tooltips(user: User) -> None:
+    mount(progress_project(10), now=MID)
+    await user.open("/")
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert tooltip_texts(user, mark) == ["遅延(進捗 10% / 予定 50%)"]
+
+
+async def test_done_mark_tooltip_has_no_progress_part(user: User) -> None:
+    mount(progress_project(None, status=Status.DONE), now=datetime(2026, 10, 20))
+    await user.open("/")
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert tooltip_texts(user, mark) == ["完了"]
+
+
+async def test_no_outline_or_mark_without_a_planned_bar(user: User) -> None:
+    task = Task("設計", status=Status.DONE, actuals=[Actual(datetime(2026, 10, 6, 12), None, 40)])
+    mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
+    await user.open("/")
+    await user.should_see(marker="actual-0-0-0")
+    await user.should_not_see(marker="progress-state-0-0")
+
+
+async def test_overdue_background_and_state_outline_coexist(user: User) -> None:
+    late = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 8, 12), 100)
+    mount(progress_project(100, status=Status.DONE, actuals=[late]), now=datetime(2026, 10, 20))
+    await user.open("/")
+    row = user.find(marker="row-0-0").elements.pop()
+    assert OVERDUE_COLOR in row._style["background"]
+
+
+def finished_project(end: datetime) -> Project:
+    return progress_project(
+        100, status=Status.DONE, actuals=[Actual(datetime(2026, 10, 5, 12), end, 100)]
+    )
+
+
+@pytest.mark.parametrize(
+    "end", [datetime(2026, 10, 7, 10), datetime(2026, 10, 8, 12)], ids=["done", "late-done"]
+)
+async def test_finished_task_has_a_gray_actual_bar_and_a_struck_through_name(
+    user: User, end: datetime
+) -> None:
+    mount(finished_project(end), now=datetime(2026, 10, 20))
+    await user.open("/")
+    bar = user.find(marker="actual-0-0-0").elements.pop()
+    assert bar._style["background"] == FINISHED_ACTUAL_COLOR
+    name = user.find(marker="task-0-0").elements.pop()
+    assert name._style["text-decoration"] == "line-through"
+
+
+async def test_running_task_keeps_its_color_and_name(user: User) -> None:
+    mount(progress_project(50), now=MID)
+    await user.open("/")
+    assert user.find(marker="actual-0-0-0").elements.pop()._style["background"] == "#ff0000"
+    assert "text-decoration" not in user.find(marker="task-0-0").elements.pop()._style
+
+
+async def test_finished_task_without_a_planned_bar_is_also_grayed(user: User) -> None:
+    task = Task(
+        "設計",
+        status=Status.DONE,
+        color="#ff0000",
+        actuals=[Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 7, 12), 100)],
+    )
+    mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
+    await user.open("/")
+    bar = user.find(marker="actual-0-0-0").elements.pop()
+    assert bar._style["background"] == FINISHED_ACTUAL_COLOR
+    assert user.find(marker="task-0-0").elements.pop()._style["text-decoration"] == "line-through"
+
+
+async def test_finished_task_keeps_the_planned_fill_and_the_overdue_background(user: User) -> None:
+    mount(finished_project(datetime(2026, 10, 8, 12)), now=datetime(2026, 10, 20))
+    await user.open("/")
+    fill = user.find(marker="progress-fill-0-0").elements.pop()
+    assert fill._style["background"] == "#ff0000"  # 予定の棒の塗りはタスクの色のまま
+    assert OVERDUE_COLOR in user.find(marker="row-0-0").elements.pop()._style["background"]
+
+
+async def test_late_done_mark_does_not_overlap_the_longer_actual_bar(user: User) -> None:
+    mount(finished_project(datetime(2026, 10, 8, 12)), now=datetime(2026, 10, 20))
+    await user.open("/")
+    actual = user.find(marker="actual-0-0-0").elements.pop()
+    actual_right = float(actual._style["left"][:-2]) + float(actual._style["width"][:-2])
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert actual_right == 340.0  # 200 + 3.5 * 40
+    assert mark._style["left"] == "344.0px"  # 実績の棒の右端 + 4
+
+
+async def test_mark_stays_next_to_the_planned_bar_when_the_actual_is_shorter(user: User) -> None:
+    mount(finished_project(datetime(2026, 10, 7, 10)), now=datetime(2026, 10, 20))
+    await user.open("/")
+    assert user.find(marker="progress-state-0-0").elements.pop()._style["left"] == "304.0px"
+
+
+async def test_delayed_mark_clears_an_in_progress_actual_bar_that_runs_past_the_plan(
+    user: User,
+) -> None:
+    mount(progress_project(10), now=datetime(2026, 10, 9, 12))  # 進行中の実績が、予定の終了より先まで伸びる
+    await user.open("/")
+    actual = user.find(marker="actual-0-0-0").elements.pop()
+    actual_right = float(actual._style["left"][:-2]) + float(actual._style["width"][:-2])
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert float(mark._style["left"][:-2]) >= actual_right + 4
+
+
+async def test_mark_does_not_overlap_the_deadline_diamond(user: User) -> None:
+    deadline = datetime(2026, 10, 7, 12)  # 完了予定と同じ。◆は x=300 を中心に 294〜306
+    mount(progress_project(10, deadline=deadline), now=MID)
+    await user.open("/")
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert mark._style["left"] == "310.0px"  # ◆の右端 306 + 4
+    assert user.find(marker="deadline-0-0").elements.pop()  # ◆は今のまま出る
+
+
+async def test_mark_ignores_a_far_away_deadline(user: User) -> None:
+    mount(progress_project(10, deadline=datetime(2026, 10, 20, 12)), now=MID)
+    await user.open("/")
+    assert user.find(marker="progress-state-0-0").elements.pop()._style["left"] == "304.0px"
+
+
+def luminance(color: str) -> float:
+    r, g, b = (int(color[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in (r, g, b)]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def contrast(foreground: str, background: str) -> float:
+    high, low = sorted((luminance(foreground), luminance(background)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+def over(overlay: tuple[int, int, int, float], base: str) -> str:
+    """半透明の色を、不透明な背景に重ねた色(#rrggbb)。"""
+    red, green, blue, alpha = overlay
+    mixed = [
+        round(alpha * c + (1 - alpha) * int(base[i : i + 2], 16))
+        for c, i in zip((red, green, blue), (1, 3, 5))
+    ]
+    return "#" + "".join(f"{c:02x}" for c in mixed)
+
+
+DARK_PAGE = "#121212"  # ダークテーマのページの背景(gantt.py の --q-dark-page の既定値)
+OVERDUE_ON_DARK = over((239, 83, 80, 0.18), DARK_PAGE)  # 予定超過の行の背景(赤みが乗る)
+
+
+@pytest.mark.parametrize("state", list(PROGRESS_STATE_COLORS))
+def test_dark_state_colors_are_readable_on_the_dark_page(state: ProgressState) -> None:
+    color = PROGRESS_STATE_DARK_COLORS[state]
+    assert contrast(color, DARK_PAGE) >= 4.5
+    assert contrast(color, OVERDUE_ON_DARK) >= 4.5  # 遅延完了の行は赤みの背景になる
+
+
+@pytest.mark.parametrize("state", list(PROGRESS_STATE_COLORS))
+def test_light_state_colors_are_readable_on_white(state: ProgressState) -> None:
+    assert contrast(PROGRESS_STATE_COLORS[state], "#ffffff") >= 4.0
+
+
+def test_dark_state_colors_cover_the_same_states_and_differ_from_light() -> None:
+    assert PROGRESS_STATE_DARK_COLORS.keys() == PROGRESS_STATE_COLORS.keys()
+    assert all(PROGRESS_STATE_DARK_COLORS[s] != PROGRESS_STATE_COLORS[s] for s in PROGRESS_STATE_COLORS)
+
+
+@pytest.mark.parametrize("state", list(PROGRESS_STATE_COLORS))
+def test_progress_css_defines_the_variable_for_both_themes(state: ProgressState) -> None:
+    cls = PROGRESS_STATE_CLASSES[state]
+    assert f".{cls} {{ --pstate: {PROGRESS_STATE_COLORS[state]}; }}" in PROGRESS_CSS
+    dark = f"body.body--dark .{cls} {{ --pstate: {PROGRESS_STATE_DARK_COLORS[state]}; }}"
+    assert dark in PROGRESS_CSS
+
+
+async def test_progress_css_is_added_to_the_page(user: User) -> None:
+    mount(progress_project(10), now=MID)
+    response = await user.http_client.get("/")
+    rules = PROGRESS_CSS.splitlines()
+    assert len(rules) == 2 * len(PROGRESS_STATE_CLASSES)
+    for rule in rules:  # ページでは add_css が改行を \\n に変えて埋め込むので、ルールごとに確かめる
+        assert rule in response.text
 
 
 async def test_clicking_an_actual_bar_edits_the_task(user: User) -> None:

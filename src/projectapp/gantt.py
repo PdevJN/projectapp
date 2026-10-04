@@ -12,21 +12,25 @@ from projectapp.arrange import Position
 from projectapp.calendar import DayKind, day_kind
 from projectapp.filtering import TaskFilter, matches
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS
-from projectapp.models import DEFAULT_COLOR, Project, Section, Task, is_hex_color
+from projectapp.models import DEFAULT_COLOR, Project, Section, Status, Task, is_hex_color
 from projectapp.timeline import (
     Band,
     Column,
     Overload,
+    ProgressState,
     Scale,
     bar_span,
     build_columns,
     clip_overloads,
+    current_progress,
     deadline_position,
     effective_end,
+    expected_progress,
     interval_span,
     is_overdue,
     month_bands,
     overallocations,
+    progress_state,
     year_bands,
 )
 
@@ -53,6 +57,40 @@ BAR_HEIGHT_PX = ROW_HEIGHT_PX - 12
 ACTUAL_HEIGHT_PX = BAR_HEIGHT_PX // 2  # 実績の棒は、予定の棒の下半分
 ACTUAL_TOP_PX = BAR_TOP_PX + BAR_HEIGHT_PX - ACTUAL_HEIGHT_PX
 OVERDUE_COLOR = "rgba(239, 83, 80, 0.18)"  # 予定超過のタスク行の背景
+# 進捗の状態を示す枠線の色と印。赤は予定超過の背景、橙は◆(締切)と競合するので使わない。通常は何も出さない
+PROGRESS_STATE_COLORS = {
+    ProgressState.DELAYED: "#b26a00",
+    ProgressState.AHEAD: "#00897b",
+    ProgressState.DONE: "#757575",
+    ProgressState.LATE_DONE: "#8e24aa",
+}
+MARK_WIDTH_PX = 18  # 印(✓! が最も広い)が占める幅の見積もり。◆との重なりの判定に使う
+MARK_GAP_PX = 4  # 印と、棒・◆との間の余白
+FINISHED_ACTUAL_COLOR = "#9e9e9e"  # 完了・遅延完了(状態が「終了」)のタスクの実績の棒。タスクの色の代わりに灰にする
+# ダークテーマでは、同じ色が暗い背景(とのせる赤み)に沈むので、明るい色に替える。どちらも CSS 変数 --pstate 経由
+PROGRESS_STATE_DARK_COLORS = {
+    ProgressState.DELAYED: "#ffb74d",
+    ProgressState.AHEAD: "#4db6ac",
+    ProgressState.DONE: "#bdbdbd",
+    ProgressState.LATE_DONE: "#ce93d8",
+}
+PROGRESS_STATE_CLASSES = {
+    ProgressState.DELAYED: "pstate-delayed",
+    ProgressState.AHEAD: "pstate-ahead",
+    ProgressState.DONE: "pstate-done",
+    ProgressState.LATE_DONE: "pstate-late-done",
+}
+PROGRESS_CSS = "\n".join(
+    f".{cls} {{ --pstate: {PROGRESS_STATE_COLORS[state]}; }}\n"
+    f"body.body--dark .{cls} {{ --pstate: {PROGRESS_STATE_DARK_COLORS[state]}; }}"
+    for state, cls in PROGRESS_STATE_CLASSES.items()
+)
+PROGRESS_STATE_MARKS = {
+    ProgressState.DELAYED: "▼",
+    ProgressState.AHEAD: "▲",
+    ProgressState.DONE: "✓",
+    ProgressState.LATE_DONE: "✓!",
+}
 GRID_BORDER = "1px solid rgba(128, 128, 128, 0.3)"  # 格子線。両テーマで見える半透明の灰色
 ADD_ROW_HEIGHT_PX = 24  # 追加行は通常の行より細くする
 ROW_STYLE = f"height: {ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
@@ -107,6 +145,14 @@ ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メン�
 def planned_background(color: str) -> str:
     """予定の棒の背景。要素の opacity ではなく背景だけを半透明にし、中の縞は不透明のまま残す。"""
     return f"color-mix(in srgb, {color} {PLANNED_OPACITY * 100:g}%, transparent)"
+
+
+def fill_percent(task: Task) -> int | None:
+    """予定の棒を塗る進捗度の割合。進捗度がなくても、終了なら100。それ以外で進捗度がなければ None。"""
+    percent = current_progress(task)
+    if percent is None and task.status is Status.DONE:
+        return 100
+    return percent
 
 
 def sticky_left(z_index: int) -> str:
@@ -244,6 +290,7 @@ class GanttChart:
         self.client = context.client
         ui.add_css(CHART_DRAG_CSS)
         ui.add_css(STICKY_CSS)
+        ui.add_css(PROGRESS_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
@@ -447,6 +494,8 @@ class GanttChart:
         key = "top" if si is None else si
         style = ROW_STYLE
         overdue = is_overdue(task, self.project, self.holidays, self.now())
+        state = progress_state(task, self.project, self.holidays, self.now())
+        finished = state in (ProgressState.DONE, ProgressState.LATE_DONE)
         if overdue:
             style += f"; background: {OVERDUE_COLOR}"
         row = ui.row().classes("items-center no-wrap gap-0").style(style)
@@ -457,6 +506,8 @@ class GanttChart:
                 f"width: {NAME_WIDTH_PX}px; padding-left: 16px; align-self: stretch;"
                 f" line-height: {ROW_HEIGHT_PX - 1}px; {sticky_left(STICKY_Z_NAME)}"
             )
+            if finished:  # 終了したタスクは、名前に取り消し線を引く
+                label_style += "; text-decoration: line-through"
             if overdue:  # 不透明な背景の上に、行と同じ赤みを重ねる
                 label_style += (
                     f"; background-image: linear-gradient({OVERDUE_COLOR}, {OVERDUE_COLOR})"
@@ -473,14 +524,19 @@ class GanttChart:
                 bar_width = max(length * width, MIN_BAR_PX)
                 draggable = self.scale is Scale.DAY
                 cursor = "grab" if draggable else "pointer"
+                outline = ""
+                if state in PROGRESS_STATE_COLORS:
+                    outline = " outline: 2px solid var(--pstate); outline-offset: -2px;"
                 bar = ui.element("div").style(
                     f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
                     f" width: {bar_width:.1f}px; top: {BAR_TOP_PX}px;"
                     f" height: {BAR_HEIGHT_PX}px;"
                     f" background: {planned_background(task.color if is_hex_color(task.color) else DEFAULT_COLOR)};"
-                    f" border-radius: 4px; cursor: {cursor}; overflow: hidden;"
+                    f" border-radius: 4px; cursor: {cursor}; overflow: hidden;{outline}"
                     " user-select: none; touch-action: none"
                 )
+                if state in PROGRESS_STATE_CLASSES:
+                    bar.classes(PROGRESS_STATE_CLASSES[state])
                 bar.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
                 bar.mark(f"bar-{key}-{ti}")
                 if draggable:
@@ -490,16 +546,83 @@ class GanttChart:
                         f" data-min-days={least}"
                     )
                 with bar:
+                    self.progress_fill(key, ti, task)
                     self.overload_stripes(key, ti, task, left, bar_width, columns, width)
-            self.actual_bars(si, ti, task, columns, width)
+                mark_left = self.marker_left(
+                    task, columns, width, NAME_WIDTH_PX + left * width + bar_width
+                )
+                self.progress_marker(key, ti, task, state, mark_left, end)
+            self.actual_bars(si, ti, task, columns, width, finished)
             self.deadline_marker(si, ti, task, columns, width)
 
-    def actual_bars(
-        self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
+    def progress_fill(self, key: int | str, ti: int, task: Task) -> None:
+        """予定の棒の左端から、進捗度の割合の幅を、タスクの色で不透明に塗る。縞より先に置いて、縞を手前にする。"""
+        percent = fill_percent(task)
+        if percent is None:
+            return
+        color = task.color if is_hex_color(task.color) else DEFAULT_COLOR
+        ui.element("div").style(
+            f"position: absolute; left: 0; top: 0; bottom: 0; width: {percent}%;"
+            f" background: {color}; pointer-events: none"
+        ).mark(f"progress-fill-{key}-{ti}")
+
+    def marker_left(
+        self, task: Task, columns: list[Column], width: int, bar_right: float
+    ) -> float:
+        """印の左端。予定の棒と、それより右へ伸びる実績の棒(完了の遅れや進行中)の右に置き、
+        締切の◆と重なるときは◆の右へずらす。"""
+        right = bar_right
+        for actual in task.actuals:
+            finish = actual.end if actual.end is not None else self.now()
+            start, length = interval_span(actual.start, finish, columns)
+            right = max(right, NAME_WIDTH_PX + start * width + max(length * width, MIN_BAR_PX))
+        left = right + MARK_GAP_PX
+        position = None if task.deadline is None else deadline_position(task.deadline, columns)
+        if position is not None:
+            center = NAME_WIDTH_PX + position * width
+            diamond_left, diamond_right = center - DEADLINE_MARKER_HALF_PX, center + DEADLINE_MARKER_HALF_PX
+            if diamond_left < left + MARK_WIDTH_PX and left < diamond_right:
+                left = diamond_right + MARK_GAP_PX
+        return left
+
+    def progress_marker(
+        self,
+        key: int | str,
+        ti: int,
+        task: Task,
+        state: ProgressState | None,
+        mark_left: float,
+        end: datetime | None,
     ) -> None:
-        """実績の棒。予定の棒の下半分に、不透明で重ねる。進行中は現在時刻まで。ドラッグはできない。"""
+        """棒の右に、状態の印を小さく出す(位置は marker_left)。通常と判定できないときは出さない。"""
+        if state not in PROGRESS_STATE_MARKS:
+            return
+        tip = state.value
+        percent = current_progress(task)
+        if state in (ProgressState.DELAYED, ProgressState.AHEAD) and percent is not None:
+            if task.planned_start is not None and end is not None:
+                expected = expected_progress(task.planned_start, end, self.now())
+                tip = f"{state.value}(進捗 {percent}% / 予定 {expected:.0f}%)"
+        ui.label(PROGRESS_STATE_MARKS[state]).style(
+            f"position: absolute; left: {mark_left:.1f}px; top: {BAR_TOP_PX}px;"
+            f" line-height: {BAR_HEIGHT_PX}px; font-size: 11px; color: var(--pstate)"
+        ).classes(PROGRESS_STATE_CLASSES[state]).tooltip(tip).mark(f"progress-state-{key}-{ti}")
+
+    def actual_bars(
+        self,
+        si: int | None,
+        ti: int,
+        task: Task,
+        columns: list[Column],
+        width: int,
+        finished: bool = False,
+    ) -> None:
+        """実績の棒。予定の棒の下半分に、不透明で重ねる。進行中は現在時刻まで。ドラッグはできない。
+        終了したタスクは、タスクの色の代わりに灰にする。"""
         key = "top" if si is None else si
         color = task.color if is_hex_color(task.color) else DEFAULT_COLOR
+        if finished:
+            color = FINISHED_ACTUAL_COLOR
         for n, actual in enumerate(task.actuals):
             finish = actual.end if actual.end is not None else self.now()
             left, length = interval_span(actual.start, finish, columns)

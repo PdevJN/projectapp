@@ -4,6 +4,10 @@ import pytest
 
 from projectapp.models import Actual, Member, Project, Section, Status, Task
 from projectapp.timeline import (
+    PROGRESS_TOLERANCE,
+    ProgressState,
+    expected_progress,
+    progress_state,
     actual_end,
     Band,
     Scale,
@@ -659,3 +663,101 @@ def test_current_progress_is_the_last_entered_value() -> None:
         ],
     )
     assert current_progress(task) == 60
+
+
+P_START = datetime(2026, 10, 5, 12)
+P_END = datetime(2026, 10, 7, 12)  # 48時間
+P_MID = datetime(2026, 10, 6, 12)  # ちょうど50%
+
+
+def running(progress: int | None, **overrides: object) -> Task:
+    actuals = [Actual(P_START, None, progress)] if progress is not None else []
+    values: dict[str, object] = {
+        "planned_start": P_START,
+        "planned_end": P_END,
+        "status": Status.RUNNING,
+        "actuals": actuals,
+    }
+    values.update(overrides)
+    return Task("t", **values)  # type: ignore[arg-type]
+
+
+def state_of(task: Task, now: datetime) -> ProgressState | None:
+    return progress_state(task, project_with(task), {}, now)
+
+
+def test_expected_progress_before_during_and_after() -> None:
+    assert expected_progress(P_START, P_END, datetime(2026, 10, 5)) == 0.0
+    assert expected_progress(P_START, P_END, P_MID) == 50.0
+    assert expected_progress(P_START, P_END, datetime(2026, 10, 9)) == 100.0
+
+
+def test_expected_progress_of_a_zero_length_plan() -> None:
+    assert expected_progress(P_MID, P_MID, datetime(2026, 10, 6, 11)) == 0.0
+    assert expected_progress(P_MID, P_MID, P_MID) == 100.0
+    assert expected_progress(P_MID, P_MID, datetime(2026, 10, 6, 13)) == 100.0
+
+
+def test_tolerance_is_ten_points() -> None:
+    assert PROGRESS_TOLERANCE == 10
+
+
+@pytest.mark.parametrize(
+    ("progress", "expected"),
+    [
+        (39, ProgressState.DELAYED),
+        (40, ProgressState.NORMAL),  # ちょうど許容幅の差は通常
+        (50, ProgressState.NORMAL),
+        (60, ProgressState.NORMAL),
+        (61, ProgressState.AHEAD),
+    ],
+)
+def test_progress_against_the_expected_ratio(progress: int, expected: ProgressState) -> None:
+    assert state_of(running(progress), P_MID) is expected
+
+
+@pytest.mark.parametrize(
+    ("progress", "expected"),
+    [(0, ProgressState.NORMAL), (10, ProgressState.NORMAL), (11, ProgressState.AHEAD)],
+)
+def test_before_the_planned_start_the_expected_ratio_is_zero(
+    progress: int, expected: ProgressState
+) -> None:
+    assert state_of(running(progress), datetime(2026, 10, 4, 12)) is expected
+
+
+def test_progress_zero_counts_as_entered_and_is_delayed_when_behind() -> None:
+    assert state_of(running(0), datetime(2026, 10, 7)) is ProgressState.DELAYED
+
+
+def test_no_state_without_progress_or_plan() -> None:
+    assert state_of(running(None), P_MID) is None
+    assert state_of(running(50, planned_start=None), P_MID) is None
+    assert state_of(running(50, planned_start=None, planned_end=None), P_MID) is None
+
+
+def test_missing_planned_end_falls_back_like_the_bar_does() -> None:
+    # 完了予定が空でも、effective_end は開始予定の翌日で補う(棒もその終了で描かれる)
+    task = running(50, planned_end=None)
+    assert state_of(task, P_MID) is ProgressState.DELAYED  # 翌日 = P_MID。進んでいるはずの割合は100%
+
+
+def test_zero_length_plan_does_not_crash() -> None:
+    task = running(50, planned_start=P_MID, planned_end=P_MID)
+    assert state_of(task, datetime(2026, 10, 6, 11)) is ProgressState.AHEAD
+    assert state_of(task, datetime(2026, 10, 6, 13)) is ProgressState.DELAYED
+
+
+def test_done_in_time_is_done() -> None:
+    task = running(100, status=Status.DONE, actuals=[Actual(P_START, datetime(2026, 10, 7, 10), 100)])
+    assert state_of(task, datetime(2026, 10, 20)) is ProgressState.DONE
+
+
+def test_done_after_the_planned_end_is_late_done() -> None:
+    task = running(100, status=Status.DONE, actuals=[Actual(P_START, datetime(2026, 10, 8, 12), 100)])
+    assert state_of(task, datetime(2026, 10, 20)) is ProgressState.LATE_DONE
+
+
+def test_done_without_an_actual_end_is_done_not_late_done() -> None:
+    assert state_of(running(None, status=Status.DONE), datetime(2026, 10, 20)) is ProgressState.DONE
+    assert state_of(Task("t", status=Status.DONE), datetime(2026, 10, 20)) is ProgressState.DONE

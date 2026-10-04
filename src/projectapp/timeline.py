@@ -378,3 +378,42 @@ def is_overdue(
         return True
     end = effective_end(task, project, holidays)
     return end is not None and moment > end
+
+
+class ProgressState(StrEnum):
+    NORMAL = "通常"
+    DELAYED = "遅延"
+    AHEAD = "前倒し"
+    DONE = "完了"
+    LATE_DONE = "遅延完了"
+
+
+PROGRESS_TOLERANCE = 10  # 進んでいるはずの割合との差の許容幅(パーセントポイント)
+
+
+def expected_progress(start: datetime, end: datetime, now: datetime) -> float:
+    """現在時刻までに進んでいるはずの割合(0〜100)。暦の時間で、開始〜完了予定の経過割合。"""
+    if end <= start:
+        return 100.0 if now >= end else 0.0
+    ratio = (now - start) / (end - start)
+    return min(max(ratio, 0.0), 1.0) * 100
+
+
+def progress_state(
+    task: Task, project: Project, holidays: dict[date, str], now: datetime
+) -> ProgressState | None:
+    """進捗の状態。終了は完了か遅延完了(超過の判定は is_overdue)。それ以外は、進捗度を
+    進んでいるはずの割合と比べる。進捗度か予定がなければ判定できず None。"""
+    if task.status is Status.DONE:
+        late = is_overdue(task, project, holidays, now)
+        return ProgressState.LATE_DONE if late else ProgressState.DONE
+    percent = current_progress(task)
+    end = effective_end(task, project, holidays)
+    if percent is None or task.planned_start is None or end is None:
+        return None
+    expected = expected_progress(task.planned_start, end, now)
+    if percent < expected - PROGRESS_TOLERANCE:
+        return ProgressState.DELAYED
+    if percent > expected + PROGRESS_TOLERANCE:
+        return ProgressState.AHEAD
+    return ProgressState.NORMAL
