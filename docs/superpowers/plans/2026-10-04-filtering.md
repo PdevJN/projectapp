@@ -430,6 +430,8 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 
 ### Task 3: 検索入力・担当者の選択・スクロール・リセット(`gantt.py`)
 
+> **改訂(2026-10-04、ユーザーの指示)**: 検索の確定は 300ms のデバウンスではなく Enter キー(IME の変換確定の Enter は無視)。入力欄が空になったときだけ、すぐ条件を外す。このタスクの検索入力に関する記述は、設計書の「決定事項」を優先する。実装は `commit_query` と `on_search_changed`、定数 `SEARCH_ENTER_JS`。
+
 **Files:**
 - Modify: `src/projectapp/gantt.py`(import、定数、`__init__`、`set_project`、`set_filter`、`build`、新規メソッド)
 - Test: `test/test_gantt.py`
