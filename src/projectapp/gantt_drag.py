@@ -82,6 +82,7 @@ CHART_DRAG_JS = """
     if (!el || event.button !== 0) return;
     bar = {
       el, x0: event.clientX, width: Number(el.dataset.dayWidth),
+      minDays: Number(el.dataset.minDays),  // 基準日より前へは動かさない
       moved: false, cancelled: false, days: 0,
     };
     el.setPointerCapture(event.pointerId);
@@ -92,7 +93,7 @@ CHART_DRAG_JS = """
     const dx = event.clientX - bar.x0;
     if (!bar.moved && Math.abs(dx) < MOVE_THRESHOLD_PX) return;
     bar.moved = true;
-    bar.days = Math.round(dx / bar.width);
+    bar.days = Math.max(Math.round(dx / bar.width), bar.minDays);
     bar.el.style.transform = `translateX(${bar.days * bar.width}px)`;
   });
 

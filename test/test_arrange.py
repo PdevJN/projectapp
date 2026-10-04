@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 
 from projectapp import arrange
 from projectapp.models import Priority, Project, Section, Status, Task
@@ -189,3 +189,18 @@ def test_parse_shift_accepts_integers_within_the_limit_only() -> None:
     assert arrange.parse_shift({"si": 1, "ti": 2, "days": "3"}) is None
     assert arrange.parse_shift({"si": 1, "ti": 2}) is None
     assert arrange.parse_shift("x") is None
+
+
+def test_min_shift_days_stops_at_the_base_date() -> None:
+    base = date(2026, 10, 5)
+    assert arrange.min_shift_days(Task("x", planned_start=datetime(2026, 10, 7, 15)), base) == -2
+    assert arrange.min_shift_days(Task("x", planned_start=datetime(2026, 10, 5, 9)), base) == 0
+
+
+def test_min_shift_days_lets_a_task_already_before_the_base_date_move_only_right() -> None:
+    base = date(2026, 10, 5)
+    assert arrange.min_shift_days(Task("x", planned_start=datetime(2026, 10, 3, 9)), base) == 0
+
+
+def test_min_shift_days_without_a_start_is_zero() -> None:
+    assert arrange.min_shift_days(Task("x"), date(2026, 10, 5)) == 0

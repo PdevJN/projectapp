@@ -122,6 +122,7 @@ async def test_day_scale_bars_are_draggable_with_the_column_width(user: User) ->
     bar = props_of(user, "bar-0-0")
     assert "data-bar" in bar
     assert (bar["data-si"], bar["data-ti"], bar["data-day-width"]) == ("0", "0", "40")
+    assert bar["data-min-days"] == "0"  # 開始が基準日(10/5)なので、左へは動かせない
     style = user.find(marker="bar-0-0").elements.pop()._style
     assert style["cursor"] == "grab"
 
@@ -171,3 +172,4 @@ def test_the_script_has_the_bar_drag_pieces() -> None:
     assert 'emitEvent("chart_shift"' in CHART_DRAG_JS
     assert "pointerdown" in CHART_DRAG_JS
     assert "Escape" in CHART_DRAG_JS
+    assert "minDays" in CHART_DRAG_JS

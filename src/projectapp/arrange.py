@@ -1,7 +1,7 @@
 """タスクの移動・コピー・日程のずらし(純粋関数)と、画面から届く値の検証。"""
 
 from dataclasses import replace
-from datetime import timedelta
+from datetime import date, timedelta
 
 from projectapp.models import MAX_YEAR, MIN_YEAR, Project, Task
 
@@ -66,6 +66,14 @@ def shift_task(task: Task, days: int) -> bool:
             return False
     task.planned_start, task.planned_end = start, end
     return True
+
+
+def min_shift_days(task: Task, base_date: date) -> int:
+    """左へずらせる限度(0 以下の日数)。開始予定は基準日より前へは動かさない。"""
+    if task.planned_start is None:
+        return 0
+    start = task.planned_start.date()
+    return (min(base_date, start) - start).days
 
 
 def as_int(value: object) -> int | None:

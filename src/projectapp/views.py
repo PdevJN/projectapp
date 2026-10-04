@@ -260,10 +260,13 @@ class MainView:
         self.gantt.set_project(self.project)
 
     def shift_task(self, section_index: int | None, task_index: int, days: int) -> None:
-        """開始予定(と入っていれば完了予定)を days 日ずらす。締切は動かさない。"""
+        """開始予定(と入っていれば完了予定)を days 日ずらす。締切は動かさず、基準日より前へは動かさない。"""
         if days == 0 or not arrange.has_task(self.project, (section_index, task_index)):
             return
         task = self.tasks_in(section_index)[task_index]
+        days = max(days, arrange.min_shift_days(task, self.project.base_date))
+        if days == 0:
+            return
         if not arrange.shift_task(task, days):
             if task.planned_start is not None:
                 ui.notify("日付の範囲を超えるため動かせません", type="warning")

@@ -372,7 +372,11 @@ class GanttChart:
                 bar.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
                 bar.mark(f"bar-{key}-{ti}")
                 if draggable:
-                    bar.props(f"data-bar data-si={key} data-ti={ti} data-day-width={width}")
+                    least = arrange.min_shift_days(task, self.project.base_date)
+                    bar.props(
+                        f"data-bar data-si={key} data-ti={ti} data-day-width={width}"
+                        f" data-min-days={least}"
+                    )
                 with bar:
                     self.overload_stripes(key, ti, task, left, bar_width, columns, width)
             self.deadline_marker(si, ti, task, columns, width)

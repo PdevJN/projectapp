@@ -1073,3 +1073,46 @@ async def test_shift_task_warns_when_the_assignee_goes_over_100_percent(
     view.project.tasks.extend([first, second])
     view.shift_task(None, 1, -1)  # 同じ日に重なる(割り当て 100% + 100%)
     await user.should_see("田中 の割り当てが最大200%になる期間があります")
+
+
+async def test_shift_task_stops_at_the_base_date(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    task = Task(
+        "a",
+        planned_start=datetime(2026, 10, 7, 9),
+        planned_end=datetime(2026, 10, 8, 18),
+        planned_end_manual=True,
+    )
+    view.project.tasks.append(task)
+    view.mark_clean()
+    view.shift_task(None, 0, -5)  # 基準日(10/5)で止まる = 2日分だけ左へ
+    assert task.planned_start == datetime(2026, 10, 5, 9)
+    assert task.planned_end == datetime(2026, 10, 6, 18)
+    view.mark_clean()
+    view.shift_task(None, 0, -1)  # すでに基準日なので、これ以上は左へ動かない
+    assert task.planned_start == datetime(2026, 10, 5, 9)
+    assert not view.is_dirty()
+    view.shift_task(None, 0, 3)  # 右へは動く
+    assert task.planned_start == datetime(2026, 10, 8, 9)
+
+
+async def test_shift_task_before_the_base_date_can_only_move_right(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    task = Task("a", planned_start=datetime(2026, 10, 3, 9))
+    view.project.tasks.append(task)
+    view.shift_task(None, 0, -1)
+    assert task.planned_start == datetime(2026, 10, 3, 9)
+    view.shift_task(None, 0, 1)
+    assert task.planned_start == datetime(2026, 10, 4, 9)
