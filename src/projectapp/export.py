@@ -8,7 +8,8 @@ import re
 import tempfile
 from datetime import date
 from pathlib import Path
-from typing import Protocol
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol
 
 from nicegui import app, ui
 
@@ -19,9 +20,12 @@ STATIC_DIR = Path(__file__).parent / "static"
 PNG_PREFIX = "data:image/png;base64,"
 UNSAFE_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
 CAPTURE_TIMEOUT_S = 90
+# NiceGUI の websocket は、1 メッセージ約 1MB まで(engineio の既定)。画像は分けて受け取る
+CAPTURE_CHUNK_CHARS = 200_000
 
 # 画像化する。対象は data-chart-content の要素の全体(スクロールの外へはみ出す分を含む)。
-# ライトは白、ダークは body の背景色。失敗は、例外にせず error の文字列で返す。
+# ライトは白、ダークは body の背景色。結果は window.__exportPng に置き、長さだけを返す(分けて取り出す)。
+# 失敗は、例外にせず error の文字列で返す。
 CAPTURE_JS = """
 async () => {
   const root = document.querySelector('[data-chart-content]');
@@ -30,11 +34,11 @@ async () => {
   const dark = document.body.classList.contains('body--dark');
   const bg = dark ? getComputedStyle(document.body).backgroundColor : '#ffffff';
   try {
-    const url = await htmlToImage.toPng(root, {
+    window.__exportPng = await htmlToImage.toPng(root, {
       width: root.scrollWidth, height: root.scrollHeight,
       pixelRatio: __RATIO__, backgroundColor: bg, cacheBust: false,
     });
-    return JSON.stringify({url});
+    return JSON.stringify({length: window.__exportPng.length});
   } catch (e) { return JSON.stringify({error: String(e)}); }
 }
 """
@@ -71,8 +75,8 @@ def png_from_data_url(url: str) -> bytes:
         raise ExportError("画像のデータが正しくありません") from None
 
 
-def parse_capture_result(raw: str) -> bytes:
-    """CAPTURE_JS の戻り値(JSON)から、PNG のバイト列を取り出す。"""
+def parse_capture_meta(raw: str) -> int:
+    """CAPTURE_JS の戻り値(JSON)から、画像のデータ URL の長さを取り出す。"""
     try:
         result = json.loads(raw)
     except (TypeError, ValueError):
@@ -81,9 +85,10 @@ def parse_capture_result(raw: str) -> bytes:
         raise ExportError("画像化の結果が正しくありません")
     if "error" in result:
         raise ExportError(str(result["error"]))
-    if "url" not in result:
+    length = result.get("length")
+    if not isinstance(length, int) or isinstance(length, bool) or length <= 0:
         raise ExportError("画像化の結果が正しくありません")
-    return png_from_data_url(result["url"])
+    return length
 
 
 def write_png(path: Path, data: bytes) -> Path:
@@ -115,20 +120,44 @@ class ImageExporter(Protocol):
     async def ask_path(self, filename: str) -> Path | None: ...
 
 
+RunJs = Callable[..., Awaitable[Any]]
+
+
 class NativeImageExporter:
     """ネイティブウィンドウ(pywebview)で、画面内の画像化と、保存ダイアログを使う。"""
+
+    def __init__(self, run_js: RunJs | None = None) -> None:
+        self.run_js: RunJs = run_js or ui.run_javascript  # テストでは、ブラウザの偽物に差し替える
 
     @property
     def available(self) -> bool:
         return app.native.main_window is not None
 
     async def capture(self, pixel_ratio: float) -> bytes:
+        """画像化して、PNG のバイト列を返す。データ URL は、websocket の上限に収まる大きさに分けて受け取る。"""
         script = f"({CAPTURE_JS.replace('__RATIO__', repr(float(pixel_ratio)))})()"
         try:
-            raw = await ui.run_javascript(script, timeout=CAPTURE_TIMEOUT_S)
+            length = parse_capture_meta(await self.run_js(script, timeout=CAPTURE_TIMEOUT_S))
+            parts: list[str] = []
+            for start in range(0, length, CAPTURE_CHUNK_CHARS):
+                end = start + CAPTURE_CHUNK_CHARS
+                part = await self.run_js(
+                    f"window.__exportPng.slice({start}, {end})", timeout=CAPTURE_TIMEOUT_S
+                )
+                if not isinstance(part, str):
+                    raise ExportError("画像のデータを受け取れませんでした")
+                parts.append(part)
+            text = "".join(parts)
+            if len(text) != length:
+                raise ExportError("画像のデータが欠けています")
+            return png_from_data_url(text)
         except TimeoutError:
             raise ExportError("画像化が時間内に終わりませんでした") from None
-        return parse_capture_result(raw)
+        finally:
+            try:
+                await self.run_js("delete window.__exportPng", timeout=5)
+            except Exception:  # noqa: BLE001 後始末の失敗は、画像の結果に影響させない
+                pass
 
     async def ask_path(self, filename: str) -> Path | None:
         import webview  # ネイティブのときだけ使う
