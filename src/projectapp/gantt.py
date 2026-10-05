@@ -12,7 +12,7 @@ from projectapp.arrange import Position
 from projectapp.calendar import DayKind, day_kind
 from projectapp.filtering import TaskFilter, matches
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS
-from projectapp.models import DEFAULT_COLOR, Project, Section, Status, Task, is_hex_color
+from projectapp.models import Project, Section, Status, Task
 from projectapp.timeline import (
     Band,
     Column,
@@ -66,7 +66,31 @@ PROGRESS_STATE_COLORS = {
 }
 MARK_WIDTH_PX = 18  # 印(✓! が最も広い)が占める幅の見積もり。◆との重なりの判定に使う
 MARK_GAP_PX = 4  # 印と、棒・◆との間の余白
-FINISHED_ACTUAL_COLOR = "#9e9e9e"  # 完了・遅延完了(状態が「終了」)のタスクの実績の棒。タスクの色の代わりに灰にする
+# タスクの状態別の、棒(予定・進捗の塗り・実績)の色。タスクごとの色(task.color)は棒には使わない。CSS 変数 --scolor 経由
+STATUS_COLORS = {
+    Status.NOT_STARTED: "#78909c",
+    Status.RUNNING: "#1e88e5",
+    Status.PAUSED: "#fb8c00",
+    Status.DONE: "#9e9e9e",
+}
+STATUS_DARK_COLORS = {  # ダークテーマでは、暗い背景に沈まないよう明るい色に替える
+    Status.NOT_STARTED: "#b0bec5",
+    Status.RUNNING: "#64b5f6",
+    Status.PAUSED: "#ffb74d",
+    Status.DONE: "#bdbdbd",
+}
+STATUS_CLASSES = {
+    Status.NOT_STARTED: "status-not-started",
+    Status.RUNNING: "status-running",
+    Status.PAUSED: "status-paused",
+    Status.DONE: "status-done",
+}
+STATUS_COLOR_VAR = "var(--scolor)"
+STATUS_CSS = "\n".join(
+    f".{cls} {{ --scolor: {STATUS_COLORS[status]}; }}\n"
+    f"body.body--dark .{cls} {{ --scolor: {STATUS_DARK_COLORS[status]}; }}"
+    for status, cls in STATUS_CLASSES.items()
+)
 # ダークテーマでは、同じ色が暗い背景(とのせる赤み)に沈むので、明るい色に替える。どちらも CSS 変数 --pstate 経由
 PROGRESS_STATE_DARK_COLORS = {
     ProgressState.DELAYED: "#ffb74d",
@@ -291,6 +315,7 @@ class GanttChart:
         ui.add_css(CHART_DRAG_CSS)
         ui.add_css(STICKY_CSS)
         ui.add_css(PROGRESS_CSS)
+        ui.add_css(STATUS_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
@@ -531,10 +556,11 @@ class GanttChart:
                     f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
                     f" width: {bar_width:.1f}px; top: {BAR_TOP_PX}px;"
                     f" height: {BAR_HEIGHT_PX}px;"
-                    f" background: {planned_background(task.color if is_hex_color(task.color) else DEFAULT_COLOR)};"
+                    f" background: {planned_background(STATUS_COLOR_VAR)};"
                     f" border-radius: 4px; cursor: {cursor}; overflow: hidden;{outline}"
                     " user-select: none; touch-action: none"
                 )
+                bar.classes(STATUS_CLASSES[task.status])
                 if state in PROGRESS_STATE_CLASSES:
                     bar.classes(PROGRESS_STATE_CLASSES[state])
                 bar.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
@@ -552,7 +578,7 @@ class GanttChart:
                     task, columns, width, NAME_WIDTH_PX + left * width + bar_width
                 )
                 self.progress_marker(key, ti, task, state, mark_left, end)
-            self.actual_bars(si, ti, task, columns, width, finished)
+            self.actual_bars(si, ti, task, columns, width)
             self.deadline_marker(si, ti, task, columns, width)
 
     def progress_fill(self, key: int | str, ti: int, task: Task) -> None:
@@ -560,10 +586,9 @@ class GanttChart:
         percent = fill_percent(task)
         if percent is None:
             return
-        color = task.color if is_hex_color(task.color) else DEFAULT_COLOR
         ui.element("div").style(
             f"position: absolute; left: 0; top: 0; bottom: 0; width: {percent}%;"
-            f" background: {color}; pointer-events: none"
+            f" background: {STATUS_COLOR_VAR}; pointer-events: none"
         ).mark(f"progress-fill-{key}-{ti}")
 
     def marker_left(
@@ -615,14 +640,9 @@ class GanttChart:
         task: Task,
         columns: list[Column],
         width: int,
-        finished: bool = False,
     ) -> None:
-        """実績の棒。予定の棒の下半分に、不透明で重ねる。進行中は現在時刻まで。ドラッグはできない。
-        終了したタスクは、タスクの色の代わりに灰にする。"""
+        """実績の棒。予定の棒の下半分に、不透明で重ねる。進行中は現在時刻まで。ドラッグはできない。色は状態の色。"""
         key = "top" if si is None else si
-        color = task.color if is_hex_color(task.color) else DEFAULT_COLOR
-        if finished:
-            color = FINISHED_ACTUAL_COLOR
         for n, actual in enumerate(task.actuals):
             finish = actual.end if actual.end is not None else self.now()
             left, length = interval_span(actual.start, finish, columns)
@@ -630,9 +650,9 @@ class GanttChart:
                 f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
                 f" width: {max(length * width, MIN_BAR_PX):.1f}px;"
                 f" top: {ACTUAL_TOP_PX}px; height: {ACTUAL_HEIGHT_PX}px;"
-                f" background: {color}; border-radius: 3px; cursor: pointer;"
+                f" background: {STATUS_COLOR_VAR}; border-radius: 3px; cursor: pointer;"
                 " user-select: none; overflow: hidden"
-            )
+            ).classes(STATUS_CLASSES[task.status])
             bar.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
             bar.mark(f"actual-{key}-{ti}-{n}")
             if actual.progress is not None:
