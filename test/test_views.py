@@ -1071,6 +1071,7 @@ async def test_shift_task_warns_when_the_assignee_goes_over_100_percent(
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
+    view.project.base_date = date(2026, 10, 5)  # 既定は「今日」。日付が進むと、基準日より前へは動かせず、テストが落ちる
     view.apply_members([Member("田中")], {})
     first = Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5, assignee="田中")
     second = Task("b", planned_start=datetime(2026, 10, 6, 9), effort_hours=6.5, assignee="田中")
@@ -1222,7 +1223,9 @@ def planned_task() -> Task:
     return Task("設計", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12), project_code="P")
 
 
-async def open_preview(user: User, tmp_path: Path, exporter: FakeExporter) -> MainView:
+async def open_preview(
+    user: User, tmp_path: Path, exporter: FakeExporter, extra: Task | None = None
+) -> MainView:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_preview(tmp_path, views, exporter)
@@ -1230,6 +1233,8 @@ async def open_preview(user: User, tmp_path: Path, exporter: FakeExporter) -> Ma
     view = views[0]
     view.project.base_date = date(2026, 10, 5)
     view.save_task(None, None, planned_task())
+    if extra is not None:
+        view.save_task(None, None, extra)
     user.find(marker="export-preview").click()
     return view
 
@@ -1459,3 +1464,59 @@ async def test_leaving_and_changing_the_settings_are_ignored_while_saving(user: 
     assert await wait_until(lambda: not view.saving)
     view.exit_preview()
     assert view.preview is None  # 保存が終われば、抜けられる
+
+
+def next_year_task() -> Task:
+    return Task("来年度の計画", planned_start=datetime(2027, 11, 1), planned_end=datetime(2027, 11, 30))
+
+
+async def test_a_wide_project_opens_the_preview_at_a_coarser_scale_with_a_notice(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter(), extra=next_year_task())
+    assert view.gantt.scale.value == "日次"  # メイン画面のスケールは、そのまま
+    assert view.preview is not None and view.preview.scale.value == "週次"
+    assert view.gantt.options.scale.value == "週次"
+    assert user.find(marker="preview-scale").elements.pop().value == "週次"
+    await user.should_see("幅が大きいため、週次で開きました(日次にするには、期間を狭めてください)")
+
+
+async def test_a_narrow_project_opens_at_the_current_scale_without_a_notice(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    assert view.preview is not None and view.preview.scale is view.gantt.scale
+    await user.should_not_see("幅が大きいため")
+
+
+async def test_the_notice_goes_away_when_the_settings_are_changed(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter(), extra=next_year_task())
+    await user.should_see("幅が大きいため")
+    user.find(marker="preview-chips").elements.pop().set_value(False)
+    await user.should_not_see("幅が大きいため")
+    assert view.preview.scale.value == "週次"  # 利用者が選ぶまで、自動では変えない
+
+
+async def test_the_user_can_go_back_to_the_finer_scale_after_narrowing_the_period(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter(), extra=next_year_task())
+    user.find(marker="preview-end").clear().type("2026-12-31")
+    user.find(marker="preview-scale").elements.pop().set_value("日次")
+    assert view.preview.scale.value == "日次"
+    assert view.gantt.options.scale.value == "日次"
+
+
+async def test_the_native_notice_wins_over_the_scale_notice(user: User, tmp_path: Path) -> None:
+    await open_preview(user, tmp_path, FakeExporter(available=False), extra=next_year_task())
+    await user.should_see("ネイティブウィンドウでのみ")
+    await user.should_not_see("幅が大きいため")
+
+
+async def test_an_empty_project_opens_the_preview_with_a_one_day_period(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    user.find(marker="export-preview").click()
+    assert view.preview is not None
+    assert view.preview.start == view.preview.end == date(2026, 10, 5)  # タスクがない: 基準日の 1 日
+    assert user.find(marker="preview-start").elements.pop().value == "2026-10-05"
+    assert user.find(marker="preview-end").elements.pop().value == "2026-10-05"
+    assert view.gantt.options.period == (date(2026, 10, 5), date(2026, 10, 5))

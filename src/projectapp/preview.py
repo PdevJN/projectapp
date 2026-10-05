@@ -6,10 +6,10 @@ from datetime import date, datetime
 
 from nicegui import ui
 
-from projectapp.gantt import ViewOptions
-from projectapp.models import MAX_YEAR, MIN_YEAR
+from projectapp.gantt import COLUMN_WIDTH_PX, NAME_WIDTH_PX, ViewOptions
+from projectapp.models import MAX_YEAR, MIN_YEAR, Project
 from projectapp.task_dialog import add_picker
-from projectapp.timeline import Scale
+from projectapp.timeline import Scale, build_columns
 
 PERIOD_ORDER_MESSAGE = "期間は、開始日が終了日以前になるように入れてください"
 LARGE_IMAGE_MESSAGE = "画像が大きいため、縮小して保存されます(期間かスケールを変えると小さくできます)"
@@ -17,6 +17,9 @@ NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、画像として�
 # 列が多すぎると、描き直しでブラウザとサーバが固まる。日次は約2年まで(1年強は問題なく出せる)
 MAX_COLUMNS = {Scale.DAY: 800, Scale.WEEK: 400, Scale.MONTH: 240}
 COLUMN_UNITS = {Scale.DAY: "日", Scale.WEEK: "週", Scale.MONTH: "か月"}
+# 資料に貼ると、画像の幅に合わせて縮む。これを超えると、文字が小さくなりすぎるので、粗いスケールで開く
+PREVIEW_COMFORT_WIDTH_PX = 6000
+COARSER = (Scale.DAY, Scale.WEEK, Scale.MONTH)  # 細かい順
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,21 @@ def validate_period(start_text: str, end_text: str) -> tuple[date, date]:
     if start > end:
         raise ValueError(PERIOD_ORDER_MESSAGE)
     return start, end
+
+
+def fit_scale(
+    project: Project, holidays: dict[date, str], period: tuple[date, date] | None, scale: Scale
+) -> Scale:
+    """全期間の画像の幅が快適な幅に収まるまで、スケールを 1 段ずつ粗くする。細かくはしない。月次は、広くても月次。"""
+    for candidate in COARSER[COARSER.index(scale) :]:
+        columns = build_columns(project, candidate, holidays, period)
+        if NAME_WIDTH_PX + COLUMN_WIDTH_PX[candidate] * len(columns) <= PREVIEW_COMFORT_WIDTH_PX:
+            return candidate
+    return Scale.MONTH
+
+
+def coarser_notice(chosen: Scale, original: Scale) -> str:
+    return f"幅が大きいため、{chosen.value}で開きました({original.value}にするには、期間を狭めてください)"
 
 
 def check_column_count(scale: Scale, count: int) -> str | None:

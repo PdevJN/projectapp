@@ -39,6 +39,8 @@ from projectapp.preview import (
     PreviewBar,
     PreviewSettings,
     check_column_count,
+    coarser_notice,
+    fit_scale,
     validate_period,
 )
 from projectapp.storage import (
@@ -70,6 +72,7 @@ class MainView:
         self.transport = transport
         self.exporter: ImageExporter = exporter or NativeImageExporter()
         self.preview: PreviewSettings | None = None
+        self.preview_notice: str | None = None  # スケールを粗くして開いたときのお知らせ。設定を変えたら消す
         self.saving = False
         self.project = Project(NEW_PROJECT_NAME)
         self.files: dict[str, Path] = {p.stem: p for p in list_project_files(base_dir)}
@@ -188,7 +191,10 @@ class MainView:
         if self.preview is not None:
             return
         start, end = visible_range(self.project, self.holidays)
-        self.preview = PreviewSettings(start, end - timedelta(days=1), self.gantt.scale)
+        period = (start, max(end - timedelta(days=1), start))  # タスクがないと、範囲が空になる。基準日の 1 日にする
+        scale = fit_scale(self.project, self.holidays, period, self.gantt.scale)
+        self.preview_notice = coarser_notice(scale, self.gantt.scale) if scale is not self.gantt.scale else None
+        self.preview = PreviewSettings(start, period[1], scale)
         self.header_box.set_visibility(False)
         self.preview_bar.show(self.preview)
         self.apply_preview(self.preview)
@@ -198,6 +204,7 @@ class MainView:
         if self.preview is None or self.saving:
             return  # 保存中は、撮っている画面を変えない
         self.preview = None
+        self.preview_notice = None
         self.preview_bar.hide()
         self.header_box.set_visibility(True)
         self.gantt.set_options(ViewOptions())
@@ -206,6 +213,7 @@ class MainView:
         """バーの入力が変わったとき。期間が正しければ描き直し、誤りなら理由を出して保存を止める。"""
         if self.preview is None or self.saving:
             return  # 保存中は、撮っている画面を変えない
+        self.preview_notice = None  # 利用者が設定を変えたので、お知らせは消す
         start_text, end_text, scale, chips, alerts = self.preview_bar.read()
         try:
             start, end = validate_period(start_text, end_text)
@@ -233,7 +241,7 @@ class MainView:
         elif exceeds_canvas(self.gantt.content_width()):
             self.preview_bar.set_warning(LARGE_IMAGE_MESSAGE)
         else:
-            self.preview_bar.set_warning(None)
+            self.preview_bar.set_warning(self.preview_notice)
 
     async def save_image(self) -> None:
         """プレビューを画像にして、選んだ場所へ保存する。失敗しても、プレビューに留まる。"""
