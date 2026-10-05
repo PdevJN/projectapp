@@ -18,6 +18,7 @@ from projectapp.models import (
     MIN_RATIO,
     MIN_YEAR,
     Actual,
+    ActualMode,
     Member,
     Priority,
     Status,
@@ -445,7 +446,9 @@ def open_unsaved_dialog(
 def open_settings_dialog(
     daily_hours: float,
     work_start: time,
-    on_apply: Callable[[float, time], object],
+    on_apply: Callable[[float, time, ActualMode], object],
+    actual_mode: ActualMode = ActualMode.SIMPLE,
+    multi_interval_tasks: int = 0,
 ) -> None:
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-80"):
         ui.label("稼働時間の設定").classes("text-h6")
@@ -472,6 +475,22 @@ def open_settings_dialog(
             ui.icon("access_time").classes("cursor-pointer").on("click", picker.open).mark(
                 "open-time-picker"
             )
+        ui.label("実績の記録方式").classes("text-caption text-grey")
+        mode = ui.toggle(
+            {ActualMode.SIMPLE.value: "簡易", ActualMode.INTERVALS.value: "区間"},
+            value=actual_mode.value,
+        ).mark("settings-actual-mode")
+        # 区間から簡易へは、2区間以上のタスクがあるあいだ戻せない(選んでも区間に戻す)
+        if multi_interval_tasks > 0 and actual_mode is ActualMode.INTERVALS:
+            ui.label(
+                f"{multi_interval_tasks}件のタスクに複数の区間があるため、簡易には戻せません"
+            ).classes("text-caption text-grey").mark("settings-mode-locked")
+
+            def keep_intervals(event: object) -> None:
+                if getattr(event, "value", None) == ActualMode.SIMPLE.value:
+                    mode.set_value(ActualMode.INTERVALS.value)
+
+            mode.on_value_change(keep_intervals)
         error = ui.label("").classes("text-negative").mark("settings-error")
 
         def apply() -> None:
@@ -480,7 +499,7 @@ def open_settings_dialog(
             except ValueError as exc:
                 error.set_text(str(exc))
                 return
-            on_apply(*result)
+            on_apply(*result, ActualMode(mode.value))
             dialog.close()
 
         with ui.row():

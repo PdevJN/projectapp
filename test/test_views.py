@@ -13,7 +13,7 @@ from projectapp.calendar import DayKind, save_cache
 from projectapp.filtering import TaskFilter
 from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
-from projectapp.models import Member, Project, Section, Task
+from projectapp.models import Actual, ActualMode, Member, Project, Section, Task
 from projectapp.storage import load_project, save_project
 from projectapp.views import MainView
 
@@ -1149,3 +1149,32 @@ async def test_editing_a_task_keeps_the_chart_scroll(user: User, tmp_path: Path)
     views[0].project.tasks.append(Task("追加"))
     views[0].gantt.set_project(views[0].project)  # 編集のあとの再描画
     assert calls == []
+
+
+async def test_actual_mode_setting_is_applied_and_makes_the_project_dirty(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    user.find(marker="open-settings").click()
+    user.find(marker="settings-actual-mode").elements.pop().set_value("intervals")
+    user.find(marker="settings-apply").click()
+    assert view.project.actual_mode is ActualMode.INTERVALS
+    assert await wait_until(lambda: view.is_dirty())
+
+
+async def test_multi_interval_count_counts_tasks_with_two_or_more_actuals(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    two = [Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)), Actual(datetime(2026, 10, 6, 9))]
+    view.save_task(None, None, Task("複数", actuals=two))
+    view.save_task(None, None, Task("単独", actuals=two[:1]))
+    assert view.multi_interval_count() == 1

@@ -26,7 +26,7 @@ from projectapp.forms import (
     parse_datetime,
     suggest_status,
 )
-from projectapp.models import Actual, Member, Priority, Status, Task
+from projectapp.models import Actual, ActualMode, Member, Priority, Status, Task
 from projectapp.task_dialog import open_task_dialog
 
 
@@ -354,14 +354,14 @@ def test_build_work_settings_rejects_invalid_values(hours: float | None, start: 
 
 
 async def test_settings_dialog_prefills_rejects_then_applies(user: User) -> None:
-    applied: list[tuple[float, time]] = []
+    applied: list[tuple[float, time, ActualMode]] = []
 
     @ui.page("/")
     def index() -> None:
         ui.button(
             "open",
             on_click=lambda: open_settings_dialog(
-                6.5, time(9, 0), lambda h, s: applied.append((h, s))
+                6.5, time(9, 0), lambda h, s, m: applied.append((h, s, m))
             ),
         )
 
@@ -376,18 +376,18 @@ async def test_settings_dialog_prefills_rejects_then_applies(user: User) -> None
     user.find(marker="settings-hours").clear().type("8")
     user.find(marker="settings-start").clear().type("10:00")
     user.find(marker="settings-apply").click()
-    assert applied == [(8.0, time(10, 0))]
+    assert applied == [(8.0, time(10, 0), ActualMode.SIMPLE)]
 
 
 async def test_settings_dialog_time_picker_and_field_stay_in_sync(user: User) -> None:
-    applied: list[tuple[float, time]] = []
+    applied: list[tuple[float, time, ActualMode]] = []
 
     @ui.page("/")
     def index() -> None:
         ui.button(
             "open",
             on_click=lambda: open_settings_dialog(
-                6.5, time(9, 0), lambda h, s: applied.append((h, s))
+                6.5, time(9, 0), lambda h, s, m: applied.append((h, s, m))
             ),
         )
 
@@ -403,13 +403,13 @@ async def test_settings_dialog_time_picker_and_field_stay_in_sync(user: User) ->
     user.find(marker="settings-start").clear().type("10:15")
     assert picker.value == "10:15"
     user.find(marker="settings-apply").click()
-    assert applied == [(6.5, time(10, 15))]
+    assert applied == [(6.5, time(10, 15), ActualMode.SIMPLE)]
 
 
 async def test_clock_icon_opens_a_picker_dialog_and_ok_closes_it(user: User) -> None:
     @ui.page("/")
     def index() -> None:
-        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s: None))
+        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s, m: None))
 
     await user.open("/")
     user.find("open").click()
@@ -442,7 +442,7 @@ def test_exceeds_decimals(hours: float, expected: bool) -> None:
 async def test_settings_dialog_hours_field_warns_instead_of_rounding(user: User) -> None:
     @ui.page("/")
     def index() -> None:
-        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s: None))
+        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s, m: None))
 
     await user.open("/")
     user.find("open").click()
@@ -467,7 +467,7 @@ def test_in_hours_range(hours: float, ok: bool) -> None:
 async def test_settings_dialog_hours_field_warns_when_out_of_range(user: User) -> None:
     @ui.page("/")
     def index() -> None:
-        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s: None))
+        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s, m: None))
 
     await user.open("/")
     user.find("open").click()
@@ -955,3 +955,86 @@ def test_suggest_status_for_intervals(
 
 def test_suggest_status_for_simple_is_unchanged_by_the_intervals_flag_default() -> None:
     assert suggest_status(True, True, 50) is Status.DONE
+
+
+async def test_settings_dialog_applies_the_actual_mode(user: User) -> None:
+    applied: list[tuple[float, time, ActualMode]] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda h, s, m: applied.append((h, s, m))
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    mode = user.find(marker="settings-actual-mode").elements.pop()
+    assert mode.value == "simple"
+    mode.set_value("intervals")
+    user.find(marker="settings-apply").click()
+    assert applied == [(6.5, time(9, 0), ActualMode.INTERVALS)]
+
+
+async def test_settings_dialog_cannot_go_back_to_simple_with_multi_interval_tasks(
+    user: User,
+) -> None:
+    applied: list[tuple[float, time, ActualMode]] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5,
+                time(9, 0),
+                lambda h, s, m: applied.append((h, s, m)),
+                ActualMode.INTERVALS,
+                multi_interval_tasks=2,
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    await user.should_see("2件のタスクに複数の区間があるため、簡易には戻せません")
+    mode = user.find(marker="settings-actual-mode").elements.pop()
+    mode.set_value("simple")
+    assert mode.value == "intervals"  # 選んでも、区間に戻る
+    user.find(marker="settings-apply").click()
+    assert applied == [(6.5, time(9, 0), ActualMode.INTERVALS)]
+
+
+async def test_settings_dialog_hides_the_lock_message_without_multi_interval_tasks(
+    user: User,
+) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda h, s, m: None, ActualMode.INTERVALS
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    await user.should_not_see(marker="settings-mode-locked")
+    user.find(marker="settings-actual-mode").elements.pop().set_value("simple")
+    assert user.find(marker="settings-actual-mode").elements.pop().value == "simple"
+
+
+async def test_settings_dialog_has_no_lock_when_it_was_simple(user: User) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda h, s, m: None, ActualMode.SIMPLE, multi_interval_tasks=1
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    await user.should_not_see(marker="settings-mode-locked")  # 簡易のままなら、制限はない

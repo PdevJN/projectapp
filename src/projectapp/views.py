@@ -21,7 +21,7 @@ from projectapp.forms import (
 )
 from projectapp import arrange
 from projectapp.gantt import GanttActions, GanttChart
-from projectapp.models import Member, Project, Section, Task
+from projectapp.models import ActualMode, Member, Project, Section, Task
 from projectapp.storage import (
     BASE_DIR,
     list_project_files,
@@ -143,8 +143,16 @@ class MainView:
 
     def open_settings(self) -> None:
         open_settings_dialog(
-            self.project.daily_hours, self.project.work_start, self.apply_settings
+            self.project.daily_hours,
+            self.project.work_start,
+            self.apply_settings,
+            self.project.actual_mode,
+            self.multi_interval_count(),
         )
+
+    def multi_interval_count(self) -> int:
+        """2区間以上の実績を持つタスクの数。簡易へ戻せるかの判定に使う。"""
+        return sum(1 for task in self.project.all_tasks() if len(task.actuals) > 1)
 
     def open_members(self) -> None:
         open_members_dialog(self.project.members, self.assigned_count, self.apply_members)
@@ -163,11 +171,16 @@ class MainView:
                     task.assignee = renames[task.assignee]
         self.gantt.set_project(self.project)
 
-    def apply_settings(self, hours: float, start: time) -> None:
-        """稼働設定を更新して再描画する。完了予定は表示のたびに計算されるので、再計算の処理は要らない。保存はしない。"""
-        if hours == self.project.daily_hours and start == self.project.work_start:
+    def apply_settings(self, hours: float, start: time, mode: ActualMode) -> None:
+        """稼働設定と記録方式を更新して再描画する。完了予定は表示のたびに計算されるので、再計算の処理は要らない。保存はしない。"""
+        if (
+            hours == self.project.daily_hours
+            and start == self.project.work_start
+            and mode is self.project.actual_mode
+        ):
             return
         self.project.daily_hours, self.project.work_start = hours, start
+        self.project.actual_mode = mode
         self.gantt.set_project(self.project)
 
     def save_project_clicked(self) -> None:
