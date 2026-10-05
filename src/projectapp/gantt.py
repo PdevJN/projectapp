@@ -108,6 +108,16 @@ PRIORITY_CSS = "\n".join(
     f"body.body--dark .{cls} {{ --pbg: {PRIORITY_DARK_BACKGROUNDS[priority]}; }}"
     for priority, cls in PRIORITY_CLASSES.items()
 )
+# 名前の右のチップ。名前だけが縮み、チップは縮めない
+CODE_CHIP_STYLE = (
+    "flex: none; max-width: 56px; padding: 0 6px; font-size: 10px; line-height: 16px;"
+    " border: 1px solid rgba(128, 128, 128, 0.6); border-radius: 8px"
+)
+ASSIGNEE_CHIP_STYLE = (
+    "flex: none; width: 16px; height: 16px; line-height: 16px; text-align: center;"
+    " font-size: 10px; border-radius: 50%; background: rgba(128, 128, 128, 0.3)"
+)
+PROGRESS_TEXT_STYLE = "flex: none; font-size: 10px"
 # 実績の区間の間(休んでいた期間)の点線。実績の棒の中央の高さに、1px の破線を引く
 ACTUAL_GAP_BACKGROUND = (
     f"repeating-linear-gradient(90deg, {STATUS_COLOR_VAR} 0 4px, transparent 4px 8px)"
@@ -579,6 +589,7 @@ class GanttChart:
                 if finished:  # 終了したタスクは、名前に取り消し線を引く
                     name.style("text-decoration: line-through")
                 name.mark(f"task-name-{key}-{ti}")
+                self.task_chips(key, ti, task)
             end = effective_end(task, self.project, self.holidays)
             span = bar_span(task.planned_start, end, columns)
             if span is not None:
@@ -617,6 +628,20 @@ class GanttChart:
                 self.progress_marker(key, ti, task, state, mark_left, end)
             self.actual_bars(si, ti, task, columns, width)
             self.deadline_marker(si, ti, task, columns, width)
+
+    def task_chips(self, key: int | str, ti: int, task: Task) -> None:
+        """名前の右の、ProjectCode・担当・進捗。空のものは出さない。名前の欄の枠の中で呼ぶ。"""
+        if task.project_code:
+            ui.label(task.project_code).classes("ellipsis").style(CODE_CHIP_STYLE).tooltip(
+                task.project_code
+            ).mark(f"task-code-{key}-{ti}")
+        if task.assignee:
+            ui.label(task.assignee[0]).style(ASSIGNEE_CHIP_STYLE).tooltip(task.assignee).mark(
+                f"task-assignee-{key}-{ti}"
+            )
+        percent = fill_percent(task)
+        if percent is not None:
+            ui.label(f"{percent}%").style(PROGRESS_TEXT_STYLE).mark(f"task-progress-{key}-{ti}")
 
     def progress_fill(self, key: int | str, ti: int, task: Task) -> None:
         """予定の棒の左端から、進捗度の割合の幅を、タスクの色で不透明に塗る。縞より先に置いて、縞を手前にする。"""
