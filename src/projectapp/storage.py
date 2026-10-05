@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from projectapp.models import (
+    ActualMode,
     MAX_ALLOCATION,
     MAX_PROGRESS,
     MAX_RATIO,
@@ -265,6 +266,14 @@ def _work_start(value: Any) -> time:
         raise ValueError(f"始業時刻の形式が正しくありません: {value!r}") from None
 
 
+def _actual_mode(value: Any) -> ActualMode:
+    """実績の記録方式。不正はValueError(開けませんでした)。"""
+    try:
+        return ActualMode(value)
+    except ValueError:
+        raise ValueError(f"実績の記録方式が正しくありません: {value!r}") from None
+
+
 def load_project(path: Path) -> Project:
     raw = json.loads(path.read_text(encoding="utf-8"))
     sections = [Section(s["name"], [_task(t) for t in s["tasks"]]) for s in raw["sections"]]
@@ -277,6 +286,7 @@ def load_project(path: Path) -> Project:
         members=members,
         sections=sections,
         tasks=[_task(t) for t in raw.get("tasks", [])],
+        actual_mode=_actual_mode(raw.get("actual_mode", "simple")),
     )
     known = {m.name for m in project.members}
     for task in project.all_tasks():  # 古いファイルの自由入力の担当者を、メンバーとして補う

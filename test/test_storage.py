@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from projectapp.config import load_theme, save_theme
-from projectapp.models import Actual, Member, Priority, Project, Section, Status, Task
+from projectapp.models import Actual, ActualMode, Member, Priority, Project, Section, Status, Task
 from projectapp.timeline import Scale, build_columns
 from projectapp.storage import list_project_files, load_project, save_project, validate_name
 
@@ -614,3 +614,37 @@ def test_unknown_status_is_still_rejected(tmp_path: Path) -> None:
     path.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(ValueError):
         load_project(path)
+
+
+def test_actual_mode_roundtrip(tmp_path: Path) -> None:
+    project = Project("demo", actual_mode=ActualMode.INTERVALS)
+    assert load_project(save_project(project, tmp_path)).actual_mode is ActualMode.INTERVALS
+
+
+def test_file_without_actual_mode_loads_as_simple(tmp_path: Path) -> None:
+    path = save_project(Project("demo"), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["actual_mode"] == "simple"
+    del raw["actual_mode"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).actual_mode is ActualMode.SIMPLE
+
+
+@pytest.mark.parametrize("bad", ["weekly", None, 1, []])
+def test_invalid_actual_mode_is_rejected(tmp_path: Path, bad: object) -> None:
+    path = save_project(Project("demo"), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["actual_mode"] = bad
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ValueError, match="記録方式"):
+        load_project(path)
+
+
+def test_simple_file_with_two_actuals_still_loads(tmp_path: Path) -> None:
+    project = _project_with_actuals(
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0)),
+        Actual(datetime(2026, 10, 6, 9, 0), None),
+    )
+    loaded = load_project(save_project(project, tmp_path))
+    assert loaded.actual_mode is ActualMode.SIMPLE
+    assert len(loaded.tasks[0].actuals) == 2

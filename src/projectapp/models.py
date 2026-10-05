@@ -33,6 +33,11 @@ class Status(StrEnum):
     DONE = "終了"
 
 
+class ActualMode(StrEnum):
+    SIMPLE = "simple"  # 簡易: 実績は 1 区間
+    INTERVALS = "intervals"  # 区間: 実績を複数の区間で入力する
+
+
 @dataclass
 class Member:
     name: str
@@ -80,6 +85,7 @@ class Project:
     members: list[Member] = field(default_factory=list)
     sections: list[Section] = field(default_factory=list)
     tasks: list[Task] = field(default_factory=list)  # セクションに属さないタスク
+    actual_mode: ActualMode = ActualMode.SIMPLE  # 実績の記録方式
 
     def all_tasks(self) -> list[Task]:
         """セクションなしのタスク、続いてセクションのタスク。"""
