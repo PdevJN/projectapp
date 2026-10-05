@@ -14,6 +14,7 @@ from projectapp.filtering import TaskFilter, matches
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS
 from projectapp.models import Priority, Project, Section, Status, Task
 from projectapp.timeline import (
+    in_range,
     Band,
     Column,
     Overload,
@@ -108,6 +109,17 @@ PRIORITY_CSS = "\n".join(
     f"body.body--dark .{cls} {{ --pbg: {PRIORITY_DARK_BACKGROUNDS[priority]}; }}"
     for priority, cls in PRIORITY_CLASSES.items()
 )
+@dataclass(frozen=True)
+class ViewOptions:
+    """ガントチャートの表示の設定。既定値が、通常の画面と同じ描画になる。"""
+
+    period: tuple[date, date] | None = None  # 表示する期間 [開始日, 終了日]。None は、基準日とバーから決める
+    scale: Scale | None = None  # None は、ツールバーのスケール
+    show_chips: bool = True  # 名前欄のチップと進捗
+    show_alerts: bool = True  # 予定超過の赤みと、割り当て超過の縞
+    read_only: bool = False  # 編集の部品・クリック・ドラッグをなくす
+
+
 # 名前の右のチップ。名前だけが縮み、チップは縮めない
 CODE_CHIP_STYLE = (
     "flex: none; max-width: 56px; padding: 0 6px; font-size: 10px; line-height: 16px;"
@@ -247,6 +259,7 @@ class GanttChart:
         self.now = now
         self.overloads: list[Overload] = []
         self.scale = Scale.DAY
+        self.options = ViewOptions()
         self.task_filter = TaskFilter()
         self.search_input: ui.input | None = None
         self.assignee_select: ui.select | None = None
@@ -286,7 +299,7 @@ class GanttChart:
 
     def handle_shift(self, args: object) -> None:
         """バーの横移動を受ける。日次スケール以外と、不正な値は無視する。"""
-        if self.scale is not Scale.DAY:
+        if self.view_scale is not Scale.DAY:
             return
         parsed = arrange.parse_shift(args)
         if parsed is not None:
@@ -346,6 +359,27 @@ class GanttChart:
         self.scale = scale
         self.render.refresh()
         self.scroll_to_left()  # 列の幅が変わるので、横の位置は意味を持たない(縦は保つ)
+
+    @property
+    def view_scale(self) -> Scale:
+        """描画に使うスケール。プレビューで指定されていればそれ、なければツールバーのスケール。"""
+        return self.options.scale or self.scale
+
+    def set_options(self, options: ViewOptions) -> None:
+        """表示の設定を変えて、描き直す。描画のスケールが変わるときは、横のスクロールを先頭へ戻す。"""
+        before = self.view_scale
+        self.options = options
+        self.render.refresh()
+        if self.view_scale != before:
+            self.scroll_to_left()  # 列の幅が変わるので、横の位置は意味を持たない(縦は保つ)
+
+    def bar_visible(
+        self, start: datetime | None, end: datetime | None, columns: list[Column]
+    ) -> bool:
+        """棒を描くか。期間を指定したときだけ、期間と重ならない棒を描かない(端に細い棒を出さない)。"""
+        if self.options.period is None or start is None or end is None:
+            return True
+        return in_range(start, end, columns)
 
     def build(self) -> None:
         self.client = context.client
@@ -407,14 +441,14 @@ class GanttChart:
 
     @ui.refreshable_method
     def render(self) -> None:
-        columns = build_columns(self.project, self.scale, self.holidays)
+        columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
         self.overloads = overallocations(self.project, self.holidays)
-        width = COLUMN_WIDTH_PX[self.scale]
+        width = COLUMN_WIDTH_PX[self.view_scale]
         total = NAME_WIDTH_PX + width * len(columns)
         with ui.element("div").style(f"position: relative; width: {total}px"):
-            top = BAND_HEIGHT_PX * (1 if self.scale is Scale.MONTH else 2)
+            top = BAND_HEIGHT_PX * (1 if self.view_scale is Scale.MONTH else 2)
             self.gridlines(columns, width, top)
-            if self.scale is Scale.DAY:
+            if self.view_scale is Scale.DAY:
                 self.stripes(columns, width, top)
             self.header(columns, width)
             self.no_match_message()
@@ -478,7 +512,7 @@ class GanttChart:
         header_style = f"position: sticky; top: 0px; z-index: {STICKY_Z_HEADER}"
         with ui.column().classes("gap-0 gantt-sticky").style(header_style).mark("chart-header"):
             self.band_row(year_bands(columns), width, "year-band")
-            if self.scale is not Scale.MONTH:
+            if self.view_scale is not Scale.MONTH:
                 self.band_row(month_bands(columns), width, "month-band")
             self.label_row(columns, width)
 
@@ -507,7 +541,7 @@ class GanttChart:
                     ).mark(f"{marker}-label")
 
     def label_row(self, columns: list[Column], width: int) -> None:
-        height = HEADER_HEIGHT_PX if self.scale is Scale.DAY else ROW_HEIGHT_PX
+        height = HEADER_HEIGHT_PX if self.view_scale is Scale.DAY else ROW_HEIGHT_PX
         style = f"height: {height}px; position: relative; border-bottom: {GRID_BORDER}"
         with ui.row().classes("items-center no-wrap gap-0").style(style):
             self.header_spacer("label-row-spacer")
@@ -516,7 +550,7 @@ class GanttChart:
                     ui.label(column.label).classes("text-caption").mark(
                         f"col-{column.start.isoformat()}"
                     )
-                    if self.scale is Scale.DAY:
+                    if self.view_scale is Scale.DAY:
                         weekday = f"（{WEEKDAYS[column.start.weekday()]}）"
                         ui.label(weekday).classes("text-caption").mark(
                             f"weekday-{column.start.isoformat()}"
@@ -556,7 +590,7 @@ class GanttChart:
     ) -> None:
         key = "top" if si is None else si
         style = ROW_STYLE
-        overdue = is_overdue(task, self.project, self.holidays, self.now())
+        overdue = is_overdue(task, self.project, self.holidays, self.now()) and self.options.show_alerts
         state = progress_state(task, self.project, self.holidays, self.now())
         finished = state in (ProgressState.DONE, ProgressState.LATE_DONE)
         if overdue:
@@ -589,13 +623,14 @@ class GanttChart:
                 if finished:  # 終了したタスクは、名前に取り消し線を引く
                     name.style("text-decoration: line-through")
                 name.mark(f"task-name-{key}-{ti}")
-                self.task_chips(key, ti, task)
+                if self.options.show_chips:
+                    self.task_chips(key, ti, task)
             end = effective_end(task, self.project, self.holidays)
             span = bar_span(task.planned_start, end, columns)
-            if span is not None:
+            if span is not None and self.bar_visible(task.planned_start, end, columns):
                 left, length = span
                 bar_width = max(length * width, MIN_BAR_PX)
-                draggable = self.scale is Scale.DAY
+                draggable = self.view_scale is Scale.DAY
                 cursor = "grab" if draggable else "pointer"
                 outline = ""
                 if state in PROGRESS_STATE_COLORS:
@@ -621,7 +656,8 @@ class GanttChart:
                     )
                 with bar:
                     self.progress_fill(key, ti, task)
-                    self.overload_stripes(key, ti, task, left, bar_width, columns, width)
+                    if self.options.show_alerts:
+                        self.overload_stripes(key, ti, task, left, bar_width, columns, width)
                 mark_left = self.marker_left(
                     task, columns, width, NAME_WIDTH_PX + left * width + bar_width
                 )
@@ -707,6 +743,8 @@ class GanttChart:
         key = "top" if si is None else si
         for n, actual in enumerate(task.actuals):
             finish = actual.end if actual.end is not None else self.now()
+            if not self.bar_visible(actual.start, finish, columns):
+                continue
             left, length = interval_span(actual.start, finish, columns)
             bar = ui.element("div").style(
                 f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
@@ -728,6 +766,8 @@ class GanttChart:
             before, after = task.actuals[n], task.actuals[n + 1]
             if before.end is None or after.start <= before.end:
                 continue  # 進行中の区間の後ろ、隙間なし、重なり・逆順(手で編集したファイル)は引かない
+            if not self.bar_visible(before.end, after.start, columns):
+                continue
             left, length = interval_span(before.end, after.start, columns)
             gap = ui.element("div").style(
                 f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"

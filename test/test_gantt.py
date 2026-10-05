@@ -9,6 +9,7 @@ from projectapp.calendar import DayKind
 from projectapp.filtering import TaskFilter
 from projectapp.gantt_drag import CHART_DRAG_CSS
 from projectapp.gantt import (
+    ViewOptions,
     PRIORITY_BACKGROUND_VAR,
     PRIORITY_BACKGROUNDS,
     PRIORITY_CLASSES,
@@ -1752,3 +1753,125 @@ async def test_the_click_is_handled_once_by_the_name_cell_so_the_chips_bubble_to
         assert click_listeners(chip(user, marker)) == []
     user.find(marker="task-0-0").click()
     assert recorder.events == [("edit_task", (0, 0))]
+
+
+def mount_with(project: Project, options: ViewOptions, now: datetime = datetime(2026, 10, 1)) -> None:
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(project, {}, Recorder().actions, now=lambda: now)
+        chart.options = options
+        chart.build()
+
+
+def test_view_options_defaults_mean_today_s_chart() -> None:
+    options = ViewOptions()
+    assert (options.period, options.scale, options.show_chips, options.show_alerts, options.read_only) == (
+        None, None, True, True, False,
+    )
+
+
+async def test_period_sets_the_first_column_and_clips_bars_at_the_edge(user: User) -> None:
+    mount_with(sample_project(), ViewOptions(period=(date(2026, 10, 6), date(2026, 10, 8))))
+    await user.open("/")
+    await user.should_see(marker="col-2026-10-06")
+    await user.should_not_see(marker="col-2026-10-05")
+    bar = user.find(marker="bar-0-0").elements.pop()  # 10/5 12:00 → 10/7 12:00。左は端で切る
+    assert bar._style["left"] == "200.0px"
+    assert bar._style["width"] == "60.0px"  # 10/6 0:00 から 10/7 12:00 = 1.5 日 * 40
+
+
+async def test_bars_outside_the_period_are_not_drawn_but_the_rows_stay(user: User) -> None:
+    outside = Task(
+        "範囲外",
+        planned_start=datetime(2026, 9, 20),
+        planned_end=datetime(2026, 9, 22),
+        deadline=datetime(2026, 9, 25),
+        actuals=[
+            Actual(datetime(2026, 9, 20, 9), datetime(2026, 9, 20, 12)),
+            Actual(datetime(2026, 9, 21, 9), datetime(2026, 9, 21, 12)),
+        ],
+    )
+    project = Project("demo", base_date=BASE, sections=[Section("開発", [outside])])
+    mount_with(project, ViewOptions(period=(date(2026, 10, 6), date(2026, 10, 8))))
+    await user.open("/")
+    await user.should_see(marker="task-0-0")  # 行は残る
+    for marker in ("bar-0-0", "actual-0-0-0", "actual-0-0-1", "actual-gap-0-0-0", "deadline-0-0", "progress-state-0-0"):
+        await user.should_not_see(marker=marker)
+
+
+async def test_actual_bars_and_gap_lines_inside_the_period_are_kept(user: User) -> None:
+    task = Task(
+        "設計",
+        planned_start=datetime(2026, 10, 6),
+        planned_end=datetime(2026, 10, 9),
+        actuals=[
+            Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12)),
+            Actual(datetime(2026, 10, 8, 9), datetime(2026, 10, 8, 12)),
+        ],
+    )
+    project = Project("demo", base_date=BASE, sections=[Section("開発", [task])])
+    mount_with(project, ViewOptions(period=(date(2026, 10, 6), date(2026, 10, 10))))
+    await user.open("/")
+    for marker in ("bar-0-0", "actual-0-0-0", "actual-0-0-1", "actual-gap-0-0-0"):
+        await user.should_see(marker=marker)
+
+
+async def test_preview_scale_is_separate_from_the_toolbar_scale(user: User) -> None:
+    mount_with(sample_project(), ViewOptions(scale=Scale.WEEK))
+    await user.open("/")
+    assert user.find(kind=ui.toggle).elements.pop().value == Scale.DAY  # ツールバーは変わらない
+    bar = user.find(marker="bar-0-0").elements.pop()
+    assert bar._style["width"] != "80.0px"  # 週次の幅で描かれる(日次なら 2.0 日 * 40 = 80px)
+    await user.should_not_see(marker="stripes")  # 土日の背景は日次だけ
+
+
+async def test_show_chips_false_hides_the_chips_and_progress(user: User) -> None:
+    task = Task("設計", project_code="PRJ-1", assignee="山", status=Status.DONE)
+    project = Project("demo", base_date=BASE, sections=[Section("開発", [task])])
+    mount_with(project, ViewOptions(show_chips=False))
+    await user.open("/")
+    await user.should_see(marker="task-name-0-0")
+    for marker in ("task-code-0-0", "task-assignee-0-0", "task-progress-0-0"):
+        await user.should_not_see(marker=marker)
+
+
+async def test_show_alerts_false_hides_the_overdue_tint(user: User) -> None:
+    mount_with(sample_project(), ViewOptions(show_alerts=False), now=datetime(2026, 10, 8))
+    await user.open("/")
+    cell = user.find(marker="task-0-0").elements.pop()
+    assert "background-image" not in cell._style
+    assert user.find(marker="row-0-0").elements.pop()._style.get("background") is None
+
+
+async def test_show_alerts_false_hides_the_overload_stripes(user: User) -> None:
+    mount_with(overloaded_project(), ViewOptions(show_alerts=False))
+    await user.open("/")
+    await user.should_see(marker="bar-top-0")
+    await user.should_not_see(marker="overload-top-0-0")
+
+
+async def test_alerts_are_shown_by_default(user: User) -> None:
+    mount_with(overloaded_project(), ViewOptions())
+    await user.open("/")
+    await user.should_see(marker="overload-top-0-0")
+
+
+async def test_set_options_rerenders_and_the_view_scale_follows(user: User) -> None:
+    charts: list[GanttChart] = []
+
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(sample_project(), {}, Recorder().actions, now=lambda: datetime(2026, 10, 1))
+        charts.append(chart)
+        chart.build()
+
+    await user.open("/")
+    chart = charts[0]
+    chart.set_options(ViewOptions(period=(date(2026, 10, 6), date(2026, 10, 8))))
+    await user.should_not_see(marker="col-2026-10-05")
+    assert chart.view_scale is Scale.DAY
+    chart.set_options(ViewOptions(scale=Scale.MONTH))
+    assert chart.view_scale is Scale.MONTH
+    assert chart.scale is Scale.DAY
+    chart.set_options(ViewOptions())
+    await user.should_see(marker="col-2026-10-05")
