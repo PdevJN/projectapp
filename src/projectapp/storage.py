@@ -12,6 +12,7 @@ from typing import Any, NamedTuple
 from projectapp.models import (
     ActualMode,
     MAX_ALLOCATION,
+    MAX_PROJECT_CODE_LENGTH,
     MAX_PROGRESS,
     MAX_RATIO,
     MAX_YEAR,
@@ -158,6 +159,7 @@ def _task(raw: dict[str, Any]) -> Task:
         predecessors=list(raw["predecessors"]),
         allocation=_allocation(raw.get("allocation", 1.0)),
         actuals=_actuals(raw.get("actuals")),
+        project_code=_project_code(raw.get("project_code")),
     )
 
 
@@ -225,6 +227,18 @@ def _actuals(value: Any) -> list[Actual]:
             previous = progress
         actuals.append(Actual(start, end, progress))
     return actuals
+
+
+def _project_code(value: Any) -> str:
+    """ProjectCode。キーがない・nullは空。文字列以外と長すぎるものはValueError(開けませんでした)。"""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"ProjectCodeが文字列ではありません: {value!r}")
+    code = value.strip()
+    if len(code) > MAX_PROJECT_CODE_LENGTH:
+        raise ValueError(f"ProjectCodeが{MAX_PROJECT_CODE_LENGTH}文字を超えています")
+    return code
 
 
 def _assignee(value: Any) -> str | None:

@@ -12,6 +12,7 @@ MIN_YEAR, MAX_YEAR = 2000, 2100  # 入力ミスで表示範囲が際限なく広
 MIN_RATIO, MAX_RATIO = 0.1, 3.0  # 相対比率(10%〜300%)
 MIN_ALLOCATION, MAX_ALLOCATION = 0.01, 1.0  # 割り当て率(1%〜100%)
 MIN_PROGRESS, MAX_PROGRESS = 0, 100  # 実績の進捗度(%)
+MAX_PROJECT_CODE_LENGTH = 20  # ProjectCode の最大文字数
 HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
 
@@ -68,6 +69,7 @@ class Task:
     planned_end_manual: bool = False  # 工数があるときに、完了予定を手で指定するか
     allocation: float = 1.0  # 担当者の時間のうち、このタスクに使う割合(1.0 = 100%)
     actuals: list[Actual] = field(default_factory=list)  # 実績の区間(今回の画面は0〜1件)
+    project_code: str = ""  # ProjectCode。前後の空白は除く。最大 MAX_PROJECT_CODE_LENGTH 文字
 
 
 @dataclass
