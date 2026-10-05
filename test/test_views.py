@@ -15,6 +15,10 @@ from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.models import Actual, ActualMode, Member, Project, Section, Task
 from projectapp.storage import load_project, save_project
+from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
+
+from projectapp.export import ExportError
+from projectapp.gantt import ViewOptions
 from projectapp.views import MainView
 
 
@@ -1067,6 +1071,7 @@ async def test_shift_task_warns_when_the_assignee_goes_over_100_percent(
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
+    view.project.base_date = date(2026, 10, 5)  # 既定は「今日」。日付が進むと、基準日より前へは動かせず、テストが落ちる
     view.apply_members([Member("田中")], {})
     first = Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5, assignee="田中")
     second = Task("b", planned_start=datetime(2026, 10, 6, 9), effort_hours=6.5, assignee="田中")
@@ -1178,3 +1183,340 @@ async def test_multi_interval_count_counts_tasks_with_two_or_more_actuals(
     view.save_task(None, None, Task("複数", actuals=two))
     view.save_task(None, None, Task("単独", actuals=two[:1]))
     assert view.multi_interval_count() == 1
+
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\nbody"
+
+
+class FakeExporter:
+    """画像化と保存先の選択の偽物。呼ばれた内容を記録する。"""
+
+    def __init__(self, path: Path | None = None, error: Exception | None = None, available: bool = True) -> None:
+        self.path, self.error, self._available = path, error, available
+        self.captured: list[float] = []
+        self.asked: list[str] = []
+
+    @property
+    def available(self) -> bool:
+        return self._available
+
+    async def capture(self, pixel_ratio: float) -> bytes:
+        self.captured.append(pixel_ratio)
+        if self.error is not None:
+            raise self.error
+        return PNG_BYTES
+
+    async def ask_path(self, filename: str) -> Path | None:
+        self.asked.append(filename)
+        return self.path
+
+
+def mount_preview(base_dir: Path, views: list[MainView], exporter: FakeExporter) -> None:
+    @ui.page("/")
+    def index() -> None:
+        view = MainView(base_dir, make_transport(200, []), exporter)
+        views.append(view)
+        view.build()
+
+
+def planned_task() -> Task:
+    return Task("設計", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12), project_code="P")
+
+
+async def open_preview(
+    user: User, tmp_path: Path, exporter: FakeExporter, extra: Task | None = None
+) -> MainView:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, exporter)
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    view.save_task(None, None, planned_task())
+    if extra is not None:
+        view.save_task(None, None, extra)
+    user.find(marker="export-preview").click()
+    return view
+
+
+def key_event(name: str, keydown: bool = True) -> KeyEventArguments:
+    return KeyEventArguments(
+        sender=None,  # type: ignore[arg-type]
+        client=None,  # type: ignore[arg-type]
+        action=KeyboardAction(keydown=keydown, keyup=not keydown, repeat=False),
+        key=KeyboardKey(name=name, code=name, location=0),
+        modifiers=KeyboardModifiers(alt=False, ctrl=False, meta=False, shift=False),
+    )
+
+
+async def test_the_preview_replaces_the_header_and_toolbar(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    assert view.preview is not None
+    assert not view.header_box.visible  # user.find は、非表示の要素を見つけない
+    assert not view.gantt.toolbar.visible
+    assert user.find(marker="preview-bar").elements.pop().parent_slot.parent.visible
+    assert view.gantt.options.read_only
+    await user.should_not_see(marker="add-task-top")
+
+
+async def test_the_preview_starts_with_the_visible_range_and_the_current_scale(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    settings = view.preview
+    assert settings is not None
+    assert settings.start == date(2026, 10, 5)
+    assert settings.end >= date(2026, 10, 7)
+    assert settings.scale is view.gantt.scale
+    assert user.find(marker="preview-start").elements.pop().value == "2026-10-05"
+    assert user.find(marker="preview-scale").elements.pop().value == view.gantt.scale.value
+
+
+async def test_back_restores_the_header_toolbar_and_default_options(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="preview-back").click()
+    assert view.preview is None
+    assert view.header_box.visible
+    assert view.gantt.toolbar.visible
+    assert view.gantt.options == ViewOptions()
+
+
+async def test_escape_goes_back(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    view.on_key(key_event("Escape"))
+    assert view.preview is None
+    assert view.header_box.visible
+
+
+async def test_other_keys_and_key_releases_do_not_go_back(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    view.on_key(key_event("Enter"))
+    view.on_key(key_event("Escape", keydown=False))
+    assert view.preview is not None
+
+
+async def test_escape_does_nothing_outside_the_preview(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    views[0].on_key(key_event("Escape"))
+    assert views[0].preview is None
+    assert views[0].header_box.visible
+
+
+async def test_the_filter_survives_the_preview_round_trip(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    view.gantt.set_filter(replace(view.gantt.task_filter, query="設計"))
+    user.find(marker="preview-back").click()
+    assert view.gantt.task_filter.query == "設計"
+
+
+async def test_changing_the_settings_updates_the_chart(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="preview-start").clear().type("2026-10-06")
+    assert view.gantt.options.period[0] == date(2026, 10, 6)
+    user.find(marker="preview-chips").elements.pop().set_value(False)
+    assert view.gantt.options.show_chips is False
+    user.find(marker="preview-scale").elements.pop().set_value("週次")
+    assert view.gantt.options.scale.value == "週次"
+    assert view.gantt.scale.value == "日次"  # ツールバーのスケールは変わらない
+
+
+async def test_a_bad_period_disables_saving_and_shows_the_reason(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter()
+    await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-start").clear().type("2026-12-31")
+    user.find(marker="preview-end").clear().type("2026-10-01")
+    await user.should_see("開始日が終了日以前")
+    assert not user.find(marker="preview-save").elements.pop().enabled
+    user.find(marker="preview-end").clear().type("2027-01-31")
+    assert user.find(marker="preview-save").elements.pop().enabled
+    assert exporter.captured == []
+
+
+async def test_a_large_image_shows_a_warning_but_can_still_be_saved(user: User, tmp_path: Path) -> None:
+    await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="preview-end").clear().type("2027-12-31")  # 日次で約 450 日 → 16,384px 超(上限 800 日の内側)
+    await user.should_see("縮小して保存されます")
+    assert user.find(marker="preview-save").elements.pop().enabled
+    user.find(marker="preview-end").clear().type("2026-12-31")
+    await user.should_not_see("縮小して保存されます")
+
+
+async def test_save_writes_the_png_and_notifies(user: User, tmp_path: Path) -> None:
+    target = tmp_path / "out" / "chart"
+    target.parent.mkdir()
+    exporter = FakeExporter(path=target)
+    await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save").click()
+    assert await wait_until(lambda: (tmp_path / "out" / "chart.png").exists())
+    assert (tmp_path / "out" / "chart.png").read_bytes() == PNG_BYTES
+    assert exporter.asked == [f"新規プロジェクト_{date.today():%Y%m%d}.png"]
+    assert 0 < exporter.captured[0] <= 2.0
+    await user.should_see("保存しました")
+
+
+async def test_cancelling_the_save_dialog_writes_nothing(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=None)
+    view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save").click()
+    assert await wait_until(lambda: exporter.asked != [])
+    assert not list(tmp_path.glob("*.png"))
+    assert view.preview is not None  # プレビューに留まる
+
+
+async def test_a_capture_failure_is_reported_and_the_preview_stays(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(error=ExportError("boom"))
+    view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save").click()
+    await user.should_see("画像を作れませんでした: boom")
+    assert exporter.asked == []  # 保存先は聞かない
+    assert view.preview is not None
+    assert user.find(marker="preview-save").elements.pop().enabled  # もう一度押せる
+
+
+async def test_a_write_failure_is_reported_and_leaves_nothing(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=tmp_path / "missing" / "chart.png")
+    view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save").click()
+    await user.should_see("保存できませんでした")
+    assert view.preview is not None
+    assert not list(tmp_path.rglob("*.tmp"))
+
+
+async def test_saving_cannot_be_started_twice(user: User, tmp_path: Path) -> None:
+    gate = asyncio.Event()
+
+    class SlowExporter(FakeExporter):
+        async def capture(self, pixel_ratio: float) -> bytes:
+            self.captured.append(pixel_ratio)
+            await gate.wait()
+            return PNG_BYTES
+
+    exporter = SlowExporter(path=tmp_path / "chart.png")
+    view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save").click()
+    assert await wait_until(lambda: exporter.captured != [])
+    assert not user.find(marker="preview-save").elements.pop().enabled  # 保存中は押せない
+    await view.save_image()  # 直接呼んでも、二重には始まらない
+    assert len(exporter.captured) == 1
+    gate.set()
+    assert await wait_until(lambda: (tmp_path / "chart.png").exists())
+    assert user.find(marker="preview-save").elements.pop().enabled
+
+
+async def test_saving_is_disabled_outside_the_native_window(user: User, tmp_path: Path) -> None:
+    await open_preview(user, tmp_path, FakeExporter(available=False))
+    assert not user.find(marker="preview-save").elements.pop().enabled
+    await user.should_see("ネイティブウィンドウでのみ")
+
+
+async def test_the_default_exporter_is_unavailable_in_tests(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)  # exporter を渡さない = NativeImageExporter
+    await user.open("/")
+    user.find(marker="export-preview").click()
+    assert not user.find(marker="preview-save").elements.pop().enabled
+
+
+async def test_a_period_that_is_too_long_for_the_scale_is_rejected_without_redrawing(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    before = view.gantt.options
+    user.find(marker="preview-start").clear().type("2000-01-01")
+    user.find(marker="preview-end").clear().type("2026-12-31")
+    await user.should_see("期間が長すぎます")
+    assert not user.find(marker="preview-save").elements.pop().enabled
+    assert view.gantt.options.period != (date(2000, 1, 1), date(2026, 12, 31))  # 描き直していない
+    assert view.gantt.options.period[0] != date(2000, 1, 1)
+    assert before is not None
+
+
+async def test_the_same_long_period_is_allowed_at_a_coarser_scale(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="preview-scale").elements.pop().set_value("月次")
+    user.find(marker="preview-start").clear().type("2020-01-01")
+    user.find(marker="preview-end").clear().type("2026-12-31")
+    assert view.gantt.options.period == (date(2020, 1, 1), date(2026, 12, 31))
+    assert user.find(marker="preview-save").elements.pop().enabled
+
+
+async def test_leaving_and_changing_the_settings_are_ignored_while_saving(user: User, tmp_path: Path) -> None:
+    gate = asyncio.Event()
+
+    class SlowExporter(FakeExporter):
+        async def capture(self, pixel_ratio: float) -> bytes:
+            self.captured.append(pixel_ratio)
+            await gate.wait()
+            return PNG_BYTES
+
+    exporter = SlowExporter(path=tmp_path / "chart.png")
+    view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save").click()
+    assert await wait_until(lambda: exporter.captured != [])
+    options = view.gantt.options
+    view.exit_preview()
+    view.on_key(key_event("Escape"))
+    user.find(marker="preview-chips").elements.pop().set_value(False)
+    assert view.preview is not None  # 抜けられない
+    assert view.gantt.options == options  # 描き直されない(撮っている途中の画面を変えない)
+    gate.set()
+    assert await wait_until(lambda: (tmp_path / "chart.png").exists())
+    assert await wait_until(lambda: not view.saving)
+    view.exit_preview()
+    assert view.preview is None  # 保存が終われば、抜けられる
+
+
+def next_year_task() -> Task:
+    return Task("来年度の計画", planned_start=datetime(2027, 11, 1), planned_end=datetime(2027, 11, 30))
+
+
+async def test_a_wide_project_opens_the_preview_at_a_coarser_scale_with_a_notice(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter(), extra=next_year_task())
+    assert view.gantt.scale.value == "日次"  # メイン画面のスケールは、そのまま
+    assert view.preview is not None and view.preview.scale.value == "週次"
+    assert view.gantt.options.scale.value == "週次"
+    assert user.find(marker="preview-scale").elements.pop().value == "週次"
+    await user.should_see("幅が大きいため、週次で開きました(日次にするには、期間を狭めてください)")
+
+
+async def test_a_narrow_project_opens_at_the_current_scale_without_a_notice(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    assert view.preview is not None and view.preview.scale is view.gantt.scale
+    await user.should_not_see("幅が大きいため")
+
+
+async def test_the_notice_goes_away_when_the_settings_are_changed(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter(), extra=next_year_task())
+    await user.should_see("幅が大きいため")
+    user.find(marker="preview-chips").elements.pop().set_value(False)
+    await user.should_not_see("幅が大きいため")
+    assert view.preview.scale.value == "週次"  # 利用者が選ぶまで、自動では変えない
+
+
+async def test_the_user_can_go_back_to_the_finer_scale_after_narrowing_the_period(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter(), extra=next_year_task())
+    user.find(marker="preview-end").clear().type("2026-12-31")
+    user.find(marker="preview-scale").elements.pop().set_value("日次")
+    assert view.preview.scale.value == "日次"
+    assert view.gantt.options.scale.value == "日次"
+
+
+async def test_the_native_notice_wins_over_the_scale_notice(user: User, tmp_path: Path) -> None:
+    await open_preview(user, tmp_path, FakeExporter(available=False), extra=next_year_task())
+    await user.should_see("ネイティブウィンドウでのみ")
+    await user.should_not_see("幅が大きいため")
+
+
+async def test_an_empty_project_opens_the_preview_with_a_one_day_period(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    user.find(marker="export-preview").click()
+    assert view.preview is not None
+    assert view.preview.start == view.preview.end == date(2026, 10, 5)  # タスクがない: 基準日の 1 日
+    assert user.find(marker="preview-start").elements.pop().value == "2026-10-05"
+    assert user.find(marker="preview-end").elements.pop().value == "2026-10-05"
+    assert view.gantt.options.period == (date(2026, 10, 5), date(2026, 10, 5))

@@ -20,6 +20,7 @@ from projectapp.timeline import (
     conversion_rate,
     current_progress,
     effort_days,
+    in_range,
     interval_span,
     overallocations,
     deadline_position,
@@ -761,3 +762,62 @@ def test_done_after_the_planned_end_is_late_done() -> None:
 def test_done_without_an_actual_end_is_done_not_late_done() -> None:
     assert state_of(running(None, status=Status.DONE), datetime(2026, 10, 20)) is ProgressState.DONE
     assert state_of(Task("t", status=Status.DONE), datetime(2026, 10, 20)) is ProgressState.DONE
+
+
+def test_period_sets_the_first_and_last_columns() -> None:
+    columns = build_columns(Project("p", base_date=date(2026, 10, 5)), Scale.DAY, period=(date(2026, 10, 6), date(2026, 10, 8)))
+    assert columns[0].start == date(2026, 10, 6)
+    assert len(columns) == 42  # 下限(MIN_COLUMNS)は守る
+
+
+def test_period_includes_the_end_date_beyond_the_minimum() -> None:
+    columns = build_columns(Project("p", base_date=date(2026, 10, 5)), Scale.DAY, period=(date(2026, 10, 1), date(2026, 12, 31)))
+    assert columns[0].start == date(2026, 10, 1)
+    assert columns[-1].start == date(2026, 12, 31)  # 終了日の列まで含む
+    assert columns[-1].end == date(2027, 1, 1)
+
+
+def test_period_for_week_and_month_scales() -> None:
+    project = Project("p", base_date=date(2026, 10, 5))
+    weeks = build_columns(project, Scale.WEEK, period=(date(2026, 10, 7), date(2026, 12, 31)))
+    assert weeks[0].start == date(2026, 10, 5)  # 月曜に合わせる
+    assert weeks[-1].end >= date(2027, 1, 1)
+    months = build_columns(project, Scale.MONTH, period=(date(2026, 10, 7), date(2027, 3, 1)))
+    assert months[0].start == date(2026, 10, 1)
+    assert months[-1].start >= date(2027, 3, 1)
+
+
+def test_without_a_period_the_columns_are_unchanged() -> None:
+    project = Project("p", base_date=date(2026, 10, 5))
+    assert build_columns(project, Scale.DAY) == build_columns(project, Scale.DAY, None)
+
+
+def test_a_reversed_period_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        build_columns(Project("p", base_date=date(2026, 10, 5)), Scale.DAY, period=(date(2026, 10, 9), date(2026, 10, 8)))
+
+
+def test_a_one_day_period_is_allowed() -> None:
+    columns = build_columns(Project("p", base_date=date(2026, 10, 5)), Scale.DAY, period=(date(2026, 10, 8), date(2026, 10, 8)))
+    assert columns[0].start == date(2026, 10, 8)
+
+
+def _period_columns() -> list:  # 10/6 から 42 日
+    return build_columns(Project("p", base_date=date(2026, 10, 5)), Scale.DAY, period=(date(2026, 10, 6), date(2026, 10, 8)))
+
+
+def test_in_range_for_bars_inside_overlapping_and_outside() -> None:
+    cols = _period_columns()  # [10/6 0:00, 11/17 0:00)
+    assert in_range(datetime(2026, 10, 7), datetime(2026, 10, 8), cols)
+    assert in_range(datetime(2026, 10, 5, 12), datetime(2026, 10, 6, 12), cols)  # 左端をまたぐ
+    assert in_range(datetime(2026, 11, 16, 12), datetime(2026, 11, 18), cols)  # 右端をまたぐ
+    assert not in_range(datetime(2026, 10, 1), datetime(2026, 10, 6), cols)  # 終了がちょうど左端
+    assert not in_range(datetime(2026, 11, 17), datetime(2026, 11, 20), cols)  # 開始がちょうど右端
+    assert not in_range(datetime(2026, 9, 1), datetime(2026, 9, 5), cols)
+
+
+def test_in_range_for_zero_length_and_reversed_bars() -> None:
+    cols = _period_columns()
+    assert in_range(datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 9), cols)
+    assert not in_range(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 9), cols)
+    assert in_range(datetime(2026, 10, 8), datetime(2026, 10, 7), cols)  # 逆順(手編集)でも落ちない

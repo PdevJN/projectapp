@@ -2,11 +2,12 @@
 
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import date, time
+from datetime import date, time, timedelta
 from pathlib import Path
 
 import httpx
 from nicegui import ui
+from nicegui.events import KeyEventArguments
 
 from projectapp.calendar import load_cache
 from projectapp.calendar import refresh_holidays as download_holidays
@@ -20,8 +21,28 @@ from projectapp.forms import (
     open_unsaved_dialog,
 )
 from projectapp import arrange
-from projectapp.gantt import GanttActions, GanttChart
+from projectapp.export import (
+    HTML_TO_IMAGE_URL,
+    ExportError,
+    ImageExporter,
+    NativeImageExporter,
+    default_filename,
+    exceeds_canvas,
+    export_pixel_ratio,
+    write_png,
+)
+from projectapp.gantt import GanttActions, GanttChart, ViewOptions
 from projectapp.models import ActualMode, Member, Project, Section, Task
+from projectapp.preview import (
+    LARGE_IMAGE_MESSAGE,
+    NOT_NATIVE_MESSAGE,
+    PreviewBar,
+    PreviewSettings,
+    check_column_count,
+    coarser_notice,
+    fit_scale,
+    validate_period,
+)
 from projectapp.storage import (
     BASE_DIR,
     list_project_files,
@@ -30,7 +51,7 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.task_dialog import open_task_dialog
-from projectapp.timeline import clip_overloads, overallocations
+from projectapp.timeline import build_columns, clip_overloads, overallocations, visible_range
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
@@ -45,9 +66,14 @@ class MainView:
         self,
         base_dir: Path = BASE_DIR,
         transport: httpx.AsyncBaseTransport | None = None,
+        exporter: ImageExporter | None = None,
     ) -> None:
         self.base_dir = base_dir
         self.transport = transport
+        self.exporter: ImageExporter = exporter or NativeImageExporter()
+        self.preview: PreviewSettings | None = None
+        self.preview_notice: str | None = None  # スケールを粗くして開いたときのお知らせ。設定を変えたら消す
+        self.saving = False
         self.project = Project(NEW_PROJECT_NAME)
         self.files: dict[str, Path] = {p.stem: p for p in list_project_files(base_dir)}
         self.path: Path | None = None
@@ -70,6 +96,7 @@ class MainView:
                 shift_task=self.shift_task,
             ),
         )
+        self.preview_bar = PreviewBar(self.on_preview_change, self.exit_preview, self.save_image)
 
     def apply_theme(self, theme: str) -> None:
         self.theme = theme
@@ -153,6 +180,95 @@ class MainView:
     def multi_interval_count(self) -> int:
         """2区間以上の実績を持つタスクの数。簡易へ戻せるかの判定に使う。"""
         return sum(1 for task in self.project.all_tasks() if len(task.actuals) > 1)
+
+    def on_key(self, event: KeyEventArguments) -> None:
+        """ESC で、プレビューから戻る。"""
+        if self.preview is not None and event.action.keydown and event.key == "Escape":
+            self.exit_preview()
+
+    def enter_preview(self) -> None:
+        """メイン画面を、プレビューモードに切り替える。初期値は、今の表示範囲と、今のスケール。"""
+        if self.preview is not None:
+            return
+        start, end = visible_range(self.project, self.holidays)
+        period = (start, max(end - timedelta(days=1), start))  # タスクがないと、範囲が空になる。基準日の 1 日にする
+        scale = fit_scale(self.project, self.holidays, period, self.gantt.scale)
+        self.preview_notice = coarser_notice(scale, self.gantt.scale) if scale is not self.gantt.scale else None
+        self.preview = PreviewSettings(start, period[1], scale)
+        self.header_box.set_visibility(False)
+        self.preview_bar.show(self.preview)
+        self.apply_preview(self.preview)
+
+    def exit_preview(self) -> None:
+        """プレビューから戻る。通常のヘッダー・ツールバー・描画に戻す(絞り込みは変えない)。"""
+        if self.preview is None or self.saving:
+            return  # 保存中は、撮っている画面を変えない
+        self.preview = None
+        self.preview_notice = None
+        self.preview_bar.hide()
+        self.header_box.set_visibility(True)
+        self.gantt.set_options(ViewOptions())
+
+    def on_preview_change(self) -> None:
+        """バーの入力が変わったとき。期間が正しければ描き直し、誤りなら理由を出して保存を止める。"""
+        if self.preview is None or self.saving:
+            return  # 保存中は、撮っている画面を変えない
+        self.preview_notice = None  # 利用者が設定を変えたので、お知らせは消す
+        start_text, end_text, scale, chips, alerts = self.preview_bar.read()
+        try:
+            start, end = validate_period(start_text, end_text)
+        except ValueError as exc:
+            self.preview_bar.set_error(str(exc))
+            self.preview_bar.set_warning(None)
+            self.preview_bar.set_save_enabled(False)
+            return
+        too_long = check_column_count(scale, len(build_columns(self.project, scale, self.holidays, (start, end))))
+        if too_long is not None:
+            self.preview_bar.set_error(too_long)
+            self.preview_bar.set_warning(None)
+            self.preview_bar.set_save_enabled(False)
+            return
+        self.preview = PreviewSettings(start, end, scale, chips, alerts)
+        self.apply_preview(self.preview)
+
+    def apply_preview(self, settings: PreviewSettings) -> None:
+        self.gantt.set_options(settings.to_options())
+        self.preview_bar.set_error(None)
+        available = self.exporter.available
+        self.preview_bar.set_save_enabled(available and not self.saving)
+        if not available:
+            self.preview_bar.set_warning(NOT_NATIVE_MESSAGE)
+        elif exceeds_canvas(self.gantt.content_width()):
+            self.preview_bar.set_warning(LARGE_IMAGE_MESSAGE)
+        else:
+            self.preview_bar.set_warning(self.preview_notice)
+
+    async def save_image(self) -> None:
+        """プレビューを画像にして、選んだ場所へ保存する。失敗しても、プレビューに留まる。"""
+        if self.preview is None or self.saving or not self.exporter.available:
+            return
+        self.saving = True
+        self.preview_bar.set_save_enabled(False)
+        try:
+            ratio = export_pixel_ratio(self.gantt.content_width())
+            try:
+                data = await self.exporter.capture(ratio)
+            except ExportError as exc:
+                ui.notify(f"画像を作れませんでした: {exc}", type="negative")
+                return
+            path = await self.exporter.ask_path(default_filename(self.project.name, date.today()))
+            if path is None:
+                return
+            try:
+                write_png(path, data)
+            except OSError as exc:
+                ui.notify(f"保存できませんでした: {exc}", type="negative")
+                return
+            ui.notify("保存しました")
+        finally:
+            self.saving = False
+            if self.preview is not None:
+                self.preview_bar.set_save_enabled(self.exporter.available)
 
     def open_members(self) -> None:
         open_members_dialog(self.project.members, self.assigned_count, self.apply_members)
@@ -337,15 +453,20 @@ class MainView:
         await self.refresh_holidays(quiet=True)
 
     def build(self) -> None:
+        ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
         self.header()
+        self.preview_bar.build()
         self.gantt.build()
         self.theme_fab()
         self.help_button()
+        ui.keyboard(on_key=self.on_key)
         if self.needs_first_fetch:
             ui.timer(0.1, self.first_fetch, once=True)
 
     def header(self) -> None:
-        with ui.column().classes("w-full gap-2"):
+        with ui.column().classes("w-full gap-2") as box:
+            self.header_box = box
+            box.mark("header-box")
             with ui.row().classes("items-center gap-4"):
                 self.title()
                 ui.button("祝日を更新", icon="refresh", on_click=self.refresh_holidays).props(
@@ -366,6 +487,9 @@ class MainView:
                 )
                 ui.button("メンバー", icon="group", on_click=self.open_members).mark(
                     "open-members"
+                )
+                ui.button("エクスポート", icon="image", on_click=self.enter_preview).mark(
+                    "export-preview"
                 )
 
     @ui.refreshable_method
