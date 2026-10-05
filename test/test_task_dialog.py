@@ -1243,3 +1243,41 @@ async def test_simple_mode_keeps_two_actuals_read_only_with_the_mode_argument(us
     await open_dialog(user)
     await user.should_see(marker="task-actuals-readonly")
     await user.should_not_see(marker="task-interval-add")
+
+
+async def test_project_code_is_saved(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-project-code").type("PRJ-001")
+    user.find(marker="task-save").click()
+    assert saved[0].project_code == "PRJ-001"
+
+
+async def test_existing_project_code_is_shown_and_kept(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧", project_code="PRJ-9"), saved)
+    await open_dialog(user)
+    assert value_of(user, "task-project-code") == "PRJ-9"
+    user.find(marker="task-save").click()
+    assert saved[0].project_code == "PRJ-9"
+
+
+async def test_a_too_long_project_code_shows_the_error_and_keeps_the_dialog(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-project-code").type("A" * 21)
+    user.find(marker="task-save").click()
+    await user.should_see("ProjectCode は20文字以内で入力してください")
+    assert saved == []
+
+
+async def test_changing_the_project_code_counts_as_a_change_when_closing(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-project-code").type("X")
+    user.find(marker="task-cancel").click()
+    assert confirm_dialog_of(user).value is True

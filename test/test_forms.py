@@ -1038,3 +1038,23 @@ async def test_settings_dialog_has_no_lock_when_it_was_simple(user: User) -> Non
     await user.open("/")
     user.find("open").click()
     await user.should_not_see(marker="settings-mode-locked")  # 簡易のままなら、制限はない
+
+
+def test_project_code_is_trimmed_and_saved() -> None:
+    assert make(project_code="  PRJ-001 ").project_code == "PRJ-001"
+
+
+def test_project_code_defaults_to_empty_and_can_be_cleared() -> None:
+    assert make().project_code == ""
+    assert make(Task("t", project_code="OLD")).project_code == ""  # 入力が空なら空にできる
+
+
+def test_project_code_length_is_checked_after_trimming() -> None:
+    assert make(project_code="A" * 20).project_code == "A" * 20
+    assert make(project_code=" " + "A" * 20 + " ").project_code == "A" * 20
+    with pytest.raises(ValueError, match="20文字以内"):
+        make(project_code="A" * 21)
+
+
+def test_a_blank_project_code_becomes_empty() -> None:
+    assert make(project_code="   ").project_code == ""

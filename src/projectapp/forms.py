@@ -11,6 +11,7 @@ from nicegui import ui
 from projectapp.models import (
     MAX_ALLOCATION,
     MAX_PROGRESS,
+    MAX_PROJECT_CODE_LENGTH,
     MAX_RATIO,
     MAX_YEAR,
     MIN_ALLOCATION,
@@ -100,11 +101,15 @@ def build_task(
     actual_end: str = "",
     actual_progress: float | None = None,
     actual_rows: list[ActualRow] | None = None,
+    project_code: str = "",
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。"""
     clean = name.strip()
     if not clean:
         raise ValueError("名前を入力してください")
+    code = project_code.strip()
+    if len(code) > MAX_PROJECT_CODE_LENGTH:
+        raise ValueError(f"ProjectCode は{MAX_PROJECT_CODE_LENGTH}文字以内で入力してください")
     base = existing or Task(clean)
     hours = effort_hours or 0.0
     manual = planned_end_manual and hours > 0
@@ -155,6 +160,7 @@ def build_task(
         assignee=assignee_name or None,
         allocation=allocation,
         actuals=actuals,
+        project_code=code,
     )
 
 
