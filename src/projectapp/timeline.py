@@ -57,9 +57,18 @@ def visible_range(
 
 
 def build_columns(
-    project: Project, scale: Scale, holidays: dict[date, str] | None = None
+    project: Project,
+    scale: Scale,
+    holidays: dict[date, str] | None = None,
+    period: tuple[date, date] | None = None,
 ) -> list[Column]:
-    start, end = visible_range(project, holidays)
+    """列を作る。period は [開始日, 終了日](終了日を含む)。None は、基準日とバーから決めた表示範囲。"""
+    if period is None:
+        start, end = visible_range(project, holidays)
+    else:
+        if period[0] > period[1]:
+            raise ValueError("期間の開始日が終了日より後です")
+        start, end = period[0], period[1] + timedelta(days=1)
     if scale is Scale.WEEK:
         return _week_columns(start, end)
     if scale is Scale.MONTH:
@@ -117,6 +126,16 @@ def bar_span(
     left = _position(start, columns)
     right = _position(end, columns)
     return left, max(right - left, 0.0)
+
+
+def in_range(start: datetime, end: datetime, columns: list[Column]) -> bool:
+    """棒が、列の範囲と重なるか。幅 0 の棒は、位置が範囲内のときだけ。逆順(手編集)でも落ちない。"""
+    begin = datetime.combine(columns[0].start, time.min)
+    finish = datetime.combine(columns[-1].end, time.min)
+    first, last = sorted((start, end))
+    if first == last:
+        return begin <= first < finish
+    return first < finish and last > begin
 
 
 def deadline_position(deadline: datetime, columns: list[Column]) -> float | None:
