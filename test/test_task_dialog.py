@@ -6,7 +6,7 @@ from datetime import date, datetime, time
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.models import Actual, Member, Status, Task
+from projectapp.models import Actual, ActualMode, Member, Status, Task
 from projectapp.task_dialog import open_task_dialog
 
 
@@ -18,6 +18,7 @@ def mount_dialog(
     daily_hours: float = 6.5,
     holidays: dict[date, str] | None = None,
     members: list[Member] | None = None,
+    actual_mode: ActualMode = ActualMode.SIMPLE,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -31,6 +32,7 @@ def mount_dialog(
                 daily_hours=daily_hours,
                 holidays=holidays,
                 members=members,
+                actual_mode=actual_mode,
             ),
         )
 
@@ -1056,3 +1058,188 @@ async def test_two_actuals_keep_their_progress_and_hide_the_input(user: User) ->
     await user.should_not_see(marker="task-actual-progress")
     user.find(marker="task-save").click()
     assert saved[0].actuals == kept
+
+
+INTERVALS = ActualMode.INTERVALS
+
+
+def interval_inputs(user: User, n: int, start: str, end: str = "", progress: str = "") -> None:
+    day, clock = start.split(" ")
+    user.find(marker=f"task-interval-{n}-start-date").clear().type(day)
+    user.find(marker=f"task-interval-{n}-start-time").clear().type(clock)
+    if end:
+        day, clock = end.split(" ")
+        user.find(marker=f"task-interval-{n}-end-date").clear().type(day)
+        user.find(marker=f"task-interval-{n}-end-time").clear().type(clock)
+    if progress:
+        user.find(marker=f"task-interval-{n}-progress").clear().type(progress)
+
+
+async def test_interval_mode_shows_no_rows_for_a_task_without_actuals(user: User) -> None:
+    mount_dialog(None, [], actual_mode=INTERVALS)
+    await open_dialog(user)
+    await user.should_see(marker="task-interval-add")
+    await user.should_not_see(marker="task-interval-0-start-date")
+    await user.should_not_see(marker="task-actual-start-date")
+
+
+async def test_interval_rows_are_added_and_saved(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-interval-add").click()
+    interval_inputs(user, 0, "2026-10-05 09:00", "2026-10-05 12:00", "30")
+    user.find(marker="task-interval-add").click()
+    interval_inputs(user, 1, "2026-10-06 09:00", "", "60")
+    user.find(marker="task-save").click()
+    assert saved[0].actuals == [
+        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12), 30),
+        Actual(datetime(2026, 10, 6, 9), None, 60),
+    ]
+
+
+async def test_two_actuals_are_editable_in_interval_mode(user: User) -> None:
+    saved: list[Task] = []
+    two = [
+        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12), 30),
+        Actual(datetime(2026, 10, 6, 9), None, 60),
+    ]
+    mount_dialog(Task("旧", actuals=list(two)), saved, actual_mode=INTERVALS)
+    await open_dialog(user)
+    await user.should_not_see(marker="task-actuals-readonly")
+    assert value_of(user, "task-interval-0-start-date") == "2026-10-05"
+    assert value_of(user, "task-interval-1-start-time") == "09:00"
+    assert value_of(user, "task-interval-1-progress") == 60
+    user.find(marker="task-save").click()
+    assert saved[0].actuals == two
+
+
+async def test_a_row_can_be_removed(user: User) -> None:
+    saved: list[Task] = []
+    two = [
+        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
+        Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12)),
+    ]
+    mount_dialog(Task("旧", actuals=list(two)), saved, actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-interval-0-remove").click()
+    await user.should_not_see(marker="task-interval-0-start-date")
+    user.find(marker="task-save").click()
+    assert saved[0].actuals == two[1:]
+
+
+async def test_empty_rows_are_ignored_on_save(user: User) -> None:
+    saved: list[Task] = []
+    one = Task("旧", actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12))])
+    mount_dialog(one, saved, actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-interval-0-remove").click()
+    user.find(marker="task-interval-add").click()  # 空の行だけを残す
+    user.find(marker="task-save").click()
+    assert saved[0].actuals == []
+
+
+async def test_overlapping_rows_show_the_error_and_keep_the_dialog(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-interval-add").click()
+    interval_inputs(user, 0, "2026-10-05 09:00", "2026-10-05 12:00")
+    user.find(marker="task-interval-add").click()
+    interval_inputs(user, 1, "2026-10-05 11:00", "2026-10-05 13:00")
+    user.find(marker="task-save").click()
+    await user.should_see("区間 2: 前の区間と重なっています")
+    assert saved == []
+
+
+async def test_the_error_row_number_follows_the_position_after_a_removal(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    for _ in range(3):
+        user.find(marker="task-interval-add").click()
+    interval_inputs(user, 0, "2026-10-05 09:00", "2026-10-05 12:00")
+    interval_inputs(user, 1, "2026-10-06 09:00", "2026-10-06 12:00")
+    interval_inputs(user, 2, "2026-10-06 11:00", "2026-10-06 13:00")
+    user.find(marker="task-interval-0-remove").click()  # 残りは 2 行。重なりは 2 行目
+    user.find(marker="task-save").click()
+    await user.should_see("区間 2: 前の区間と重なっています")
+
+
+async def test_a_half_typed_row_names_its_number(user: User) -> None:
+    mount_dialog(None, [], actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-interval-add").click()
+    user.find(marker="task-interval-0-start-date").type("2026-10-05")  # 時刻がない
+    user.find(marker="task-save").click()
+    await user.should_see("区間 1: 日付と時刻を両方入れてください")
+
+
+async def test_an_open_interval_in_the_middle_of_a_hand_edited_file_blocks_saving(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    broken = [
+        Actual(datetime(2026, 10, 5, 9), None),
+        Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12)),
+    ]
+    mount_dialog(Task("旧", actuals=broken), saved, actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-save").click()
+    await user.should_see("区間 1: 終了のない区間は最後の1つだけにしてください")
+    assert saved == []
+
+
+async def test_interval_mode_suggests_paused_when_the_last_interval_ended(user: User) -> None:
+    mount_dialog(None, [], actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-interval-add").click()
+    interval_inputs(user, 0, "2026-10-05 09:00")
+    assert value_of(user, "task-status") == Status.RUNNING
+    user.find(marker="task-interval-0-end-date").type("2026-10-05")
+    user.find(marker="task-interval-0-end-time").type("12:00")
+    assert value_of(user, "task-status") == Status.PAUSED
+    user.find(marker="task-interval-0-progress").type("100")
+    assert value_of(user, "task-status") == Status.DONE
+
+
+async def test_interval_mode_suggestion_follows_the_last_row(user: User) -> None:
+    mount_dialog(None, [], actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-interval-add").click()
+    interval_inputs(user, 0, "2026-10-05 09:00", "2026-10-05 12:00")
+    assert value_of(user, "task-status") == Status.PAUSED
+    user.find(marker="task-interval-add").click()
+    interval_inputs(user, 1, "2026-10-06 09:00")
+    assert value_of(user, "task-status") == Status.RUNNING
+
+
+async def test_closing_without_touching_the_rows_does_not_ask(user: User) -> None:
+    mount_dialog(None, [], actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-cancel").click()
+    assert dialog_of(user).value is False
+    assert confirm_dialog_of(user).value is False
+
+
+async def test_adding_a_row_counts_as_a_change_when_closing(user: User) -> None:
+    mount_dialog(None, [], actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-interval-add").click()
+    user.find(marker="task-cancel").click()
+    assert confirm_dialog_of(user).value is True
+
+
+async def test_simple_mode_keeps_two_actuals_read_only_with_the_mode_argument(user: User) -> None:
+    kept = [
+        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
+        Actual(datetime(2026, 10, 6, 9), None),
+    ]
+    mount_dialog(Task("旧", actuals=list(kept)), [], actual_mode=ActualMode.SIMPLE)
+    await open_dialog(user)
+    await user.should_see(marker="task-actuals-readonly")
+    await user.should_not_see(marker="task-interval-add")

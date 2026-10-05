@@ -233,6 +233,7 @@ class MainView:
             daily_hours=self.project.daily_hours,
             holidays=self.holidays,
             members=self.project.members,
+            actual_mode=self.project.actual_mode,
         )
 
     def add_top_task(self) -> None:
@@ -243,6 +244,7 @@ class MainView:
             daily_hours=self.project.daily_hours,
             holidays=self.holidays,
             members=self.project.members,
+            actual_mode=self.project.actual_mode,
         )
 
     def edit_task(self, section_index: int | None, task_index: int) -> None:
@@ -254,6 +256,7 @@ class MainView:
             daily_hours=self.project.daily_hours,
             holidays=self.holidays,
             members=self.project.members,
+            actual_mode=self.project.actual_mode,
             on_delete=lambda: self.delete_task(section_index, task_index),
         )
 
