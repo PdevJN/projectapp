@@ -9,6 +9,7 @@ from projectapp.calendar import DayKind
 from projectapp.filtering import TaskFilter
 from projectapp.gantt_drag import CHART_DRAG_CSS
 from projectapp.gantt import (
+    COLUMN_WIDTH_PX,
     ViewOptions,
     PRIORITY_BACKGROUND_VAR,
     PRIORITY_BACKGROUNDS,
@@ -52,6 +53,7 @@ from projectapp.gantt import (
     GanttActions,
     GanttChart,
 )
+from projectapp.timeline import build_columns
 from projectapp.models import DEFAULT_COLOR, Actual, Member, Priority, Project, Section, Status, Task
 from projectapp.timeline import ProgressState, Scale
 
@@ -1875,3 +1877,83 @@ async def test_set_options_rerenders_and_the_view_scale_follows(user: User) -> N
     assert chart.scale is Scale.DAY
     chart.set_options(ViewOptions())
     await user.should_see(marker="col-2026-10-05")
+
+
+async def test_read_only_removes_the_edit_parts(user: User) -> None:
+    mount_with(sample_project(), ViewOptions(read_only=True))
+    await user.open("/")
+    for marker in ("add-task-top", "add-task-0", "top-end"):
+        await user.should_not_see(marker=marker)
+    await user.should_see(marker="section-name-0")  # セクションの見出しは残る
+    await user.should_see(marker="task-0-0")
+
+
+async def test_read_only_hides_the_toolbar_and_set_options_restores_it(user: User) -> None:
+    charts: list[GanttChart] = []
+
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(sample_project(), {}, Recorder().actions, now=lambda: datetime(2026, 10, 1))
+        charts.append(chart)
+        chart.build()
+
+    await user.open("/")
+    chart = charts[0]
+    assert chart.toolbar is not None and chart.toolbar.visible
+    chart.set_options(ViewOptions(read_only=True))
+    assert not chart.toolbar.visible
+    chart.set_options(ViewOptions())
+    assert chart.toolbar.visible
+
+
+async def test_read_only_has_no_click_handlers_and_no_drag_attributes(user: User) -> None:
+    task = Task(
+        "設計",
+        planned_start=datetime(2026, 10, 5, 12),
+        planned_end=datetime(2026, 10, 7, 12),
+        deadline=datetime(2026, 10, 9),
+        actuals=[
+            Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 6, 12)),
+            Actual(datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 12)),
+        ],
+    )
+    project = Project("demo", base_date=BASE, sections=[Section("開発", [task])])
+    mount_with(project, ViewOptions(read_only=True))
+    await user.open("/")
+    for marker in ("task-0-0", "bar-0-0", "actual-0-0-0", "actual-gap-0-0-0", "deadline-0-0"):
+        assert click_listeners(user.find(marker=marker).elements.pop()) == [], marker
+    cell = user.find(marker="task-0-0").elements.pop()
+    assert "draggable" not in cell.props and "data-drag-handle" not in cell.props
+    bar = user.find(marker="bar-0-0").elements.pop()
+    assert "data-bar" not in bar.props
+    assert "data-drop" not in user.find(marker="row-0-0").elements.pop().props
+    assert "data-drop" not in user.find(marker="section-0").elements.pop().props
+
+
+async def test_the_edit_handlers_are_kept_when_not_read_only(user: User) -> None:
+    recorder = mount(sample_project())
+    await user.open("/")
+    user.find(marker="bar-0-0").click()
+    user.find(marker="task-0-1").click()
+    assert recorder.events == [("edit_task", (0, 0)), ("edit_task", (0, 1))]
+
+
+async def test_content_width_and_the_content_attribute(user: User) -> None:
+    charts: list[GanttChart] = []
+
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(sample_project(), {}, Recorder().actions, now=lambda: datetime(2026, 10, 1))
+        charts.append(chart)
+        chart.build()
+
+    await user.open("/")
+    chart = charts[0]
+    columns = build_columns(chart.project, Scale.DAY, {})
+    assert chart.content_width() == NAME_WIDTH_PX + COLUMN_WIDTH_PX[Scale.DAY] * len(columns)
+    content = user.find(marker="chart-content").elements.pop()
+    assert "data-chart-content" in content.props
+    assert content._style["width"] == f"{chart.content_width()}px"
+    chart.set_options(ViewOptions(scale=Scale.WEEK))
+    weeks = build_columns(chart.project, Scale.WEEK, {})
+    assert chart.content_width() == NAME_WIDTH_PX + COLUMN_WIDTH_PX[Scale.WEEK] * len(weeks)

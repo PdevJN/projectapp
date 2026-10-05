@@ -260,6 +260,7 @@ class GanttChart:
         self.overloads: list[Overload] = []
         self.scale = Scale.DAY
         self.options = ViewOptions()
+        self.toolbar: ui.row | None = None
         self.task_filter = TaskFilter()
         self.search_input: ui.input | None = None
         self.assignee_select: ui.select | None = None
@@ -308,7 +309,7 @@ class GanttChart:
 
     def drag_props(self, kind: str, key: int | str, **extra: object) -> str:
         """ドロップ先の `data-*` 属性。絞り込み中は空(ドロップできない)。"""
-        if self.task_filter.active:
+        if self.task_filter.active or self.options.read_only:
             return ""
         parts = [f"data-drop={kind}", f"data-si={key}"]
         parts += [f"data-{name}={value}" for name, value in extra.items()]
@@ -369,9 +370,22 @@ class GanttChart:
         """表示の設定を変えて、描き直す。描画のスケールが変わるときは、横のスクロールを先頭へ戻す。"""
         before = self.view_scale
         self.options = options
+        if self.toolbar is not None:
+            self.toolbar.set_visibility(not options.read_only)
         self.render.refresh()
         if self.view_scale != before:
             self.scroll_to_left()  # 列の幅が変わるので、横の位置は意味を持たない(縦は保つ)
+
+    def edit_on_click(self, element: ui.element, si: int | None, ti: int) -> ui.element:
+        """クリックでタスクの編集を開く。読み取り専用では何も付けない。"""
+        if not self.options.read_only:
+            element.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
+        return element
+
+    def content_width(self) -> int:
+        """描画の全体の幅(px)。名前の列と、すべての列。画像の幅になる。"""
+        columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
+        return NAME_WIDTH_PX + COLUMN_WIDTH_PX[self.view_scale] * len(columns)
 
     def bar_visible(
         self, start: datetime | None, end: datetime | None, columns: list[Column]
@@ -391,7 +405,8 @@ class GanttChart:
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
-        with ui.row().classes("w-full items-center no-wrap gap-4").mark("chart-toolbar"):
+        self.toolbar = ui.row().classes("w-full items-center no-wrap gap-4")
+        with self.toolbar.mark("chart-toolbar"):
             ui.toggle(
                 {scale: scale.value for scale in Scale},
                 value=self.scale,
@@ -445,7 +460,8 @@ class GanttChart:
         self.overloads = overallocations(self.project, self.holidays)
         width = COLUMN_WIDTH_PX[self.view_scale]
         total = NAME_WIDTH_PX + width * len(columns)
-        with ui.element("div").style(f"position: relative; width: {total}px"):
+        content = ui.element("div").style(f"position: relative; width: {total}px")
+        with content.props("data-chart-content").mark("chart-content"):
             top = BAND_HEIGHT_PX * (1 if self.view_scale is Scale.MONTH else 2)
             self.gridlines(columns, width, top)
             if self.view_scale is Scale.DAY:
@@ -472,6 +488,8 @@ class GanttChart:
 
     def top_add_row(self) -> None:
         """セクションなしのタスクの末尾に置く追加行。名前の列の右端にボタンを置く。"""
+        if self.options.read_only:
+            return
         row = ui.row().classes("items-center no-wrap gap-0").style(ADD_ROW_STYLE)
         row.props(self.drag_props("top-end", "top", count=len(self.project.tasks)))
         row.mark("top-end")
@@ -576,11 +594,12 @@ class GanttChart:
                 label = ui.label(section.name).classes("text-subtitle2 ellipsis")
                 label.style("min-width: 0; padding-left: 4px")  # 長い名前は縮めて、ボタンを残す
                 label.tooltip(section.name).mark(f"section-label-{si}")
-                ui.button(
-                    icon="add", on_click=lambda si=si: self.actions.add_task(si)
-                ).props("flat dense round size=sm").classes("shrink-0").tooltip(
-                    "タスク追加"
-                ).mark(f"add-task-{si}")
+                if not self.options.read_only:
+                    ui.button(
+                        icon="add", on_click=lambda si=si: self.actions.add_task(si)
+                    ).props("flat dense round size=sm").classes("shrink-0").tooltip(
+                        "タスク追加"
+                    ).mark(f"add-task-{si}")
         for ti, task in enumerate(section.tasks):
             if matches(task, self.task_filter):
                 self.task_row(si, ti, task, columns, width)
@@ -612,9 +631,9 @@ class GanttChart:
                     f"; background-image: linear-gradient({OVERDUE_COLOR}, {OVERDUE_COLOR})"
                 )
             cell.style(cell_style)
-            cell.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
+            self.edit_on_click(cell, si, ti)
             cell.mark(f"task-{key}-{ti}")
-            if not self.task_filter.active:
+            if not self.task_filter.active and not self.options.read_only:
                 cell.props(f"draggable=true data-drag-handle data-si={key} data-ti={ti}")
             with cell:
                 name = ui.label(task.name).classes("ellipsis").style(
@@ -630,7 +649,7 @@ class GanttChart:
             if span is not None and self.bar_visible(task.planned_start, end, columns):
                 left, length = span
                 bar_width = max(length * width, MIN_BAR_PX)
-                draggable = self.view_scale is Scale.DAY
+                draggable = self.view_scale is Scale.DAY and not self.options.read_only
                 cursor = "grab" if draggable else "pointer"
                 outline = ""
                 if state in PROGRESS_STATE_COLORS:
@@ -646,7 +665,7 @@ class GanttChart:
                 bar.classes(STATUS_CLASSES[task.status])
                 if state in PROGRESS_STATE_CLASSES:
                     bar.classes(PROGRESS_STATE_CLASSES[state])
-                bar.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
+                self.edit_on_click(bar, si, ti)
                 bar.mark(f"bar-{key}-{ti}")
                 if draggable:
                     least = arrange.min_shift_days(task, self.project.base_date)
@@ -753,7 +772,7 @@ class GanttChart:
                 f" background: {STATUS_COLOR_VAR}; border-radius: 3px; cursor: pointer;"
                 " user-select: none; overflow: hidden"
             ).classes(STATUS_CLASSES[task.status])
-            bar.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
+            self.edit_on_click(bar, si, ti)
             bar.mark(f"actual-{key}-{ti}-{n}")
             if actual.progress is not None:
                 with bar:
@@ -775,7 +794,7 @@ class GanttChart:
                 f" top: {ACTUAL_TOP_PX}px; height: {ACTUAL_HEIGHT_PX}px;"
                 f" background: {ACTUAL_GAP_BACKGROUND}; cursor: pointer; user-select: none"
             ).classes(STATUS_CLASSES[task.status])
-            gap.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
+            self.edit_on_click(gap, si, ti)
             gap.mark(f"actual-gap-{key}-{ti}-{n}")
 
     def overload_stripes(
@@ -819,9 +838,9 @@ class GanttChart:
             return
         key = "top" if si is None else si
         left = NAME_WIDTH_PX + position * width - DEADLINE_MARKER_HALF_PX
-        ui.label("◆").style(
+        marker = ui.label("◆").style(
             f"position: absolute; left: {left:.1f}px; top: 4px; line-height: 1;"
             f" color: {DEADLINE_COLOR}; cursor: pointer"
-        ).on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti)).tooltip(
-            f"締切 {task.deadline:%Y-%m-%d %H:%M}"
-        ).mark(f"deadline-{key}-{ti}")
+        )
+        self.edit_on_click(marker, si, ti)
+        marker.tooltip(f"締切 {task.deadline:%Y-%m-%d %H:%M}").mark(f"deadline-{key}-{ti}")
