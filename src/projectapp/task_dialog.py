@@ -496,6 +496,11 @@ def open_task_dialog(
     with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[36rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
         name = ui.input("名前", value=initial.name).mark("task-name")
+        project_code = (
+            ui.input("ProjectCode", value=initial.project_code)
+            .classes("w-full")
+            .mark("task-project-code")
+        )
         fields = DateTimeFields(initial, work_start, daily_hours, holidays or {}, initial_rate)
         with fields.second_row:
             effort = (
@@ -599,6 +604,7 @@ def open_task_dialog(
             """入力の現在値。開いた時点と比べて、変更があるかを判定する。"""
             return (
                 name.value,
+                project_code.value or "",
                 *fields.state(),
                 effort.value,
                 priority.value,
@@ -617,6 +623,7 @@ def open_task_dialog(
                 result = build_task(
                     task,
                     name=name.value or "",
+                    project_code=project_code.value or "",
                     planned_start=fields.start_text(),
                     planned_end=fields.end_text(),
                     planned_end_manual=bool(fields.manual.value),

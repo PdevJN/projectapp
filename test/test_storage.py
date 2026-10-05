@@ -648,3 +648,47 @@ def test_simple_file_with_two_actuals_still_loads(tmp_path: Path) -> None:
     loaded = load_project(save_project(project, tmp_path))
     assert loaded.actual_mode is ActualMode.SIMPLE
     assert len(loaded.tasks[0].actuals) == 2
+
+
+def _project_with_code(code: str) -> Project:
+    return Project("demo", tasks=[Task("t", project_code=code)])
+
+
+def test_project_code_roundtrip(tmp_path: Path) -> None:
+    loaded = load_project(save_project(_project_with_code("PRJ-001"), tmp_path))
+    assert loaded.tasks[0].project_code == "PRJ-001"
+
+
+def test_empty_project_code_is_saved_as_an_empty_string(tmp_path: Path) -> None:
+    path = save_project(_project_with_code(""), tmp_path)
+    assert json.loads(path.read_text(encoding="utf-8"))["tasks"][0]["project_code"] == ""
+
+
+@pytest.mark.parametrize("missing", ["delete", "null"])
+def test_file_without_project_code_loads_as_empty(tmp_path: Path, missing: str) -> None:
+    path = save_project(_project_with_code("X"), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if missing == "delete":
+        del raw["tasks"][0]["project_code"]
+    else:
+        raw["tasks"][0]["project_code"] = None
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).tasks[0].project_code == ""
+
+
+def test_project_code_is_trimmed_on_load(tmp_path: Path) -> None:
+    path = save_project(_project_with_code("X"), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["tasks"][0]["project_code"] = "  " + "A" * 20 + "  "
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).tasks[0].project_code == "A" * 20
+
+
+@pytest.mark.parametrize("bad", ["A" * 21, 1, ["x"], True])
+def test_invalid_project_code_is_rejected(tmp_path: Path, bad: object) -> None:
+    path = save_project(_project_with_code("X"), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["tasks"][0]["project_code"] = bad
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ValueError, match="ProjectCode"):
+        load_project(path)

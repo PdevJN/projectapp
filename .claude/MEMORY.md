@@ -1,9 +1,10 @@
 # 作業記録
 
-最終更新: 2026-10-05(実績の複数区間と記録方式の設定を `develop` へマージ)
+最終更新: 2026-10-05(タスク表示の拡張を `feature/task-chips` に実装。未マージ)
 
 ## 現在の状況
 
+- タスク表示の拡張(要望 9)・ProjectCode(要望 3)・優先度の背景色(2026-10-05 追加)は、2026-10-05 にブランチ `feature/task-chips`(`develop` から)へ実装した。**`develop` へは未マージ・未プッシュ**。設計書 `2026-10-05-task-chips-design.md`、実装計画 `2026-10-05-task-chips.md`(Native で実行)。`Task.project_code`(最大20文字。キーなし・null は空、文字列以外と超過は読込拒否)、編集ダイアログの入力(`task-project-code`)。名前の欄は `ui.row` の枠に作り替え(マーカー `task-<key>-<ti>` は枠。名前は `task-name-*`)、右に ProjectCode のチップ・担当の頭1文字(ツールチップで名前)・進捗(`fill_percent`)。優先度の背景色は CSS 変数 `--pbg`(`PRIORITY_BACKGROUNDS` / `PRIORITY_DARK_BACKGROUNDS`)。実機での確認はこれから(特に、チップを押して編集が開くこと = DOM の伝播、ProjectCode が長いときの名前の省略、ダークテーマの背景の濃さ)。保留: 頭文字が同じ担当者の区別。
 - 実績の複数区間と記録方式の設定(要望 15)は、2026-10-05 に `develop` へマージ済み(マージコミット ec64cba)。ブランチ `feature/actual-intervals` は削除済み。**プッシュは未実施**。テスト 875 件と `ty check` が通る。最終レビュー済み(Critical・Important なし)。見送った軽微な指摘: `apply_settings` を直接呼ぶと簡易へ戻せる(画面では防いでいる)、「開始の早い順に」のエラーだけ行番号がない、末尾の空行で状態の提案が止まる、空行を足しただけで閉じる確認が出る、簡易から区間へ切り替える通しのテストがない。設計書 `2026-10-05-actual-intervals-design.md`、実装計画 `2026-10-05-actual-intervals.md`(Native で実行)。`Project.actual_mode`(`ActualMode`。`simple` / `intervals`。キーなしは simple、不正は読込拒否)。設定ダイアログに「実績の記録方式」のトグル(2区間以上のタスクがあるあいだは、区間から簡易へ戻す選択を区間へ戻す。設計書の「選べなくする」の代わり)。`forms.build_actual_intervals`(空の行は無視、開始の昇順、重ならない、終了のない区間は最後の1つだけ、進捗度は前の入力以上)、`suggest_status(intervals=True)`(最後の区間が終わっていれば一時停止、進捗度100なら終了)。ダイアログの `IntervalFields`(行を足す・削除)。ガントチャートは、区間の間に点線(`actual-gap-*`、`ACTUAL_GAP_BACKGROUND`)。実機での確認はこれから。保留: 区間が多いときのダイアログの縦の長さ、区間ごとの進捗度の見た目。
 - 状態別のバーの色(要望 12)は、2026-10-05 に `develop` へマージ済み(マージコミット b014a5a)。ブランチ `feature/status-bar-color` は削除済み。**プッシュは未実施**。bounded(設計はチャットで承認。設計書・実装計画はなし)。テスト 824 件と `ty check` が通る。方式は「状態の色で上書き」: 予定の棒(40%の半透明)・進捗の塗り・実績の棒を、タスクの色(`task.color`。データには残す)ではなく、`STATUS_COLORS`(未着手=#78909c、実行中=#1e88e5、一時停止=#fb8c00、終了=#9e9e9e)で塗る。色は棒の `status-*` クラスが持つ CSS 変数 `--scolor` で、ダークテーマは `STATUS_DARK_COLORS`。`FINISHED_ACTUAL_COLOR` は表に吸収して削除。進捗の枠線・印(`--pstate`)、予定超過の赤い背景、割り当て超過の縞はそのまま。実機確認用のデータ `~/.projectapp/状態色テスト.json`(9/28 基準、8 タスク)を作った(確認後に削除してよい)。実機での見た目の確認はこれから。
 
@@ -114,13 +115,14 @@
 
 1. (完了)進捗度: タスクの開始実績・終了実績に、進捗度を追加する。
 2. エクスポートとプレビュー: ガントチャートのエクスポートと、プレビューモード。
-3. ProjectCode: タスクに ProjectCode を追加できるようにする。
+3. (完了)ProjectCode: タスクに ProjectCode を追加できるようにする。
 4. 担当者向けファイルの送信: 割り当てた担当者用の管理ファイルを送る(他の NiceGUI アプリでのインポート限定)。
 5. 実績の外部インポートと API: タスク消化実績の外部インポートと、API 機能の提供。
 6. ダッシュボード: プロジェクト全体のダッシュボード。
 7. インラインセクション: root から3階層まで。
 8. 格納先の指定: プロジェクト格納ファイルの外部ディレクトリ指定。
-9. タスク表示の拡張: タスク名に担当をチップ表示(マウスオーバーでラベル表示)、ProjectCode のチップ表示、進捗の表示。
+9. (完了)タスク表示の拡張: タスク名に担当をチップ表示(マウスオーバーでラベル表示)、ProjectCode のチップ表示、進捗の表示。
+   - 追加(2026-10-05 に受領): タスクの優先度の色。名前の欄の背景色のみ(高=オレンジ、中=黄、低=青)。(完了)
 10. git / GitHub 連携: リポジトリのプル、ブランチのビュー、ブランチのプッシュ、コミットの基本まで。
 11. 基準日の設定: `Project.base_date` を設定で決められるようにする(ドラッグ&ドロップの実機確認で出た別案件。バーの横移動は、現状は基準日より前へ動かさない)。
 12. (完了)状態別のバーの色(状態の色で上書き。`STATUS_COLORS`。`task.color` は棒に使わない): タスクの状態(開始・実行中・一時停止・終了)に応じて、バーの色を変える(現状の色は、タスクごとに設定した色)。
@@ -136,8 +138,8 @@
 
 ## 参照先
 
-- 設計書: `docs/superpowers/specs/2026-10-02-gantt-basic-design.md`、`2026-10-03-schedule-calc-design.md`、`2026-10-03-project-save-design.md`、`2026-10-03-work-hours-design.md`、`2026-10-03-task-edit-dialog-design.md`、`2026-10-05-actual-intervals-design.md`
-- 実装計画: `docs/superpowers/plans/2026-10-03-gantt-basic.md`、`2026-10-03-schedule-calc.md`、`2026-10-03-task-edit-dialog.md`、`2026-10-05-actual-intervals.md`
+- 設計書: `docs/superpowers/specs/2026-10-02-gantt-basic-design.md`、`2026-10-03-schedule-calc-design.md`、`2026-10-03-project-save-design.md`、`2026-10-03-work-hours-design.md`、`2026-10-03-task-edit-dialog-design.md`、`2026-10-05-actual-intervals-design.md`、`2026-10-05-task-chips-design.md`
+- 実装計画: `docs/superpowers/plans/2026-10-03-gantt-basic.md`、`2026-10-03-schedule-calc.md`、`2026-10-03-task-edit-dialog.md`、`2026-10-05-actual-intervals.md`、`2026-10-05-task-chips.md`
 - 開発者向け: `docs/development.md`
 - 実行の記録(git 管理外): `.superpowers/sdd/*/progress.md`(`.git/info/exclude` で除外)
 - 起動: `uv run projectapp`(NiceGUI + pywebview のネイティブウィンドウ)
