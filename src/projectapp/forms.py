@@ -18,6 +18,7 @@ from projectapp.models import (
     MIN_RATIO,
     MIN_YEAR,
     Actual,
+    ActualMode,
     Member,
     Priority,
     Status,
@@ -78,6 +79,9 @@ def _parse_planned_end(text: str, *, strict: bool, fallback: datetime | None) ->
     return value
 
 
+ActualRow = tuple[str, str, float | None]  # 区間の1行の入力(開始・終了の文字列、進捗度)
+
+
 def build_task(
     existing: Task | None,
     *,
@@ -95,6 +99,7 @@ def build_task(
     actual_start: str = "",
     actual_end: str = "",
     actual_progress: float | None = None,
+    actual_rows: list[ActualRow] | None = None,
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。"""
     clean = name.strip()
@@ -130,11 +135,12 @@ def build_task(
                 f"割り当て率は{MIN_ALLOCATION * 100:g}〜{MAX_ALLOCATION * 100:g}%で入力してください"
             )
         allocation = round(allocation_percent / 100, 4)
-    actuals = (
-        base.actuals
-        if len(base.actuals) > 1
-        else build_actuals(actual_start, actual_end, actual_progress)
-    )
+    if actual_rows is not None:
+        actuals = build_actual_intervals(actual_rows)
+    elif len(base.actuals) > 1:
+        actuals = base.actuals
+    else:
+        actuals = build_actuals(actual_start, actual_end, actual_progress)
     return replace(
         base,
         name=clean,
@@ -171,6 +177,37 @@ def build_actuals(
     if end_at is not None and end_at < start_at:
         raise ValueError("実績の終了は開始以降の日時にしてください")
     return [Actual(start_at, end_at, percent)]
+
+
+def build_actual_intervals(rows: list[ActualRow]) -> list[Actual]:
+    """区間の行の入力を検証して、区間のリストにする。すべて空の行は無視する(行番号は数える)。
+    開始の昇順、重ならない、終了のない区間は最後の1つだけ、進捗度は前の入力以上。"""
+    kept: list[tuple[int, Actual]] = []
+    for number, (start_text, end_text, progress) in enumerate(rows, start=1):
+        if not start_text and not end_text and progress is None:
+            continue
+        try:
+            built = build_actuals(start_text, end_text, progress)
+        except ValueError as exc:
+            raise ValueError(f"区間 {number}: {exc}") from None
+        kept.append((number, built[0]))
+    previous: tuple[int, Actual] | None = None
+    last_progress: int | None = None
+    for number, actual in kept:
+        if previous is not None:
+            before_number, before = previous
+            if before.end is None:
+                raise ValueError(f"区間 {before_number}: 終了のない区間は最後の1つだけにしてください")
+            if actual.start < before.start:
+                raise ValueError("区間は開始の早い順に入れてください")
+            if actual.start < before.end:
+                raise ValueError(f"区間 {number}: 前の区間と重なっています")
+        if actual.progress is not None:
+            if last_progress is not None and actual.progress < last_progress:
+                raise ValueError(f"区間 {number}: 進捗度は前の区間以上にしてください")
+            last_progress = actual.progress
+        previous = (number, actual)
+    return [actual for _, actual in kept]
 
 
 def _check_progress(value: float | None) -> int | None:
@@ -294,13 +331,16 @@ def compose_actual(day: str, clock: str) -> str:
 
 
 def suggest_status(
-    has_start: bool, has_end: bool, progress: float | None = None
+    has_start: bool, has_end: bool, progress: float | None = None, intervals: bool = False
 ) -> Status | None:
-    """実績の入力から、提案する状態。開始なし(終了だけを含む)と一時停止は提案しない。
-    終了が空で進捗度が100のときは、完了とはみなさず、状態を変えない。"""
+    """実績の入力から、提案する状態。開始なし(終了だけを含む)は提案しない。
+    終了が空で進捗度が100のときは、完了とはみなさず、状態を変えない。
+    区間(intervals)のときは、最後の区間が終わっていて進捗度が100でなければ、一時停止を提案する。"""
     if not has_start:
         return None
     if has_end:
+        if intervals and progress != MAX_PROGRESS:
+            return Status.PAUSED
         return Status.DONE
     return None if progress == MAX_PROGRESS else Status.RUNNING
 
@@ -406,7 +446,9 @@ def open_unsaved_dialog(
 def open_settings_dialog(
     daily_hours: float,
     work_start: time,
-    on_apply: Callable[[float, time], object],
+    on_apply: Callable[[float, time, ActualMode], object],
+    actual_mode: ActualMode = ActualMode.SIMPLE,
+    multi_interval_tasks: int = 0,
 ) -> None:
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-80"):
         ui.label("稼働時間の設定").classes("text-h6")
@@ -433,6 +475,22 @@ def open_settings_dialog(
             ui.icon("access_time").classes("cursor-pointer").on("click", picker.open).mark(
                 "open-time-picker"
             )
+        ui.label("実績の記録方式").classes("text-caption text-grey")
+        mode = ui.toggle(
+            {ActualMode.SIMPLE.value: "簡易", ActualMode.INTERVALS.value: "区間"},
+            value=actual_mode.value,
+        ).mark("settings-actual-mode")
+        # 区間から簡易へは、2区間以上のタスクがあるあいだ戻せない(選んでも区間に戻す)
+        if multi_interval_tasks > 0 and actual_mode is ActualMode.INTERVALS:
+            ui.label(
+                f"{multi_interval_tasks}件のタスクに複数の区間があるため、簡易には戻せません"
+            ).classes("text-caption text-grey").mark("settings-mode-locked")
+
+            def keep_intervals(event: object) -> None:
+                if getattr(event, "value", None) == ActualMode.SIMPLE.value:
+                    mode.set_value(ActualMode.INTERVALS.value)
+
+            mode.on_value_change(keep_intervals)
         error = ui.label("").classes("text-negative").mark("settings-error")
 
         def apply() -> None:
@@ -441,7 +499,7 @@ def open_settings_dialog(
             except ValueError as exc:
                 error.set_text(str(exc))
                 return
-            on_apply(*result)
+            on_apply(*result, ActualMode(mode.value))
             dialog.close()
 
         with ui.row():

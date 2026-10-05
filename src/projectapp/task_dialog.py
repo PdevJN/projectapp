@@ -1,11 +1,13 @@
 """タスクの追加・編集ダイアログ。入力の検証は forms.py の build_task に任せる。"""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime, time
 
 from nicegui import ui
 
 from projectapp.forms import (
+    ActualRow,
     bind_picker,
     build_task,
     compose_actual,
@@ -24,6 +26,8 @@ from projectapp.models import (
     MAX_PROGRESS,
     MIN_ALLOCATION,
     MIN_PROGRESS,
+    Actual,
+    ActualMode,
     Member,
     Priority,
     Status,
@@ -75,6 +79,20 @@ def add_picker(
         ui.icon(icon).classes("cursor-pointer").on("click", picker.open).mark(
             f"open-{key}-picker"
         )
+
+
+def moment_column(
+    label: str, mark: str, picker: str, moment: datetime | None
+) -> tuple[ui.input, ui.input]:
+    """実績の日付と時刻の入力の組。マーカーは `{mark}-date` と `{mark}-time`。"""
+    with ui.column().classes("flex-1 gap-0"):
+        day = ui.input(f"{label}の日付", value=moment.strftime("%Y-%m-%d") if moment else "")
+        day.classes("w-full").mark(f"{mark}-date")
+        add_picker(day, ui.date, "event", f"{picker}-date", "%Y-%m-%d")
+        clock = ui.input(f"{label}の時刻", value=moment.strftime("%H:%M") if moment else "")
+        clock.classes("w-full").mark(f"{mark}-time")
+        add_picker(clock, ui.time, "access_time", f"{picker}-time", "%H:%M")
+    return day, clock
 
 
 class DateTimeFields:
@@ -284,14 +302,12 @@ class ActualFields:
         )
 
     def _column(self, label: str, key: str, moment: datetime | None) -> tuple[ui.input, ui.input]:
-        with ui.column().classes("flex-1 gap-0"):
-            day = ui.input(f"{label}の日付", value=moment.strftime("%Y-%m-%d") if moment else "")
-            day.classes("w-full").mark(f"task-actual-{key}-date")
-            add_picker(day, ui.date, "event", f"actual-{key}-date", "%Y-%m-%d")
-            clock = ui.input(f"{label}の時刻", value=moment.strftime("%H:%M") if moment else "")
-            clock.classes("w-full").mark(f"task-actual-{key}-time")
-            add_picker(clock, ui.time, "access_time", f"actual-{key}-time", "%H:%M")
-        return day, clock
+        return moment_column(label, f"task-actual-{key}", f"actual-{key}", moment)
+
+    def bind(self, callback: Callable[[object], None]) -> None:
+        """入力が変わったときに呼ぶ関数を、すべての入力に付ける。"""
+        for widget in self.inputs():
+            widget.on_value_change(callback)
 
     def inputs(self) -> list[ui.input | ui.number]:
         if self.read_only:
@@ -328,6 +344,137 @@ class ActualFields:
         return (*texts, None if self.read_only else self.progress.value)
 
 
+@dataclass
+class IntervalRow:
+    card: ui.card
+    start_day: ui.input
+    start_time: ui.input
+    end_day: ui.input
+    end_time: ui.input
+    progress: ui.number
+
+
+class IntervalFields:
+    """実績の区間を、行を足していく形で入力する(記録方式が「区間」のとき)。
+    ActualFields と同じ呼び出し口(bind / filled / progress_value / state)にそろえる。
+    状態の提案は、最後の行で判定する。"""
+
+    read_only = False
+
+    def __init__(self, task: Task) -> None:
+        self._rows: list[IntervalRow] = []
+        self._counter = 0  # マーカーの番号。行を削除しても詰めない
+        self._on_change: Callable[[object], None] | None = None
+        ui.label("実績(区間)").classes("text-caption text-grey")
+        self._container = ui.column().classes("w-full gap-2")
+        for actual in task.actuals:
+            self._add_row(actual)
+        ui.button("区間を追加", icon="add", on_click=lambda: self._add_row(None)).props(
+            "flat dense"
+        ).mark("task-interval-add")
+
+    def _add_row(self, actual: Actual | None) -> None:
+        n = self._counter
+        self._counter += 1
+        with self._container:
+            with ui.card().classes("w-full").props("flat bordered") as card:
+                with ui.row().classes("w-full no-wrap gap-4"):
+                    start_day, start_time = moment_column(
+                        "開始",
+                        f"task-interval-{n}-start",
+                        f"interval-{n}-start",
+                        actual.start if actual else None,
+                    )
+                    end_day, end_time = moment_column(
+                        "終了",
+                        f"task-interval-{n}-end",
+                        f"interval-{n}-end",
+                        actual.end if actual else None,
+                    )
+                progress = (
+                    ui.number(
+                        "進捗度(%)",
+                        value=actual.progress if actual else None,
+                        min=MIN_PROGRESS,
+                        max=MAX_PROGRESS,
+                        precision=0,
+                    )
+                    .classes("w-full")
+                    .mark(f"task-interval-{n}-progress")
+                )
+                ui.button(
+                    "削除", icon="delete", on_click=lambda c=card: self._remove(c)
+                ).props("flat dense color=negative").mark(f"task-interval-{n}-remove")
+        row = IntervalRow(card, start_day, start_time, end_day, end_time, progress)
+        self._rows.append(row)
+        if self._on_change is not None:
+            for widget in self._widgets(row):
+                widget.on_value_change(self._on_change)
+            self._on_change(None)
+
+    def _remove(self, card: ui.card) -> None:
+        self._rows = [row for row in self._rows if row.card is not card]
+        card.delete()
+        if self._on_change is not None:
+            self._on_change(None)
+
+    @staticmethod
+    def _widgets(row: IntervalRow) -> list[ui.input | ui.number]:
+        return [row.start_day, row.start_time, row.end_day, row.end_time, row.progress]
+
+    def bind(self, callback: Callable[[object], None]) -> None:
+        self._on_change = callback
+        for widget in self.inputs():
+            widget.on_value_change(callback)
+
+    def inputs(self) -> list[ui.input | ui.number]:
+        return [widget for row in self._rows for widget in self._widgets(row)]
+
+    def rows(self) -> list[ActualRow]:
+        """保存用の入力。日付と時刻の片方だけの行は、「区間 N: …」のエラーにする(N は現在の位置)。"""
+        result: list[ActualRow] = []
+        for number, row in enumerate(self._rows, start=1):
+            try:
+                start = compose_actual(row.start_day.value or "", row.start_time.value or "")
+                end = compose_actual(row.end_day.value or "", row.end_time.value or "")
+            except ValueError as exc:
+                raise ValueError(f"区間 {number}: {exc}") from None
+            result.append((start, end, row.progress.value))
+        return result
+
+    def start_text(self) -> str:
+        return ""  # 区間は rows() を使う
+
+    def end_text(self) -> str:
+        return ""  # 区間は rows() を使う
+
+    def filled(self) -> tuple[bool, bool]:
+        """最後の区間の、開始・終了の日付と時刻がそろっているか(状態の提案に使う)。"""
+        if not self._rows:
+            return False, False
+        last = self._rows[-1]
+        return (
+            _parses(last.start_day.value, last.start_time.value),
+            _parses(last.end_day.value, last.end_time.value),
+        )
+
+    def progress_value(self) -> float | None:
+        return self._rows[-1].progress.value if self._rows else None
+
+    def state(self) -> tuple[object, ...]:
+        """変更の判定に使う入力値。行の数と、各行の値(進捗度は 0 と空を区別する)。"""
+        values: list[object] = [len(self._rows)]
+        for row in self._rows:
+            values += [
+                row.start_day.value or "",
+                row.start_time.value or "",
+                row.end_day.value or "",
+                row.end_time.value or "",
+                row.progress.value,
+            ]
+        return tuple(values)
+
+
 def open_task_dialog(
     task: Task | None,
     on_save: Callable[[Task], object],
@@ -336,6 +483,7 @@ def open_task_dialog(
     daily_hours: float = DEFAULT_DAILY_HOURS,
     holidays: dict[date, str] | None = None,
     members: list[Member] | None = None,
+    actual_mode: ActualMode = ActualMode.SIMPLE,
 ) -> ui.dialog:
     initial = task or Task("")
     member_list = list(members or [])
@@ -405,7 +553,10 @@ def open_task_dialog(
         allocation.on_value_change(refresh_conversion)
         refresh_conversion()
         priority = PriorityChips(initial.priority)
-        actual_fields = ActualFields(initial)
+        intervals = actual_mode is ActualMode.INTERVALS
+        actual_fields: ActualFields | IntervalFields = (
+            IntervalFields(initial) if intervals else ActualFields(initial)
+        )
         status = (
             ui.select({s: s.value for s in Status}, label="状態", value=initial.status)
             .classes("w-full")
@@ -425,7 +576,9 @@ def open_task_dialog(
         def on_actual_change(_event: object = None) -> None:
             if suggest["manual"]:
                 return
-            suggested = suggest_status(*actual_fields.filled(), actual_fields.progress_value())
+            suggested = suggest_status(
+                *actual_fields.filled(), actual_fields.progress_value(), intervals=intervals
+            )
             if suggested is None or suggested == status.value:
                 return
             suggest["setting"] = True
@@ -436,8 +589,7 @@ def open_task_dialog(
             hint.set_text("実績に合わせて状態を変えました")
             hint.set_visibility(True)
 
-        for widget in actual_fields.inputs():
-            widget.on_value_change(on_actual_change)
+        actual_fields.bind(on_actual_change)
         color = ui.color_input("色", value=initial.color, preview=True).classes("w-full").mark(
             "task-color"
         )
@@ -478,6 +630,7 @@ def open_task_dialog(
                     actual_start=actual_fields.start_text(),
                     actual_end=actual_fields.end_text(),
                     actual_progress=actual_fields.progress_value(),
+                    actual_rows=actual_fields.rows() if isinstance(actual_fields, IntervalFields) else None,
                 )
             except ValueError as exc:
                 error.set_text(str(exc))
