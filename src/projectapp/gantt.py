@@ -86,6 +86,11 @@ STATUS_CLASSES = {
     Status.DONE: "status-done",
 }
 STATUS_COLOR_VAR = "var(--scolor)"
+# 実績の区間の間(休んでいた期間)の点線。実績の棒の中央の高さに、1px の破線を引く
+ACTUAL_GAP_BACKGROUND = (
+    f"repeating-linear-gradient(90deg, {STATUS_COLOR_VAR} 0 4px, transparent 4px 8px)"
+    " center / 100% 1px no-repeat"
+)
 STATUS_CSS = "\n".join(
     f".{cls} {{ --scolor: {STATUS_COLORS[status]}; }}\n"
     f"body.body--dark .{cls} {{ --scolor: {STATUS_DARK_COLORS[status]}; }}"
@@ -662,6 +667,19 @@ class GanttChart:
                         " color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);"
                         " white-space: nowrap; pointer-events: none"
                     ).mark(f"actual-progress-{key}-{ti}-{n}")
+        for n in range(len(task.actuals) - 1):
+            before, after = task.actuals[n], task.actuals[n + 1]
+            if before.end is None or after.start <= before.end:
+                continue  # 進行中の区間の後ろ、隙間なし、重なり・逆順(手で編集したファイル)は引かない
+            left, length = interval_span(before.end, after.start, columns)
+            gap = ui.element("div").style(
+                f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
+                f" width: {length * width:.1f}px;"
+                f" top: {ACTUAL_TOP_PX}px; height: {ACTUAL_HEIGHT_PX}px;"
+                f" background: {ACTUAL_GAP_BACKGROUND}; cursor: pointer; user-select: none"
+            ).classes(STATUS_CLASSES[task.status])
+            gap.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
+            gap.mark(f"actual-gap-{key}-{ti}-{n}")
 
     def overload_stripes(
         self,

@@ -1496,3 +1496,78 @@ async def test_bars_use_the_status_color_instead_of_the_task_color(
         assert STATUS_CLASSES[status] in user.find(marker=marker).elements.pop().classes
     assert user.find(marker="actual-0-0-0").elements.pop()._style["background"] == STATUS_COLOR_VAR
     assert "url(x)" not in user.find(marker="bar-0-0").elements.pop()._style["background"]
+
+
+async def test_a_dashed_line_joins_two_intervals(user: User) -> None:
+    mount(
+        actual_project(
+            Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
+            Actual(datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 12)),
+        )
+    )
+    await user.open("/")
+    gap = user.find(marker="actual-gap-0-0-0").elements.pop()
+    assert gap._style["left"] == "220.0px"  # 前の区間の終了 10/5 12:00 = 0.5日
+    assert gap._style["width"] == "75.0px"  # 次の開始 10/7 9:00 = 2.375日。(2.375 - 0.5) * 40
+    assert gap._style["top"] == f"{ACTUAL_TOP_PX}px"
+    assert gap._style["height"] == f"{ACTUAL_HEIGHT_PX}px"
+    assert "repeating-linear-gradient" in gap._style["background"]
+    assert "var(--scolor)" in gap._style["background"]
+    assert STATUS_CLASSES[Status.NOT_STARTED] in gap.classes
+
+
+async def test_there_is_one_line_per_gap(user: User) -> None:
+    mount(
+        actual_project(
+            Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
+            Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12)),
+            Actual(datetime(2026, 10, 7, 9), None),
+        ),
+        now=datetime(2026, 10, 7, 12),
+    )
+    await user.open("/")
+    await user.should_see(marker="actual-gap-0-0-0")
+    await user.should_see(marker="actual-gap-0-0-1")
+    await user.should_not_see(marker="actual-gap-0-0-2")
+
+
+async def test_no_line_without_a_gap(user: User) -> None:
+    mount(
+        actual_project(
+            Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
+            Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 5, 15)),  # 隙間なし
+        )
+    )
+    await user.open("/")
+    await user.should_not_see(marker="actual-gap-0-0-0")
+
+
+async def test_no_line_and_no_crash_for_a_hand_edited_overlap_or_open_interval(
+    user: User,
+) -> None:
+    mount(
+        actual_project(
+            Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 15)),
+            Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 5, 18)),  # 重なり
+            Actual(datetime(2026, 10, 4, 9), None),  # 逆順で進行中
+            Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12)),  # 進行中の後ろ
+        ),
+        now=datetime(2026, 10, 6, 15),
+    )
+    await user.open("/")
+    await user.should_see(marker="actual-0-0-3")
+    await user.should_not_see(marker="actual-gap-0-0-0")
+    await user.should_not_see(marker="actual-gap-0-0-1")
+    await user.should_not_see(marker="actual-gap-0-0-2")
+
+
+async def test_the_line_is_in_the_status_color(user: User) -> None:
+    project = actual_project(
+        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
+        Actual(datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 12)),
+    )
+    project.sections[0].tasks[0].status = Status.PAUSED
+    mount(project)
+    await user.open("/")
+    gap = user.find(marker="actual-gap-0-0-0").elements.pop()
+    assert STATUS_CLASSES[Status.PAUSED] in gap.classes
