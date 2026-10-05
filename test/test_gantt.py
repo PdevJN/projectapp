@@ -27,7 +27,11 @@ from projectapp.gantt import (
     fill_percent,
     PROGRESS_STATE_COLORS,
     PROGRESS_STATE_MARKS,
-    FINISHED_ACTUAL_COLOR,
+    STATUS_CLASSES,
+    STATUS_COLOR_VAR,
+    STATUS_COLORS,
+    STATUS_CSS,
+    STATUS_DARK_COLORS,
     PROGRESS_CSS,
     PROGRESS_STATE_CLASSES,
     PROGRESS_STATE_DARK_COLORS,
@@ -103,7 +107,7 @@ async def test_bar_geometry_and_color(user: User) -> None:
     bar = user.find(marker="bar-0-0").elements.pop()
     assert bar._style["left"] == "220.0px"  # 200 + 0.5 * 40
     assert bar._style["width"] == "80.0px"  # 2.0 * 40
-    assert bar._style["background"] == planned_background("#ff0000")
+    assert bar._style["background"] == planned_background(STATUS_COLOR_VAR)
 
 
 async def test_day_scale_colors_weekends_and_holidays(user: User) -> None:
@@ -206,7 +210,7 @@ async def test_top_level_tasks_render_without_any_section(user: User) -> None:
     await user.should_not_see(marker="add-task-0")
     bar = user.find(marker="bar-top-0").elements.pop()
     assert bar._style["left"] == "220.0px"
-    assert bar._style["background"] == planned_background("#00ff00")
+    assert bar._style["background"] == planned_background(STATUS_COLOR_VAR)
 
 
 async def test_top_level_task_clicks_call_edit_with_no_section(user: User) -> None:
@@ -380,7 +384,7 @@ async def test_done_task_is_not_red(user: User) -> None:
 async def test_overdue_keeps_the_bar_color(user: User) -> None:
     mount(sample_project(), now=datetime(2026, 10, 8))
     await user.open("/")
-    assert user.find(marker="bar-0-0").elements.pop()._style["background"] == planned_background("#ff0000")
+    assert user.find(marker="bar-0-0").elements.pop()._style["background"] == planned_background(STATUS_COLOR_VAR)
 
 
 async def test_overdue_applies_to_top_level_tasks(user: User) -> None:
@@ -388,14 +392,6 @@ async def test_overdue_applies_to_top_level_tasks(user: User) -> None:
     await user.open("/")
     assert row_background(user, "task-top-0") == OVERDUE_COLOR
 
-
-async def test_a_bad_color_in_a_hand_edited_file_falls_back_to_the_default(user: User) -> None:
-    project = sample_project()
-    project.sections[0].tasks[0].color = "red; background: url(x)"
-    mount(project)
-    await user.open("/")
-    bar = user.find(marker="bar-0-0").elements.pop()
-    assert bar._style["background"] == planned_background(DEFAULT_COLOR)
 
 
 async def test_a_task_that_ends_before_it_starts_still_shows_a_thin_bar(user: User) -> None:
@@ -860,7 +856,7 @@ async def test_planned_bar_is_semi_transparent_without_fading_its_children(user:
     bar = user.find(marker="bar-0-0").elements.pop()
     # 棒全体の opacity は使わない(中の割り当て超過の縞まで薄くなるため)。背景の色だけを半透明にする
     assert "opacity" not in bar._style
-    assert bar._style["background"] == planned_background("#ff0000")
+    assert bar._style["background"] == planned_background(STATUS_COLOR_VAR)
     assert bar._style["background"].startswith("color-mix(")
     assert f"{PLANNED_OPACITY * 100:g}%" in bar._style["background"]
 
@@ -871,7 +867,7 @@ async def test_actual_bar_is_drawn_in_the_lower_half_with_the_task_color(user: U
     bar = user.find(marker="actual-0-0-0").elements.pop()
     assert bar._style["left"] == "260.0px"  # 200 + 1.5 * 40
     assert bar._style["width"] == "80.0px"  # 2.0 * 40
-    assert bar._style["background"] == "#ff0000"
+    assert bar._style["background"] == STATUS_COLOR_VAR
     assert bar._style["top"] == f"{ACTUAL_TOP_PX}px"
     assert bar._style["height"] == f"{ACTUAL_HEIGHT_PX}px"
     assert "opacity" not in bar._style
@@ -974,7 +970,7 @@ async def test_planned_bar_is_filled_by_the_progress(user: User) -> None:
     fill = user.find(marker="progress-fill-0-0").elements.pop()
     assert fill._style["width"] == "40%"
     assert fill._style["left"] == "0"
-    assert fill._style["background"] == "#ff0000"
+    assert fill._style["background"] == STATUS_COLOR_VAR
     assert fill._style["pointer-events"] == "none"
 
 
@@ -1139,7 +1135,8 @@ async def test_finished_task_has_a_gray_actual_bar_and_a_struck_through_name(
     mount(finished_project(end), now=datetime(2026, 10, 20))
     await user.open("/")
     bar = user.find(marker="actual-0-0-0").elements.pop()
-    assert bar._style["background"] == FINISHED_ACTUAL_COLOR
+    assert bar._style["background"] == STATUS_COLOR_VAR
+    assert "status-done" in bar.classes
     name = user.find(marker="task-0-0").elements.pop()
     assert name._style["text-decoration"] == "line-through"
 
@@ -1147,7 +1144,7 @@ async def test_finished_task_has_a_gray_actual_bar_and_a_struck_through_name(
 async def test_running_task_keeps_its_color_and_name(user: User) -> None:
     mount(progress_project(50), now=MID)
     await user.open("/")
-    assert user.find(marker="actual-0-0-0").elements.pop()._style["background"] == "#ff0000"
+    assert user.find(marker="actual-0-0-0").elements.pop()._style["background"] == STATUS_COLOR_VAR
     assert "text-decoration" not in user.find(marker="task-0-0").elements.pop()._style
 
 
@@ -1161,7 +1158,8 @@ async def test_finished_task_without_a_planned_bar_is_also_grayed(user: User) ->
     mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
     await user.open("/")
     bar = user.find(marker="actual-0-0-0").elements.pop()
-    assert bar._style["background"] == FINISHED_ACTUAL_COLOR
+    assert bar._style["background"] == STATUS_COLOR_VAR
+    assert "status-done" in bar.classes
     assert user.find(marker="task-0-0").elements.pop()._style["text-decoration"] == "line-through"
 
 
@@ -1169,7 +1167,7 @@ async def test_finished_task_keeps_the_planned_fill_and_the_overdue_background(u
     mount(finished_project(datetime(2026, 10, 8, 12)), now=datetime(2026, 10, 20))
     await user.open("/")
     fill = user.find(marker="progress-fill-0-0").elements.pop()
-    assert fill._style["background"] == "#ff0000"  # 予定の棒の塗りはタスクの色のまま
+    assert fill._style["background"] == STATUS_COLOR_VAR  # 予定の棒の塗りも状態の色
     assert OVERDUE_COLOR in user.find(marker="row-0-0").elements.pop()._style["background"]
 
 
@@ -1470,3 +1468,31 @@ def test_scroll_scripts_target_the_chart_box() -> None:
         assert "[data-chart-scroll]" in code
     assert "left: 0" in SCROLL_TO_LEFT_JS and "top" not in SCROLL_TO_LEFT_JS
     assert "left: 0" in SCROLL_RESET_JS and "top: 0" in SCROLL_RESET_JS
+
+
+def test_status_colors_cover_every_status_in_both_themes() -> None:
+    assert set(STATUS_COLORS) == set(Status) == set(STATUS_DARK_COLORS) == set(STATUS_CLASSES)
+    assert len(set(STATUS_COLORS.values())) == len(Status)
+    for status, cls in STATUS_CLASSES.items():
+        assert f".{cls} {{ --scolor: {STATUS_COLORS[status]}; }}" in STATUS_CSS
+        assert f"body.body--dark .{cls} {{ --scolor: {STATUS_DARK_COLORS[status]}; }}" in STATUS_CSS
+
+
+@pytest.mark.parametrize("status", list(Status))
+async def test_bars_use_the_status_color_instead_of_the_task_color(
+    user: User, status: Status
+) -> None:
+    task = Task(
+        "設計",
+        status=status,
+        color="red; background: url(x)",
+        planned_start=datetime(2026, 10, 5, 12),
+        planned_end=datetime(2026, 10, 7, 12),
+        actuals=[Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 7, 12), 50)],
+    )
+    mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
+    await user.open("/")
+    for marker in ("bar-0-0", "actual-0-0-0"):
+        assert STATUS_CLASSES[status] in user.find(marker=marker).elements.pop().classes
+    assert user.find(marker="actual-0-0-0").elements.pop()._style["background"] == STATUS_COLOR_VAR
+    assert "url(x)" not in user.find(marker="bar-0-0").elements.pop()._style["background"]
