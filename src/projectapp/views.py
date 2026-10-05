@@ -38,6 +38,7 @@ from projectapp.preview import (
     NOT_NATIVE_MESSAGE,
     PreviewBar,
     PreviewSettings,
+    check_column_count,
     validate_period,
 )
 from projectapp.storage import (
@@ -48,7 +49,7 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.task_dialog import open_task_dialog
-from projectapp.timeline import clip_overloads, overallocations, visible_range
+from projectapp.timeline import build_columns, clip_overloads, overallocations, visible_range
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
@@ -194,8 +195,8 @@ class MainView:
 
     def exit_preview(self) -> None:
         """プレビューから戻る。通常のヘッダー・ツールバー・描画に戻す(絞り込みは変えない)。"""
-        if self.preview is None:
-            return
+        if self.preview is None or self.saving:
+            return  # 保存中は、撮っている画面を変えない
         self.preview = None
         self.preview_bar.hide()
         self.header_box.set_visibility(True)
@@ -203,13 +204,19 @@ class MainView:
 
     def on_preview_change(self) -> None:
         """バーの入力が変わったとき。期間が正しければ描き直し、誤りなら理由を出して保存を止める。"""
-        if self.preview is None:
-            return
+        if self.preview is None or self.saving:
+            return  # 保存中は、撮っている画面を変えない
         start_text, end_text, scale, chips, alerts = self.preview_bar.read()
         try:
             start, end = validate_period(start_text, end_text)
         except ValueError as exc:
             self.preview_bar.set_error(str(exc))
+            self.preview_bar.set_warning(None)
+            self.preview_bar.set_save_enabled(False)
+            return
+        too_long = check_column_count(scale, len(build_columns(self.project, scale, self.holidays, (start, end))))
+        if too_long is not None:
+            self.preview_bar.set_error(too_long)
             self.preview_bar.set_warning(None)
             self.preview_bar.set_save_enabled(False)
             return

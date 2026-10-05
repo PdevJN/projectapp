@@ -1957,3 +1957,116 @@ async def test_content_width_and_the_content_attribute(user: User) -> None:
     chart.set_options(ViewOptions(scale=Scale.WEEK))
     weeks = build_columns(chart.project, Scale.WEEK, {})
     assert chart.content_width() == NAME_WIDTH_PX + COLUMN_WIDTH_PX[Scale.WEEK] * len(weeks)
+
+
+def long_running_task(progress: int) -> Task:
+    """10/5 から翌年 1/31 まで。期間を 10/1〜10/10 にすると、右端(11/11)で切られる。"""
+    return Task(
+        "長い",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2027, 1, 31),
+        planned_end_manual=True,
+        status=Status.RUNNING,
+        actuals=[Actual(datetime(2026, 10, 5, 9), None, progress)],
+    )
+
+
+async def test_a_state_mark_beyond_the_right_edge_of_the_period_is_not_drawn(user: User) -> None:
+    mount_with(
+        project_with(long_running_task(0)),
+        ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 10))),
+        now=datetime(2026, 10, 20),
+    )
+    await user.open("/")
+    await user.should_see(marker="bar-0-0")
+    await user.should_not_see(marker="progress-state-0-0")
+
+
+async def test_the_state_mark_is_still_drawn_without_a_period(user: User) -> None:
+    mount_with(project_with(long_running_task(0)), ViewOptions(), now=datetime(2026, 10, 20))
+    await user.open("/")
+    await user.should_see(marker="progress-state-0-0")
+
+
+async def test_a_state_mark_does_not_follow_an_actual_bar_outside_the_period(user: User) -> None:
+    task = Task(
+        "設計",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 7),
+        planned_end_manual=True,
+        status=Status.RUNNING,
+        actuals=[
+            Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12), 0),
+            Actual(datetime(2027, 6, 1, 9), datetime(2027, 6, 1, 12), 0),  # 期間よりずっと後ろ
+        ],
+    )
+    mount_with(project_with(task), ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 20))), now=datetime(2026, 10, 12))
+    await user.open("/")
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert float(mark._style["left"][:-2]) < 200 + 42 * 40  # 描画の幅(名前の列 + 42 日)の内側
+
+
+def clipped_task(progress: int, start: datetime, end: datetime) -> Task:
+    return Task(
+        "設計",
+        planned_start=start,
+        planned_end=end,
+        planned_end_manual=True,
+        status=Status.RUNNING,
+        actuals=[Actual(start.replace(hour=9), None, progress)],
+    )
+
+
+async def test_the_progress_fill_of_a_bar_clipped_at_the_left_edge_reflects_the_hidden_part(user: User) -> None:
+    # 10/1〜10/11 の 10 日で進捗 50% = 10/6 まで塗る。期間は 10/6 から = 見えている部分(5日)に、塗りはない
+    mount_with(
+        project_with(clipped_task(50, datetime(2026, 10, 1), datetime(2026, 10, 11))),
+        ViewOptions(period=(date(2026, 10, 6), date(2026, 10, 20))),
+    )
+    await user.open("/")
+    fill = user.find(marker="progress-fill-0-0").elements.pop()
+    assert fill._style["width"] == "0%"
+
+
+async def test_the_progress_fill_of_a_bar_clipped_at_the_left_edge_covers_the_visible_part_proportionally(
+    user: User,
+) -> None:
+    # 80% = 10/9 まで塗る。見えている 10/6〜10/11 の 5 日のうち、3 日 = 60%
+    mount_with(
+        project_with(clipped_task(80, datetime(2026, 10, 1), datetime(2026, 10, 11))),
+        ViewOptions(period=(date(2026, 10, 6), date(2026, 10, 20))),
+    )
+    await user.open("/")
+    assert user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "60%"
+
+
+async def test_the_progress_fill_of_a_bar_clipped_at_the_right_edge_covers_all_when_the_fill_passes_the_edge(
+    user: User,
+) -> None:
+    mount_with(
+        project_with(long_running_task(50)),  # 10/5〜1/31 の 50% = 12/7 まで。右端は 11/11
+        ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 10))),
+        now=datetime(2026, 10, 20),
+    )
+    await user.open("/")
+    assert user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "100%"
+
+
+async def test_the_progress_fill_without_a_period_is_the_plain_percentage(user: User) -> None:
+    mount_with(
+        project_with(clipped_task(40, datetime(2026, 10, 5), datetime(2026, 10, 15))),
+        ViewOptions(),
+        now=datetime(2026, 10, 8),
+    )
+    await user.open("/")
+    assert user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "40%"
+
+
+async def test_the_progress_fill_of_an_unclipped_bar_in_a_period_is_the_plain_percentage(user: User) -> None:
+    mount_with(
+        project_with(clipped_task(40, datetime(2026, 10, 5), datetime(2026, 10, 15))),
+        ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 31))),
+        now=datetime(2026, 10, 8),
+    )
+    await user.open("/")
+    assert user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "40%"

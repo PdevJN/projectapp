@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from nicegui import Client, context, ui
 from nicegui.events import ValueChangeEventArguments
@@ -674,13 +674,15 @@ class GanttChart:
                         f" data-min-days={least}"
                     )
                 with bar:
-                    self.progress_fill(key, ti, task)
+                    self.progress_fill(key, ti, task, columns, end)
                     if self.options.show_alerts:
                         self.overload_stripes(key, ti, task, left, bar_width, columns, width)
                 mark_left = self.marker_left(
                     task, columns, width, NAME_WIDTH_PX + left * width + bar_width
                 )
-                self.progress_marker(key, ti, task, state, mark_left, end)
+                total = NAME_WIDTH_PX + width * len(columns)
+                if self.options.period is None or mark_left <= total - MARK_WIDTH_PX:
+                    self.progress_marker(key, ti, task, state, mark_left, end)  # 期間の右端の外へは出さない
             self.actual_bars(si, ti, task, columns, width)
             self.deadline_marker(si, ti, task, columns, width)
 
@@ -698,15 +700,36 @@ class GanttChart:
         if percent is not None:
             ui.label(f"{percent}%").style(PROGRESS_TEXT_STYLE).mark(f"task-progress-{key}-{ti}")
 
-    def progress_fill(self, key: int | str, ti: int, task: Task) -> None:
-        """予定の棒の左端から、進捗度の割合の幅を、タスクの色で不透明に塗る。縞より先に置いて、縞を手前にする。"""
+    def progress_fill(
+        self, key: int | str, ti: int, task: Task, columns: list[Column], end: datetime | None
+    ) -> None:
+        """予定の棒の左端から、進捗度の割合の幅を、タスクの色で不透明に塗る。縞より先に置いて、縞を手前にする。
+        期間の端で切られた棒は、切る前の棒の全体に対する進捗を、見えている部分に直して塗る。"""
         percent = fill_percent(task)
         if percent is None:
             return
+        shown = self.clipped_fill_percent(task, columns, end, percent)
         ui.element("div").style(
-            f"position: absolute; left: 0; top: 0; bottom: 0; width: {percent}%;"
+            f"position: absolute; left: 0; top: 0; bottom: 0; width: {percent if shown is None else f'{shown:g}'}%;"
             f" background: {STATUS_COLOR_VAR}; pointer-events: none"
         ).mark(f"progress-fill-{key}-{ti}")
+
+    def clipped_fill_percent(
+        self, task: Task, columns: list[Column], end: datetime | None, percent: int
+    ) -> float | None:
+        """切られた棒の、見えている部分に対する塗りの割合(%)。切られていない(または期間なし)なら None。"""
+        start = task.planned_start
+        if self.options.period is None or start is None or end is None or end <= start:
+            return None
+        begin = datetime.combine(columns[0].start, time.min)
+        finish = datetime.combine(columns[-1].end, time.min)
+        if begin <= start and end <= finish:
+            return None
+        left, length = interval_span(start, end, columns)
+        if length <= 0:
+            return 0.0
+        fill_left, fill_length = interval_span(start, start + (end - start) * percent / 100, columns)
+        return max(0.0, min((fill_left + fill_length - left) / length * 100, 100.0))
 
     def marker_left(
         self, task: Task, columns: list[Column], width: int, bar_right: float
@@ -716,6 +739,8 @@ class GanttChart:
         right = bar_right
         for actual in task.actuals:
             finish = actual.end if actual.end is not None else self.now()
+            if not self.bar_visible(actual.start, finish, columns):
+                continue  # 期間の外の実績は、描かないので、印をずらさない
             start, length = interval_span(actual.start, finish, columns)
             right = max(right, NAME_WIDTH_PX + start * width + max(length * width, MIN_BAR_PX))
         left = right + MARK_GAP_PX

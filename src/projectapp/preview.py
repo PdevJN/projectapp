@@ -14,6 +14,9 @@ from projectapp.timeline import Scale
 PERIOD_ORDER_MESSAGE = "期間は、開始日が終了日以前になるように入れてください"
 LARGE_IMAGE_MESSAGE = "画像が大きいため、縮小して保存されます(期間かスケールを変えると小さくできます)"
 NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、画像として保存できます"
+# 列が多すぎると、描き直しでブラウザとサーバが固まる。日次は約2年まで(1年強は問題なく出せる)
+MAX_COLUMNS = {Scale.DAY: 800, Scale.WEEK: 400, Scale.MONTH: 240}
+COLUMN_UNITS = {Scale.DAY: "日", Scale.WEEK: "週", Scale.MONTH: "か月"}
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,14 @@ def validate_period(start_text: str, end_text: str) -> tuple[date, date]:
     if start > end:
         raise ValueError(PERIOD_ORDER_MESSAGE)
     return start, end
+
+
+def check_column_count(scale: Scale, count: int) -> str | None:
+    """列の数がスケールごとの上限を超えるときの、エラー文。収まるなら None。"""
+    limit = MAX_COLUMNS[scale]
+    if count <= limit:
+        return None
+    return f"期間が長すぎます({scale.value}は最大{limit}{COLUMN_UNITS[scale]}。期間かスケールを変えてください)"
 
 
 class PreviewBar:

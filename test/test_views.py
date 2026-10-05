@@ -1330,7 +1330,7 @@ async def test_a_bad_period_disables_saving_and_shows_the_reason(user: User, tmp
 
 async def test_a_large_image_shows_a_warning_but_can_still_be_saved(user: User, tmp_path: Path) -> None:
     await open_preview(user, tmp_path, FakeExporter())
-    user.find(marker="preview-end").clear().type("2028-12-31")  # 日次で約 3 年 → 16,384px 超
+    user.find(marker="preview-end").clear().type("2027-12-31")  # 日次で約 450 日 → 16,384px 超(上限 800 日の内側)
     await user.should_see("縮小して保存されます")
     assert user.find(marker="preview-save").elements.pop().enabled
     user.find(marker="preview-end").clear().type("2026-12-31")
@@ -1412,3 +1412,50 @@ async def test_the_default_exporter_is_unavailable_in_tests(user: User, tmp_path
     await user.open("/")
     user.find(marker="export-preview").click()
     assert not user.find(marker="preview-save").elements.pop().enabled
+
+
+async def test_a_period_that_is_too_long_for_the_scale_is_rejected_without_redrawing(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    before = view.gantt.options
+    user.find(marker="preview-start").clear().type("2000-01-01")
+    user.find(marker="preview-end").clear().type("2026-12-31")
+    await user.should_see("期間が長すぎます")
+    assert not user.find(marker="preview-save").elements.pop().enabled
+    assert view.gantt.options.period != (date(2000, 1, 1), date(2026, 12, 31))  # 描き直していない
+    assert view.gantt.options.period[0] != date(2000, 1, 1)
+    assert before is not None
+
+
+async def test_the_same_long_period_is_allowed_at_a_coarser_scale(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="preview-scale").elements.pop().set_value("月次")
+    user.find(marker="preview-start").clear().type("2020-01-01")
+    user.find(marker="preview-end").clear().type("2026-12-31")
+    assert view.gantt.options.period == (date(2020, 1, 1), date(2026, 12, 31))
+    assert user.find(marker="preview-save").elements.pop().enabled
+
+
+async def test_leaving_and_changing_the_settings_are_ignored_while_saving(user: User, tmp_path: Path) -> None:
+    gate = asyncio.Event()
+
+    class SlowExporter(FakeExporter):
+        async def capture(self, pixel_ratio: float) -> bytes:
+            self.captured.append(pixel_ratio)
+            await gate.wait()
+            return PNG_BYTES
+
+    exporter = SlowExporter(path=tmp_path / "chart.png")
+    view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save").click()
+    assert await wait_until(lambda: exporter.captured != [])
+    options = view.gantt.options
+    view.exit_preview()
+    view.on_key(key_event("Escape"))
+    user.find(marker="preview-chips").elements.pop().set_value(False)
+    assert view.preview is not None  # 抜けられない
+    assert view.gantt.options == options  # 描き直されない(撮っている途中の画面を変えない)
+    gate.set()
+    assert await wait_until(lambda: (tmp_path / "chart.png").exists())
+    assert await wait_until(lambda: not view.saving)
+    view.exit_preview()
+    assert view.preview is None  # 保存が終われば、抜けられる

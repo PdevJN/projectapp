@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from projectapp.gantt import ViewOptions
-from projectapp.preview import PreviewSettings, validate_period
+from projectapp.preview import MAX_COLUMNS, PreviewSettings, check_column_count, validate_period
 from projectapp.timeline import Scale
 
 
@@ -34,3 +34,20 @@ def test_validate_period_accepts_a_period_and_one_day() -> None:
 def test_validate_period_rejects_bad_input(start: str, end: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         validate_period(start, end)
+
+
+@pytest.mark.parametrize("scale", list(Scale))
+def test_check_column_count_allows_up_to_the_limit(scale: Scale) -> None:
+    assert check_column_count(scale, MAX_COLUMNS[scale]) is None
+    assert check_column_count(scale, 1) is None
+
+
+@pytest.mark.parametrize("scale", list(Scale))
+def test_check_column_count_rejects_more_than_the_limit(scale: Scale) -> None:
+    message = check_column_count(scale, MAX_COLUMNS[scale] + 1)
+    assert message is not None and "長すぎ" in message and str(MAX_COLUMNS[scale]) in message
+
+
+def test_the_limits_allow_a_year_of_days_and_reject_the_whole_century() -> None:
+    assert MAX_COLUMNS[Scale.DAY] >= 400  # 1 年強の日次は出せる
+    assert MAX_COLUMNS[Scale.DAY] < 36_000  # 2000〜2100 年の全期間は、日次では出せない
