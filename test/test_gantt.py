@@ -9,6 +9,11 @@ from projectapp.calendar import DayKind
 from projectapp.filtering import TaskFilter
 from projectapp.gantt_drag import CHART_DRAG_CSS
 from projectapp.gantt import (
+    PRIORITY_BACKGROUND_VAR,
+    PRIORITY_BACKGROUNDS,
+    PRIORITY_CLASSES,
+    PRIORITY_CSS,
+    PRIORITY_DARK_BACKGROUNDS,
     CHART_MAX_HEIGHT,
     CHART_TOP_OFFSET_PX,
     REFRESH_SCROLLBARS_JS,
@@ -46,7 +51,7 @@ from projectapp.gantt import (
     GanttActions,
     GanttChart,
 )
-from projectapp.models import DEFAULT_COLOR, Actual, Member, Project, Section, Status, Task
+from projectapp.models import DEFAULT_COLOR, Actual, Member, Priority, Project, Section, Status, Task
 from projectapp.timeline import ProgressState, Scale
 
 BASE = date(2026, 10, 5)  # 月曜
@@ -1137,7 +1142,7 @@ async def test_finished_task_has_a_gray_actual_bar_and_a_struck_through_name(
     bar = user.find(marker="actual-0-0-0").elements.pop()
     assert bar._style["background"] == STATUS_COLOR_VAR
     assert "status-done" in bar.classes
-    name = user.find(marker="task-0-0").elements.pop()
+    name = user.find(marker="task-name-0-0").elements.pop()
     assert name._style["text-decoration"] == "line-through"
 
 
@@ -1145,7 +1150,7 @@ async def test_running_task_keeps_its_color_and_name(user: User) -> None:
     mount(progress_project(50), now=MID)
     await user.open("/")
     assert user.find(marker="actual-0-0-0").elements.pop()._style["background"] == STATUS_COLOR_VAR
-    assert "text-decoration" not in user.find(marker="task-0-0").elements.pop()._style
+    assert "text-decoration" not in user.find(marker="task-name-0-0").elements.pop()._style
 
 
 async def test_finished_task_without_a_planned_bar_is_also_grayed(user: User) -> None:
@@ -1160,7 +1165,7 @@ async def test_finished_task_without_a_planned_bar_is_also_grayed(user: User) ->
     bar = user.find(marker="actual-0-0-0").elements.pop()
     assert bar._style["background"] == STATUS_COLOR_VAR
     assert "status-done" in bar.classes
-    assert user.find(marker="task-0-0").elements.pop()._style["text-decoration"] == "line-through"
+    assert user.find(marker="task-name-0-0").elements.pop()._style["text-decoration"] == "line-through"
 
 
 async def test_finished_task_keeps_the_planned_fill_and_the_overdue_background(user: User) -> None:
@@ -1571,3 +1576,53 @@ async def test_the_line_is_in_the_status_color(user: User) -> None:
     await user.open("/")
     gap = user.find(marker="actual-gap-0-0-0").elements.pop()
     assert STATUS_CLASSES[Status.PAUSED] in gap.classes
+
+
+def test_priority_backgrounds_cover_every_priority_in_both_themes() -> None:
+    assert set(PRIORITY_BACKGROUNDS) == set(Priority) == set(PRIORITY_DARK_BACKGROUNDS) == set(PRIORITY_CLASSES)
+    assert len(set(PRIORITY_BACKGROUNDS.values())) == len(Priority)
+    for priority, cls in PRIORITY_CLASSES.items():
+        assert f".{cls} {{ --pbg: {PRIORITY_BACKGROUNDS[priority]}; }}" in PRIORITY_CSS
+        assert f"body.body--dark .{cls} {{ --pbg: {PRIORITY_DARK_BACKGROUNDS[priority]}; }}" in PRIORITY_CSS
+
+
+@pytest.mark.parametrize("priority", list(Priority))
+async def test_the_name_cell_has_the_priority_background(user: User, priority: Priority) -> None:
+    project = sample_project()
+    project.sections[0].tasks[0].priority = priority
+    mount(project)
+    await user.open("/")
+    cell = user.find(marker="task-0-0").elements.pop()
+    assert PRIORITY_CLASSES[priority] in cell.classes
+    assert cell._style["background-color"] == PRIORITY_BACKGROUND_VAR
+    assert "background-color" not in user.find(marker="row-0-0").elements.pop()._style  # 行は変えない
+    assert "background-color" not in user.find(marker="bar-0-0").elements.pop()._style  # 棒は変えない
+
+
+async def test_the_name_cell_is_one_row_with_the_name_inside(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    cell = user.find(marker="task-0-0").elements.pop()
+    name = user.find(marker="task-name-0-0").elements.pop()
+    assert isinstance(cell, ui.row)
+    assert name.parent_slot.parent is cell
+    assert name.text == "設計"
+    assert cell.parent_slot.parent is user.find(marker="row-0-0").elements.pop()  # 行の直接の子
+    assert cell._style["width"] == "200px"
+    assert "padding-left" in cell._style
+    assert "flex" in name._style and "min-width" in name._style  # チップの分だけ名前が縮む
+    assert "ellipsis" in name.classes
+
+
+async def test_the_overdue_tint_is_laid_over_the_priority_background(user: User) -> None:
+    mount(sample_project(), now=datetime(2026, 10, 8))
+    await user.open("/")
+    cell = user.find(marker="task-0-0").elements.pop()
+    assert cell._style["background-color"] == PRIORITY_BACKGROUND_VAR
+    assert OVERDUE_COLOR in cell._style["background-image"]
+
+
+async def test_the_name_cell_is_a_drag_handle_without_a_filter(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    assert user.find(marker="task-0-0").elements.pop().props.get("draggable") == "true"

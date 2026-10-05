@@ -12,7 +12,7 @@ from projectapp.arrange import Position
 from projectapp.calendar import DayKind, day_kind
 from projectapp.filtering import TaskFilter, matches
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS
-from projectapp.models import Project, Section, Status, Task
+from projectapp.models import Priority, Project, Section, Status, Task
 from projectapp.timeline import (
     Band,
     Column,
@@ -86,6 +86,28 @@ STATUS_CLASSES = {
     Status.DONE: "status-done",
 }
 STATUS_COLOR_VAR = "var(--scolor)"
+# 優先度ごとの、名前の欄の背景色。赤は予定超過の背景と競合するので使わない。CSS 変数 --pbg 経由
+PRIORITY_BACKGROUNDS = {
+    Priority.HIGH: "#ffe0b2",
+    Priority.MEDIUM: "#fff9c4",
+    Priority.LOW: "#bbdefb",
+}
+PRIORITY_DARK_BACKGROUNDS = {  # ダークテーマでは、暗い背景に合う濃さに替える
+    Priority.HIGH: "#6b4a1f",
+    Priority.MEDIUM: "#5f5a1c",
+    Priority.LOW: "#1f3f5f",
+}
+PRIORITY_CLASSES = {
+    Priority.HIGH: "prio-high",
+    Priority.MEDIUM: "prio-medium",
+    Priority.LOW: "prio-low",
+}
+PRIORITY_BACKGROUND_VAR = "var(--pbg)"
+PRIORITY_CSS = "\n".join(
+    f".{cls} {{ --pbg: {PRIORITY_BACKGROUNDS[priority]}; }}\n"
+    f"body.body--dark .{cls} {{ --pbg: {PRIORITY_DARK_BACKGROUNDS[priority]}; }}"
+    for priority, cls in PRIORITY_CLASSES.items()
+)
 # 実績の区間の間(休んでいた期間)の点線。実績の棒の中央の高さに、1px の破線を引く
 ACTUAL_GAP_BACKGROUND = (
     f"repeating-linear-gradient(90deg, {STATUS_COLOR_VAR} 0 4px, transparent 4px 8px)"
@@ -321,6 +343,7 @@ class GanttChart:
         ui.add_css(STICKY_CSS)
         ui.add_css(PROGRESS_CSS)
         ui.add_css(STATUS_CSS)
+        ui.add_css(PRIORITY_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
@@ -531,22 +554,31 @@ class GanttChart:
         row = ui.row().classes("items-center no-wrap gap-0").style(style)
         row.props(self.drag_props("row", key, ti=ti)).mark(f"row-{key}-{ti}")
         with row:
-            label = ui.label(task.name).classes("ellipsis cursor-pointer gantt-sticky")
-            label_style = (
-                f"width: {NAME_WIDTH_PX}px; padding-left: 16px; align-self: stretch;"
-                f" line-height: {ROW_HEIGHT_PX - 1}px; {sticky_left(STICKY_Z_NAME)}"
+            cell = ui.row().classes(
+                "items-center no-wrap gap-1 cursor-pointer gantt-sticky"
+                f" {PRIORITY_CLASSES[task.priority]}"
             )
-            if finished:  # 終了したタスクは、名前に取り消し線を引く
-                label_style += "; text-decoration: line-through"
+            cell_style = (
+                f"width: {NAME_WIDTH_PX}px; padding-left: 16px; padding-right: 4px;"
+                f" align-self: stretch; background-color: {PRIORITY_BACKGROUND_VAR};"
+                f" {sticky_left(STICKY_Z_NAME)}"
+            )
             if overdue:  # 不透明な背景の上に、行と同じ赤みを重ねる
-                label_style += (
+                cell_style += (
                     f"; background-image: linear-gradient({OVERDUE_COLOR}, {OVERDUE_COLOR})"
                 )
-            label.style(label_style)
-            label.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
-            label.mark(f"task-{key}-{ti}")
+            cell.style(cell_style)
+            cell.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
+            cell.mark(f"task-{key}-{ti}")
             if not self.task_filter.active:
-                label.props(f"draggable=true data-drag-handle data-si={key} data-ti={ti}")
+                cell.props(f"draggable=true data-drag-handle data-si={key} data-ti={ti}")
+            with cell:
+                name = ui.label(task.name).classes("ellipsis").style(
+                    f"flex: 1 1 0; min-width: 0; line-height: {ROW_HEIGHT_PX - 1}px"
+                )
+                if finished:  # 終了したタスクは、名前に取り消し線を引く
+                    name.style("text-decoration: line-through")
+                name.mark(f"task-name-{key}-{ti}")
             end = effective_end(task, self.project, self.holidays)
             span = bar_span(task.planned_start, end, columns)
             if span is not None:
