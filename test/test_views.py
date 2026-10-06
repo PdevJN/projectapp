@@ -1909,6 +1909,9 @@ async def test_the_theme_menu_marks_the_selected_theme_and_switches_it(user: Use
 async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path: Path) -> None:
     view = await open_header_view(user, tmp_path)
     assert "app-header" in view.header_box.classes
+    assert isinstance(view.header_box, ui.header)  # 画面の上端・左右いっぱいに固定される四角い帯(ページの余白の内側に置かない)
+    band_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-header {"))
+    assert "border-radius" not in band_rule  # 角丸にしない
     assert "font-size: 12px" in HEADER_CSS  # 14px から -2
     assert "var(--q-primary)" in HEADER_CSS and "color: #fff" in HEADER_CSS  # テーマカラーの背景 + 白文字
     assert "body.body--dark .app-header" in HEADER_CSS and "color-mix" in HEADER_CSS  # ダークは暗めのテーマカラー

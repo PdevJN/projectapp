@@ -68,10 +68,10 @@ from projectapp.timeline import build_columns, clip_overloads, overallocations, 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
 NEW_PROJECT_NAME = "新規プロジェクト"
-# ヘッダーは、テーマカラーの背景 + 白文字の帯(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
+# ヘッダーは、画面の上端・左右いっぱいの四角い帯(ui.header)。テーマカラーの背景 + 白文字(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
 # タイトルも 12px(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
 HEADER_CSS = """
-.app-header { background: var(--q-primary); color: #fff; font-size: 12px; border-radius: 6px; padding: 4px 12px; }
+.app-header { background: var(--q-primary); color: #fff; font-size: 12px; padding: 4px 12px; }
 body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55%, #000); }
 .app-header .q-btn, .app-header .q-field { font-size: 12px; }
 .app-header .app-header-title { font-size: 12px; font-weight: 700; }
@@ -568,8 +568,8 @@ class MainView:
             ui.timer(0.1, self.first_fetch, once=True)
 
     def header(self) -> None:
-        """ヘッダー 1 行: タイトル・メニュー 4 つ・(右側)プロジェクトの切り替え・ダッシュボード・テーマ。"""
-        with ui.row().classes("w-full items-center no-wrap gap-1 app-header") as box:
+        """ヘッダー(画面の上端に固定する 1 行): タイトル・メニュー 4 つ・(右側)プロジェクトの切り替え・ダッシュボード・テーマ。"""
+        with ui.header(elevated=False, wrap=False).classes("row items-center no-wrap gap-1 app-header") as box:
             self.header_box = box
             box.mark("header-box")
             self.title()
