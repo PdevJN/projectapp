@@ -1920,6 +1920,12 @@ async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path
         button = user.find(marker=marker).elements.pop()
         assert "rounded" in button._props and "unelevated" in button._props and "app-menu-btn" in button.classes
     assert "rgba(255, 255, 255, 0.18)" in HEADER_CSS and ".app-menu-btn:hover" in HEADER_CSS
+    # 帯の上のボタンは、色を持たない(NiceGUI の既定は primary で、flat の文字が帯と同じ色になって見えなくなる)。
+    # 色を持たなければ、文字は帯の白を引き継ぐ
+    for marker in ("menu-file", "menu-project", "menu-export", "menu-help", "open-dashboard", "menu-theme"):
+        assert not user.find(marker=marker).elements.pop()._props.get("color"), marker
+    for marker in ("menu-file", "menu-project", "menu-export", "menu-help"):
+        assert "icon-right" not in user.find(marker=marker).elements.pop()._props  # ▼ は出さない
     menu = user.find(marker="menu-file-items").elements.pop()
     assert "app-menu" in str(menu._props.get("content-class"))  # 開いたメニューも同じ大きさ
 

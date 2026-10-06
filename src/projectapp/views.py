@@ -596,16 +596,14 @@ class MainView:
                 label="プロジェクトファイル",
                 on_change=lambda e: self.request_open(e.value),
             ).props("dense outlined dark").classes("w-64").mark("project-select")
-            ui.button(icon="dashboard", on_click=self.open_dashboard).props("flat round dense").tooltip(
+            ui.button(icon="dashboard", color=None, on_click=self.open_dashboard).props("flat round dense").tooltip(
                 "ダッシュボード"
             ).mark("open-dashboard")
             self.theme_menu()
 
     def header_menu(self, label: str, marker: str, items: list[tuple[str, Callable[[], object], str]]) -> None:
         """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(`items` は、文言・操作・マーカー)。"""
-        with ui.button(label).props("unelevated rounded no-caps icon-right=arrow_drop_down").classes(
-            "app-menu-btn"
-        ).mark(marker):
+        with ui.button(label, color=None).props("unelevated rounded no-caps").classes("app-menu-btn").mark(marker):
             with ui.menu().props("content-class=app-menu").mark(f"{marker}-items"):
                 for text, handler, item_marker in items:
                     ui.menu_item(text, on_click=handler).mark(item_marker)
@@ -617,7 +615,9 @@ class MainView:
     @ui.refreshable_method
     def theme_menu(self) -> None:
         """ヘッダー右端のテーマのメニュー。ボタンの絵が今のテーマで、開いたメニューの選択中の項目が強調される。"""
-        with ui.button(icon=THEME_ICONS[self.theme]).props("flat round dense").tooltip("テーマ").mark("menu-theme"):
+        with ui.button(icon=THEME_ICONS[self.theme], color=None).props("flat round dense").tooltip("テーマ").mark(
+            "menu-theme"
+        ):
             with ui.menu().props("content-class=app-menu").mark("menu-theme-items"):
                 for theme in THEMES:
                     item = ui.menu_item(THEME_LABELS[theme], on_click=lambda t=theme: self.set_theme(t)).mark(
