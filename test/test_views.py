@@ -1867,8 +1867,10 @@ async def test_the_header_has_the_menus_the_dashboard_icon_and_the_theme_menu(us
 async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -> None:
     await open_header_view(user, tmp_path)
     assert menu_items(user, "menu-file-items") == [
+        ("新規プロジェクト作成", "file-new"),
         ("開く", "file-open"),
         ("保存", "save-project"),
+        ("名前をつけて保存", "file-save-as"),
         ("エクスポート", "export-preview"),
         ("祝日を更新", "refresh-holidays"),
     ]
@@ -1930,7 +1932,7 @@ async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path
     assert "font-size: 12px" in HEADER_CSS  # 14px から -2
     assert "var(--q-primary)" in HEADER_CSS and "color: #fff" in HEADER_CSS  # テーマカラーの背景 + 白文字
     assert "body.body--dark .app-header" in HEADER_CSS and "color-mix" in HEADER_CSS  # ダークは暗めのテーマカラー
-    title = user.find(content="新規プロジェクト").elements.pop()
+    title = user.find(kind=ui.label, content="新規プロジェクト").elements.pop()
     assert "app-title" in title.classes
     assert not any(node is view.header_box for node in ancestors(title))  # タイトルは、ヘッダーの外(メイン側の左上)
     title_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-title {"))
@@ -1970,7 +1972,7 @@ async def test_the_menus_start_at_the_left_of_the_header_and_the_title_is_in_the
     assert ids == sorted(ids)  # 左から、メニュー 4 つ。右側に、コンボ・ダッシュボード・テーマ
     header_children = view.header_box.default_slot.children
     assert isinstance(header_children[0], ui.button)  # 先頭は、メニューのボタン(タイトルではない)
-    title = user.find(content="新規プロジェクト").elements.pop()
+    title = user.find(kind=ui.label, content="新規プロジェクト").elements.pop()
     assert view.header_box not in ancestors(title)
 
 
@@ -1984,3 +1986,91 @@ async def test_the_title_hides_and_returns_with_the_header(user: User, tmp_path:
     assert not view.header_box.visible and not view.title_box.visible
     view.exit_preview()
     assert view.header_box.visible and view.title_box.visible
+
+
+async def open_saved_view(user: User, tmp_path: Path) -> MainView:
+    """「甲」(セクション「甲の中身」)を保存してから、開いた状態のメイン画面を返す。"""
+    save_cache({}, tmp_path)
+    save_project(Project("甲", sections=[Section("甲の中身")]), tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    views[0].request_open("甲")
+    assert views[0].path == tmp_path / "甲.json"
+    return views[0]
+
+
+async def test_new_project_replaces_the_current_one_with_an_unsaved_empty_project(user: User, tmp_path: Path) -> None:
+    view = await open_saved_view(user, tmp_path)
+    user.find(marker="file-new").click()
+    assert view.path is None and view.project.name == "新規プロジェクト"
+    assert view.project.sections == [] and not view.is_dirty()
+    assert view.file_select.value is None
+    assert (tmp_path / "甲.json").exists()  # 新規作成では、ファイルを作らない・消さない
+    await user.should_see("新規プロジェクト")
+
+
+async def test_new_project_asks_before_dropping_unsaved_changes(user: User, tmp_path: Path) -> None:
+    view = await open_saved_view(user, tmp_path)
+    view.save_section("追加")
+    assert view.is_dirty()
+    user.find(marker="file-new").click()
+    await user.should_see("保存されていない変更があります")
+    await user.should_see("作成前に")
+    user.find(marker="unsaved-cancel").click()
+    assert view.path == tmp_path / "甲.json" and [s.name for s in view.project.sections] == ["甲の中身", "追加"]
+
+
+async def test_new_project_can_discard_the_changes(user: User, tmp_path: Path) -> None:
+    view = await open_saved_view(user, tmp_path)
+    view.save_section("追加")
+    user.find(marker="file-new").click()
+    user.find(marker="unsaved-discard").click()
+    assert view.path is None and view.project.sections == []
+    assert [s.name for s in load_project(tmp_path / "甲.json").sections] == ["甲の中身"]  # 保存せず作成
+
+
+async def test_new_project_can_save_first(user: User, tmp_path: Path) -> None:
+    view = await open_saved_view(user, tmp_path)
+    view.save_section("追加")
+    user.find(marker="file-new").click()
+    user.find(marker="unsaved-save").click()
+    assert await wait_until(lambda: view.path is None and view.project.sections == [])
+    assert [s.name for s in load_project(tmp_path / "甲.json").sections] == ["甲の中身", "追加"]
+
+
+async def test_save_as_writes_a_new_file_and_switches_to_it(user: User, tmp_path: Path) -> None:
+    view = await open_saved_view(user, tmp_path)
+    view.save_section("追加")
+    user.find(marker="file-save-as").click()
+    name = user.find(marker="project-name").elements.pop()
+    assert name.value == "甲"  # 初期値は、現在の名前
+    user.find(marker="project-name").clear().type("乙")
+    user.find(marker="name-save").click()
+    assert await wait_until(lambda: view.path == tmp_path / "乙.json")
+    assert view.project.name == "乙" and not view.is_dirty()
+    assert [s.name for s in load_project(tmp_path / "乙.json").sections] == ["甲の中身", "追加"]
+    assert [s.name for s in load_project(tmp_path / "甲.json").sections] == ["甲の中身"]  # 元のファイルは、そのまま
+    assert "乙" in view.file_select.options and view.file_select.value == "乙"
+
+
+async def test_save_as_does_not_overwrite_an_existing_project(user: User, tmp_path: Path) -> None:
+    view = await open_saved_view(user, tmp_path)
+    save_project(Project("乙"), tmp_path)
+    user.find(marker="file-save-as").click()
+    user.find(marker="project-name").clear().type("乙")
+    user.find(marker="name-save").click()
+    await user.should_see("同じ名前のプロジェクトがすでにあります")
+    assert view.path == tmp_path / "甲.json" and view.project.name == "甲"
+    assert load_project(tmp_path / "乙.json").sections == []
+
+
+async def test_save_as_works_for_an_unsaved_project_too(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    user.find(marker="file-save-as").click()
+    user.find(marker="project-name").clear().type("丙")
+    user.find(marker="name-save").click()
+    assert await wait_until(lambda: views[0].path == tmp_path / "丙.json")

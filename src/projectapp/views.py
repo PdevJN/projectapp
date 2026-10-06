@@ -195,14 +195,42 @@ class MainView:
             ui.notify(f"開けませんでした: {exc}", type="negative")
             self.file_select.set_value(self.current_name())
             return
+        self.show_project(project, path)
+
+    def show_project(self, project: Project, path: Path | None) -> None:
+        """別のプロジェクトに切り替える(開いたとき・新規作成のとき)。保存済みの状態から始める。"""
         self.path, self.project = path, project
         self.mark_clean()
-        self.file_select.set_value(name)
+        self.file_select.set_value(path.stem if path else None)
         self.title.refresh()
         self.gantt.reset_collapsed()  # 折りたたみは保存しない。別のプロジェクトは全展開から始める
         self.gantt.set_project(self.project)
         self.gantt.reset_filter()
         self.gantt.reset_scroll()  # 別のプロジェクトは、先頭から見せる(編集後の再描画では動かさない)
+
+    def request_new(self) -> None:
+        """新しいプロジェクトを作る。編集中なら、確認してから。"""
+        if not self.is_dirty():
+            self.new_project()
+            return
+        open_unsaved_dialog(
+            on_save=lambda: self.save_then(self.new_project),
+            on_discard=self.new_project,
+            purpose="作成",
+        )
+
+    def new_project(self) -> None:
+        """起動時と同じ、保存前の新規プロジェクトにする(ファイルは、保存するまで作らない)。"""
+        self.show_project(Project(NEW_PROJECT_NAME), None)
+
+    def save_as(self) -> None:
+        """名前をつけて保存する。成功したら、新しいファイルが現在のプロジェクトになる(元のファイルは残る)。"""
+        open_name_dialog(
+            self.save_as_new,
+            lambda name: validate_name(name, self.base_dir, new=True),
+            title="名前をつけて保存",
+            initial=self.project.name,
+        )
 
     def show_file_list(self) -> None:
         """ファイルを走査し直して、一覧ダイアログを出す。"""
@@ -590,8 +618,10 @@ class MainView:
                 "ファイル",
                 "menu-file",
                 [
+                    ("新規プロジェクト作成", self.request_new, "file-new"),
                     ("開く", self.show_file_list, "file-open"),
                     ("保存", self.save_project_clicked, "save-project"),
+                    ("名前をつけて保存", self.save_as, "file-save-as"),
                     ("エクスポート", self.enter_preview, "export-preview"),
                     ("祝日を更新", self.refresh_holidays, "refresh-holidays"),
                 ],
