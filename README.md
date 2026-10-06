@@ -55,4 +55,4 @@ pywebviewによるネイティブウィンドウが起動する。
 
 ## ライセンス
 
-MIT License(`pyproject.toml` の `license` を参照。`LICENSE` ファイルは未作成)。
+[MIT License](./LICENSE)
