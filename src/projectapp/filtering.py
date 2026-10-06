@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from projectapp.models import Task
+from projectapp.models import Section, Task
 
 
 @dataclass(frozen=True)
@@ -20,3 +20,10 @@ def matches(task: Task, task_filter: TaskFilter) -> bool:
     if task_filter.assignee is not None and task.assignee != task_filter.assignee:
         return False
     return task_filter.query.strip().casefold() in task.name.casefold()
+
+
+def visible_task_indexes(section: Section, task_filter: TaskFilter, collapsed: bool) -> list[int]:
+    """セクションで描くタスクの添字。絞り込み中は折りたたみを無視し、一致したものだけを返す。"""
+    if task_filter.active:
+        return [i for i, task in enumerate(section.tasks) if matches(task, task_filter)]
+    return [] if collapsed else list(range(len(section.tasks)))

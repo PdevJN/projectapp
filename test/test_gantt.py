@@ -602,6 +602,189 @@ def filter_project() -> Project:
     )
 
 
+async def test_the_arrow_collapses_and_expands_a_section(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="section-toggle-0").click()
+    await user.should_not_see(marker="task-0-0")
+    await user.should_not_see(marker="task-0-1")
+    await user.should_see(marker="task-1-0")  # 別のセクションは変わらない
+    user.find(marker="section-toggle-0").click()
+    await user.should_see(marker="task-0-0")
+    await user.should_see(marker="task-0-1")
+    assert charts[0].collapsed == set()
+
+
+async def test_clicking_the_section_name_toggles_it(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="section-label-0").click()
+    await user.should_not_see(marker="task-0-0")
+    assert charts[0].collapsed == {0}
+
+
+async def test_the_header_shows_the_task_count_open_or_collapsed(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    count = lambda si: user.find(marker=f"section-count-{si}").elements.pop().text  # noqa: E731
+    assert count(0) == "(2)"
+    assert count(1) == "(1)"
+    user.find(marker="section-toggle-0").click()
+    assert count(0) == "(2)"
+
+
+async def test_a_collapsed_header_keeps_the_add_button(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="section-toggle-0").click()
+    await user.should_see(marker="add-task-0")
+    user.find(marker="add-task-0").click()
+    assert charts[0].collapsed == {0}  # 追加ボタンは開閉しない
+
+
+async def test_a_collapsed_header_stays_a_drop_target(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="section-toggle-0").click()
+    props = user.find(marker="section-0").elements.pop()._props
+    assert props["data-drop"] == "section"
+
+
+async def test_a_filter_opens_collapsed_sections_and_clearing_it_collapses_again(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="section-toggle-0").click()
+    charts[0].set_filter(TaskFilter(query="実"))
+    await user.should_see(marker="task-0-1")
+    await user.should_not_see(marker="task-0-0")
+    assert charts[0].collapsed == {0}  # 絞り込みでは変えない
+    charts[0].set_filter(TaskFilter())
+    await user.should_not_see(marker="task-0-0")
+    await user.should_not_see(marker="task-0-1")
+
+
+async def test_a_filter_with_no_match_hides_a_collapsed_section_header(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="section-toggle-1").click()
+    charts[0].set_filter(TaskFilter(query="設計"))
+    await user.should_not_see(marker="section-1")
+    charts[0].set_filter(TaskFilter())
+    await user.should_see(marker="section-1")
+    await user.should_not_see(marker="task-1-0")
+
+
+async def test_collapsing_does_not_touch_top_level_tasks(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="section-toggle-0").click()
+    user.find(marker="section-toggle-1").click()
+    await user.should_see(marker="task-top-0")
+
+
+async def test_an_empty_section_can_be_collapsed_and_expanded(user: User) -> None:
+    project = filter_project()
+    project.sections.append(Section("空", []))
+    charts, _ = mount_chart(project)
+    await user.open("/")
+    assert user.find(marker="section-count-2").elements.pop().text == "(0)"
+    user.find(marker="section-toggle-2").click()
+    user.find(marker="section-toggle-2").click()
+    assert charts[0].collapsed == set()
+    await user.should_see(marker="add-task-2")
+
+
+async def test_read_only_shows_every_row_without_arrows_and_keeps_the_state(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="section-toggle-0").click()
+    charts[0].set_options(ViewOptions(read_only=True))
+    await user.should_see(marker="task-0-0")
+    await user.should_see(marker="task-0-1")
+    await user.should_not_see(marker="section-toggle-0")
+    assert user.find(marker="section-count-0").elements.pop().text == "(2)"
+    charts[0].set_options(ViewOptions())
+    await user.should_not_see(marker="task-0-0")
+    assert charts[0].collapsed == {0}
+
+
+def elements_marked(chart: GanttChart, marker: str) -> list[ui.element]:
+    """表示・非表示にかかわらず、クライアントに残っている要素(`user.find` は非表示を見つけない)。"""
+    return [e for e in chart.client.elements.values() if marker in e._markers]
+
+
+async def test_toggling_does_not_redraw_the_chart(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    header = user.find(marker="chart-header").elements.pop()
+    gridlines = user.find(marker="gridlines").elements.pop()
+    user.find(marker="section-toggle-0").click()
+    user.find(marker="section-toggle-0").click()
+    user.find(marker="section-toggle-0").click()
+    await asyncio.sleep(0.3)  # 再描画は背景タスクなので、起きるなら、ここまでに終わる
+    assert charts[0].collapsed == {0}
+    assert user.find(marker="chart-header").elements.pop() is header  # 作り直していない
+    assert user.find(marker="gridlines").elements.pop() is gridlines
+    assert header.client is charts[0].client and header.id in charts[0].client.elements
+
+
+async def test_collapsed_rows_stay_in_the_client_hidden(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="section-toggle-0").click()
+    (row,) = elements_marked(charts[0], "row-0-0")
+    assert not row.visible
+    (other,) = elements_marked(charts[0], "row-1-0")
+    assert other.visible  # 別のセクションは変わらない
+    user.find(marker="section-toggle-0").click()
+    assert row.visible  # 同じ行が、そのまま現れる
+
+
+async def test_the_arrow_icon_follows_the_state(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    icon = lambda: user.find(marker="section-toggle-0").elements.pop().props["icon"]  # noqa: E731
+    assert icon() == "expand_more"
+    user.find(marker="section-toggle-0").click()
+    assert icon() == "chevron_right"
+    user.find(marker="section-toggle-0").click()
+    assert icon() == "expand_more"
+
+
+async def test_a_section_collapsed_before_drawing_is_drawn_hidden(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].collapsed.add(0)
+    await charts[0].render.refresh()
+    (row,) = elements_marked(charts[0], "row-0-1")
+    assert not row.visible
+    assert user.find(marker="section-toggle-0").elements.pop().props["icon"] == "chevron_right"
+
+
+async def test_toggling_while_filtering_keeps_the_rows_and_applies_after_clearing(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="実"))
+    await user.should_see(marker="task-0-1")
+    user.find(marker="section-toggle-0").click()
+    assert charts[0].collapsed == {0}
+    await user.should_see(marker="task-0-1")  # 絞り込み中は、折りたたみを無視する
+    charts[0].set_filter(TaskFilter())
+    await user.should_not_see(marker="task-0-0")
+    await user.should_not_see(marker="task-0-1")
+
+
+async def test_expand_and_reset_clear_the_state_without_drawing(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].toggle_section(0)
+    charts[0].toggle_section(1)
+    charts[0].expand_section(0)
+    assert charts[0].collapsed == {1}
+    charts[0].reset_collapsed()
+    assert charts[0].collapsed == set()
+
+
 async def test_a_query_hides_rows_that_do_not_match(user: User) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
