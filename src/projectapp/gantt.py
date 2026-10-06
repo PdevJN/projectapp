@@ -18,7 +18,7 @@ from projectapp.config import (
     parse_name_width,
 )
 from projectapp.filtering import TaskFilter, matches, visible_task_indexes
-from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS
+from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.models import Priority, Project, Section, Status, Task
 from projectapp.timeline import (
     in_range,
@@ -42,7 +42,6 @@ from projectapp.timeline import (
     year_bands,
 )
 
-RESIZE_EDGE_PX = 6  # 名前の欄の右端の、幅の調整の掴み場所の幅(Task 4 で gantt_drag へ移す)
 NAME_WIDTH_PROPS = (  # JS が範囲と掴み場所の幅を読む。定義元は Python の定数
     f"data-chart-content data-name-min={MIN_NAME_WIDTH_PX} data-name-max={MAX_NAME_WIDTH_PX}"
     f" data-name-default={DEFAULT_NAME_WIDTH_PX} data-name-edge={RESIZE_EDGE_PX}"
@@ -450,6 +449,10 @@ class GanttChart:
         if self.view_scale != before:
             self.scroll_to_left()  # 列の幅が変わるので、横の位置は意味を持たない(縦は保つ)
 
+    def resize_classes(self) -> str:
+        """名前の欄の右端を、幅の調整の掴み場所にするクラス(先頭に空白)。読み取り専用では付けない。"""
+        return "" if self.options.read_only else " gantt-name-resizable"
+
     def edit_on_click(self, element: ui.element, si: int | None, ti: int) -> ui.element:
         """クリックでタスクの編集を開く。読み取り専用では何も付けない。"""
         if not self.options.read_only:
@@ -472,6 +475,7 @@ class GanttChart:
     def build(self) -> None:
         self.client = context.client
         ui.add_css(CHART_DRAG_CSS)
+        ui.add_css(NAME_RESIZE_CSS)
         ui.add_css(STICKY_CSS)
         ui.add_css(PROGRESS_CSS)
         ui.add_css(STATUS_CSS)
@@ -572,7 +576,7 @@ class GanttChart:
         row.props(self.drag_props("top-end", "top", count=len(self.project.tasks)))
         row.mark("top-end")
         with row:
-            cell = ui.row().classes("items-center justify-end no-wrap gantt-sticky")
+            cell = ui.row().classes("items-center justify-end no-wrap gantt-sticky" + self.resize_classes())
             cell.style(
                 f"width: var(--name-w); padding-right: 8px; align-self: stretch;"
                 f" {sticky_left(STICKY_Z_NAME)}"
@@ -614,7 +618,7 @@ class GanttChart:
 
     def header_spacer(self, marker: str) -> None:
         """見出しの左端の空白。縦にも横にも固定された見出しの中で、横スクロールでも左に残る。"""
-        spacer = ui.element("div").classes("gantt-sticky")
+        spacer = ui.element("div").classes("gantt-sticky" + self.resize_classes())
         spacer.style(
             f"width: var(--name-w); align-self: stretch; {sticky_left(STICKY_Z_SPACER)}"
         )
@@ -660,7 +664,7 @@ class GanttChart:
         header.props(self.drag_props("section", si, count=len(section.tasks)))
         header.mark(f"section-{si}")
         with header:
-            name = ui.row().classes("items-center no-wrap gap-2 gantt-sticky")
+            name = ui.row().classes("items-center no-wrap gap-2 gantt-sticky" + self.resize_classes())
             name.style(  # 名前の列にちょうど収める(狭いと縞や格子線が見え、広いと棒を隠す)
                 f"width: var(--name-w); overflow: hidden; align-self: stretch;"
                 f" {sticky_left(STICKY_Z_NAME)}"
@@ -710,7 +714,7 @@ class GanttChart:
         with row:
             cell = ui.row().classes(
                 "items-center no-wrap gap-1 cursor-pointer gantt-sticky"
-                f" {PRIORITY_CLASSES[task.priority]}"
+                f" {PRIORITY_CLASSES[task.priority]}" + self.resize_classes()
             )
             cell_style = (
                 f"width: var(--name-w); padding-left: 16px; padding-right: 4px;"

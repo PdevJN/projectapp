@@ -118,6 +118,22 @@ def test_the_script_emits_the_events_the_python_side_listens_to() -> None:
     assert 'emitEvent("chart_move"' in CHART_DRAG_JS
 
 
+def test_the_script_has_the_name_width_pieces() -> None:
+    assert 'emitEvent("chart_name_width"' in CHART_DRAG_JS
+    assert "gantt-name-resizable" in CHART_DRAG_JS
+    for name in ("nameMin", "nameMax", "nameDefault", "nameEdge"):
+        assert name in CHART_DRAG_JS
+    assert "dblclick" in CHART_DRAG_JS
+
+
+def test_the_resize_css_draws_a_column_resize_handle_of_the_edge_width() -> None:
+    from projectapp.gantt_drag import NAME_RESIZE_CSS, RESIZE_EDGE_PX
+
+    assert ".gantt-name-resizable::after" in NAME_RESIZE_CSS
+    assert "cursor: col-resize" in NAME_RESIZE_CSS
+    assert f"width: {RESIZE_EDGE_PX}px" in NAME_RESIZE_CSS
+
+
 async def test_day_scale_bars_are_draggable_with_the_column_width(user: User) -> None:
     mount(project_with_top())
     await user.open("/")
@@ -186,9 +202,17 @@ const listeners = {};
 const emitted = [];
 const timers = [];
 global.window = {};
+const area = {  // chart-content。範囲と掴み場所の幅は、data-* 属性で渡される
+  dataset: { nameMin: "120", nameMax: "480", nameDefault: "200", nameEdge: "6" },
+  vars: { "--name-w": "200px" },
+  style: { setProperty(name, value) { area.vars[name] = value; } },
+};
+global.getComputedStyle = (el) => ({ getPropertyValue: (name) => el.vars[name] });
 global.document = {
   addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
   querySelectorAll: () => [],
+  querySelector: (selector) => (selector === "[data-chart-content]" ? area : null),
+  body: { style: {} },
 };
 global.emitEvent = (name, message) => emitted.push([name, message]);
 global.setTimeout = (fn) => { timers.push(fn); };
@@ -266,6 +290,79 @@ scenarios.foreignDrop = drop(["Files"]);
 fire("dragstart", { target: handle, dataTransfer: transfer });
 scenarios.ownDrop = drop(transfer.types);
 
+// 名前の欄の幅の調整(右端 6px を掴む)。欄の右端は x=200
+const cell = {
+  draggable: true,
+  closest(selector) { return selector === ".gantt-name-resizable" ? this : null; },
+  getBoundingClientRect: () => ({ right: 200 }),
+  setPointerCapture() {},
+};
+const edge = (x) => ({ target: cell, button: 0, pointerId: 1, clientX: x, buttons: 1, preventDefault() {} });
+const width = () => area.vars["--name-w"];
+
+// 通常: 右端を掴んで 100px 動かす
+fire("pointerdown", edge(197)); fire("pointermove", edge(297));
+const during = { width: width(), draggable: cell.draggable, cursor: document.body.style.cursor };
+fire("pointerup", edge(297));
+scenarios.resize = {
+  during, emitted: emitted.splice(0), width: width(), draggable: cell.draggable,
+  cursor: document.body.style.cursor, suppressed: click(),
+};
+flush();
+
+// 範囲: 上限と下限で止まる(開始の幅 300 から)
+fire("pointerdown", edge(197)); fire("pointermove", edge(1197));
+const max = width();
+fire("pointermove", edge(-1803));
+const min = width();
+fire("pointerup", edge(-1803));
+scenarios.clamp = { max, min, emitted: emitted.splice(0) };
+click(); flush();
+
+// 動かさずに離す: 送らないが、click は打ち消す(編集ダイアログを開かない)
+fire("pointerdown", edge(197)); fire("pointerup", edge(197));
+scenarios.noMove = { emitted: emitted.splice(0), width: width(), suppressed: click() };
+flush();
+
+// 右端の外: 何も始めない(click も打ち消さない)
+fire("pointerdown", edge(100)); fire("pointermove", edge(150)); fire("pointerup", edge(150));
+scenarios.outside = { emitted: emitted.splice(0), width: width(), suppressed: click() };
+flush();
+
+// ダブルクリック: 既定の幅に戻して送る(2 回の click は、どちらも打ち消す)
+fire("pointerdown", edge(197)); fire("pointerup", edge(197)); const firstClick = click();
+fire("pointerdown", edge(197)); fire("pointerup", edge(197)); const secondClick = click();
+fire("dblclick", edge(197));
+scenarios.reset = { emitted: emitted.splice(0), width: width(), clicks: [firstClick, secondClick] };
+flush();
+
+// pointercancel: 元の幅に戻し、何も送らない
+fire("pointerdown", edge(197)); fire("pointermove", edge(297)); fire("pointercancel", edge(297));
+fire("pointermove", edge(397)); fire("pointerup", edge(397));
+scenarios.resizeCancel = { emitted: emitted.splice(0), width: width(), draggable: cell.draggable };
+flush();
+
+// ボタンが離れているのに pointermove が来たら、掴んだ状態を捨てる
+fire("pointerdown", edge(197)); fire("pointermove", edge(297));
+fire("pointermove", { ...edge(397), buttons: 0 });
+fire("pointermove", edge(497)); fire("pointerup", edge(497));
+scenarios.resizeReleased = { emitted: emitted.splice(0), width: width() };
+flush();
+
+// Esc: 元の幅に戻し、送らない。離したあとの click は打ち消す
+fire("pointerdown", edge(197)); fire("pointermove", edge(297)); fire("keydown", { key: "Escape" });
+const afterEscape = width();
+fire("pointermove", edge(397)); fire("pointerup", edge(397));
+scenarios.escape = { afterEscape, emitted: emitted.splice(0), width: width(), suppressed: click() };
+flush();
+
+// 掴んでいる間は、行の移動(HTML5 の drag)を始めない
+fire("pointerdown", edge(197));
+const dragEvent = { target: cell, prevented: false, preventDefault() { this.prevented = true; } };
+fire("dragstart", dragEvent);
+scenarios.dragstart = dragEvent.prevented;
+fire("pointerup", edge(197)); click(); flush();
+
 console.log(JSON.stringify(scenarios));
 """
 
@@ -326,3 +423,55 @@ def test_js_a_drop_that_did_not_start_from_a_row_is_ignored(js_scenarios: dict) 
     assert js_scenarios["ownDrop"] == [
         ["chart_move", {"src": [None, 1], "dst": [0, 0], "copy": True}]
     ]
+
+
+def test_js_resizing_the_name_column_follows_the_pointer_and_sends_the_width(js_scenarios: dict) -> None:
+    resize = js_scenarios["resize"]
+    assert resize["during"] == {"width": "300px", "draggable": False, "cursor": "col-resize"}  # 動かすだけ。欄の drag は止める
+    assert resize["emitted"] == [["chart_name_width", {"width": 300}]]
+    assert resize["width"] == "300px"
+    assert resize["draggable"] is True  # 離したら、欄の drag を戻す
+    assert resize["cursor"] == ""
+    assert resize["suppressed"] is True  # 離したあとの click で、編集ダイアログを開かない
+
+
+def test_js_the_width_stops_at_the_range_limits(js_scenarios: dict) -> None:
+    clamp = js_scenarios["clamp"]
+    assert (clamp["max"], clamp["min"]) == ("480px", "120px")
+    assert clamp["emitted"] == [["chart_name_width", {"width": 120}]]
+
+
+def test_js_releasing_without_moving_sends_nothing_but_swallows_the_click(js_scenarios: dict) -> None:
+    assert js_scenarios["noMove"] == {"emitted": [], "width": "120px", "suppressed": True}
+
+
+def test_js_outside_the_right_edge_nothing_starts(js_scenarios: dict) -> None:
+    assert js_scenarios["outside"] == {"emitted": [], "width": "120px", "suppressed": False}
+
+
+def test_js_double_clicking_the_edge_resets_to_the_default_width(js_scenarios: dict) -> None:
+    reset = js_scenarios["reset"]
+    assert reset["emitted"] == [["chart_name_width", {"width": 200}]]
+    assert reset["width"] == "200px"
+    assert reset["clicks"] == [True, True]  # 2 回の click は、どちらも編集を開かない
+
+
+def test_js_pointercancel_restores_the_width_without_sending(js_scenarios: dict) -> None:
+    assert js_scenarios["resizeCancel"] == {"emitted": [], "width": "200px", "draggable": True}
+
+
+def test_js_a_pointermove_without_buttons_drops_the_resize(js_scenarios: dict) -> None:
+    assert js_scenarios["resizeReleased"] == {"emitted": [], "width": "200px"}
+
+
+def test_js_escape_restores_the_width_and_still_swallows_the_click(js_scenarios: dict) -> None:
+    assert js_scenarios["escape"] == {
+        "afterEscape": "200px",
+        "emitted": [],
+        "width": "200px",
+        "suppressed": True,
+    }
+
+
+def test_js_the_row_drag_does_not_start_while_resizing(js_scenarios: dict) -> None:
+    assert js_scenarios["dragstart"] is True

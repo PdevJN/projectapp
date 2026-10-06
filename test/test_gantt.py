@@ -2469,3 +2469,30 @@ async def test_the_saved_width_survives_a_redraw(user: User) -> None:
     await wait_until(lambda: name_variable(user) == "300px")
     charts[0].toggle_section(0)
     await wait_until(lambda: name_variable(user) == "300px")
+
+
+RESIZABLE = "gantt-name-resizable"
+
+
+async def test_the_name_columns_are_resizable_at_the_right_edge(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    for marker in (
+        "task-0-0",
+        "section-name-0",
+        "year-band-spacer",
+        "month-band-spacer",
+        "label-row-spacer",
+        "add-task-top",  # ボタンの親(名前の欄)を、下で確かめる
+    ):
+        element = user.find(marker=marker).elements.pop()
+        if marker == "add-task-top":
+            element = element.parent_slot.parent
+        assert RESIZABLE in element.classes, marker
+
+
+async def test_the_read_only_chart_has_no_resize_handle(user: User) -> None:
+    mount_with(sample_project(), ViewOptions(read_only=True))
+    await user.open("/")
+    for marker in ("task-0-0", "section-name-0", "label-row-spacer"):
+        assert RESIZABLE not in user.find(marker=marker).elements.pop().classes, marker
