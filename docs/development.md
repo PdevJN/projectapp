@@ -14,7 +14,8 @@
 | `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、セクションの折りたたみ、行のドラッグ移動・コピー、バーの横移動(日次のみ)、名前の欄の幅(CSS 変数 `--name-w`。位置は `from_name` で式にする) |
 | `forms.py` | タスク・セクションの入力検証、プロジェクト名の入力・ファイル一覧・未保存の確認ダイアログ、稼働時間の設定ダイアログと入力検証、メンバーのダイアログと検証(`build_members`) |
 | `preview.py` | エクスポートのプレビュー(`PreviewSettings`・期間の検証・`fit_scale`・`PreviewBar`) |
-| `export.py` | 画像化(html-to-image)・倍率・PNG の書き出し・保存ダイアログ(`ImageExporter`) |
+| `export.py` | 画像化(html-to-image)・倍率・PNG の書き出し・保存ダイアログ(`ImageExporter`。`ask_path` はファイルの種類を引数に取り、担当者向けファイルでも使う) |
+| `handoff.py` | 担当者向けファイルの書き出し。タスクを todoapp 形式(`items`・`records`・`categories`)へ変える(`build_todos`)、書き込み(`write_json`)。純粋関数(NiceGUI に依存しない)。id は`uuid5`で決まる(同名のタスクは`名前#2`)。todoapp の形式は`file-format.md`(git 管理外) |
 | `static/` | 同梱の html-to-image(MIT) |
 | `task_dialog.py` | タスクの追加・編集ダイアログ(優先度チップ、日付・時刻の入力、閉じる確認、削除) |
 | `models.py` | Project / Section / Task / Member / Actual と列挙型(Priority・Status・ActualMode)のデータモデル(`Task.planned_start` / `planned_end` / `planned_end_manual` / `deadline`) |
@@ -38,6 +39,7 @@
 | エクスポートとプレビュー | `2026-10-05-export-preview-design.md` |
 | セクションの折りたたみ | `2026-10-06-section-collapse-design.md` |
 | 名前の欄の幅 | `2026-10-06-name-width-design.md` |
+| 担当者向けファイルの書き出し | `2026-10-07-assignee-handoff-design.md` |
 
 実装計画は `docs/superpowers/plans/` に、同じ日付・名前(`-design` なし)である。
 
