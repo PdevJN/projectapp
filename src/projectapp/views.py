@@ -618,7 +618,6 @@ class MainView:
                 "ファイル",
                 "menu-file",
                 [
-                    ("新規プロジェクト作成", self.request_new, "file-new"),
                     ("開く", self.show_file_list, "file-open"),
                     ("保存", self.save_project_clicked, "save-project"),
                     ("名前をつけて保存", self.save_as, "file-save-as"),
@@ -629,7 +628,11 @@ class MainView:
             self.header_menu(
                 "プロジェクト",
                 "menu-project",
-                [("設定", self.open_settings, "open-settings"), ("メンバー", self.open_members, "open-members")],
+                [
+                    ("新規プロジェクト作成", self.request_new, "file-new"),
+                    ("設定", self.open_settings, "open-settings"),
+                    ("メンバー", self.open_members, "open-members"),
+                ],
             )
             self.header_menu("エクスポート", "menu-export", [("担当者へ書き出し", self.open_handoff, "export-handoff")])
             self.header_menu("ヘルプ", "menu-help", [("ショートカットヘルプ", self.help_dialog.open, "help-shortcuts")])

@@ -1867,14 +1867,17 @@ async def test_the_header_has_the_menus_the_dashboard_icon_and_the_theme_menu(us
 async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -> None:
     await open_header_view(user, tmp_path)
     assert menu_items(user, "menu-file-items") == [
-        ("新規プロジェクト作成", "file-new"),
         ("開く", "file-open"),
         ("保存", "save-project"),
         ("名前をつけて保存", "file-save-as"),
         ("エクスポート", "export-preview"),
         ("祝日を更新", "refresh-holidays"),
     ]
-    assert menu_items(user, "menu-project-items") == [("設定", "open-settings"), ("メンバー", "open-members")]
+    assert menu_items(user, "menu-project-items") == [
+        ("新規プロジェクト作成", "file-new"),
+        ("設定", "open-settings"),
+        ("メンバー", "open-members"),
+    ]
     assert menu_items(user, "menu-export-items") == [("担当者へ書き出し", "export-handoff")]
     assert menu_items(user, "menu-help-items") == [("ショートカットヘルプ", "help-shortcuts")]
     assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark")]
