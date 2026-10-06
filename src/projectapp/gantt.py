@@ -783,7 +783,7 @@ class GanttChart:
     def task_chips(self, key: int | str, ti: int, task: Task) -> None:
         """名前の右の、ProjectCode・担当・進捗。空のものは出さない。名前の欄の枠の中で呼ぶ。"""
         if task.project_code:
-            ui.label(task.project_code).classes("ellipsis").style(CODE_CHIP_STYLE).tooltip(
+            ui.label(task.project_code).classes("ellipsis code-chip").style(CODE_CHIP_STYLE).tooltip(
                 task.project_code
             ).mark(f"task-code-{key}-{ti}")
         if task.assignee:

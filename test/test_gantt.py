@@ -1891,6 +1891,7 @@ async def test_project_code_chip(user: User) -> None:
     assert code.text == "PRJ-001"
     assert code._style["max-width"] == "56px"
     assert "ellipsis" in code.classes
+    assert "code-chip" in code.classes  # 書き出しの間だけ、省略を切るための印(export.EXPORT_CSS)
     assert tooltips_targeting(code) == ["PRJ-001"]
     assert code.parent_slot.parent is chip(user, "task-0-0")  # 名前の欄の枠の中
 
