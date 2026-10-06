@@ -1,4 +1,6 @@
 import asyncio
+import re
+from collections.abc import Callable
 from datetime import date, datetime
 
 import pytest
@@ -7,6 +9,7 @@ from nicegui.testing import User
 
 from header_cells import header_cells, settles, should_not_see_column, should_see_column
 from projectapp.calendar import DayKind
+from projectapp.config import DEFAULT_NAME_WIDTH_PX, MAX_NAME_WIDTH_PX, MIN_NAME_WIDTH_PX
 from projectapp.filtering import TaskFilter
 from projectapp.gantt_drag import CHART_DRAG_CSS
 from projectapp.gantt import (
@@ -45,7 +48,7 @@ from projectapp.gantt import (
     PROGRESS_STATE_DARK_COLORS,
     DEADLINE_MARKER_HALF_PX,
     GRID_BORDER,
-    NAME_WIDTH_PX,
+    from_name,
     KIND_COLORS,
     MIN_BAR_PX,
     SCROLLBAR_ROOM_PX,
@@ -74,6 +77,7 @@ class Recorder:
             edit_task=lambda si, ti: self.events.append(("edit_task", (si, ti))),
             move_task=lambda src, dst, copy: self.events.append(("move_task", (src, dst, copy))),
             shift_task=lambda si, ti, days: self.events.append(("shift_task", (si, ti, days))),
+            set_name_width=lambda width: self.events.append(("set_name_width", (width,))),
         )
 
 
@@ -115,7 +119,7 @@ async def test_bar_geometry_and_color(user: User) -> None:
     mount(sample_project())
     await user.open("/")
     bar = user.find(marker="bar-0-0").elements.pop()
-    assert bar._style["left"] == "220.0px"  # 200 + 0.5 * 40
+    assert bar._style["left"] == from_name(20.0)  # 0.5 * 40
     assert bar._style["width"] == "80.0px"  # 2.0 * 40
     assert bar._style["background"] == planned_background(STATUS_COLOR_VAR)
 
@@ -145,7 +149,7 @@ async def test_week_scale_has_no_stripes_and_scales_bars(user: User) -> None:
     await user.should_see("5~")
     assert header_cells(user)["2026-10-05"][0] == "5~"
     bar = user.find(marker="bar-0-0").elements.pop()
-    assert bar._style["left"] == "204.0px"  # 200 + 0.5 / 7 * 56
+    assert bar._style["left"] == from_name(4.0)  # 0.5 / 7 * 56
     assert bar._style["width"] == "16.0px"  # 2 / 7 * 56
 
 
@@ -255,7 +259,7 @@ async def test_top_level_tasks_render_without_any_section(user: User) -> None:
     await user.should_not_see(marker="bar-top-1")
     await user.should_not_see(marker="add-task-0")
     bar = user.find(marker="bar-top-0").elements.pop()
-    assert bar._style["left"] == "220.0px"
+    assert bar._style["left"] == from_name(20.0)
     assert bar._style["background"] == planned_background(STATUS_COLOR_VAR)
 
 
@@ -322,7 +326,7 @@ async def test_band_labels_stay_visible_when_scrolled_horizontally(user: User) -
         assert labels, marker
         for label in labels:
             assert label._style["position"] == "sticky", marker
-            assert label._style["left"] == f"{NAME_WIDTH_PX}px", marker
+            assert label._style["left"] == "var(--name-w)", marker
 
 
 async def test_day_scale_has_year_and_month_bands_merging_cells(user: User) -> None:
@@ -369,7 +373,7 @@ async def test_add_row_is_right_aligned_in_the_name_column(user: User) -> None:
     await user.should_see(marker="add-task-top")
     cell = user.find(marker="add-task-top").elements.pop().parent_slot.parent
     assert "justify-end" in cell.classes
-    assert cell._style["width"] == "200px"
+    assert cell._style["width"] == "var(--name-w)"
     user.find(marker="add-task-top").click()
     assert recorder.events == [("add_top_task", ())]
 
@@ -466,7 +470,7 @@ async def test_the_deadline_marker_is_placed_at_the_deadline(user: User) -> None
     mount(project)
     await user.open("/")
     marker = user.find(marker="deadline-0-0").elements.pop()
-    assert marker._style["left"] == f"{200 + 3.5 * 40 - DEADLINE_MARKER_HALF_PX:.1f}px"
+    assert marker._style["left"] == from_name(3.5 * 40 - DEADLINE_MARKER_HALF_PX)
 
 
 async def test_a_task_without_a_start_still_shows_its_deadline_marker(user: User) -> None:
@@ -1094,7 +1098,7 @@ async def test_actual_bar_is_drawn_in_the_lower_half_with_the_task_color(user: U
     mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))))
     await user.open("/")
     bar = user.find(marker="actual-0-0-0").elements.pop()
-    assert bar._style["left"] == "260.0px"  # 200 + 1.5 * 40
+    assert bar._style["left"] == from_name(60.0)  # 1.5 * 40
     assert bar._style["width"] == "80.0px"  # 2.0 * 40
     assert bar._style["background"] == STATUS_COLOR_VAR
     assert bar._style["top"] == f"{ACTUAL_TOP_PX}px"
@@ -1273,7 +1277,7 @@ async def test_bar_outline_and_mark_follow_the_state(
     assert mark.text == PROGRESS_STATE_MARKS[state]
     assert mark._style["color"] == "var(--pstate)"
     assert PROGRESS_STATE_CLASSES[state] in mark.classes
-    assert mark._style["left"] == "304.0px"  # 200 + 0.5 * 40 + 2.0 * 40 + 4
+    assert mark._style["left"] == from_name(104.0)  # 0.5 * 40 + 2.0 * 40 + 4
 
 
 async def test_normal_state_has_no_outline_and_no_mark(user: User) -> None:
@@ -1404,16 +1408,16 @@ async def test_late_done_mark_does_not_overlap_the_longer_actual_bar(user: User)
     mount(finished_project(datetime(2026, 10, 8, 12)), now=datetime(2026, 10, 20))
     await user.open("/")
     actual = user.find(marker="actual-0-0-0").elements.pop()
-    actual_right = float(actual._style["left"][:-2]) + float(actual._style["width"][:-2])
+    actual_right = offset(actual._style["left"]) + float(actual._style["width"][:-2])
     mark = user.find(marker="progress-state-0-0").elements.pop()
-    assert actual_right == 340.0  # 200 + 3.5 * 40
-    assert mark._style["left"] == "344.0px"  # 実績の棒の右端 + 4
+    assert actual_right == 140.0  # 3.5 * 40
+    assert mark._style["left"] == from_name(144.0)  # 実績の棒の右端 + 4
 
 
 async def test_mark_stays_next_to_the_planned_bar_when_the_actual_is_shorter(user: User) -> None:
     mount(finished_project(datetime(2026, 10, 7, 10)), now=datetime(2026, 10, 20))
     await user.open("/")
-    assert user.find(marker="progress-state-0-0").elements.pop()._style["left"] == "304.0px"
+    assert user.find(marker="progress-state-0-0").elements.pop()._style["left"] == from_name(104.0)
 
 
 async def test_delayed_mark_clears_an_in_progress_actual_bar_that_runs_past_the_plan(
@@ -1422,9 +1426,9 @@ async def test_delayed_mark_clears_an_in_progress_actual_bar_that_runs_past_the_
     mount(progress_project(10), now=datetime(2026, 10, 9, 12))  # 進行中の実績が、予定の終了より先まで伸びる
     await user.open("/")
     actual = user.find(marker="actual-0-0-0").elements.pop()
-    actual_right = float(actual._style["left"][:-2]) + float(actual._style["width"][:-2])
+    actual_right = offset(actual._style["left"]) + float(actual._style["width"][:-2])
     mark = user.find(marker="progress-state-0-0").elements.pop()
-    assert float(mark._style["left"][:-2]) >= actual_right + 4
+    assert offset(mark._style["left"]) >= actual_right + 4
 
 
 async def test_mark_does_not_overlap_the_deadline_diamond(user: User) -> None:
@@ -1432,14 +1436,14 @@ async def test_mark_does_not_overlap_the_deadline_diamond(user: User) -> None:
     mount(progress_project(10, deadline=deadline), now=MID)
     await user.open("/")
     mark = user.find(marker="progress-state-0-0").elements.pop()
-    assert mark._style["left"] == "310.0px"  # ◆の右端 306 + 4
+    assert mark._style["left"] == from_name(110.0)  # ◆の右端 106 + 4
     assert user.find(marker="deadline-0-0").elements.pop()  # ◆は今のまま出る
 
 
 async def test_mark_ignores_a_far_away_deadline(user: User) -> None:
     mount(progress_project(10, deadline=datetime(2026, 10, 20, 12)), now=MID)
     await user.open("/")
-    assert user.find(marker="progress-state-0-0").elements.pop()._style["left"] == "304.0px"
+    assert user.find(marker="progress-state-0-0").elements.pop()._style["left"] == from_name(104.0)
 
 
 def luminance(color: str) -> float:
@@ -1570,7 +1574,7 @@ async def test_section_name_is_pinned_to_the_left(user: User) -> None:
     assert name._style["z-index"] == str(STICKY_Z_NAME)
     assert "gantt-sticky" in name.classes
     # 名前の列(200px)の全体を覆い、それを越えない。狭いと縞や格子線が見え、広いと棒を隠す
-    assert name._style["width"] == f"{NAME_WIDTH_PX}px"
+    assert name._style["width"] == "var(--name-w)"
     assert name._style["overflow"] == "hidden"
     assert pinned(user, "add-task-0").parent_slot.parent is name  # 追加ボタンも一緒に固定される
 
@@ -1629,7 +1633,7 @@ async def test_a_long_section_name_is_shortened_inside_the_name_column(user: Use
     assert "ellipsis" in label.classes
     assert label._style["min-width"] == "0"  # 縮められる(縮まないと追加ボタンが列の外へ出る)
     assert "shrink-0" in pinned(user, "add-task-0").classes  # 追加ボタンは常に見える
-    assert pinned(user, "section-name-0")._style["width"] == f"{NAME_WIDTH_PX}px"
+    assert pinned(user, "section-name-0")._style["width"] == "var(--name-w)"
 
 
 def test_the_chart_box_stops_above_the_help_button() -> None:
@@ -1736,7 +1740,7 @@ async def test_a_dashed_line_joins_two_intervals(user: User) -> None:
     )
     await user.open("/")
     gap = user.find(marker="actual-gap-0-0-0").elements.pop()
-    assert gap._style["left"] == "220.0px"  # 前の区間の終了 10/5 12:00 = 0.5日
+    assert gap._style["left"] == from_name(20.0)  # 前の区間の終了 10/5 12:00 = 0.5日
     assert gap._style["width"] == "75.0px"  # 次の開始 10/7 9:00 = 2.375日。(2.375 - 0.5) * 40
     assert gap._style["top"] == f"{ACTUAL_TOP_PX}px"
     assert gap._style["height"] == f"{ACTUAL_HEIGHT_PX}px"
@@ -1832,7 +1836,7 @@ async def test_the_name_cell_is_one_row_with_the_name_inside(user: User) -> None
     assert name.parent_slot.parent is cell
     assert name.text == "設計"
     assert cell.parent_slot.parent is user.find(marker="row-0-0").elements.pop()  # 行の直接の子
-    assert cell._style["width"] == "200px"
+    assert cell._style["width"] == "var(--name-w)"
     assert "padding-left" in cell._style
     assert "flex" in name._style and "min-width" in name._style  # チップの分だけ名前が縮む
     assert "ellipsis" in name.classes
@@ -1999,7 +2003,7 @@ async def test_period_sets_the_first_column_and_clips_bars_at_the_edge(user: Use
     await should_see_column(user, "2026-10-06")
     await should_not_see_column(user, "2026-10-05")
     bar = user.find(marker="bar-0-0").elements.pop()  # 10/5 12:00 → 10/7 12:00。左は端で切る
-    assert bar._style["left"] == "200.0px"
+    assert bar._style["left"] == from_name(0.0)
     assert bar._style["width"] == "60.0px"  # 10/6 0:00 から 10/7 12:00 = 1.5 日 * 40
 
 
@@ -2171,13 +2175,13 @@ async def test_content_width_and_the_content_attribute(user: User) -> None:
     await user.open("/")
     chart = charts[0]
     columns = build_columns(chart.project, Scale.DAY, {})
-    assert chart.content_width() == NAME_WIDTH_PX + COLUMN_WIDTH_PX[Scale.DAY] * len(columns)
+    assert chart.content_width() == DEFAULT_NAME_WIDTH_PX + COLUMN_WIDTH_PX[Scale.DAY] * len(columns)
     content = user.find(marker="chart-content").elements.pop()
     assert "data-chart-content" in content.props
-    assert content._style["width"] == f"{chart.content_width()}px"
+    assert content._style["width"] == from_name(COLUMN_WIDTH_PX[Scale.DAY] * len(columns))
     chart.set_options(ViewOptions(scale=Scale.WEEK))
     weeks = build_columns(chart.project, Scale.WEEK, {})
-    assert chart.content_width() == NAME_WIDTH_PX + COLUMN_WIDTH_PX[Scale.WEEK] * len(weeks)
+    assert chart.content_width() == DEFAULT_NAME_WIDTH_PX + COLUMN_WIDTH_PX[Scale.WEEK] * len(weeks)
 
 
 def long_running_task(progress: int) -> Task:
@@ -2224,7 +2228,7 @@ async def test_a_state_mark_does_not_follow_an_actual_bar_outside_the_period(use
     mount_with(project_with(task), ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 20))), now=datetime(2026, 10, 12))
     await user.open("/")
     mark = user.find(marker="progress-state-0-0").elements.pop()
-    assert float(mark._style["left"][:-2]) < 200 + 42 * 40  # 描画の幅(名前の列 + 42 日)の内側
+    assert offset(mark._style["left"]) < 42 * 40  # 描画の幅(42 日)の内側
 
 
 def clipped_task(progress: int, start: datetime, end: datetime) -> Task:
@@ -2291,3 +2295,204 @@ async def test_the_progress_fill_of_an_unclipped_bar_in_a_period_is_the_plain_pe
     )
     await user.open("/")
     assert user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "40%"
+
+
+def offset(left: str) -> float:
+    """`from_name` の式から、境界(名前の欄の右端)からの距離(px)を取り出す。"""
+    match = re.fullmatch(r"calc\(var\(--name-w\) \+ (-?[\d.]+)px\)", left)
+    assert match, left
+    return float(match.group(1))
+
+
+def test_from_name_builds_a_calc_expression() -> None:
+    assert from_name(20) == "calc(var(--name-w) + 20.0px)"
+    assert from_name(-6) == "calc(var(--name-w) + -6.0px)"
+    assert offset(from_name(104.5)) == 104.5
+
+
+def test_the_chart_defaults_to_the_default_name_width() -> None:
+    chart = GanttChart(sample_project(), {}, Recorder().actions)
+    assert chart.name_width == DEFAULT_NAME_WIDTH_PX == 200
+
+
+async def test_the_content_carries_the_name_width_variable_and_its_range(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    content = user.find(marker="chart-content").elements.pop()
+    assert content._style["--name-w"] == "200px"
+    props = content.props
+    assert props["data-name-min"] == str(MIN_NAME_WIDTH_PX)
+    assert props["data-name-max"] == str(MAX_NAME_WIDTH_PX)
+    assert props["data-name-default"] == str(DEFAULT_NAME_WIDTH_PX)
+    assert props["data-name-edge"] == "6"
+
+
+async def wait_until(condition: Callable[[], bool], retries: int = 20) -> None:
+    """条件を満たすまで待つ(描き直しは、背景タスクで起きる)。"""
+    for _ in range(retries):
+        if condition():
+            return
+        await asyncio.sleep(0.1)
+    raise AssertionError("条件を満たさなかった")
+
+
+def name_variable(user: User) -> str:
+    """描かれている chart-content の --name-w。"""
+    return user.find(marker="chart-content").elements.pop()._style["--name-w"]
+
+
+async def test_the_variable_follows_the_chart_name_width(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    charts[0].name_width = 300
+    charts[0].render.refresh()
+    await wait_until(lambda: name_variable(user) == "300px")
+
+
+def mount_with_width(project: Project, name_width: int, now: datetime = datetime(2026, 10, 1)) -> None:
+    @ui.page("/")
+    def index() -> None:
+        GanttChart(project, {}, Recorder().actions, now=lambda: now, name_width=name_width).build()
+
+
+async def test_positions_do_not_depend_on_the_name_width(user: User) -> None:
+    # 位置は「境界からの距離」。幅が変わっても、棒・◆・印の式は同じで、変数だけが変わる
+    project = sample_project()
+    project.sections[0].tasks[0].deadline = datetime(2026, 10, 8, 12)
+    mount_with_width(project, 300)
+    await user.open("/")
+    assert user.find(marker="chart-content").elements.pop()._style["--name-w"] == "300px"
+    bar = user.find(marker="bar-0-0").elements.pop()
+    assert bar._style["left"] == from_name(20.0)
+    marker = user.find(marker="deadline-0-0").elements.pop()
+    assert marker._style["left"] == from_name(3.5 * 40 - DEADLINE_MARKER_HALF_PX)
+
+
+async def test_the_name_columns_and_the_chart_edges_use_the_variable(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    assert user.find(marker="task-0-0").elements.pop()._style["width"] == "var(--name-w)"
+    assert user.find(marker="section-name-0").elements.pop()._style["width"] == "var(--name-w)"
+    for marker in ("label-row-spacer", "month-band-spacer", "year-band-spacer"):
+        assert user.find(marker=marker).elements.pop()._style["width"] == "var(--name-w)", marker
+    for marker in ("gridlines", "stripes"):
+        assert user.find(marker=marker).elements.pop()._style["left"] == "var(--name-w)", marker
+
+
+async def test_the_content_width_is_the_name_width_plus_the_columns(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    columns = build_columns(charts[0].project, Scale.DAY, {})
+    content = user.find(marker="chart-content").elements.pop()
+    assert content._style["width"] == from_name(COLUMN_WIDTH_PX[Scale.DAY] * len(columns))
+    charts[0].name_width = 300
+    assert charts[0].content_width() == 300 + COLUMN_WIDTH_PX[Scale.DAY] * len(columns)
+
+
+@pytest.mark.parametrize("name_width", [120, 480])
+async def test_the_late_done_mark_position_does_not_depend_on_the_name_width(user: User, name_width: int) -> None:
+    # 印の位置は、境界からの距離。幅によらない
+    mount_with_width(finished_project(datetime(2026, 10, 8, 12)), name_width, now=datetime(2026, 10, 20))
+    await user.open("/")
+    mark = user.find(marker="progress-state-0-0").elements.pop()
+    assert mark._style["left"] == from_name(144.0)  # 実績の棒の右端 140 + 4
+
+
+@pytest.mark.parametrize("name_width", [120, 480])
+async def test_the_period_edge_check_for_the_state_mark_does_not_depend_on_the_name_width(
+    user: User, name_width: int
+) -> None:
+    # 期間の右端の外へ、印を出さない判定は、境界からの距離で比べるので、幅によらない
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(
+            project_with(long_running_task(0)),
+            {},
+            Recorder().actions,
+            now=lambda: datetime(2026, 10, 20),
+            name_width=name_width,
+        )
+        chart.options = ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 10)))
+        chart.build()
+
+    await user.open("/")
+    await user.should_see(marker="bar-0-0")
+    await user.should_not_see(marker="progress-state-0-0")  # 既存の、幅 200px での結果と同じ
+
+
+async def test_handle_name_width_updates_the_width_and_reports_it(user: User) -> None:
+    charts, recorder = mount_chart(sample_project())
+    await user.open("/")
+    charts[0].handle_name_width({"width": 300})
+    assert charts[0].name_width == 300
+    assert recorder.events == [("set_name_width", (300,))]
+
+
+async def test_handle_name_width_clamps_out_of_range_values(user: User) -> None:
+    charts, recorder = mount_chart(sample_project())
+    await user.open("/")
+    charts[0].handle_name_width({"width": 9999})
+    charts[0].handle_name_width({"width": 1})
+    assert [event[1] for event in recorder.events] == [(480,), (120,)]
+    assert charts[0].name_width == 120
+
+
+@pytest.mark.parametrize(
+    "args",
+    [None, 300, "300", [300], {}, {"width": None}, {"width": "300"}, {"width": True}, {"width": float("nan")}],
+)
+async def test_handle_name_width_ignores_bad_events(user: User, args: object) -> None:
+    charts, recorder = mount_chart(sample_project())
+    await user.open("/")
+    charts[0].handle_name_width(args)
+    assert recorder.events == []
+    assert charts[0].name_width == DEFAULT_NAME_WIDTH_PX
+
+
+async def test_handle_name_width_does_not_redraw(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    before = user.find(marker="chart-content").elements.pop()
+    charts[0].handle_name_width({"width": 300})
+    await asyncio.sleep(0.05)
+    assert user.find(marker="chart-content").elements.pop() is before  # 描き直されていない
+
+
+async def test_the_saved_width_survives_a_redraw(user: User) -> None:
+    # 幅を変えたあと、スケールの切り替え・絞り込み・折りたたみで描き直しても、幅が戻らない
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    charts[0].handle_name_width({"width": 300})
+    charts[0].set_scale(Scale.WEEK)
+    await wait_until(lambda: name_variable(user) == "300px")
+    charts[0].set_filter(TaskFilter(query="設計"))
+    await wait_until(lambda: name_variable(user) == "300px")
+    charts[0].toggle_section(0)
+    await wait_until(lambda: name_variable(user) == "300px")
+
+
+RESIZABLE = "gantt-name-resizable"
+
+
+async def test_the_name_columns_are_resizable_at_the_right_edge(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    for marker in (
+        "task-0-0",
+        "section-name-0",
+        "year-band-spacer",
+        "month-band-spacer",
+        "label-row-spacer",
+        "add-task-top",  # ボタンの親(名前の欄)を、下で確かめる
+    ):
+        element = user.find(marker=marker).elements.pop()
+        if marker == "add-task-top":
+            element = element.parent_slot.parent
+        assert RESIZABLE in element.classes, marker
+
+
+async def test_the_read_only_chart_has_no_resize_handle(user: User) -> None:
+    mount_with(sample_project(), ViewOptions(read_only=True))
+    await user.open("/")
+    for marker in ("task-0-0", "section-name-0", "label-row-spacer"):
+        assert RESIZABLE not in user.find(marker=marker).elements.pop().classes, marker

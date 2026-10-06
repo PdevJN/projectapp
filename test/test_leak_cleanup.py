@@ -24,7 +24,7 @@ from projectapp.gantt import GanttActions, GanttChart
 from projectapp.models import Project
 from projectapp.views import MainView
 
-NOOP = GanttActions(*([lambda *args, **kwargs: None] * 6))
+NOOP = GanttActions(*([lambda *args, **kwargs: None] * 7))
 
 
 # 同じテストを 2 回走らせる。2 回目に、1 回目のインスタンスが残っていれば、件数が 2 になる
