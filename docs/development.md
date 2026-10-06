@@ -49,8 +49,11 @@ git-flow に従う(`.claude/BRANCH.md`)。作業は `develop` から `feature/*`
 ```bash
 uv sync
 uv run pytest --cov=projectapp
+uv run pytest -n auto          # 並列(pytest-xdist)。--cov とも併用できる
 uvx ty check src
 ```
+
+並列は、直列の約 3.5 倍速い(1,075 件: 直列 33〜40 秒、`-n 2` 17.5 秒、`-n 4` 10.8 秒、`-n auto`(論理 8 CPU)約 9.4 秒。繰り返しても失敗なし)。分散は、既定の `load` が速い(`--dist loadfile` は、大きなファイル(`test_gantt.py`・`test_views.py`)が 1 つのワーカーに偏って、`-n auto` で約 14 秒)。既定の `addopts` には入れていない(1 件だけ走らせるときも、ワーカーの起動で遅くなるため)。各ワーカーは別のプロセスなので、`conftest.py` の解放と凍結も、ワーカーごとに働く。実際のホームの `~/.projectapp` を読み書きするテストはない(`tmp_path` を使う)ので、競合しない。
 
 全体のテストは約 1 分。`test/conftest.py` が、セッションの最初に基本のヒープを凍結し(`gc.freeze`。フル GC が基本のオブジェクトを毎回走査しないように)、各テストのあとで、前のテストのオブジェクト(クラスの `ui.refreshable` の対象、FastAPI の `lru_cache`、`weakref.finalize` の登録簿)を空にする。`User` のシミュレーションは、テストが終わっても要素を削除しないので、空にしないと、オブジェクトがテストの数だけ積まれ、`nicegui_reset_globals` のフル GC が進むほど遅くなる(対策前は約 7 分)。凍結したオブジェクトは、以後のフル GC と `gc.get_objects()` の対象から外れる。`test/test_leak_cleanup.py` が、積み上がらないことを確かめる。クラスに `@ui.refreshable_method` を足しても、自動で対象になる。
 
