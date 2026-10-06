@@ -122,10 +122,12 @@
 4. 要望の一覧にない後続: タスク同士の矢印連結、添付ファイル(`CLAUDE.md` にある機能)。
 5. README の「主な機能」とキー操作の表は空欄のまま。
 6. 見送った軽微な指摘は、各作業の記録に残してある(まとめて直す機会があれば)。
-7. テストが遅い件の対策(2026-10-06 に調査。**未対応**。対策を選んで試す): 全体テスト(1,061 件)が約 6〜7 分かかる。原因は、テスト本体ではなく、NiceGUI の fixture の `gc.collect()`(`nicegui.testing.general.nicegui_reset_globals` が、各テストの setup と teardown で 1 回ずつ呼ぶ)が、テストが進むほど遅くなること。各テストの `Client` と配下の要素(`Label`・`Column`・`Slot` など)が解放されず残り、1 テストあたり約 4,000 オブジェクトずつ増える(`test_gantt.py` 単独で 11 万 → 94 万個。フル GC は 1 件目 50ms → 最終件 421ms)。残す側は、`nicegui.testing.user.User`(終了していない `asyncio.Task` と `UserNavigate` が保持)と、`GanttChart`(テストのページ関数のクロージャが保持)。対象は、`User` fixture を使う非同期テスト(約 407 件。`test_gantt.py`・`test_task_dialog.py`・`test_views.py`・`test_forms.py`)。同期のテストは影響なし。
-   - 実測: `test_gantt.py` 単独は setup 0.21 秒・teardown 0.23 秒・本体 0.06 秒(1 件平均)。`test_task_dialog.py` は、単独だと setup・teardown が約 0.10 秒、`test_gantt.py` の後だと約 0.43 秒(本体は約 0.05 秒で同じ)。
-   - 対策の案: (a) `pytest-xdist` でプロセスを分ける(手軽。プロセスごとに積み上がらず、並列にもなる)。(b) 各テストの後に、終了していないタスクの取り消しと参照の解放をする autouse fixture を足す(効果は試して確かめる)。(c) 終了していない `Task` を特定して、根本から直す(時間がかかる可能性がある。NiceGUI 側かテストの書き方かは、未特定)。
-   - 測り方: `uv run pytest <ファイル> -q --durations=0` の setup・teardown・call を合計する。ファイルを 2 つ並べて、後ろのファイルの値が単独より大きければ、積み上がり。測定用の拡張(`gc.get_objects()` の型別の集計など)は、使い捨てで、リポジトリには入れていない。測定中は、他の重い処理を動かさない(時間が歪む)。
+7. (完了)テストが遅い件の対策(2026-10-06 に調査して、ブランチ `feature/faster-tests` で対応): 全体テストが、415 秒(1,065 件)から 87 秒(1,071 件)になった(約 4.8 倍)。
+   - 原因: テスト本体ではなく、NiceGUI の fixture の `gc.collect()`(`nicegui.testing.general.nicegui_reset_globals` が、各テストの setup と teardown で 1 回ずつ呼ぶ)が、テストが進むほど遅くなっていた。`User` のシミュレーションは、テストが終わっても、クライアントとその要素を削除しないので、前のテストのオブジェクトが、次の 3 つの経路で保持され続けていた(`test_gantt.py` 単独で、オブジェクトが 11 万 → 94 万個。フル GC は 1 件目 50ms → 最終件 421ms)。(1) クラスの `@ui.refreshable_method`(`GanttChart.render`、`MainView.title`・`MainView.theme_buttons`)の `targets` と `instance`(要素が削除されるまで、インスタンスを持つ)。(2) FastAPI の `lru_cache`(ページ関数をキーにし、ページ関数のクロージャが `MainView` を持つ)。(3) `weakref.finalize` の登録簿(`ui.dialog` が、自分自身を捕まえるラムダを登録する。開いたままのダイアログのボタンが `MainView` のメソッドを持つ)。(2) と (3) は、片方だけ断っても、もう片方が同じオブジェクトを保持する(単独の効果はほとんどなく、両方で効く)。
+   - 対応: `test/conftest.py` の autouse fixture(`release_refreshable_targets`、`release_page_objects`)が、各テストのあとで、上の 3 つを空にする。クラスの `refreshable` は `projectapp.*` のクラスから自動で探すので、足しても対応が要らない。再現テストは `test/test_leak_cleanup.py`(`GanttChart`・`MainView` の `targets` が 1 件だけであること、同じシナリオを 6 回繰り返して、生きている `MainView` が増えないこと)。`--noconftest` で外すと 7 件が、解放の 3 つのうち 1 つを欠くと 3〜7 件が失敗する(検出できることを確認した)。
+   - 残っていること(増えない・無害): セッションで最初のテストのオブジェクトは、`socketio` が最初の import で捕まえた SIGINT ハンドラ(`asyncio.Runner` のもの)から、ずっと保持される。オブジェクトは、解放後もゆるやかに増える(`test_gantt.py` で 11 万 → 38 万個。フル GC は最終件 152ms。原因は未調査)。
+   - 調査で気づいたこと: NiceGUI の `User.__getattribute__` は、属性に触れるたびに、その `User` の `ui.navigate`・`ui.notify`・`ui.download` を `ui` モジュールへ再登録する。`gc` の走査で `User` に触れる測定は、`ui` から古い `User` へ向かう偽の連鎖を作るので、測るときは `User.__getattribute__ = object.__getattribute__` で副作用を止める(`isinstance` で外れたときの `__class__` 参照も該当する。`type(o) is X` を使う)。`nicegui_reset_globals` は、ページ関数のモジュール(テストファイル)を `sys.modules` から取り除くので、測定のプラグインでテストファイルを `import` し直さない(`item.module` を使う)。zsh では `$D:test` が `:t` 修飾子になる(`${D}:test` と書く)。
+   - 測り方: `uv run pytest <ファイル> -q --durations=0` の setup・teardown・call を合計する。ファイルを 2 つ並べて、後ろのファイルの値が単独より大きければ、積み上がり。保持元は、`uv run --with objgraph` で、`objgraph.find_backref_chain` を使うと、モジュールからの連鎖が分かる。測定用の拡張は使い捨てで、リポジトリには入れていない。
 
 ## 今後の要望(2026-10-04・05 に受領。未着手は 4・5・6・7・8・10・11・19〜23。優先順位は未決)
 
@@ -176,7 +178,7 @@
 
 **注意(作業で学んだこと)**
 
-- 全体のテストは約 5.5〜6 分かかる(遅い原因と対策は「次にやること」の 7)。時間制限(`timeout`)を付けずに、バックグラウンドで実行して、`done` の行まで待つ(制限で途中で切れると、結果の行が出ない)。
+- 全体のテストは約 1.5 分(87 秒)かかる(2026-10-06 の対策前は約 6〜7 分。原因と対策は「次にやること」の 7)。それでも 2 分近いので、時間制限(`timeout`)を付けずに、バックグラウンドで実行して、結果の行まで待つ(制限で途中で切れると、結果の行が出ない)。
 - 新しいプロジェクトの `base_date` の既定は「今日」。日付に依存するテストは、`view.project.base_date = date(2026, 10, 5)` のように固定する(固定を忘れたテストが、日付が進んで落ちた)。
 - 文字列の置換スクリプトは、置換する範囲が空でないことを確認する(空の範囲の `replace` は、全文字の間に挿入して、ファイルが壊れる。2 回起きた)。
 - NiceGUI の `User` は、非表示の要素を `find` で見つけず、クリックを親へ伝えず、キー入力のシミュレーションがない。

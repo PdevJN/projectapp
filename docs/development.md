@@ -52,6 +52,8 @@ uv run pytest --cov=projectapp
 uvx ty check src
 ```
 
+全体のテストは約 1.5 分。`test/conftest.py` が、各テストのあとで、前のテストのオブジェクト(クラスの `ui.refreshable` の対象、FastAPI の `lru_cache`、`weakref.finalize` の登録簿)を空にする。`User` のシミュレーションは、テストが終わっても要素を削除しないので、空にしないと、オブジェクトがテストの数だけ積まれ、`nicegui_reset_globals` のフル GC が進むほど遅くなる(対策前は約 7 分)。`test/test_leak_cleanup.py` が、積み上がらないことを確かめる。クラスに `@ui.refreshable_method` を足しても、自動で対象になる。
+
 ## ファイル形式の注意
 
 - セクションの折りたたみ(`GanttChart.collapsed`。セクションの添字の集合)は保存しない。切り替え(`toggle_section`)は、再描画せず、`section_views` に持つ行の表示と矢印のアイコンだけを変える(行は、折りたたみ中も作って隠す)。絞り込み中とプレビュー(読み取り専用)は無視する。セクションの並べ替え・削除を足すときは、同時に添字をずらすこと(現状はセクションの追加が末尾への追加だけなので、ずれない)。
