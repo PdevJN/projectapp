@@ -157,6 +157,7 @@ class MainView:
         self.mark_clean()
         self.file_select.set_value(name)
         self.title.refresh()
+        self.gantt.reset_collapsed()  # 折りたたみは保存しない。別のプロジェクトは全展開から始める
         self.gantt.set_project(self.project)
         self.gantt.reset_filter()
         self.gantt.reset_scroll()  # 別のプロジェクトは、先頭から見せる(編集後の再描画では動かさない)
@@ -422,6 +423,8 @@ class MainView:
             tasks.append(task)
         else:
             tasks[task_index] = task
+        if task_index is None and section_index is not None:
+            self.gantt.expand_section(section_index)  # 追加したタスクが見えるように
         self.gantt.set_project(self.project)
         self.warn_overallocation(task)
 

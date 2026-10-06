@@ -8,10 +8,10 @@
 | `views.py` | メイン画面(ヘッダー・チャート領域・テーマFAB・ヘルプ・プレビューの出入りと画像の保存) |
 | `calendar.py` | 祝日の取得・キャッシュ(`holidays.json`)と日付種別の判定 |
 | `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |
-| `filtering.py` | 絞り込み条件(`TaskFilter`)とタスクの判定(`matches`)(純粋関数) |
+| `filtering.py` | 絞り込み条件(`TaskFilter`)とタスクの判定(`matches`)、セクションで描くタスクの決定(`visible_task_indexes`)(純粋関数) |
 | `arrange.py` | タスクの移動(`move_task`)・コピー(`copy_task`)・日程のずらし(`shift_task`、左へずらせる限度 `min_shift_days`)と、画面から届く値の検証(`parse_move`・`parse_shift`)(純粋関数) |
 | `gantt_drag.py` | ガントチャートのドラッグ操作用の JS と CSS(定数のみ。行は HTML5 の drag、バーは pointer イベント) |
-| `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、行のドラッグ移動・コピー、バーの横移動(日次のみ) |
+| `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、セクションの折りたたみ、行のドラッグ移動・コピー、バーの横移動(日次のみ) |
 | `forms.py` | タスク・セクションの入力検証、プロジェクト名の入力・ファイル一覧・未保存の確認ダイアログ、稼働時間の設定ダイアログと入力検証、メンバーのダイアログと検証(`build_members`) |
 | `preview.py` | エクスポートのプレビュー(`PreviewSettings`・期間の検証・`fit_scale`・`PreviewBar`) |
 | `export.py` | 画像化(html-to-image)・倍率・PNG の書き出し・保存ダイアログ(`ImageExporter`) |
@@ -36,6 +36,7 @@
 | 実績の複数区間 | `2026-10-05-actual-intervals-design.md` |
 | タスク表示のチップ | `2026-10-05-task-chips-design.md` |
 | エクスポートとプレビュー | `2026-10-05-export-preview-design.md` |
+| セクションの折りたたみ | `2026-10-06-section-collapse-design.md` |
 
 実装計画は `docs/superpowers/plans/` に、同じ日付・名前(`-design` なし)である。
 
@@ -53,6 +54,7 @@ uvx ty check src
 
 ## ファイル形式の注意
 
+- セクションの折りたたみ(`GanttChart.collapsed`。セクションの添字の集合)は保存しない。絞り込み中とプレビュー(読み取り専用)は無視する。セクションの並べ替え・削除を足すときは、同時に添字をずらすこと(現状はセクションの追加が末尾への追加だけなので、ずれない)。
 - タスクの日付は、`planned_start`(開始予定)、`planned_end`(完了予定の手入力値)、`planned_end_manual`(手で指定)、`deadline`(締切)。完了予定は保存せず、`effective_end` で表示のたびに計算する。
 - `planned_end_manual` のキーがないファイルは旧形式として読む。旧 `start` は開始予定、旧 `end` は締切になる(`end_auto` が `true` のものは自動算出だったので捨てる)。旧形式のファイルは、保存すると新形式になる。
 - 読込時に `daily_hours`(有限の数値で、0より大きく24以下)と `work_start`(`HH:MM[:SS]` の文字列)を検証し、不正なファイルは「開けませんでした」と通知する。`planned_end_manual` は `true` のときだけ真として扱う。

@@ -1520,3 +1520,92 @@ async def test_an_empty_project_opens_the_preview_with_a_one_day_period(user: Us
     assert user.find(marker="preview-start").elements.pop().value == "2026-10-05"
     assert user.find(marker="preview-end").elements.pop().value == "2026-10-05"
     assert view.gantt.options.period == (date(2026, 10, 5), date(2026, 10, 5))
+
+
+async def test_adding_a_task_to_a_collapsed_section_expands_it(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    view.project.sections.append(Section("開発", [planned_task()]))
+    view.gantt.set_project(view.project)
+    view.gantt.toggle_section(0)
+    await user.should_not_see(marker="task-0-0")
+    view.save_task(0, None, planned_task())
+    assert view.gantt.collapsed == set()
+    await user.should_see(marker="task-0-1")
+
+
+async def test_editing_a_task_keeps_the_section_collapsed(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.sections.append(Section("開発", [planned_task()]))
+    view.gantt.set_project(view.project)
+    view.gantt.toggle_section(0)
+    view.save_task(0, 0, planned_task())
+    assert view.gantt.collapsed == {0}
+
+
+async def test_adding_a_top_level_task_keeps_collapsed_sections(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.sections.append(Section("開発", [planned_task()]))
+    view.gantt.set_project(view.project)
+    view.gantt.toggle_section(0)
+    view.save_task(None, None, planned_task())
+    assert view.gantt.collapsed == {0}
+
+
+async def test_opening_a_project_expands_every_section(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("元", [planned_task()])]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.sections.append(Section("今の", [planned_task()]))
+    view.gantt.set_project(view.project)
+    view.gantt.toggle_section(0)
+    view.open_project("既存")
+    assert view.gantt.collapsed == set()
+    await user.should_see(marker="task-0-0")
+
+
+async def test_collapsing_is_not_an_edit(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.sections.append(Section("開発", [planned_task()]))
+    view.gantt.set_project(view.project)
+    view.mark_clean()
+    view.gantt.toggle_section(0)
+    assert not view.is_dirty()
+
+
+async def test_the_preview_shows_a_collapsed_section_and_returns_to_it(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    view.project.sections.append(Section("開発", [planned_task()]))
+    view.gantt.set_project(view.project)
+    view.gantt.toggle_section(0)
+    await user.should_not_see(marker="task-0-0")
+    user.find(marker="export-preview").click()
+    await user.should_see(marker="task-0-0")
+    await user.should_not_see(marker="section-toggle-0")
+    view.exit_preview()
+    await user.should_not_see(marker="task-0-0")
+    assert view.gantt.collapsed == {0}
