@@ -57,6 +57,17 @@ uvx ty check src
 
 全体のテストは約 1 分。`test/conftest.py` が、セッションの最初に基本のヒープを凍結し(`gc.freeze`。フル GC が基本のオブジェクトを毎回走査しないように)、各テストのあとで、前のテストのオブジェクト(クラスの `ui.refreshable` の対象、FastAPI の `lru_cache`、`weakref.finalize` の登録簿)を空にする。`User` のシミュレーションは、テストが終わっても要素を削除しないので、空にしないと、オブジェクトがテストの数だけ積まれ、`nicegui_reset_globals` のフル GC が進むほど遅くなる(対策前は約 7 分)。凍結したオブジェクトは、以後のフル GC と `gc.get_objects()` の対象から外れる。`test/test_leak_cleanup.py` が、積み上がらないことを確かめる。クラスに `@ui.refreshable_method` を足しても、自動で対象になる。
 
+## 描画速度の設計制約
+
+2026-10-06 に、`GanttChart.render` の速度を測った(8 セクション × 15 タスク = 120 タスクで、1 回約 400〜470ms。NiceGUI の要素が約 1,800 個。1 タスクあたり約 15 個)。時間の大半は NiceGUI の要素生成で、`timeline.py` の位置計算は約 5%。
+
+**制約(守ること)**
+- NiceGUI の内部関数の差し替え(モンキーパッチ。例: `nicegui.helpers.expects_arguments` のキャッシュ化。約 23〜31% 短縮)は、**しない**。非公開の内部に依存し、NiceGUI の更新で壊れうるため。
+- ツールチップを `title` 属性へ置き換える案(Quasar の Tooltip 531 個が約 100 ms 分。キャッシュと合わせて約 42% 短縮)は、**しない**。見た目と動作が変わる。切り替えの設定(オプション化)も、手間に見合わないので**しない**。
+- 速度の改善は、NiceGUI の公開 API の範囲で、見た目を変えない手段に限る。候補: 棒の中の、クリックに応答しない飾り(進捗の塗り・縞・印)を 1 つの HTML にまとめる(ヘッダーの日付ラベルの `header_cell_html` と同じ手法)。変わった行だけを更新する案は、スクロール位置とドラッグ用の JS との整合が要るので、設計から始める。
+
+**測り方**: 120 タスクの `Project` を作り、`await chart.render.refresh()` を繰り返して時間を測る(`refresh` は予約されるだけなので、`await` が要る)。`cProfile` の自己時間で、要素生成(`inspect.signature`・`Element.__init__`)と自前の関数を分ける。ブラウザ側(Vue の描画・websocket の約 1MB)は未計測。
+
 ## ファイル形式の注意
 
 - ヘッダーの日付・曜日の行(`label_row`)は、列ごとに要素を作らず、1 つの `ui.html`(マーカー `label-row-cells`)にまとめる(`header_cell_html`。セルは `data-col="<日付>"`、日次は日付と曜日の 2 行、週次・月次は日付の 1 行。内容は日付のみだが、念のため `html.escape` を通す)。NiceGUI の要素は、1 個ずつの生成が重く(`Element.__init__` が、監視付きのコレクションを 3 つ作り、それぞれで `inspect.signature` を呼ぶ)、列ごとの要素は、描画の約 8 割を占めていたため。格子線・縞と同じ作り方。個々のラベルのマーカー(`col-<日付>`・`weekday-<日付>`)はないので、テストは `test/header_cells.py` の `header_cells` で、`label-row-cells` の内容から読む。年・月の帯(`band_row`)は、要素が少ないので、そのまま。
