@@ -386,6 +386,7 @@ async def test_the_period_edge_check_for_the_state_mark_does_not_depend_on_the_n
     await user.open("/")
     await user.should_see(marker="bar-0-0")
     await user.should_not_see(marker="progress-state-0-0")  # 既存の、幅 200px での結果と同じ
+```
 
 - [ ] **Step 2: 新しいテストが失敗することを確かめる**
 
