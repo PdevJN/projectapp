@@ -1,5 +1,6 @@
 """ガントチャートの描画(NiceGUI要素とCSS)。"""
 
+import html
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time
@@ -228,6 +229,19 @@ def fill_percent(task: Task) -> int | None:
     if percent is None and task.status is Status.DONE:
         return 100
     return percent
+
+
+def header_cell_html(column: Column, width: int, weekday: bool) -> str:
+    """見出しの 1 列ぶん(日付、日次は曜日も)の HTML。内容は日付のみで、念のためエスケープする。"""
+    lines = [column.label]
+    if weekday:
+        lines.append(f"（{WEEKDAYS[column.start.weekday()]}）")
+    inner = "".join(f"<div>{html.escape(line)}</div>" for line in lines)
+    return (
+        f'<div class="text-caption" data-col="{column.start.isoformat()}"'
+        f' style="width:{width}px;display:flex;flex-direction:column;align-items:center">'
+        f"{inner}</div>"
+    )
 
 
 def sticky_left(z_index: int) -> str:
@@ -597,16 +611,12 @@ class GanttChart:
         style = f"height: {height}px; position: relative; border-bottom: {GRID_BORDER}"
         with ui.row().classes("items-center no-wrap gap-0").style(style):
             self.header_spacer("label-row-spacer")
-            for column in columns:
-                with ui.column().classes("items-center gap-0").style(f"width: {width}px"):
-                    ui.label(column.label).classes("text-caption").mark(
-                        f"col-{column.start.isoformat()}"
-                    )
-                    if self.view_scale is Scale.DAY:
-                        weekday = f"（{WEEKDAYS[column.start.weekday()]}）"
-                        ui.label(weekday).classes("text-caption").mark(
-                            f"weekday-{column.start.isoformat()}"
-                        )
+            # 列ごとに要素を作ると、描画の大半を占めるので、日付と曜日は 1 つの HTML にまとめる(格子線・縞と同じ)
+            day = self.view_scale is Scale.DAY
+            cells = "".join(header_cell_html(column, width, weekday=day) for column in columns)
+            ui.html(f'<div style="display:flex">{cells}</div>', sanitize=False).style(
+                "flex: none"
+            ).mark("label-row-cells")
 
     def section_rows(
         self, si: int, section: Section, columns: list[Column], width: int

@@ -5,6 +5,7 @@ import pytest
 from nicegui import ui
 from nicegui.testing import User
 
+from header_cells import header_cells, settles, should_not_see_column, should_see_column
 from projectapp.calendar import DayKind
 from projectapp.filtering import TaskFilter
 from projectapp.gantt_drag import CHART_DRAG_CSS
@@ -52,8 +53,9 @@ from projectapp.gantt import (
     OVERDUE_COLOR,
     GanttActions,
     GanttChart,
+    header_cell_html,
 )
-from projectapp.timeline import build_columns
+from projectapp.timeline import Column, build_columns
 from projectapp.models import DEFAULT_COLOR, Actual, Member, Priority, Project, Section, Status, Task
 from projectapp.timeline import ProgressState, Scale
 
@@ -141,7 +143,7 @@ async def test_week_scale_has_no_stripes_and_scales_bars(user: User) -> None:
     user.find(kind=ui.toggle).elements.pop().set_value(Scale.WEEK)
     await user.should_not_see(marker="stripes")
     await user.should_see("5~")
-    assert user.find(marker="col-2026-10-05").elements.pop().text == "5~"
+    assert header_cells(user)["2026-10-05"][0] == "5~"
     bar = user.find(marker="bar-0-0").elements.pop()
     assert bar._style["left"] == "204.0px"  # 200 + 0.5 / 7 * 56
     assert bar._style["width"] == "16.0px"  # 2 / 7 * 56
@@ -151,8 +153,8 @@ async def test_month_scale_labels(user: User) -> None:
     mount(sample_project())
     await user.open("/")
     user.find(kind=ui.toggle).elements.pop().set_value(Scale.MONTH)
-    await user.should_see(marker="col-2026-10-01")
-    assert user.find(marker="col-2026-10-01").elements.pop().text == "10月"
+    await should_see_column(user, "2026-10-01")
+    assert header_cells(user)["2026-10-01"][0] == "10月"
 
 
 async def test_clicks_call_the_actions(user: User) -> None:
@@ -181,9 +183,46 @@ async def test_empty_section_and_html_like_names_are_shown_literally(user: User)
 async def test_day_header_shows_weekday_in_parentheses_under_the_date(user: User) -> None:
     mount(sample_project())
     await user.open("/")
-    assert user.find(marker="col-2026-10-05").elements.pop().text == "5"
+    cells = header_cells(user)
+    assert cells["2026-10-05"][0] == "5"
     for day, weekday in (("2026-10-05", "（月）"), ("2026-10-10", "（土）"), ("2026-10-11", "（日）")):
-        assert user.find(marker=f"weekday-{day}").elements.pop().text == weekday
+        assert cells[day][1] == weekday
+
+
+async def test_the_header_dates_are_one_html_element(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    chart = charts[0]
+    htmls = [e for e in chart.client.elements.values() if "label-row-cells" in e._markers]
+    assert len(htmls) == 1  # 日付と曜日は、列ごとの要素ではなく、1 つの HTML
+    assert [e for e in chart.client.elements.values() if any(m.startswith(("col-", "weekday-")) for m in e._markers)] == []
+    assert htmls[0]._style["flex"] == "none"  # 行の中で縮めない
+    assert len(header_cells(user)) > 7
+
+
+async def test_header_cells_have_the_column_width_in_every_scale(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    toggle = user.find(kind=ui.toggle).elements.pop()
+    for scale in (Scale.DAY, Scale.WEEK, Scale.MONTH):
+        toggle.set_value(scale)
+        width = COLUMN_WIDTH_PX[scale]
+        for _ in range(10):  # 描き直しを待つ
+            content = user.find(marker="label-row-cells").elements.pop().content
+            if f"width:{width}px" in content:
+                break
+            await asyncio.sleep(0.1)
+        assert content.count(f"width:{width}px") == len(header_cells(user))
+
+
+def test_header_cell_escapes_the_text_and_has_no_weekday_line_unless_asked() -> None:
+    column = Column(date(2026, 10, 5), date(2026, 10, 6), "<b>&\"")
+    cell = header_cell_html(column, 40, weekday=False)
+    assert "<b>" not in cell and "&lt;b&gt;&amp;&quot;" in cell
+    assert 'data-col="2026-10-05"' in cell and "width:40px" in cell
+    assert cell.count("<div>") == 1
+    with_weekday = header_cell_html(column, 40, weekday=True)
+    assert with_weekday.count("<div>") == 2 and "（月）" in with_weekday
 
 
 async def test_week_and_month_headers_have_no_weekday(user: User) -> None:
@@ -191,11 +230,10 @@ async def test_week_and_month_headers_have_no_weekday(user: User) -> None:
     await user.open("/")
     toggle = user.find(kind=ui.toggle).elements.pop()
     toggle.set_value(Scale.WEEK)
-    await user.should_not_see(marker="weekday-2026-10-05")
+    await settles(user, lambda cells: "2026-10-05" in cells and cells["2026-10-05"][1] is None)
     toggle.set_value(Scale.MONTH)
-    await user.should_not_see(marker="weekday-2026-10-05")
-    await user.should_see(marker="col-2026-10-01")
-    assert user.find(marker="col-2026-10-01").elements.pop().text == "10月"
+    await settles(user, lambda cells: "2026-10-01" in cells and all(c[1] is None for c in cells.values()))
+    assert header_cells(user)["2026-10-01"][0] == "10月"
 
 
 
@@ -263,7 +301,7 @@ async def test_horizontal_grid_lines_under_every_row(user: User) -> None:
 
     assert row_of(marker="task-0-0")._style["border-bottom"] == GRID_BORDER
     assert user.find(marker="section-0").elements.pop()._style["border-bottom"] == GRID_BORDER
-    header = row_of(marker="col-2026-10-05").parent_slot.parent
+    header = row_of(marker="label-row-cells")
     assert header._style["border-bottom"] == GRID_BORDER
 
 
@@ -302,7 +340,7 @@ async def test_week_scale_has_month_band_and_month_scale_does_not(user: User) ->
     await user.should_see("5~")
     assert user.find(marker="month-band").elements
     toggle.set_value(Scale.MONTH)
-    await user.should_see(marker="col-2026-10-01")
+    await should_see_column(user, "2026-10-01")
     await user.should_not_see(marker="month-band")
     assert user.find(marker="year-band").elements
 
@@ -313,7 +351,7 @@ async def test_grid_layers_start_below_the_bands(user: User) -> None:
     assert user.find(marker="gridlines").elements.pop()._style["top"] == "44px"
     assert user.find(marker="stripes").elements.pop()._style["top"] == "44px"
     user.find(kind=ui.toggle).elements.pop().set_value(Scale.MONTH)
-    await user.should_see(marker="col-2026-10-01")
+    await should_see_column(user, "2026-10-01")
     assert user.find(marker="gridlines").elements.pop()._style["top"] == "22px"
 
 
@@ -1958,8 +1996,8 @@ def test_view_options_defaults_mean_today_s_chart() -> None:
 async def test_period_sets_the_first_column_and_clips_bars_at_the_edge(user: User) -> None:
     mount_with(sample_project(), ViewOptions(period=(date(2026, 10, 6), date(2026, 10, 8))))
     await user.open("/")
-    await user.should_see(marker="col-2026-10-06")
-    await user.should_not_see(marker="col-2026-10-05")
+    await should_see_column(user, "2026-10-06")
+    await should_not_see_column(user, "2026-10-05")
     bar = user.find(marker="bar-0-0").elements.pop()  # 10/5 12:00 → 10/7 12:00。左は端で切る
     assert bar._style["left"] == "200.0px"
     assert bar._style["width"] == "60.0px"  # 10/6 0:00 から 10/7 12:00 = 1.5 日 * 40
@@ -2053,13 +2091,13 @@ async def test_set_options_rerenders_and_the_view_scale_follows(user: User) -> N
     await user.open("/")
     chart = charts[0]
     chart.set_options(ViewOptions(period=(date(2026, 10, 6), date(2026, 10, 8))))
-    await user.should_not_see(marker="col-2026-10-05")
+    await should_not_see_column(user, "2026-10-05")
     assert chart.view_scale is Scale.DAY
     chart.set_options(ViewOptions(scale=Scale.MONTH))
     assert chart.view_scale is Scale.MONTH
     assert chart.scale is Scale.DAY
     chart.set_options(ViewOptions())
-    await user.should_see(marker="col-2026-10-05")
+    await should_see_column(user, "2026-10-05")
 
 
 async def test_read_only_removes_the_edit_parts(user: User) -> None:
