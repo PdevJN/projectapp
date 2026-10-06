@@ -628,9 +628,9 @@ class MainView:
                 "menu-file",
                 [
                     ("開く", self.show_file_list, "file-open"),
-                    ("保存", self.save_project_clicked, "save-project"),
+                    ("上書き保存", self.save_project_clicked, "save-project"),
                     ("名前をつけて保存", self.save_as, "file-save-as"),
-                    ("エクスポート", self.enter_preview, "export-preview"),
+                    None,  # 水平線(ここから下は、ファイルの操作ではなく、データの更新)
                     ("祝日を更新", self.refresh_holidays, "refresh-holidays"),
                 ],
             )
@@ -643,7 +643,14 @@ class MainView:
                     ("メンバー", self.open_members, "open-members"),
                 ],
             )
-            self.header_menu("エクスポート", "menu-export", [("担当者へ書き出し", self.open_handoff, "export-handoff")])
+            self.header_menu(
+                "エクスポート",
+                "menu-export",
+                [
+                    ("チャートプレビュー", self.enter_preview, "export-preview"),
+                    ("担当者へ書き出し", self.open_handoff, "export-handoff"),
+                ],
+            )
             self.header_menu("ヘルプ", "menu-help", [("ショートカットヘルプ", self.help_dialog.open, "help-shortcuts")])
             ui.space()
             self.file_select = ui.select(
@@ -659,11 +666,17 @@ class MainView:
             ).tooltip("プロジェクトの格納フォルダを開く").mark("open-folder")
             self.theme_menu()
 
-    def header_menu(self, label: str, marker: str, items: list[tuple[str, Callable[[], object], str]]) -> None:
-        """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(`items` は、文言・操作・マーカー)。"""
+    def header_menu(
+        self, label: str, marker: str, items: list[tuple[str, Callable[[], object], str] | None]
+    ) -> None:
+        """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(`items` は、文言・操作・マーカー。None は水平線)。"""
         with ui.button(label, color=None).props("unelevated rounded no-caps").classes("app-menu-btn").mark(marker):
             with ui.menu().props("content-class=app-menu").mark(f"{marker}-items"):
-                for text, handler, item_marker in items:
+                for item in items:
+                    if item is None:
+                        ui.separator().mark(f"{marker}-separator")
+                        continue
+                    text, handler, item_marker = item
                     ui.menu_item(text, on_click=handler).mark(item_marker)
 
     @ui.refreshable_method
