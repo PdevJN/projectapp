@@ -10,7 +10,7 @@ from nicegui.events import ValueChangeEventArguments
 from projectapp import arrange
 from projectapp.arrange import Position
 from projectapp.calendar import DayKind, day_kind
-from projectapp.filtering import TaskFilter, matches
+from projectapp.filtering import TaskFilter, matches, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS
 from projectapp.models import Priority, Project, Section, Status, Task
 from projectapp.timeline import (
@@ -262,6 +262,7 @@ class GanttChart:
         self.options = ViewOptions()
         self.toolbar: ui.row | None = None
         self.task_filter = TaskFilter()
+        self.collapsed: set[int] = set()  # 折りたたんだセクションの添字。保存しない
         self.search_input: ui.input | None = None
         self.assignee_select: ui.select | None = None
         self.client: Client | None = None
@@ -314,6 +315,19 @@ class GanttChart:
         parts = [f"data-drop={kind}", f"data-si={key}"]
         parts += [f"data-{name}={value}" for name, value in extra.items()]
         return " ".join(parts)
+
+    def toggle_section(self, si: int) -> None:
+        """セクションの折りたたみを切り替えて、描き直す。"""
+        self.collapsed.symmetric_difference_update({si})
+        self.render.refresh()
+
+    def expand_section(self, si: int) -> None:
+        """セクションを展開する(描き直しは、呼び出し側のあとの処理に任せる)。"""
+        self.collapsed.discard(si)
+
+    def reset_collapsed(self) -> None:
+        """すべて展開に戻す(描き直しは、呼び出し側のあとの処理に任せる)。"""
+        self.collapsed.clear()
 
     def reset_filter(self) -> None:
         """条件を空に戻し、入力欄と選択にも反映する。別のプロジェクトを開いたときに使う。"""
@@ -577,9 +591,9 @@ class GanttChart:
     def section_rows(
         self, si: int, section: Section, columns: list[Column], width: int
     ) -> None:
-        if self.task_filter.active and not any(
-            matches(task, self.task_filter) for task in section.tasks
-        ):
+        collapsed = si in self.collapsed and not self.options.read_only
+        visible = visible_task_indexes(section, self.task_filter, collapsed)
+        if self.task_filter.active and not visible:
             return
         header = ui.row().classes("items-center no-wrap gap-2").style(ROW_STYLE)
         header.props(self.drag_props("section", si, count=len(section.tasks)))
@@ -591,18 +605,29 @@ class GanttChart:
                 f" {sticky_left(STICKY_Z_NAME)}"
             )
             with name.mark(f"section-name-{si}"):
+                if not self.options.read_only:
+                    arrow = "chevron_right" if collapsed else "expand_more"
+                    ui.button(
+                        icon=arrow, on_click=lambda si=si: self.toggle_section(si)
+                    ).props("flat dense round size=sm").classes("shrink-0").mark(
+                        f"section-toggle-{si}"
+                    )
                 label = ui.label(section.name).classes("text-subtitle2 ellipsis")
                 label.style("min-width: 0; padding-left: 4px")  # 長い名前は縮めて、ボタンを残す
                 label.tooltip(section.name).mark(f"section-label-{si}")
+                if not self.options.read_only:
+                    label.classes("cursor-pointer").on("click", lambda si=si: self.toggle_section(si))
+                ui.label(f"({len(section.tasks)})").classes("text-caption shrink-0").mark(
+                    f"section-count-{si}"
+                )
                 if not self.options.read_only:
                     ui.button(
                         icon="add", on_click=lambda si=si: self.actions.add_task(si)
                     ).props("flat dense round size=sm").classes("shrink-0").tooltip(
                         "タスク追加"
                     ).mark(f"add-task-{si}")
-        for ti, task in enumerate(section.tasks):
-            if matches(task, self.task_filter):
-                self.task_row(si, ti, task, columns, width)
+        for ti in visible:
+            self.task_row(si, ti, section.tasks[ti], columns, width)
 
     def task_row(
         self, si: int | None, ti: int, task: Task, columns: list[Column], width: int

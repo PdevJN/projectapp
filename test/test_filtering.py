@@ -1,5 +1,5 @@
-from projectapp.filtering import TaskFilter, matches
-from projectapp.models import Task
+from projectapp.filtering import TaskFilter, matches, visible_task_indexes
+from projectapp.models import Section, Task
 
 
 def test_an_empty_filter_is_inactive_and_matches_everything() -> None:
@@ -49,3 +49,32 @@ def test_query_and_assignee_are_combined_with_and() -> None:
     assert matches(Task("設計", assignee="田中"), task_filter)
     assert not matches(Task("設計", assignee="鈴木"), task_filter)
     assert not matches(Task("実装", assignee="田中"), task_filter)
+
+
+def section_of_three() -> Section:
+    return Section(
+        "開発",
+        [Task("設計", assignee="田中"), Task("実装", assignee="鈴木"), Task("試験", assignee="田中")],
+    )
+
+
+def test_an_expanded_section_shows_every_task() -> None:
+    assert visible_task_indexes(section_of_three(), TaskFilter(), collapsed=False) == [0, 1, 2]
+
+
+def test_a_collapsed_section_shows_no_task() -> None:
+    assert visible_task_indexes(section_of_three(), TaskFilter(), collapsed=True) == []
+
+
+def test_an_active_filter_ignores_the_collapse() -> None:
+    task_filter = TaskFilter(assignee="田中")
+    assert visible_task_indexes(section_of_three(), task_filter, collapsed=True) == [0, 2]
+    assert visible_task_indexes(section_of_three(), task_filter, collapsed=False) == [0, 2]
+
+
+def test_an_active_filter_with_no_match_shows_nothing() -> None:
+    assert visible_task_indexes(section_of_three(), TaskFilter(query="zzz"), collapsed=True) == []
+
+
+def test_an_empty_section_shows_nothing() -> None:
+    assert visible_task_indexes(Section("空"), TaskFilter(), collapsed=False) == []
