@@ -387,12 +387,16 @@ def open_section_dialog(on_save: Callable[[str], object]) -> None:
 
 
 def open_name_dialog(
-    on_submit: Callable[[str], object], validate: Callable[[str], str | None]
+    on_submit: Callable[[str], object],
+    validate: Callable[[str], str | None],
+    *,
+    title: str = "プロジェクトの保存",
+    initial: str = "",
 ) -> None:
     """名前を入力して保存する。on_submitがFalseを返したら(保存に失敗)、入力を残して開いたままにする。"""
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-80"):
-        ui.label("プロジェクトの保存").classes("text-h6")
-        name = ui.input("プロジェクト名").mark("project-name")
+        ui.label(title).classes("text-h6")
+        name = ui.input("プロジェクト名", value=initial).mark("project-name")
         error = ui.label("").classes("text-negative").mark("name-error")
 
         def save() -> None:
@@ -430,11 +434,12 @@ def open_file_dialog(names: list[str], on_select: Callable[[str], object]) -> No
 
 
 def open_unsaved_dialog(
-    on_save: Callable[[], object], on_discard: Callable[[], object]
+    on_save: Callable[[], object], on_discard: Callable[[], object], *, purpose: str = "開く"
 ) -> None:
+    """編集中の確認。`purpose` は、続けてやりたい操作(「開く」「作成」)。"""
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
         ui.label("保存されていない変更があります").classes("text-h6")
-        ui.label("開く前に、現在のプロジェクトを保存しますか。")
+        ui.label(f"{purpose}前に、現在のプロジェクトを保存しますか。")
 
         def run(action: Callable[[], object]) -> None:
             dialog.close()
@@ -442,10 +447,10 @@ def open_unsaved_dialog(
 
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat").mark("unsaved-cancel")
-            ui.button("保存せず開く", on_click=lambda: run(on_discard)).props(
+            ui.button(f"保存せず{purpose}", on_click=lambda: run(on_discard)).props(
                 "flat color=negative"
             ).mark("unsaved-discard")
-            ui.button("保存して開く", on_click=lambda: run(on_save)).mark("unsaved-save")
+            ui.button(f"保存して{purpose}", on_click=lambda: run(on_save)).mark("unsaved-save")
     dialog.open()
 
 
