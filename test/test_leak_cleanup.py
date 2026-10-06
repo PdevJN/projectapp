@@ -78,3 +78,9 @@ async def test_main_views_do_not_pile_up_across_tests(user: User, tmp_path: Path
     await user.open("/")
     user.find(marker="add-section").click()
     await user.should_see(marker="section-name")  # ダイアログを開いたまま、テストが終わる
+
+
+def test_the_baseline_heap_is_frozen_out_of_the_full_gc() -> None:
+    # nicegui_reset_globals は、各テストの前後にフル GC を行う。import 済みの基本のオブジェクトを走査し続けると、
+    # 1 回あたり約 50ms かかるので、conftest がセッションの最初に凍結する
+    assert gc.get_freeze_count() > 50_000

@@ -1,3 +1,4 @@
+import gc
 import sys
 import weakref
 
@@ -51,3 +52,18 @@ def release_page_objects():
     yield
     clear_fastapi_caches()
     weakref.finalize._registry.clear()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def freeze_baseline_heap():
+    """セッションの最初に、import 済みの基本のオブジェクトを、フル GC の対象から外す。
+
+    `nicegui_reset_globals` は、各テストの前後にフル GC を行う。基本のヒープ(約 11 万オブジェクト)を
+    毎回走査すると、1 回あたり約 50ms かかる(全体の約 3 割)。凍結すると、約 0.01 秒になる。
+    凍結するのは、テストファイルの収集(`projectapp` と `nicegui` の import)が終わった、最初のテストの前。
+    各テストが作るオブジェクトは、これまでどおり回収される。
+    """
+    gc.collect()
+    gc.freeze()
+    yield
+    gc.unfreeze()

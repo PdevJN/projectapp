@@ -52,7 +52,7 @@ uv run pytest --cov=projectapp
 uvx ty check src
 ```
 
-全体のテストは約 1.5 分。`test/conftest.py` が、各テストのあとで、前のテストのオブジェクト(クラスの `ui.refreshable` の対象、FastAPI の `lru_cache`、`weakref.finalize` の登録簿)を空にする。`User` のシミュレーションは、テストが終わっても要素を削除しないので、空にしないと、オブジェクトがテストの数だけ積まれ、`nicegui_reset_globals` のフル GC が進むほど遅くなる(対策前は約 7 分)。`test/test_leak_cleanup.py` が、積み上がらないことを確かめる。クラスに `@ui.refreshable_method` を足しても、自動で対象になる。
+全体のテストは約 1 分。`test/conftest.py` が、セッションの最初に基本のヒープを凍結し(`gc.freeze`。フル GC が基本のオブジェクトを毎回走査しないように)、各テストのあとで、前のテストのオブジェクト(クラスの `ui.refreshable` の対象、FastAPI の `lru_cache`、`weakref.finalize` の登録簿)を空にする。`User` のシミュレーションは、テストが終わっても要素を削除しないので、空にしないと、オブジェクトがテストの数だけ積まれ、`nicegui_reset_globals` のフル GC が進むほど遅くなる(対策前は約 7 分)。凍結したオブジェクトは、以後のフル GC と `gc.get_objects()` の対象から外れる。`test/test_leak_cleanup.py` が、積み上がらないことを確かめる。クラスに `@ui.refreshable_method` を足しても、自動で対象になる。
 
 ## ファイル形式の注意
 

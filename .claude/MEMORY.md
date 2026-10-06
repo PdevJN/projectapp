@@ -122,12 +122,12 @@
 4. 要望の一覧にない後続: タスク同士の矢印連結、添付ファイル(`CLAUDE.md` にある機能)。
 5. README の「主な機能」とキー操作の表は空欄のまま。
 6. 見送った軽微な指摘は、各作業の記録に残してある(まとめて直す機会があれば)。
-7. (完了)テストが遅い件の対策(2026-10-06 に調査して、ブランチ `feature/faster-tests` で対応): 全体テストが、415 秒(1,065 件)から 87 秒(1,071 件)になった(約 4.8 倍)。
+7. (完了)テストが遅い件の対策(2026-10-06 に調査して、ブランチ `feature/faster-tests` で対応): 全体テストが、415 秒(1,065 件)から 47 秒(1,072 件)になった(約 8.8 倍。解放だけで 87 秒、`gc.freeze` を足して 47 秒)。
    - 原因: テスト本体ではなく、NiceGUI の fixture の `gc.collect()`(`nicegui.testing.general.nicegui_reset_globals` が、各テストの setup と teardown で 1 回ずつ呼ぶ)が、テストが進むほど遅くなっていた。`User` のシミュレーションは、テストが終わっても、クライアントとその要素を削除しないので、前のテストのオブジェクトが、次の 3 つの経路で保持され続けていた(`test_gantt.py` 単独で、オブジェクトが 11 万 → 94 万個。フル GC は 1 件目 50ms → 最終件 421ms)。(1) クラスの `@ui.refreshable_method`(`GanttChart.render`、`MainView.title`・`MainView.theme_buttons`)の `targets` と `instance`(要素が削除されるまで、インスタンスを持つ)。(2) FastAPI の `lru_cache`(ページ関数をキーにし、ページ関数のクロージャが `MainView` を持つ)。(3) `weakref.finalize` の登録簿(`ui.dialog` が、自分自身を捕まえるラムダを登録する。開いたままのダイアログのボタンが `MainView` のメソッドを持つ)。(2) と (3) は、片方だけ断っても、もう片方が同じオブジェクトを保持する(単独の効果はほとんどなく、両方で効く)。
    - 対応: `test/conftest.py` の autouse fixture(`release_refreshable_targets`、`release_page_objects`)が、各テストのあとで、上の 3 つを空にする。クラスの `refreshable` は `projectapp.*` のクラスから自動で探すので、足しても対応が要らない。再現テストは `test/test_leak_cleanup.py`(`GanttChart`・`MainView` の `targets` が 1 件だけであること、同じシナリオを 6 回繰り返して、生きている `MainView` が増えないこと)。`--noconftest` で外すと 7 件が、解放の 3 つのうち 1 つを欠くと 3〜7 件が失敗する(検出できることを確認した)。
    - 残っていること(積み上がりではない): セッションで最初のテストのオブジェクトは、`socketio` が最初の import で捕まえた SIGINT ハンドラ(`asyncio.Runner` のもの)から、ずっと保持される(増えない)。解放後のオブジェクトの増加は、`test_gantt.py`(207 件)で 11.1 万 → 12.0 万個(1 テストあたり約 43 個。ほとんどが pytest 自身の `TestReport`・`SubRequest`)、フル GC は 66ms → 59ms で横ばい。3 ファイル(414 件)でも 11.7 万 → 14.9 万個、50ms → 71ms と、わずか(2026-10-06 に確認。先に「38 万個まで増える」と書いたのは、`targets` だけを空にした途中の測定で、誤り)。残るのは、基本のヒープを各テストの前後に 2 回走査する固定の費用(1 回約 50〜60ms)。
    - 調査で気づいたこと: NiceGUI の `User.__getattribute__` は、属性に触れるたびに、その `User` の `ui.navigate`・`ui.notify`・`ui.download` を `ui` モジュールへ再登録する。`gc` の走査で `User` に触れる測定は、`ui` から古い `User` へ向かう偽の連鎖を作るので、測るときは `User.__getattribute__ = object.__getattribute__` で副作用を止める(`isinstance` で外れたときの `__class__` 参照も該当する。`type(o) is X` を使う)。`nicegui_reset_globals` は、ページ関数のモジュール(テストファイル)を `sys.modules` から取り除くので、測定のプラグインでテストファイルを `import` し直さない(`item.module` を使う)。zsh では `$D:test` が `:t` 修飾子になる(`${D}:test` と書く)。
-   - 次の候補(未実施): 固定の GC 費用は、セッションの最初に `gc.collect(); gc.freeze()` を呼ぶと、ほぼなくせる(`test_views.py` 25.6 秒 → 15.5 秒、setup・teardown 0.061 → 0.013 秒。2026-10-06 に使い捨てのプラグインで測定)。`conftest.py` に session スコープの autouse fixture で入れる案。基本のオブジェクト(import 済みのモジュールなど)が、以後のフル GC と、`gc.get_objects()` の対象から外れる点に注意。
+   - 固定の GC 費用(基本のヒープ約 11 万オブジェクトを、各テストの前後に走査。1 回約 50〜60ms)は、`conftest.py` の session スコープの autouse fixture(`freeze_baseline_heap`)が、セッションの最初に `gc.collect(); gc.freeze()` を呼んでなくした(`test_views.py` 25.6 秒 → 15.5 秒、setup・teardown 0.061 → 0.013 秒)。凍結するのは、テストファイルの収集が終わった、最初のテストの前。基本のオブジェクト(import 済みのモジュールなど)が、以後のフル GC と、`gc.get_objects()` の対象から外れる点に注意(テストが作るオブジェクトは、これまでどおり対象)。確認のテストは `test_the_baseline_heap_is_frozen_out_of_the_full_gc`。
    - `pytest-profiling` は、`uv run --with pytest-profiling pytest <ファイル> --profile --pstats-dir=<出力先>` で、依存を変えずに使える。結果は `pstats` で、自己時間やプロジェクトの関数に絞って読む(累積時間の上位は pytest 自体)。`test_views.py` の内訳(プロファイル込み): `gc.collect` 約 29%、`GanttChart.render` 約 41%(うち、日ごとのヘッダーのラベル `label_row` が約 80%)、NiceGUI の `inspect.signature`(要素 1 個につき 3 回)約 17%。
    - 測り方: `uv run pytest <ファイル> -q --durations=0` の setup・teardown・call を合計する。ファイルを 2 つ並べて、後ろのファイルの値が単独より大きければ、積み上がり。保持元は、`uv run --with objgraph` で、`objgraph.find_backref_chain` を使うと、モジュールからの連鎖が分かる。測定用の拡張は使い捨てで、リポジトリには入れていない。
 
@@ -180,7 +180,7 @@
 
 **注意(作業で学んだこと)**
 
-- 全体のテストは約 1.5 分(87 秒)かかる(2026-10-06 の対策前は約 6〜7 分。原因と対策は「次にやること」の 7)。それでも 2 分近いので、時間制限(`timeout`)を付けずに、バックグラウンドで実行して、結果の行まで待つ(制限で途中で切れると、結果の行が出ない)。
+- 全体のテストは約 1 分(47 秒)かかる(2026-10-06 の対策前は約 6〜7 分。原因と対策は「次にやること」の 7)。念のため、時間制限(`timeout`)を付けずに、バックグラウンドで実行して、結果の行まで待つ(制限で途中で切れると、結果の行が出ない)。
 - 新しいプロジェクトの `base_date` の既定は「今日」。日付に依存するテストは、`view.project.base_date = date(2026, 10, 5)` のように固定する(固定を忘れたテストが、日付が進んで落ちた)。
 - 文字列の置換スクリプトは、置換する範囲が空でないことを確認する(空の範囲の `replace` は、全文字の間に挿入して、ファイルが壊れる。2 回起きた)。
 - NiceGUI の `User` は、非表示の要素を `find` で見つけず、クリックを親へ伝えず、キー入力のシミュレーションがない。
