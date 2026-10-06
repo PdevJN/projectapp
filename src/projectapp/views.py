@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import httpx
@@ -22,6 +22,8 @@ from projectapp.forms import (
     open_unsaved_dialog,
 )
 from projectapp import arrange
+from projectapp.dashboard import PeriodKind, period_for, summarize
+from projectapp.dashboard_view import DashboardView
 from projectapp.export import (
     HTML_TO_IMAGE_URL,
     PNG_FILE_TYPES,
@@ -84,6 +86,8 @@ class MainView:
         self.exporter: ImageExporter = exporter or NativeImageExporter()
         self.preview: PreviewSettings | None = None
         self.preview_notice: str | None = None  # スケールを粗くして開いたときのお知らせ。設定を変えたら消す
+        self.now: Callable[[], datetime] = datetime.now  # テストで差し替える
+        self.dashboard_kind: PeriodKind | None = None  # 開いているときの期間。保存しない
         self.saving = False
         self.project = Project(NEW_PROJECT_NAME)
         self.files: dict[str, Path] = {p.stem: p for p in list_project_files(base_dir)}
@@ -110,6 +114,7 @@ class MainView:
             name_width=load_name_width(base_dir),
         )
         self.preview_bar = PreviewBar(self.on_preview_change, self.exit_preview, self.save_image)
+        self.dashboard_view = DashboardView(self.close_dashboard, self.change_dashboard_period)
 
     def apply_theme(self, theme: str) -> None:
         self.theme = theme
@@ -204,13 +209,47 @@ class MainView:
         return sum(1 for task in self.project.all_tasks() if len(task.actuals) > 1)
 
     def on_key(self, event: KeyEventArguments) -> None:
-        """ESC で、プレビューから戻る。"""
-        if self.preview is not None and event.action.keydown and event.key == "Escape":
-            self.exit_preview()
+        """ESC で、プレビューまたはダッシュボードから戻る。"""
+        if event.action.keydown and event.key == "Escape":
+            if self.preview is not None:
+                self.exit_preview()
+            elif self.dashboard_kind is not None:
+                self.close_dashboard()
+
+    def open_dashboard(self) -> None:
+        """メイン画面を、ダッシュボードに切り替える(期間の初期値は今週)。プレビュー中は開かない。"""
+        if self.preview is not None or self.dashboard_kind is not None:
+            return
+        self.dashboard_kind = PeriodKind.WEEK
+        self.header_box.set_visibility(False)
+        self.gantt.set_visible(False)
+        self.refresh_dashboard()
+
+    def refresh_dashboard(self) -> None:
+        if self.dashboard_kind is None:
+            return
+        now = self.now()
+        period = period_for(self.dashboard_kind, now.date(), self.project, self.holidays)
+        self.dashboard_view.show(summarize(self.project, period, now, self.holidays), self.dashboard_kind)
+
+    def change_dashboard_period(self, kind: PeriodKind) -> None:
+        if self.dashboard_kind is None:
+            return
+        self.dashboard_kind = kind
+        self.refresh_dashboard()
+
+    def close_dashboard(self) -> None:
+        """ダッシュボードから戻る。ガントチャートは作り直さない(絞り込み・スケール・位置はそのまま)。"""
+        if self.dashboard_kind is None:
+            return
+        self.dashboard_kind = None
+        self.dashboard_view.hide()
+        self.header_box.set_visibility(True)
+        self.gantt.set_visible(True)
 
     def enter_preview(self) -> None:
         """メイン画面を、プレビューモードに切り替える。初期値は、今の表示範囲と、今のスケール。"""
-        if self.preview is not None:
+        if self.preview is not None or self.dashboard_kind is not None:
             return
         start, end = visible_range(self.project, self.holidays)
         period = (start, max(end - timedelta(days=1), start))  # タスクがないと、範囲が空になる。基準日の 1 日にする
@@ -509,6 +548,7 @@ class MainView:
         ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
         self.header()
         self.preview_bar.build()
+        self.dashboard_view.build()
         self.gantt.build()
         self.theme_fab()
         self.help_button()
@@ -543,6 +583,9 @@ class MainView:
                 )
                 ui.button("エクスポート", icon="image", on_click=self.enter_preview).mark(
                     "export-preview"
+                )
+                ui.button("ダッシュボード", icon="dashboard", on_click=self.open_dashboard).mark(
+                    "open-dashboard"
                 )
                 ui.button("担当者へ書き出し", icon="upload_file", on_click=self.open_handoff).mark(
                     "export-handoff"
