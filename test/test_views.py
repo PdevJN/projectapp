@@ -1941,7 +1941,7 @@ async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path
     assert "rgba(255, 255, 255, 0.18)" in HEADER_CSS and ".app-menu-btn:hover" in HEADER_CSS
     # 帯の上のボタンは、色を持たない(NiceGUI の既定は primary で、flat の文字が帯と同じ色になって見えなくなる)。
     # 色を持たなければ、文字は帯の白を引き継ぐ
-    for marker in ("menu-file", "menu-project", "menu-export", "menu-help", "open-dashboard", "menu-theme"):
+    for marker in ("menu-file", "menu-project", "menu-export", "menu-help", "open-dashboard", "open-folder", "menu-theme"):
         assert not user.find(marker=marker).elements.pop()._props.get("color"), marker
     for marker in ("menu-file", "menu-project", "menu-export", "menu-help"):
         assert "icon-right" not in user.find(marker=marker).elements.pop()._props  # ▼ は出さない
@@ -1965,7 +1965,7 @@ def ancestors(element: ui.element) -> list[ui.element]:
 
 async def test_the_menus_start_at_the_left_of_the_header_and_the_title_is_in_the_main_area(user: User, tmp_path: Path) -> None:
     view = await open_header_view(user, tmp_path)
-    order = ["menu-file", "menu-project", "menu-export", "menu-help", "project-select", "open-dashboard", "menu-theme"]
+    order = ["menu-file", "menu-project", "menu-export", "menu-help", "project-select", "open-dashboard", "open-folder", "menu-theme"]
     ids = [user.find(marker=marker).elements.pop().id for marker in order]
     assert ids == sorted(ids)  # 左から、メニュー 4 つ。右側に、コンボ・ダッシュボード・テーマ
     header_children = view.header_box.default_slot.children
@@ -1984,3 +1984,23 @@ async def test_the_title_hides_and_returns_with_the_header(user: User, tmp_path:
     assert not view.header_box.visible and not view.title_box.visible
     view.exit_preview()
     assert view.header_box.visible and view.title_box.visible
+
+
+async def test_the_folder_button_opens_the_project_folder(user: User, tmp_path: Path) -> None:
+    view = await open_header_view(user, tmp_path)
+    opened: list[Path] = []
+    view.open_folder = opened.append  # type: ignore[method-assign]  # 実際には、ファイラを開かない
+    await user.should_see(marker="open-folder")
+    user.find(marker="open-folder").click()
+    assert opened == [tmp_path]
+
+
+async def test_the_folder_button_reports_a_failure(user: User, tmp_path: Path) -> None:
+    view = await open_header_view(user, tmp_path)
+
+    def fail(path: Path) -> None:
+        raise FileNotFoundError("xdg-open")
+
+    view.open_folder = fail  # type: ignore[method-assign]
+    user.find(marker="open-folder").click()
+    await user.should_see("フォルダを開けませんでした")
