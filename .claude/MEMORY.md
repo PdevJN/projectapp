@@ -15,7 +15,7 @@
 
 **各作業の記録**
 
-- セクションの折りたたみ(要望 19)は、2026-10-06 にブランチ `feature/section-collapse` で実装した(`develop` へは未マージ)。設計書 `2026-10-06-section-collapse-design.md`、実装計画 `2026-10-06-section-collapse.md`(Native で実行)。方式: `GanttChart.collapsed`(セクションの添字の集合。保存しない)、`filtering.visible_task_indexes`(純粋関数。絞り込み中は折りたたみを無視)、見出しに矢印(`section-toggle-N`)と件数(`section-count-N`)、プレビュー(読み取り専用)は全展開で矢印なし、`MainView.save_task` は折りたたみ中のセクションへの追加で展開、`open_project` は全展開に戻す。テスト 1,056 件。**実機での確認は、まだ**。セクションの並べ替え・削除を足すときは、`collapsed` の添字を一緒にずらすこと。
+- セクションの折りたたみ(要望 19)は、2026-10-06 にブランチ `feature/section-collapse` で実装した(`develop` へは未マージ)。設計書 `2026-10-06-section-collapse-design.md`、実装計画 `2026-10-06-section-collapse.md`(Native で実行)。方式: `GanttChart.collapsed`(セクションの添字の集合。保存しない)、`filtering.visible_task_indexes`(純粋関数。絞り込み中は折りたたみを無視)、見出しに矢印(`section-toggle-N`)と件数(`section-count-N`)、切り替えは再描画せず、行の `set_visibility` と矢印のアイコンだけを変える(`section_views`。再描画だと、列が多いプロジェクト(429 列)で約 230ms かかったため。2026-10-06 に変更し、約 0.3ms)、プレビュー(読み取り専用)は全展開で矢印なし、`MainView.save_task` は折りたたみ中のセクションへの追加で展開、`open_project` は全展開に戻す。テスト 1,061 件(再描画なしの切り替えの 5 件を足した)。**実機での確認は、まだ**。セクションの並べ替え・削除を足すときは、`collapsed` の添字を一緒にずらすこと。
 
 - エクスポートとプレビュー(要望 2)は、2026-10-05 に実装し、2026-10-06 に `develop` へマージ済み(マージコミット e7fbf52)。ブランチ `feature/export-preview` は削除済み。**プッシュは未実施**。設計書 `2026-10-05-export-preview-design.md`、実装計画 `2026-10-05-export-preview.md`(Native で実行)。方式: メイン画面を、同じ `GanttChart` の `ViewOptions`(期間・スケール・チップ・赤みと縞・読み取り専用)で描き直すプレビューモードにし(`preview.py` の `PreviewBar`、`MainView.enter_preview` / `exit_preview` / `save_image`、ESC で戻る)、同梱の html-to-image(`src/projectapp/static/`、MIT)で `data-chart-content` を PNG にして Python に返し、保存ダイアログで保存する(`export.py`。倍率 `min(2, 16384/幅)`、倍率 1 でも超えるときは警告して縮小)。設計書からの変更: `ViewOptions` に `scale` を足した(ツールバーのスケールと分ける)、戻るときスケールが違えば横スクロールは先頭へ。最終レビュー済み(Critical なし。Important 4 件を修正: 画像を分割して受け取る・印と進捗の塗りを期間に合わせる・列数の上限・保存中は画面を変えない。テスト 1,020 件)。見送った軽微な指摘: 保存ボタンを入力が不正でも有効に戻す、ESC が日付ピッカーと干渉する、保存ファイルの権限が 0600、`handle_move`/`handle_shift` が読み取り専用を検査しない、`ExportError`/`OSError` 以外の通知、PEP8、日次の最小列で足された期間外の日の棒。**実機での確認はこれから**(画像化の見た目、ライト・ダーク、日次・週次・月次、1 年以上の日次、保存ダイアログの戻り値、ESC)。保留: 期間にタスクがない行を隠すか、画像の見出し、分割保存。 実機の確認で出た改善(2026-10-06): 来年度のタスクなどで全期間が広いと、画像の文字が小さくなりすぎるため、プレビューを開くとき、全期間の幅が 6,000px(`PREVIEW_COMFORT_WIDTH_PX`)を超えるあいだ、メイン画面のスケールから 1 段ずつ粗くして開く(`preview.fit_scale`)ようにした。お知らせはバーに出し、設定を変えたら消す。しきい値は目安で、実機で見て調整する。
 - タスク表示の拡張(要望 9)・ProjectCode(要望 3)・優先度の背景色(2026-10-05 追加)は、2026-10-05 に `develop` へマージ済み(マージコミット 0278f64)。ブランチ `feature/task-chips` は削除済み。**プッシュは未実施**。テスト 911 件と `ty check` が通る。最終レビュー済み(Critical・Important なし)。見送った軽微な指摘: ドラッグ中の text/plain にチップの文字まで入る、頭文字が結合文字・ZWJ 絵文字だと欠ける、同じ頭文字の担当者を区別できない、チップの幅の合計が名前の欄に収まる前提のテストがない。設計書 `2026-10-05-task-chips-design.md`、実装計画 `2026-10-05-task-chips.md`(Native で実行)。`Task.project_code`(最大20文字。キーなし・null は空、文字列以外と超過は読込拒否)、編集ダイアログの入力(`task-project-code`)。名前の欄は `ui.row` の枠に作り替え(マーカー `task-<key>-<ti>` は枠。名前は `task-name-*`)、右に ProjectCode のチップ・担当の頭1文字(ツールチップで名前)・進捗(`fill_percent`)。優先度の背景色は CSS 変数 `--pbg`(`PRIORITY_BACKGROUNDS` / `PRIORITY_DARK_BACKGROUNDS`)。実機での確認はこれから(特に、チップを押して編集が開くこと = DOM の伝播、ProjectCode が長いときの名前の省略、ダークテーマの背景の濃さ)。保留: 頭文字が同じ担当者の区別。
@@ -122,6 +122,10 @@
 4. 要望の一覧にない後続: タスク同士の矢印連結、添付ファイル(`CLAUDE.md` にある機能)。
 5. README の「主な機能」とキー操作の表は空欄のまま。
 6. 見送った軽微な指摘は、各作業の記録に残してある(まとめて直す機会があれば)。
+7. テストが遅い件の対策(2026-10-06 に調査。**未対応**。対策を選んで試す): 全体テスト(1,056 件)が約 6 分かかる。原因は、テスト本体ではなく、NiceGUI の fixture の `gc.collect()`(`nicegui.testing.general.nicegui_reset_globals` が、各テストの setup と teardown で 1 回ずつ呼ぶ)が、テストが進むほど遅くなること。各テストの `Client` と配下の要素(`Label`・`Column`・`Slot` など)が解放されず残り、1 テストあたり約 4,000 オブジェクトずつ増える(`test_gantt.py` 単独で 11 万 → 94 万個。フル GC は 1 件目 50ms → 最終件 421ms)。残す側は、`nicegui.testing.user.User`(終了していない `asyncio.Task` と `UserNavigate` が保持)と、`GanttChart`(テストのページ関数のクロージャが保持)。対象は、`User` fixture を使う非同期テスト(約 407 件。`test_gantt.py`・`test_task_dialog.py`・`test_views.py`・`test_forms.py`)。同期のテストは影響なし。
+   - 実測: `test_gantt.py` 単独は setup 0.21 秒・teardown 0.23 秒・本体 0.06 秒(1 件平均)。`test_task_dialog.py` は、単独だと setup・teardown が約 0.10 秒、`test_gantt.py` の後だと約 0.43 秒(本体は約 0.05 秒で同じ)。
+   - 対策の案: (a) `pytest-xdist` でプロセスを分ける(手軽。プロセスごとに積み上がらず、並列にもなる)。(b) 各テストの後に、終了していないタスクの取り消しと参照の解放をする autouse fixture を足す(効果は試して確かめる)。(c) 終了していない `Task` を特定して、根本から直す(時間がかかる可能性がある。NiceGUI 側かテストの書き方かは、未特定)。
+   - 測り方: `uv run pytest <ファイル> -q --durations=0` の setup・teardown・call を合計する。ファイルを 2 つ並べて、後ろのファイルの値が単独より大きければ、積み上がり。測定用の拡張(`gc.get_objects()` の型別の集計など)は、使い捨てで、リポジトリには入れていない。測定中は、他の重い処理を動かさない(時間が歪む)。
 
 ## 今後の要望(2026-10-04・05 に受領。未着手は 4・5・6・7・8・10・11・19〜23。優先順位は未決)
 
@@ -172,7 +176,7 @@
 
 **注意(作業で学んだこと)**
 
-- 全体のテストは約 5.5 分かかる。時間制限(`timeout`)を付けずに、バックグラウンドで実行して、`done` の行まで待つ(制限で途中で切れると、結果の行が出ない)。
+- 全体のテストは約 5.5〜6 分かかる(遅い原因と対策は「次にやること」の 7)。時間制限(`timeout`)を付けずに、バックグラウンドで実行して、`done` の行まで待つ(制限で途中で切れると、結果の行が出ない)。
 - 新しいプロジェクトの `base_date` の既定は「今日」。日付に依存するテストは、`view.project.base_date = date(2026, 10, 5)` のように固定する(固定を忘れたテストが、日付が進んで落ちた)。
 - 文字列の置換スクリプトは、置換する範囲が空でないことを確認する(空の範囲の `replace` は、全文字の間に挿入して、ファイルが壊れる。2 回起きた)。
 - NiceGUI の `User` は、非表示の要素を `find` で見つけず、クリックを親へ伝えず、キー入力のシミュレーションがない。

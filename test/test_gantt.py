@@ -708,6 +708,72 @@ async def test_read_only_shows_every_row_without_arrows_and_keeps_the_state(user
     assert charts[0].collapsed == {0}
 
 
+def elements_marked(chart: GanttChart, marker: str) -> list[ui.element]:
+    """表示・非表示にかかわらず、クライアントに残っている要素(`user.find` は非表示を見つけない)。"""
+    return [e for e in chart.client.elements.values() if marker in e._markers]
+
+
+async def test_toggling_does_not_redraw_the_chart(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    header = user.find(marker="chart-header").elements.pop()
+    gridlines = user.find(marker="gridlines").elements.pop()
+    user.find(marker="section-toggle-0").click()
+    user.find(marker="section-toggle-0").click()
+    user.find(marker="section-toggle-0").click()
+    await asyncio.sleep(0.3)  # 再描画は背景タスクなので、起きるなら、ここまでに終わる
+    assert charts[0].collapsed == {0}
+    assert user.find(marker="chart-header").elements.pop() is header  # 作り直していない
+    assert user.find(marker="gridlines").elements.pop() is gridlines
+    assert header.client is charts[0].client and header.id in charts[0].client.elements
+
+
+async def test_collapsed_rows_stay_in_the_client_hidden(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    user.find(marker="section-toggle-0").click()
+    (row,) = elements_marked(charts[0], "row-0-0")
+    assert not row.visible
+    (other,) = elements_marked(charts[0], "row-1-0")
+    assert other.visible  # 別のセクションは変わらない
+    user.find(marker="section-toggle-0").click()
+    assert row.visible  # 同じ行が、そのまま現れる
+
+
+async def test_the_arrow_icon_follows_the_state(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    icon = lambda: user.find(marker="section-toggle-0").elements.pop().props["icon"]  # noqa: E731
+    assert icon() == "expand_more"
+    user.find(marker="section-toggle-0").click()
+    assert icon() == "chevron_right"
+    user.find(marker="section-toggle-0").click()
+    assert icon() == "expand_more"
+
+
+async def test_a_section_collapsed_before_drawing_is_drawn_hidden(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].collapsed.add(0)
+    await charts[0].render.refresh()
+    (row,) = elements_marked(charts[0], "row-0-1")
+    assert not row.visible
+    assert user.find(marker="section-toggle-0").elements.pop().props["icon"] == "chevron_right"
+
+
+async def test_toggling_while_filtering_keeps_the_rows_and_applies_after_clearing(user: User) -> None:
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="実"))
+    await user.should_see(marker="task-0-1")
+    user.find(marker="section-toggle-0").click()
+    assert charts[0].collapsed == {0}
+    await user.should_see(marker="task-0-1")  # 絞り込み中は、折りたたみを無視する
+    charts[0].set_filter(TaskFilter())
+    await user.should_not_see(marker="task-0-0")
+    await user.should_not_see(marker="task-0-1")
+
+
 async def test_expand_and_reset_clear_the_state_without_drawing(user: User) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")

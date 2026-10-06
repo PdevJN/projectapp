@@ -1,7 +1,7 @@
 """ガントチャートの描画(NiceGUI要素とCSS)。"""
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time
 
 from nicegui import Client, context, ui
@@ -166,6 +166,8 @@ PROGRESS_STATE_MARKS = {
 }
 GRID_BORDER = "1px solid rgba(128, 128, 128, 0.3)"  # 格子線。両テーマで見える半透明の灰色
 ADD_ROW_HEIGHT_PX = 24  # 追加行は通常の行より細くする
+ARROW_EXPANDED = "expand_more"
+ARROW_COLLAPSED = "chevron_right"
 ROW_STYLE = f"height: {ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
 ADD_ROW_STYLE = f"height: {ADD_ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
 # IME の変換確定の Enter は無視する。Safari 系は確定時に isComposing が偽でも keyCode が 229 になる
@@ -234,6 +236,14 @@ def sticky_left(z_index: int) -> str:
 
 
 @dataclass
+class SectionView:
+    """描画したセクションの、折りたたみで切り替える部品。描き直すたびに作り直す。"""
+
+    arrow: ui.button | None = None  # 開閉の矢印(読み取り専用では出さない)
+    rows: list[ui.element] = field(default_factory=list)  # このセクションのタスクの行
+
+
+@dataclass
 class GanttActions:
     """チャートからの操作要求を受け取るコールバック。"""
 
@@ -263,6 +273,7 @@ class GanttChart:
         self.toolbar: ui.row | None = None
         self.task_filter = TaskFilter()
         self.collapsed: set[int] = set()  # 折りたたんだセクションの添字。保存しない
+        self.section_views: dict[int, SectionView] = {}  # 描画中のセクションの部品
         self.search_input: ui.input | None = None
         self.assignee_select: ui.select | None = None
         self.client: Client | None = None
@@ -317,9 +328,17 @@ class GanttChart:
         return " ".join(parts)
 
     def toggle_section(self, si: int) -> None:
-        """セクションの折りたたみを切り替えて、描き直す。"""
+        """セクションの折りたたみを切り替える。描き直さず、行の表示と矢印だけを変える。"""
         self.collapsed.symmetric_difference_update({si})
-        self.render.refresh()
+        view = self.section_views.get(si)
+        if view is None or self.options.read_only:
+            return
+        collapsed = si in self.collapsed
+        if view.arrow is not None:
+            view.arrow.props(f"icon={ARROW_COLLAPSED if collapsed else ARROW_EXPANDED}")
+        if not self.task_filter.active:  # 絞り込み中は、折りたたみを無視する(表示は変えない)
+            for row in view.rows:
+                row.set_visibility(not collapsed)
 
     def expand_section(self, si: int) -> None:
         """セクションを展開する(描き直しは、呼び出し側のあとの処理に任せる)。"""
@@ -470,6 +489,7 @@ class GanttChart:
 
     @ui.refreshable_method
     def render(self) -> None:
+        self.section_views = {}
         columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
         self.overloads = overallocations(self.project, self.holidays)
         width = COLUMN_WIDTH_PX[self.view_scale]
@@ -595,6 +615,7 @@ class GanttChart:
         visible = visible_task_indexes(section, self.task_filter, collapsed)
         if self.task_filter.active and not visible:
             return
+        view = self.section_views[si] = SectionView()
         header = ui.row().classes("items-center no-wrap gap-2").style(ROW_STYLE)
         header.props(self.drag_props("section", si, count=len(section.tasks)))
         header.mark(f"section-{si}")
@@ -606,8 +627,8 @@ class GanttChart:
             )
             with name.mark(f"section-name-{si}"):
                 if not self.options.read_only:
-                    arrow = "chevron_right" if collapsed else "expand_more"
-                    ui.button(
+                    arrow = ARROW_COLLAPSED if collapsed else ARROW_EXPANDED
+                    view.arrow = ui.button(
                         icon=arrow, on_click=lambda si=si: self.toggle_section(si)
                     ).props("flat dense round size=sm").classes("shrink-0").mark(
                         f"section-toggle-{si}"
@@ -626,12 +647,17 @@ class GanttChart:
                     ).props("flat dense round size=sm").classes("shrink-0").tooltip(
                         "タスク追加"
                     ).mark(f"add-task-{si}")
-        for ti in visible:
-            self.task_row(si, ti, section.tasks[ti], columns, width)
+        shown = set(visible)
+        for ti, task in enumerate(section.tasks):
+            if self.task_filter.active and ti not in shown:
+                continue  # 絞り込みで外れたタスクは、描かない
+            row = self.task_row(si, ti, task, columns, width)
+            row.set_visibility(ti in shown)  # 折りたたみ中は、行を作って隠しておく(開くとき作り直さない)
+            view.rows.append(row)
 
     def task_row(
         self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
-    ) -> None:
+    ) -> ui.element:
         key = "top" if si is None else si
         style = ROW_STYLE
         overdue = is_overdue(task, self.project, self.holidays, self.now()) and self.options.show_alerts
@@ -710,6 +736,7 @@ class GanttChart:
                     self.progress_marker(key, ti, task, state, mark_left, end)  # 期間の右端の外へは出さない
             self.actual_bars(si, ti, task, columns, width)
             self.deadline_marker(si, ti, task, columns, width)
+        return row
 
     def task_chips(self, key: int | str, ti: int, task: Task) -> None:
         """名前の右の、ProjectCode・担当・進捗。空のものは出さない。名前の欄の枠の中で呼ぶ。"""
