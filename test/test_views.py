@@ -1868,7 +1868,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     await open_header_view(user, tmp_path)
     assert menu_items(user, "menu-file-items") == [
         ("開く", "file-open"),
-        ("保存", "save-project"),
+        ("上書き保存", "save-project"),
         ("名前をつけて保存", "file-save-as"),
         ("祝日を更新", "refresh-holidays"),
     ]

@@ -628,7 +628,7 @@ class MainView:
                 "menu-file",
                 [
                     ("開く", self.show_file_list, "file-open"),
-                    ("保存", self.save_project_clicked, "save-project"),
+                    ("上書き保存", self.save_project_clicked, "save-project"),
                     ("名前をつけて保存", self.save_as, "file-save-as"),
                     None,  # 水平線(ここから下は、ファイルの操作ではなく、データの更新)
                     ("祝日を更新", self.refresh_holidays, "refresh-holidays"),
