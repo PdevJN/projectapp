@@ -8,6 +8,7 @@ import pytest
 from nicegui import ui
 from nicegui.testing import User
 
+from header_cells import settles, should_see_column
 from projectapp.filtering import TaskFilter
 from projectapp.gantt import GanttChart
 from projectapp.gantt_drag import CHART_DRAG_JS
@@ -132,12 +133,12 @@ async def test_other_scales_have_no_draggable_bars(user: User) -> None:
     _, charts = mount(project_with_top())
     await user.open("/")
     charts[0].set_scale(Scale.WEEK)
-    await user.should_not_see(marker="weekday-2026-10-05")  # 描画し直しを待つ
+    await settles(user, lambda cells: "2026-10-05" in cells and cells["2026-10-05"][1] is None)  # 描画し直しを待つ
     bar = user.find(marker="bar-0-0").elements.pop()
     assert "data-bar" not in bar.props
     assert bar._style["cursor"] == "pointer"
     charts[0].set_scale(Scale.MONTH)
-    await user.should_see(marker="col-2026-10-01")
+    await should_see_column(user, "2026-10-01")
     assert "data-bar" not in props_of(user, "bar-0-0")
 
 

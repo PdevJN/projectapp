@@ -49,11 +49,17 @@ git-flow に従う(`.claude/BRANCH.md`)。作業は `develop` から `feature/*`
 ```bash
 uv sync
 uv run pytest --cov=projectapp
+uv run pytest -n auto          # 並列(pytest-xdist)。--cov とも併用できる
 uvx ty check src
 ```
 
+並列は、直列の約 3.5 倍速い(1,075 件: 直列 33〜40 秒、`-n 2` 17.5 秒、`-n 4` 10.8 秒、`-n auto`(論理 8 CPU)約 9.4 秒。繰り返しても失敗なし)。分散は、既定の `load` が速い(`--dist loadfile` は、大きなファイル(`test_gantt.py`・`test_views.py`)が 1 つのワーカーに偏って、`-n auto` で約 14 秒)。既定の `addopts` には入れていない(1 件だけ走らせるときも、ワーカーの起動で遅くなるため)。各ワーカーは別のプロセスなので、`conftest.py` の解放と凍結も、ワーカーごとに働く。実際のホームの `~/.projectapp` を読み書きするテストはない(`tmp_path` を使う)ので、競合しない。
+
+全体のテストは約 1 分。`test/conftest.py` が、セッションの最初に基本のヒープを凍結し(`gc.freeze`。フル GC が基本のオブジェクトを毎回走査しないように)、各テストのあとで、前のテストのオブジェクト(クラスの `ui.refreshable` の対象、FastAPI の `lru_cache`、`weakref.finalize` の登録簿)を空にする。`User` のシミュレーションは、テストが終わっても要素を削除しないので、空にしないと、オブジェクトがテストの数だけ積まれ、`nicegui_reset_globals` のフル GC が進むほど遅くなる(対策前は約 7 分)。凍結したオブジェクトは、以後のフル GC と `gc.get_objects()` の対象から外れる。`test/test_leak_cleanup.py` が、積み上がらないことを確かめる。クラスに `@ui.refreshable_method` を足しても、自動で対象になる。
+
 ## ファイル形式の注意
 
+- ヘッダーの日付・曜日の行(`label_row`)は、列ごとに要素を作らず、1 つの `ui.html`(マーカー `label-row-cells`)にまとめる(`header_cell_html`。セルは `data-col="<日付>"`、日次は日付と曜日の 2 行、週次・月次は日付の 1 行。内容は日付のみだが、念のため `html.escape` を通す)。NiceGUI の要素は、1 個ずつの生成が重く(`Element.__init__` が、監視付きのコレクションを 3 つ作り、それぞれで `inspect.signature` を呼ぶ)、列ごとの要素は、描画の約 8 割を占めていたため。格子線・縞と同じ作り方。個々のラベルのマーカー(`col-<日付>`・`weekday-<日付>`)はないので、テストは `test/header_cells.py` の `header_cells` で、`label-row-cells` の内容から読む。年・月の帯(`band_row`)は、要素が少ないので、そのまま。
 - セクションの折りたたみ(`GanttChart.collapsed`。セクションの添字の集合)は保存しない。切り替え(`toggle_section`)は、再描画せず、`section_views` に持つ行の表示と矢印のアイコンだけを変える(行は、折りたたみ中も作って隠す)。絞り込み中とプレビュー(読み取り専用)は無視する。セクションの並べ替え・削除を足すときは、同時に添字をずらすこと(現状はセクションの追加が末尾への追加だけなので、ずれない)。
 - タスクの日付は、`planned_start`(開始予定)、`planned_end`(完了予定の手入力値)、`planned_end_manual`(手で指定)、`deadline`(締切)。完了予定は保存せず、`effective_end` で表示のたびに計算する。
 - `planned_end_manual` のキーがないファイルは旧形式として読む。旧 `start` は開始予定、旧 `end` は締切になる(`end_auto` が `true` のものは自動算出だったので捨てる)。旧形式のファイルは、保存すると新形式になる。

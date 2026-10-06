@@ -1,20 +1,25 @@
 # 作業記録
 
-最終更新: 2026-10-06(エクスポートとプレビューを `develop` へマージ)
+最終更新: 2026-10-06(テストの高速化・並列実行・ヘッダーのラベルのまとめを、`feature/faster-tests` に統合。`develop` へは未マージ)
 
 ## 現在の状況
 
 **要約(2026-10-06 時点)**
 
-- `develop`(最新のマージコミット 45d8063): 要望 1・2・3・9・12〜19 と、優先度の背景色、実績の複数区間、エクスポートとプレビュー、セクションの折りたたみまで、マージ済み。テスト 1,061 件と `ty check` が通り、最終レビュー済み。
-- `feature/export-preview` は、`develop` へマージ済みで、削除した。テスト 1,034 件と `ty check` が通り、最終レビュー済み。**エクスポートとプレビューの実機での確認は、まだ**(下記)。
-- **`develop` の 45d8063 とその前の 6 コミットは、プッシュ未実施**(許可を得てから行う。`origin/develop` より 6 つ進んでいる)。
-- 未着手の要望: 4・5・6・7・8・10・11・19・20・21・22・23(後述)。
-- 実機の確認待ち(問題が出たら、`develop` に修正のコミットを足す): セクションの折りたたみ(矢印・件数・絞り込み中の自動展開・プレビュー・追加での展開)、エクスポート(画像化の見た目、ライト・ダーク、日次・週次・月次、長い期間、保存ダイアログ、ESC)、タスク表示のチップ(押して編集が開くこと、はみ出し、ダークテーマの背景色)。
+- `develop`(先頭 14f920d。機能の最後のマージコミットは 45d8063): 要望 1・2・3・9・12〜19 と、優先度の背景色、実績の複数区間、エクスポートとプレビュー、セクションの折りたたみまで、マージ済み。マージ時点で、テスト 1,061 件と `ty check` が通り、最終レビュー済み。
+- **未マージのブランチが 1 つ**(判断を待っている): `feature/faster-tests`(`develop` から。2 つの作業を統合している):
+  - テストの高速化(2649e93・32f4a08・88e7625): 全体テストが 415 秒から 47 秒。`test/conftest.py` と `test/test_leak_cleanup.py`。詳しくは「次にやること」の 7。
+  - 並列実行(`pytest-xdist`。`uv run pytest -n auto` で約 10 秒)。
+  - ヘッダーのラベルのまとめ(a03d69f。もとは `feature/header-labels` で、`feature/faster-tests` へ早送りで統合して、ブランチは削除した。設計書 `2026-10-06-header-labels-design.md`): ヘッダーの日付・曜日を 1 つの HTML 要素にまとめた。再描画が、429 列のプロジェクトで約 250ms → 約 40ms。**最終レビューと、見た目の実機確認は、まだ**。見た目に問題が出たら、a03d69f だけを `git revert` で戻せる。
+  - 統合した状態で、テスト 1,075 件と `ty check` が通る(直列 36 秒)。
+- **プッシュ**: `develop` は `origin/develop` より 8 コミット進んでいる(未実施。許可を得てから行う)。`feature/faster-tests` は、リモートにない。
+- 未着手の要望: 4・5・6・7・8・10・11・20・21・22・23(後述)。
+- 実機の確認待ち(問題が出たら、`develop` に修正のコミットを足す): ヘッダー(日付・曜日)の見た目(上記)、セクションの折りたたみ(矢印・件数・絞り込み中の自動展開・プレビュー・追加での展開)、エクスポート(画像化の見た目、ライト・ダーク、日次・週次・月次、長い期間、保存ダイアログ、ESC)、タスク表示のチップ(押して編集が開くこと、はみ出し、ダークテーマの背景色)。
 - 確認用のデータ(`~/.projectapp/`、確認後に削除してよい): `状態色テスト.json`、`区間テスト.json`、`チップテスト.json`、`エクスポートテスト.json`。
 
 **各作業の記録**
 
+- ヘッダーのラベルのまとめ(2026-10-06。ブランチ `feature/header-labels` で実装し、`feature/faster-tests` へ早送りで統合した。設計書 `2026-10-06-header-labels-design.md`。実装計画は書かず、設計書から直接 TDD で実装した): 日付・曜日の行(`label_row`)を、列ごとの `ui.column`・`ui.label` から、1 つの `ui.html`(`header_cell_html`)にした。再描画(完了まで)は、列が少ない 2 つのプロジェクト(42 列)で 60〜80ms → 約 30ms と 55〜70ms → 約 37ms、429 列のプロジェクトで約 250ms → 約 40ms、要素数は 1,472 → 186 個。個々のラベルのマーカー(`col-<日付>`・`weekday-<日付>`)をなくし、テストは `test/header_cells.py` で読む(`test_gantt.py`・`test_gantt_drag.py` の約 20 か所を書き換え、新しいテスト 3 件)。**見た目の実機確認は、まだ**(行の高さ・中央揃え・ダークテーマの文字色・スクロールでの固定表示・エクスポートの画像)。
 - セクションの折りたたみ(要望 19)は、2026-10-06 にブランチ `feature/section-collapse` で実装し、同日に `develop` へマージした(マージコミット 45d8063。ブランチ `feature/section-collapse` は削除済み)。設計書 `2026-10-06-section-collapse-design.md`、実装計画 `2026-10-06-section-collapse.md`(Native で実行)。方式: `GanttChart.collapsed`(セクションの添字の集合。保存しない)、`filtering.visible_task_indexes`(純粋関数。絞り込み中は折りたたみを無視)、見出しに矢印(`section-toggle-N`)と件数(`section-count-N`)、切り替えは再描画せず、行の `set_visibility` と矢印のアイコンだけを変える(`section_views`。再描画だと、列が多いプロジェクト(429 列)で約 230ms かかったため。2026-10-06 に変更し、約 0.3ms)、プレビュー(読み取り専用)は全展開で矢印なし、`MainView.save_task` は折りたたみ中のセクションへの追加で展開、`open_project` は全展開に戻す。テスト 1,061 件(再描画なしの切り替えの 5 件を足した)。**実機での確認は、まだ**。セクションの並べ替え・削除を足すときは、`collapsed` の添字を一緒にずらすこと。
 
 - エクスポートとプレビュー(要望 2)は、2026-10-05 に実装し、2026-10-06 に `develop` へマージ済み(マージコミット e7fbf52)。ブランチ `feature/export-preview` は削除済み。**プッシュは未実施**。設計書 `2026-10-05-export-preview-design.md`、実装計画 `2026-10-05-export-preview.md`(Native で実行)。方式: メイン画面を、同じ `GanttChart` の `ViewOptions`(期間・スケール・チップ・赤みと縞・読み取り専用)で描き直すプレビューモードにし(`preview.py` の `PreviewBar`、`MainView.enter_preview` / `exit_preview` / `save_image`、ESC で戻る)、同梱の html-to-image(`src/projectapp/static/`、MIT)で `data-chart-content` を PNG にして Python に返し、保存ダイアログで保存する(`export.py`。倍率 `min(2, 16384/幅)`、倍率 1 でも超えるときは警告して縮小)。設計書からの変更: `ViewOptions` に `scale` を足した(ツールバーのスケールと分ける)、戻るときスケールが違えば横スクロールは先頭へ。最終レビュー済み(Critical なし。Important 4 件を修正: 画像を分割して受け取る・印と進捗の塗りを期間に合わせる・列数の上限・保存中は画面を変えない。テスト 1,020 件)。見送った軽微な指摘: 保存ボタンを入力が不正でも有効に戻す、ESC が日付ピッカーと干渉する、保存ファイルの権限が 0600、`handle_move`/`handle_shift` が読み取り専用を検査しない、`ExportError`/`OSError` 以外の通知、PEP8、日次の最小列で足された期間外の日の棒。**実機での確認はこれから**(画像化の見た目、ライト・ダーク、日次・週次・月次、1 年以上の日次、保存ダイアログの戻り値、ESC)。保留: 期間にタスクがない行を隠すか、画像の見出し、分割保存。 実機の確認で出た改善(2026-10-06): 来年度のタスクなどで全期間が広いと、画像の文字が小さくなりすぎるため、プレビューを開くとき、全期間の幅が 6,000px(`PREVIEW_COMFORT_WIDTH_PX`)を超えるあいだ、メイン画面のスケールから 1 段ずつ粗くして開く(`preview.fit_scale`)ようにした。お知らせはバーに出し、設定を変えたら消す。しきい値は目安で、実機で見て調整する。
@@ -44,9 +49,10 @@
 | ブランチ | 内容 |
 |---|---|
 | `main` | 初回コミットのみ(447c38f)。リリース用(まだ使っていない) |
-| `develop` | 開発ブランチ。要望 1・2・3・9・12〜19、優先度の背景色、実績の複数区間、エクスポートとプレビュー、セクションの折りたたみまで、マージ済み(最新のマージコミット 45d8063) |
+| `develop` | 開発ブランチ。要望 1・2・3・9・12〜19、優先度の背景色、実績の複数区間、エクスポートとプレビュー、セクションの折りたたみまで、マージ済み(機能の最後のマージコミット 45d8063、先頭 14f920d) |
+| `feature/faster-tests` | 未マージ。テストの高速化、並列実行(xdist)、ヘッダーのラベルのまとめ(`develop` から) |
 
-マージ済みの `feature/*` ブランチは、すべて削除した(コミットは `develop` の履歴に残っている)。リモートへのプッシュは未実施で、リモートのブランチは確認していない。
+マージ済み・統合済みの `feature/*` ブランチは、すべて削除した(`feature/header-labels` も、`feature/faster-tests` へ統合して削除した。コミットは、それぞれの履歴に残っている)。`develop` と `main` は、2026-10-06 にリモートへプッシュした(`develop` は、その後 8 コミット進んでいる)。リモートの feature ブランチはない。
 
 ## 実装済みの機能
 
@@ -116,18 +122,24 @@
 
 ## 次にやること(候補)
 
-1. エクスポートとプレビュー、タスク表示のチップを、実機で確認する(問題が出たら、`develop` に修正を足す)。
+0. `feature/faster-tests`(テストの高速化、xdist、ヘッダーのラベルのまとめ)の扱いを決める: 最終レビューと、ヘッダーの見た目の実機確認のあとで、`develop` へマージする。プッシュも、許可を得てから。
+1. 実機で確認する(問題が出たら、`develop` かブランチに修正を足す): ヘッダー(日付・曜日)の見た目、セクションの折りたたみ、エクスポートとプレビュー、タスク表示のチップ。
 2. (完了)プッシュ: 2026-10-06 に公開リポジトリ https://github.com/PdevJN/projectapp を作成し、`develop` と `main` をプッシュした(`origin` を設定済み)。以降のプッシュは、許可を得てから行う。
-3. 未着手の要望から選ぶ(設計 → 設計書 → 実装計画の順)。優先順位は未決。影響が大きいのは 22(複数アサイン)と 20(相対割合のパラメータ化)。小さいのは 19(セクションの折りたたみ)と 23(名前の欄の幅)。
+3. 未着手の要望から選ぶ(設計 → 設計書 → 実装計画の順)。優先順位は未決。影響が大きいのは 22(複数アサイン)と 20(相対割合のパラメータ化)。小さいのは 23(名前の欄の幅)。
 4. 要望の一覧にない後続: タスク同士の矢印連結、添付ファイル(`CLAUDE.md` にある機能)。
 5. README の「主な機能」とキー操作の表は空欄のまま。
 6. 見送った軽微な指摘は、各作業の記録に残してある(まとめて直す機会があれば)。
-7. テストが遅い件の対策(2026-10-06 に調査。**未対応**。対策を選んで試す): 全体テスト(1,061 件)が約 6〜7 分かかる。原因は、テスト本体ではなく、NiceGUI の fixture の `gc.collect()`(`nicegui.testing.general.nicegui_reset_globals` が、各テストの setup と teardown で 1 回ずつ呼ぶ)が、テストが進むほど遅くなること。各テストの `Client` と配下の要素(`Label`・`Column`・`Slot` など)が解放されず残り、1 テストあたり約 4,000 オブジェクトずつ増える(`test_gantt.py` 単独で 11 万 → 94 万個。フル GC は 1 件目 50ms → 最終件 421ms)。残す側は、`nicegui.testing.user.User`(終了していない `asyncio.Task` と `UserNavigate` が保持)と、`GanttChart`(テストのページ関数のクロージャが保持)。対象は、`User` fixture を使う非同期テスト(約 407 件。`test_gantt.py`・`test_task_dialog.py`・`test_views.py`・`test_forms.py`)。同期のテストは影響なし。
-   - 実測: `test_gantt.py` 単独は setup 0.21 秒・teardown 0.23 秒・本体 0.06 秒(1 件平均)。`test_task_dialog.py` は、単独だと setup・teardown が約 0.10 秒、`test_gantt.py` の後だと約 0.43 秒(本体は約 0.05 秒で同じ)。
-   - 対策の案: (a) `pytest-xdist` でプロセスを分ける(手軽。プロセスごとに積み上がらず、並列にもなる)。(b) 各テストの後に、終了していないタスクの取り消しと参照の解放をする autouse fixture を足す(効果は試して確かめる)。(c) 終了していない `Task` を特定して、根本から直す(時間がかかる可能性がある。NiceGUI 側かテストの書き方かは、未特定)。
-   - 測り方: `uv run pytest <ファイル> -q --durations=0` の setup・teardown・call を合計する。ファイルを 2 つ並べて、後ろのファイルの値が単独より大きければ、積み上がり。測定用の拡張(`gc.get_objects()` の型別の集計など)は、使い捨てで、リポジトリには入れていない。測定中は、他の重い処理を動かさない(時間が歪む)。
+7. (完了)テストが遅い件の対策(2026-10-06 に調査して、ブランチ `feature/faster-tests` で対応): 全体テストが、415 秒(1,065 件)から 47 秒(1,072 件)になった(約 8.8 倍。解放だけで 87 秒、`gc.freeze` を足して 47 秒)。
+   - 原因: テスト本体ではなく、NiceGUI の fixture の `gc.collect()`(`nicegui.testing.general.nicegui_reset_globals` が、各テストの setup と teardown で 1 回ずつ呼ぶ)が、テストが進むほど遅くなっていた。`User` のシミュレーションは、テストが終わっても、クライアントとその要素を削除しないので、前のテストのオブジェクトが、次の 3 つの経路で保持され続けていた(`test_gantt.py` 単独で、オブジェクトが 11 万 → 94 万個。フル GC は 1 件目 50ms → 最終件 421ms)。(1) クラスの `@ui.refreshable_method`(`GanttChart.render`、`MainView.title`・`MainView.theme_buttons`)の `targets` と `instance`(要素が削除されるまで、インスタンスを持つ)。(2) FastAPI の `lru_cache`(ページ関数をキーにし、ページ関数のクロージャが `MainView` を持つ)。(3) `weakref.finalize` の登録簿(`ui.dialog` が、自分自身を捕まえるラムダを登録する。開いたままのダイアログのボタンが `MainView` のメソッドを持つ)。(2) と (3) は、片方だけ断っても、もう片方が同じオブジェクトを保持する(単独の効果はほとんどなく、両方で効く)。
+   - 対応: `test/conftest.py` の autouse fixture(`release_refreshable_targets`、`release_page_objects`)が、各テストのあとで、上の 3 つを空にする。クラスの `refreshable` は `projectapp.*` のクラスから自動で探すので、足しても対応が要らない。再現テストは `test/test_leak_cleanup.py`(`GanttChart`・`MainView` の `targets` が 1 件だけであること、同じシナリオを 6 回繰り返して、生きている `MainView` が増えないこと)。`--noconftest` で外すと 7 件が、解放の 3 つのうち 1 つを欠くと 3〜7 件が失敗する(検出できることを確認した)。
+   - 残っていること(積み上がりではない): セッションで最初のテストのオブジェクトは、`socketio` が最初の import で捕まえた SIGINT ハンドラ(`asyncio.Runner` のもの)から、ずっと保持される(増えない)。解放後のオブジェクトの増加は、`test_gantt.py`(207 件)で 11.1 万 → 12.0 万個(1 テストあたり約 43 個。ほとんどが pytest 自身の `TestReport`・`SubRequest`)、フル GC は 66ms → 59ms で横ばい。3 ファイル(414 件)でも 11.7 万 → 14.9 万個、50ms → 71ms と、わずか(2026-10-06 に確認。先に「38 万個まで増える」と書いたのは、`targets` だけを空にした途中の測定で、誤り)。残るのは、基本のヒープを各テストの前後に 2 回走査する固定の費用(1 回約 50〜60ms)。
+   - 調査で気づいたこと: NiceGUI の `User.__getattribute__` は、属性に触れるたびに、その `User` の `ui.navigate`・`ui.notify`・`ui.download` を `ui` モジュールへ再登録する。`gc` の走査で `User` に触れる測定は、`ui` から古い `User` へ向かう偽の連鎖を作るので、測るときは `User.__getattribute__ = object.__getattribute__` で副作用を止める(`isinstance` で外れたときの `__class__` 参照も該当する。`type(o) is X` を使う)。`nicegui_reset_globals` は、ページ関数のモジュール(テストファイル)を `sys.modules` から取り除くので、測定のプラグインでテストファイルを `import` し直さない(`item.module` を使う)。zsh では `$D:test` が `:t` 修飾子になる(`${D}:test` と書く)。
+   - 固定の GC 費用(基本のヒープ約 11 万オブジェクトを、各テストの前後に走査。1 回約 50〜60ms)は、`conftest.py` の session スコープの autouse fixture(`freeze_baseline_heap`)が、セッションの最初に `gc.collect(); gc.freeze()` を呼んでなくした(`test_views.py` 25.6 秒 → 15.5 秒、setup・teardown 0.061 → 0.013 秒)。凍結するのは、テストファイルの収集が終わった、最初のテストの前。基本のオブジェクト(import 済みのモジュールなど)が、以後のフル GC と、`gc.get_objects()` の対象から外れる点に注意(テストが作るオブジェクトは、これまでどおり対象)。確認のテストは `test_the_baseline_heap_is_frozen_out_of_the_full_gc`。
+   - `pytest-profiling` は、`uv run --with pytest-profiling pytest <ファイル> --profile --pstats-dir=<出力先>` で、依存を変えずに使える。結果は `pstats` で、自己時間やプロジェクトの関数に絞って読む(累積時間の上位は pytest 自体)。`test_views.py` の内訳(プロファイル込み): `gc.collect` 約 29%、`GanttChart.render` 約 41%(うち、日ごとのヘッダーのラベル `label_row` が約 80%)、NiceGUI の `inspect.signature`(要素 1 個につき 3 回)約 17%。
+   - 並列(2026-10-06): `pytest-xdist` を開発依存に足した(`uv add --dev pytest-xdist`。`pyproject.toml` と `uv.lock`。**未コミット**)。`uv run pytest -n auto` で、1,075 件が約 9.4 秒(直列 33〜40 秒、`-n 2` 17.5 秒、`-n 4` 10.8 秒。約 3.5 倍)。7 回の並列実行で失敗 0 件。`--cov` とも併用できる(全体の網羅率 98%)。`--dist loadfile` は遅い(約 14〜15 秒)。`addopts` には入れていない(1 件だけ走らせるときの起動が遅くなるため)。
+   - 測り方: `uv run pytest <ファイル> -q --durations=0` の setup・teardown・call を合計する。ファイルを 2 つ並べて、後ろのファイルの値が単独より大きければ、積み上がり。保持元は、`uv run --with objgraph` で、`objgraph.find_backref_chain` を使うと、モジュールからの連鎖が分かる。測定用の拡張は使い捨てで、リポジトリには入れていない。
 
-## 今後の要望(2026-10-04・05 に受領。未着手は 4・5・6・7・8・10・11・19〜23。優先順位は未決)
+## 今後の要望(2026-10-04・05 に受領。未着手は 4・5・6・7・8・10・11・20〜23。優先順位は未決)
 
 「次にやること(候補)」とは別に押さえておく。着手するときは、設計 → 設計書 → 実装計画の順。
 
@@ -162,8 +174,8 @@
 
 ## 参照先
 
-- 設計書: `docs/superpowers/specs/2026-10-02-gantt-basic-design.md`、`2026-10-03-schedule-calc-design.md`、`2026-10-03-project-save-design.md`、`2026-10-03-work-hours-design.md`、`2026-10-03-task-edit-dialog-design.md`、`2026-10-05-actual-intervals-design.md`、`2026-10-05-task-chips-design.md`、`2026-10-05-export-preview-design.md`
-- 実装計画: `docs/superpowers/plans/2026-10-03-gantt-basic.md`、`2026-10-03-schedule-calc.md`、`2026-10-03-task-edit-dialog.md`、`2026-10-05-actual-intervals.md`、`2026-10-05-task-chips.md`、`2026-10-05-export-preview.md`
+- 設計書: `docs/superpowers/specs/2026-10-02-gantt-basic-design.md`、`2026-10-03-schedule-calc-design.md`、`2026-10-03-project-save-design.md`、`2026-10-03-work-hours-design.md`、`2026-10-03-task-edit-dialog-design.md`、`2026-10-05-actual-intervals-design.md`、`2026-10-05-task-chips-design.md`、`2026-10-05-export-preview-design.md`、`2026-10-06-section-collapse-design.md`、`2026-10-06-header-labels-design.md`
+- 実装計画: `docs/superpowers/plans/2026-10-03-gantt-basic.md`、`2026-10-03-schedule-calc.md`、`2026-10-03-task-edit-dialog.md`、`2026-10-05-actual-intervals.md`、`2026-10-05-task-chips.md`、`2026-10-05-export-preview.md`、`2026-10-06-section-collapse.md`(ヘッダーのラベルのまとめは、実装計画なしで、設計書から実装した)
 - 開発者向け: `docs/development.md`
 - 実行の記録(git 管理外): `.superpowers/sdd/*/progress.md`(`.git/info/exclude` で除外)
 - 起動: `uv run projectapp`(NiceGUI + pywebview のネイティブウィンドウ)
@@ -176,7 +188,7 @@
 
 **注意(作業で学んだこと)**
 
-- 全体のテストは約 5.5〜6 分かかる(遅い原因と対策は「次にやること」の 7)。時間制限(`timeout`)を付けずに、バックグラウンドで実行して、`done` の行まで待つ(制限で途中で切れると、結果の行が出ない)。
+- 全体のテストは、直列で約 1 分(36〜47 秒)、`uv run pytest -n auto` で約 10 秒(pytest-xdist。2026-10-06 に導入)かかる(2026-10-06 の対策前は約 6〜7 分。原因と対策は「次にやること」の 7)。念のため、時間制限(`timeout`)を付けずに、バックグラウンドで実行して、結果の行まで待つ(制限で途中で切れると、結果の行が出ない)。
 - 新しいプロジェクトの `base_date` の既定は「今日」。日付に依存するテストは、`view.project.base_date = date(2026, 10, 5)` のように固定する(固定を忘れたテストが、日付が進んで落ちた)。
 - 文字列の置換スクリプトは、置換する範囲が空でないことを確認する(空の範囲の `replace` は、全文字の間に挿入して、ファイルが壊れる。2 回起きた)。
 - NiceGUI の `User` は、非表示の要素を `find` で見つけず、クリックを親へ伝えず、キー入力のシミュレーションがない。
