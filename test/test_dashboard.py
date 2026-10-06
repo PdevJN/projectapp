@@ -236,3 +236,35 @@ def test_due_rows_list_deadlines_and_planned_ends_in_the_period_sorted() -> None
         DueRow(datetime(2026, 10, 8, 17), "締切", "t1", "田中", False),
         DueRow(datetime(2026, 10, 9, 12), "完了予定", "t1", "田中", False),
     ]
+
+
+def test_the_whole_period_reaches_today_while_an_actual_is_running() -> None:
+    task = Task("a", actuals=[Actual(datetime(2026, 10, 3, 9))])
+    assert period_for(PeriodKind.ALL, TODAY, project_of(task), {}) == Period(date(2026, 10, 3), TODAY)
+
+
+def test_a_running_actual_is_counted_until_now_over_the_whole_period() -> None:
+    project = project_of(Task("a", assignee="田中", actuals=[Actual(datetime(2026, 10, 6, 9))]))
+    period = period_for(PeriodKind.ALL, TODAY, project, {})
+    assert summarize_workload(project, period, NOW, {})[0].actual_hours == pytest.approx(27.0)  # 10/6 9:00 → 10/7 12:00
+
+
+def test_back_to_back_tasks_on_one_day_are_not_an_overload_like_the_stripes() -> None:
+    first = Task("a", planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 6, 12), assignee="田中", allocation=1.0)
+    second = Task("b", planned_start=datetime(2026, 10, 6, 12), planned_end=datetime(2026, 10, 6, 17), assignee="田中", allocation=1.0)
+    project = project_of(first, second)
+    stats = summarize_loads(project, WEEK, {})["田中"]
+    assert (stats.peak, stats.overload_days) == (1.0, 0)
+    assert stats.average == pytest.approx(0.2)  # 火曜だけ 100%。5 稼働日の平均
+    assert overallocations(project, {}) == []
+
+
+def test_overload_days_are_the_days_the_stripes_touch() -> None:
+    long = Task("a", planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 8, 12), assignee="田中", allocation=0.6)
+    short = Task("b", planned_start=datetime(2026, 10, 7, 9), planned_end=datetime(2026, 10, 7, 17), assignee="田中", allocation=0.6)
+    project = project_of(long, short)
+    stats = summarize_loads(project, WEEK, {})["田中"]
+    assert (stats.peak, stats.overload_days) == (pytest.approx(1.2), 1)
+    assert stats.average == pytest.approx(0.48)
+    stripes = overallocations(project, {})
+    assert [(o.start, o.end) for o in stripes] == [(datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 17))]

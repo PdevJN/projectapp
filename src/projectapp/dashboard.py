@@ -52,6 +52,8 @@ def period_for(kind: PeriodKind, today: date, project: Project, holidays: dict[d
             moments.append(actual.start)
             if actual.end is not None:
                 moments.append(actual.end)
+            else:
+                moments.append(datetime.combine(today, time.min))  # 実行中の区間は、今日まで数える
     if not moments:
         return Period(today, today)
     return Period(min(moments).date(), max(moments).date())
@@ -104,7 +106,7 @@ PLANNED_END = "完了予定"
 
 @dataclass(frozen=True)
 class LoadStats:
-    average: float  # 稼働日の、割り当て率の合計の平均(1.0 = 100%)
+    average: float  # 稼働日ごとの、同時刻の割り当て率の合計の最大(その日の負荷)の平均(1.0 = 100%)
     peak: float
     overload_days: int  # 100% を超えた稼働日の数
 
@@ -134,6 +136,18 @@ def _covers(start: datetime, end: datetime, day: date) -> bool:
     return start < datetime.combine(day + timedelta(days=1), time.min) and end > datetime.combine(day, time.min)
 
 
+def _day_peak(items: list[tuple[datetime, datetime, float]], day: date) -> float:
+    """その日の、同じ時刻に重なる割り当て率の合計の最大。割り当て超過の縞(同時刻の重なり)と同じ基準。"""
+    low = datetime.combine(day, time.min)
+    high = low + timedelta(days=1)
+    clipped = [(max(start, low), min(end, high), a) for start, end, a in items if start < high and end > low]
+    points = sorted({p for start, end, _ in clipped for p in (start, end)})
+    return max(
+        (sum(a for start, end, a in clipped if start <= left and right <= end) for left, right in zip(points, points[1:])),
+        default=0.0,
+    )
+
+
 def summarize_loads(project: Project, period: Period, holidays: dict[date, str]) -> dict[str, LoadStats]:
     days = _workdays(period, holidays)
     spans: dict[str, list[tuple[datetime, datetime, float]]] = {}
@@ -144,7 +158,7 @@ def summarize_loads(project: Project, period: Period, holidays: dict[date, str])
     loads: dict[str, LoadStats] = {}
     for member in project.members:
         items = spans.get(member.name, [])
-        totals = [sum(a for start, end, a in items if _covers(start, end, day)) for day in days]
+        totals = [_day_peak(items, day) for day in days]
         loads[member.name] = LoadStats(
             sum(totals) / len(totals) if totals else 0.0,
             max(totals, default=0.0),

@@ -14,8 +14,8 @@ from projectapp.filtering import TaskFilter
 from projectapp.gantt_drag import CHART_DRAG_CSS
 from projectapp.gantt import (
     COLUMN_WIDTH_PX,
-    HIDE_CHART_JS,
     SHOW_CHART_JS,
+    TRACK_SCROLL_JS,
     ViewOptions,
     PRIORITY_BACKGROUND_VAR,
     PRIORITY_BACKGROUNDS,
@@ -2509,10 +2509,19 @@ async def test_set_visible_hides_and_shows_the_toolbar_and_the_chart_box(user: U
     sent = record_javascript(chart)
     chart.set_visible(False)
     assert not chart.toolbar.visible and not chart.scroll_box.visible
-    assert sent == [HIDE_CHART_JS]  # 隠す前に、スクロール位置を覚える
+    assert sent == []  # 位置は、スクロールのたびに覚えているので、隠すときは何も送らない
     chart.set_visible(True)
     assert chart.toolbar.visible and chart.scroll_box.visible
-    assert sent == [HIDE_CHART_JS, SHOW_CHART_JS]  # 出したあとに、位置を戻す
+    assert sent == [SHOW_CHART_JS]  # 出したあとに、位置を戻す
+
+
+async def test_the_scroll_box_remembers_its_position_on_every_scroll(user: User) -> None:
+    # 要素の更新(隠す)は、run_javascript より先にブラウザへ届くので、隠す直前には読めない
+    charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    assert charts[0].scroll_box is not None
+    listeners = charts[0].scroll_box._event_listeners.values()
+    assert any(l.type == "scroll" and l.js_handler == TRACK_SCROLL_JS for l in listeners)
 
 
 async def test_set_visible_does_not_redraw_the_chart(user: User) -> None:
@@ -2535,7 +2544,8 @@ async def test_set_visible_keeps_the_toolbar_hidden_when_read_only(user: User) -
     assert chart.toolbar is not None and not chart.toolbar.visible
 
 
-def test_the_scroll_position_is_remembered_and_restored() -> None:
-    assert "scrollTop" in HIDE_CHART_JS and "scrollLeft" in HIDE_CHART_JS
-    assert "[data-chart-scroll]" in HIDE_CHART_JS and "[data-chart-scroll]" in SHOW_CHART_JS
+def test_the_scroll_position_is_remembered_while_visible_and_restored() -> None:
+    assert "scrollTop" in TRACK_SCROLL_JS and "scrollLeft" in TRACK_SCROLL_JS
+    assert "offsetHeight > 0" in TRACK_SCROLL_JS  # 隠れていて 0 を返すときは、上書きしない
+    assert "[data-chart-scroll]" in SHOW_CHART_JS
     assert "scrollTo" in SHOW_CHART_JS and "requestAnimationFrame" in SHOW_CHART_JS

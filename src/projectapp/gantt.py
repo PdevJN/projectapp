@@ -207,10 +207,12 @@ SCROLL_RESET_JS = (
     "document.querySelector('[data-chart-scroll]')?.scrollTo({top: 0, left: 0});"
     " window.scrollTo({top: 0})"
 )
-# 非表示(display: none)にすると、枠のスクロール位置が失われる。隠す前に覚え、出したあとの次のフレームで戻す
-HIDE_CHART_JS = (
-    "(() => { const el = document.querySelector('[data-chart-scroll]');"
-    " if (el) { el.dataset.top = el.scrollTop; el.dataset.left = el.scrollLeft; } })()"
+# 非表示(display: none)にすると、枠のスクロール位置が失われる。要素の更新(隠す)は run_javascript より先にブラウザへ届き、
+# 隠す直前には位置を読めないので、スクロールのたびに覚える(見えているときだけ。隠れて 0 を返すときは上書きしない)。
+# 出したあとの次のフレームで戻す
+TRACK_SCROLL_JS = (
+    "(e) => { const el = e.target; if (el.offsetHeight > 0)"
+    " { el.dataset.top = el.scrollTop; el.dataset.left = el.scrollLeft; } }"
 )
 SHOW_CHART_JS = (
     "requestAnimationFrame(() => { const el = document.querySelector('[data-chart-scroll]');"
@@ -450,7 +452,7 @@ class GanttChart:
         return self.options.scale or self.scale
 
     def set_visible(self, visible: bool) -> None:
-        """ツールバーとチャートを、出す・隠す(描き直さない)。位置は、隠す前に覚え、出したあとに戻す。"""
+        """ツールバーとチャートを、出す・隠す(描き直さない)。位置は、スクロールのたびに覚え、出したあとに戻す。"""
         if self.toolbar is None or self.scroll_box is None:
             return
         if visible:
@@ -459,8 +461,6 @@ class GanttChart:
             if self.client is not None:
                 self.client.run_javascript(SHOW_CHART_JS)
         else:
-            if self.client is not None:
-                self.client.run_javascript(HIDE_CHART_JS)
             self.toolbar.set_visibility(False)
             self.scroll_box.set_visibility(False)
 
@@ -556,6 +556,7 @@ class GanttChart:
         )
         scroll = ui.element("div").classes("w-full").style(scroll_style)
         self.scroll_box = scroll
+        scroll.on("scroll", js_handler=TRACK_SCROLL_JS)
         with scroll.props("data-chart-scroll").mark("chart-scroll"):
             self.render()
 
