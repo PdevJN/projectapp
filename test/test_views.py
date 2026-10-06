@@ -1912,12 +1912,27 @@ async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path
     assert isinstance(view.header_box, ui.header)  # 画面の上端・左右いっぱいに固定される四角い帯(ページの余白の内側に置かない)
     band_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-header {"))
     assert "border-radius" not in band_rule  # 角丸にしない
+    # 折り返さない: 帯・タイトル・メニューのボタンは 1 行のまま。狭いときに縮むのは、プロジェクト選択のコンボだけ
+    assert "no-wrap" in view.header_box.classes and "flex-wrap: nowrap" in band_rule
+    nowrap_rule = next(line for line in HEADER_CSS.splitlines() if "white-space: nowrap" in line and ".app-header-title" in line)
+    assert "flex: none" in nowrap_rule and ".q-btn" in nowrap_rule  # タイトルとボタンは、縮めも折り返しもしない
+    assert ".app-header .q-btn__content" in HEADER_CSS
+    select = user.find(marker="project-select").elements.pop()
+    assert "app-project-select" in select.classes and "w-64" not in select.classes  # 固定幅(16rem)をやめ、縮められるようにする
+    select_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-header .app-project-select {"))
+    assert "flex: 0 1 16rem" in select_rule and "min-width" in select_rule
+    # コンボの中に出るファイル名は 10px(選択中の値と、開いた一覧の項目)
+    assert "app-select-popup" in str(select._props.get("popup-content-class"))
+    value_rule = next(line for line in HEADER_CSS.splitlines() if ".q-field__native" in line)
+    assert "font-size: 10px" in value_rule
+    popup_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-select-popup"))
+    assert "font-size: 10px" in popup_rule
     assert "font-size: 12px" in HEADER_CSS  # 14px から -2
     assert "var(--q-primary)" in HEADER_CSS and "color: #fff" in HEADER_CSS  # テーマカラーの背景 + 白文字
     assert "body.body--dark .app-header" in HEADER_CSS and "color-mix" in HEADER_CSS  # ダークは暗めのテーマカラー
     title = user.find(content="新規プロジェクト").elements.pop()
     assert "app-header-title" in title.classes
-    title_rule = next(line for line in HEADER_CSS.splitlines() if ".app-header-title" in line)
+    title_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-header .app-header-title {"))
     assert "font-size: 12px" in title_rule and "font-weight: 700" in title_rule  # 他の文字と同じ大きさ。太さで区別する
     for marker in ("menu-file", "menu-project", "menu-export", "menu-help"):  # メニューは楕円型のボタン
         button = user.find(marker=marker).elements.pop()

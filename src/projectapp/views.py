@@ -69,11 +69,16 @@ THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
 NEW_PROJECT_NAME = "新規プロジェクト"
 # ヘッダーは、画面の上端・左右いっぱいの四角い帯(ui.header)。テーマカラーの背景 + 白文字(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
-# タイトルも 12px(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
+# タイトル・メニューのボタンは折り返さない(縮むのはプロジェクト選択のコンボだけ。中のファイル名は 10px)。タイトルも 12px(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
 HEADER_CSS = """
-.app-header { background: var(--q-primary); color: #fff; font-size: 12px; padding: 4px 12px; }
+.app-header { background: var(--q-primary); color: #fff; font-size: 12px; padding: 4px 12px; flex-wrap: nowrap !important; overflow: hidden; }
 body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55%, #000); }
 .app-header .q-btn, .app-header .q-field { font-size: 12px; }
+.app-header .q-btn, .app-header .app-header-title { white-space: nowrap; flex: none; }
+.app-header .q-btn__content { white-space: nowrap; flex-wrap: nowrap; }
+.app-header .app-project-select { flex: 0 1 16rem; min-width: 8rem; }
+.app-header .app-project-select .q-field__native, .app-header .app-project-select .q-field__input { font-size: 10px; }
+.app-select-popup .q-item { font-size: 10px; min-height: 28px; }
 .app-header .app-header-title { font-size: 12px; font-weight: 700; }
 .app-header .app-menu-btn { background: rgba(255, 255, 255, 0.18); padding: 0 14px; }
 .app-header .app-menu-btn:hover { background: rgba(255, 255, 255, 0.3); }
@@ -595,7 +600,7 @@ class MainView:
                 list(self.files),
                 label="プロジェクトファイル",
                 on_change=lambda e: self.request_open(e.value),
-            ).props("dense outlined dark").classes("w-64").mark("project-select")
+            ).props("dense outlined dark popup-content-class=app-select-popup").classes("app-project-select").mark("project-select")
             ui.button(icon="dashboard", color=None, on_click=self.open_dashboard).props("flat round dense").tooltip(
                 "ダッシュボード"
             ).mark("open-dashboard")
