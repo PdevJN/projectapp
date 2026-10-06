@@ -1,6 +1,8 @@
 """アプリ設定(~/.projectapp/config.json)。"""
 
 import json
+import os
+import secrets
 from math import isfinite
 from pathlib import Path
 
@@ -31,10 +33,17 @@ def read_config(base_dir: Path) -> dict:
 
 
 def update_config(updates: dict, base_dir: Path) -> None:
-    """指定のキーだけを更新して書く(ほかのキーは残す)。"""
+    """指定のキーだけを更新して書く(ほかのキーは残す)。一時ファイル経由で置き換え、失敗しても元のファイルを残す。"""
     base_dir.mkdir(parents=True, exist_ok=True)
     path = base_dir / "config.json"
-    path.write_text(json.dumps({**read_config(base_dir), **updates}), encoding="utf-8")
+    data = json.dumps({**read_config(base_dir), **updates})
+    tmp = path.with_name(f".config.json.{secrets.token_hex(4)}.tmp")
+    try:
+        tmp.write_text(data, encoding="utf-8")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def load_theme(base_dir: Path = BASE_DIR) -> str:

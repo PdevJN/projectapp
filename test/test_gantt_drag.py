@@ -216,6 +216,7 @@ global.document = {
 };
 global.emitEvent = (name, message) => emitted.push([name, message]);
 global.setTimeout = (fn) => { timers.push(fn); };
+global.clearTimeout = () => {};
 eval(code);
 const fire = (type, event) => (listeners[type] || []).forEach((fn) => fn(event));
 const bar = {
@@ -293,68 +294,92 @@ scenarios.ownDrop = drop(transfer.types);
 // 名前の欄の幅の調整(右端 6px を掴む)。欄の右端は x=200
 const cell = {
   draggable: true,
+  style: { width: "var(--name-w)" },
   closest(selector) { return selector === ".gantt-name-resizable" ? this : null; },
   getBoundingClientRect: () => ({ right: 200 }),
   setPointerCapture() {},
 };
-const edge = (x) => ({ target: cell, button: 0, pointerId: 1, clientX: x, buttons: 1, preventDefault() {} });
-const width = () => area.vars["--name-w"];
+const other = { draggable: true, style: { width: "var(--name-w)" } };  // 同じ幅の、別の名前の欄
+area.querySelectorAll = (selector) => (selector === ".gantt-name-resizable" ? [cell, other] : []);
+const edge = (x) => ({ target: cell, button: 0, pointerId: 1, isPrimary: true, clientX: x, buttons: 1, preventDefault() {} });
+const variable = () => area.vars["--name-w"];
+const widths = () => [cell.style.width, other.style.width];
+const escape = () => ({ key: "Escape", stopped: false, stopImmediatePropagation() { this.stopped = true; } });
 
-// 通常: 右端を掴んで 100px 動かす
+// 通常: 右端を掴んで 100px 動かす。ドラッグ中は、名前の欄の幅だけが追従し(変数はそのまま)、離したときに変数を 1 回更新する
 fire("pointerdown", edge(197)); fire("pointermove", edge(297));
-const during = { width: width(), draggable: cell.draggable, cursor: document.body.style.cursor };
+const during = { variable: variable(), widths: widths(), draggable: cell.draggable, cursor: document.body.style.cursor };
 fire("pointerup", edge(297));
 scenarios.resize = {
-  during, emitted: emitted.splice(0), width: width(), draggable: cell.draggable,
-  cursor: document.body.style.cursor, suppressed: click(),
+  during, emitted: emitted.splice(0), variable: variable(), widths: widths(),
+  draggable: cell.draggable, cursor: document.body.style.cursor, suppressed: click(),
 };
 flush();
 
 // 範囲: 上限と下限で止まる(開始の幅 300 から)
 fire("pointerdown", edge(197)); fire("pointermove", edge(1197));
-const max = width();
+const max = widths()[0];
 fire("pointermove", edge(-1803));
-const min = width();
+const min = widths()[0];
 fire("pointerup", edge(-1803));
-scenarios.clamp = { max, min, emitted: emitted.splice(0) };
+scenarios.clamp = { max, min, variable: variable(), emitted: emitted.splice(0) };
 click(); flush();
 
-// 動かさずに離す: 送らないが、click は打ち消す(編集ダイアログを開かない)
+// 動かさずに離す: 送らないが、click は打ち消す(編集ダイアログを開かない)。時間が経てば、打ち消さない
 fire("pointerdown", edge(197)); fire("pointerup", edge(197));
-scenarios.noMove = { emitted: emitted.splice(0), width: width(), suppressed: click() };
+scenarios.noMove = { emitted: emitted.splice(0), variable: variable(), widths: widths(), suppressed: click() };
 flush();
+scenarios.clickWindowCloses = click();
 
 // 右端の外: 何も始めない(click も打ち消さない)
 fire("pointerdown", edge(100)); fire("pointermove", edge(150)); fire("pointerup", edge(150));
-scenarios.outside = { emitted: emitted.splice(0), width: width(), suppressed: click() };
+scenarios.outside = { emitted: emitted.splice(0), variable: variable(), widths: widths(), suppressed: click() };
+flush();
+
+// 主ボタン・主ポインタ以外は、始めない
+fire("pointerdown", { ...edge(197), isPrimary: false }); fire("pointermove", edge(297)); fire("pointerup", edge(297));
+scenarios.notPrimary = { emitted: emitted.splice(0), widths: widths(), suppressed: click() };
 flush();
 
 // ダブルクリック: 既定の幅に戻して送る(2 回の click は、どちらも打ち消す)
 fire("pointerdown", edge(197)); fire("pointerup", edge(197)); const firstClick = click();
 fire("pointerdown", edge(197)); fire("pointerup", edge(197)); const secondClick = click();
 fire("dblclick", edge(197));
-scenarios.reset = { emitted: emitted.splice(0), width: width(), clicks: [firstClick, secondClick] };
+scenarios.reset = { emitted: emitted.splice(0), variable: variable(), clicks: [firstClick, secondClick] };
 flush();
 
-// pointercancel: 元の幅に戻し、何も送らない
+// すでに既定の幅なら、ダブルクリックでも、送らない
+fire("dblclick", edge(197));
+scenarios.resetAlreadyDefault = { emitted: emitted.splice(0), variable: variable() };
+flush();
+
+// pointercancel: 名前の欄の幅を元に戻し、何も送らない
 fire("pointerdown", edge(197)); fire("pointermove", edge(297)); fire("pointercancel", edge(297));
 fire("pointermove", edge(397)); fire("pointerup", edge(397));
-scenarios.resizeCancel = { emitted: emitted.splice(0), width: width(), draggable: cell.draggable };
+scenarios.resizeCancel = { emitted: emitted.splice(0), variable: variable(), widths: widths(), draggable: cell.draggable };
 flush();
 
 // ボタンが離れているのに pointermove が来たら、掴んだ状態を捨てる
 fire("pointerdown", edge(197)); fire("pointermove", edge(297));
 fire("pointermove", { ...edge(397), buttons: 0 });
 fire("pointermove", edge(497)); fire("pointerup", edge(497));
-scenarios.resizeReleased = { emitted: emitted.splice(0), width: width() };
+scenarios.resizeReleased = { emitted: emitted.splice(0), variable: variable(), widths: widths() };
 flush();
 
-// Esc: 元の幅に戻し、送らない。離したあとの click は打ち消す
-fire("pointerdown", edge(197)); fire("pointermove", edge(297)); fire("keydown", { key: "Escape" });
-const afterEscape = width();
+// Esc: 元の幅に戻し、送らない。離したあとの click は打ち消す。Esc は、ほかの処理へ渡さない
+fire("pointerdown", edge(197)); fire("pointermove", edge(297));
+const escapeKey = escape();
+fire("keydown", escapeKey);
+const afterEscape = widths();
 fire("pointermove", edge(397)); fire("pointerup", edge(397));
-scenarios.escape = { afterEscape, emitted: emitted.splice(0), width: width(), suppressed: click() };
+scenarios.escape = {
+  afterEscape, stopped: escapeKey.stopped, emitted: emitted.splice(0), variable: variable(), widths: widths(),
+  suppressed: click(),
+};
 flush();
+const idleEscape = escape();
+fire("keydown", idleEscape);
+scenarios.idleEscapeStopped = idleEscape.stopped;  // 調整中でなければ、Esc は止めない
 
 // 掴んでいる間は、行の移動(HTML5 の drag)を始めない
 fire("pointerdown", edge(197));
@@ -425,11 +450,20 @@ def test_js_a_drop_that_did_not_start_from_a_row_is_ignored(js_scenarios: dict) 
     ]
 
 
-def test_js_resizing_the_name_column_follows_the_pointer_and_sends_the_width(js_scenarios: dict) -> None:
+def test_js_resizing_moves_the_name_cells_live_and_updates_the_variable_once_on_release(
+    js_scenarios: dict,
+) -> None:
     resize = js_scenarios["resize"]
-    assert resize["during"] == {"width": "300px", "draggable": False, "cursor": "col-resize"}  # 動かすだけ。欄の drag は止める
+    # ドラッグ中は、名前の欄の幅だけを直接動かす(変数を動かすと、約 1,800 要素のスタイルを再計算して、カクつく)
+    assert resize["during"] == {
+        "variable": "200px",
+        "widths": ["300px", "300px"],
+        "draggable": False,  # 欄の drag は止める
+        "cursor": "col-resize",
+    }
     assert resize["emitted"] == [["chart_name_width", {"width": 300}]]
-    assert resize["width"] == "300px"
+    assert resize["variable"] == "300px"  # 離したときに、変数を 1 回だけ更新する
+    assert resize["widths"] == ["var(--name-w)", "var(--name-w)"]  # 直接の幅をやめ、変数に任せる
     assert resize["draggable"] is True  # 離したら、欄の drag を戻す
     assert resize["cursor"] == ""
     assert resize["suppressed"] is True  # 離したあとの click で、編集ダイアログを開かない
@@ -438,39 +472,82 @@ def test_js_resizing_the_name_column_follows_the_pointer_and_sends_the_width(js_
 def test_js_the_width_stops_at_the_range_limits(js_scenarios: dict) -> None:
     clamp = js_scenarios["clamp"]
     assert (clamp["max"], clamp["min"]) == ("480px", "120px")
+    assert clamp["variable"] == "120px"
     assert clamp["emitted"] == [["chart_name_width", {"width": 120}]]
 
 
 def test_js_releasing_without_moving_sends_nothing_but_swallows_the_click(js_scenarios: dict) -> None:
-    assert js_scenarios["noMove"] == {"emitted": [], "width": "120px", "suppressed": True}
+    assert js_scenarios["noMove"] == {
+        "emitted": [],
+        "variable": "120px",
+        "widths": ["var(--name-w)", "var(--name-w)"],
+        "suppressed": True,
+    }
+
+
+def test_js_the_click_window_after_a_resize_closes(js_scenarios: dict) -> None:
+    # 打ち消すのは、離した直後の短い間だけ(次の、ふつうの click まで巻き込まない)
+    assert js_scenarios["clickWindowCloses"] is False
 
 
 def test_js_outside_the_right_edge_nothing_starts(js_scenarios: dict) -> None:
-    assert js_scenarios["outside"] == {"emitted": [], "width": "120px", "suppressed": False}
+    assert js_scenarios["outside"] == {
+        "emitted": [],
+        "variable": "120px",
+        "widths": ["var(--name-w)", "var(--name-w)"],
+        "suppressed": False,
+    }
+
+
+def test_js_a_non_primary_pointer_does_not_start_a_resize(js_scenarios: dict) -> None:
+    assert js_scenarios["notPrimary"] == {
+        "emitted": [],
+        "widths": ["var(--name-w)", "var(--name-w)"],
+        "suppressed": False,
+    }
 
 
 def test_js_double_clicking_the_edge_resets_to_the_default_width(js_scenarios: dict) -> None:
     reset = js_scenarios["reset"]
     assert reset["emitted"] == [["chart_name_width", {"width": 200}]]
-    assert reset["width"] == "200px"
+    assert reset["variable"] == "200px"
     assert reset["clicks"] == [True, True]  # 2 回の click は、どちらも編集を開かない
 
 
-def test_js_pointercancel_restores_the_width_without_sending(js_scenarios: dict) -> None:
-    assert js_scenarios["resizeCancel"] == {"emitted": [], "width": "200px", "draggable": True}
+def test_js_double_clicking_at_the_default_width_sends_nothing(js_scenarios: dict) -> None:
+    assert js_scenarios["resetAlreadyDefault"] == {"emitted": [], "variable": "200px"}
+
+
+def test_js_pointercancel_restores_the_cells_without_sending(js_scenarios: dict) -> None:
+    assert js_scenarios["resizeCancel"] == {
+        "emitted": [],
+        "variable": "200px",
+        "widths": ["var(--name-w)", "var(--name-w)"],
+        "draggable": True,
+    }
 
 
 def test_js_a_pointermove_without_buttons_drops_the_resize(js_scenarios: dict) -> None:
-    assert js_scenarios["resizeReleased"] == {"emitted": [], "width": "200px"}
-
-
-def test_js_escape_restores_the_width_and_still_swallows_the_click(js_scenarios: dict) -> None:
-    assert js_scenarios["escape"] == {
-        "afterEscape": "200px",
+    assert js_scenarios["resizeReleased"] == {
         "emitted": [],
-        "width": "200px",
+        "variable": "200px",
+        "widths": ["var(--name-w)", "var(--name-w)"],
+    }
+
+
+def test_js_escape_restores_the_widths_and_still_swallows_the_click(js_scenarios: dict) -> None:
+    assert js_scenarios["escape"] == {
+        "afterEscape": ["var(--name-w)", "var(--name-w)"],
+        "stopped": True,  # ほかの Esc の処理(プレビューを閉じるなど)へ渡さない
+        "emitted": [],
+        "variable": "200px",
+        "widths": ["var(--name-w)", "var(--name-w)"],
         "suppressed": True,
     }
+
+
+def test_js_escape_is_not_stopped_when_no_resize_is_in_progress(js_scenarios: dict) -> None:
+    assert js_scenarios["idleEscapeStopped"] is False
 
 
 def test_js_the_row_drag_does_not_start_while_resizing(js_scenarios: dict) -> None:

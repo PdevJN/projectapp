@@ -95,3 +95,20 @@ def test_a_config_that_is_not_an_object_reads_as_empty_and_is_replaced_on_save(t
     assert load_theme(tmp_path) == "auto"
     save_name_width(250, tmp_path)
     assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8")) == {"name_width": 250}
+
+
+def test_the_config_is_replaced_through_a_temporary_file_and_a_failure_keeps_the_old_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import projectapp.config as config_module
+
+    save_name_width(300, tmp_path)
+
+    def failing_replace(src: object, dst: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(config_module.os, "replace", failing_replace)
+    with pytest.raises(OSError):
+        save_theme("dark", tmp_path)
+    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8")) == {"name_width": 300}  # 元のまま
+    assert [p.name for p in tmp_path.iterdir()] == ["config.json"]  # 一時ファイルが残らない

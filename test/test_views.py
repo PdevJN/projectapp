@@ -1658,3 +1658,22 @@ async def test_the_preview_fits_the_scale_with_the_current_name_width(
     monkeypatch.setattr(views_module, "fit_scale", spy)
     views[0].enter_preview()
     assert seen == [333]
+
+
+async def test_a_failed_save_of_the_name_width_is_reported_and_does_not_raise(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+
+    def failing_save(width: int, base_dir: Path) -> None:
+        raise OSError("read-only")
+
+    import projectapp.views as views_module
+
+    monkeypatch.setattr(views_module, "save_name_width", failing_save)
+    with views[0].gantt.client:
+        views[0].gantt.handle_name_width({"width": 260})
+    assert views[0].gantt.name_width == 260  # 画面の幅は、そのまま
+    await user.should_see("名前の欄の幅を保存できませんでした")

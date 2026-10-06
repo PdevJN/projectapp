@@ -111,8 +111,12 @@ class MainView:
         self.theme_buttons.refresh()
 
     def set_name_width(self, width: int) -> None:
-        """名前の欄の幅を、アプリ全体の設定として保存する。プロジェクトのデータには入れない。"""
-        save_name_width(width, self.base_dir)
+        """名前の欄の幅を、アプリ全体の設定として保存する。プロジェクトのデータには入れない。
+        保存できなくても、画面の幅はそのまま(通知だけ出す)。"""
+        try:
+            save_name_width(width, self.base_dir)
+        except OSError:
+            ui.notify("名前の欄の幅を保存できませんでした", type="warning")
 
     def mark_clean(self) -> None:
         """いまの内容を、保存済み(または開いた直後)の状態として覚える。"""

@@ -22,7 +22,8 @@
 
 ## 決定事項(確認済み)
 
-- **案 2(CSS 変数)を採る**。幅を `--name-w` に持たせ、ドラッグ中は、この変数を書き換えるだけにする(再描画なし)。離したときに、サーバーへ送って保存する。
+- **案 2(CSS 変数)を採る**。幅を `--name-w` に持たせる。ドラッグ中は再描画せず、離したときに、サーバーへ送って保存する。
+  - **ドラッグ中に `--name-w` を動かさない(2026-10-07 の修正)**。CSS 変数は子孫に継承されるので、`chart-content` で書き換えると、約 1,800 要素(120 タスク)のスタイルを再計算し、1 回約 11ms かかる(フレーム間隔の平均は約 27ms で、約 30fps のカクつき。`contain` では減らない)。ドラッグ中は、名前の欄(約 130 要素)の幅だけを、JS で直接書き換える(フレーム間隔 16.7ms で、60fps)。棒・格子線・帯は、離したときに `--name-w` を 1 回だけ更新して追従させる。
   - 案 1(離したときに描き直す)は、ドラッグ中に表示が変わらず、約 400ms(120 タスク)かかるので採らない。
   - 案 3(名前の欄の右端を原点にする入れ子)は、行ごとに要素が増え、要望 24(要素数を増やさない)の制約に反するので採らない。
 - **保存先は、アプリ全体の `config.json`**。テーマと同じ扱い。プロジェクトのデータには入れない。
@@ -73,12 +74,15 @@
 既存のドラッグ用 JS と同じく、`document` に委譲する(`render` で作り直されるため)。
 
 - `pointerdown`: 対象が、`.gantt-name-resizable` の中で、ポインタが右端 6px 以内なら、ドラッグを始める。`setPointerCapture` し、開始位置と開始の幅(`--name-w` の現在値)を記録する。ドラッグ中は、`document.body` に、カーソル `col-resize` と `user-select: none` を付ける。
-- `pointermove`: 幅 = 開始の幅 + 移動量 を、`data-name-min`〜`data-name-max` に収め、整数に丸めて、`chart-content` の `--name-w` に設定する。
-- `pointerup`: `emitEvent("chart_name_width", {width})` を送る。
-- `dblclick`(右端): `--name-w` を `data-name-default` に戻し、同じイベントを送る。
+- `pointermove`: 幅 = 開始の幅 + 移動量 を、`data-name-min`〜`data-name-max` に収め、整数に丸めて、**名前の欄(`.gantt-name-resizable` のすべて。掴んだ時に控えておく)の `width` を直接**書き換える。`--name-w` は動かさない。
+- `pointerup`: `--name-w` を新しい幅に 1 回だけ更新し、直接の幅を元の `var(--name-w)` に戻して、幅が変わっていれば `emitEvent("chart_name_width", {width})` を送る。
+- `pointercancel`・`lostpointercapture`・ボタンの離れ(`buttons === 0`): 直接の幅を元に戻し、何も送らない。
+- `Esc`: 直接の幅を元に戻す(離すまで掴んだまま。離しても送らない)。**調整中の Esc は `stopImmediatePropagation` で、ほかの Esc の処理(プレビューを閉じる・画面の切り替え)へ渡さない**。
+- `dblclick`(右端): 幅がすでに既定でなければ、`--name-w` を `data-name-default` に戻し、同じイベントを送る。
+- 主ポインタ・主ボタン以外(`isPrimary === false`・`button !== 0`)では、始めない。
 - 既存の操作との衝突を避ける。
   - 右端では、行の移動(HTML5 の drag)を始めない(`dragstart` で、ドラッグ中の印があれば `preventDefault`)。
-  - 離したあとの `click` が、編集ダイアログを開かないよう、ドラッグの直後の 1 回を、捕捉して止める。
+  - 離したあとの `click` が、編集ダイアログを開かないよう、離した直後の約 400ms の間(`RESIZE_CLICK_MS`)の `click` を、捕捉して止める。`setTimeout(0)` では、タイマーが `click` より先に走る恐れがあるので、長めにする。ダブルクリックの 2 回の `click` も、止まる。窓は時間で閉じる。
 - ドラッグでの幅の変更中も、バーの横移動(pointer イベントの `transform`)には、干渉しない(対象の要素が違う)。
 
 ### Python 側

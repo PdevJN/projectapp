@@ -32,6 +32,9 @@ CHART_DRAG_JS = """
   const ROW_TYPE = "application/x-gantt-row";  // 自分が始めた drag かを見分ける
   let source = null;
   let resize = null;  // 名前の欄の幅の調整中の状態
+  let resizeClick = false;  // 幅の調整を終えた直後の click(編集ダイアログを開かせない)
+  let resizeClickTimer = null;
+  const RESIZE_CLICK_MS = 400;  // click が来るのを待つ時間。タイマーが click より先に走らないよう、長めにする
 
   const isRowDrag = (event) => Array.from((event.dataTransfer || {}).types || []).includes(ROW_TYPE);
   const clearMarks = () => {
@@ -162,13 +165,19 @@ CHART_DRAG_JS = """
   });
 
   document.addEventListener("click", (event) => {
+    if (resizeClick) {  // 幅の調整の直後。ダブルクリックの 2 回目も打ち消すので、時間が経つまで保つ
+      event.stopPropagation();
+      event.preventDefault();
+      return;
+    }
     if (!suppressClick) return;
     suppressClick = false;
     event.stopPropagation();
     event.preventDefault();
   }, true);
 
-  // 名前の欄の幅の調整。右端を掴み、--name-w を書き換えるだけにする(再描画しない)。離したときだけ幅を送る
+  // 名前の欄の幅の調整。右端を掴んで動かす間は、名前の欄の幅だけを直接動かし(変数を動かすと、子孫の約 1,800
+  // 要素のスタイルを再計算して、カクつく)、離したときに --name-w を 1 回だけ更新して、棒や格子線を追従させる。
   const content = () => document.querySelector("[data-chart-content]");
   const edgeCell = (event) => {  // ポインタが、名前の欄の右端にあれば、その欄を返す
     const cell = event.target.closest ? event.target.closest(".gantt-name-resizable") : null;
@@ -178,11 +187,13 @@ CHART_DRAG_JS = """
     return event.clientX <= right && event.clientX >= right - Number(area.dataset.nameEdge) ? cell : null;
   };
   const setWidth = (area, value) => area.style.setProperty("--name-w", `${value}px`);
-  const endResize = (restore) => {  // 掴んだ状態を捨てる。restore なら、掴む前の幅に戻す
+  const restoreCells = (state) => state.cells.forEach(([el, original]) => { el.style.width = original; });
+  const endResize = (commit) => {  // 掴んだ状態を捨てる。commit なら、変数を新しい幅にする(1 回だけ)
     if (!resize) return null;
     const done = resize;
     resize = null;
-    if (restore) setWidth(done.area, done.start);
+    if (commit) setWidth(done.area, done.width);
+    restoreCells(done);  // 直接の幅をやめ、変数(元の `var(--name-w)`)に任せる
     done.cell.draggable = done.draggable;
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
@@ -190,13 +201,16 @@ CHART_DRAG_JS = """
   };
 
   document.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || event.isPrimary === false) return;
     const cell = edgeCell(event);
     if (!cell) return;
     event.preventDefault();
     const area = content();
     const start = parseFloat(getComputedStyle(area).getPropertyValue("--name-w"));
-    resize = { cell, area, x0: event.clientX, start, width: start, draggable: cell.draggable, cancelled: false };
+    const cells = Array.from(area.querySelectorAll(".gantt-name-resizable"), (el) => [el, el.style.width]);
+    resize = {
+      cell, area, cells, x0: event.clientX, start, width: start, draggable: cell.draggable, cancelled: false,
+    };
     cell.draggable = false;  // 欄は行の移動の掴み場所でもあるので、幅の調整中は止める
     cell.setPointerCapture(event.pointerId);
     document.body.style.cursor = "col-resize";
@@ -206,39 +220,46 @@ CHART_DRAG_JS = """
   document.addEventListener("pointermove", (event) => {
     if (!resize) return;
     if (event.buttons === 0) {  // 放したのに pointerup が届かなかった
-      endResize(true);
+      endResize(false);
       return;
     }
     if (resize.cancelled) return;
     const min = Number(resize.area.dataset.nameMin);
     const max = Number(resize.area.dataset.nameMax);
     resize.width = Math.round(Math.min(Math.max(resize.start + event.clientX - resize.x0, min), max));
-    setWidth(resize.area, resize.width);
+    resize.cells.forEach(([el]) => { el.style.width = `${resize.width}px`; });
   });
 
   document.addEventListener("pointerup", () => {
-    const done = endResize(false);
+    const commit = resize !== null && !resize.cancelled;
+    const done = endResize(commit);
     if (!done) return;
-    suppressClick = true;  // 離したあとの click で、編集ダイアログが開かないようにする(動かさなくても)
-    setTimeout(() => { suppressClick = false; }, 0);
-    if (!done.cancelled && done.width !== done.start) {
+    // 離したあとの click で、編集ダイアログが開かないようにする(動かさなくても)。時間で戻る
+    resizeClick = true;
+    clearTimeout(resizeClickTimer);
+    resizeClickTimer = setTimeout(() => { resizeClick = false; }, RESIZE_CLICK_MS);
+    if (commit && done.width !== done.start) {
       emitEvent("chart_name_width", { width: done.width });
     }
   });
 
-  document.addEventListener("pointercancel", () => endResize(true));
-  document.addEventListener("lostpointercapture", () => endResize(true));
+  document.addEventListener("pointercancel", () => endResize(false));
+  document.addEventListener("lostpointercapture", () => endResize(false));
 
+  // 調整中の Esc は、元の幅に戻し、ほかの Esc の処理(プレビューを閉じる・画面の切り替え)へ渡さない
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !resize || resize.cancelled) return;
+    if (event.key !== "Escape" || !resize) return;
+    event.stopImmediatePropagation();
+    if (resize.cancelled) return;
     resize.cancelled = true;  // 離すまで掴んだままにし、離したあとの click だけ打ち消す
-    setWidth(resize.area, resize.start);
-  });
+    restoreCells(resize);
+  }, true);
 
   document.addEventListener("dblclick", (event) => {  // 右端のダブルクリックで、既定の幅へ戻す
     if (!edgeCell(event)) return;
     const area = content();
     const width = Number(area.dataset.nameDefault);
+    if (parseFloat(getComputedStyle(area).getPropertyValue("--name-w")) === width) return;
     setWidth(area, width);
     emitEvent("chart_name_width", { width });
   });
