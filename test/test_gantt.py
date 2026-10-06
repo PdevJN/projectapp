@@ -25,7 +25,6 @@ from projectapp.gantt import (
     CHART_MAX_HEIGHT,
     CHART_TOP_OFFSET_PX,
     REFRESH_SCROLLBARS_JS,
-    FAB_ZONE_PX,
     SCROLL_RESET_JS,
     SCROLL_TO_LEFT_JS,
     SCROLL_TO_TOP_JS,
@@ -1638,10 +1637,8 @@ async def test_a_long_section_name_is_shortened_inside_the_name_column(user: Use
     assert pinned(user, "section-name-0")._style["width"] == "var(--name-w)"
 
 
-def test_the_chart_box_stops_above_the_help_button() -> None:
-    # 右下のヘルプのボタン(下から18px + 高さ56px)に、枠の右下が重ならない
-    assert FAB_ZONE_PX >= 18 + 56
-    assert CHART_MAX_HEIGHT == f"calc(100vh - {CHART_TOP_OFFSET_PX + FAB_ZONE_PX}px)"
+def test_the_chart_box_height_leaves_room_for_the_header() -> None:
+    assert CHART_MAX_HEIGHT == f"calc(100vh - {CHART_TOP_OFFSET_PX}px)"
 
 
 def test_refreshing_the_scrollbars_keeps_the_scroll_position() -> None:

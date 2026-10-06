@@ -223,24 +223,6 @@ async def test_save_task_adds_then_replaces(user: User, tmp_path: Path) -> None:
     await user.should_see(marker="task-0-0")
 
 
-async def test_refresh_holidays_button_is_right_next_to_the_project_title(
-    user: User, tmp_path: Path
-) -> None:
-    save_cache({}, tmp_path)
-    mount(tmp_path, make_transport(200, []))
-    await user.open("/")
-    title = user.find(content="新規プロジェクト").elements.pop()
-    button = user.find(marker="refresh-holidays").elements.pop()
-    row = button.parent_slot.parent
-    ancestors = []
-    node = title
-    while node.parent_slot is not None and node.parent_slot.parent is not None:
-        node = node.parent_slot.parent
-        ancestors.append(node)
-    assert row in ancestors  # タイトルとボタンは同じ行にある
-    assert title.id < button.id  # ボタンはタイトルの右
-
-
 def make_view(tmp_path: Path, views: list[MainView]) -> None:
     @ui.page("/")
     def index() -> None:
@@ -574,7 +556,7 @@ async def test_open_button_lists_files_and_opens_the_chosen_one(
     await user.open("/")
     view = views[0]
     save_project(Project("後から"), tmp_path)  # 起動後に増えたファイルも一覧に出る
-    user.find("開く").click()
+    user.find(marker="file-open").click()
     await user.should_see(marker="file-0")
     await user.should_see("後から")
     user.find(marker="file-1").click()
@@ -587,7 +569,7 @@ async def test_open_button_with_no_files_says_so(user: User, tmp_path: Path) -> 
     save_cache({}, tmp_path)
     mount(tmp_path, make_transport(200, []))
     await user.open("/")
-    user.find("開く").click()
+    user.find(marker="file-open").click()
     await user.should_see("プロジェクトファイルがありません")
 
 
@@ -1855,3 +1837,72 @@ async def test_the_dashboard_and_the_preview_do_not_open_together(user: User, tm
     user.find(marker="open-dashboard").click()
     view.enter_preview()
     assert view.preview is None
+
+
+async def open_header_view(user: User, tmp_path: Path) -> MainView:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    return views[0]
+
+
+def menu_items(user: User, menu_marker: str) -> list[tuple[str, str]]:
+    """メニューの項目(文言, マーカー)を、並んだ順に返す。"""
+    menu = user.find(marker=menu_marker).elements.pop()
+    return [
+        (child.default_slot.children[0].text, next(iter(child._markers)))  # 文言は、項目の中の ItemSection
+        for child in menu.default_slot.children
+        if isinstance(child, ui.menu_item)
+    ]
+
+
+async def test_the_header_has_the_menus_the_dashboard_icon_and_the_theme_buttons(user: User, tmp_path: Path) -> None:
+    await open_header_view(user, tmp_path)
+    for marker in ("menu-file", "menu-project", "menu-export", "menu-help", "open-dashboard", "theme-auto", "theme-light", "theme-dark"):
+        await user.should_see(marker=marker)
+    await user.should_see("新規プロジェクト")  # タイトル
+
+
+async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -> None:
+    await open_header_view(user, tmp_path)
+    assert menu_items(user, "menu-file-items") == [
+        ("開く", "file-open"),
+        ("保存", "save-project"),
+        ("エクスポート", "export-preview"),
+        ("祝日を更新", "refresh-holidays"),
+    ]
+    assert menu_items(user, "menu-project-items") == [("設定", "open-settings"), ("メンバー", "open-members")]
+    assert menu_items(user, "menu-export-items") == [("担当者へ書き出し", "export-handoff")]
+    assert menu_items(user, "menu-help-items") == [("ショートカットヘルプ", "help-shortcuts")]
+
+
+async def test_the_file_menu_opens_the_file_list(user: User, tmp_path: Path) -> None:
+    await open_header_view(user, tmp_path)
+    user.find(marker="file-open").click()
+    await user.should_see("プロジェクトファイルがありません")
+
+
+async def test_the_help_menu_opens_the_shortcut_help(user: User, tmp_path: Path) -> None:
+    await open_header_view(user, tmp_path)
+    user.find(marker="help-shortcuts").click()
+    await user.should_see("キー操作")
+    await user.should_see("登録されたキー操作はありません")
+
+
+async def test_the_theme_buttons_mark_the_selected_theme_and_switch_it(user: User, tmp_path: Path) -> None:
+    view = await open_header_view(user, tmp_path)
+
+    def colors() -> dict[str, str]:
+        return {t: user.find(marker=f"theme-{t}").elements.pop()._props["color"] for t in ("auto", "light", "dark")}
+
+    assert colors() == {"auto": "primary", "light": "grey", "dark": "grey"}
+    user.find(marker="theme-dark").click()
+    assert view.theme == "dark"
+    assert await wait_until(lambda: colors() == {"auto": "grey", "light": "grey", "dark": "primary"})
+
+
+async def test_the_floating_buttons_are_gone(user: User, tmp_path: Path) -> None:
+    await open_header_view(user, tmp_path)
+    await user.should_not_see(kind=ui.page_sticky)
+    await user.should_not_see(kind=ui.fab)

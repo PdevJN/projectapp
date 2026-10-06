@@ -68,6 +68,7 @@ from projectapp.timeline import build_columns, clip_overloads, overallocations, 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
 NEW_PROJECT_NAME = "新規プロジェクト"
+HEADER_STYLE = "border-bottom: 1px solid rgba(128, 128, 128, 0.3); padding-bottom: 8px"
 HANDOFF_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、書き出せます"
 HELP_KEYS: list[tuple[str, str]] = []  # (キー, 機能) 機能追加時に登録する
 
@@ -546,72 +547,72 @@ class MainView:
 
     def build(self) -> None:
         ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
+        self.help_dialog = self.build_help_dialog()
         self.header()
         self.preview_bar.build()
         self.dashboard_view.build()
         self.gantt.build()
-        self.theme_fab()
-        self.help_button()
         ui.keyboard(on_key=self.on_key)
         if self.needs_first_fetch:
             ui.timer(0.1, self.first_fetch, once=True)
 
     def header(self) -> None:
-        with ui.column().classes("w-full gap-2") as box:
+        """ヘッダー 1 行: タイトル・メニュー 4 つ・(右側)プロジェクトの切り替え・ダッシュボード・テーマ。"""
+        with ui.row().classes("w-full items-center no-wrap gap-1").style(HEADER_STYLE) as box:
             self.header_box = box
             box.mark("header-box")
-            with ui.row().classes("items-center gap-4"):
-                self.title()
-                ui.button("祝日を更新", icon="refresh", on_click=self.refresh_holidays).props(
-                    "flat"
-                ).mark("refresh-holidays")
-            with ui.row().classes("w-full items-center justify-start gap-4"):
-                self.file_select = ui.select(
-                    list(self.files),
-                    label="プロジェクトファイル",
-                    on_change=lambda e: self.request_open(e.value),
-                ).classes("w-64").mark("project-select")
-                ui.button("開く", icon="folder_open", on_click=self.show_file_list)
-                ui.button("保存", icon="save", on_click=self.save_project_clicked).mark(
-                    "save-project"
-                )
-                ui.button("設定", icon="settings", on_click=self.open_settings).mark(
-                    "open-settings"
-                )
-                ui.button("メンバー", icon="group", on_click=self.open_members).mark(
-                    "open-members"
-                )
-                ui.button("エクスポート", icon="image", on_click=self.enter_preview).mark(
-                    "export-preview"
-                )
-                ui.button("ダッシュボード", icon="dashboard", on_click=self.open_dashboard).mark(
-                    "open-dashboard"
-                )
-                ui.button("担当者へ書き出し", icon="upload_file", on_click=self.open_handoff).mark(
-                    "export-handoff"
-                )
+            self.title()
+            self.header_menu(
+                "ファイル",
+                "menu-file",
+                [
+                    ("開く", self.show_file_list, "file-open"),
+                    ("保存", self.save_project_clicked, "save-project"),
+                    ("エクスポート", self.enter_preview, "export-preview"),
+                    ("祝日を更新", self.refresh_holidays, "refresh-holidays"),
+                ],
+            )
+            self.header_menu(
+                "プロジェクト",
+                "menu-project",
+                [("設定", self.open_settings, "open-settings"), ("メンバー", self.open_members, "open-members")],
+            )
+            self.header_menu("エクスポート", "menu-export", [("担当者へ書き出し", self.open_handoff, "export-handoff")])
+            self.header_menu("ヘルプ", "menu-help", [("ショートカットヘルプ", self.help_dialog.open, "help-shortcuts")])
+            ui.space()
+            self.file_select = ui.select(
+                list(self.files),
+                label="プロジェクトファイル",
+                on_change=lambda e: self.request_open(e.value),
+            ).props("dense outlined").classes("w-64").mark("project-select")
+            ui.button(icon="dashboard", on_click=self.open_dashboard).props("flat round dense").tooltip(
+                "ダッシュボード"
+            ).mark("open-dashboard")
+            self.theme_buttons()
+
+    def header_menu(self, label: str, marker: str, items: list[tuple[str, Callable[[], object], str]]) -> None:
+        """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(`items` は、文言・操作・マーカー)。"""
+        with ui.button(label).props("flat no-caps icon-right=arrow_drop_down").mark(marker):
+            with ui.menu().mark(f"{marker}-items"):
+                for text, handler, item_marker in items:
+                    ui.menu_item(text, on_click=handler).mark(item_marker)
 
     @ui.refreshable_method
     def title(self) -> None:
         ui.label(self.project.name).classes("text-h5")
 
-    def theme_fab(self) -> None:
-        with ui.page_sticky(position="top-right", x_offset=18, y_offset=18):
-            with ui.fab("palette", direction="left"):
-                self.theme_buttons()
-
     @ui.refreshable_method
     def theme_buttons(self) -> None:
-        for theme in THEMES:
-            color = "primary" if theme == self.theme else "grey"
-            ui.fab_action(
-                THEME_ICONS[theme],
-                label=THEME_LABELS[theme],
-                color=color,
-                on_click=lambda t=theme: self.set_theme(t),
-            )
+        """ヘッダー右端のテーマの切り替え。選択中のテーマは、ボタンの色(primary)で分かる。"""
+        with ui.row().classes("items-center no-wrap gap-0"):
+            for theme in THEMES:
+                color = "primary" if theme == self.theme else "grey"
+                ui.button(
+                    icon=THEME_ICONS[theme], color=color, on_click=lambda t=theme: self.set_theme(t)
+                ).props("flat round dense").tooltip(THEME_LABELS[theme]).mark(f"theme-{theme}")
 
-    def help_button(self) -> None:
+    def build_help_dialog(self) -> ui.dialog:
+        """ショートカットヘルプのダイアログ(ヘルプメニューから開く)。"""
         with ui.dialog() as dialog, ui.card():
             ui.label("キー操作").classes("text-h6")
             if not HELP_KEYS:
@@ -619,5 +620,4 @@ class MainView:
             for key, desc in HELP_KEYS:
                 ui.label(f"{key}: {desc}")
             ui.button("閉じる", on_click=dialog.close)
-        with ui.page_sticky(position="bottom-right", x_offset=18, y_offset=18):
-            ui.button(icon="help_outline", on_click=dialog.open).props("fab")
+        return dialog
