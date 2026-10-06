@@ -23,6 +23,7 @@ from projectapp.forms import (
 from projectapp import arrange
 from projectapp.export import (
     HTML_TO_IMAGE_URL,
+    PNG_FILE_TYPES,
     ExportError,
     ImageExporter,
     NativeImageExporter,
@@ -267,7 +268,7 @@ class MainView:
             except ExportError as exc:
                 ui.notify(f"画像を作れませんでした: {exc}", type="negative")
                 return
-            path = await self.exporter.ask_path(default_filename(self.project.name, date.today()))
+            path = await self.exporter.ask_path(default_filename(self.project.name, date.today()), PNG_FILE_TYPES)
             if path is None:
                 return
             try:

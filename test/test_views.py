@@ -18,7 +18,7 @@ from projectapp.models import Actual, ActualMode, Member, Project, Section, Task
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
-from projectapp.export import ExportError
+from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.gantt import ViewOptions
 from projectapp.views import MainView
 
@@ -1196,6 +1196,7 @@ class FakeExporter:
         self.path, self.error, self._available = path, error, available
         self.captured: list[float] = []
         self.asked: list[str] = []
+        self.asked_types: list[tuple[str, ...]] = []
 
     @property
     def available(self) -> bool:
@@ -1207,8 +1208,9 @@ class FakeExporter:
             raise self.error
         return PNG_BYTES
 
-    async def ask_path(self, filename: str) -> Path | None:
+    async def ask_path(self, filename: str, file_types: tuple[str, ...] = ()) -> Path | None:
         self.asked.append(filename)
+        self.asked_types.append(file_types)
         return self.path
 
 
@@ -1352,6 +1354,7 @@ async def test_save_writes_the_png_and_notifies(user: User, tmp_path: Path) -> N
     assert await wait_until(lambda: (tmp_path / "out" / "chart.png").exists())
     assert (tmp_path / "out" / "chart.png").read_bytes() == PNG_BYTES
     assert exporter.asked == [f"新規プロジェクト_{date.today():%Y%m%d}.png"]
+    assert exporter.asked_types == [PNG_FILE_TYPES]
     assert 0 < exporter.captured[0] <= 2.0
     await user.should_see("保存しました")
 
