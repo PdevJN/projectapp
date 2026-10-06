@@ -12,7 +12,7 @@
 - テストの高速化(2649e93・32f4a08・88e7625): 全体テストが 415 秒から 47 秒。`test/conftest.py` と `test/test_leak_cleanup.py`。詳しくは「次にやること」の 7。
 - 並列実行(7fa9d88。`pytest-xdist`): `uv run pytest -n auto` で約 10 秒。
 - ヘッダーのラベルのまとめ(a03d69f。設計書 `2026-10-06-header-labels-design.md`): ヘッダーの日付・曜日を 1 つの HTML 要素にまとめた。再描画が、429 列のプロジェクトで約 250ms → 約 40ms。
-- **プッシュ**: `develop` は `origin/develop` より 45 コミット進んでいる(未実施。許可を得てから行う)。
+- **プッシュ**: `develop` は 2026-10-07 にプッシュ済み(b53e7f5。要望 4 のマージまで)。以降のプッシュも、許可を得てから行う。
 - 担当者向けファイルの書き出し(要望 4。2026-10-07。`develop` へマージ済み(マージコミット baa0656。ブランチ `feature/assignee-handoff` は削除済み)。**ネイティブで実機確認済み(2026-10-07)**。設計書 `2026-10-07-assignee-handoff-design.md`、実装計画 `2026-10-07-assignee-handoff.md`。Native で実行): ヘッダーの「担当者へ書き出し」で、メンバーを選び、その担当の未終了タスクを todoapp 形式の `todos.json` に書き出す(`handoff.py`。todoapp の形式は `file-format.md`、git 管理外)。`ImageExporter.ask_path` はファイルの種類を引数に取る。テスト 1,195 件と `ty check` が通る。
 - 未着手の要望: 5・6・7・8・10・11・20・21・22・24(後述)。
 - 書き出し(PNG)の文字の折り返し・省略の修正(2026-10-07 に `develop` へマージ。マージコミット b6882d6。ブランチ `feature/export-text-fit` は削除済み。bounded。ネイティブで実機確認済み: 月次の見出しの折り返しと ProjectCode の省略が直った)。ネイティブで書き出した PNG で、月の見出しが 2 行に割れ(`9月` → `9` / `月`。下線に重なる)、ProjectCode が省略される(`PRJ-001` → `PRJ-...`)不具合を確認した。原因: `html-to-image` が、各要素の計算済みの幅(小数の px)を複製に固定し、Web フォントを埋め込まないため、書き出しの文字の測り方がわずかに違うと、収まらずに折り返し・省略が起きる(半角の英数字を含む文字列だけ)。対策: 書き出しの間だけ、`export.EXPORT_CSS`(`white-space: nowrap`、`.code-chip` は `text-overflow: clip; overflow: visible`)を `<style>` で当て、終われば必ず外す(`finally`)。ヘッドレス Chrome で、チップの省略が直ることと、`<style>` が残らないことを確認済み。月の見出しの折り返しは、ヘッドレス Chrome では再現せず、ネイティブ(WebKit)で確認した(問題なし)。
