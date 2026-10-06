@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from projectapp.export import (
+    EXPORT_CSS,
+    CAPTURE_JS,
     MAX_CANVAS_PX,
     ExportError,
     CAPTURE_CHUNK_CHARS,
@@ -206,3 +208,26 @@ def test_a_timeout_in_a_chunk_is_reported_and_the_browser_copy_is_deleted() -> N
     with pytest.raises(ExportError, match="時間内"):
         asyncio.run(NativeImageExporter(run_js=browser).capture(2.0))
     assert browser.stored is None
+
+
+def test_the_export_css_forbids_wrapping_and_keeps_the_code_chip_whole() -> None:
+    # html-to-image は、計算済みの幅を px で固定して複製する。書き出しの文字の測り方が、画面とわずかに違うと、
+    # 固定された幅に収まらず、月の見出し(9月 → 9 / 月)が折り返され、ProjectCode が省略される
+    assert "[data-chart-content] * { white-space: nowrap !important; }" in EXPORT_CSS
+    assert "[data-chart-content] .code-chip" in EXPORT_CSS
+    assert "text-overflow: clip !important" in EXPORT_CSS
+    assert "overflow: visible !important" in EXPORT_CSS
+
+
+def test_the_capture_script_applies_the_export_css_only_while_capturing() -> None:
+    browser = FakeBrowser(data_url())
+    asyncio.run(NativeImageExporter(run_js=browser).capture(2.0))
+    script = browser.scripts[0]
+    assert "__CSS__" not in script
+    assert json.dumps(EXPORT_CSS) in script  # JS の文字列として、安全に埋め込む
+    assert script.index("appendChild(style)") < script.index("htmlToImage.toPng")  # 画像化の前に当てる
+    assert "finally" in script and "style.remove()" in script  # 成功でも失敗でも、必ず外す
+
+
+def test_the_capture_script_template_has_the_css_placeholder() -> None:
+    assert "__CSS__" in CAPTURE_JS

@@ -23,6 +23,14 @@ CAPTURE_TIMEOUT_S = 90
 # NiceGUI の websocket は、1 メッセージ約 1MB まで(engineio の既定)。画像は分けて受け取る
 CAPTURE_CHUNK_CHARS = 200_000
 
+# 画像化の間だけ当てる CSS。html-to-image は、各要素の計算済みの幅を px で複製に固定する(月の見出しは 26.7031px など)。
+# 書き出しの文字の測り方が、画面とわずかに違うと、固定された幅に収まらず、月の見出しが折り返され(9月 → 9 / 月)、
+# ProjectCode が省略される。折り返しを禁じ、チップは省略せずに、余白(左右 6px)へはみ出させる。
+EXPORT_CSS = (
+    "[data-chart-content] * { white-space: nowrap !important; } "
+    "[data-chart-content] .code-chip { text-overflow: clip !important; overflow: visible !important; }"
+)
+
 # 画像化する。対象は data-chart-content の要素の全体(スクロールの外へはみ出す分を含む)。
 # ライトは白、ダークは body の背景色。結果は window.__exportPng に置き、長さだけを返す(分けて取り出す)。
 # 失敗は、例外にせず error の文字列で返す。
@@ -33,6 +41,9 @@ async () => {
   if (typeof htmlToImage === 'undefined') return JSON.stringify({error: '画像化の部品を読み込めていません'});
   const dark = document.body.classList.contains('body--dark');
   const bg = dark ? getComputedStyle(document.body).backgroundColor : '#ffffff';
+  const style = document.createElement('style');
+  style.textContent = __CSS__;
+  document.head.appendChild(style);
   try {
     window.__exportPng = await htmlToImage.toPng(root, {
       width: root.scrollWidth, height: root.scrollHeight,
@@ -40,6 +51,7 @@ async () => {
     });
     return JSON.stringify({length: window.__exportPng.length});
   } catch (e) { return JSON.stringify({error: String(e)}); }
+  finally { style.remove(); }
 }
 """
 
@@ -135,7 +147,8 @@ class NativeImageExporter:
 
     async def capture(self, pixel_ratio: float) -> bytes:
         """画像化して、PNG のバイト列を返す。データ URL は、websocket の上限に収まる大きさに分けて受け取る。"""
-        script = f"({CAPTURE_JS.replace('__RATIO__', repr(float(pixel_ratio)))})()"
+        body = CAPTURE_JS.replace("__RATIO__", repr(float(pixel_ratio))).replace("__CSS__", json.dumps(EXPORT_CSS))
+        script = f"({body})()"
         try:
             length = parse_capture_meta(await self.run_js(script, timeout=CAPTURE_TIMEOUT_S))
             parts: list[str] = []
