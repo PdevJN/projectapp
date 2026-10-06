@@ -1914,7 +1914,12 @@ async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path
     assert "body.body--dark .app-header" in HEADER_CSS and "color-mix" in HEADER_CSS  # ダークは暗めのテーマカラー
     title = user.find(content="新規プロジェクト").elements.pop()
     assert "app-header-title" in title.classes
-    assert "font-size: 18px" in HEADER_CSS  # タイトルは 24px(text-h5)から小さく
+    title_rule = next(line for line in HEADER_CSS.splitlines() if ".app-header-title" in line)
+    assert "font-size: 12px" in title_rule and "font-weight: 700" in title_rule  # 他の文字と同じ大きさ。太さで区別する
+    for marker in ("menu-file", "menu-project", "menu-export", "menu-help"):  # メニューは楕円型のボタン
+        button = user.find(marker=marker).elements.pop()
+        assert "rounded" in button._props and "unelevated" in button._props and "app-menu-btn" in button.classes
+    assert "rgba(255, 255, 255, 0.18)" in HEADER_CSS and ".app-menu-btn:hover" in HEADER_CSS
     menu = user.find(marker="menu-file-items").elements.pop()
     assert "app-menu" in str(menu._props.get("content-class"))  # 開いたメニューも同じ大きさ
 

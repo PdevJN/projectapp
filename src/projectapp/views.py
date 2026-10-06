@@ -69,12 +69,14 @@ THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
 NEW_PROJECT_NAME = "新規プロジェクト"
 # ヘッダーは、テーマカラーの背景 + 白文字の帯(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
-# タイトルは 24px(text-h5)から 18px。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
+# タイトルも 12px(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
 HEADER_CSS = """
 .app-header { background: var(--q-primary); color: #fff; font-size: 12px; border-radius: 6px; padding: 4px 12px; }
 body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55%, #000); }
 .app-header .q-btn, .app-header .q-field { font-size: 12px; }
-.app-header .app-header-title { font-size: 18px; font-weight: 500; }
+.app-header .app-header-title { font-size: 12px; font-weight: 700; }
+.app-header .app-menu-btn { background: rgba(255, 255, 255, 0.18); padding: 0 14px; }
+.app-header .app-menu-btn:hover { background: rgba(255, 255, 255, 0.3); }
 .app-menu .q-item { font-size: 12px; min-height: 32px; }
 """
 HANDOFF_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、書き出せます"
@@ -601,7 +603,9 @@ class MainView:
 
     def header_menu(self, label: str, marker: str, items: list[tuple[str, Callable[[], object], str]]) -> None:
         """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(`items` は、文言・操作・マーカー)。"""
-        with ui.button(label).props("flat no-caps icon-right=arrow_drop_down").mark(marker):
+        with ui.button(label).props("unelevated rounded no-caps icon-right=arrow_drop_down").classes(
+            "app-menu-btn"
+        ).mark(marker):
             with ui.menu().props("content-class=app-menu").mark(f"{marker}-items"):
                 for text, handler, item_marker in items:
                     ui.menu_item(text, on_click=handler).mark(item_marker)
