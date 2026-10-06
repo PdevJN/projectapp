@@ -11,6 +11,7 @@ from nicegui.events import ValueChangeEventArguments
 from projectapp import arrange
 from projectapp.arrange import Position
 from projectapp.calendar import DayKind, day_kind
+from projectapp.config import DEFAULT_NAME_WIDTH_PX, MAX_NAME_WIDTH_PX, MIN_NAME_WIDTH_PX
 from projectapp.filtering import TaskFilter, matches, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS
 from projectapp.models import Priority, Project, Section, Status, Task
@@ -36,7 +37,11 @@ from projectapp.timeline import (
     year_bands,
 )
 
-NAME_WIDTH_PX = 200
+RESIZE_EDGE_PX = 6  # 名前の欄の右端の、幅の調整の掴み場所の幅(Task 4 で gantt_drag へ移す)
+NAME_WIDTH_PROPS = (  # JS が範囲と掴み場所の幅を読む。定義元は Python の定数
+    f"data-chart-content data-name-min={MIN_NAME_WIDTH_PX} data-name-max={MAX_NAME_WIDTH_PX}"
+    f" data-name-default={DEFAULT_NAME_WIDTH_PX} data-name-edge={RESIZE_EDGE_PX}"
+)
 ROW_HEIGHT_PX = 32
 COLUMN_WIDTH_PX = {Scale.DAY: 40, Scale.WEEK: 56, Scale.MONTH: 80}
 KIND_COLORS = {
@@ -244,6 +249,11 @@ def header_cell_html(column: Column, width: int, weekday: bool) -> str:
     )
 
 
+def from_name(px: float) -> str:
+    """名前の欄の右端(境界)からの距離を、CSS 変数 --name-w に追従する位置の式にする。"""
+    return f"calc(var(--name-w) + {px:.1f}px)"
+
+
 def sticky_left(z_index: int) -> str:
     """横スクロールで左に残す要素のスタイル。"""
     return f"position: sticky; left: 0px; z-index: {z_index}"
@@ -276,11 +286,13 @@ class GanttChart:
         holidays: dict[date, str],
         actions: GanttActions,
         now: Callable[[], datetime] = datetime.now,
+        name_width: int = DEFAULT_NAME_WIDTH_PX,
     ) -> None:
         self.project = project
         self.holidays = holidays
         self.actions = actions
         self.now = now
+        self.name_width = name_width  # 名前の欄の幅(px)。ドラッグで変わり、保存は呼び出し側
         self.overloads: list[Overload] = []
         self.scale = Scale.DAY
         self.options = ViewOptions()
@@ -432,7 +444,7 @@ class GanttChart:
     def content_width(self) -> int:
         """描画の全体の幅(px)。名前の列と、すべての列。画像の幅になる。"""
         columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
-        return NAME_WIDTH_PX + COLUMN_WIDTH_PX[self.view_scale] * len(columns)
+        return self.name_width + COLUMN_WIDTH_PX[self.view_scale] * len(columns)
 
     def bar_visible(
         self, start: datetime | None, end: datetime | None, columns: list[Column]
@@ -507,9 +519,11 @@ class GanttChart:
         columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
         self.overloads = overallocations(self.project, self.holidays)
         width = COLUMN_WIDTH_PX[self.view_scale]
-        total = NAME_WIDTH_PX + width * len(columns)
-        content = ui.element("div").style(f"position: relative; width: {total}px")
-        with content.props("data-chart-content").mark("chart-content"):
+        content = ui.element("div").style(
+            f"position: relative; width: {from_name(width * len(columns))};"
+            f" --name-w: {self.name_width}px"
+        )
+        with content.props(NAME_WIDTH_PROPS).mark("chart-content"):
             top = BAND_HEIGHT_PX * (1 if self.view_scale is Scale.MONTH else 2)
             self.gridlines(columns, width, top)
             if self.view_scale is Scale.DAY:
@@ -544,7 +558,7 @@ class GanttChart:
         with row:
             cell = ui.row().classes("items-center justify-end no-wrap gantt-sticky")
             cell.style(
-                f"width: {NAME_WIDTH_PX}px; padding-right: 8px; align-self: stretch;"
+                f"width: var(--name-w); padding-right: 8px; align-self: stretch;"
                 f" {sticky_left(STICKY_Z_NAME)}"
             )
             with cell:
@@ -556,7 +570,7 @@ class GanttChart:
         """列の境界の縦線。全スケールで引く。年・月の帯の下から始める。"""
         cells = f'<div style="width:{width}px;border-left:{GRID_BORDER}"></div>' * len(columns)
         ui.html(f'<div style="display:flex;height:100%">{cells}</div>', sanitize=False).style(
-            f"position: absolute; top: {top}px; bottom: 0; left: {NAME_WIDTH_PX}px;"
+            f"position: absolute; top: {top}px; bottom: 0; left: var(--name-w);"
             " pointer-events: none"
         ).mark("gridlines")
 
@@ -569,7 +583,7 @@ class GanttChart:
             for column in columns
         )
         ui.html(f'<div style="display:flex;height:100%">{cells}</div>', sanitize=False).style(
-            f"position: absolute; top: {top}px; bottom: 0; left: {NAME_WIDTH_PX}px;"
+            f"position: absolute; top: {top}px; bottom: 0; left: var(--name-w);"
             " pointer-events: none"
         ).mark("stripes")
 
@@ -586,7 +600,7 @@ class GanttChart:
         """見出しの左端の空白。縦にも横にも固定された見出しの中で、横スクロールでも左に残る。"""
         spacer = ui.element("div").classes("gantt-sticky")
         spacer.style(
-            f"width: {NAME_WIDTH_PX}px; align-self: stretch; {sticky_left(STICKY_Z_SPACER)}"
+            f"width: var(--name-w); align-self: stretch; {sticky_left(STICKY_Z_SPACER)}"
         )
         spacer.mark(marker)
 
@@ -602,7 +616,7 @@ class GanttChart:
                 with cell.mark(marker):
                     # 帯が画面より広くても、名前の列の右端に文字が残るよう、帯の中で固定する
                     ui.label(band.label).classes("text-caption").style(
-                        f"position: sticky; left: {NAME_WIDTH_PX}px; display: inline-block;"
+                        f"position: sticky; left: var(--name-w); display: inline-block;"
                         " padding-left: 8px"
                     ).mark(f"{marker}-label")
 
@@ -632,7 +646,7 @@ class GanttChart:
         with header:
             name = ui.row().classes("items-center no-wrap gap-2 gantt-sticky")
             name.style(  # 名前の列にちょうど収める(狭いと縞や格子線が見え、広いと棒を隠す)
-                f"width: {NAME_WIDTH_PX}px; overflow: hidden; align-self: stretch;"
+                f"width: var(--name-w); overflow: hidden; align-self: stretch;"
                 f" {sticky_left(STICKY_Z_NAME)}"
             )
             with name.mark(f"section-name-{si}"):
@@ -683,7 +697,7 @@ class GanttChart:
                 f" {PRIORITY_CLASSES[task.priority]}"
             )
             cell_style = (
-                f"width: {NAME_WIDTH_PX}px; padding-left: 16px; padding-right: 4px;"
+                f"width: var(--name-w); padding-left: 16px; padding-right: 4px;"
                 f" align-self: stretch; background-color: {PRIORITY_BACKGROUND_VAR};"
                 f" {sticky_left(STICKY_Z_NAME)}"
             )
@@ -716,7 +730,7 @@ class GanttChart:
                 if state in PROGRESS_STATE_COLORS:
                     outline = " outline: 2px solid var(--pstate); outline-offset: -2px;"
                 bar = ui.element("div").style(
-                    f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
+                    f"position: absolute; left: {from_name(left * width)};"
                     f" width: {bar_width:.1f}px; top: {BAR_TOP_PX}px;"
                     f" height: {BAR_HEIGHT_PX}px;"
                     f" background: {planned_background(STATUS_COLOR_VAR)};"
@@ -738,10 +752,8 @@ class GanttChart:
                     self.progress_fill(key, ti, task, columns, end)
                     if self.options.show_alerts:
                         self.overload_stripes(key, ti, task, left, bar_width, columns, width)
-                mark_left = self.marker_left(
-                    task, columns, width, NAME_WIDTH_PX + left * width + bar_width
-                )
-                total = NAME_WIDTH_PX + width * len(columns)
+                mark_left = self.marker_left(task, columns, width, left * width + bar_width)
+                total = width * len(columns)
                 if self.options.period is None or mark_left <= total - MARK_WIDTH_PX:
                     self.progress_marker(key, ti, task, state, mark_left, end)  # 期間の右端の外へは出さない
             self.actual_bars(si, ti, task, columns, width)
@@ -796,19 +808,19 @@ class GanttChart:
     def marker_left(
         self, task: Task, columns: list[Column], width: int, bar_right: float
     ) -> float:
-        """印の左端。予定の棒と、それより右へ伸びる実績の棒(完了の遅れや進行中)の右に置き、
-        締切の◆と重なるときは◆の右へずらす。"""
+        """印の左端(境界からの距離)。予定の棒と、それより右へ伸びる実績の棒(完了の遅れや進行中)の右に置き、
+        締切の◆と重なるときは◆の右へずらす。bar_right も、境界からの距離。"""
         right = bar_right
         for actual in task.actuals:
             finish = actual.end if actual.end is not None else self.now()
             if not self.bar_visible(actual.start, finish, columns):
                 continue  # 期間の外の実績は、描かないので、印をずらさない
             start, length = interval_span(actual.start, finish, columns)
-            right = max(right, NAME_WIDTH_PX + start * width + max(length * width, MIN_BAR_PX))
+            right = max(right, start * width + max(length * width, MIN_BAR_PX))
         left = right + MARK_GAP_PX
         position = None if task.deadline is None else deadline_position(task.deadline, columns)
         if position is not None:
-            center = NAME_WIDTH_PX + position * width
+            center = position * width
             diamond_left, diamond_right = center - DEADLINE_MARKER_HALF_PX, center + DEADLINE_MARKER_HALF_PX
             if diamond_left < left + MARK_WIDTH_PX and left < diamond_right:
                 left = diamond_right + MARK_GAP_PX
@@ -833,7 +845,7 @@ class GanttChart:
                 expected = expected_progress(task.planned_start, end, self.now())
                 tip = f"{state.value}(進捗 {percent}% / 予定 {expected:.0f}%)"
         ui.label(PROGRESS_STATE_MARKS[state]).style(
-            f"position: absolute; left: {mark_left:.1f}px; top: {BAR_TOP_PX}px;"
+            f"position: absolute; left: {from_name(mark_left)}; top: {BAR_TOP_PX}px;"
             f" line-height: {BAR_HEIGHT_PX}px; font-size: 11px; color: var(--pstate)"
         ).classes(PROGRESS_STATE_CLASSES[state]).tooltip(tip).mark(f"progress-state-{key}-{ti}")
 
@@ -853,7 +865,7 @@ class GanttChart:
                 continue
             left, length = interval_span(actual.start, finish, columns)
             bar = ui.element("div").style(
-                f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
+                f"position: absolute; left: {from_name(left * width)};"
                 f" width: {max(length * width, MIN_BAR_PX):.1f}px;"
                 f" top: {ACTUAL_TOP_PX}px; height: {ACTUAL_HEIGHT_PX}px;"
                 f" background: {STATUS_COLOR_VAR}; border-radius: 3px; cursor: pointer;"
@@ -876,7 +888,7 @@ class GanttChart:
                 continue
             left, length = interval_span(before.end, after.start, columns)
             gap = ui.element("div").style(
-                f"position: absolute; left: {NAME_WIDTH_PX + left * width:.1f}px;"
+                f"position: absolute; left: {from_name(left * width)};"
                 f" width: {length * width:.1f}px;"
                 f" top: {ACTUAL_TOP_PX}px; height: {ACTUAL_HEIGHT_PX}px;"
                 f" background: {ACTUAL_GAP_BACKGROUND}; cursor: pointer; user-select: none"
@@ -924,9 +936,9 @@ class GanttChart:
         if position is None:
             return
         key = "top" if si is None else si
-        left = NAME_WIDTH_PX + position * width - DEADLINE_MARKER_HALF_PX
+        left = position * width - DEADLINE_MARKER_HALF_PX
         marker = ui.label("◆").style(
-            f"position: absolute; left: {left:.1f}px; top: 4px; line-height: 1;"
+            f"position: absolute; left: {from_name(left)}; top: 4px; line-height: 1;"
             f" color: {DEADLINE_COLOR}; cursor: pointer"
         )
         self.edit_on_click(marker, si, ti)

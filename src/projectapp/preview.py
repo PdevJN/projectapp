@@ -6,7 +6,8 @@ from datetime import date, datetime
 
 from nicegui import ui
 
-from projectapp.gantt import COLUMN_WIDTH_PX, NAME_WIDTH_PX, ViewOptions
+from projectapp.config import DEFAULT_NAME_WIDTH_PX
+from projectapp.gantt import COLUMN_WIDTH_PX, ViewOptions
 from projectapp.models import MAX_YEAR, MIN_YEAR, Project
 from projectapp.task_dialog import add_picker
 from projectapp.timeline import Scale, build_columns
@@ -55,12 +56,16 @@ def validate_period(start_text: str, end_text: str) -> tuple[date, date]:
 
 
 def fit_scale(
-    project: Project, holidays: dict[date, str], period: tuple[date, date] | None, scale: Scale
+    project: Project,
+    holidays: dict[date, str],
+    period: tuple[date, date] | None,
+    scale: Scale,
+    name_width: int = DEFAULT_NAME_WIDTH_PX,
 ) -> Scale:
     """全期間の画像の幅が快適な幅に収まるまで、スケールを 1 段ずつ粗くする。細かくはしない。月次は、広くても月次。"""
     for candidate in COARSER[COARSER.index(scale) :]:
         columns = build_columns(project, candidate, holidays, period)
-        if NAME_WIDTH_PX + COLUMN_WIDTH_PX[candidate] * len(columns) <= PREVIEW_COMFORT_WIDTH_PX:
+        if name_width + COLUMN_WIDTH_PX[candidate] * len(columns) <= PREVIEW_COMFORT_WIDTH_PX:
             return candidate
     return Scale.MONTH
 

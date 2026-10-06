@@ -76,10 +76,11 @@ def project_of_days(days: int) -> Project:
 
 
 def width_of(project: Project, scale: Scale) -> int:
-    from projectapp.gantt import COLUMN_WIDTH_PX, NAME_WIDTH_PX
+    from projectapp.config import DEFAULT_NAME_WIDTH_PX
+    from projectapp.gantt import COLUMN_WIDTH_PX
     from projectapp.timeline import build_columns
 
-    return NAME_WIDTH_PX + COLUMN_WIDTH_PX[scale] * len(build_columns(project, scale, {}))
+    return DEFAULT_NAME_WIDTH_PX + COLUMN_WIDTH_PX[scale] * len(build_columns(project, scale, {}))
 
 
 def test_the_comfort_width_is_six_thousand_pixels() -> None:
@@ -128,3 +129,14 @@ def test_it_never_goes_finer_than_the_current_scale() -> None:
 def test_the_period_decides_the_width() -> None:
     project = project_of_days(800)
     assert fit_scale(project, {}, (BASE, BASE + timedelta(days=30)), Scale.DAY) is Scale.DAY
+
+
+def test_fit_scale_uses_the_name_width() -> None:
+    from projectapp.gantt import COLUMN_WIDTH_PX
+    from projectapp.timeline import build_columns
+
+    project = project_of_days(100)
+    day_columns = len(build_columns(project, Scale.DAY, {}))
+    exact = PREVIEW_COMFORT_WIDTH_PX - COLUMN_WIDTH_PX[Scale.DAY] * day_columns  # 日次が、ちょうど収まる幅
+    assert fit_scale(project, {}, None, Scale.DAY, exact) is Scale.DAY
+    assert fit_scale(project, {}, None, Scale.DAY, exact + 1) is Scale.WEEK  # 1px 広いと、収まらず週次
