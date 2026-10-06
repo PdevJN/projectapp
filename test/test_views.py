@@ -1870,7 +1870,6 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         ("開く", "file-open"),
         ("保存", "save-project"),
         ("名前をつけて保存", "file-save-as"),
-        ("エクスポート", "export-preview"),
         ("祝日を更新", "refresh-holidays"),
     ]
     assert menu_items(user, "menu-project-items") == [
@@ -1878,7 +1877,10 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         ("設定", "open-settings"),
         ("メンバー", "open-members"),
     ]
-    assert menu_items(user, "menu-export-items") == [("担当者へ書き出し", "export-handoff")]
+    assert menu_items(user, "menu-export-items") == [
+        ("チャートプレビュー", "export-preview"),
+        ("担当者へ書き出し", "export-handoff"),
+    ]
     assert menu_items(user, "menu-help-items") == [("ショートカットヘルプ", "help-shortcuts")]
     assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark")]
 
@@ -2097,3 +2099,12 @@ async def test_save_as_works_for_an_unsaved_project_too(user: User, tmp_path: Pa
     user.find(marker="project-name").clear().type("丙")
     user.find(marker="name-save").click()
     assert await wait_until(lambda: views[0].path == tmp_path / "丙.json")
+
+
+async def test_the_file_menu_has_a_separator_before_the_holiday_update(user: User, tmp_path: Path) -> None:
+    await open_header_view(user, tmp_path)
+    menu = user.find(marker="menu-file-items").elements.pop()
+    kinds = [type(child).__name__ for child in menu.default_slot.children]
+    assert kinds == ["MenuItem", "MenuItem", "MenuItem", "Separator", "MenuItem"]  # 開く・保存・名前をつけて保存 | 祝日を更新
+    assert "menu-file-separator" in menu.default_slot.children[3]._markers
+    assert "refresh-holidays" in menu.default_slot.children[4]._markers
