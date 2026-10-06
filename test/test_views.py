@@ -23,7 +23,7 @@ from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.dashboard import PeriodKind
 from projectapp.timeline import Scale
 from projectapp.gantt import ViewOptions
-from projectapp.views import MainView
+from projectapp.views import HEADER_CSS, THEME_ICONS, MainView
 
 
 def holiday_csv() -> bytes:
@@ -1857,9 +1857,9 @@ def menu_items(user: User, menu_marker: str) -> list[tuple[str, str]]:
     ]
 
 
-async def test_the_header_has_the_menus_the_dashboard_icon_and_the_theme_buttons(user: User, tmp_path: Path) -> None:
+async def test_the_header_has_the_menus_the_dashboard_icon_and_the_theme_menu(user: User, tmp_path: Path) -> None:
     await open_header_view(user, tmp_path)
-    for marker in ("menu-file", "menu-project", "menu-export", "menu-help", "open-dashboard", "theme-auto", "theme-light", "theme-dark"):
+    for marker in ("menu-file", "menu-project", "menu-export", "menu-help", "open-dashboard", "menu-theme"):
         await user.should_see(marker=marker)
     await user.should_see("新規プロジェクト")  # タイトル
 
@@ -1875,6 +1875,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     assert menu_items(user, "menu-project-items") == [("設定", "open-settings"), ("メンバー", "open-members")]
     assert menu_items(user, "menu-export-items") == [("担当者へ書き出し", "export-handoff")]
     assert menu_items(user, "menu-help-items") == [("ショートカットヘルプ", "help-shortcuts")]
+    assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark")]
 
 
 async def test_the_file_menu_opens_the_file_list(user: User, tmp_path: Path) -> None:
@@ -1890,16 +1891,32 @@ async def test_the_help_menu_opens_the_shortcut_help(user: User, tmp_path: Path)
     await user.should_see("登録されたキー操作はありません")
 
 
-async def test_the_theme_buttons_mark_the_selected_theme_and_switch_it(user: User, tmp_path: Path) -> None:
+async def test_the_theme_menu_marks_the_selected_theme_and_switches_it(user: User, tmp_path: Path) -> None:
     view = await open_header_view(user, tmp_path)
 
-    def colors() -> dict[str, str]:
-        return {t: user.find(marker=f"theme-{t}").elements.pop()._props["color"] for t in ("auto", "light", "dark")}
+    def selected() -> list[str]:
+        return [t for t in ("auto", "light", "dark") if user.find(marker=f"theme-{t}").elements.pop()._props.get("active")]
 
-    assert colors() == {"auto": "primary", "light": "grey", "dark": "grey"}
+    def icon() -> str:
+        return user.find(marker="menu-theme").elements.pop()._props["icon"]
+
+    assert selected() == ["auto"] and icon() == THEME_ICONS["auto"]
     user.find(marker="theme-dark").click()
     assert view.theme == "dark"
-    assert await wait_until(lambda: colors() == {"auto": "grey", "light": "grey", "dark": "primary"})
+    assert await wait_until(lambda: selected() == ["dark"] and icon() == THEME_ICONS["dark"])  # refresh は遅延実行
+
+
+async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path: Path) -> None:
+    view = await open_header_view(user, tmp_path)
+    assert "app-header" in view.header_box.classes
+    assert "font-size: 12px" in HEADER_CSS  # 14px から -2
+    assert "var(--q-primary)" in HEADER_CSS and "color: #fff" in HEADER_CSS  # テーマカラーの背景 + 白文字
+    assert "body.body--dark .app-header" in HEADER_CSS and "color-mix" in HEADER_CSS  # ダークは暗めのテーマカラー
+    title = user.find(content="新規プロジェクト").elements.pop()
+    assert "app-header-title" in title.classes
+    assert "font-size: 18px" in HEADER_CSS  # タイトルは 24px(text-h5)から小さく
+    menu = user.find(marker="menu-file-items").elements.pop()
+    assert "app-menu" in str(menu._props.get("content-class"))  # 開いたメニューも同じ大きさ
 
 
 async def test_the_floating_buttons_are_gone(user: User, tmp_path: Path) -> None:

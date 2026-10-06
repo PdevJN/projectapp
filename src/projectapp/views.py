@@ -68,7 +68,15 @@ from projectapp.timeline import build_columns, clip_overloads, overallocations, 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
 NEW_PROJECT_NAME = "新規プロジェクト"
-HEADER_STYLE = "border-bottom: 1px solid rgba(128, 128, 128, 0.3); padding-bottom: 8px"
+# ヘッダーは、テーマカラーの背景 + 白文字の帯(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
+# タイトルは 24px(text-h5)から 18px。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
+HEADER_CSS = """
+.app-header { background: var(--q-primary); color: #fff; font-size: 12px; border-radius: 6px; padding: 4px 12px; }
+body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55%, #000); }
+.app-header .q-btn, .app-header .q-field { font-size: 12px; }
+.app-header .app-header-title { font-size: 18px; font-weight: 500; }
+.app-menu .q-item { font-size: 12px; min-height: 32px; }
+"""
 HANDOFF_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、書き出せます"
 HELP_KEYS: list[tuple[str, str]] = []  # (キー, 機能) 機能追加時に登録する
 
@@ -125,7 +133,7 @@ class MainView:
         self.apply_theme(theme)
         self.gantt.refresh_scrollbars()  # 標準のスクロールバーは、切り替えだけでは配色が変わらない
         save_theme(theme, self.base_dir)
-        self.theme_buttons.refresh()
+        self.theme_menu.refresh()
 
     def set_name_width(self, width: int) -> None:
         """名前の欄の幅を、アプリ全体の設定として保存する。プロジェクトのデータには入れない。
@@ -547,6 +555,7 @@ class MainView:
 
     def build(self) -> None:
         ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
+        ui.add_css(HEADER_CSS)
         self.help_dialog = self.build_help_dialog()
         self.header()
         self.preview_bar.build()
@@ -558,7 +567,7 @@ class MainView:
 
     def header(self) -> None:
         """ヘッダー 1 行: タイトル・メニュー 4 つ・(右側)プロジェクトの切り替え・ダッシュボード・テーマ。"""
-        with ui.row().classes("w-full items-center no-wrap gap-1").style(HEADER_STYLE) as box:
+        with ui.row().classes("w-full items-center no-wrap gap-1 app-header") as box:
             self.header_box = box
             box.mark("header-box")
             self.title()
@@ -584,32 +593,34 @@ class MainView:
                 list(self.files),
                 label="プロジェクトファイル",
                 on_change=lambda e: self.request_open(e.value),
-            ).props("dense outlined").classes("w-64").mark("project-select")
+            ).props("dense outlined dark").classes("w-64").mark("project-select")
             ui.button(icon="dashboard", on_click=self.open_dashboard).props("flat round dense").tooltip(
                 "ダッシュボード"
             ).mark("open-dashboard")
-            self.theme_buttons()
+            self.theme_menu()
 
     def header_menu(self, label: str, marker: str, items: list[tuple[str, Callable[[], object], str]]) -> None:
         """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(`items` は、文言・操作・マーカー)。"""
         with ui.button(label).props("flat no-caps icon-right=arrow_drop_down").mark(marker):
-            with ui.menu().mark(f"{marker}-items"):
+            with ui.menu().props("content-class=app-menu").mark(f"{marker}-items"):
                 for text, handler, item_marker in items:
                     ui.menu_item(text, on_click=handler).mark(item_marker)
 
     @ui.refreshable_method
     def title(self) -> None:
-        ui.label(self.project.name).classes("text-h5")
+        ui.label(self.project.name).classes("app-header-title")
 
     @ui.refreshable_method
-    def theme_buttons(self) -> None:
-        """ヘッダー右端のテーマの切り替え。選択中のテーマは、ボタンの色(primary)で分かる。"""
-        with ui.row().classes("items-center no-wrap gap-0"):
-            for theme in THEMES:
-                color = "primary" if theme == self.theme else "grey"
-                ui.button(
-                    icon=THEME_ICONS[theme], color=color, on_click=lambda t=theme: self.set_theme(t)
-                ).props("flat round dense").tooltip(THEME_LABELS[theme]).mark(f"theme-{theme}")
+    def theme_menu(self) -> None:
+        """ヘッダー右端のテーマのメニュー。ボタンの絵が今のテーマで、開いたメニューの選択中の項目が強調される。"""
+        with ui.button(icon=THEME_ICONS[self.theme]).props("flat round dense").tooltip("テーマ").mark("menu-theme"):
+            with ui.menu().props("content-class=app-menu").mark("menu-theme-items"):
+                for theme in THEMES:
+                    item = ui.menu_item(THEME_LABELS[theme], on_click=lambda t=theme: self.set_theme(t)).mark(
+                        f"theme-{theme}"
+                    )
+                    if theme == self.theme:
+                        item.props("active")
 
     def build_help_dialog(self) -> ui.dialog:
         """ショートカットヘルプのダイアログ(ヘルプメニューから開く)。"""
