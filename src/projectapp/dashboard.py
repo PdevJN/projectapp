@@ -7,7 +7,15 @@ from enum import StrEnum
 from math import isfinite
 
 from projectapp.models import Project, Status
-from projectapp.timeline import actual_end, current_progress, effective_end, is_overdue
+from projectapp.timeline import (
+    OVERLOAD_EPSILON,
+    actual_end,
+    counted_span,
+    current_progress,
+    effective_end,
+    is_overdue,
+    is_workday,
+)
 
 
 class PeriodKind(StrEnum):
@@ -87,3 +95,128 @@ def summarize_progress(project: Project, holidays: dict[date, str], now: datetim
             overdue.append(OverdueRow(task.name, task.assignee, min(limits)))
     overdue.sort(key=lambda row: row.limit)
     return Progress(weighted / total if total else None, counts, overdue)
+
+
+UNASSIGNED = "未割り当て"
+DEADLINE = "締切"
+PLANNED_END = "完了予定"
+
+
+@dataclass(frozen=True)
+class LoadStats:
+    average: float  # 稼働日の、割り当て率の合計の平均(1.0 = 100%)
+    peak: float
+    overload_days: int  # 100% を超えた稼働日の数
+
+
+@dataclass(frozen=True)
+class WorkloadRow:
+    name: str
+    planned_hours: float
+    actual_hours: float
+
+
+@dataclass(frozen=True)
+class DueRow:
+    moment: datetime
+    kind: str
+    name: str
+    assignee: str | None
+    overdue: bool
+
+
+def _workdays(period: Period, holidays: dict[date, str]) -> list[date]:
+    return [day for day in period.days() if is_workday(day, holidays)]
+
+
+def _covers(start: datetime, end: datetime, day: date) -> bool:
+    """[start, end) が、その日(0 時から翌 0 時)と重なる。"""
+    return start < datetime.combine(day + timedelta(days=1), time.min) and end > datetime.combine(day, time.min)
+
+
+def summarize_loads(project: Project, period: Period, holidays: dict[date, str]) -> dict[str, LoadStats]:
+    days = _workdays(period, holidays)
+    spans: dict[str, list[tuple[datetime, datetime, float]]] = {}
+    for task in project.all_tasks():
+        counted = counted_span(task, project, holidays)
+        if counted is not None and task.assignee is not None:
+            spans.setdefault(task.assignee, []).append((*counted, task.allocation))
+    loads: dict[str, LoadStats] = {}
+    for member in project.members:
+        items = spans.get(member.name, [])
+        totals = [sum(a for start, end, a in items if _covers(start, end, day)) for day in days]
+        loads[member.name] = LoadStats(
+            sum(totals) / len(totals) if totals else 0.0,
+            max(totals, default=0.0),
+            sum(1 for total in totals if total > 1.0 + OVERLOAD_EPSILON),
+        )
+    return loads
+
+
+def summarize_workload(
+    project: Project, period: Period, now: datetime, holidays: dict[date, str]
+) -> list[WorkloadRow]:
+    names = [member.name for member in project.members]
+    planned = {name: 0.0 for name in (*names, UNASSIGNED)}
+    actual = {name: 0.0 for name in (*names, UNASSIGNED)}
+    days = _workdays(period, holidays)
+    low, high = period.bounds()
+    for task in project.all_tasks():
+        key = task.assignee if task.assignee in names else UNASSIGNED
+        start, end = task.planned_start, effective_end(task, project, holidays)
+        if start is not None and end is not None and end > start and isfinite(task.allocation):
+            count = sum(1 for day in days if _covers(start, end, day))
+            planned[key] += task.allocation * project.daily_hours * count
+        for interval in task.actuals:
+            seconds = (min(interval.end or now, high) - max(interval.start, low)).total_seconds()
+            if seconds > 0:
+                actual[key] += seconds / 3600
+    rows = [WorkloadRow(name, planned[name], actual[name]) for name in names]
+    if planned[UNASSIGNED] or actual[UNASSIGNED]:
+        rows.append(WorkloadRow(UNASSIGNED, planned[UNASSIGNED], actual[UNASSIGNED]))
+    return rows
+
+
+def summarize_due(
+    project: Project, period: Period, now: datetime, holidays: dict[date, str]
+) -> list[DueRow]:
+    low, high = period.bounds()
+    rows: list[DueRow] = []
+    for task in project.all_tasks():
+        if task.status is Status.DONE:
+            continue
+        late = is_overdue(task, project, holidays, now)
+        for kind, moment in ((DEADLINE, task.deadline), (PLANNED_END, effective_end(task, project, holidays))):
+            if kind == PLANNED_END and moment == task.deadline:
+                continue  # 締切だけのタスクは、完了予定が締切と同じになる。同じ日時の 2 行にしない
+            if moment is not None and low <= moment < high:
+                rows.append(DueRow(moment, kind, task.name, task.assignee, late))
+    rows.sort(key=lambda row: (row.moment, row.kind))
+    return rows
+
+
+@dataclass
+class Dashboard:
+    period: Period
+    progress: Progress
+    loads: dict[str, LoadStats]
+    workload: list[WorkloadRow]
+    due: list[DueRow]
+
+    @property
+    def planned_total(self) -> float:
+        return sum(row.planned_hours for row in self.workload)
+
+    @property
+    def actual_total(self) -> float:
+        return sum(row.actual_hours for row in self.workload)
+
+
+def summarize(project: Project, period: Period, now: datetime, holidays: dict[date, str]) -> Dashboard:
+    return Dashboard(
+        period,
+        summarize_progress(project, holidays, now),
+        summarize_loads(project, period, holidays),
+        summarize_workload(project, period, now, holidays),
+        summarize_due(project, period, now, holidays),
+    )

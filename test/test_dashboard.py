@@ -2,7 +2,19 @@ from datetime import date, datetime
 
 import pytest
 
-from projectapp.dashboard import Period, PeriodKind, period_for, summarize_progress
+from projectapp.dashboard import (
+    UNASSIGNED,
+    DueRow,
+    Period,
+    PeriodKind,
+    period_for,
+    summarize,
+    summarize_due,
+    summarize_loads,
+    summarize_progress,
+    summarize_workload,
+)
+from projectapp.timeline import overallocations
 from projectapp.models import Actual, Member, Project, Status, Task
 
 TODAY = date(2026, 10, 7)  # 水曜
@@ -106,3 +118,121 @@ def test_overdue_rows_use_the_earliest_passed_limit_and_are_sorted() -> None:
         ("late", datetime(2026, 10, 6, 17)),
     ]
     assert rows[2].assignee == "田中"
+
+
+WEEK = Period(date(2026, 10, 5), date(2026, 10, 11))
+
+
+def span_task(name: str, start_day: int, end_day: int, allocation: float, **kwargs) -> Task:
+    return Task(
+        name,
+        planned_start=datetime(2026, 10, start_day, 9),
+        planned_end=datetime(2026, 10, end_day, 17),
+        assignee="田中",
+        allocation=allocation,
+        **kwargs,
+    )
+
+
+def test_load_averages_over_workdays_and_tracks_the_peak() -> None:
+    stats = summarize_loads(project_of(span_task("a", 5, 7, 0.5)), WEEK, {})["田中"]
+    assert stats.average == pytest.approx(0.3)  # 月〜水に 50%、木・金は 0
+    assert stats.peak == 0.5
+    assert stats.overload_days == 0
+
+
+def test_load_counts_days_over_one_hundred_percent_like_the_stripes() -> None:
+    project = project_of(span_task("a", 5, 6, 0.6), span_task("b", 5, 6, 0.6))
+    stats = summarize_loads(project, WEEK, {})["田中"]
+    assert (stats.peak, stats.overload_days) == (pytest.approx(1.2), 2)
+    assert stats.average == pytest.approx(0.48)
+    assert overallocations(project, {})  # 縞と同じタスクの重なりを数えている
+
+
+def test_exactly_one_hundred_percent_is_not_an_overload() -> None:
+    project = project_of(span_task("a", 5, 6, 0.5), span_task("b", 5, 6, 0.5))
+    assert summarize_loads(project, WEEK, {})["田中"].overload_days == 0
+
+
+def test_finished_tasks_do_not_load_a_member() -> None:
+    project = project_of(span_task("a", 5, 7, 0.9, status=Status.DONE))
+    stats = summarize_loads(project, WEEK, {})["田中"]
+    assert (stats.average, stats.peak, stats.overload_days) == (0.0, 0.0, 0)
+
+
+def test_holidays_are_not_workdays() -> None:
+    stats = summarize_loads(project_of(span_task("a", 5, 7, 0.5)), WEEK, {date(2026, 10, 6): "祝"})["田中"]
+    assert stats.average == pytest.approx(0.25)  # 月・水・木・金の 4 日で割る
+
+
+def test_a_period_without_workdays_is_zero_and_does_not_divide() -> None:
+    weekend = Period(date(2026, 10, 10), date(2026, 10, 11))
+    stats = summarize_loads(project_of(span_task("a", 5, 12, 0.5)), weekend, {})["田中"]
+    assert (stats.average, stats.peak, stats.overload_days) == (0.0, 0.0, 0)
+
+
+def test_loads_list_the_members_in_order_and_skip_non_members() -> None:
+    members = [Member("田中", 1.0), Member("佐藤", 1.0)]
+    stranger = span_task("x", 5, 7, 0.5)
+    stranger.assignee = "鈴木"
+    loads = summarize_loads(project_of(span_task("a", 5, 7, 0.5), stranger, members=members), WEEK, {})
+    assert list(loads) == ["田中", "佐藤"]
+    assert loads["佐藤"].peak == 0.0
+
+
+DAY = Period(date(2026, 10, 6), date(2026, 10, 6))
+
+
+def test_planned_hours_use_allocation_and_daily_hours_and_include_finished_tasks() -> None:
+    project = project_of(span_task("a", 5, 7, 0.5, status=Status.DONE))
+    rows = summarize_workload(project, DAY, NOW, {})
+    assert [(r.name, r.planned_hours) for r in rows] == [("田中", 0.5 * 6.5)]
+    assert summarize_workload(project, Period(date(2026, 10, 5), date(2026, 10, 7)), NOW, {})[0].planned_hours == pytest.approx(9.75)
+
+
+def test_unassigned_work_is_grouped_and_only_listed_when_it_has_hours() -> None:
+    unassigned = Task("u", planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 6, 17))
+    members = [Member("田中", 1.0), Member("佐藤", 1.0)]
+    rows = summarize_workload(project_of(unassigned, members=members), DAY, NOW, {})
+    assert [(r.name, r.planned_hours) for r in rows] == [("田中", 0.0), ("佐藤", 0.0), (UNASSIGNED, 6.5)]
+    assert [r.name for r in summarize_workload(project_of(members=members), DAY, NOW, {})] == ["田中", "佐藤"]
+
+
+def test_actual_hours_clip_to_the_period_and_run_until_now() -> None:
+    crossing = Actual(datetime(2026, 10, 5, 22), datetime(2026, 10, 6, 2))  # 期間内は 2 時間
+    running = Actual(datetime(2026, 10, 6, 9))  # now(11:30)まで 2.5 時間
+    outside = Actual(datetime(2026, 10, 1, 9), datetime(2026, 10, 1, 12))
+    project = project_of(Task("a", assignee="田中", actuals=[crossing, running, outside]))
+    rows = summarize_workload(project, DAY, datetime(2026, 10, 6, 11, 30), {})
+    assert rows[0].actual_hours == pytest.approx(4.5)
+
+
+def test_dashboard_totals_add_up_the_rows() -> None:
+    project = project_of(span_task("a", 6, 6, 1.0, actuals=[Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12))]))
+    dashboard = summarize(project, DAY, NOW, {})
+    assert dashboard.planned_total == pytest.approx(6.5)
+    assert dashboard.actual_total == pytest.approx(3.0)
+    assert dashboard.period == DAY
+    assert list(dashboard.loads) == ["田中"]
+
+
+def test_due_rows_list_deadlines_and_planned_ends_in_the_period_sorted() -> None:
+    both = Task(
+        "t1",
+        assignee="田中",
+        deadline=datetime(2026, 10, 8, 17),
+        planned_start=datetime(2026, 10, 6, 9),
+        planned_end=datetime(2026, 10, 9, 12),
+    )
+    late = Task("late", status=Status.RUNNING, deadline=datetime(2026, 10, 6, 17))
+    edge_in = Task("in", deadline=datetime(2026, 10, 5, 0, 0))  # 期間の開始ちょうどは入る
+    edge_out = Task("out", deadline=datetime(2026, 10, 12, 0, 0))  # 終了日の翌日 0 時は入らない
+    outside = Task("far", deadline=datetime(2026, 10, 20, 17))
+    done = Task("done", status=Status.DONE, deadline=datetime(2026, 10, 7, 9))
+    rows = summarize_due(project_of(both, late, edge_in, edge_out, outside, done), WEEK, NOW, {})
+    assert rows == [
+        DueRow(datetime(2026, 10, 5, 0, 0), "締切", "in", None, True),
+        DueRow(datetime(2026, 10, 6, 17), "締切", "late", None, True),
+        DueRow(datetime(2026, 10, 8, 17), "締切", "t1", "田中", False),
+        DueRow(datetime(2026, 10, 9, 12), "完了予定", "t1", "田中", False),
+    ]
