@@ -11,7 +11,7 @@ from nicegui.events import KeyEventArguments
 
 from projectapp.calendar import load_cache
 from projectapp.calendar import refresh_holidays as download_holidays
-from projectapp.config import THEMES, load_theme, save_theme
+from projectapp.config import THEMES, load_name_width, load_theme, save_name_width, save_theme
 from projectapp.forms import (
     open_file_dialog,
     open_members_dialog,
@@ -94,7 +94,9 @@ class MainView:
                 edit_task=self.edit_task,
                 move_task=self.move_task,
                 shift_task=self.shift_task,
+                set_name_width=self.set_name_width,
             ),
+            name_width=load_name_width(base_dir),
         )
         self.preview_bar = PreviewBar(self.on_preview_change, self.exit_preview, self.save_image)
 
@@ -107,6 +109,10 @@ class MainView:
         self.gantt.refresh_scrollbars()  # 標準のスクロールバーは、切り替えだけでは配色が変わらない
         save_theme(theme, self.base_dir)
         self.theme_buttons.refresh()
+
+    def set_name_width(self, width: int) -> None:
+        """名前の欄の幅を、アプリ全体の設定として保存する。プロジェクトのデータには入れない。"""
+        save_name_width(width, self.base_dir)
 
     def mark_clean(self) -> None:
         """いまの内容を、保存済み(または開いた直後)の状態として覚える。"""
@@ -193,7 +199,7 @@ class MainView:
             return
         start, end = visible_range(self.project, self.holidays)
         period = (start, max(end - timedelta(days=1), start))  # タスクがないと、範囲が空になる。基準日の 1 日にする
-        scale = fit_scale(self.project, self.holidays, period, self.gantt.scale)
+        scale = fit_scale(self.project, self.holidays, period, self.gantt.scale, self.gantt.name_width)
         self.preview_notice = coarser_notice(scale, self.gantt.scale) if scale is not self.gantt.scale else None
         self.preview = PreviewSettings(start, period[1], scale)
         self.header_box.set_visibility(False)

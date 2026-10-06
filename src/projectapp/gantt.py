@@ -11,7 +11,12 @@ from nicegui.events import ValueChangeEventArguments
 from projectapp import arrange
 from projectapp.arrange import Position
 from projectapp.calendar import DayKind, day_kind
-from projectapp.config import DEFAULT_NAME_WIDTH_PX, MAX_NAME_WIDTH_PX, MIN_NAME_WIDTH_PX
+from projectapp.config import (
+    DEFAULT_NAME_WIDTH_PX,
+    MAX_NAME_WIDTH_PX,
+    MIN_NAME_WIDTH_PX,
+    parse_name_width,
+)
 from projectapp.filtering import TaskFilter, matches, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS
 from projectapp.models import Priority, Project, Section, Status, Task
@@ -277,6 +282,7 @@ class GanttActions:
     edit_task: Callable[[int | None, int], object]  # セクション番号(Noneはセクションなし), タスク番号
     move_task: Callable[[Position, Position, bool], object]  # 元, 挿入先, コピーか
     shift_task: Callable[[int | None, int, int], object]  # セクション番号, タスク番号, 日数
+    set_name_width: Callable[[int], object]  # 名前の欄の幅(px)。範囲に収めた整数。保存は受け取り側
 
 
 class GanttChart:
@@ -344,6 +350,15 @@ class GanttChart:
         if parsed is not None:
             (section, index), days = parsed
             self.actions.shift_task(section, index, days)
+
+    def handle_name_width(self, args: object) -> None:
+        """名前の欄の幅の変更を受ける。不正な値は無視し、範囲外は範囲に収める。
+        描き直さない(ブラウザ側の --name-w が、すでに同じ値)。以降の描画は、この値を使う。"""
+        width = parse_name_width(args.get("width") if isinstance(args, dict) else None)
+        if width is None:
+            return
+        self.name_width = width
+        self.actions.set_name_width(width)
 
     def drag_props(self, kind: str, key: int | str, **extra: object) -> str:
         """ドロップ先の `data-*` 属性。絞り込み中は空(ドロップできない)。"""
@@ -464,6 +479,7 @@ class GanttChart:
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
+        ui.on("chart_name_width", lambda e: self.handle_name_width(e.args))
         self.toolbar = ui.row().classes("w-full items-center no-wrap gap-4")
         with self.toolbar.mark("chart-toolbar"):
             ui.toggle(

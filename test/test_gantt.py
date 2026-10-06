@@ -77,6 +77,7 @@ class Recorder:
             edit_task=lambda si, ti: self.events.append(("edit_task", (si, ti))),
             move_task=lambda src, dst, copy: self.events.append(("move_task", (src, dst, copy))),
             shift_task=lambda si, ti, days: self.events.append(("shift_task", (si, ti, days))),
+            set_name_width=lambda width: self.events.append(("set_name_width", (width,))),
         )
 
 
@@ -2417,3 +2418,54 @@ async def test_the_period_edge_check_for_the_state_mark_does_not_depend_on_the_n
     await user.open("/")
     await user.should_see(marker="bar-0-0")
     await user.should_not_see(marker="progress-state-0-0")  # 既存の、幅 200px での結果と同じ
+
+
+async def test_handle_name_width_updates_the_width_and_reports_it(user: User) -> None:
+    charts, recorder = mount_chart(sample_project())
+    await user.open("/")
+    charts[0].handle_name_width({"width": 300})
+    assert charts[0].name_width == 300
+    assert recorder.events == [("set_name_width", (300,))]
+
+
+async def test_handle_name_width_clamps_out_of_range_values(user: User) -> None:
+    charts, recorder = mount_chart(sample_project())
+    await user.open("/")
+    charts[0].handle_name_width({"width": 9999})
+    charts[0].handle_name_width({"width": 1})
+    assert [event[1] for event in recorder.events] == [(480,), (120,)]
+    assert charts[0].name_width == 120
+
+
+@pytest.mark.parametrize(
+    "args",
+    [None, 300, "300", [300], {}, {"width": None}, {"width": "300"}, {"width": True}, {"width": float("nan")}],
+)
+async def test_handle_name_width_ignores_bad_events(user: User, args: object) -> None:
+    charts, recorder = mount_chart(sample_project())
+    await user.open("/")
+    charts[0].handle_name_width(args)
+    assert recorder.events == []
+    assert charts[0].name_width == DEFAULT_NAME_WIDTH_PX
+
+
+async def test_handle_name_width_does_not_redraw(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    before = user.find(marker="chart-content").elements.pop()
+    charts[0].handle_name_width({"width": 300})
+    await asyncio.sleep(0.05)
+    assert user.find(marker="chart-content").elements.pop() is before  # 描き直されていない
+
+
+async def test_the_saved_width_survives_a_redraw(user: User) -> None:
+    # 幅を変えたあと、スケールの切り替え・絞り込み・折りたたみで描き直しても、幅が戻らない
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    charts[0].handle_name_width({"width": 300})
+    charts[0].set_scale(Scale.WEEK)
+    await wait_until(lambda: name_variable(user) == "300px")
+    charts[0].set_filter(TaskFilter(query="設計"))
+    await wait_until(lambda: name_variable(user) == "300px")
+    charts[0].toggle_section(0)
+    await wait_until(lambda: name_variable(user) == "300px")

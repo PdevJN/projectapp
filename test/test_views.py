@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, datetime, time
@@ -1609,3 +1610,51 @@ async def test_the_preview_shows_a_collapsed_section_and_returns_to_it(user: Use
     view.exit_preview()
     await user.should_not_see(marker="task-0-0")
     assert view.gantt.collapsed == {0}
+
+
+async def test_the_saved_name_width_is_restored_on_startup(user: User, tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text(json.dumps({"theme": "dark", "name_width": 300}), encoding="utf-8")
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    assert views[0].gantt.name_width == 300
+    assert user.find(marker="chart-content").elements.pop()._style["--name-w"] == "300px"
+
+
+async def test_a_bad_saved_name_width_falls_back_to_the_default(user: User, tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text(json.dumps({"name_width": "abc"}), encoding="utf-8")
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    assert views[0].gantt.name_width == 200
+
+
+async def test_changing_the_name_width_saves_it_without_losing_the_theme(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    views[0].set_theme("dark")
+    views[0].gantt.handle_name_width({"width": 260})
+    saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert saved == {"theme": "dark", "name_width": 260}
+
+
+async def test_the_preview_fits_the_scale_with_the_current_name_width(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    views[0].gantt.handle_name_width({"width": 333})
+    seen: list[int] = []
+    import projectapp.views as views_module
+
+    original = views_module.fit_scale
+
+    def spy(*args: object, **kwargs: object) -> object:
+        seen.append(args[4] if len(args) > 4 else kwargs["name_width"])  # type: ignore[arg-type]
+        return original(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(views_module, "fit_scale", spy)
+    views[0].enter_preview()
+    assert seen == [333]
