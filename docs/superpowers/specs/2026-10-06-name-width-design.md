@@ -112,7 +112,7 @@
 - `handle_name_width`: 正常・範囲外を収める・不正値を無視・`set_name_width` が呼ばれる・再描画しないこと。
 - `marker_left` と期間の右端の判定が、幅に依存しないこと(幅を変えても、境界からの相対位置が同じ)。
 - `preview.fit_scale`: 幅を引数にすること。
-- 既存テストのうち、`NAME_WIDTH_PX` に依存する約 8 か所(`test_gantt.py` 5 か所、`test_preview.py` 2 か所ほか)を、変数・`calc` の形に直す。確かめる内容は変えない。
+- 既存テストのうち、名前の幅や位置の文字列(`200`・`220.0px` など)に依存する約 25 か所(`test_gantt.py` 約 23 か所、`test_preview.py` 2 か所)を、変数・`calc` の形に直す。確かめる内容は変えない。
 - `Recorder`(`GanttActions` の記録)に、`set_name_width` を足す。
 
 自動テストではできない(NiceGUI の `User` が、ポインタ操作を扱えない)ので、実機で確認する項目:

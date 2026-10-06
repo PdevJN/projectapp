@@ -10,8 +10,8 @@
 | `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |
 | `filtering.py` | 絞り込み条件(`TaskFilter`)とタスクの判定(`matches`)、セクションで描くタスクの決定(`visible_task_indexes`)(純粋関数) |
 | `arrange.py` | タスクの移動(`move_task`)・コピー(`copy_task`)・日程のずらし(`shift_task`、左へずらせる限度 `min_shift_days`)と、画面から届く値の検証(`parse_move`・`parse_shift`)(純粋関数) |
-| `gantt_drag.py` | ガントチャートのドラッグ操作用の JS と CSS(定数のみ。行は HTML5 の drag、バーは pointer イベント) |
-| `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、セクションの折りたたみ、行のドラッグ移動・コピー、バーの横移動(日次のみ) |
+| `gantt_drag.py` | ガントチャートのドラッグ操作用の JS と CSS(定数のみ。行は HTML5 の drag、バーと名前の欄の右端は pointer イベント) |
+| `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、セクションの折りたたみ、行のドラッグ移動・コピー、バーの横移動(日次のみ)、名前の欄の幅(CSS 変数 `--name-w`。位置は `from_name` で式にする) |
 | `forms.py` | タスク・セクションの入力検証、プロジェクト名の入力・ファイル一覧・未保存の確認ダイアログ、稼働時間の設定ダイアログと入力検証、メンバーのダイアログと検証(`build_members`) |
 | `preview.py` | エクスポートのプレビュー(`PreviewSettings`・期間の検証・`fit_scale`・`PreviewBar`) |
 | `export.py` | 画像化(html-to-image)・倍率・PNG の書き出し・保存ダイアログ(`ImageExporter`) |
@@ -19,7 +19,7 @@
 | `task_dialog.py` | タスクの追加・編集ダイアログ(優先度チップ、日付・時刻の入力、閉じる確認、削除) |
 | `models.py` | Project / Section / Task / Member / Actual と列挙型(Priority・Status・ActualMode)のデータモデル(`Task.planned_start` / `planned_end` / `planned_end_manual` / `deadline`) |
 | `storage.py` | `~/.projectapp/<名前>.json` の走査・名前の検証・保存(一時ファイル経由)・読込 |
-| `config.py` | テーマ設定(`config.json`) |
+| `config.py` | テーマと名前の欄の幅の設定(`config.json`。読んで更新して書く) |
 
 ## 設計書と実装計画
 
@@ -37,6 +37,7 @@
 | タスク表示のチップ | `2026-10-05-task-chips-design.md` |
 | エクスポートとプレビュー | `2026-10-05-export-preview-design.md` |
 | セクションの折りたたみ | `2026-10-06-section-collapse-design.md` |
+| 名前の欄の幅 | `2026-10-06-name-width-design.md` |
 
 実装計画は `docs/superpowers/plans/` に、同じ日付・名前(`-design` なし)である。
 
@@ -64,6 +65,7 @@ uvx ty check src
 **制約(守ること)**
 - NiceGUI の内部関数の差し替え(モンキーパッチ。例: `nicegui.helpers.expects_arguments` のキャッシュ化。約 23〜31% 短縮)は、**しない**。非公開の内部に依存し、NiceGUI の更新で壊れうるため。
 - ツールチップを `title` 属性へ置き換える案(Quasar の Tooltip 531 個が約 100 ms 分。キャッシュと合わせて約 42% 短縮)は、**しない**。見た目と動作が変わる。切り替えの設定(オプション化)も、手間に見合わないので**しない**。
+- 名前の欄の幅の変更(要望 23)は、CSS 変数 `--name-w` で行い、再描画しない。掴み場所は疑似要素で、要素数は増えない。
 - 速度の改善は、NiceGUI の公開 API の範囲で、見た目を変えない手段に限る。候補: 棒の中の、クリックに応答しない飾り(進捗の塗り・縞・印)を 1 つの HTML にまとめる(ヘッダーの日付ラベルの `header_cell_html` と同じ手法)。変わった行だけを更新する案は、スクロール位置とドラッグ用の JS との整合が要るので、設計から始める。
 
 **測り方**: 120 タスクの `Project` を作り、`await chart.render.refresh()` を繰り返して時間を測る(`refresh` は予約されるだけなので、`await` が要る)。`cProfile` の自己時間で、要素生成(`inspect.signature`・`Element.__init__`)と自前の関数を分ける。ブラウザ側(Vue の描画・websocket の約 1MB)は未計測。
