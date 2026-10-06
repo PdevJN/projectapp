@@ -4,8 +4,8 @@
 
 | モジュール | 役割 |
 |---|---|
-| `main.py` | エントリポイント(NiceGUI + pywebview) |
-| `views.py` | メイン画面(ヘッダー・チャート領域・テーマFAB・ヘルプ) |
+| `main.py` | エントリポイント(NiceGUI + pywebview。静的ファイルの登録) |
+| `views.py` | メイン画面(ヘッダー・チャート領域・テーマFAB・ヘルプ・プレビューの出入りと画像の保存) |
 | `calendar.py` | 祝日の取得・キャッシュ(`holidays.json`)と日付種別の判定 |
 | `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |
 | `filtering.py` | 絞り込み条件(`TaskFilter`)とタスクの判定(`matches`)(純粋関数) |
@@ -13,10 +13,35 @@
 | `gantt_drag.py` | ガントチャートのドラッグ操作用の JS と CSS(定数のみ。行は HTML5 の drag、バーは pointer イベント) |
 | `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、行のドラッグ移動・コピー、バーの横移動(日次のみ) |
 | `forms.py` | タスク・セクションの入力検証、プロジェクト名の入力・ファイル一覧・未保存の確認ダイアログ、稼働時間の設定ダイアログと入力検証、メンバーのダイアログと検証(`build_members`) |
+| `preview.py` | エクスポートのプレビュー(`PreviewSettings`・期間の検証・`fit_scale`・`PreviewBar`) |
+| `export.py` | 画像化(html-to-image)・倍率・PNG の書き出し・保存ダイアログ(`ImageExporter`) |
+| `static/` | 同梱の html-to-image(MIT) |
 | `task_dialog.py` | タスクの追加・編集ダイアログ(優先度チップ、日付・時刻の入力、閉じる確認、削除) |
-| `models.py` | Project / Section / Task / Member のデータモデル(`Task.planned_start` / `planned_end` / `planned_end_manual` / `deadline`) |
+| `models.py` | Project / Section / Task / Member / Actual と列挙型(Priority・Status・ActualMode)のデータモデル(`Task.planned_start` / `planned_end` / `planned_end_manual` / `deadline`) |
 | `storage.py` | `~/.projectapp/<名前>.json` の走査・名前の検証・保存(一時ファイル経由)・読込 |
 | `config.py` | テーマ設定(`config.json`) |
+
+## 設計書と実装計画
+
+機能ごとに、設計 → 設計書 → 実装計画の順で進めた。設計書と実装計画は、その時点の記録で、後の変更は反映していない。現在の仕様は `CLAUDE.md`、実装の注意は下の「ファイル形式の注意」を正とする。
+
+| 機能 | 設計書(`docs/superpowers/specs/`) |
+|---|---|
+| ガントチャートの基本表示 | `2026-10-02-gantt-basic-design.md` |
+| 日程計算・保存・稼働時間・開始予定と完了予定 | `2026-10-03-schedule-calc-design.md`、`project-save`、`work-hours`、`planned-dates` |
+| タスク編集ダイアログ | `2026-10-03-task-edit-dialog-design.md` |
+| メンバーと割り当て | `2026-10-03-resources-design.md` |
+| 絞り込み・ドラッグ操作 | `2026-10-04-filtering-design.md`、`drag-and-drop` |
+| 実績・進捗・進捗の棒 | `2026-10-04-actuals-design.md`、`progress`、`progress-bar` |
+| 実績の複数区間 | `2026-10-05-actual-intervals-design.md` |
+| タスク表示のチップ | `2026-10-05-task-chips-design.md` |
+| エクスポートとプレビュー | `2026-10-05-export-preview-design.md` |
+
+実装計画は `docs/superpowers/plans/` に、同じ日付・名前(`-design` なし)である。
+
+## ブランチ
+
+git-flow に従う(`.claude/BRANCH.md`)。作業は `develop` から `feature/*` を切る。
 
 ## コマンド
 
