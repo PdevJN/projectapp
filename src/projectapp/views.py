@@ -69,17 +69,17 @@ THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
 NEW_PROJECT_NAME = "新規プロジェクト"
 # ヘッダーは、画面の上端・左右いっぱいの四角い帯(ui.header)。テーマカラーの背景 + 白文字(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
-# タイトル・メニューのボタンは折り返さない(縮むのはプロジェクト選択のコンボだけ。中のファイル名は 10px)。タイトルも 12px(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
+# メニューのボタンは折り返さない(縮むのはプロジェクト選択のコンボだけ。中のファイル名は 10px)。プロジェクト名は、ヘッダーの外(メイン側の左上)に、12px の太字(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
 HEADER_CSS = """
 .app-header { background: var(--q-primary); color: #fff; font-size: 12px; padding: 4px 12px; flex-wrap: nowrap !important; overflow: hidden; }
 body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55%, #000); }
 .app-header .q-btn, .app-header .q-field { font-size: 12px; }
-.app-header .q-btn, .app-header .app-header-title { white-space: nowrap; flex: none; }
+.app-header .q-btn { white-space: nowrap; flex: none; }
 .app-header .q-btn__content { white-space: nowrap; flex-wrap: nowrap; }
 .app-header .app-project-select { flex: 0 1 16rem; min-width: 8rem; }
 .app-header .app-project-select .q-field__native, .app-header .app-project-select .q-field__input { font-size: 10px; }
 .app-select-popup .q-item { font-size: 10px; min-height: 28px; }
-.app-header .app-header-title { font-size: 12px; font-weight: 700; }
+.app-title { font-size: 12px; font-weight: 700; white-space: nowrap; }
 .app-header .app-menu-btn { background: rgba(255, 255, 255, 0.18); padding: 0 14px; }
 .app-header .app-menu-btn:hover { background: rgba(255, 255, 255, 0.3); }
 .app-menu .q-item { font-size: 12px; min-height: 32px; }
@@ -232,12 +232,17 @@ class MainView:
             elif self.dashboard_kind is not None:
                 self.close_dashboard()
 
+    def set_header_visible(self, visible: bool) -> None:
+        """ヘッダーと、メイン側のタイトルを、一緒に出す・隠す(プレビューとダッシュボードの出入り)。"""
+        self.header_box.set_visibility(visible)
+        self.title_box.set_visibility(visible)
+
     def open_dashboard(self) -> None:
         """メイン画面を、ダッシュボードに切り替える(期間の初期値は今週)。プレビュー中は開かない。"""
         if self.preview is not None or self.dashboard_kind is not None:
             return
         self.dashboard_kind = PeriodKind.WEEK
-        self.header_box.set_visibility(False)
+        self.set_header_visible(False)
         self.gantt.set_visible(False)
         self.refresh_dashboard()
 
@@ -260,7 +265,7 @@ class MainView:
             return
         self.dashboard_kind = None
         self.dashboard_view.hide()
-        self.header_box.set_visibility(True)
+        self.set_header_visible(True)
         self.gantt.set_visible(True)
 
     def enter_preview(self) -> None:
@@ -272,7 +277,7 @@ class MainView:
         scale = fit_scale(self.project, self.holidays, period, self.gantt.scale, self.gantt.name_width)
         self.preview_notice = coarser_notice(scale, self.gantt.scale) if scale is not self.gantt.scale else None
         self.preview = PreviewSettings(start, period[1], scale)
-        self.header_box.set_visibility(False)
+        self.set_header_visible(False)
         self.preview_bar.show(self.preview)
         self.apply_preview(self.preview)
 
@@ -283,7 +288,7 @@ class MainView:
         self.preview = None
         self.preview_notice = None
         self.preview_bar.hide()
-        self.header_box.set_visibility(True)
+        self.set_header_visible(True)
         self.gantt.set_options(ViewOptions())
 
     def on_preview_change(self) -> None:
@@ -565,6 +570,10 @@ class MainView:
         ui.add_css(HEADER_CSS)
         self.help_dialog = self.build_help_dialog()
         self.header()
+        with ui.row().classes("w-full items-center") as title_box:
+            self.title_box = title_box
+            title_box.mark("title-box")
+            self.title()
         self.preview_bar.build()
         self.dashboard_view.build()
         self.gantt.build()
@@ -573,11 +582,10 @@ class MainView:
             ui.timer(0.1, self.first_fetch, once=True)
 
     def header(self) -> None:
-        """ヘッダー(画面の上端に固定する 1 行): タイトル・メニュー 4 つ・(右側)プロジェクトの切り替え・ダッシュボード・テーマ。"""
+        """ヘッダー(画面の上端に固定する 1 行。左からメニュー 4 つ、右側にコンボ・ダッシュボード・テーマ。プロジェクト名は、ヘッダーの外): タイトル・メニュー 4 つ・(右側)プロジェクトの切り替え・ダッシュボード・テーマ。"""
         with ui.header(elevated=False, wrap=False).classes("row items-center no-wrap gap-1 app-header") as box:
             self.header_box = box
             box.mark("header-box")
-            self.title()
             self.header_menu(
                 "ファイル",
                 "menu-file",
@@ -615,7 +623,7 @@ class MainView:
 
     @ui.refreshable_method
     def title(self) -> None:
-        ui.label(self.project.name).classes("app-header-title")
+        ui.label(self.project.name).classes("app-title")
 
     @ui.refreshable_method
     def theme_menu(self) -> None:

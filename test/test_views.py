@@ -1914,8 +1914,8 @@ async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path
     assert "border-radius" not in band_rule  # 角丸にしない
     # 折り返さない: 帯・タイトル・メニューのボタンは 1 行のまま。狭いときに縮むのは、プロジェクト選択のコンボだけ
     assert "no-wrap" in view.header_box.classes and "flex-wrap: nowrap" in band_rule
-    nowrap_rule = next(line for line in HEADER_CSS.splitlines() if "white-space: nowrap" in line and ".app-header-title" in line)
-    assert "flex: none" in nowrap_rule and ".q-btn" in nowrap_rule  # タイトルとボタンは、縮めも折り返しもしない
+    nowrap_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-header .q-btn {"))
+    assert "white-space: nowrap" in nowrap_rule and "flex: none" in nowrap_rule  # メニューのボタンは、縮めも折り返しもしない
     assert ".app-header .q-btn__content" in HEADER_CSS
     select = user.find(marker="project-select").elements.pop()
     assert "app-project-select" in select.classes and "w-64" not in select.classes  # 固定幅(16rem)をやめ、縮められるようにする
@@ -1931,8 +1931,9 @@ async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path
     assert "var(--q-primary)" in HEADER_CSS and "color: #fff" in HEADER_CSS  # テーマカラーの背景 + 白文字
     assert "body.body--dark .app-header" in HEADER_CSS and "color-mix" in HEADER_CSS  # ダークは暗めのテーマカラー
     title = user.find(content="新規プロジェクト").elements.pop()
-    assert "app-header-title" in title.classes
-    title_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-header .app-header-title {"))
+    assert "app-title" in title.classes
+    assert not any(node is view.header_box for node in ancestors(title))  # タイトルは、ヘッダーの外(メイン側の左上)
+    title_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-title {"))
     assert "font-size: 12px" in title_rule and "font-weight: 700" in title_rule  # 他の文字と同じ大きさ。太さで区別する
     for marker in ("menu-file", "menu-project", "menu-export", "menu-help"):  # メニューは楕円型のボタン
         button = user.find(marker=marker).elements.pop()
@@ -1952,3 +1953,34 @@ async def test_the_floating_buttons_are_gone(user: User, tmp_path: Path) -> None
     await open_header_view(user, tmp_path)
     await user.should_not_see(kind=ui.page_sticky)
     await user.should_not_see(kind=ui.fab)
+
+
+def ancestors(element: ui.element) -> list[ui.element]:
+    nodes: list[ui.element] = []
+    while element.parent_slot is not None and element.parent_slot.parent is not None:
+        element = element.parent_slot.parent
+        nodes.append(element)
+    return nodes
+
+
+async def test_the_menus_start_at_the_left_of_the_header_and_the_title_is_in_the_main_area(user: User, tmp_path: Path) -> None:
+    view = await open_header_view(user, tmp_path)
+    order = ["menu-file", "menu-project", "menu-export", "menu-help", "project-select", "open-dashboard", "menu-theme"]
+    ids = [user.find(marker=marker).elements.pop().id for marker in order]
+    assert ids == sorted(ids)  # 左から、メニュー 4 つ。右側に、コンボ・ダッシュボード・テーマ
+    header_children = view.header_box.default_slot.children
+    assert isinstance(header_children[0], ui.button)  # 先頭は、メニューのボタン(タイトルではない)
+    title = user.find(content="新規プロジェクト").elements.pop()
+    assert view.header_box not in ancestors(title)
+
+
+async def test_the_title_hides_and_returns_with_the_header(user: User, tmp_path: Path) -> None:
+    view = await open_header_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    assert not view.header_box.visible and not view.title_box.visible
+    user.find(marker="dashboard-back").click()
+    assert view.header_box.visible and view.title_box.visible
+    user.find(marker="export-preview").click()
+    assert not view.header_box.visible and not view.title_box.visible
+    view.exit_preview()
+    assert view.header_box.visible and view.title_box.visible
