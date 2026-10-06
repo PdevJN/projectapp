@@ -13,11 +13,12 @@
 - 並列実行(7fa9d88。`pytest-xdist`): `uv run pytest -n auto` で約 10 秒。
 - ヘッダーのラベルのまとめ(a03d69f。設計書 `2026-10-06-header-labels-design.md`): ヘッダーの日付・曜日を 1 つの HTML 要素にまとめた。再描画が、429 列のプロジェクトで約 250ms → 約 40ms。
 - **プッシュ**: `develop` は 2026-10-07 にプッシュ済み(b53e7f5。要望 4 のマージまで)。以降のプッシュも、許可を得てから行う。
-- 担当者向けファイルの書き出し(要望 4。2026-10-07。`develop` へマージ済み(マージコミット baa0656。ブランチ `feature/assignee-handoff` は削除済み)。**ネイティブで実機確認済み(2026-10-07)**。設計書 `2026-10-07-assignee-handoff-design.md`、実装計画 `2026-10-07-assignee-handoff.md`。Native で実行): ヘッダーの「担当者へ書き出し」で、メンバーを選び、その担当の未終了タスクを todoapp 形式の `todos.json` に書き出す(`handoff.py`。todoapp の形式は `file-format.md`、git 管理外)。`ImageExporter.ask_path` はファイルの種類を引数に取る。テスト 1,195 件と `ty check` が通る。
-- 未着手の要望: 5・6・7・8・10・11・20・21・22・24(後述)。
+- 担当者向けファイルの書き出し(要望 4。2026-10-07。`develop` へマージ済み(マージコミット baa0656。ブランチ `feature/assignee-handoff` は削除済み)。**ネイティブで実機確認済み(2026-10-07)**。設計書 `2026-10-07-assignee-handoff-design.md`、`2026-10-07-dashboard-design.md`、実装計画 `2026-10-07-assignee-handoff.md`。Native で実行): ヘッダーの「担当者へ書き出し」で、メンバーを選び、その担当の未終了タスクを todoapp 形式の `todos.json` に書き出す(`handoff.py`。todoapp の形式は `file-format.md`、git 管理外)。`ImageExporter.ask_path` はファイルの種類を引数に取る。テスト 1,195 件と `ty check` が通る。
+- ダッシュボード(要望 6。2026-10-07。ブランチ `feature/dashboard`。**ネイティブで実機確認済み(2026-10-07)**。設計書 `2026-10-07-dashboard-design.md`、実装計画 `2026-10-07-dashboard.md`。Native で実行): ヘッダーの「ダッシュボード」で、ガントチャートと入れ替える(ESC・「戻る」で戻る。読み取り専用)。期間は今週・今月・全期間。4 つの柱: 進捗と遅れ・人ごとの負荷(`timeline.counted_span`。割り当て超過の縞と同じ前提)・工数の予定と実績(終了したタスクも予定に数える)・期限とマイルストーン。`dashboard.py`(純粋関数)、`dashboard_view.py`、`GanttChart.set_visible`(隠す前にスクロール位置を覚えて戻す)。色は dataviz の検証で、予定=青 #1e88e5・実績=緑 #43a047(灰青は不合格)。最終レビュー済み(Critical なし。Important 3 件を修正: スクロール位置をスクロールのたびに覚える・「全期間」で実行中の実績を今日まで数える・負荷を同時刻の最大にして縞と一致させる)。テスト 1,246 件と `ty check` が通る。見送った軽微な指摘: 期限の一覧の赤がタスク単位(未来の完了予定の行にも付く)、ページ全体の縦位置は覚えていない、開いている間の祝日の初回取得を反映しない、再度開くとき前回のカードが 1 フレーム見える、`end` が先の区間・ピークの印に凡例がない。
+- 未着手の要望: 5・7・8・10・11・20・21・22・24(後述)。
 - 書き出し(PNG)の文字の折り返し・省略の修正(2026-10-07 に `develop` へマージ。マージコミット b6882d6。ブランチ `feature/export-text-fit` は削除済み。bounded。ネイティブで実機確認済み: 月次の見出しの折り返しと ProjectCode の省略が直った)。ネイティブで書き出した PNG で、月の見出しが 2 行に割れ(`9月` → `9` / `月`。下線に重なる)、ProjectCode が省略される(`PRJ-001` → `PRJ-...`)不具合を確認した。原因: `html-to-image` が、各要素の計算済みの幅(小数の px)を複製に固定し、Web フォントを埋め込まないため、書き出しの文字の測り方がわずかに違うと、収まらずに折り返し・省略が起きる(半角の英数字を含む文字列だけ)。対策: 書き出しの間だけ、`export.EXPORT_CSS`(`white-space: nowrap`、`.code-chip` は `text-overflow: clip; overflow: visible`)を `<style>` で当て、終われば必ず外す(`finally`)。ヘッドレス Chrome で、チップの省略が直ることと、`<style>` が残らないことを確認済み。月の見出しの折り返しは、ヘッドレス Chrome では再現せず、ネイティブ(WebKit)で確認した(問題なし)。
 - 実機の確認は、すべて済み(2026-10-07。問題なし): ヘッダー(日付・曜日)の見た目、セクションの折りたたみ(矢印・件数・絞り込み中の自動展開・プレビュー・追加での展開)、エクスポート(画像化の見た目、ライト・ダーク、日次・週次・月次、長い期間、保存ダイアログ、ESC)、タスク表示のチップ(押して編集が開くこと、はみ出し、ダークテーマの背景色)、名前の欄の幅。確認待ちの項目は、なし。
-- 確認用のデータ(`~/.projectapp/`、確認後に削除してよい): `状態色テスト.json`、`区間テスト.json`、`チップテスト.json`、`エクスポートテスト.json`。
+- 確認用のデータ(`~/.projectapp/`、確認後に削除してよい): `状態色テスト.json`、`区間テスト.json`、`チップテスト.json`、`エクスポートテスト.json`、`ダッシュボード_標準.json`、`ダッシュボード_境界.json`(要望 6 の確認用。日付は作成した 2026-10-07 の週が基準)。
 
 **各作業の記録**
 
@@ -145,7 +146,7 @@
 
 NiceGUI の内部関数の差し替えと、Tooltip の `title` 属性への置換(オプション化も含む)は、対応しない。速度の改善は、公開 API の範囲で、見た目を変えない手段に限る(飾りの HTML 化など)。計測結果と測り方は `docs/development.md` の「描画速度の設計制約」。
 
-## 今後の要望(2026-10-04・05 に受領。未着手は 5・6・7・8・10・11・20〜22・24。優先順位は未決)
+## 今後の要望(2026-10-04・05 に受領。未着手は 5・7・8・10・11・20〜22・24。優先順位は未決)
 
 「次にやること(候補)」とは別に押さえておく。着手するときは、設計 → 設計書 → 実装計画の順。
 
@@ -154,7 +155,7 @@ NiceGUI の内部関数の差し替えと、Tooltip の `title` 属性への置�
 3. (完了)ProjectCode: タスクに ProjectCode を追加できるようにする。
 4. (完了)担当者向けファイルの送信: 割り当てた担当者用の管理ファイルを送る(他の NiceGUI アプリでのインポート限定)。 対応: todoapp の形式(`file-format.md`)で、選んだ担当の未終了タスクを書き出す(`handoff.py`)。期間が複数日は `daily`、それ以外は `one_time`。見積もりは工数 ÷ 相対比率。ProjectCode はカテゴリ。実績は `records`(実行中は最新の 1 件)。返送の取り込みは要望 5。マージ済み(baa0656)。実機確認済み。見送った軽微な指摘: 書き出したファイルの権限が 0600、`daily` は期間後も todoapp に毎日出る(設計どおり)、id は同名の先行タスクの削除・並べ替えやプロジェクト名の変更で変わる(要望 5 で再設計)、`records` の並びがタスク順、`write_json` の `OSError` 以外は通知しない。
 5. 実績の外部インポートと API: タスク消化実績の外部インポートと、API 機能の提供。
-6. ダッシュボード: プロジェクト全体のダッシュボード。
+6. (完了)ダッシュボード: プロジェクト全体のダッシュボード。 対応: 4 つの柱(進捗と遅れ・人ごとの負荷・工数の予定と実績・期限とマイルストーン)と、期間(今週・今月・全期間)。ブランチ `feature/dashboard`。
 7. インラインセクション: root から3階層まで。
 8. 格納先の指定: プロジェクト格納ファイルの外部ディレクトリ指定。
 9. (完了)タスク表示の拡張: タスク名に担当をチップ表示(マウスオーバーでラベル表示)、ProjectCode のチップ表示、進捗の表示。
@@ -181,8 +182,8 @@ NiceGUI の内部関数の差し替えと、Tooltip の `title` 属性への置�
 
 ## 参照先
 
-- 設計書: `docs/superpowers/specs/2026-10-02-gantt-basic-design.md`、`2026-10-03-schedule-calc-design.md`、`2026-10-03-project-save-design.md`、`2026-10-03-work-hours-design.md`、`2026-10-03-task-edit-dialog-design.md`、`2026-10-05-actual-intervals-design.md`、`2026-10-05-task-chips-design.md`、`2026-10-05-export-preview-design.md`、`2026-10-06-section-collapse-design.md`、`2026-10-06-header-labels-design.md`、`2026-10-06-name-width-design.md`、`2026-10-07-assignee-handoff-design.md`
-- 実装計画: `docs/superpowers/plans/2026-10-03-gantt-basic.md`、`2026-10-03-schedule-calc.md`、`2026-10-03-task-edit-dialog.md`、`2026-10-05-actual-intervals.md`、`2026-10-05-task-chips.md`、`2026-10-05-export-preview.md`、`2026-10-06-section-collapse.md`、`2026-10-06-name-width.md`、`2026-10-07-assignee-handoff.md`(ヘッダーのラベルのまとめは、実装計画なしで、設計書から実装した)
+- 設計書: `docs/superpowers/specs/2026-10-02-gantt-basic-design.md`、`2026-10-03-schedule-calc-design.md`、`2026-10-03-project-save-design.md`、`2026-10-03-work-hours-design.md`、`2026-10-03-task-edit-dialog-design.md`、`2026-10-05-actual-intervals-design.md`、`2026-10-05-task-chips-design.md`、`2026-10-05-export-preview-design.md`、`2026-10-06-section-collapse-design.md`、`2026-10-06-header-labels-design.md`、`2026-10-06-name-width-design.md`、`2026-10-07-assignee-handoff-design.md`、`2026-10-07-dashboard-design.md`
+- 実装計画: `docs/superpowers/plans/2026-10-03-gantt-basic.md`、`2026-10-03-schedule-calc.md`、`2026-10-03-task-edit-dialog.md`、`2026-10-05-actual-intervals.md`、`2026-10-05-task-chips.md`、`2026-10-05-export-preview.md`、`2026-10-06-section-collapse.md`、`2026-10-06-name-width.md`、`2026-10-07-assignee-handoff.md`、`2026-10-07-dashboard.md`(ヘッダーのラベルのまとめは、実装計画なしで、設計書から実装した)
 - 開発者向け: `docs/development.md`
 - 実行の記録(git 管理外): `.superpowers/sdd/*/progress.md`(`.git/info/exclude` で除外)
 - 起動: `uv run projectapp`(NiceGUI + pywebview のネイティブウィンドウ)

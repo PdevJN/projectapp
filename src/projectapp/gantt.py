@@ -207,6 +207,17 @@ SCROLL_RESET_JS = (
     "document.querySelector('[data-chart-scroll]')?.scrollTo({top: 0, left: 0});"
     " window.scrollTo({top: 0})"
 )
+# 非表示(display: none)にすると、枠のスクロール位置が失われる。要素の更新(隠す)は run_javascript より先にブラウザへ届き、
+# 隠す直前には位置を読めないので、スクロールのたびに覚える(見えているときだけ。隠れて 0 を返すときは上書きしない)。
+# 出したあとの次のフレームで戻す
+TRACK_SCROLL_JS = (
+    "(e) => { const el = e.target; if (el.offsetHeight > 0)"
+    " { el.dataset.top = el.scrollTop; el.dataset.left = el.scrollLeft; } }"
+)
+SHOW_CHART_JS = (
+    "requestAnimationFrame(() => { const el = document.querySelector('[data-chart-scroll]');"
+    " if (el) el.scrollTo({top: Number(el.dataset.top || 0), left: Number(el.dataset.left || 0)}); })"
+)
 SCROLL_TO_TOP_JS = (
     "document.querySelector('[data-chart-scroll]')?.scrollTo({top: 0});"
     " window.scrollTo({top: 0})"
@@ -302,6 +313,7 @@ class GanttChart:
         self.scale = Scale.DAY
         self.options = ViewOptions()
         self.toolbar: ui.row | None = None
+        self.scroll_box: ui.element | None = None
         self.task_filter = TaskFilter()
         self.collapsed: set[int] = set()  # 折りたたんだセクションの添字。保存しない
         self.section_views: dict[int, SectionView] = {}  # 描画中のセクションの部品
@@ -439,6 +451,19 @@ class GanttChart:
         """描画に使うスケール。プレビューで指定されていればそれ、なければツールバーのスケール。"""
         return self.options.scale or self.scale
 
+    def set_visible(self, visible: bool) -> None:
+        """ツールバーとチャートを、出す・隠す(描き直さない)。位置は、スクロールのたびに覚え、出したあとに戻す。"""
+        if self.toolbar is None or self.scroll_box is None:
+            return
+        if visible:
+            self.toolbar.set_visibility(not self.options.read_only)
+            self.scroll_box.set_visibility(True)
+            if self.client is not None:
+                self.client.run_javascript(SHOW_CHART_JS)
+        else:
+            self.toolbar.set_visibility(False)
+            self.scroll_box.set_visibility(False)
+
     def set_options(self, options: ViewOptions) -> None:
         """表示の設定を変えて、描き直す。描画のスケールが変わるときは、横のスクロールを先頭へ戻す。"""
         before = self.view_scale
@@ -530,6 +555,8 @@ class GanttChart:
             f" padding-bottom: {SCROLLBAR_ROOM_PX}px"
         )
         scroll = ui.element("div").classes("w-full").style(scroll_style)
+        self.scroll_box = scroll
+        scroll.on("scroll", js_handler=TRACK_SCROLL_JS)
         with scroll.props("data-chart-scroll").mark("chart-scroll"):
             self.render()
 

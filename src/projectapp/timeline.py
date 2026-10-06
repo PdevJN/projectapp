@@ -167,7 +167,7 @@ class Overload:
 OVERLOAD_EPSILON = 1e-9  # 浮動小数の誤差で、ちょうど100%を超過にしない
 
 
-def _counted_span(
+def counted_span(
     task: Task, project: Project, holidays: dict[date, str]
 ) -> tuple[datetime, datetime] | None:
     """割り当ての合計に数えるタスクの期間。数えない(担当者なし・終了・開始予定なしなど)ときはNone。"""
@@ -185,7 +185,7 @@ def overallocations(project: Project, holidays: dict[date, str]) -> list[Overloa
     """同じ担当者の、期間が重なるタスクの割り当て率の合計が100%を超える期間。"""
     spans: dict[str, list[tuple[datetime, datetime, float]]] = {}
     for task in project.all_tasks():
-        counted = _counted_span(task, project, holidays)
+        counted = counted_span(task, project, holidays)
         if counted is not None and task.assignee is not None:
             spans.setdefault(task.assignee, []).append((*counted, task.allocation))
     result: list[Overload] = []
@@ -213,7 +213,7 @@ def clip_overloads(
     task: Task, project: Project, holidays: dict[date, str], overloads: list[Overload]
 ) -> list[Overload]:
     """そのタスクの期間に重なる超過区間を、タスクの期間に切り詰めて返す。"""
-    counted = _counted_span(task, project, holidays)
+    counted = counted_span(task, project, holidays)
     if counted is None:
         return []
     start, end = counted

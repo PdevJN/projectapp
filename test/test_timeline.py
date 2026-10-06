@@ -16,6 +16,7 @@ from projectapp.timeline import (
     Overload,
     calc_end,
     clip_overloads,
+    counted_span,
     combine_rate,
     conversion_rate,
     current_progress,
@@ -821,3 +822,13 @@ def test_in_range_for_zero_length_and_reversed_bars() -> None:
     assert in_range(datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 9), cols)
     assert not in_range(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 9), cols)
     assert in_range(datetime(2026, 10, 8), datetime(2026, 10, 7), cols)  # 逆順(手編集)でも落ちない
+
+
+def test_counted_span_is_the_span_that_overallocation_counts() -> None:
+    counted = alloc_task("a", 5, 7, 0.5)
+    project = Project("P", members=[Member("田中", 1.0)], tasks=[counted])
+    assert counted_span(counted, project, {}) == (counted.planned_start, counted.planned_end)
+    done = alloc_task("b", 5, 7, 0.5, status=Status.DONE)
+    unassigned = Task("c", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 7))
+    for task in (done, unassigned):
+        assert counted_span(task, project, {}) is None

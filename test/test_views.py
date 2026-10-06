@@ -20,6 +20,8 @@ from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
 from projectapp.export import PNG_FILE_TYPES, ExportError
+from projectapp.dashboard import PeriodKind
+from projectapp.timeline import Scale
 from projectapp.gantt import ViewOptions
 from projectapp.views import MainView
 
@@ -1762,3 +1764,94 @@ async def test_a_write_failure_is_reported_and_the_dialog_stays(user: User, tmp_
     await user.should_see("保存できませんでした")
     await user.should_see(marker="handoff-member")
     assert await wait_until(lambda: user.find(marker="handoff-export").elements.pop().enabled)
+
+
+async def open_dashboard_view(user: User, tmp_path: Path, with_task: bool = True) -> MainView:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    view = views[0]
+    view.now = lambda: datetime(2026, 10, 7, 12)
+    view.project.base_date = date(2026, 10, 5)
+    if with_task:
+        view.project.members = [Member("田中", 1.0)]
+        view.save_task(
+            None,
+            None,
+            Task(
+                "設計",
+                assignee="田中",
+                planned_start=datetime(2026, 10, 6, 9),
+                planned_end=datetime(2026, 10, 9, 12),
+                deadline=datetime(2026, 10, 20, 17),
+            ),
+        )
+    view.mark_clean()
+    return view
+
+
+async def test_the_dashboard_replaces_the_header_and_the_chart(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    assert view.dashboard_kind == PeriodKind.WEEK
+    assert not view.header_box.visible
+    assert view.gantt.toolbar is not None and not view.gantt.toolbar.visible
+    await user.should_see(marker="dashboard-back")
+    await user.should_see(marker="dashboard-progress-percent")
+
+
+async def test_back_restores_the_header_and_the_chart(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    user.find(marker="dashboard-back").click()
+    assert view.dashboard_kind is None
+    assert view.header_box.visible
+    assert view.gantt.toolbar is not None and view.gantt.toolbar.visible
+    await user.should_not_see(marker="dashboard-back")
+
+
+async def test_escape_closes_the_dashboard(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    view.on_key(key_event("Escape"))
+    assert view.dashboard_kind is None and view.header_box.visible
+
+
+async def test_changing_the_period_redraws_with_the_new_period(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-due-0")  # 今週: 10/9 の完了予定だけ(refresh は遅延実行なので、待つ)
+    await user.should_not_see(marker="dashboard-due-1")
+    user.find(marker="dashboard-period").elements.pop().set_value("今月")
+    assert view.dashboard_kind == PeriodKind.MONTH
+    await user.should_see(marker="dashboard-due-1")  # 今月: 10/20 の締切も入る
+
+
+async def test_the_dashboard_leaves_the_chart_state_and_the_project_untouched(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    view.gantt.set_scale(Scale.WEEK)
+    view.gantt.set_filter(TaskFilter(query="設"))
+    user.find(marker="open-dashboard").click()
+    user.find(marker="dashboard-back").click()
+    assert view.gantt.scale == Scale.WEEK
+    assert view.gantt.task_filter.query == "設"
+    assert not view.is_dirty()
+
+
+async def test_an_empty_project_shows_the_empty_messages(user: User, tmp_path: Path) -> None:
+    await open_dashboard_view(user, tmp_path, with_task=False)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-empty-progress")
+    await user.should_see(marker="dashboard-empty-due")
+
+
+async def test_the_dashboard_and_the_preview_do_not_open_together(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="export-preview").click()
+    view.open_dashboard()
+    assert view.dashboard_kind is None
+    view.exit_preview()
+    user.find(marker="open-dashboard").click()
+    view.enter_preview()
+    assert view.preview is None
