@@ -14,11 +14,12 @@ from projectapp.calendar import DayKind, save_cache
 from projectapp.filtering import TaskFilter
 from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
+from projectapp.handoff import JSON_FILE_TYPES
 from projectapp.models import Actual, ActualMode, Member, Project, Section, Task
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
-from projectapp.export import ExportError
+from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.gantt import ViewOptions
 from projectapp.views import MainView
 
@@ -1196,6 +1197,7 @@ class FakeExporter:
         self.path, self.error, self._available = path, error, available
         self.captured: list[float] = []
         self.asked: list[str] = []
+        self.asked_types: list[tuple[str, ...]] = []
 
     @property
     def available(self) -> bool:
@@ -1207,8 +1209,9 @@ class FakeExporter:
             raise self.error
         return PNG_BYTES
 
-    async def ask_path(self, filename: str) -> Path | None:
+    async def ask_path(self, filename: str, file_types: tuple[str, ...] = ()) -> Path | None:
         self.asked.append(filename)
+        self.asked_types.append(file_types)
         return self.path
 
 
@@ -1352,6 +1355,7 @@ async def test_save_writes_the_png_and_notifies(user: User, tmp_path: Path) -> N
     assert await wait_until(lambda: (tmp_path / "out" / "chart.png").exists())
     assert (tmp_path / "out" / "chart.png").read_bytes() == PNG_BYTES
     assert exporter.asked == [f"新規プロジェクト_{date.today():%Y%m%d}.png"]
+    assert exporter.asked_types == [PNG_FILE_TYPES]
     assert 0 < exporter.captured[0] <= 2.0
     await user.should_see("保存しました")
 
@@ -1677,3 +1681,84 @@ async def test_a_failed_save_of_the_name_width_is_reported_and_does_not_raise(
         views[0].gantt.handle_name_width({"width": 260})
     assert views[0].gantt.name_width == 260  # 画面の幅は、そのまま
     await user.should_see("名前の欄の幅を保存できませんでした")
+
+
+async def open_handoff_view(user: User, tmp_path: Path, exporter: FakeExporter) -> MainView:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, exporter)
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    return view
+
+
+def assign(view: MainView) -> None:
+    view.project.members = [Member("田中", 0.5)]
+    view.save_task(None, None, Task("設計", assignee="田中", planned_start=datetime(2026, 10, 5, 9), effort_hours=3))
+    view.mark_clean()
+
+
+async def test_handoff_needs_members(user: User, tmp_path: Path) -> None:
+    await open_handoff_view(user, tmp_path, FakeExporter())
+    user.find(marker="export-handoff").click()
+    await user.should_see("メンバーが登録されていません")
+    await user.should_not_see(marker="handoff-member")
+
+
+async def test_handoff_needs_the_native_window(user: User, tmp_path: Path) -> None:
+    view = await open_handoff_view(user, tmp_path, FakeExporter(available=False))
+    assign(view)
+    user.find(marker="export-handoff").click()
+    await user.should_see("ネイティブウィンドウでのみ、書き出せます")
+    await user.should_not_see(marker="handoff-member")
+
+
+async def test_handoff_disables_export_without_unfinished_tasks(user: User, tmp_path: Path) -> None:
+    view = await open_handoff_view(user, tmp_path, FakeExporter())
+    view.project.members = [Member("田中", 0.5)]
+    user.find(marker="export-handoff").click()
+    await user.should_see("終了以外のタスクがありません")
+    assert not user.find(marker="handoff-export").elements.pop().enabled
+
+
+async def test_handoff_writes_todoapp_json_and_keeps_the_project_clean(user: User, tmp_path: Path) -> None:
+    (tmp_path / "out").mkdir()
+    exporter = FakeExporter(path=tmp_path / "out" / "todos")
+    view = await open_handoff_view(user, tmp_path, exporter)
+    assign(view)
+    user.find(marker="export-handoff").click()
+    await user.should_see("終了以外のタスク: 1 件")
+    user.find(marker="handoff-export").click()
+    target = tmp_path / "out" / "todos.json"
+    assert await wait_until(target.exists)
+    data = json.loads(target.read_text(encoding="utf-8"))
+    assert data["version"] == 1
+    assert [(i["name"], i["schedule_type"], i["estimate_hours"]) for i in data["items"]] == [("設計", "one_time", 6.0)]
+    assert exporter.asked == ["todos-田中.json"]
+    assert exporter.asked_types == [JSON_FILE_TYPES]
+    await user.should_see("1 件を書き出しました")
+    assert not view.is_dirty()
+
+
+async def test_cancelling_the_save_dialog_keeps_the_dialog_open(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=None)
+    view = await open_handoff_view(user, tmp_path, exporter)
+    assign(view)
+    user.find(marker="export-handoff").click()
+    user.find(marker="handoff-export").click()
+    assert await wait_until(lambda: exporter.asked != [])
+    assert not list(tmp_path.rglob("todos*.json"))  # holidays.json(祝日のキャッシュ)は別
+    await user.should_see(marker="handoff-member")
+    assert await wait_until(lambda: user.find(marker="handoff-export").elements.pop().enabled)  # もう一度押せる
+
+
+async def test_a_write_failure_is_reported_and_the_dialog_stays(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=tmp_path / "missing" / "todos.json")
+    view = await open_handoff_view(user, tmp_path, exporter)
+    assign(view)
+    user.find(marker="export-handoff").click()
+    user.find(marker="handoff-export").click()
+    await user.should_see("保存できませんでした")
+    await user.should_see(marker="handoff-member")
+    assert await wait_until(lambda: user.find(marker="handoff-export").elements.pop().enabled)

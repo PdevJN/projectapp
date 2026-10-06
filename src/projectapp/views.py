@@ -14,6 +14,7 @@ from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import THEMES, load_name_width, load_theme, save_name_width, save_theme
 from projectapp.forms import (
     open_file_dialog,
+    open_handoff_dialog,
     open_members_dialog,
     open_name_dialog,
     open_section_dialog,
@@ -23,6 +24,7 @@ from projectapp.forms import (
 from projectapp import arrange
 from projectapp.export import (
     HTML_TO_IMAGE_URL,
+    PNG_FILE_TYPES,
     ExportError,
     ImageExporter,
     NativeImageExporter,
@@ -31,6 +33,14 @@ from projectapp.export import (
     export_pixel_ratio,
     write_png,
 )
+from projectapp.handoff import (
+    JSON_FILE_TYPES,
+    build_todos,
+    summary,
+    tasks_for,
+    write_json,
+)
+from projectapp.handoff import default_filename as handoff_filename
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
 from projectapp.models import ActualMode, Member, Project, Section, Task
 from projectapp.preview import (
@@ -56,6 +66,7 @@ from projectapp.timeline import build_columns, clip_overloads, overallocations, 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
 NEW_PROJECT_NAME = "新規プロジェクト"
+HANDOFF_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、書き出せます"
 HELP_KEYS: list[tuple[str, str]] = []  # (キー, 機能) 機能追加時に登録する
 
 
@@ -267,7 +278,7 @@ class MainView:
             except ExportError as exc:
                 ui.notify(f"画像を作れませんでした: {exc}", type="negative")
                 return
-            path = await self.exporter.ask_path(default_filename(self.project.name, date.today()))
+            path = await self.exporter.ask_path(default_filename(self.project.name, date.today()), PNG_FILE_TYPES)
             if path is None:
                 return
             try:
@@ -280,6 +291,35 @@ class MainView:
             self.saving = False
             if self.preview is not None:
                 self.preview_bar.set_save_enabled(self.exporter.available)
+
+    def open_handoff(self) -> None:
+        if not self.exporter.available:
+            ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
+            return
+        if not self.project.members:
+            ui.notify("メンバーが登録されていません", type="warning")
+            return
+        open_handoff_dialog(
+            [m.name for m in self.project.members],
+            lambda name: len(tasks_for(self.project, name)),
+            self.export_handoff,
+        )
+
+    async def export_handoff(self, member_name: str) -> bool:
+        """選んだ担当の未終了タスクを、todoapp 形式で書き出す。閉じてよいとき(書き出せたとき)だけ True。プロジェクトは変えない。"""
+        result = build_todos(self.project, member_name, self.holidays)
+        if result.task_count == 0:
+            return False
+        path = await self.exporter.ask_path(handoff_filename(member_name), JSON_FILE_TYPES)
+        if path is None:
+            return False
+        try:
+            write_json(path, result.data)
+        except OSError as exc:
+            ui.notify(f"保存できませんでした: {exc}", type="negative")
+            return False
+        ui.notify(summary(result))
+        return True
 
     def open_members(self) -> None:
         open_members_dialog(self.project.members, self.assigned_count, self.apply_members)
@@ -503,6 +543,9 @@ class MainView:
                 )
                 ui.button("エクスポート", icon="image", on_click=self.enter_preview).mark(
                     "export-preview"
+                )
+                ui.button("担当者へ書き出し", icon="upload_file", on_click=self.open_handoff).mark(
+                    "export-handoff"
                 )
 
     @ui.refreshable_method

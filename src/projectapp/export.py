@@ -18,6 +18,7 @@ MAX_PIXEL_RATIO = 2.0
 HTML_TO_IMAGE_URL = "/static/html-to-image.js"
 STATIC_DIR = Path(__file__).parent / "static"
 PNG_PREFIX = "data:image/png;base64,"
+PNG_FILE_TYPES = ("PNG 画像 (*.png)",)
 UNSAFE_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
 CAPTURE_TIMEOUT_S = 90
 # NiceGUI の websocket は、1 メッセージ約 1MB まで(engineio の既定)。画像は分けて受け取る
@@ -129,7 +130,7 @@ class ImageExporter(Protocol):
 
     async def capture(self, pixel_ratio: float) -> bytes: ...
 
-    async def ask_path(self, filename: str) -> Path | None: ...
+    async def ask_path(self, filename: str, file_types: tuple[str, ...]) -> Path | None: ...
 
 
 RunJs = Callable[..., Awaitable[Any]]
@@ -172,7 +173,7 @@ class NativeImageExporter:
             except Exception:  # noqa: BLE001 後始末の失敗は、画像の結果に影響させない
                 pass
 
-    async def ask_path(self, filename: str) -> Path | None:
+    async def ask_path(self, filename: str, file_types: tuple[str, ...]) -> Path | None:
         import webview  # ネイティブのときだけ使う
 
         window = app.native.main_window
@@ -182,7 +183,7 @@ class NativeImageExporter:
         result = await window.create_file_dialog(  # ty: ignore[unresolved-attribute]
             dialog_type=webview.FileDialog.SAVE,
             save_filename=filename,
-            file_types=("PNG 画像 (*.png)",),
+            file_types=file_types,
         )
         if not result:
             return None
