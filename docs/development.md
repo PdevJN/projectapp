@@ -11,10 +11,12 @@
 | `filtering.py` | 絞り込み条件(`TaskFilter`)とタスクの判定(`matches`)、セクションで描くタスクの決定(`visible_task_indexes`)(純粋関数) |
 | `arrange.py` | タスクの移動(`move_task`)・コピー(`copy_task`)・日程のずらし(`shift_task`、左へずらせる限度 `min_shift_days`)と、画面から届く値の検証(`parse_move`・`parse_shift`)(純粋関数) |
 | `gantt_drag.py` | ガントチャートのドラッグ操作用の JS と CSS(定数のみ。行は HTML5 の drag、バーと名前の欄の右端は pointer イベント) |
-| `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、セクションの折りたたみ、行のドラッグ移動・コピー、バーの横移動(日次のみ)、名前の欄の幅(CSS 変数 `--name-w`。位置は `from_name` で式にする) |
+| `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、セクションの折りたたみ、行のドラッグ移動・コピー、バーの横移動(日次のみ)、名前の欄の幅(CSS 変数 `--name-w`。位置は `from_name` で式にする)、ツールバーとチャートの表示・非表示(`set_visible`。スクロール位置を覚えて戻す) |
 | `forms.py` | タスク・セクションの入力検証、プロジェクト名の入力・ファイル一覧・未保存の確認ダイアログ、稼働時間の設定ダイアログと入力検証、メンバーのダイアログと検証(`build_members`) |
 | `preview.py` | エクスポートのプレビュー(`PreviewSettings`・期間の検証・`fit_scale`・`PreviewBar`) |
 | `export.py` | 画像化(html-to-image)・倍率・PNG の書き出し・保存ダイアログ(`ImageExporter`。`ask_path` はファイルの種類を引数に取り、担当者向けファイルでも使う) |
+| `dashboard.py` | ダッシュボードの集計(期間 `period_for`、進捗・負荷・工数・期限、`summarize`)。純粋関数(NiceGUI に依存しない)。負荷は `timeline.counted_span` を使い、割り当て超過の縞と同じ前提 |
+| `dashboard_view.py` | ダッシュボードの表示(カードと横棒。`DashboardView`) |
 | `handoff.py` | 担当者向けファイルの書き出し。タスクを todoapp 形式(`items`・`records`・`categories`)へ変える(`build_todos`)、書き込み(`write_json`)。純粋関数(NiceGUI に依存しない)。id は`uuid5`で決まる(同名のタスクは`名前#2`)。todoapp の形式は`file-format.md`(git 管理外) |
 | `static/` | 同梱の html-to-image(MIT) |
 | `task_dialog.py` | タスクの追加・編集ダイアログ(優先度チップ、日付・時刻の入力、閉じる確認、削除) |
@@ -39,6 +41,7 @@
 | エクスポートとプレビュー | `2026-10-05-export-preview-design.md` |
 | セクションの折りたたみ | `2026-10-06-section-collapse-design.md` |
 | 名前の欄の幅 | `2026-10-06-name-width-design.md` |
+| ダッシュボード | `2026-10-07-dashboard-design.md` |
 | 担当者向けファイルの書き出し | `2026-10-07-assignee-handoff-design.md` |
 
 実装計画は `docs/superpowers/plans/` に、同じ日付・名前(`-design` なし)である。
