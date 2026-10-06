@@ -48,7 +48,7 @@ async def test_a_main_view_does_not_outlive_its_test(user: User, tmp_path: Path,
 
     await user.open("/")
     assert len(MainView.title.targets) == 1
-    assert len(MainView.theme_buttons.targets) == 1
+    assert len(MainView.theme_menu.targets) == 1
 
 
 ROUNDS = 6

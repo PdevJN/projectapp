@@ -68,6 +68,22 @@ from projectapp.timeline import build_columns, clip_overloads, overallocations, 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
 NEW_PROJECT_NAME = "新規プロジェクト"
+# ヘッダーは、画面の上端・左右いっぱいの四角い帯(ui.header)。テーマカラーの背景 + 白文字(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
+# メニューのボタンは折り返さない(縮むのはプロジェクト選択のコンボだけ。中のファイル名は 10px)。プロジェクト名は、ヘッダーの外(メイン側の左上)に、12px の太字(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
+HEADER_CSS = """
+.app-header { background: var(--q-primary); color: #fff; font-size: 12px; padding: 4px 12px; flex-wrap: nowrap !important; overflow: hidden; }
+body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55%, #000); }
+.app-header .q-btn, .app-header .q-field { font-size: 12px; }
+.app-header .q-btn { white-space: nowrap; flex: none; }
+.app-header .q-btn__content { white-space: nowrap; flex-wrap: nowrap; }
+.app-header .app-project-select { flex: 0 1 16rem; min-width: 8rem; }
+.app-header .app-project-select .q-field__native, .app-header .app-project-select .q-field__input { font-size: 10px; }
+.app-select-popup .q-item { font-size: 10px; min-height: 28px; }
+.app-title { font-size: 12px; font-weight: 700; white-space: nowrap; }
+.app-header .app-menu-btn { background: rgba(255, 255, 255, 0.18); padding: 0 14px; }
+.app-header .app-menu-btn:hover { background: rgba(255, 255, 255, 0.3); }
+.app-menu .q-item { font-size: 12px; min-height: 32px; }
+"""
 HANDOFF_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、書き出せます"
 HELP_KEYS: list[tuple[str, str]] = []  # (キー, 機能) 機能追加時に登録する
 
@@ -124,7 +140,7 @@ class MainView:
         self.apply_theme(theme)
         self.gantt.refresh_scrollbars()  # 標準のスクロールバーは、切り替えだけでは配色が変わらない
         save_theme(theme, self.base_dir)
-        self.theme_buttons.refresh()
+        self.theme_menu.refresh()
 
     def set_name_width(self, width: int) -> None:
         """名前の欄の幅を、アプリ全体の設定として保存する。プロジェクトのデータには入れない。
@@ -216,12 +232,17 @@ class MainView:
             elif self.dashboard_kind is not None:
                 self.close_dashboard()
 
+    def set_header_visible(self, visible: bool) -> None:
+        """ヘッダーと、メイン側のタイトルを、一緒に出す・隠す(プレビューとダッシュボードの出入り)。"""
+        self.header_box.set_visibility(visible)
+        self.title_box.set_visibility(visible)
+
     def open_dashboard(self) -> None:
         """メイン画面を、ダッシュボードに切り替える(期間の初期値は今週)。プレビュー中は開かない。"""
         if self.preview is not None or self.dashboard_kind is not None:
             return
         self.dashboard_kind = PeriodKind.WEEK
-        self.header_box.set_visibility(False)
+        self.set_header_visible(False)
         self.gantt.set_visible(False)
         self.refresh_dashboard()
 
@@ -244,7 +265,7 @@ class MainView:
             return
         self.dashboard_kind = None
         self.dashboard_view.hide()
-        self.header_box.set_visibility(True)
+        self.set_header_visible(True)
         self.gantt.set_visible(True)
 
     def enter_preview(self) -> None:
@@ -256,7 +277,7 @@ class MainView:
         scale = fit_scale(self.project, self.holidays, period, self.gantt.scale, self.gantt.name_width)
         self.preview_notice = coarser_notice(scale, self.gantt.scale) if scale is not self.gantt.scale else None
         self.preview = PreviewSettings(start, period[1], scale)
-        self.header_box.set_visibility(False)
+        self.set_header_visible(False)
         self.preview_bar.show(self.preview)
         self.apply_preview(self.preview)
 
@@ -267,7 +288,7 @@ class MainView:
         self.preview = None
         self.preview_notice = None
         self.preview_bar.hide()
-        self.header_box.set_visibility(True)
+        self.set_header_visible(True)
         self.gantt.set_options(ViewOptions())
 
     def on_preview_change(self) -> None:
@@ -546,72 +567,80 @@ class MainView:
 
     def build(self) -> None:
         ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
+        ui.add_css(HEADER_CSS)
+        self.help_dialog = self.build_help_dialog()
         self.header()
+        with ui.row().classes("w-full items-center") as title_box:
+            self.title_box = title_box
+            title_box.mark("title-box")
+            self.title()
         self.preview_bar.build()
         self.dashboard_view.build()
         self.gantt.build()
-        self.theme_fab()
-        self.help_button()
         ui.keyboard(on_key=self.on_key)
         if self.needs_first_fetch:
             ui.timer(0.1, self.first_fetch, once=True)
 
     def header(self) -> None:
-        with ui.column().classes("w-full gap-2") as box:
+        """ヘッダー(画面の上端に固定する 1 行。左からメニュー 4 つ、右側にコンボ・ダッシュボード・テーマ。プロジェクト名は、ヘッダーの外): タイトル・メニュー 4 つ・(右側)プロジェクトの切り替え・ダッシュボード・テーマ。"""
+        with ui.header(elevated=False, wrap=False).classes("row items-center no-wrap gap-1 app-header") as box:
             self.header_box = box
             box.mark("header-box")
-            with ui.row().classes("items-center gap-4"):
-                self.title()
-                ui.button("祝日を更新", icon="refresh", on_click=self.refresh_holidays).props(
-                    "flat"
-                ).mark("refresh-holidays")
-            with ui.row().classes("w-full items-center justify-start gap-4"):
-                self.file_select = ui.select(
-                    list(self.files),
-                    label="プロジェクトファイル",
-                    on_change=lambda e: self.request_open(e.value),
-                ).classes("w-64").mark("project-select")
-                ui.button("開く", icon="folder_open", on_click=self.show_file_list)
-                ui.button("保存", icon="save", on_click=self.save_project_clicked).mark(
-                    "save-project"
-                )
-                ui.button("設定", icon="settings", on_click=self.open_settings).mark(
-                    "open-settings"
-                )
-                ui.button("メンバー", icon="group", on_click=self.open_members).mark(
-                    "open-members"
-                )
-                ui.button("エクスポート", icon="image", on_click=self.enter_preview).mark(
-                    "export-preview"
-                )
-                ui.button("ダッシュボード", icon="dashboard", on_click=self.open_dashboard).mark(
-                    "open-dashboard"
-                )
-                ui.button("担当者へ書き出し", icon="upload_file", on_click=self.open_handoff).mark(
-                    "export-handoff"
-                )
+            self.header_menu(
+                "ファイル",
+                "menu-file",
+                [
+                    ("開く", self.show_file_list, "file-open"),
+                    ("保存", self.save_project_clicked, "save-project"),
+                    ("エクスポート", self.enter_preview, "export-preview"),
+                    ("祝日を更新", self.refresh_holidays, "refresh-holidays"),
+                ],
+            )
+            self.header_menu(
+                "プロジェクト",
+                "menu-project",
+                [("設定", self.open_settings, "open-settings"), ("メンバー", self.open_members, "open-members")],
+            )
+            self.header_menu("エクスポート", "menu-export", [("担当者へ書き出し", self.open_handoff, "export-handoff")])
+            self.header_menu("ヘルプ", "menu-help", [("ショートカットヘルプ", self.help_dialog.open, "help-shortcuts")])
+            ui.space()
+            self.file_select = ui.select(
+                list(self.files),
+                label="プロジェクトファイル",
+                on_change=lambda e: self.request_open(e.value),
+            ).props("dense outlined dark popup-content-class=app-select-popup").classes("app-project-select").mark("project-select")
+            ui.button(icon="dashboard", color=None, on_click=self.open_dashboard).props("flat round dense").tooltip(
+                "ダッシュボード"
+            ).mark("open-dashboard")
+            self.theme_menu()
+
+    def header_menu(self, label: str, marker: str, items: list[tuple[str, Callable[[], object], str]]) -> None:
+        """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(`items` は、文言・操作・マーカー)。"""
+        with ui.button(label, color=None).props("unelevated rounded no-caps").classes("app-menu-btn").mark(marker):
+            with ui.menu().props("content-class=app-menu").mark(f"{marker}-items"):
+                for text, handler, item_marker in items:
+                    ui.menu_item(text, on_click=handler).mark(item_marker)
 
     @ui.refreshable_method
     def title(self) -> None:
-        ui.label(self.project.name).classes("text-h5")
-
-    def theme_fab(self) -> None:
-        with ui.page_sticky(position="top-right", x_offset=18, y_offset=18):
-            with ui.fab("palette", direction="left"):
-                self.theme_buttons()
+        ui.label(self.project.name).classes("app-title")
 
     @ui.refreshable_method
-    def theme_buttons(self) -> None:
-        for theme in THEMES:
-            color = "primary" if theme == self.theme else "grey"
-            ui.fab_action(
-                THEME_ICONS[theme],
-                label=THEME_LABELS[theme],
-                color=color,
-                on_click=lambda t=theme: self.set_theme(t),
-            )
+    def theme_menu(self) -> None:
+        """ヘッダー右端のテーマのメニュー。ボタンの絵が今のテーマで、開いたメニューの選択中の項目が強調される。"""
+        with ui.button(icon=THEME_ICONS[self.theme], color=None).props("flat round dense").tooltip("テーマ").mark(
+            "menu-theme"
+        ):
+            with ui.menu().props("content-class=app-menu").mark("menu-theme-items"):
+                for theme in THEMES:
+                    item = ui.menu_item(THEME_LABELS[theme], on_click=lambda t=theme: self.set_theme(t)).mark(
+                        f"theme-{theme}"
+                    )
+                    if theme == self.theme:
+                        item.props("active")
 
-    def help_button(self) -> None:
+    def build_help_dialog(self) -> ui.dialog:
+        """ショートカットヘルプのダイアログ(ヘルプメニューから開く)。"""
         with ui.dialog() as dialog, ui.card():
             ui.label("キー操作").classes("text-h6")
             if not HELP_KEYS:
@@ -619,5 +648,4 @@ class MainView:
             for key, desc in HELP_KEYS:
                 ui.label(f"{key}: {desc}")
             ui.button("閉じる", on_click=dialog.close)
-        with ui.page_sticky(position="bottom-right", x_offset=18, y_offset=18):
-            ui.button(icon="help_outline", on_click=dialog.open).props("fab")
+        return dialog

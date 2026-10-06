@@ -184,11 +184,9 @@ ADD_ROW_STYLE = f"height: {ADD_ROW_HEIGHT_PX}px; position: relative; border-bott
 SEARCH_ENTER_JS = "(e) => { if (!e.isComposing && e.keyCode !== 229) emit(e.target.value); }"
 SCROLLBAR_ROOM_PX = 16  # 横スクロールバーの分の余白。WebKit は高さ auto にバーの厚みを含めない
 # チャートの枠は縦横ともここでスクロールする。高さの上限は、画面の高さから、上のヘッダー
-# (タイトル・ファイル選択・ボタン・ツールバー)と、右下のヘルプのボタンの分を引いた値
-# (どちらも固定の見積もり。実機で合わせる)
-CHART_TOP_OFFSET_PX = 190
-FAB_ZONE_PX = 100  # ヘルプのボタン: 下から18px + 高さ56px + 余白
-CHART_MAX_HEIGHT = f"calc(100vh - {CHART_TOP_OFFSET_PX + FAB_ZONE_PX}px)"
+# (1 行のメニュー・ツールバー・ページの余白)の分を引いた値(固定の見積もり。実機で合わせる)
+CHART_TOP_OFFSET_PX = 170
+CHART_MAX_HEIGHT = f"calc(100vh - {CHART_TOP_OFFSET_PX}px)"
 # 固定する要素の重なり。見出し > タスク名の列 > 棒・縞・格子線。見出しの中では左端の空白が帯より手前
 STICKY_Z_SPACER, STICKY_Z_NAME, STICKY_Z_HEADER = 1, 2, 3
 # 固定した要素の下を棒や縞が通るので、不透明な背景が要る(ページの背景色に合わせる)
