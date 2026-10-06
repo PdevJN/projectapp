@@ -43,6 +43,7 @@ from projectapp.handoff import (
     write_json,
 )
 from projectapp.handoff import default_filename as handoff_filename
+from projectapp.filemanager import open_folder
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
 from projectapp.models import ActualMode, Member, Project, Section, Task
 from projectapp.preview import (
@@ -104,6 +105,7 @@ class MainView:
         self.preview_notice: str | None = None  # スケールを粗くして開いたときのお知らせ。設定を変えたら消す
         self.now: Callable[[], datetime] = datetime.now  # テストで差し替える
         self.dashboard_kind: PeriodKind | None = None  # 開いているときの期間。保存しない
+        self.open_folder: Callable[[Path], object] = open_folder  # テストで差し替える(実際にはファイラを開かない)
         self.saving = False
         self.project = Project(NEW_PROJECT_NAME)
         self.files: dict[str, Path] = {p.stem: p for p in list_project_files(base_dir)}
@@ -203,6 +205,13 @@ class MainView:
         self.gantt.set_project(self.project)
         self.gantt.reset_filter()
         self.gantt.reset_scroll()  # 別のプロジェクトは、先頭から見せる(編集後の再描画では動かさない)
+
+    def open_project_folder(self) -> None:
+        """プロジェクトの格納フォルダを、ファイラで開く。開けなければ通知する。"""
+        try:
+            self.open_folder(self.base_dir)
+        except OSError as exc:
+            ui.notify(f"フォルダを開けませんでした: {exc}", type="negative")
 
     def show_file_list(self) -> None:
         """ファイルを走査し直して、一覧ダイアログを出す。"""
@@ -612,6 +621,9 @@ class MainView:
             ui.button(icon="dashboard", color=None, on_click=self.open_dashboard).props("flat round dense").tooltip(
                 "ダッシュボード"
             ).mark("open-dashboard")
+            ui.button(icon="folder_special", color=None, on_click=self.open_project_folder).props(
+                "flat round dense"
+            ).tooltip("プロジェクトの格納フォルダを開く").mark("open-folder")
             self.theme_menu()
 
     def header_menu(self, label: str, marker: str, items: list[tuple[str, Callable[[], object], str]]) -> None:

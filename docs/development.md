@@ -14,6 +14,7 @@
 | `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、セクションの折りたたみ、行のドラッグ移動・コピー、バーの横移動(日次のみ)、名前の欄の幅(CSS 変数 `--name-w`。位置は `from_name` で式にする)、ツールバーとチャートの表示・非表示(`set_visible`。スクロール位置を覚えて戻す) |
 | `forms.py` | タスク・セクションの入力検証、プロジェクト名の入力・ファイル一覧・未保存の確認ダイアログ、稼働時間の設定ダイアログと入力検証、メンバーのダイアログと検証(`build_members`) |
 | `preview.py` | エクスポートのプレビュー(`PreviewSettings`・期間の検証・`fit_scale`・`PreviewBar`) |
+| `filemanager.py` | フォルダを OS のファイラで開く(`open_command`・`open_folder`。macOS は `open`、Windows は `explorer`、それ以外は `xdg-open`。シェルを通さない)。純粋に近い関数で、起動は差し替えられる |
 | `export.py` | 画像化(html-to-image)・倍率・PNG の書き出し・保存ダイアログ(`ImageExporter`。`ask_path` はファイルの種類を引数に取り、担当者向けファイルでも使う) |
 | `dashboard.py` | ダッシュボードの集計(期間 `period_for`、進捗・負荷・工数・期限、`summarize`)。純粋関数(NiceGUI に依存しない)。負荷は `timeline.counted_span` を使い、割り当て超過の縞と同じ前提 |
 | `dashboard_view.py` | ダッシュボードの表示(カードと横棒。`DashboardView`) |
