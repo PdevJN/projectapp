@@ -1,6 +1,6 @@
 """タスク・セクションの追加・編集の入力検証と、ファイル・名前・設定のダイアログ。"""
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, time
 from decimal import Decimal
@@ -572,4 +572,40 @@ def open_members_dialog(
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")
             ui.button("適用", on_click=apply).mark("member-apply")
+    dialog.open()
+
+
+def open_handoff_dialog(
+    names: list[str],
+    count_for: Callable[[str], int],
+    on_export: Callable[[str], Awaitable[bool]],
+) -> None:
+    """担当者を選んで、その担当の書き出しを頼む。`on_export` が True を返したら閉じる(キャンセル・失敗は開いたまま)。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[28rem] max-w-full"):
+        ui.label("担当者へ書き出し").classes("text-h6")
+        select = ui.select(
+            names, value=names[0], label="担当者", on_change=lambda _: update()
+        ).classes("w-full").mark("handoff-member")
+        info = ui.label().mark("handoff-count")
+
+        def update() -> None:
+            count = count_for(select.value)
+            info.set_text(f"終了以外のタスク: {count} 件" if count else "終了以外のタスクがありません")
+            export.set_enabled(count > 0)
+
+        async def run() -> None:
+            export.disable()
+            closing = False
+            try:
+                closing = await on_export(select.value)
+            finally:
+                if closing:
+                    dialog.close()
+                else:
+                    update()
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat")
+            export = ui.button("書き出す", on_click=run).mark("handoff-export")
+        update()
     dialog.open()
