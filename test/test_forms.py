@@ -10,6 +10,7 @@ from projectapp.forms import (
     build_members,
     build_section_name,
     build_task,
+    build_urls,
     build_work_settings,
     compose_actual,
     compose_datetime,
@@ -27,7 +28,7 @@ from projectapp.forms import (
     push_hint,
     suggest_status,
 )
-from projectapp.models import Actual, ActualMode, Member, Priority, Status, Task
+from projectapp.models import Actual, ActualMode, Member, Priority, Status, Task, TaskUrl, UrlTemplate
 from projectapp.task_dialog import open_task_dialog
 
 
@@ -1087,3 +1088,38 @@ def test_push_hint_only_when_the_start_is_pushed() -> None:
         "先行の完了により、実際の開始は 10/12 09:00 です"
     )
     assert push_hint(None, [datetime(2026, 10, 12, 9, 0)]).endswith("10/12 09:00 です")
+
+
+TICKET = UrlTemplate("チケット", "https://example.com/{ID}")
+
+
+def test_build_urls_builds_links_and_ignores_empty_rows() -> None:
+    rows = [("メモ", "チケット", " 231 "), ("", None, ""), ("", None, " https://example.com/a ")]
+    assert build_urls(rows, [TICKET]) == [
+        TaskUrl("メモ", "チケット", {"ID": "231"}),
+        TaskUrl("", None, {"URL": "https://example.com/a"}),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        (("", "チケット", ""), "1行目.*ID"),
+        (("名前だけ", None, ""), "1行目.*URL"),
+        (("", None, "javascript:alert(1)"), "1行目.*http"),
+        (("", "なし", "1"), "1行目.*見つかりません"),
+    ],
+)
+def test_build_urls_rejects_incomplete_rows_with_the_row_number(
+    row: tuple[str, str | None, str], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        build_urls([row], [TICKET])
+
+
+def test_build_task_keeps_the_existing_links_unless_given_new_ones() -> None:
+    existing = Task("設計", urls=[TaskUrl("", None, {"URL": "https://example.com/a"})])
+    assert make(existing).urls == existing.urls
+    replaced = [TaskUrl("", None, {"URL": "https://example.com/b"})]
+    assert make(existing, urls=replaced).urls == replaced
+    assert make(existing, urls=[]).urls == []

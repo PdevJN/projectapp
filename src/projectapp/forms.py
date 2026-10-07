@@ -10,6 +10,7 @@ from nicegui import ui
 
 from projectapp.models import (
     CHECKPOINT_STATUSES,
+    ID_KEY,
     MAX_ALLOCATION,
     MAX_PROGRESS,
     MAX_PROJECT_CODE_LENGTH,
@@ -19,6 +20,7 @@ from projectapp.models import (
     MIN_PROGRESS,
     MIN_RATIO,
     MIN_YEAR,
+    URL_KEY,
     Actual,
     ActualMode,
     Member,
@@ -26,8 +28,11 @@ from projectapp.models import (
     Status,
     Task,
     TaskKind,
+    TaskUrl,
+    UrlTemplate,
     is_hex_color,
 )
+from projectapp.urls import resolve
 
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
 STANDARD_WORK_HOURS = 8  # 時刻を指定しないときに補う終了の、標準稼働時間(固定)
@@ -114,6 +119,7 @@ def _build_checkpoint(
     color: str,
     predecessors: list[str] | None,
     linkable_ids: frozenset[str] | None,
+    urls: list[TaskUrl] | None,
 ) -> Task:
     """チェックポイント。締切だけを検証し、開始予定・工数・担当・実績は空にする(隠した欄の入力は見ない)。"""
     try:
@@ -145,7 +151,27 @@ def _build_checkpoint(
         actuals=[],
         project_code=code,
         predecessors=_links(base, predecessors, linkable_ids),
+        urls=base.urls if urls is None else urls,
     )
+
+
+UrlRow = tuple[str, str | None, str]  # リンク 1 行の入力: 表示名、テンプレート名(None はなし)、値(URL か ID)
+
+
+def build_urls(rows: list[UrlRow], templates: list[UrlTemplate]) -> list[TaskUrl]:
+    """リンクの入力を検証して TaskUrl にする。完全に空の行は無視し、不完全な行は行番号つきの ValueError。"""
+    urls: list[TaskUrl] = []
+    for number, (title, template, value) in enumerate(rows, start=1):
+        title, value = title.strip(), value.strip()
+        if not title and not value and template is None:
+            continue
+        link = TaskUrl(title, template, {URL_KEY if template is None else ID_KEY: value})
+        try:
+            resolve(link, templates)
+        except ValueError as exc:
+            raise ValueError(f"リンク{number}行目: {exc}") from None
+        urls.append(link)
+    return urls
 
 
 ActualRow = tuple[str, str, float | None]  # 区間の1行の入力(開始・終了の文字列、進捗度)
@@ -173,6 +199,7 @@ def build_task(
     predecessors: list[str] | None = None,
     linkable_ids: frozenset[str] | None = None,
     kind: TaskKind = TaskKind.NORMAL,
+    urls: list[TaskUrl] | None = None,
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。"""
     clean = name.strip()
@@ -184,7 +211,7 @@ def build_task(
     base = existing or Task(clean)
     if kind is TaskKind.CHECKPOINT:
         return _build_checkpoint(
-            base, clean, code, deadline, priority, status, color, predecessors, linkable_ids
+            base, clean, code, deadline, priority, status, color, predecessors, linkable_ids, urls
         )
     hours = effort_hours or 0.0
     manual = planned_end_manual and hours > 0
@@ -239,6 +266,7 @@ def build_task(
         actuals=actuals,
         project_code=code,
         predecessors=links,
+        urls=base.urls if urls is None else urls,
     )
 
 
