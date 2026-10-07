@@ -17,6 +17,11 @@ from projectapp.gantt import (
     SHOW_CHART_JS,
     TRACK_SCROLL_JS,
     ViewOptions,
+    ADD_ROW_HEIGHT_PX,
+    BAND_HEIGHT_PX,
+    HEADER_HEIGHT_PX,
+    LINK_CSS,
+    ROW_HEIGHT_PX,
     PRIORITY_BACKGROUND_VAR,
     PRIORITY_BACKGROUNDS,
     PRIORITY_CLASSES,
@@ -2563,3 +2568,134 @@ async def test_a_pushed_task_is_drawn_from_its_effective_start(user: User) -> No
     bar = user.find(marker="bar-0-1").elements.pop()
     day = COLUMN_WIDTH_PX[Scale.DAY]
     assert bar._style["left"] == from_name((1 + 15.5 / 24) * day)  # 火曜 15:30
+
+
+def linked_project() -> Project:
+    a = Task("先行", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5)
+    b = Task(
+        "後続",
+        id="bbbbbbbb",
+        planned_start=datetime(2026, 10, 7, 9),
+        effort_hours=6.5,
+        predecessors=["aaaaaaaa"],
+    )
+    return Project("demo", base_date=BASE, sections=[Section("開発", [a, b])])
+
+
+def link_paths(user: User) -> list[str]:
+    elements = user.find(marker="links").elements
+    if not elements:
+        return []
+    return re.findall(r'data-link="([^"]+)"', elements.pop().content)
+
+
+async def links_become(user: User, expected: list[str]) -> None:
+    """描き直しは背景タスクで起きるので、矢印が期待どおりになるまで待つ。"""
+    for _ in range(10):
+        if link_paths(user) == expected:
+            return
+        await asyncio.sleep(0.1)
+    raise AssertionError(f"矢印が期待と違う: {link_paths(user)} != {expected}")
+
+
+async def test_an_arrow_is_drawn_for_each_link(user: User) -> None:
+    mount(linked_project())
+    await user.open("/")
+    assert link_paths(user) == ["aaaaaaaa-bbbbbbbb"]
+
+
+async def test_the_arrows_are_one_html_element(user: User) -> None:
+    mount(linked_project())
+    await user.open("/")
+    assert len(user.find(marker="links").elements) == 1
+
+
+async def test_no_links_means_no_arrow_paths(user: User) -> None:
+    mount(sample_project())
+    await user.open("/")
+    assert link_paths(user) == []
+
+
+async def test_the_arrow_connects_the_bars(user: User) -> None:
+    mount(linked_project())
+    await user.open("/")
+    content = user.find(marker="links").elements.pop().content
+    day = COLUMN_WIDTH_PX[Scale.DAY]
+    pred_right = 15.5 / 24 * day  # 月 15:30(基準日の月曜が 0 列目)
+    succ_left = (2 + 9 / 24) * day  # 水 9:00
+    rows_top = BAND_HEIGHT_PX * 2 + HEADER_HEIGHT_PX  # 日次: 年・月の帯 + 日付の行
+    first = rows_top + ADD_ROW_HEIGHT_PX + ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2  # 追加行・見出しの次
+    second = first + ROW_HEIGHT_PX
+    found = re.search(r'<path data-link="aaaaaaaa-bbbbbbbb" d="([^"]+)"', content)
+    assert found is not None
+    assert found.group(1) == (
+        f"M{pred_right:g},{first:g} L{pred_right + 6:g},{first:g}"
+        f" L{pred_right + 6:g},{second:g} L{succ_left:g},{second:g}"
+    )
+
+
+async def test_an_arrow_disappears_when_a_filter_hides_a_row(user: User) -> None:
+    charts, _ = mount_chart(linked_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="先行"))
+    await links_become(user, [])
+
+
+async def test_collapsing_the_section_updates_only_the_arrows(user: User) -> None:
+    charts, _ = mount_chart(linked_project())
+    await user.open("/")
+    before = user.find(marker="links").elements.pop()
+    charts[0].toggle_section(0)
+    assert link_paths(user) == []
+    assert user.find(marker="links").elements.pop() is before  # 同じ要素の内容だけ変わる
+    charts[0].toggle_section(0)
+    assert link_paths(user) == ["aaaaaaaa-bbbbbbbb"]
+
+
+async def test_an_arrow_is_hidden_when_a_bar_is_outside_the_period(user: User) -> None:
+    project = linked_project()
+    project.sections[0].tasks[1].planned_start = datetime(2026, 12, 1, 9)  # 最小列数(42 日)の外
+    charts, _ = mount_chart(project)
+    await user.open("/")
+    charts[0].set_options(
+        ViewOptions(period=(date(2026, 10, 5), date(2026, 10, 5)), read_only=True)
+    )
+    await links_become(user, [])  # 後続の棒が期間外
+
+
+async def test_the_arrows_are_drawn_in_every_scale_and_in_the_preview(user: User) -> None:
+    charts, _ = mount_chart(linked_project())
+    await user.open("/")
+    for scale in (Scale.WEEK, Scale.MONTH, Scale.DAY):
+        charts[0].set_scale(scale)
+        await asyncio.sleep(0.2)
+        await links_become(user, ["aaaaaaaa-bbbbbbbb"])
+    charts[0].set_options(ViewOptions(read_only=True))
+    await asyncio.sleep(0.2)
+    await links_become(user, ["aaaaaaaa-bbbbbbbb"])
+
+
+async def test_the_arrow_svg_uses_theme_variables_and_ignores_the_pointer(user: User) -> None:
+    mount(linked_project())
+    await user.open("/")
+    element = user.find(marker="links").elements.pop()
+    assert element._style["pointer-events"] == "none"
+    assert "var(--link-color)" in element.content
+    assert "body.body--dark .gantt-links" in LINK_CSS
+
+
+async def test_the_slots_match_the_rendered_rows(user: User) -> None:
+    charts, _ = mount_chart(linked_project())
+    await user.open("/")
+    chart = charts[0]
+    chart.toggle_section(0)
+    for slot in chart.slots():
+        marker = (
+            f"row-{'top' if slot.si is None else slot.si}-{slot.ti}"
+            if slot.kind == "task"
+            else {"top-add": "top-end", "section": f"section-{slot.si}"}[slot.kind]
+        )
+        if slot.shown:
+            await user.should_see(marker=marker)
+        else:
+            await user.should_not_see(marker=marker)

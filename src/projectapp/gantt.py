@@ -19,6 +19,7 @@ from projectapp.config import (
 )
 from projectapp.filtering import TaskFilter, matches, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
+from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
 from projectapp.models import Priority, Project, Section, Status, Task
 from projectapp.timeline import (
     in_range,
@@ -174,6 +175,16 @@ PROGRESS_STATE_MARKS = {
     ProgressState.DONE: "✓",
     ProgressState.LATE_DONE: "✓!",
 }
+LINK_CSS = """
+.gantt-links { --link-color: #757575; }
+body.body--dark .gantt-links { --link-color: #bdbdbd; }
+"""
+LINK_STYLE = "stroke: var(--link-color); stroke-width: 1.5; fill: none"
+LINK_HEAD = (
+    '<defs><marker id="link-head" markerWidth="6" markerHeight="6" refX="6" refY="3"'
+    ' orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L6,3 L0,6 z"'
+    ' style="fill: var(--link-color)"/></marker></defs>'
+)
 GRID_BORDER = "1px solid rgba(128, 128, 128, 0.3)"  # 格子線。両テーマで見える半透明の灰色
 ADD_ROW_HEIGHT_PX = 24  # 追加行は通常の行より細くする
 ARROW_EXPANDED = "expand_more"
@@ -309,6 +320,8 @@ class GanttChart:
         self.name_width = name_width  # 名前の欄の幅(px)。ドラッグで変わり、保存は呼び出し側
         self.overloads: list[Overload] = []
         self.schedule = Schedule(project, holidays)
+        self.links_html: ui.html | None = None
+        self.link_layout: tuple[list[Column], int] | None = None
         self.scale = Scale.DAY
         self.options = ViewOptions()
         self.toolbar: ui.row | None = None
@@ -384,6 +397,7 @@ class GanttChart:
         view = self.section_views.get(si)
         if view is None or self.options.read_only:
             return
+        self.update_links()
         collapsed = si in self.collapsed
         if view.arrow is not None:
             view.arrow.props(f"icon={ARROW_COLLAPSED if collapsed else ARROW_EXPANDED}")
@@ -496,6 +510,69 @@ class GanttChart:
             return True
         return in_range(start, end, columns)
 
+    def slots(self) -> list[RowSlot]:
+        return row_slots(
+            self.project,
+            self.task_filter,
+            self.collapsed,
+            self.options.read_only,
+            ROW_HEIGHT_PX,
+            ADD_ROW_HEIGHT_PX,
+        )
+
+    def rows_top(self) -> int:
+        """行の並びの上端(年・月の帯と、日付の行の高さ)。"""
+        bands = BAND_HEIGHT_PX * (1 if self.view_scale is Scale.MONTH else 2)
+        return bands + (HEADER_HEIGHT_PX if self.view_scale is Scale.DAY else ROW_HEIGHT_PX)
+
+    def link_bars(self, columns: list[Column], width: int) -> dict[str, Bar]:
+        """矢印を出せる棒(表示範囲にあるもの)の、境界からの左端・右端。"""
+        bars: dict[str, Bar] = {}
+        for task in self.project.all_tasks():
+            start, end = self.schedule.start(task), self.schedule.end(task)
+            span = bar_span(start, end, columns)
+            if span is None or not self.bar_visible(start, end, columns):
+                continue
+            left = span[0] * width
+            bars[task.id] = Bar(left, left + max(span[1] * width, MIN_BAR_PX))
+        return bars
+
+    def links_markup(self, columns: list[Column], width: int) -> str:
+        """矢印の SVG。内容は数値と、保存時に検証した id だけで、念のためエスケープする。"""
+        slots = self.slots()
+        top = self.rows_top()
+        centers = row_centers(slots, top)
+        bars = self.link_bars(columns, width)
+        paths: list[str] = []
+        for task in self.project.all_tasks():
+            for pid in task.predecessors:
+                if pid not in bars or task.id not in bars:
+                    continue
+                if pid not in centers or task.id not in centers:
+                    continue
+                points = link_points(
+                    bars[pid], centers[pid], bars[task.id], centers[task.id], ROW_HEIGHT_PX
+                )
+                paths.append(
+                    f'<path data-link="{html.escape(pid)}-{html.escape(task.id)}"'
+                    f' d="{path_data(points)}" style="{LINK_STYLE}" marker-end="url(#link-head)"/>'
+                )
+        size = f'width="{width * len(columns):g}" height="{total_height(slots, top):g}"'
+        return f'<svg {size} style="overflow: visible">{LINK_HEAD}{"".join(paths)}</svg>'
+
+    def links(self, columns: list[Column], width: int) -> None:
+        """棒より下、格子線・縞より上に、矢印をまとめて 1 要素で置く。"""
+        self.link_layout = (columns, width)
+        self.links_html = ui.html(self.links_markup(columns, width), sanitize=False)
+        self.links_html.classes("gantt-links").style(
+            "position: absolute; top: 0; left: var(--name-w); pointer-events: none"
+        ).mark("links")
+
+    def update_links(self) -> None:
+        """折りたたみの切り替えで、再描画せず、矢印だけ作り直す。"""
+        if self.links_html is not None and self.link_layout is not None:
+            self.links_html.content = self.links_markup(*self.link_layout)
+
     def build(self) -> None:
         self.client = context.client
         ui.add_css(CHART_DRAG_CSS)
@@ -504,6 +581,7 @@ class GanttChart:
         ui.add_css(PROGRESS_CSS)
         ui.add_css(STATUS_CSS)
         ui.add_css(PRIORITY_CSS)
+        ui.add_css(LINK_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
@@ -577,6 +655,7 @@ class GanttChart:
                 self.stripes(columns, width, top)
             self.header(columns, width)
             self.no_match_message()
+            self.links(columns, width)
             for ti, task in enumerate(self.project.tasks):
                 if matches(task, self.task_filter):
                     self.task_row(None, ti, task, columns, width)
