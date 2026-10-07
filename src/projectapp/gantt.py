@@ -520,11 +520,6 @@ class GanttChart:
             ADD_ROW_HEIGHT_PX,
         )
 
-    def rows_top(self) -> int:
-        """行の並びの上端(年・月の帯と、日付の行の高さ)。"""
-        bands = BAND_HEIGHT_PX * (1 if self.view_scale is Scale.MONTH else 2)
-        return bands + (HEADER_HEIGHT_PX if self.view_scale is Scale.DAY else ROW_HEIGHT_PX)
-
     def link_bars(self, columns: list[Column], width: int) -> dict[str, Bar]:
         """矢印を出せる棒(表示範囲にあるもの)の、境界からの左端・右端。"""
         bars: dict[str, Bar] = {}
@@ -540,8 +535,7 @@ class GanttChart:
     def links_markup(self, columns: list[Column], width: int) -> str:
         """矢印の SVG。内容は数値と、保存時に検証した id だけで、念のためエスケープする。"""
         slots = self.slots()
-        top = self.rows_top()
-        centers = row_centers(slots, top)
+        centers = row_centers(slots, 0)
         bars = self.link_bars(columns, width)
         paths: list[str] = []
         for task in self.project.all_tasks():
@@ -557,16 +551,22 @@ class GanttChart:
                     f'<path data-link="{html.escape(pid)}-{html.escape(task.id)}"'
                     f' d="{path_data(points)}" style="{LINK_STYLE}" marker-end="url(#link-head)"/>'
                 )
-        size = f'width="{width * len(columns):g}" height="{total_height(slots, top):g}"'
+        size = f'width="{width * len(columns):g}" height="{total_height(slots, 0):g}"'
         return f'<svg {size} style="overflow: visible">{LINK_HEAD}{"".join(paths)}</svg>'
 
     def links(self, columns: list[Column], width: int) -> None:
-        """棒より下、格子線・縞より上に、矢印をまとめて 1 要素で置く。"""
+        """棒より下、格子線・縞より上に、矢印をまとめて 1 要素で置く。
+
+        ヘッダーの高さは環境で変わる(実機では設計より高かった)ので、座標は行の上端から測り、
+        最初の行の直前に置いた高さ 0 の要素を基準にする。
+        """
         self.link_layout = (columns, width)
-        self.links_html = ui.html(self.links_markup(columns, width), sanitize=False)
-        self.links_html.classes("gantt-links").style(
-            "position: absolute; top: 0; left: var(--name-w); pointer-events: none"
-        ).mark("links")
+        anchor = ui.element("div").style("position: relative; height: 0")
+        with anchor:
+            self.links_html = ui.html(self.links_markup(columns, width), sanitize=False)
+            self.links_html.classes("gantt-links").style(
+                "position: absolute; top: 0; left: var(--name-w); pointer-events: none"
+            ).mark("links")
 
     def update_links(self) -> None:
         """折りたたみの切り替えで、再描画せず、矢印だけ作り直す。"""

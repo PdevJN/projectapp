@@ -18,8 +18,6 @@ from projectapp.gantt import (
     TRACK_SCROLL_JS,
     ViewOptions,
     ADD_ROW_HEIGHT_PX,
-    BAND_HEIGHT_PX,
-    HEADER_HEIGHT_PX,
     LINK_CSS,
     ROW_HEIGHT_PX,
     PRIORITY_BACKGROUND_VAR,
@@ -2623,8 +2621,7 @@ async def test_the_arrow_connects_the_bars(user: User) -> None:
     day = COLUMN_WIDTH_PX[Scale.DAY]
     pred_right = 15.5 / 24 * day  # 月 15:30(基準日の月曜が 0 列目)
     succ_left = (2 + 9 / 24) * day  # 水 9:00
-    rows_top = BAND_HEIGHT_PX * 2 + HEADER_HEIGHT_PX  # 日次: 年・月の帯 + 日付の行
-    first = rows_top + ADD_ROW_HEIGHT_PX + ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2  # 追加行・見出しの次
+    first = ADD_ROW_HEIGHT_PX + ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2  # 行の上端から: 追加行・見出しの次
     second = first + ROW_HEIGHT_PX
     found = re.search(r'<path data-link="aaaaaaaa-bbbbbbbb" d="([^"]+)"', content)
     assert found is not None
@@ -2673,6 +2670,17 @@ async def test_the_arrows_are_drawn_in_every_scale_and_in_the_preview(user: User
     charts[0].set_options(ViewOptions(read_only=True))
     await asyncio.sleep(0.2)
     await links_become(user, ["aaaaaaaa-bbbbbbbb"])
+
+
+async def test_the_arrows_are_anchored_where_the_rows_start(user: User) -> None:
+    """ヘッダーの高さは環境で変わるので、矢印は、最初の行の直前の高さ 0 の要素を基準にする。"""
+    mount(linked_project())
+    await user.open("/")
+    links = user.find(marker="links").elements.pop()
+    anchor = links.parent_slot.parent
+    assert anchor._style["position"] == "relative"
+    assert anchor._style["height"] == "0"
+    assert links._style["top"] == "0"
 
 
 async def test_the_arrow_svg_uses_theme_variables_and_ignores_the_pointer(user: User) -> None:
