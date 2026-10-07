@@ -6,10 +6,13 @@ from datetime import date, datetime, time
 
 from nicegui import ui
 
+from projectapp.browser import open_url as default_open_url
 from projectapp.forms import (
     ActualRow,
+    UrlRow,
     bind_picker,
     build_task,
+    build_urls,
     compose_actual,
     compose_datetime,
     default_times,
@@ -24,10 +27,12 @@ from projectapp.models import (
     CHECKPOINT_STATUSES,
     DEFAULT_DAILY_HOURS,
     DEFAULT_WORK_START,
+    ID_KEY,
     MAX_ALLOCATION,
     MAX_PROGRESS,
     MIN_ALLOCATION,
     MIN_PROGRESS,
+    URL_KEY,
     Actual,
     ActualMode,
     Member,
@@ -35,8 +40,11 @@ from projectapp.models import (
     Status,
     Task,
     TaskKind,
+    TaskUrl,
+    UrlTemplate,
 )
 from projectapp.timeline import combine_rate, computed_end, effort_days
+from projectapp.urls import resolve
 
 # 赤は「予定超過」の背景色と意味が競合するため、優先度には使わない
 PRIORITY_COLORS = {Priority.HIGH: "orange", Priority.MEDIUM: "amber", Priority.LOW: "blue"}
@@ -479,6 +487,101 @@ class IntervalFields:
         return tuple(values)
 
 
+NO_TEMPLATE = ""  # 選択肢の「テンプレートなし」(select の値は空文字で表す)
+
+
+@dataclass
+class UrlItem:
+    row: ui.row
+    title: ui.input
+    template: ui.select
+    value: ui.input
+    previous: str  # 直前のテンプレートの選択。なし/ありが変わったときに値を空にする
+
+
+def _value_label(template: str) -> str:
+    return "URL" if template == NO_TEMPLATE else "ID"
+
+
+class UrlFields:
+    """タスクのリンクの節。1 行が 表示名・テンプレート・値(URL か ID)・開く・削除。"""
+
+    def __init__(
+        self,
+        urls: list[TaskUrl],
+        templates: list[UrlTemplate],
+        open_url: Callable[[str], object],
+    ) -> None:
+        self.templates = templates
+        self.open_url = open_url
+        self.items: list[UrlItem] = []
+        self.counter = 0
+        ui.label("リンク").classes("text-caption text-grey")
+        self.box = ui.column().classes("w-full gap-1")
+        for link in urls:
+            self._add_row(link)
+        ui.button("リンクを追加", icon="add", on_click=lambda: self._add_row(None)).props(
+            "flat dense"
+        ).mark("task-url-add")
+
+    def _add_row(self, link: TaskUrl | None) -> None:
+        self.counter += 1
+        n = self.counter
+        current = link.template if link is not None and link.template is not None else NO_TEMPLATE
+        names = [t.name for t in self.templates]
+        if current != NO_TEMPLATE and current not in names:
+            names.append(current)  # 一覧にない参照も、保存で失わない
+        options = {NO_TEMPLATE: "テンプレートなし", **{name: name for name in names}}
+        text = "" if link is None else next(iter(link.values.values()), "")
+        with self.box:
+            with ui.row().classes("w-full items-center no-wrap gap-2") as row:
+                title = ui.input("表示名", value="" if link is None else link.title)
+                title.classes("w-32").mark(f"task-url-{n}-title")
+                template = ui.select(options, value=current, label="テンプレート")
+                template.classes("w-40").mark(f"task-url-{n}-template")
+                value = ui.input(_value_label(current), value=text)
+                value.classes("grow").mark(f"task-url-{n}-value")
+                item = UrlItem(row, title, template, value, current)
+                ui.button(icon="open_in_new", on_click=lambda: self._open(item)).props(
+                    "flat dense"
+                ).mark(f"task-url-{n}-open")
+                ui.button(icon="delete", on_click=lambda: self._remove(item)).props(
+                    "flat dense color=negative"
+                ).mark(f"task-url-{n}-remove")
+        template.on_value_change(lambda e: self._template_changed(item, e.value or NO_TEMPLATE))
+        self.items.append(item)
+
+    def _template_changed(self, item: UrlItem, new: str) -> None:
+        if (item.previous == NO_TEMPLATE) != (new == NO_TEMPLATE):
+            item.value.set_value("")  # URL と ID は別のものなので、持ち越さない
+        item.value.props(f"label={_value_label(new)}")
+        item.previous = new
+
+    def _remove(self, item: UrlItem) -> None:
+        self.items.remove(item)
+        item.row.delete()
+
+    def _open(self, item: UrlItem) -> None:
+        title, template, value = self._row(item)
+        key = URL_KEY if template is None else ID_KEY
+        link = TaskUrl(title.strip(), template, {key: value.strip()})
+        try:
+            self.open_url(resolve(link, self.templates))
+        except (ValueError, OSError) as exc:
+            ui.notify(str(exc), type="negative")
+
+    @staticmethod
+    def _row(item: UrlItem) -> UrlRow:
+        chosen = item.template.value or NO_TEMPLATE
+        return (item.title.value or "", None if chosen == NO_TEMPLATE else chosen, item.value.value or "")
+
+    def rows(self) -> list[UrlRow]:
+        return [self._row(item) for item in self.items]
+
+    def state(self) -> tuple[UrlRow, ...]:
+        return tuple(self.rows())
+
+
 def open_task_dialog(
     task: Task | None,
     on_save: Callable[[Task], object],
@@ -490,6 +593,8 @@ def open_task_dialog(
     actual_mode: ActualMode = ActualMode.SIMPLE,
     link_options: dict[str, str] | None = None,
     finish_of: Callable[[str], datetime | None] | None = None,
+    url_templates: list[UrlTemplate] | None = None,
+    open_url: Callable[[str], object] = default_open_url,
 ) -> ui.dialog:
     initial = task or Task("")
     member_list = list(members or [])
@@ -671,6 +776,8 @@ def open_task_dialog(
 
         kind.on_value_change(apply_kind)
         apply_kind()
+        templates = list(url_templates or [])
+        url_fields = UrlFields(initial.urls, templates, open_url)
         color = ui.color_input("色", value=initial.color, preview=True).classes("w-full").mark(
             "task-color"
         )
@@ -691,6 +798,7 @@ def open_task_dialog(
                 allocation.value,
                 tuple(predecessors.value or []),
                 *actual_fields.state(),
+                url_fields.state(),
             )
 
         opened = current()
@@ -719,6 +827,7 @@ def open_task_dialog(
                     actual_end=actual_fields.end_text(),
                     actual_progress=actual_fields.progress_value(),
                     actual_rows=actual_fields.rows() if isinstance(actual_fields, IntervalFields) else None,
+                    urls=build_urls(url_fields.rows(), templates),
                 )
             except ValueError as exc:
                 error.set_text(str(exc))

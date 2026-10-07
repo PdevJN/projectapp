@@ -7,7 +7,8 @@ from datetime import date, datetime, time
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.models import Actual, ActualMode, Member, Status, Task, TaskKind
+from projectapp.browser import open_url as default_open_url
+from projectapp.models import Actual, ActualMode, Member, Status, Task, TaskKind, TaskUrl, UrlTemplate
 from projectapp.task_dialog import open_task_dialog
 
 
@@ -22,6 +23,8 @@ def mount_dialog(
     actual_mode: ActualMode = ActualMode.SIMPLE,
     link_options: dict[str, str] | None = None,
     finish_of: Callable[[str], datetime | None] | None = None,
+    url_templates: list[UrlTemplate] | None = None,
+    opened: list[str] | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -38,6 +41,8 @@ def mount_dialog(
                 actual_mode=actual_mode,
                 link_options=link_options,
                 finish_of=finish_of,
+                url_templates=url_templates,
+                open_url=(lambda url: opened.append(url)) if opened is not None else default_open_url,
             ),
         )
 
@@ -1470,3 +1475,156 @@ async def test_selecting_a_predecessor_of_a_new_checkpoint_shows_no_hint(user: U
     user.find(marker="task-predecessors").elements.pop().set_value(["aaaaaaaa"])
     await asyncio.sleep(0.1)
     await user.should_not_see(marker="task-predecessors-hint")
+
+
+TICKET = UrlTemplate("チケット", "https://example.com/{ID}")
+
+
+def element(user: User, marker: str) -> ui.element:
+    return user.find(marker=marker).elements.pop()
+
+
+async def test_a_link_by_template_is_saved_with_the_id(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, url_templates=[TICKET])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-url-add").click()
+    user.find(marker="task-url-1-title").type("課題")
+    element(user, "task-url-1-template").set_value("チケット")
+    user.find(marker="task-url-1-value").type("231")
+    user.find(marker="task-save").click()
+    assert saved[0].urls == [TaskUrl("課題", "チケット", {"ID": "231"})]
+
+
+async def test_a_plain_url_link_is_the_default(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, url_templates=[TICKET])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-url-add").click()
+    assert element(user, "task-url-1-template").value == ""
+    user.find(marker="task-url-1-value").type("https://example.com/a")
+    user.find(marker="task-save").click()
+    assert saved[0].urls == [TaskUrl("", None, {"URL": "https://example.com/a"})]
+
+
+async def test_the_value_label_and_text_follow_the_template_choice(user: User) -> None:
+    mount_dialog(None, [], url_templates=[TICKET])
+    await open_dialog(user)
+    user.find(marker="task-url-add").click()
+    user.find(marker="task-url-1-value").type("https://example.com/a")
+    assert element(user, "task-url-1-value").props["label"] == "URL"
+    element(user, "task-url-1-template").set_value("チケット")
+    assert element(user, "task-url-1-value").props["label"] == "ID"
+    assert element(user, "task-url-1-value").value == ""  # なし → あり では、値を空にする
+    user.find(marker="task-url-1-value").type("231")
+    element(user, "task-url-1-template").set_value("")
+    assert element(user, "task-url-1-value").props["label"] == "URL"
+    assert element(user, "task-url-1-value").value == ""
+
+
+async def test_an_incomplete_link_keeps_the_dialog_open_with_a_row_number(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, url_templates=[TICKET])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-url-add").click()
+    element(user, "task-url-1-template").set_value("チケット")
+    user.find(marker="task-save").click()
+    await user.should_see("リンク1行目")
+    assert saved == []
+
+
+async def test_empty_rows_are_ignored_and_rows_can_be_removed(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-url-add").click()
+    user.find(marker="task-url-add").click()
+    user.find(marker="task-url-2-value").type("https://example.com/b")
+    user.find(marker="task-url-1-remove").click()
+    user.find(marker="task-url-add").click()  # 空の行
+    user.find(marker="task-save").click()
+    assert saved[0].urls == [TaskUrl("", None, {"URL": "https://example.com/b"})]
+
+
+async def test_existing_links_are_shown_and_kept(user: User) -> None:
+    saved: list[Task] = []
+    task = Task("設計", urls=[TaskUrl("課題", "チケット", {"ID": "231"})])
+    mount_dialog(task, saved, url_templates=[TICKET])
+    await open_dialog(user)
+    assert element(user, "task-url-1-title").value == "課題"
+    assert element(user, "task-url-1-template").value == "チケット"
+    assert element(user, "task-url-1-value").value == "231"
+    user.find(marker="task-save").click()
+    assert saved[0].urls == task.urls
+
+
+async def test_the_open_button_opens_the_resolved_url(user: User) -> None:
+    opened: list[str] = []
+    task = Task("設計", urls=[TaskUrl("", "チケット", {"ID": "a b"})])
+    mount_dialog(task, [], url_templates=[TICKET], opened=opened)
+    await open_dialog(user)
+    user.find(marker="task-url-1-open").click()
+    assert opened == ["https://example.com/a%20b"]
+
+
+async def test_the_open_button_refuses_an_unusable_row(user: User) -> None:
+    opened: list[str] = []
+    mount_dialog(None, [], opened=opened)
+    await open_dialog(user)
+    user.find(marker="task-url-add").click()
+    user.find(marker="task-url-1-value").type("javascript:alert(1)")
+    user.find(marker="task-url-1-open").click()
+    assert opened == []
+    assert user.notify.contains("http")
+
+
+async def test_a_failure_to_open_is_notified(user: User) -> None:
+    def fail(url: str) -> None:
+        raise OSError("ブラウザを開けませんでした")
+
+    task = Task("設計", urls=[TaskUrl("", None, {"URL": "https://example.com/a"})])
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_task_dialog(task, lambda t: None, open_url=fail))
+
+    await open_dialog(user)
+    user.find(marker="task-url-1-open").click()
+    assert user.notify.contains("ブラウザを開けませんでした")
+
+
+async def test_an_untouched_link_section_does_not_ask_when_closing(user: User) -> None:
+    task = Task("設計", urls=[TaskUrl("", None, {"URL": "https://example.com/a"})])
+    mount_dialog(task, [])
+    await open_dialog(user)
+    user.find(marker="task-cancel").click()
+    assert dialog_of(user).value is False
+    assert confirm_dialog_of(user).value is False
+
+
+async def test_a_link_change_counts_as_an_edit_when_closing(user: User) -> None:
+    mount_dialog(Task("設計"), [])
+    await open_dialog(user)
+    user.find(marker="task-url-add").click()
+    user.find(marker="task-url-1-value").type("https://example.com/a")
+    user.find(marker="task-cancel").click()
+    assert dialog_of(user).value is True
+    assert confirm_dialog_of(user).value is True
+
+
+async def test_a_checkpoint_can_hold_links(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("節目")
+    await set_kind(user, TaskKind.CHECKPOINT)
+    user.find(marker="task-deadline-date").type("2026-10-20")
+    user.find(marker="task-url-add").click()
+    user.find(marker="task-url-1-value").type("https://example.com/doc")
+    user.find(marker="task-save").click()
+    assert saved[0].kind is TaskKind.CHECKPOINT
+    assert saved[0].urls == [TaskUrl("", None, {"URL": "https://example.com/doc"})]

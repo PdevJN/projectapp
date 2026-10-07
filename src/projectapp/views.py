@@ -492,7 +492,7 @@ class MainView:
         self.gantt.set_project(self.project)
 
     def link_args(self, task: Task | None) -> dict[str, Any]:
-        """編集ダイアログの「先行タスク」欄に渡す引数。"""
+        """編集ダイアログに渡す、先行タスクとリンクの引数。"""
         schedule = Schedule(self.project, self.holidays)
         by_id = {t.id: t for t in self.project.all_tasks()}
 
@@ -500,7 +500,11 @@ class MainView:
             pred = by_id.get(task_id)
             return None if pred is None else schedule.finish(pred)
 
-        return {"link_options": link_options(self.project, task), "finish_of": finish_of}
+        return {
+            "link_options": link_options(self.project, task),
+            "finish_of": finish_of,
+            "url_templates": self.project.url_templates,
+        }
 
     def add_task(self, section_index: int) -> None:
         open_task_dialog(
