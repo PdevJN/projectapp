@@ -1,12 +1,25 @@
 import os
 import json
+from collections.abc import Callable
 from datetime import date, datetime, time
 from pathlib import Path
 
 import pytest
 
 from projectapp.config import load_theme, save_theme
-from projectapp.models import Actual, ActualMode, Member, Priority, Project, Section, Status, Task
+from projectapp.models import (
+    Actual,
+    ActualMode,
+    Member,
+    Priority,
+    Project,
+    Section,
+    Status,
+    Task,
+    TaskKind,
+    TaskUrl,
+    UrlTemplate,
+)
 from projectapp.timeline import Scale, build_columns
 from projectapp.storage import list_project_files, load_project, save_project, validate_name
 
@@ -762,3 +775,115 @@ def test_bad_ids_and_predecessors_are_rejected(
 ) -> None:
     with pytest.raises(ValueError):
         load_project(write_raw(tmp_path, tasks))
+
+
+def saved_project(tmp_path: Path) -> Path:
+    project = Project(
+        "links",
+        tasks=[
+            Task(
+                "t",
+                urls=[
+                    TaskUrl("メモ", "チケット", {"ID": "231"}),
+                    TaskUrl("", None, {"URL": "https://example.com/a"}),
+                ],
+            )
+        ],
+        url_templates=[UrlTemplate("チケット", "https://example.com/{ID}")],
+    )
+    return save_project(project, tmp_path)
+
+
+def rewrite(path: Path, edit: Callable[[dict], None]) -> None:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    edit(raw)
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+
+
+def test_links_and_templates_roundtrip(tmp_path: Path) -> None:
+    loaded = load_project(saved_project(tmp_path))
+    assert loaded.url_templates == [UrlTemplate("チケット", "https://example.com/{ID}")]
+    assert loaded.tasks[0].urls == [
+        TaskUrl("メモ", "チケット", {"ID": "231"}),
+        TaskUrl("", None, {"URL": "https://example.com/a"}),
+    ]
+
+
+def test_an_old_file_without_the_keys_loads_with_no_links(tmp_path: Path) -> None:
+    path = saved_project(tmp_path)
+
+    def drop(raw: dict) -> None:
+        del raw["url_templates"]
+        del raw["tasks"][0]["urls"]
+
+    rewrite(path, drop)
+    loaded = load_project(path)
+    assert loaded.url_templates == [] and loaded.tasks[0].urls == []
+
+
+def test_null_keys_load_as_empty(tmp_path: Path) -> None:
+    path = saved_project(tmp_path)
+
+    def nulls(raw: dict) -> None:
+        raw["url_templates"] = None
+        raw["tasks"][0]["urls"] = None
+
+    rewrite(path, nulls)
+    loaded = load_project(path)
+    assert loaded.url_templates == [] and loaded.tasks[0].urls == []
+
+
+GOOD = {"name": "チケット", "pattern": "https://example.com/{ID}"}
+
+
+@pytest.mark.parametrize(
+    ("templates", "urls"),
+    [
+        ("x", []),
+        ([1], []),
+        ([{"pattern": "https://x.test/{ID}"}], []),
+        ([{"name": 1, "pattern": "https://x.test"}], []),
+        ([GOOD, GOOD], []),
+        ([{"name": " ", "pattern": "https://x.test"}], []),
+        ([{"name": "a", "pattern": "javascript:{ID}"}], []),
+        ([GOOD], "x"),
+        ([GOOD], [1]),
+        ([GOOD], [{"title": 1, "template": None, "values": {"URL": "https://x.test"}}]),
+        ([GOOD], [{"title": "", "template": "なし", "values": {"ID": "1"}}]),
+        ([GOOD], [{"title": "", "template": "チケット", "values": {"ID": ""}}]),
+        ([GOOD], [{"title": "", "template": "チケット", "values": {"URL": "https://x.test"}}]),
+        ([GOOD], [{"title": "", "template": None, "values": {"ID": "1"}}]),
+        ([GOOD], [{"title": "", "template": "チケット", "values": {"ID": 1}}]),
+        ([GOOD], [{"title": "", "template": "チケット", "values": {"ID": "1", "X": "2"}}]),
+        ([GOOD], [{"title": "", "template": None, "values": {"URL": "javascript:alert(1)"}}]),
+        ([GOOD], [{"title": "", "template": None}]),
+    ],
+)
+def test_invalid_links_and_templates_are_rejected(
+    tmp_path: Path, templates: object, urls: object
+) -> None:
+    path = saved_project(tmp_path)
+
+    def bad(raw: dict) -> None:
+        raw["url_templates"] = templates
+        raw["tasks"][0]["urls"] = urls
+
+    rewrite(path, bad)
+    with pytest.raises(ValueError):
+        load_project(path)
+
+
+def test_a_checkpoint_keeps_its_links(tmp_path: Path) -> None:
+    project = Project(
+        "cp",
+        tasks=[
+            Task(
+                "節目",
+                kind=TaskKind.CHECKPOINT,
+                deadline=datetime(2026, 10, 20, 17),
+                urls=[TaskUrl("", None, {"URL": "https://example.com/doc"})],
+            )
+        ],
+    )
+    loaded = load_project(save_project(project, tmp_path))
+    assert loaded.tasks[0].urls == [TaskUrl("", None, {"URL": "https://example.com/doc"})]
