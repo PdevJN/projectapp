@@ -212,3 +212,18 @@ def test_write_json_leaves_nothing_on_failure(tmp_path: Path) -> None:
 
 def test_json_file_types_name_the_extension() -> None:
     assert any("*.json" in t for t in JSON_FILE_TYPES)
+
+
+def test_the_anchor_date_is_the_pushed_start() -> None:
+    from projectapp.handoff import _schedule
+
+    a = Task("a", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=13)
+    b = Task(
+        "b",
+        id="bbbbbbbb",
+        planned_start=datetime(2026, 10, 5, 9),
+        effort_hours=1,
+        predecessors=["aaaaaaaa"],
+    )
+    project = Project("p", tasks=[a, b])
+    assert _schedule(b, project, {}) == ("daily", "2026-10-06")  # 火 15:30 開始 → 水 9:00〜10:00

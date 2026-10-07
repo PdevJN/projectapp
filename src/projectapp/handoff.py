@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from projectapp.models import Project, Status, Task
-from projectapp.timeline import combine_rate, effective_end
+from projectapp.timeline import combine_rate, effective_end, effective_start
 
 NAMESPACE = uuid.UUID("5b0f3c1e-8a42-4d6f-9e17-3c2a7d94b0e8")  # 決定的な id の元。変えると、書き出し直しの id が変わる
 CATEGORY_COLORS = ("blue", "indigo", "purple", "pink", "red", "orange", "amber", "green", "teal", "brown")
@@ -48,7 +48,7 @@ def _task_keys(project: Project) -> dict[int, str]:
 
 def _schedule(task: Task, project: Project, holidays: dict[date, str]) -> tuple[str, str]:
     """(schedule_type, anchor_date)。期間が複数日なら daily、それ以外は one_time。"""
-    start = task.planned_start
+    start = effective_start(task, project, holidays)
     anchor = start.date() if start is not None else project.base_date
     no_span = task.effort_hours <= 0 and task.planned_end is None and task.deadline is None
     if start is None or no_span:

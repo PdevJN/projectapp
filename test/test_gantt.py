@@ -2546,3 +2546,20 @@ def test_the_scroll_position_is_remembered_while_visible_and_restored() -> None:
     assert "offsetHeight > 0" in TRACK_SCROLL_JS  # 隠れていて 0 を返すときは、上書きしない
     assert "[data-chart-scroll]" in SHOW_CHART_JS
     assert "scrollTo" in SHOW_CHART_JS and "requestAnimationFrame" in SHOW_CHART_JS
+
+
+async def test_a_pushed_task_is_drawn_from_its_effective_start(user: User) -> None:
+    a = Task("先行", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=13)
+    b = Task(
+        "後続",
+        id="bbbbbbbb",
+        planned_start=datetime(2026, 10, 5, 9),
+        effort_hours=6.5,
+        predecessors=["aaaaaaaa"],
+    )
+    project = Project("demo", base_date=BASE, sections=[Section("開発", [a, b])])
+    mount(project)
+    await user.open("/")
+    bar = user.find(marker="bar-0-1").elements.pop()
+    day = COLUMN_WIDTH_PX[Scale.DAY]
+    assert bar._style["left"] == from_name((1 + 15.5 / 24) * day)  # 火曜 15:30

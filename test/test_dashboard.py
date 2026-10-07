@@ -268,3 +268,22 @@ def test_overload_days_are_the_days_the_stripes_touch() -> None:
     assert stats.average == pytest.approx(0.48)
     stripes = overallocations(project, {})
     assert [(o.start, o.end) for o in stripes] == [(datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 17))]
+
+
+def test_workload_uses_the_pushed_start() -> None:
+    from projectapp.dashboard import Period, summarize_workload
+
+    a = Task("a", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5 * 5)
+    b = Task(
+        "b",
+        id="bbbbbbbb",
+        planned_start=datetime(2026, 10, 5, 9),
+        effort_hours=6.5,
+        assignee="x",
+        predecessors=["aaaaaaaa"],
+    )
+    project = Project("p", tasks=[a, b], members=[Member("x")])
+    monday = Period(date(2026, 10, 5), date(2026, 10, 5))
+    rows = summarize_workload(project, monday, datetime(2026, 10, 1), {})
+    # b は a が終わる金曜の 15:30 以降に始まるので、月曜には数えない
+    assert next(r for r in rows if r.name == "x").planned_hours == 0.0

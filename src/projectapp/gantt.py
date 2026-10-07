@@ -27,12 +27,12 @@ from projectapp.timeline import (
     Overload,
     ProgressState,
     Scale,
+    Schedule,
     bar_span,
     build_columns,
     clip_overloads,
     current_progress,
     deadline_position,
-    effective_end,
     expected_progress,
     interval_span,
     is_overdue,
@@ -308,6 +308,7 @@ class GanttChart:
         self.now = now
         self.name_width = name_width  # 名前の欄の幅(px)。ドラッグで変わり、保存は呼び出し側
         self.overloads: list[Overload] = []
+        self.schedule = Schedule(project, holidays)
         self.scale = Scale.DAY
         self.options = ViewOptions()
         self.toolbar: ui.row | None = None
@@ -561,6 +562,7 @@ class GanttChart:
     @ui.refreshable_method
     def render(self) -> None:
         self.section_views = {}
+        self.schedule = Schedule(self.project, self.holidays)
         columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
         self.overloads = overallocations(self.project, self.holidays)
         width = COLUMN_WIDTH_PX[self.view_scale]
@@ -729,8 +731,9 @@ class GanttChart:
     ) -> ui.element:
         key = "top" if si is None else si
         style = ROW_STYLE
-        overdue = is_overdue(task, self.project, self.holidays, self.now()) and self.options.show_alerts
-        state = progress_state(task, self.project, self.holidays, self.now())
+        now = self.now()
+        overdue = is_overdue(task, self.project, self.holidays, now, self.schedule) and self.options.show_alerts
+        state = progress_state(task, self.project, self.holidays, now, self.schedule)
         finished = state in (ProgressState.DONE, ProgressState.LATE_DONE)
         if overdue:
             style += f"; background: {OVERDUE_COLOR}"
@@ -764,9 +767,10 @@ class GanttChart:
                 name.mark(f"task-name-{key}-{ti}")
                 if self.options.show_chips:
                     self.task_chips(key, ti, task)
-            end = effective_end(task, self.project, self.holidays)
-            span = bar_span(task.planned_start, end, columns)
-            if span is not None and self.bar_visible(task.planned_start, end, columns):
+            start = self.schedule.start(task)
+            end = self.schedule.end(task)
+            span = bar_span(start, end, columns)
+            if span is not None and self.bar_visible(start, end, columns):
                 left, length = span
                 bar_width = max(length * width, MIN_BAR_PX)
                 draggable = self.view_scale is Scale.DAY and not self.options.read_only
@@ -837,7 +841,7 @@ class GanttChart:
         self, task: Task, columns: list[Column], end: datetime | None, percent: int
     ) -> float | None:
         """切られた棒の、見えている部分に対する塗りの割合(%)。切られていない(または期間なし)なら None。"""
-        start = task.planned_start
+        start = self.schedule.start(task)
         if self.options.period is None or start is None or end is None or end <= start:
             return None
         begin = datetime.combine(columns[0].start, time.min)
@@ -886,8 +890,9 @@ class GanttChart:
         tip = state.value
         percent = current_progress(task)
         if state in (ProgressState.DELAYED, ProgressState.AHEAD) and percent is not None:
-            if task.planned_start is not None and end is not None:
-                expected = expected_progress(task.planned_start, end, self.now())
+            start = self.schedule.start(task)
+            if start is not None and end is not None:
+                expected = expected_progress(start, end, self.now())
                 tip = f"{state.value}(進捗 {percent}% / 予定 {expected:.0f}%)"
         ui.label(PROGRESS_STATE_MARKS[state]).style(
             f"position: absolute; left: {from_name(mark_left)}; top: {BAR_TOP_PX}px;"
@@ -952,7 +957,7 @@ class GanttChart:
         width: int,
     ) -> None:
         """棒の内側に、割り当て合計が100%を超える期間の縞を重ねる。棒の外にははみ出さない。"""
-        clipped = clip_overloads(task, self.project, self.holidays, self.overloads)
+        clipped = clip_overloads(task, self.project, self.holidays, self.overloads, self.schedule)
         for n, overload in enumerate(clipped):
             start, length = interval_span(overload.start, overload.end, columns)
             left_px = max((start - bar_left) * width, 0.0)
