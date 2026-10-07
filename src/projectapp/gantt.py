@@ -792,7 +792,9 @@ class GanttChart:
                 self.edit_on_click(bar, si, ti)
                 bar.mark(f"bar-{key}-{ti}")
                 if draggable:
-                    least = arrange.min_shift_days(task, self.project.base_date)
+                    least = arrange.min_shift_days(
+                        task, self.project.base_date, start, self.schedule.latest_finish(task)
+                    )
                     bar.props(
                         f"data-bar data-si={key} data-ti={ti} data-day-width={width}"
                         f" data-min-days={least}"

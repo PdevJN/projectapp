@@ -563,10 +563,13 @@ class MainView:
         if days == 0 or not arrange.has_task(self.project, (section_index, task_index)):
             return
         task = self.tasks_in(section_index)[task_index]
-        days = max(days, arrange.min_shift_days(task, self.project.base_date))
+        schedule = Schedule(self.project, self.holidays)
+        shown = schedule.start(task)
+        floor = schedule.latest_finish(task)
+        days = max(days, arrange.min_shift_days(task, self.project.base_date, shown, floor))
         if days == 0:
             return
-        if not arrange.shift_task(task, days):
+        if not arrange.shift_task(task, days, shown):
             if task.planned_start is not None:
                 ui.notify("日付の範囲を超えるため動かせません", type="warning")
             return
