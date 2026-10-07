@@ -668,6 +668,23 @@ async def test_delete_task_removes_only_that_task_and_makes_the_view_dirty(
     assert view.is_dirty()
 
 
+async def test_delete_task_removes_its_id_from_the_successors(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    a = Task("a", id="aaaaaaaa")
+    b = Task("b", id="bbbbbbbb", predecessors=["aaaaaaaa"])
+    save_project(Project("既存", tasks=[a, b]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    view.delete_task(None, 0)
+    assert view.project.tasks[0].predecessors == []
+
+
 async def test_delete_from_the_edit_dialog_removes_the_bar(user: User, tmp_path: Path) -> None:
     save_cache({}, tmp_path)
     mount(tmp_path, make_transport(200, []))

@@ -9,6 +9,7 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from projectapp.linkgraph import validate_links
 from projectapp.models import (
     ActualMode,
     MAX_ALLOCATION,
@@ -27,6 +28,7 @@ from projectapp.models import (
     Section,
     Status,
     Task,
+    new_id,
 )
 
 BASE_DIR = Path.home() / ".projectapp"
@@ -147,6 +149,7 @@ def _task(raw: dict[str, Any]) -> Task:
         deadline = _datetime(raw.get("deadline")) or legacy_end  # 明示された締切を優先
     return Task(
         name=raw["name"],
+        id=_task_id(raw.get("id")),
         planned_start=planned_start,
         planned_end=planned_end,
         planned_end_manual=manual,
@@ -156,7 +159,7 @@ def _task(raw: dict[str, Any]) -> Task:
         status=_status(raw["status"]),
         color=raw["color"],
         assignee=_assignee(raw.get("assignee")),
-        predecessors=list(raw["predecessors"]),
+        predecessors=_predecessors(raw.get("predecessors")),
         allocation=_allocation(raw.get("allocation", 1.0)),
         actuals=_actuals(raw.get("actuals")),
         project_code=_project_code(raw.get("project_code")),
@@ -241,6 +244,24 @@ def _project_code(value: Any) -> str:
     return code
 
 
+def _task_id(value: Any) -> str:
+    """タスクの id。キーがない・null は新しく振る(古いファイル)。空・文字列以外は ValueError。"""
+    if value is None:
+        return new_id()
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"タスクの id が正しくありません: {value!r}")
+    return value
+
+
+def _predecessors(value: Any) -> list[str]:
+    """先行タスクの id のリスト。キーがない・null は空。リストでない・文字列以外は ValueError。"""
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(pid, str) for pid in value):
+        raise ValueError("先行タスクが文字列のリストではありません")
+    return list(value)
+
+
 def _assignee(value: Any) -> str | None:
     """担当者名。前後の空白を取り除き、空はNone。"""
     if not isinstance(value, str):
@@ -302,6 +323,7 @@ def load_project(path: Path) -> Project:
         tasks=[_task(t) for t in raw.get("tasks", [])],
         actual_mode=_actual_mode(raw.get("actual_mode", "simple")),
     )
+    validate_links(project.all_tasks())
     known = {m.name for m in project.members}
     for task in project.all_tasks():  # 古いファイルの自由入力の担当者を、メンバーとして補う
         if task.assignee and task.assignee not in known:

@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 import re
+import secrets
 from enum import StrEnum
 
 DEFAULT_DAILY_HOURS = 6.5
@@ -14,6 +15,11 @@ MIN_ALLOCATION, MAX_ALLOCATION = 0.01, 1.0  # 割り当て率(1%〜100%)
 MIN_PROGRESS, MAX_PROGRESS = 0, 100  # 実績の進捗度(%)
 MAX_PROJECT_CODE_LENGTH = 20  # ProjectCode の最大文字数
 HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
+
+
+def new_id() -> str:
+    """タスクの id。8 桁の 16 進(プロジェクト内で重複しないことは、保存と読込が確かめる)。"""
+    return secrets.token_hex(4)
 
 
 def is_hex_color(value: str) -> bool:
@@ -57,6 +63,7 @@ class Actual:
 @dataclass
 class Task:
     name: str
+    id: str = field(default_factory=new_id, compare=False)  # 連結の参照用。ファイルに保存する
     planned_start: datetime | None = None
     effort_hours: float = 0.0
     priority: Priority = Priority.MEDIUM

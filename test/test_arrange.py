@@ -235,3 +235,12 @@ def test_move_keeps_actuals() -> None:
     moved.actuals = [Actual(datetime(2026, 10, 5, 9), None)]
     arrange.move_task(project, (0, 1), (1, 0))
     assert project.sections[1].tasks[0].actuals == [Actual(datetime(2026, 10, 5, 9), None)]
+
+
+def test_copy_task_gets_a_new_id_and_no_predecessors() -> None:
+    original = Task("a0", id="aaaaaaaa", predecessors=["zzzzzzzz"])
+    project = Project("p", sections=[Section("A", [original])])
+    copy = arrange.copy_task(project, (0, 0), (0, 1))
+    assert copy.id != "aaaaaaaa" and len(copy.id) == 8
+    assert copy.predecessors == []
+    assert original.predecessors == ["zzzzzzzz"]

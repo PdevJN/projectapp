@@ -10,6 +10,7 @@ from nicegui import ui
 from nicegui.events import KeyEventArguments
 
 from projectapp.calendar import load_cache
+from projectapp.linkgraph import drop_task_links
 from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import THEMES, load_name_width, load_theme, save_name_width, save_theme
 from projectapp.forms import (
@@ -526,7 +527,8 @@ class MainView:
 
     def delete_task(self, section_index: int | None, task_index: int) -> None:
         """タスクを取り除いて再描画する。保存は自動では行わない(編集中の判定に入る)。"""
-        del self.tasks_in(section_index)[task_index]
+        removed = self.tasks_in(section_index).pop(task_index)
+        drop_task_links(self.project, removed.id)
         self.gantt.set_project(self.project)
 
     def move_task(self, src: arrange.Position, dst: arrange.Position, copy: bool) -> None:
