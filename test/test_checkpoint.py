@@ -4,7 +4,8 @@ from pathlib import Path
 import pytest
 
 from projectapp import arrange
-from projectapp.models import Project, Section, Status, Task, TaskKind
+from projectapp.forms import build_task
+from projectapp.models import Priority, Project, Section, Status, Task, TaskKind
 from projectapp.storage import load_project, save_project
 from projectapp.timeline import Schedule, effective_end, effective_start, is_overdue
 from test_storage import write_raw
@@ -156,3 +157,68 @@ def test_a_normal_task_is_not_overdue_just_because_it_will_miss_the_deadline() -
     a = work("a", planned_start=MON, effort_hours=26)
     b = work("b", "a", planned_start=MON, effort_hours=1, deadline=WED_NOON)
     assert not is_overdue(b, project(a, b), {}, MON)  # 通常タスクは、現在時刻だけで判定する(従来どおり)
+
+
+def make(existing: Task | None = None, **overrides: object) -> Task:
+    values: dict[str, object] = {
+        "name": "レビュー",
+        "planned_start": "",
+        "planned_end": "",
+        "deadline": "2026-10-12T17:00",
+        "effort_hours": None,
+        "priority": Priority.HIGH,
+        "status": Status.NOT_STARTED,
+        "color": "#112233",
+        "assignee": "",
+        "allocation_percent": None,
+        "kind": TaskKind.CHECKPOINT,
+    }
+    values.update(overrides)
+    return build_task(existing, **values)  # type: ignore[arg-type]
+
+
+def test_a_checkpoint_keeps_only_the_deadline() -> None:
+    task = make(
+        planned_start="日付ではない",  # 隠した欄の不正な入力は、保存を妨げない
+        planned_end="2026-10-07T18:00",
+        effort_hours=-3.0,
+        assignee="佐藤",
+        allocation_percent=500.0,
+        actual_start="2026-10-05T09:00",
+    )
+    assert task.kind is TaskKind.CHECKPOINT
+    assert task.deadline == DEADLINE
+    assert (task.planned_start, task.planned_end, task.planned_end_manual) == (None, None, False)
+    assert (task.effort_hours, task.assignee, task.allocation, task.actuals) == (0.0, None, 1.0, [])
+    assert task.priority is Priority.HIGH and task.color == "#112233"
+
+
+def test_a_checkpoint_needs_a_deadline() -> None:
+    with pytest.raises(ValueError, match="締切"):
+        make(deadline="")
+
+
+@pytest.mark.parametrize("status", [Status.RUNNING, Status.PAUSED])
+def test_a_checkpoint_rejects_the_other_statuses(status: Status) -> None:
+    with pytest.raises(ValueError, match="状態"):
+        make(status=status)
+
+
+def test_a_checkpoint_can_become_normal_again() -> None:
+    existing = checkpoint("x")
+    task = make(
+        existing,
+        kind=TaskKind.NORMAL,
+        planned_start="2026-10-05T09:00",
+        planned_end="2026-10-07T18:00",
+        effort_hours=8.0,
+        status=Status.RUNNING,
+        allocation_percent=100.0,
+    )
+    assert task.kind is TaskKind.NORMAL and task.id == "x"
+    assert task.planned_start == datetime(2026, 10, 5, 9, 0)
+
+
+def test_a_normal_task_keeps_building_as_before() -> None:
+    task = make(kind=TaskKind.NORMAL, planned_start="2026-10-05T09:00", effort_hours=8.0)
+    assert task.kind is TaskKind.NORMAL and task.effort_hours == 8.0

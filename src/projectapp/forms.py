@@ -9,6 +9,7 @@ from math import isfinite
 from nicegui import ui
 
 from projectapp.models import (
+    CHECKPOINT_STATUSES,
     MAX_ALLOCATION,
     MAX_PROGRESS,
     MAX_PROJECT_CODE_LENGTH,
@@ -24,6 +25,7 @@ from projectapp.models import (
     Priority,
     Status,
     Task,
+    TaskKind,
     is_hex_color,
 )
 
@@ -90,6 +92,62 @@ def push_hint(start: datetime | None, finishes: list[datetime]) -> str:
     return f"先行の完了により、実際の開始は {latest:%m/%d %H:%M} です"
 
 
+def _links(
+    base: Task, predecessors: list[str] | None, linkable_ids: frozenset[str] | None
+) -> list[str]:
+    """先行タスクの入力を検証する。None は既存のまま。重複は除く(順序は保つ)。"""
+    links = list(base.predecessors) if predecessors is None else list(dict.fromkeys(predecessors))
+    if predecessors is not None and (
+        base.id in links or (linkable_ids is not None and not set(links) <= linkable_ids)
+    ):
+        raise ValueError("先行タスクが正しくありません")
+    return links
+
+
+def _build_checkpoint(
+    base: Task,
+    name: str,
+    code: str,
+    deadline: str,
+    priority: Priority,
+    status: Status,
+    color: str,
+    predecessors: list[str] | None,
+    linkable_ids: frozenset[str] | None,
+) -> Task:
+    """チェックポイント。締切だけを検証し、開始予定・工数・担当・実績は空にする(隠した欄の入力は見ない)。"""
+    try:
+        deadline_at = parse_datetime(deadline)
+    except ValueError:
+        raise ValueError("日時の形式が正しくありません") from None
+    if deadline_at is None:
+        raise ValueError("チェックポイントには締切を入れてください")
+    if not MIN_YEAR <= deadline_at.year <= MAX_YEAR:
+        raise ValueError(f"年は{MIN_YEAR}〜{MAX_YEAR}の範囲で入力してください")
+    if status not in CHECKPOINT_STATUSES:
+        raise ValueError("チェックポイントの状態は、未着手か終了にしてください")
+    if not is_hex_color(color):
+        raise ValueError("色は#RRGGBBの形式で入力してください")
+    return replace(
+        base,
+        kind=TaskKind.CHECKPOINT,
+        name=name,
+        planned_start=None,
+        planned_end=None,
+        planned_end_manual=False,
+        deadline=deadline_at,
+        effort_hours=0.0,
+        priority=priority,
+        status=status,
+        color=color,
+        assignee=None,
+        allocation=1.0,
+        actuals=[],
+        project_code=code,
+        predecessors=_links(base, predecessors, linkable_ids),
+    )
+
+
 ActualRow = tuple[str, str, float | None]  # 区間の1行の入力(開始・終了の文字列、進捗度)
 
 
@@ -114,6 +172,7 @@ def build_task(
     project_code: str = "",
     predecessors: list[str] | None = None,
     linkable_ids: frozenset[str] | None = None,
+    kind: TaskKind = TaskKind.NORMAL,
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。"""
     clean = name.strip()
@@ -123,6 +182,10 @@ def build_task(
     if len(code) > MAX_PROJECT_CODE_LENGTH:
         raise ValueError(f"ProjectCode は{MAX_PROJECT_CODE_LENGTH}文字以内で入力してください")
     base = existing or Task(clean)
+    if kind is TaskKind.CHECKPOINT:
+        return _build_checkpoint(
+            base, clean, code, deadline, priority, status, color, predecessors, linkable_ids
+        )
     hours = effort_hours or 0.0
     manual = planned_end_manual and hours > 0
     uses_planned_end = hours <= 0 or manual
@@ -158,13 +221,10 @@ def build_task(
         actuals = base.actuals
     else:
         actuals = build_actuals(actual_start, actual_end, actual_progress)
-    links = list(base.predecessors) if predecessors is None else list(dict.fromkeys(predecessors))
-    if predecessors is not None and (
-        base.id in links or (linkable_ids is not None and not set(links) <= linkable_ids)
-    ):
-        raise ValueError("先行タスクが正しくありません")
+    links = _links(base, predecessors, linkable_ids)
     return replace(
         base,
+        kind=TaskKind.NORMAL,
         name=clean,
         planned_start=start_at,
         planned_end=end_at,
