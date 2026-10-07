@@ -40,6 +40,14 @@ class Status(StrEnum):
     DONE = "終了"
 
 
+class TaskKind(StrEnum):
+    NORMAL = "通常"
+    CHECKPOINT = "チェックポイント"  # 締切だけを持つ節目。バーを持たず、◆ だけを出す
+
+
+CHECKPOINT_STATUSES = (Status.NOT_STARTED, Status.DONE)  # チェックポイントが取れる状態
+
+
 class ActualMode(StrEnum):
     SIMPLE = "simple"  # 簡易: 実績は 1 区間
     INTERVALS = "intervals"  # 区間: 実績を複数の区間で入力する
@@ -77,6 +85,7 @@ class Task:
     allocation: float = 1.0  # 担当者の時間のうち、このタスクに使う割合(1.0 = 100%)
     actuals: list[Actual] = field(default_factory=list)  # 実績の区間(今回の画面は0〜1件)
     project_code: str = ""  # ProjectCode。前後の空白は除く。最大 MAX_PROJECT_CODE_LENGTH 文字
+    kind: TaskKind = TaskKind.NORMAL  # チェックポイントは、締切だけを持つ(他の日時・工数・担当・実績は持たない)
 
 
 @dataclass
