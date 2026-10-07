@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import date, datetime, time, timedelta
+from typing import Any
 from pathlib import Path
 
 import httpx
@@ -10,6 +11,7 @@ from nicegui import ui
 from nicegui.events import KeyEventArguments
 
 from projectapp.calendar import load_cache
+from projectapp.linkgraph import drop_task_links, link_options
 from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import THEMES, load_name_width, load_theme, save_name_width, save_theme
 from projectapp.forms import (
@@ -64,7 +66,7 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.task_dialog import open_task_dialog
-from projectapp.timeline import build_columns, clip_overloads, overallocations, visible_range
+from projectapp.timeline import Schedule, build_columns, clip_overloads, overallocations, visible_range
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
@@ -489,6 +491,17 @@ class MainView:
         self.project.sections.append(Section(name))
         self.gantt.set_project(self.project)
 
+    def link_args(self, task: Task | None) -> dict[str, Any]:
+        """編集ダイアログの「先行タスク」欄に渡す引数。"""
+        schedule = Schedule(self.project, self.holidays)
+        by_id = {t.id: t for t in self.project.all_tasks()}
+
+        def finish_of(task_id: str) -> datetime | None:
+            pred = by_id.get(task_id)
+            return None if pred is None else schedule.finish(pred)
+
+        return {"link_options": link_options(self.project, task), "finish_of": finish_of}
+
     def add_task(self, section_index: int) -> None:
         open_task_dialog(
             None,
@@ -498,6 +511,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            **self.link_args(None),
         )
 
     def add_top_task(self) -> None:
@@ -509,6 +523,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            **self.link_args(None),
         )
 
     def edit_task(self, section_index: int | None, task_index: int) -> None:
@@ -522,11 +537,13 @@ class MainView:
             members=self.project.members,
             actual_mode=self.project.actual_mode,
             on_delete=lambda: self.delete_task(section_index, task_index),
+            **self.link_args(task),
         )
 
     def delete_task(self, section_index: int | None, task_index: int) -> None:
         """タスクを取り除いて再描画する。保存は自動では行わない(編集中の判定に入る)。"""
-        del self.tasks_in(section_index)[task_index]
+        removed = self.tasks_in(section_index).pop(task_index)
+        drop_task_links(self.project, removed.id)
         self.gantt.set_project(self.project)
 
     def move_task(self, src: arrange.Position, dst: arrange.Position, copy: bool) -> None:
@@ -546,10 +563,13 @@ class MainView:
         if days == 0 or not arrange.has_task(self.project, (section_index, task_index)):
             return
         task = self.tasks_in(section_index)[task_index]
-        days = max(days, arrange.min_shift_days(task, self.project.base_date))
+        schedule = Schedule(self.project, self.holidays)
+        shown = schedule.start(task)
+        floor = schedule.latest_finish(task)
+        days = max(days, arrange.min_shift_days(task, self.project.base_date, shown, floor))
         if days == 0:
             return
-        if not arrange.shift_task(task, days):
+        if not arrange.shift_task(task, days, shown):
             if task.planned_start is not None:
                 ui.notify("日付の範囲を超えるため動かせません", type="warning")
             return

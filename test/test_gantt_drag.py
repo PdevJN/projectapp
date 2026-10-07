@@ -552,3 +552,18 @@ def test_js_escape_is_not_stopped_when_no_resize_is_in_progress(js_scenarios: di
 
 def test_js_the_row_drag_does_not_start_while_resizing(js_scenarios: dict) -> None:
     assert js_scenarios["dragstart"] is True
+
+
+async def test_min_days_stops_at_the_predecessors_finish(user: User) -> None:
+    a = Task("先行", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=13)
+    b = Task(
+        "後続",
+        id="bbbbbbbb",
+        planned_start=datetime(2026, 10, 12, 9),
+        effort_hours=1,
+        predecessors=["aaaaaaaa"],
+    )
+    mount(Project("demo", base_date=BASE, sections=[Section("開発", [a, b])]))
+    await user.open("/")
+    # 先行の完了は火曜(10/6)の 15:30。後続の開始 10/12 から 10/6 まで -6 日
+    assert props_of(user, "bar-0-1")["data-min-days"] == "-6"

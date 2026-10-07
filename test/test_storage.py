@@ -49,7 +49,9 @@ def test_roundtrip_restores_dates_enums_and_base_date(tmp_path: Path) -> None:
         daily_hours=7.0,
         members=[Member("佐藤", 0.5)],
         sections=[Section("s1", [task])],
-        tasks=[Task("top", planned_start=datetime(2026, 10, 6), planned_end=datetime(2026, 10, 8))],
+        tasks=[
+            Task("top", id="a", planned_start=datetime(2026, 10, 6), planned_end=datetime(2026, 10, 8))
+        ],
     )
     loaded = load_project(save_project(project, tmp_path))
     assert loaded == project
@@ -692,3 +694,71 @@ def test_invalid_project_code_is_rejected(tmp_path: Path, bad: object) -> None:
     path.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(ValueError, match="ProjectCode"):
         load_project(path)
+
+
+def write_raw(tmp_path: Path, tasks: list[dict[str, object]]) -> Path:
+    base = {
+        "name": "t",
+        "effort_hours": 0.0,
+        "priority": "中",
+        "status": "未着手",
+        "color": "#4c8bf5",
+        "predecessors": [],
+    }
+    data = {
+        "base_date": "2026-10-05",
+        "daily_hours": 6.5,
+        "members": [],
+        "sections": [{"name": "s", "tasks": [{**base, **raw} for raw in tasks]}],
+    }
+    path = tmp_path / "raw.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def test_ids_and_predecessors_roundtrip(tmp_path: Path) -> None:
+    a = Task("a", id="aaaaaaaa")
+    b = Task("b", id="bbbbbbbb", predecessors=["aaaaaaaa"])
+    path = save_project(Project("links", sections=[Section("s", [a, b])]), tmp_path)
+    loaded = load_project(path).sections[0].tasks
+    assert [(t.id, t.predecessors) for t in loaded] == [
+        ("aaaaaaaa", []),
+        ("bbbbbbbb", ["aaaaaaaa"]),
+    ]
+
+
+def test_a_file_without_ids_gets_unique_ids_and_empty_predecessors(tmp_path: Path) -> None:
+    path = write_raw(tmp_path, [{"name": "a"}, {"name": "b"}])
+    for raw in json.loads(path.read_text(encoding="utf-8"))["sections"][0]["tasks"]:
+        assert "id" not in raw
+    tasks = load_project(path).sections[0].tasks
+    assert len({t.id for t in tasks}) == 2
+    assert all(len(t.id) == 8 for t in tasks)
+    path_no_key = write_raw(tmp_path, [{"name": "a"}])
+    data = json.loads(path_no_key.read_text(encoding="utf-8"))
+    del data["sections"][0]["tasks"][0]["predecessors"]
+    path_no_key.write_text(json.dumps(data), encoding="utf-8")
+    assert load_project(path_no_key).sections[0].tasks[0].predecessors == []
+
+
+@pytest.mark.parametrize(
+    "tasks",
+    [
+        [{"name": "a", "id": ""}],
+        [{"name": "a", "id": 5}],
+        [{"name": "a", "id": "x"}, {"name": "b", "id": "x"}],
+        [{"name": "a", "id": "x", "predecessors": "x"}],
+        [{"name": "a", "id": "x", "predecessors": [1]}],
+        [{"name": "a", "id": "x", "predecessors": ["zz"]}],
+        [{"name": "a", "id": "x", "predecessors": ["x"]}],
+        [
+            {"name": "a", "id": "x", "predecessors": ["y"]},
+            {"name": "b", "id": "y", "predecessors": ["x"]},
+        ],
+    ],
+)
+def test_bad_ids_and_predecessors_are_rejected(
+    tmp_path: Path, tasks: list[dict[str, object]]
+) -> None:
+    with pytest.raises(ValueError):
+        load_project(write_raw(tmp_path, tasks))

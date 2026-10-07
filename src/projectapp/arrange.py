@@ -1,9 +1,9 @@
 """タスクの移動・コピー・日程のずらし(純粋関数)と、画面から届く値の検証。"""
 
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
-from projectapp.models import MAX_YEAR, MIN_YEAR, Project, Task
+from projectapp.models import MAX_YEAR, MIN_YEAR, Project, Task, new_id
 
 Position = tuple[int | None, int]  # (セクション番号。Noneはセクションなし, 番号)
 COPY_SUFFIX = "(コピー)"
@@ -45,20 +45,27 @@ def move_task(project: Project, src: Position, dst: Position) -> bool:
 
 def copy_task(project: Project, src: Position, dst: Position) -> Task:
     original = tasks_at(project, src[0])[src[1]]
-    copy = replace(original, name=f"{original.name}{COPY_SUFFIX}", predecessors=[], actuals=[])
+    copy = replace(
+        original, name=f"{original.name}{COPY_SUFFIX}", id=new_id(), predecessors=[], actuals=[]
+    )
     target = tasks_at(project, dst[0])
     target.insert(min(dst[1], len(target)), copy)
     return copy
 
 
-def shift_task(task: Task, days: int) -> bool:
-    """開始予定と、入っていれば完了予定を同じ日数ずらす(締切は動かさない)。範囲外なら何も書き換えない。"""
+def shift_task(task: Task, days: int, shown_start: datetime | None = None) -> bool:
+    """開始予定と、入っていれば完了予定を同じ日数ずらす(締切は動かさない)。範囲外なら何も書き換えない。
+
+    押し出されているタスクは、見えている開始(shown_start)を基準にずらす。完了予定は押し出し分も含める。
+    """
     if task.planned_start is None:
         return False
+    shown = task.planned_start if shown_start is None else max(shown_start, task.planned_start)
     try:
         delta = timedelta(days=days)
-        start = task.planned_start + delta
-        end = None if task.planned_end is None else task.planned_end + delta
+        pushed = shown - task.planned_start
+        start = shown + delta
+        end = None if task.planned_end is None else task.planned_end + pushed + delta
     except OverflowError:
         return False
     for moment in (start, end):
@@ -68,12 +75,19 @@ def shift_task(task: Task, days: int) -> bool:
     return True
 
 
-def min_shift_days(task: Task, base_date: date) -> int:
-    """左へずらせる限度(0 以下の日数)。開始予定は基準日より前へは動かさない。"""
-    if task.planned_start is None:
+def min_shift_days(
+    task: Task,
+    base_date: date,
+    shown_start: datetime | None = None,
+    floor: datetime | None = None,
+) -> int:
+    """左へずらせる限度(0 以下の日数)。見えている開始は、基準日と先行の完了の日より前へは動かさない。"""
+    shown = task.planned_start if shown_start is None else shown_start
+    if shown is None:
         return 0
-    start = task.planned_start.date()
-    return (min(base_date, start) - start).days
+    limit = base_date if floor is None else max(base_date, floor.date())
+    start = shown.date()
+    return (min(limit, start) - start).days
 
 
 def as_int(value: object) -> int | None:

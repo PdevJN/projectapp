@@ -668,6 +668,66 @@ async def test_delete_task_removes_only_that_task_and_makes_the_view_dirty(
     assert view.is_dirty()
 
 
+async def test_delete_task_removes_its_id_from_the_successors(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    a = Task("a", id="aaaaaaaa")
+    b = Task("b", id="bbbbbbbb", predecessors=["aaaaaaaa"])
+    save_project(Project("既存", tasks=[a, b]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    view.delete_task(None, 0)
+    assert view.project.tasks[0].predecessors == []
+
+
+async def test_the_edit_dialog_offers_other_tasks_as_predecessors(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    a = Task("a", id="aaaaaaaa")
+    b = Task("b", id="bbbbbbbb", predecessors=["aaaaaaaa"])
+    c = Task("c", id="cccccccc")
+    save_project(Project("既存", tasks=[a, b, c]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    await user.should_see(marker="task-top-0")
+    user.find(marker="task-top-0").click()  # a を開く: 後続の b と自分は候補から外れる
+    select = user.find(marker="task-predecessors").elements.pop()
+    assert select.options == {"cccccccc": "c"}
+
+
+async def test_shift_task_does_not_go_before_the_predecessors_finish(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    a = Task("a", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=13)
+    b = Task(
+        "b",
+        id="bbbbbbbb",
+        planned_start=datetime(2026, 10, 12, 9),
+        effort_hours=1,
+        predecessors=["aaaaaaaa"],
+    )
+    save_project(Project("既存", base_date=date(2026, 10, 5), tasks=[a, b]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    view.shift_task(None, 1, -30)  # 大きく左へ
+    assert view.project.tasks[1].planned_start == datetime(2026, 10, 6, 9)  # 先行の完了の日まで
+
+
 async def test_delete_from_the_edit_dialog_removes_the_bar(user: User, tmp_path: Path) -> None:
     save_cache({}, tmp_path)
     mount(tmp_path, make_transport(200, []))

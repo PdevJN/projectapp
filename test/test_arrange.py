@@ -235,3 +235,44 @@ def test_move_keeps_actuals() -> None:
     moved.actuals = [Actual(datetime(2026, 10, 5, 9), None)]
     arrange.move_task(project, (0, 1), (1, 0))
     assert project.sections[1].tasks[0].actuals == [Actual(datetime(2026, 10, 5, 9), None)]
+
+
+def test_copy_task_gets_a_new_id_and_no_predecessors() -> None:
+    original = Task("a0", id="aaaaaaaa", predecessors=["zzzzzzzz"])
+    project = Project("p", sections=[Section("A", [original])])
+    copy = arrange.copy_task(project, (0, 0), (0, 1))
+    assert copy.id != "aaaaaaaa" and len(copy.id) == 8
+    assert copy.predecessors == []
+    assert original.predecessors == ["zzzzzzzz"]
+
+
+def test_shift_task_of_a_pushed_task_starts_from_the_shown_start() -> None:
+    task = Task(
+        "b",
+        planned_start=datetime(2026, 10, 5, 9),
+        planned_end=datetime(2026, 10, 5, 18),
+    )
+    shown = datetime(2026, 10, 8, 9)  # 先行に 3 日押し出されている
+    assert arrange.shift_task(task, 2, shown)
+    assert task.planned_start == datetime(2026, 10, 10, 9)
+    assert task.planned_end == datetime(2026, 10, 10, 18)  # 5 + 3(押し出し)+ 2
+
+
+def test_shift_task_without_a_push_is_unchanged() -> None:
+    task = Task("b", planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 6, 9))
+    assert arrange.shift_task(task, 1)
+    assert (task.planned_start, task.planned_end) == (
+        datetime(2026, 10, 6, 9),
+        datetime(2026, 10, 7, 9),
+    )
+
+
+def test_min_shift_days_stops_at_the_base_date_and_the_predecessors_finish() -> None:
+    task = Task("b", planned_start=datetime(2026, 10, 12, 9))
+    base = date(2026, 10, 5)
+    assert arrange.min_shift_days(task, base) == -7
+    floor = datetime(2026, 10, 8, 15, 30)  # 先行の完了
+    assert arrange.min_shift_days(task, base, None, floor) == -4  # 12 → 8
+    pushed_shown = datetime(2026, 10, 8, 15, 30)
+    assert arrange.min_shift_days(task, base, pushed_shown, floor) == 0
+    assert arrange.min_shift_days(task, date(2026, 10, 10), None, floor) == -2  # 基準日が遅いとき
