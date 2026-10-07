@@ -7,7 +7,7 @@ from datetime import date, datetime, time
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.models import Actual, ActualMode, Member, Status, Task
+from projectapp.models import Actual, ActualMode, Member, Status, Task, TaskKind
 from projectapp.task_dialog import open_task_dialog
 
 
@@ -1344,3 +1344,129 @@ async def test_changing_the_predecessors_counts_as_an_edit(user: User) -> None:
     user.find(marker="task-predecessors").elements.pop().set_value(["aaaaaaaa"])
     user.find(marker="task-cancel").click()
     await user.should_see(marker="close-save")  # 確認ダイアログが出る
+
+
+async def set_kind(user: User, kind: TaskKind) -> None:
+    user.find(marker="task-kind").elements.pop().set_value(kind)
+    await asyncio.sleep(0.1)
+
+
+async def test_the_kind_toggle_hides_and_shows_the_normal_fields(user: User) -> None:
+    mount_dialog(None, [], members=[Member("佐藤")])
+    await open_dialog(user)
+    await user.should_see(marker="task-start-date")
+    await set_kind(user, TaskKind.CHECKPOINT)
+    for marker in (
+        "task-start-date",
+        "task-end-date",
+        "task-effort",
+        "task-assignee",
+        "task-actual-progress",
+    ):
+        await user.should_not_see(marker=marker)
+    for marker in (
+        "task-name",
+        "task-deadline-date",
+        "task-predecessors",
+        "task-status",
+        "task-project-code",
+    ):
+        await user.should_see(marker=marker)
+    await set_kind(user, TaskKind.NORMAL)
+    await user.should_see(marker="task-start-date")
+    await user.should_see(marker="task-effort")
+
+
+async def test_a_checkpoint_offers_only_two_statuses(user: User) -> None:
+    task = Task("c", status=Status.RUNNING)
+    mount_dialog(task, [])
+    await open_dialog(user)
+    await set_kind(user, TaskKind.CHECKPOINT)
+    status = user.find(marker="task-status").elements.pop()
+    assert list(status.options.values()) == ["未着手", "終了"]
+    assert status.value == Status.NOT_STARTED  # 実行中は選べないので、未着手にする
+    await set_kind(user, TaskKind.NORMAL)
+    assert len(user.find(marker="task-status").elements.pop().options) == 4
+
+
+async def test_saving_a_checkpoint_clears_the_normal_fields(user: User) -> None:
+    saved: list[Task] = []
+    task = Task(
+        "設計",
+        planned_start=datetime(2026, 10, 5, 9, 0),
+        effort_hours=5.0,
+        assignee="佐藤",
+    )
+    mount_dialog(task, saved, members=[Member("佐藤")])
+    await open_dialog(user)
+    await set_kind(user, TaskKind.CHECKPOINT)
+    user.find(marker="task-deadline-date").type("2026-10-12")
+    user.find(marker="task-save").click()
+    result = saved[0]
+    assert result.kind is TaskKind.CHECKPOINT
+    assert result.deadline == datetime(2026, 10, 12, 18, 0)  # 時刻を指定しない締切の、補う時刻
+    assert (result.planned_start, result.effort_hours, result.assignee) == (None, 0.0, None)
+
+
+async def test_a_checkpoint_without_a_deadline_shows_the_error(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("レビュー")
+    await set_kind(user, TaskKind.CHECKPOINT)
+    user.find(marker="task-save").click()
+    await user.should_see("チェックポイントには締切を入れてください")
+    assert saved == []
+
+
+async def test_the_hint_warns_that_normal_fields_will_be_cleared(user: User) -> None:
+    task = Task("設計", planned_start=datetime(2026, 10, 5, 9, 0), effort_hours=5.0)
+    mount_dialog(task, [])
+    await open_dialog(user)
+    await user.should_not_see(marker="task-kind-hint")
+    await set_kind(user, TaskKind.CHECKPOINT)
+    hint = user.find(marker="task-kind-hint").elements.pop()
+    assert hint.text == "保存すると、開始予定・工数・担当・実績は消えます"
+    await set_kind(user, TaskKind.NORMAL)
+    await user.should_not_see(marker="task-kind-hint")
+
+
+async def test_a_new_checkpoint_has_no_hint(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    await set_kind(user, TaskKind.CHECKPOINT)
+    await user.should_not_see(marker="task-kind-hint")
+
+
+async def test_changing_the_kind_counts_as_an_edit(user: User) -> None:
+    mount_dialog(Task("設計"), [])
+    await open_dialog(user)
+    await set_kind(user, TaskKind.CHECKPOINT)
+    user.find(marker="task-cancel").click()
+    await user.should_see(marker="close-save")
+
+
+async def test_a_checkpoint_never_shows_the_pushed_start_hint(user: User) -> None:
+    """チェックポイントは押し出されないので、「実際の開始」のヒントは出さない。トグルでも更新される。"""
+    task = Task("後続", planned_start=datetime(2026, 10, 5, 9, 0), predecessors=["aaaaaaaa"])
+    mount_dialog(
+        task,
+        [],
+        link_options={"aaaaaaaa": "設計"},
+        finish_of=lambda pid: datetime(2026, 10, 12, 9, 0),
+    )
+    await open_dialog(user)
+    await user.should_see(marker="task-predecessors-hint")  # 通常: 押し出される
+    await set_kind(user, TaskKind.CHECKPOINT)
+    await user.should_not_see(marker="task-predecessors-hint")
+    await set_kind(user, TaskKind.NORMAL)
+    await user.should_see(marker="task-predecessors-hint")
+
+
+async def test_selecting_a_predecessor_of_a_new_checkpoint_shows_no_hint(user: User) -> None:
+    mount_dialog(None, [], link_options={"aaaaaaaa": "設計"}, finish_of=lambda pid: datetime(2026, 10, 5, 15, 30))
+    await open_dialog(user)
+    await set_kind(user, TaskKind.CHECKPOINT)
+    user.find(marker="task-predecessors").elements.pop().set_value(["aaaaaaaa"])
+    await asyncio.sleep(0.1)
+    await user.should_not_see(marker="task-predecessors-hint")

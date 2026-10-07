@@ -3,7 +3,7 @@
 import json
 import os
 import secrets
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import date, datetime, time
 from math import isfinite
 from pathlib import Path
@@ -11,6 +11,7 @@ from typing import Any, NamedTuple
 
 from projectapp.linkgraph import validate_links
 from projectapp.models import (
+    CHECKPOINT_STATUSES,
     ActualMode,
     MAX_ALLOCATION,
     MAX_PROJECT_CODE_LENGTH,
@@ -28,6 +29,7 @@ from projectapp.models import (
     Section,
     Status,
     Task,
+    TaskKind,
     new_id,
 )
 
@@ -147,7 +149,8 @@ def _task(raw: dict[str, Any]) -> Task:
         planned_end, manual = None, False
         legacy_end = None if raw.get("end_auto") is True else _datetime(raw.get("end"))
         deadline = _datetime(raw.get("deadline")) or legacy_end  # 明示された締切を優先
-    return Task(
+    kind = _kind(raw.get("kind"))
+    task = Task(
         name=raw["name"],
         id=_task_id(raw.get("id")),
         planned_start=planned_start,
@@ -163,7 +166,9 @@ def _task(raw: dict[str, Any]) -> Task:
         allocation=_allocation(raw.get("allocation", 1.0)),
         actuals=_actuals(raw.get("actuals")),
         project_code=_project_code(raw.get("project_code")),
+        kind=kind,
     )
+    return _checkpoint(task) if kind is TaskKind.CHECKPOINT else task
 
 
 def _number_in_range(value: Any, low: float, high: float, label: str) -> float:
@@ -242,6 +247,34 @@ def _project_code(value: Any) -> str:
     if len(code) > MAX_PROJECT_CODE_LENGTH:
         raise ValueError(f"ProjectCodeが{MAX_PROJECT_CODE_LENGTH}文字を超えています")
     return code
+
+
+def _kind(value: Any) -> TaskKind:
+    """タスクの種別。キーがない・null は通常。不正は ValueError(開けませんでした)。"""
+    if value is None:
+        return TaskKind.NORMAL
+    try:
+        return TaskKind(value)
+    except ValueError:
+        raise ValueError(f"タスクの種別が正しくありません: {value!r}") from None
+
+
+def _checkpoint(task: Task) -> Task:
+    """チェックポイントを検証し、使わない項目(開始予定・工数・担当・実績など)を空にして返す。"""
+    if task.deadline is None:
+        raise ValueError(f"チェックポイントに締切がありません: {task.name}")
+    if task.status not in CHECKPOINT_STATUSES:
+        raise ValueError(f"チェックポイントの状態は未着手か終了です: {task.name}")
+    return replace(
+        task,
+        planned_start=None,
+        planned_end=None,
+        planned_end_manual=False,
+        effort_hours=0.0,
+        assignee=None,
+        allocation=1.0,
+        actuals=[],
+    )
 
 
 def _task_id(value: Any) -> str:

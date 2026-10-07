@@ -21,6 +21,7 @@ from projectapp.forms import (
     suggest_status,
 )
 from projectapp.models import (
+    CHECKPOINT_STATUSES,
     DEFAULT_DAILY_HOURS,
     DEFAULT_WORK_START,
     MAX_ALLOCATION,
@@ -33,6 +34,7 @@ from projectapp.models import (
     Priority,
     Status,
     Task,
+    TaskKind,
 )
 from projectapp.timeline import combine_rate, computed_end, effort_days
 
@@ -116,7 +118,8 @@ class DateTimeFields:
         self._work_start, self._daily_hours, self._holidays = work_start, daily_hours, holidays
         self.effort = task.effort_hours
         self._rate = rate
-        with ui.row().classes("w-full no-wrap gap-4"):
+        self.first_row = ui.row().classes("w-full no-wrap gap-4")
+        with self.first_row:
             self.start_day, self.start_time, self.use_start_time, _ = self._column(
                 "開始予定",
                 "start",
@@ -498,6 +501,12 @@ def open_task_dialog(
     )
     with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[36rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
+        kind = ui.toggle({k: k.value for k in TaskKind}, value=initial.kind).mark("task-kind")
+        kind_hint = (
+            ui.label("保存すると、開始予定・工数・担当・実績は消えます")
+            .classes("text-caption text-grey")
+            .mark("task-kind-hint")
+        )
         name = ui.input("名前", value=initial.name).mark("task-name")
         project_code = (
             ui.input("ProjectCode", value=initial.project_code)
@@ -511,7 +520,8 @@ def open_task_dialog(
                 .classes("flex-1")
                 .mark("task-effort")
             )
-        with ui.row().classes("w-full no-wrap gap-4"):
+        assignee_row = ui.row().classes("w-full no-wrap gap-4")
+        with assignee_row:
             assignee = (
                 ui.select(
                     {"": "(なし)", **{m.name: m.name for m in member_list}},
@@ -580,7 +590,8 @@ def open_task_dialog(
                 start_at = parse_datetime(fields.start_text())
             except ValueError:
                 start_at = None
-            text = push_hint(start_at, finishes)
+            # チェックポイントは押し出されない(締切に固定)ので、ヒントを出さない
+            text = "" if kind.value == TaskKind.CHECKPOINT else push_hint(start_at, finishes)
             push.set_text(text)
             push.set_visibility(bool(text))
 
@@ -594,9 +605,10 @@ def open_task_dialog(
 
         priority = PriorityChips(initial.priority)
         intervals = actual_mode is ActualMode.INTERVALS
-        actual_fields: ActualFields | IntervalFields = (
-            IntervalFields(initial) if intervals else ActualFields(initial)
-        )
+        with ui.column().classes("w-full") as actual_box:
+            actual_fields: ActualFields | IntervalFields = (
+                IntervalFields(initial) if intervals else ActualFields(initial)
+            )
         status = (
             ui.select({s: s.value for s in Status}, label="状態", value=initial.status)
             .classes("w-full")
@@ -630,6 +642,35 @@ def open_task_dialog(
             hint.set_visibility(True)
 
         actual_fields.bind(on_actual_change)
+        has_normal_data = bool(
+            initial.planned_start
+            or initial.planned_end
+            or initial.effort_hours
+            or initial.assignee
+            or initial.actuals
+        )
+
+        def apply_kind(_event: object = None) -> None:
+            """チェックポイントでは、開始予定・完了予定・工数・担当・実績の欄を隠し、状態を 2 つにする。"""
+            checkpoint = kind.value == TaskKind.CHECKPOINT
+            for widget in (fields.first_row, effort, assignee_row, conversion, actual_box):
+                widget.set_visibility(not checkpoint)
+            allowed = CHECKPOINT_STATUSES if checkpoint else tuple(Status)
+            suggest["setting"] = True
+            try:
+                status.set_options(
+                    {s: s.value for s in allowed},
+                    value=status.value if status.value in allowed else Status.NOT_STARTED,
+                )
+            finally:
+                suggest["setting"] = False
+            kind_hint.set_visibility(
+                checkpoint and initial.kind is TaskKind.NORMAL and has_normal_data
+            )
+            refresh_push()
+
+        kind.on_value_change(apply_kind)
+        apply_kind()
         color = ui.color_input("色", value=initial.color, preview=True).classes("w-full").mark(
             "task-color"
         )
@@ -639,6 +680,7 @@ def open_task_dialog(
             """入力の現在値。開いた時点と比べて、変更があるかを判定する。"""
             return (
                 name.value,
+                kind.value,
                 project_code.value or "",
                 *fields.state(),
                 effort.value,
@@ -671,6 +713,7 @@ def open_task_dialog(
                     assignee=assignee.value or "",
                     allocation_percent=allocation.value,
                     predecessors=merged_predecessors(),
+                    kind=TaskKind(kind.value),
                     linkable_ids=frozenset(options) | frozenset(initial.predecessors),
                     actual_start=actual_fields.start_text(),
                     actual_end=actual_fields.end_text(),

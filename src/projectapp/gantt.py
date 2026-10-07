@@ -20,7 +20,7 @@ from projectapp.config import (
 from projectapp.filtering import TaskFilter, matches, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
-from projectapp.models import Priority, Project, Section, Status, Task
+from projectapp.models import Priority, Project, Section, Status, Task, TaskKind
 from projectapp.timeline import (
     in_range,
     Band,
@@ -58,6 +58,7 @@ BAND_HEIGHT_PX = 22  # 年・月の帯の高さ
 HEADER_HEIGHT_PX = 44  # 日次の日付と(曜日)の2段
 WEEKDAYS = "月火水木金土日"
 DEADLINE_MARKER_HALF_PX = 6  # 「◆」の幅の半分。締切の位置が目印の中心に来るようにずらす
+CHECKPOINT_MARKER_PX = 20  # チェックポイントの ◆ の大きさ(締切の小さな ◆ より大きい)
 DEADLINE_COLOR = "#f57c00"  # 赤は予定超過の背景と競合するので使わない
 OVERLOAD_STRIPES = (  # 割り当て合計が100%を超える期間の縞。タスクの色に依存しないよう白と黒の半透明を重ねる
     "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 4px, rgba(0,0,0,0.35) 4px 8px)"
@@ -529,7 +530,11 @@ class GanttChart:
             if span is None or not self.bar_visible(start, end, columns):
                 continue
             left = span[0] * width
-            bars[task.id] = Bar(left, left + max(span[1] * width, MIN_BAR_PX))
+            if task.kind is TaskKind.CHECKPOINT:  # ◆ の左右の端に、矢印をつなぐ
+                half = CHECKPOINT_MARKER_PX / 2
+                bars[task.id] = Bar(left - half, left + half)
+            else:
+                bars[task.id] = Bar(left, left + max(span[1] * width, MIN_BAR_PX))
         return bars
 
     def links_markup(self, columns: list[Column], width: int) -> str:
@@ -846,6 +851,9 @@ class GanttChart:
                 name.mark(f"task-name-{key}-{ti}")
                 if self.options.show_chips:
                     self.task_chips(key, ti, task)
+            if task.kind is TaskKind.CHECKPOINT:  # バーも実績もなく、◆ だけを出す
+                self.checkpoint_marker(si, ti, task, columns, width)
+                return row
             start = self.schedule.start(task)
             end = self.schedule.end(task)
             span = bar_span(start, end, columns)
@@ -900,7 +908,7 @@ class GanttChart:
             ui.label(task.assignee[0]).style(ASSIGNEE_CHIP_STYLE).tooltip(task.assignee).mark(
                 f"task-assignee-{key}-{ti}"
             )
-        percent = fill_percent(task)
+        percent = None if task.kind is TaskKind.CHECKPOINT else fill_percent(task)
         if percent is not None:
             ui.label(f"{percent}%").style(PROGRESS_TEXT_STYLE).mark(f"task-progress-{key}-{ti}")
 
@@ -1056,6 +1064,28 @@ class GanttChart:
                 f"{first.member} の割り当てが最大{peak}%"
                 f"({first.start:%Y-%m-%d}〜{last.end:%Y-%m-%d})"
             )
+
+    def checkpoint_marker(
+        self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
+    ) -> None:
+        """チェックポイントの ◆。締切の位置・行の中央。表示範囲の外なら出さない。"""
+        if task.deadline is None:
+            return
+        position = deadline_position(task.deadline, columns)
+        if position is None:
+            return
+        key = "top" if si is None else si
+        left = position * width - CHECKPOINT_MARKER_PX / 2
+        marker = ui.label("◆").style(
+            f"position: absolute; left: {from_name(left)}; top: 0; width: {CHECKPOINT_MARKER_PX}px;"
+            f" height: {ROW_HEIGHT_PX}px; line-height: {ROW_HEIGHT_PX}px; text-align: center;"
+            f" font-size: {CHECKPOINT_MARKER_PX}px; color: {STATUS_COLOR_VAR}; cursor: pointer;"
+            " user-select: none"
+        ).classes(STATUS_CLASSES[task.status])
+        self.edit_on_click(marker, si, ti)
+        marker.tooltip(f"チェックポイント {task.deadline:%Y-%m-%d %H:%M}").mark(
+            f"checkpoint-{key}-{ti}"
+        )
 
     def deadline_marker(
         self, si: int | None, ti: int, task: Task, columns: list[Column], width: int

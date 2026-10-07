@@ -6,7 +6,7 @@ from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from math import isfinite
 
-from projectapp.models import Project, Status
+from projectapp.models import Project, Status, TaskKind
 from projectapp.timeline import (
     OVERLOAD_EPSILON,
     Schedule,
@@ -85,10 +85,11 @@ def summarize_progress(project: Project, holidays: dict[date, str], now: datetim
     schedule = Schedule(project, holidays)
     for task in project.all_tasks():
         counts[task.status] += 1
-        weight = _weight(task.effort_hours)
-        percent = 100 if task.status is Status.DONE else (current_progress(task) or 0)
-        weighted += weight * percent
-        total += weight
+        if task.kind is not TaskKind.CHECKPOINT:  # 節目は、工数がないので進捗率の重みに入れない
+            weight = _weight(task.effort_hours)
+            percent = 100 if task.status is Status.DONE else (current_progress(task) or 0)
+            weighted += weight * percent
+            total += weight
         if task.status is not Status.DONE and is_overdue(task, project, holidays, now, schedule):
             moment = actual_end(task) or now
             limits = [
@@ -96,7 +97,8 @@ def summarize_progress(project: Project, holidays: dict[date, str], now: datetim
                 for limit in (task.deadline, schedule.end(task))
                 if limit is not None and moment > limit
             ]
-            overdue.append(OverdueRow(task.name, task.assignee, min(limits)))
+            limit = min(limits, default=task.deadline or now)  # 見込みの超過は、締切を基準にする
+            overdue.append(OverdueRow(task.name, task.assignee, limit))
     overdue.sort(key=lambda row: row.limit)
     return Progress(weighted / total if total else None, counts, overdue)
 

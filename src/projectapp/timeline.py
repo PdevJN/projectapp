@@ -9,7 +9,7 @@ from enum import StrEnum
 from itertools import groupby
 from math import ceil, isfinite
 
-from projectapp.models import Project, Status, Task
+from projectapp.models import Project, Status, Task, TaskKind
 
 
 class Scale(StrEnum):
@@ -423,6 +423,10 @@ class Schedule:
     def _resolve(self, task: Task) -> tuple[datetime | None, datetime | None]:
         if task.id in self._done:
             return self._done[task.id]
+        if task.kind is TaskKind.CHECKPOINT:  # 締切に固定。先行で押し出さない
+            result = (task.deadline, task.deadline)
+            self._done[task.id] = result
+            return result
         if task.id in self._active:  # 循環(手編集のファイルなど)。押し出しなしで扱う
             return task.planned_start, _own_end(task, self.project, self.holidays, task.planned_start)
         self._active.add(task.id)
@@ -441,7 +445,9 @@ class Schedule:
 def effective_start(
     task: Task, project: Project, holidays: dict[date, str], schedule: Schedule | None = None
 ) -> datetime | None:
-    """実効の開始。先行がなければ開始予定。あれば、開始予定と先行の完了の遅いほう。"""
+    """実効の開始。先行がなければ開始予定。あれば、開始予定と先行の完了の遅いほう。チェックポイントは締切。"""
+    if task.kind is TaskKind.CHECKPOINT:
+        return task.deadline
     if schedule is None and not task.predecessors:
         return task.planned_start
     return (schedule or Schedule(project, holidays)).start(task)
@@ -450,7 +456,10 @@ def effective_start(
 def effective_end(
     task: Task, project: Project, holidays: dict[date, str], schedule: Schedule | None = None
 ) -> datetime | None:
-    """完了予定。工数が無い、または手で指定のときは planned_end、それ以外は算出する。先行の押し出しを含む。"""
+    """完了予定。工数が無い、または手で指定のときは planned_end、それ以外は算出する。先行の押し出しを含む。
+    チェックポイントは締切。"""
+    if task.kind is TaskKind.CHECKPOINT:
+        return task.deadline
     if schedule is None and not task.predecessors:
         return _own_end(task, project, holidays, task.planned_start)
     return (schedule or Schedule(project, holidays)).end(task)
@@ -485,6 +494,10 @@ def is_overdue(
         if task.status is Status.DONE:
             return False
         moment = now
+    if task.kind is TaskKind.CHECKPOINT and task.deadline is not None and task.predecessors:
+        floor = (schedule or Schedule(project, holidays)).latest_finish(task)
+        if floor is not None and floor > task.deadline:
+            return True  # 先行の完了が締切を超える見込み
     if task.deadline is not None and moment > task.deadline:
         return True
     end = effective_end(task, project, holidays, schedule)

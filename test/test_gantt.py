@@ -13,6 +13,7 @@ from projectapp.config import DEFAULT_NAME_WIDTH_PX, MAX_NAME_WIDTH_PX, MIN_NAME
 from projectapp.filtering import TaskFilter
 from projectapp.gantt_drag import CHART_DRAG_CSS
 from projectapp.gantt import (
+    CHECKPOINT_MARKER_PX,
     COLUMN_WIDTH_PX,
     SHOW_CHART_JS,
     TRACK_SCROLL_JS,
@@ -63,7 +64,17 @@ from projectapp.gantt import (
     header_cell_html,
 )
 from projectapp.timeline import Column, build_columns
-from projectapp.models import DEFAULT_COLOR, Actual, Member, Priority, Project, Section, Status, Task
+from projectapp.models import (
+    DEFAULT_COLOR,
+    Actual,
+    Member,
+    Priority,
+    Project,
+    Section,
+    Status,
+    Task,
+    TaskKind,
+)
 from projectapp.timeline import ProgressState, Scale
 
 BASE = date(2026, 10, 5)  # 月曜
@@ -2707,3 +2718,104 @@ async def test_the_slots_match_the_rendered_rows(user: User) -> None:
             await user.should_see(marker=marker)
         else:
             await user.should_not_see(marker=marker)
+
+
+def checkpoint_project(**fields: object) -> Project:
+    cp = Task(
+        "中間レビュー",
+        id="cccccccc",
+        kind=TaskKind.CHECKPOINT,
+        deadline=datetime(2026, 10, 7, 12, 0),
+        **fields,  # type: ignore[arg-type]
+    )
+    normal = Task("通常", id="nnnnnnnn", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5)
+    return Project("demo", base_date=BASE, sections=[Section("開発", [cp, normal])])
+
+
+async def test_a_checkpoint_is_a_diamond_without_a_bar(user: User) -> None:
+    mount(checkpoint_project())
+    await user.open("/")
+    marker = user.find(marker="checkpoint-0-0").elements.pop()
+    day = COLUMN_WIDTH_PX[Scale.DAY]
+    assert marker._style["left"] == from_name(2.5 * day - CHECKPOINT_MARKER_PX / 2)  # 10/7 12:00
+    assert marker._style["color"] == STATUS_COLOR_VAR
+    assert marker._style["font-size"] == f"{CHECKPOINT_MARKER_PX}px"
+    assert "status-not-started" in marker.classes
+    assert "◆" in marker.text
+    await user.should_not_see(marker="bar-0-0")
+    await user.should_not_see(marker="deadline-0-0")  # 締切の小さな ◆ は出さない
+    user.find(marker="bar-0-1")  # 通常タスクは、これまでどおり
+
+
+async def test_clicking_a_checkpoint_opens_the_editor(user: User) -> None:
+    recorder = mount(checkpoint_project())
+    await user.open("/")
+    user.find(marker="checkpoint-0-0").click()
+    assert ("edit_task", (0, 0)) in recorder.events
+
+
+async def test_a_finished_checkpoint_is_grey_and_struck_through_without_chips(user: User) -> None:
+    mount(checkpoint_project(status=Status.DONE))
+    await user.open("/")
+    assert "status-done" in user.find(marker="checkpoint-0-0").elements.pop().classes
+    assert user.find(marker="task-name-0-0").elements.pop()._style["text-decoration"] == "line-through"
+    await user.should_not_see(marker="task-progress-0-0")  # 進捗度はないので、100% のチップも出さない
+
+
+async def test_a_checkpoint_row_is_red_after_its_deadline(user: User) -> None:
+    mount(checkpoint_project(), now=datetime(2026, 10, 8))
+    await user.open("/")
+    assert user.find(marker="row-0-0").elements.pop()._style["background"] == OVERDUE_COLOR
+
+
+async def test_a_checkpoint_row_is_red_when_its_predecessors_will_miss_it(user: User) -> None:
+    project = checkpoint_project(predecessors=["nnnnnnnn"])
+    project.sections[0].tasks[1].effort_hours = 26  # 木曜 15:30 まで。締切(水曜 12:00)に間に合わない
+    mount(project)  # 現在時刻は 10/1(締切の前)
+    await user.open("/")
+    assert user.find(marker="row-0-0").elements.pop()._style["background"] == OVERDUE_COLOR
+
+
+async def test_a_checkpoint_row_is_not_red_before_its_deadline(user: User) -> None:
+    mount(checkpoint_project())
+    await user.open("/")
+    assert "background" not in user.find(marker="row-0-0").elements.pop()._style
+
+
+async def test_an_arrow_ends_at_the_diamonds_left_edge(user: User) -> None:
+    project = checkpoint_project(predecessors=["nnnnnnnn"])
+    mount(project)
+    await user.open("/")
+    day = COLUMN_WIDTH_PX[Scale.DAY]
+    pred_right = 15.5 / 24 * day  # 通常タスク: 月 15:30 まで
+    cp_left = 2.5 * day - CHECKPOINT_MARKER_PX / 2  # ◆ の左端
+    first_row = ADD_ROW_HEIGHT_PX + ROW_HEIGHT_PX  # 追加行と見出しの下が、行の上端
+    cp_y = first_row + ROW_HEIGHT_PX / 2  # 1 行目: チェックポイント
+    normal_y = first_row + ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2  # 2 行目: 通常タスク
+    content = user.find(marker="links").elements.pop().content
+    found = re.search(r'<path data-link="nnnnnnnn-cccccccc" d="([^"]+)"', content)
+    assert found is not None
+    assert found.group(1) == (
+        f"M{pred_right:g},{normal_y:g} L{pred_right + 6:g},{normal_y:g}"
+        f" L{pred_right + 6:g},{cp_y:g} L{cp_left:g},{cp_y:g}"
+    )
+
+
+async def test_a_checkpoint_is_hidden_by_the_assignee_filter(user: User) -> None:
+    project = checkpoint_project()
+    project.members.append(Member("佐藤"))
+    charts, _ = mount_chart(project)
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(assignee="佐藤"))
+    await user.should_not_see(marker="checkpoint-0-0")
+
+
+async def test_a_checkpoint_outside_the_period_has_no_diamond(user: User) -> None:
+    project = checkpoint_project()
+    project.sections[0].tasks[0].deadline = datetime(2026, 12, 1, 12, 0)  # 最小列数(42 日)の外
+    charts, _ = mount_chart(project)
+    await user.open("/")
+    charts[0].set_options(
+        ViewOptions(period=(date(2026, 10, 5), date(2026, 10, 5)), read_only=True)
+    )
+    await user.should_not_see(marker="checkpoint-0-0")
