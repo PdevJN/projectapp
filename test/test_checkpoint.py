@@ -6,6 +6,7 @@ import pytest
 from projectapp import arrange
 from projectapp.models import Project, Section, Status, Task, TaskKind
 from projectapp.storage import load_project, save_project
+from projectapp.timeline import Schedule, effective_end, effective_start, is_overdue
 from test_storage import write_raw
 
 DEADLINE = datetime(2026, 10, 12, 17, 0)
@@ -82,3 +83,76 @@ def test_copy_keeps_the_kind() -> None:
     project = Project("p", sections=[Section("A", [checkpoint("c")])])
     copy = arrange.copy_task(project, (0, 0), (0, 1))
     assert copy.kind is TaskKind.CHECKPOINT and copy.deadline == DEADLINE
+
+
+MON = datetime(2026, 10, 5, 9, 0)
+WED_NOON = datetime(2026, 10, 7, 12, 0)
+
+
+def work(name: str, *predecessors: str, **fields: object) -> Task:
+    return Task(name, id=name, predecessors=list(predecessors), **fields)  # type: ignore[arg-type]
+
+
+def project(*tasks: Task) -> Project:
+    return Project("p", tasks=list(tasks), daily_hours=6.5)
+
+
+def test_a_checkpoints_start_and_end_are_its_deadline() -> None:
+    cp = checkpoint("c", planned_start=MON, effort_hours=5.0)  # 使われない値が入っていても
+    proj = project(cp)
+    assert effective_start(cp, proj, {}) == DEADLINE
+    assert effective_end(cp, proj, {}) == DEADLINE
+    schedule = Schedule(proj, {})
+    assert (schedule.start(cp), schedule.end(cp)) == (DEADLINE, DEADLINE)
+
+
+def test_a_checkpoint_pushes_its_successor_to_the_deadline() -> None:
+    friday = datetime(2026, 10, 9, 17, 0)
+    c = checkpoint("c", friday)
+    b = work("b", "c", planned_start=MON, effort_hours=1)
+    proj = project(c, b)
+    assert effective_start(b, proj, {}) == friday
+
+
+def test_a_successor_already_later_is_not_pulled_back() -> None:
+    c = checkpoint("c", datetime(2026, 10, 7, 12, 0))
+    later = datetime(2026, 10, 9, 9, 0)
+    b = work("b", "c", planned_start=later, effort_hours=1)
+    assert effective_start(b, project(c, b), {}) == later
+
+
+def test_a_checkpoint_is_not_pushed_by_its_predecessors() -> None:
+    a = work("a", planned_start=MON, effort_hours=26)  # 木曜 15:30 まで
+    c = checkpoint("c", WED_NOON, "a")
+    assert effective_start(c, project(a, c), {}) == WED_NOON
+
+
+def test_a_checkpoint_is_overdue_when_its_predecessors_will_finish_after_the_deadline() -> None:
+    a = work("a", planned_start=MON, effort_hours=26)  # 木曜 15:30 まで
+    c = checkpoint("c", WED_NOON, "a")
+    proj = project(a, c)
+    assert is_overdue(c, proj, {}, MON)  # まだ締切の前でも、間に合わない見込み
+
+
+def test_a_checkpoint_is_not_overdue_when_the_predecessors_finish_in_time() -> None:
+    a = work("a", planned_start=MON, effort_hours=1)
+    c = checkpoint("c", WED_NOON, "a")
+    assert not is_overdue(c, project(a, c), {}, MON)
+
+
+def test_a_done_checkpoint_is_never_overdue() -> None:
+    a = work("a", planned_start=MON, effort_hours=26)
+    c = checkpoint("c", WED_NOON, "a", status=Status.DONE)
+    assert not is_overdue(c, project(a, c), {}, datetime(2026, 10, 20))
+
+
+def test_a_checkpoint_is_overdue_after_its_deadline() -> None:
+    c = checkpoint("c", WED_NOON)
+    assert is_overdue(c, project(c), {}, datetime(2026, 10, 8))
+    assert not is_overdue(c, project(c), {}, MON)
+
+
+def test_a_normal_task_is_not_overdue_just_because_it_will_miss_the_deadline() -> None:
+    a = work("a", planned_start=MON, effort_hours=26)
+    b = work("b", "a", planned_start=MON, effort_hours=1, deadline=WED_NOON)
+    assert not is_overdue(b, project(a, b), {}, MON)  # 通常タスクは、現在時刻だけで判定する(従来どおり)
