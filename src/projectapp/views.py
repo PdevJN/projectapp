@@ -66,6 +66,7 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.task_dialog import open_task_dialog
+from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
 from projectapp.timeline import Schedule, build_columns, clip_overloads, overallocations, visible_range
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
@@ -257,6 +258,9 @@ class MainView:
             self.apply_settings,
             self.project.actual_mode,
             self.multi_interval_count(),
+            templates=self.project.url_templates,
+            template_usage=lambda name: count_usage(self.project, name),
+            on_templates=self.apply_templates,
         )
 
     def multi_interval_count(self) -> int:
@@ -447,6 +451,11 @@ class MainView:
             return
         self.project.daily_hours, self.project.work_start = hours, start
         self.project.actual_mode = mode
+        self.gantt.set_project(self.project)
+
+    def apply_templates(self, edit: TemplateEdit) -> None:
+        """URL テンプレートの編集を反映する(削除分のリンクは URL に展開される)。保存はしない。"""
+        apply_template_edit(self.project, edit)
         self.gantt.set_project(self.project)
 
     def save_project_clicked(self) -> None:
