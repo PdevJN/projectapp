@@ -1444,3 +1444,29 @@ async def test_changing_the_kind_counts_as_an_edit(user: User) -> None:
     await set_kind(user, TaskKind.CHECKPOINT)
     user.find(marker="task-cancel").click()
     await user.should_see(marker="close-save")
+
+
+async def test_a_checkpoint_never_shows_the_pushed_start_hint(user: User) -> None:
+    """チェックポイントは押し出されないので、「実際の開始」のヒントは出さない。トグルでも更新される。"""
+    task = Task("後続", planned_start=datetime(2026, 10, 5, 9, 0), predecessors=["aaaaaaaa"])
+    mount_dialog(
+        task,
+        [],
+        link_options={"aaaaaaaa": "設計"},
+        finish_of=lambda pid: datetime(2026, 10, 12, 9, 0),
+    )
+    await open_dialog(user)
+    await user.should_see(marker="task-predecessors-hint")  # 通常: 押し出される
+    await set_kind(user, TaskKind.CHECKPOINT)
+    await user.should_not_see(marker="task-predecessors-hint")
+    await set_kind(user, TaskKind.NORMAL)
+    await user.should_see(marker="task-predecessors-hint")
+
+
+async def test_selecting_a_predecessor_of_a_new_checkpoint_shows_no_hint(user: User) -> None:
+    mount_dialog(None, [], link_options={"aaaaaaaa": "設計"}, finish_of=lambda pid: datetime(2026, 10, 5, 15, 30))
+    await open_dialog(user)
+    await set_kind(user, TaskKind.CHECKPOINT)
+    user.find(marker="task-predecessors").elements.pop().set_value(["aaaaaaaa"])
+    await asyncio.sleep(0.1)
+    await user.should_not_see(marker="task-predecessors-hint")

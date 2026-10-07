@@ -590,7 +590,8 @@ def open_task_dialog(
                 start_at = parse_datetime(fields.start_text())
             except ValueError:
                 start_at = None
-            text = push_hint(start_at, finishes)
+            # チェックポイントは押し出されない(締切に固定)ので、ヒントを出さない
+            text = "" if kind.value == TaskKind.CHECKPOINT else push_hint(start_at, finishes)
             push.set_text(text)
             push.set_visibility(bool(text))
 
@@ -666,6 +667,7 @@ def open_task_dialog(
             kind_hint.set_visibility(
                 checkpoint and initial.kind is TaskKind.NORMAL and has_normal_data
             )
+            refresh_push()
 
         kind.on_value_change(apply_kind)
         apply_kind()
