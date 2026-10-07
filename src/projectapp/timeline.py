@@ -1,5 +1,7 @@
 """スケールごとの列生成と、日時から位置・幅への変換(純粋関数)。"""
 
+from __future__ import annotations
+
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
@@ -42,11 +44,12 @@ def visible_range(
     holidays = holidays or {}
     start = end = project.base_date
     tasks = [*project.tasks, *(t for section in project.sections for t in section.tasks)]
+    schedule = Schedule(project, holidays)
     for task in tasks:
-        task_end = effective_end(task, project, holidays)
-        if task.planned_start is None or task_end is None:
+        task_start, task_end = schedule.start(task), schedule.end(task)
+        if task_start is None or task_end is None:
             continue
-        first, last = sorted((task.planned_start.date(), task_end.date()))
+        first, last = sorted((task_start.date(), task_end.date()))
         try:
             task_last = last + timedelta(days=1)
         except OverflowError:  # 日付の上限(手編集のファイル)。範囲に入れない
@@ -168,24 +171,28 @@ OVERLOAD_EPSILON = 1e-9  # 浮動小数の誤差で、ちょうど100%を超過�
 
 
 def counted_span(
-    task: Task, project: Project, holidays: dict[date, str]
+    task: Task, project: Project, holidays: dict[date, str], schedule: Schedule | None = None
 ) -> tuple[datetime, datetime] | None:
     """割り当ての合計に数えるタスクの期間。数えない(担当者なし・終了・開始予定なしなど)ときはNone。"""
-    if not task.assignee or task.status is Status.DONE or task.planned_start is None:
+    if not task.assignee or task.status is Status.DONE:
+        return None
+    start = effective_start(task, project, holidays, schedule)
+    if start is None:
         return None
     if all(m.name != task.assignee for m in project.members):
         return None
-    end = effective_end(task, project, holidays)
-    if end is None or end <= task.planned_start:
+    end = effective_end(task, project, holidays, schedule)
+    if end is None or end <= start:
         return None
-    return task.planned_start, end
+    return start, end
 
 
 def overallocations(project: Project, holidays: dict[date, str]) -> list[Overload]:
     """同じ担当者の、期間が重なるタスクの割り当て率の合計が100%を超える期間。"""
     spans: dict[str, list[tuple[datetime, datetime, float]]] = {}
+    schedule = Schedule(project, holidays)
     for task in project.all_tasks():
-        counted = counted_span(task, project, holidays)
+        counted = counted_span(task, project, holidays, schedule)
         if counted is not None and task.assignee is not None:
             spans.setdefault(task.assignee, []).append((*counted, task.allocation))
     result: list[Overload] = []
@@ -210,10 +217,14 @@ def overallocations(project: Project, holidays: dict[date, str]) -> list[Overloa
 
 
 def clip_overloads(
-    task: Task, project: Project, holidays: dict[date, str], overloads: list[Overload]
+    task: Task,
+    project: Project,
+    holidays: dict[date, str],
+    overloads: list[Overload],
+    schedule: Schedule | None = None,
 ) -> list[Overload]:
     """そのタスクの期間に重なる超過区間を、タスクの期間に切り詰めて返す。"""
-    counted = counted_span(task, project, holidays)
+    counted = counted_span(task, project, holidays, schedule)
     if counted is None:
         return []
     start, end = counted
@@ -353,12 +364,19 @@ def computed_end(
         return None
 
 
-def effective_end(task: Task, project: Project, holidays: dict[date, str]) -> datetime | None:
-    """完了予定。工数が無い、または手で指定のときは planned_end、それ以外は算出する。"""
+def _own_end(
+    task: Task, project: Project, holidays: dict[date, str], start: datetime | None
+) -> datetime | None:
+    """開始を `start` としたときの完了予定。手指定・工数なしの planned_end は、押し出された分ずらす。"""
     if task.planned_end is not None and (task.effort_hours <= 0 or task.planned_end_manual):
-        return task.planned_end
+        if task.planned_start is None or start is None or start <= task.planned_start:
+            return task.planned_end
+        try:
+            return task.planned_end + (start - task.planned_start)
+        except OverflowError:
+            return task.planned_end
     return computed_end(
-        task.planned_start,
+        start,
         task.effort_hours,
         project.daily_hours,
         project.work_start,
@@ -366,6 +384,76 @@ def effective_end(task: Task, project: Project, holidays: dict[date, str]) -> da
         task.deadline,
         conversion_rate(task, project),
     )
+
+
+class Schedule:
+    """タスクの id から、実効の開始・完了への対応。必要なものだけ算出して使い回す(保存しない)。"""
+
+    def __init__(self, project: Project, holidays: dict[date, str]) -> None:
+        self.project = project
+        self.holidays = holidays
+        self._tasks = {task.id: task for task in project.all_tasks()}
+        self._done: dict[str, tuple[datetime | None, datetime | None]] = {}
+        self._active: set[str] = set()
+
+    def start(self, task: Task) -> datetime | None:
+        return self._resolve(task)[0]
+
+    def end(self, task: Task) -> datetime | None:
+        return self._resolve(task)[1]
+
+    def finish(self, pred: Task) -> datetime | None:
+        """先行としての完了。終了済みで実績の終了があればその時刻、なければ実効の完了。"""
+        if pred.status is Status.DONE:
+            actual = actual_end(pred)
+            if actual is not None:
+                return actual
+        return self._resolve(pred)[1]
+
+    def latest_finish(self, task: Task) -> datetime | None:
+        """先行の完了の最大。先行がない、または完了が求まる先行がなければ None。"""
+        finishes = [
+            finish
+            for pid in task.predecessors
+            if pid != task.id and (pred := self._tasks.get(pid)) is not None
+            if (finish := self.finish(pred)) is not None
+        ]
+        return max(finishes, default=None)
+
+    def _resolve(self, task: Task) -> tuple[datetime | None, datetime | None]:
+        if task.id in self._done:
+            return self._done[task.id]
+        if task.id in self._active:  # 循環(手編集のファイルなど)。押し出しなしで扱う
+            return task.planned_start, _own_end(task, self.project, self.holidays, task.planned_start)
+        self._active.add(task.id)
+        try:
+            floor = self.latest_finish(task)
+        finally:
+            self._active.discard(task.id)
+        start = task.planned_start
+        if floor is not None and (start is None or floor > start):
+            start = floor
+        result = (start, _own_end(task, self.project, self.holidays, start))
+        self._done[task.id] = result
+        return result
+
+
+def effective_start(
+    task: Task, project: Project, holidays: dict[date, str], schedule: Schedule | None = None
+) -> datetime | None:
+    """実効の開始。先行がなければ開始予定。あれば、開始予定と先行の完了の遅いほう。"""
+    if schedule is None and not task.predecessors:
+        return task.planned_start
+    return (schedule or Schedule(project, holidays)).start(task)
+
+
+def effective_end(
+    task: Task, project: Project, holidays: dict[date, str], schedule: Schedule | None = None
+) -> datetime | None:
+    """完了予定。工数が無い、または手で指定のときは planned_end、それ以外は算出する。先行の押し出しを含む。"""
+    if schedule is None and not task.predecessors:
+        return _own_end(task, project, holidays, task.planned_start)
+    return (schedule or Schedule(project, holidays)).end(task)
 
 
 def current_progress(task: Task) -> int | None:
@@ -384,7 +472,11 @@ def actual_end(task: Task) -> datetime | None:
 
 
 def is_overdue(
-    task: Task, project: Project, holidays: dict[date, str], now: datetime
+    task: Task,
+    project: Project,
+    holidays: dict[date, str],
+    now: datetime,
+    schedule: Schedule | None = None,
 ) -> bool:
     """締切か完了予定を過ぎている。実績の終了があれば、その時刻で判定する(遅れて終わったものも超過)。
     実績の終了がなければ、状態が「終了」でない間だけ、現在時刻と比べる。"""
@@ -395,7 +487,7 @@ def is_overdue(
         moment = now
     if task.deadline is not None and moment > task.deadline:
         return True
-    end = effective_end(task, project, holidays)
+    end = effective_end(task, project, holidays, schedule)
     return end is not None and moment > end
 
 
@@ -419,18 +511,23 @@ def expected_progress(start: datetime, end: datetime, now: datetime) -> float:
 
 
 def progress_state(
-    task: Task, project: Project, holidays: dict[date, str], now: datetime
+    task: Task,
+    project: Project,
+    holidays: dict[date, str],
+    now: datetime,
+    schedule: Schedule | None = None,
 ) -> ProgressState | None:
     """進捗の状態。終了は完了か遅延完了(超過の判定は is_overdue)。それ以外は、進捗度を
     進んでいるはずの割合と比べる。進捗度か予定がなければ判定できず None。"""
     if task.status is Status.DONE:
-        late = is_overdue(task, project, holidays, now)
+        late = is_overdue(task, project, holidays, now, schedule)
         return ProgressState.LATE_DONE if late else ProgressState.DONE
     percent = current_progress(task)
-    end = effective_end(task, project, holidays)
-    if percent is None or task.planned_start is None or end is None:
+    start = effective_start(task, project, holidays, schedule)
+    end = effective_end(task, project, holidays, schedule)
+    if percent is None or start is None or end is None:
         return None
-    expected = expected_progress(task.planned_start, end, now)
+    expected = expected_progress(start, end, now)
     if percent < expected - PROGRESS_TOLERANCE:
         return ProgressState.DELAYED
     if percent > expected + PROGRESS_TOLERANCE:
