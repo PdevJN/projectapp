@@ -2,7 +2,7 @@ from dataclasses import replace
 from datetime import date, datetime
 
 from projectapp import arrange
-from projectapp.models import Actual, Priority, Project, Section, Status, Task
+from projectapp.models import Actual, Priority, Project, Section, Status, Task, TaskUrl
 
 
 def names(tasks: list[Task]) -> list[str]:
@@ -276,3 +276,12 @@ def test_min_shift_days_stops_at_the_base_date_and_the_predecessors_finish() -> 
     pushed_shown = datetime(2026, 10, 8, 15, 30)
     assert arrange.min_shift_days(task, base, pushed_shown, floor) == 0
     assert arrange.min_shift_days(task, date(2026, 10, 10), None, floor) == -2  # 基準日が遅いとき
+
+
+def test_copy_task_keeps_the_links_as_independent_copies() -> None:
+    link = TaskUrl("課題", "チケット", {"ID": "1"})
+    project = Project("p", tasks=[Task("a", urls=[link])])
+    copy = arrange.copy_task(project, (None, 0), (None, 1))
+    assert copy.urls == [link]
+    copy.urls[0].values["ID"] = "2"
+    assert project.tasks[0].urls[0].values["ID"] == "1"

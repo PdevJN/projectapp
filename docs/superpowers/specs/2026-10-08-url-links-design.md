@@ -50,7 +50,8 @@ NiceGUI から切り離す。
 - `validate_urls(urls, templates) -> None`: テンプレートの存在、値の空、解決後の URL のスキームを検証する。
 - `expand_template(project, name) -> int`: そのテンプレートを使うリンクを、全タスクで、置き換え済みの URL に展開して「テンプレートなし」にする。展開した件数を返す。表示名は残す。
 - `count_usage(project, name) -> int`: そのテンプレートを使うリンクの件数(確認ダイアログ用)。
-- `rename_template(project, old, new) -> None`: テンプレート名の変更を、リンクの参照に反映する。
+- `rename_templates(project, renames) -> None`: テンプレート名の変更(元の名前 → 新しい名前)を、リンクの参照へ一度に反映する。入れ替え(A↔B)でも混ざらない。
+- `TemplateEdit(templates, renames, removed)` と `apply_template_edit(project, edit) -> None`: 設定ダイアログの編集結果。削除分を古い型で展開 → 名前の変更 → 一覧の置き換えの順で反映する(削除して同名で作り直しても、古いリンクは古い型で展開される)。
 
 ## 4. 画面
 
@@ -59,8 +60,9 @@ NiceGUI から切り離す。
 - 「URL テンプレート」の節を足す。1 行が、名前・URL の型の 2 欄で、行の追加と削除ができる。
 - 保存時の検証は `validate_templates`。違反は保存せずメッセージを出す。
 - 削除した行に使用中のリンクがあれば(`count_usage` の合計)、確認ダイアログを出す:「このテンプレートを使っているリンクが N 件あります。URL としてそのまま残ります」。選択肢は `削除する`・`キャンセル`。件数が 0 なら確認なしで保存する。確認で `削除する` を選んだときだけ、`expand_template` で展開して保存する。
-- 名前を変えた行は `rename_template` でリンクの参照を追従させる。名前の変更と削除は、行の識別(行ごとの内部 ID)で見分ける。
+- 名前を変えた行は `rename_templates` でリンクの参照を追従させる。名前の変更と削除は、行の識別(行ごとの内部 ID)で見分ける。
 - 設定は「保存」を押すまで確定しないので、削除の確認も保存時に出す。
+- `on_apply` の署名は変えず、テンプレートの編集結果は別の引数 `on_templates(TemplateEdit)` で渡す(変更があるときだけ呼ぶ)。名前も型も空の追加行は無視する。
 
 ### タスクの編集ダイアログ(リンクの編集)
 
@@ -76,7 +78,7 @@ NiceGUI から切り離す。
 
 ## 5. 影響を受けるファイルと文書
 
-- `models.py`・`storage.py`(データと読み書き)、`urls.py`(新規)、設定ダイアログ、`task_dialog.py`、`forms.py`(`build_task` で `urls` を渡す)。
+- `models.py`・`storage.py`(データと読み書き)、`urls.py`・`browser.py`(新規。`browser.open_url` が URL を既定のブラウザで開く)、設定ダイアログ、`task_dialog.py`、`forms.py`(`build_urls`、`build_task` で `urls` を渡す)、`arrange.py`(`copy_task` がリンクを複製する)。
 - 文書: `CLAUDE.md`(機能の記述)、`docs/development.md`(モジュール構成とファイル形式の注意)、`.claude/MEMORY.md`(要望 25 の記録。フィールド名は `Task.urls`)。
 
 ## 6. テスト
