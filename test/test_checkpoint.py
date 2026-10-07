@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from projectapp import arrange
+from projectapp.dashboard import Period, summarize_due, summarize_progress, summarize_workload
 from projectapp.forms import build_task
 from projectapp.models import Priority, Project, Section, Status, Task, TaskKind
 from projectapp.storage import load_project, save_project
@@ -222,3 +223,35 @@ def test_a_checkpoint_can_become_normal_again() -> None:
 def test_a_normal_task_keeps_building_as_before() -> None:
     task = make(kind=TaskKind.NORMAL, planned_start="2026-10-05T09:00", effort_hours=8.0)
     assert task.kind is TaskKind.NORMAL and task.effort_hours == 8.0
+
+
+def test_a_project_of_only_checkpoints_has_no_progress_percent() -> None:
+    progress = summarize_progress(project(checkpoint("c")), {}, MON)
+    assert progress.percent is None
+    assert progress.counts[Status.NOT_STARTED] == 1  # 件数には含める
+
+
+def test_checkpoints_do_not_weigh_the_progress_percent() -> None:
+    done = work("a", effort_hours=10, status=Status.DONE)
+    progress = summarize_progress(project(done, checkpoint("c")), {}, MON)
+    assert progress.percent == 100.0
+
+
+def test_a_missed_checkpoint_is_listed_as_overdue_with_its_deadline() -> None:
+    a = work("a", planned_start=MON, effort_hours=26)  # 木曜 15:30 まで
+    c = checkpoint("c", WED_NOON, "a")
+    progress = summarize_progress(project(a, c), {}, MON)  # 現在時刻は締切の前でも、見込みで超過
+    rows = [row for row in progress.overdue if row.name == "c"]
+    assert len(rows) == 1 and rows[0].limit == WED_NOON
+
+
+def test_a_checkpoint_appears_once_in_the_due_list() -> None:
+    c = checkpoint("c", WED_NOON)
+    period = Period(datetime(2026, 10, 5).date(), datetime(2026, 10, 9).date())
+    rows = summarize_due(project(c), period, MON, {})
+    assert [(row.kind, row.name) for row in rows] == [("締切", "c")]
+
+
+def test_checkpoints_are_left_out_of_the_workload() -> None:
+    period = Period(datetime(2026, 10, 5).date(), datetime(2026, 10, 9).date())
+    assert summarize_workload(project(checkpoint("c", WED_NOON)), period, MON, {}) == []
