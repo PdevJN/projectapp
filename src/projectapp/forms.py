@@ -80,6 +80,16 @@ def _parse_planned_end(text: str, *, strict: bool, fallback: datetime | None) ->
     return value
 
 
+def push_hint(start: datetime | None, finishes: list[datetime]) -> str:
+    """先行の完了が開始より後のときの、1 行のヒント。押し出されていなければ空。"""
+    if not finishes:
+        return ""
+    latest = max(finishes)
+    if start is not None and latest <= start:
+        return ""
+    return f"先行の完了により、実際の開始は {latest:%m/%d %H:%M} です"
+
+
 ActualRow = tuple[str, str, float | None]  # 区間の1行の入力(開始・終了の文字列、進捗度)
 
 
@@ -102,6 +112,8 @@ def build_task(
     actual_progress: float | None = None,
     actual_rows: list[ActualRow] | None = None,
     project_code: str = "",
+    predecessors: list[str] | None = None,
+    linkable_ids: frozenset[str] | None = None,
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。"""
     clean = name.strip()
@@ -146,6 +158,11 @@ def build_task(
         actuals = base.actuals
     else:
         actuals = build_actuals(actual_start, actual_end, actual_progress)
+    links = list(base.predecessors) if predecessors is None else list(dict.fromkeys(predecessors))
+    if predecessors is not None and (
+        base.id in links or (linkable_ids is not None and not set(links) <= linkable_ids)
+    ):
+        raise ValueError("先行タスクが正しくありません")
     return replace(
         base,
         name=clean,
@@ -161,6 +178,7 @@ def build_task(
         allocation=allocation,
         actuals=actuals,
         project_code=code,
+        predecessors=links,
     )
 
 

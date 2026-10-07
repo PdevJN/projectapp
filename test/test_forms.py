@@ -24,6 +24,7 @@ from projectapp.forms import (
     open_settings_dialog,
     open_unsaved_dialog,
     parse_datetime,
+    push_hint,
     suggest_status,
 )
 from projectapp.models import Actual, ActualMode, Member, Priority, Status, Task
@@ -1058,3 +1059,31 @@ def test_project_code_length_is_checked_after_trimming() -> None:
 
 def test_a_blank_project_code_becomes_empty() -> None:
     assert make(project_code="   ").project_code == ""
+
+
+def test_build_task_sets_and_dedupes_predecessors() -> None:
+    task = make(predecessors=["a", "b", "a"], linkable_ids=frozenset({"a", "b"}))
+    assert task.predecessors == ["a", "b"]
+
+
+def test_build_task_keeps_existing_predecessors_when_not_given() -> None:
+    existing = Task("x", id="xxxxxxxx", predecessors=["a"])
+    task = make(existing)
+    assert task.predecessors == ["a"] and task.id == "xxxxxxxx"
+
+
+@pytest.mark.parametrize("bad", [["zz"], ["xxxxxxxx"]])
+def test_build_task_rejects_unlinkable_predecessors(bad: list[str]) -> None:
+    existing = Task("x", id="xxxxxxxx")
+    with pytest.raises(ValueError, match="先行タスク"):
+        make(existing, predecessors=bad, linkable_ids=frozenset({"a"}))
+
+
+def test_push_hint_only_when_the_start_is_pushed() -> None:
+    start = datetime(2026, 10, 5, 9, 0)
+    assert push_hint(start, []) == ""
+    assert push_hint(start, [datetime(2026, 10, 5, 8, 0)]) == ""
+    assert push_hint(start, [datetime(2026, 10, 12, 9, 0)]) == (
+        "先行の完了により、実際の開始は 10/12 09:00 です"
+    )
+    assert push_hint(None, [datetime(2026, 10, 12, 9, 0)]).endswith("10/12 09:00 です")

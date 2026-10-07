@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 
 import pytest
 from datetime import date, datetime, time
@@ -19,6 +20,8 @@ def mount_dialog(
     holidays: dict[date, str] | None = None,
     members: list[Member] | None = None,
     actual_mode: ActualMode = ActualMode.SIMPLE,
+    link_options: dict[str, str] | None = None,
+    finish_of: Callable[[str], datetime | None] | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -33,6 +36,8 @@ def mount_dialog(
                 holidays=holidays,
                 members=members,
                 actual_mode=actual_mode,
+                link_options=link_options,
+                finish_of=finish_of,
             ),
         )
 
@@ -1281,3 +1286,61 @@ async def test_changing_the_project_code_counts_as_a_change_when_closing(user: U
     user.find(marker="task-project-code").type("X")
     user.find(marker="task-cancel").click()
     assert confirm_dialog_of(user).value is True
+
+
+async def test_predecessors_are_saved_from_the_select(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, link_options={"aaaaaaaa": "設計", "bbbbbbbb": "開発 / 実装"})
+    await open_dialog(user)
+    user.find(marker="task-name").type("テスト")
+    select = user.find(marker="task-predecessors").elements.pop()
+    select.set_value(["aaaaaaaa"])
+    user.find(marker="task-save").click()
+    assert saved[0].predecessors == ["aaaaaaaa"]
+
+
+async def test_the_select_lists_only_the_given_options(user: User) -> None:
+    mount_dialog(None, [], link_options={"aaaaaaaa": "設計"})
+    await open_dialog(user)
+    select = user.find(marker="task-predecessors").elements.pop()
+    assert select.options == {"aaaaaaaa": "設計"}
+
+
+async def test_the_hint_shows_only_when_pushed(user: User) -> None:
+    task = Task(
+        "後続",
+        id="bbbbbbbb",
+        planned_start=datetime(2026, 10, 5, 9, 0),
+        predecessors=["aaaaaaaa"],
+    )
+    mount_dialog(
+        task,
+        [],
+        link_options={"aaaaaaaa": "設計"},
+        finish_of=lambda pid: datetime(2026, 10, 12, 9, 0),
+    )
+    await open_dialog(user)
+    hint = user.find(marker="task-predecessors-hint").elements.pop()
+    assert hint.visible
+    assert hint.text == "先行の完了により、実際の開始は 10/12 09:00 です"
+
+
+async def test_the_hint_is_hidden_without_a_push(user: User) -> None:
+    task = Task("後続", planned_start=datetime(2026, 10, 12, 9, 0), predecessors=["aaaaaaaa"])
+    mount_dialog(
+        task,
+        [],
+        link_options={"aaaaaaaa": "設計"},
+        finish_of=lambda pid: datetime(2026, 10, 5, 9, 0),
+    )
+    await open_dialog(user)
+    await user.should_not_see(marker="task-predecessors-hint")  # 非表示の要素は、User から見えない
+
+
+async def test_changing_the_predecessors_counts_as_an_edit(user: User) -> None:
+    task = Task("後続", id="bbbbbbbb")
+    mount_dialog(task, [], link_options={"aaaaaaaa": "設計"})
+    await open_dialog(user)
+    user.find(marker="task-predecessors").elements.pop().set_value(["aaaaaaaa"])
+    user.find(marker="task-cancel").click()
+    await user.should_see(marker="close-save")  # 確認ダイアログが出る

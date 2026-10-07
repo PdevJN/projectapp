@@ -17,6 +17,7 @@ from projectapp.forms import (
     parse_datetime,
     needs_end_time,
     needs_start_time,
+    push_hint,
     suggest_status,
 )
 from projectapp.models import (
@@ -484,6 +485,8 @@ def open_task_dialog(
     holidays: dict[date, str] | None = None,
     members: list[Member] | None = None,
     actual_mode: ActualMode = ActualMode.SIMPLE,
+    link_options: dict[str, str] | None = None,
+    finish_of: Callable[[str], datetime | None] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
     member_list = list(members or [])
@@ -557,6 +560,38 @@ def open_task_dialog(
         assignee.on_value_change(refresh_conversion)
         allocation.on_value_change(refresh_conversion)
         refresh_conversion()
+        options = dict(link_options or {})
+        kept = [pid for pid in initial.predecessors if pid in options]  # 候補にない参照は、欄に出さない
+        predecessors = (
+            ui.select(options, label="先行タスク", value=kept, multiple=True)
+            .props("use-chips")
+            .classes("w-full")
+            .mark("task-predecessors")
+        )
+        push = ui.label("").classes("text-caption text-grey").mark("task-predecessors-hint")
+
+        def refresh_push(_event: object = None) -> None:
+            finishes = [
+                finish
+                for pid in predecessors.value or []
+                if finish_of is not None and (finish := finish_of(pid)) is not None
+            ]
+            try:
+                start_at = parse_datetime(fields.start_text())
+            except ValueError:
+                start_at = None
+            text = push_hint(start_at, finishes)
+            push.set_text(text)
+            push.set_visibility(bool(text))
+
+        predecessors.on_value_change(refresh_push)
+        refresh_push()
+
+        def merged_predecessors() -> list[str]:
+            """欄の値。候補にない既存の参照(通常はない)は、そのまま残す。"""
+            hidden = [pid for pid in initial.predecessors if pid not in options]
+            return [*(predecessors.value or []), *hidden]
+
         priority = PriorityChips(initial.priority)
         intervals = actual_mode is ActualMode.INTERVALS
         actual_fields: ActualFields | IntervalFields = (
@@ -612,6 +647,7 @@ def open_task_dialog(
                 color.value,
                 assignee.value,
                 allocation.value,
+                tuple(predecessors.value or []),
                 *actual_fields.state(),
             )
 
@@ -634,6 +670,8 @@ def open_task_dialog(
                     color=color.value or initial.color,
                     assignee=assignee.value or "",
                     allocation_percent=allocation.value,
+                    predecessors=merged_predecessors(),
+                    linkable_ids=frozenset(options) | frozenset(initial.predecessors),
                     actual_start=actual_fields.start_text(),
                     actual_end=actual_fields.end_text(),
                     actual_progress=actual_fields.progress_value(),

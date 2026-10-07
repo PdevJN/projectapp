@@ -685,6 +685,26 @@ async def test_delete_task_removes_its_id_from_the_successors(
     assert view.project.tasks[0].predecessors == []
 
 
+async def test_the_edit_dialog_offers_other_tasks_as_predecessors(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    a = Task("a", id="aaaaaaaa")
+    b = Task("b", id="bbbbbbbb", predecessors=["aaaaaaaa"])
+    c = Task("c", id="cccccccc")
+    save_project(Project("既存", tasks=[a, b, c]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    await user.should_see(marker="task-top-0")
+    user.find(marker="task-top-0").click()  # a を開く: 後続の b と自分は候補から外れる
+    select = user.find(marker="task-predecessors").elements.pop()
+    assert select.options == {"cccccccc": "c"}
+
+
 async def test_delete_from_the_edit_dialog_removes_the_bar(user: User, tmp_path: Path) -> None:
     save_cache({}, tmp_path)
     mount(tmp_path, make_transport(200, []))

@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import date, datetime, time, timedelta
+from typing import Any
 from pathlib import Path
 
 import httpx
@@ -10,7 +11,7 @@ from nicegui import ui
 from nicegui.events import KeyEventArguments
 
 from projectapp.calendar import load_cache
-from projectapp.linkgraph import drop_task_links
+from projectapp.linkgraph import drop_task_links, link_options
 from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import THEMES, load_name_width, load_theme, save_name_width, save_theme
 from projectapp.forms import (
@@ -65,7 +66,7 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.task_dialog import open_task_dialog
-from projectapp.timeline import build_columns, clip_overloads, overallocations, visible_range
+from projectapp.timeline import Schedule, build_columns, clip_overloads, overallocations, visible_range
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
@@ -490,6 +491,17 @@ class MainView:
         self.project.sections.append(Section(name))
         self.gantt.set_project(self.project)
 
+    def link_args(self, task: Task | None) -> dict[str, Any]:
+        """編集ダイアログの「先行タスク」欄に渡す引数。"""
+        schedule = Schedule(self.project, self.holidays)
+        by_id = {t.id: t for t in self.project.all_tasks()}
+
+        def finish_of(task_id: str) -> datetime | None:
+            pred = by_id.get(task_id)
+            return None if pred is None else schedule.finish(pred)
+
+        return {"link_options": link_options(self.project, task), "finish_of": finish_of}
+
     def add_task(self, section_index: int) -> None:
         open_task_dialog(
             None,
@@ -499,6 +511,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            **self.link_args(None),
         )
 
     def add_top_task(self) -> None:
@@ -510,6 +523,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            **self.link_args(None),
         )
 
     def edit_task(self, section_index: int | None, task_index: int) -> None:
@@ -523,6 +537,7 @@ class MainView:
             members=self.project.members,
             actual_mode=self.project.actual_mode,
             on_delete=lambda: self.delete_task(section_index, task_index),
+            **self.link_args(task),
         )
 
     def delete_task(self, section_index: int | None, task_index: int) -> None:
