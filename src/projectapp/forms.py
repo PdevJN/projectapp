@@ -5,11 +5,13 @@ from dataclasses import dataclass, replace
 from datetime import datetime, time
 from decimal import Decimal
 from math import isfinite
+from typing import Any
 
 from nicegui import ui
 
 from projectapp.models import (
     CHECKPOINT_STATUSES,
+    ID_KEY,
     MAX_ALLOCATION,
     MAX_PROGRESS,
     MAX_PROJECT_CODE_LENGTH,
@@ -19,6 +21,7 @@ from projectapp.models import (
     MIN_PROGRESS,
     MIN_RATIO,
     MIN_YEAR,
+    URL_KEY,
     Actual,
     ActualMode,
     Member,
@@ -26,8 +29,11 @@ from projectapp.models import (
     Status,
     Task,
     TaskKind,
+    TaskUrl,
+    UrlTemplate,
     is_hex_color,
 )
+from projectapp.urls import TemplateEdit, resolve, validate_templates
 
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
 STANDARD_WORK_HOURS = 8  # 時刻を指定しないときに補う終了の、標準稼働時間(固定)
@@ -114,6 +120,7 @@ def _build_checkpoint(
     color: str,
     predecessors: list[str] | None,
     linkable_ids: frozenset[str] | None,
+    urls: list[TaskUrl] | None,
 ) -> Task:
     """チェックポイント。締切だけを検証し、開始予定・工数・担当・実績は空にする(隠した欄の入力は見ない)。"""
     try:
@@ -145,7 +152,27 @@ def _build_checkpoint(
         actuals=[],
         project_code=code,
         predecessors=_links(base, predecessors, linkable_ids),
+        urls=base.urls if urls is None else urls,
     )
+
+
+UrlRow = tuple[str, str | None, str]  # リンク 1 行の入力: 表示名、テンプレート名(None はなし)、値(URL か ID)
+
+
+def build_urls(rows: list[UrlRow], templates: list[UrlTemplate]) -> list[TaskUrl]:
+    """リンクの入力を検証して TaskUrl にする。完全に空の行は無視し、不完全な行は行番号つきの ValueError。"""
+    urls: list[TaskUrl] = []
+    for number, (title, template, value) in enumerate(rows, start=1):
+        title, value = title.strip(), value.strip()
+        if not title and not value and template is None:
+            continue
+        link = TaskUrl(title, template, {URL_KEY if template is None else ID_KEY: value})
+        try:
+            resolve(link, templates)
+        except ValueError as exc:
+            raise ValueError(f"リンク{number}行目: {exc}") from None
+        urls.append(link)
+    return urls
 
 
 ActualRow = tuple[str, str, float | None]  # 区間の1行の入力(開始・終了の文字列、進捗度)
@@ -173,6 +200,7 @@ def build_task(
     predecessors: list[str] | None = None,
     linkable_ids: frozenset[str] | None = None,
     kind: TaskKind = TaskKind.NORMAL,
+    urls: list[TaskUrl] | None = None,
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。"""
     clean = name.strip()
@@ -184,7 +212,7 @@ def build_task(
     base = existing or Task(clean)
     if kind is TaskKind.CHECKPOINT:
         return _build_checkpoint(
-            base, clean, code, deadline, priority, status, color, predecessors, linkable_ids
+            base, clean, code, deadline, priority, status, color, predecessors, linkable_ids, urls
         )
     hours = effort_hours or 0.0
     manual = planned_end_manual and hours > 0
@@ -239,6 +267,7 @@ def build_task(
         actuals=actuals,
         project_code=code,
         predecessors=links,
+        urls=base.urls if urls is None else urls,
     )
 
 
@@ -329,6 +358,15 @@ def build_work_settings(hours: float | None, start: str) -> tuple[float, time]:
     if minutes > 24 * 60 + 1e-9:  # 稼働枠が日をまたぐと算出が曖昧になる
         raise ValueError("始業時刻と稼働可能時間の合計が24時を超えています")
     return hours, work_start
+
+
+@dataclass
+class TemplateRow:
+    """設定ダイアログの URL テンプレートの 1 行。originalは、開いた時点の名前(新しい行はNone)。"""
+
+    original: str | None
+    name: str
+    pattern: str
 
 
 @dataclass
@@ -538,8 +576,11 @@ def open_settings_dialog(
     on_apply: Callable[[float, time, ActualMode], object],
     actual_mode: ActualMode = ActualMode.SIMPLE,
     multi_interval_tasks: int = 0,
+    templates: list[UrlTemplate] | None = None,
+    template_usage: Callable[[str], int] | None = None,
+    on_templates: Callable[[TemplateEdit], object] | None = None,
 ) -> None:
-    with disposable(ui.dialog()) as dialog, ui.card().classes("w-80"):
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[30rem] max-w-full"):
         ui.label("稼働時間の設定").classes("text-h6")
         hours = ui.number(
             "1日の稼働可能時間(h)",
@@ -580,16 +621,99 @@ def open_settings_dialog(
                     mode.set_value(ActualMode.INTERVALS.value)
 
             mode.on_value_change(keep_intervals)
+        rows = [TemplateRow(t.name, t.name, t.pattern) for t in templates or []]
+        if templates is not None:
+            ui.label("URL テンプレート").classes("text-caption text-grey")
+            ui.label("URL の型に {ID} と書くと、リンクで入力した ID に置き換わります").classes(
+                "text-caption text-grey"
+            )
+
+            @ui.refreshable
+            def template_table() -> None:
+                with ui.column().classes("w-full gap-1"):
+                    for n, row in enumerate(rows):
+                        with ui.row().classes("w-full items-center no-wrap gap-2"):
+                            ui.input(
+                                "名前",
+                                value=row.name,
+                                on_change=lambda e, r=row: setattr(r, "name", e.value or ""),
+                            ).classes("w-32").mark(f"settings-template-{n}-name")
+                            ui.input(
+                                "URL の型",
+                                value=row.pattern,
+                                on_change=lambda e, r=row: setattr(r, "pattern", e.value or ""),
+                            ).classes("grow").mark(f"settings-template-{n}-pattern")
+                            ui.button(
+                                icon="delete", on_click=lambda _e, r=row: remove_template(r)
+                            ).props("flat dense color=negative").mark(
+                                f"settings-template-{n}-remove"
+                            )
+
+            def add_template() -> None:
+                rows.append(TemplateRow(None, "", ""))
+                template_table.refresh()
+
+            def remove_template(row: TemplateRow) -> None:
+                rows.remove(row)
+                template_table.refresh()
+
+            template_table()
+            ui.button("テンプレートを追加", icon="add", on_click=add_template).props(
+                "flat dense"
+            ).mark("settings-template-add")
         error = ui.label("").classes("text-negative").mark("settings-error")
+        pending: dict[str, Any] = {}
+        with ui.dialog() as confirm, ui.card():
+            confirm_text = ui.label("")
+            with ui.row():
+                ui.button("キャンセル", on_click=confirm.close).props("flat").mark(
+                    "settings-confirm-cancel"
+                )
+                ui.button("削除する", on_click=lambda: confirm_delete()).props(
+                    "color=negative"
+                ).mark("settings-confirm-delete")
+
+        def build_edit() -> TemplateEdit | None:
+            if templates is None:
+                return None
+            active = [r for r in rows if r.original is not None or r.name.strip() or r.pattern.strip()]
+            built = [UrlTemplate(r.name.strip(), r.pattern.strip()) for r in active]
+            validate_templates(built)
+            renames = {
+                r.original: r.name.strip()
+                for r in active
+                if r.original is not None and r.original != r.name.strip()
+            }
+            kept = {r.original for r in active if r.original is not None}
+            removed = [t.name for t in templates if t.name not in kept]
+            return TemplateEdit(built, renames, removed)
+
+        def commit(result: tuple[float, time], edit: TemplateEdit | None) -> None:
+            on_apply(*result, ActualMode(mode.value))
+            if edit is not None and on_templates is not None and edit.templates != templates:
+                on_templates(edit)
+            dialog.close()
+
+        def confirm_delete() -> None:
+            confirm.close()
+            commit(pending["result"], pending["edit"])
 
         def apply() -> None:
             try:
                 result = build_work_settings(hours.value, start.value or "")
+                edit = build_edit()
             except ValueError as exc:
                 error.set_text(str(exc))
                 return
-            on_apply(*result, ActualMode(mode.value))
-            dialog.close()
+            used = sum(template_usage(n) for n in edit.removed) if edit and template_usage else 0
+            if used:
+                pending.update(result=result, edit=edit)
+                confirm_text.set_text(
+                    f"削除するテンプレートを使っているリンクが{used}件あります。URL としてそのまま残ります。"
+                )
+                confirm.open()
+                return
+            commit(result, edit)
 
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")

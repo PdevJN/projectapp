@@ -12,6 +12,8 @@ from typing import Any, NamedTuple
 from projectapp.linkgraph import validate_links
 from projectapp.models import (
     CHECKPOINT_STATUSES,
+    ID_KEY,
+    URL_KEY,
     ActualMode,
     MAX_ALLOCATION,
     MAX_PROJECT_CODE_LENGTH,
@@ -30,8 +32,11 @@ from projectapp.models import (
     Status,
     Task,
     TaskKind,
+    TaskUrl,
+    UrlTemplate,
     new_id,
 )
+from projectapp.urls import validate_templates, validate_urls
 
 BASE_DIR = Path.home() / ".projectapp"
 RESERVED = {"config", "holidays"}
@@ -167,6 +172,7 @@ def _task(raw: dict[str, Any]) -> Task:
         actuals=_actuals(raw.get("actuals")),
         project_code=_project_code(raw.get("project_code")),
         kind=kind,
+        urls=_task_urls(raw.get("urls")),
     )
     return _checkpoint(task) if kind is TaskKind.CHECKPOINT else task
 
@@ -295,6 +301,43 @@ def _predecessors(value: Any) -> list[str]:
     return list(value)
 
 
+def _url_templates(value: Any) -> list[UrlTemplate]:
+    """URL テンプレート。キーがない・null は空。名前の空・重複、http(s) でない型は ValueError。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("URL テンプレートがリストではありません")
+    templates: list[UrlTemplate] = []
+    for raw in value:
+        if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
+            raise ValueError("URL テンプレートの名前が文字列ではありません")
+        if not isinstance(raw.get("pattern"), str):
+            raise ValueError("URL テンプレートの型が文字列ではありません")
+        templates.append(UrlTemplate(raw["name"], raw["pattern"]))
+    validate_templates(templates)
+    return templates
+
+
+def _task_urls(value: Any) -> list[TaskUrl]:
+    """タスクのリンク。キーがない・null は空。形が正しくなければ ValueError(テンプレートの存在は読込の後で検証する)。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("リンクがリストではありません")
+    urls: list[TaskUrl] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            raise ValueError("リンクがオブジェクトではありません")
+        title, template, values = raw.get("title", ""), raw.get("template"), raw.get("values")
+        if not isinstance(title, str) or not (template is None or isinstance(template, str)):
+            raise ValueError("リンクの表示名かテンプレート名が文字列ではありません")
+        key = URL_KEY if template is None else ID_KEY
+        if not isinstance(values, dict) or set(values) != {key} or not isinstance(values[key], str):
+            raise ValueError(f"リンクの値が正しくありません(キーは {key} だけです)")
+        urls.append(TaskUrl(title, template, dict(values)))
+    return urls
+
+
 def _assignee(value: Any) -> str | None:
     """担当者名。前後の空白を取り除き、空はNone。"""
     if not isinstance(value, str):
@@ -355,8 +398,11 @@ def load_project(path: Path) -> Project:
         sections=sections,
         tasks=[_task(t) for t in raw.get("tasks", [])],
         actual_mode=_actual_mode(raw.get("actual_mode", "simple")),
+        url_templates=_url_templates(raw.get("url_templates")),
     )
     validate_links(project.all_tasks())
+    for task in project.all_tasks():
+        validate_urls(task.urls, project.url_templates)
     known = {m.name for m in project.members}
     for task in project.all_tasks():  # 古いファイルの自由入力の担当者を、メンバーとして補う
         if task.assignee and task.assignee not in known:

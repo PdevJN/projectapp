@@ -15,7 +15,7 @@ from projectapp.filtering import TaskFilter
 from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.handoff import JSON_FILE_TYPES
-from projectapp.models import Actual, ActualMode, Member, Project, Section, Task
+from projectapp.models import Actual, ActualMode, Member, Project, Section, Task, TaskUrl, UrlTemplate
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
@@ -2168,3 +2168,57 @@ async def test_the_file_menu_has_a_separator_before_the_holiday_update(user: Use
     assert kinds == ["MenuItem", "MenuItem", "MenuItem", "Separator", "MenuItem"]  # 開く・保存・名前をつけて保存 | 祝日を更新
     assert "menu-file-separator" in menu.default_slot.children[3]._markers
     assert "refresh-holidays" in menu.default_slot.children[4]._markers
+
+
+async def test_templates_are_saved_with_the_project_and_mark_it_dirty(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    user.find(marker="open-settings").click()
+    user.find(marker="settings-template-add").click()
+    await asyncio.sleep(0.2)
+    user.find(marker="settings-template-0-name").type("チケット")
+    user.find(marker="settings-template-0-pattern").type("https://example.com/{ID}")
+    user.find(marker="settings-apply").click()
+    assert await wait_until(lambda: view.is_dirty())
+    await save_new_as(user, "テンプレート")
+    assert await wait_until(lambda: (tmp_path / "テンプレート.json").exists())
+    loaded = load_project(tmp_path / "テンプレート.json")
+    assert loaded.url_templates == [UrlTemplate("チケット", "https://example.com/{ID}")]
+
+
+async def test_deleting_a_used_template_turns_its_links_into_urls(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.url_templates = [UrlTemplate("チケット", "https://example.com/{ID}")]
+    view.save_task(None, None, Task("設計", urls=[TaskUrl("課題", "チケット", {"ID": "231"})]))
+    user.find(marker="open-settings").click()
+    user.find(marker="settings-template-0-remove").click()
+    user.find(marker="settings-apply").click()
+    await user.should_see("1件")
+    user.find(marker="settings-confirm-delete").click()
+    assert view.project.url_templates == []
+    assert view.project.tasks[0].urls == [TaskUrl("課題", None, {"URL": "https://example.com/231"})]
+
+
+async def test_renaming_a_template_follows_the_links(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.url_templates = [UrlTemplate("チケット", "https://example.com/{ID}")]
+    view.save_task(None, None, Task("設計", urls=[TaskUrl("", "チケット", {"ID": "1"})]))
+    user.find(marker="open-settings").click()
+    user.find(marker="settings-template-0-name").clear().type("課題")
+    user.find(marker="settings-apply").click()
+    assert view.project.tasks[0].urls[0].template == "課題"

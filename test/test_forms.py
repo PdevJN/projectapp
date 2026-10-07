@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, time
 
 import pytest
@@ -10,6 +11,7 @@ from projectapp.forms import (
     build_members,
     build_section_name,
     build_task,
+    build_urls,
     build_work_settings,
     compose_actual,
     compose_datetime,
@@ -27,7 +29,8 @@ from projectapp.forms import (
     push_hint,
     suggest_status,
 )
-from projectapp.models import Actual, ActualMode, Member, Priority, Status, Task
+from projectapp.models import Actual, ActualMode, Member, Priority, Status, Task, TaskUrl, UrlTemplate
+from projectapp.urls import TemplateEdit
 from projectapp.task_dialog import open_task_dialog
 
 
@@ -1087,3 +1090,179 @@ def test_push_hint_only_when_the_start_is_pushed() -> None:
         "先行の完了により、実際の開始は 10/12 09:00 です"
     )
     assert push_hint(None, [datetime(2026, 10, 12, 9, 0)]).endswith("10/12 09:00 です")
+
+
+TICKET = UrlTemplate("チケット", "https://example.com/{ID}")
+
+
+def test_build_urls_builds_links_and_ignores_empty_rows() -> None:
+    rows = [("メモ", "チケット", " 231 "), ("", None, ""), ("", None, " https://example.com/a ")]
+    assert build_urls(rows, [TICKET]) == [
+        TaskUrl("メモ", "チケット", {"ID": "231"}),
+        TaskUrl("", None, {"URL": "https://example.com/a"}),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        (("", "チケット", ""), "1行目.*ID"),
+        (("名前だけ", None, ""), "1行目.*URL"),
+        (("", None, "javascript:alert(1)"), "1行目.*http"),
+        (("", "なし", "1"), "1行目.*見つかりません"),
+    ],
+)
+def test_build_urls_rejects_incomplete_rows_with_the_row_number(
+    row: tuple[str, str | None, str], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        build_urls([row], [TICKET])
+
+
+def test_build_task_keeps_the_existing_links_unless_given_new_ones() -> None:
+    existing = Task("設計", urls=[TaskUrl("", None, {"URL": "https://example.com/a"})])
+    assert make(existing).urls == existing.urls
+    replaced = [TaskUrl("", None, {"URL": "https://example.com/b"})]
+    assert make(existing, urls=replaced).urls == replaced
+    assert make(existing, urls=[]).urls == []
+
+
+def mount_settings(
+    templates: list[UrlTemplate],
+    usage: dict[str, int],
+    applied: list[int],
+    edits: list[TemplateEdit],
+) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5,
+                time(9, 0),
+                lambda h, s, m: applied.append(1),
+                templates=templates,
+                template_usage=lambda name: usage.get(name, 0),
+                on_templates=edits.append,
+            ),
+        )
+
+
+async def test_adding_a_template_applies_it(user: User) -> None:
+    applied: list[int] = []
+    edits: list[TemplateEdit] = []
+    mount_settings([], {}, applied, edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-template-add").click()
+    await asyncio.sleep(0.2)  # 行の描き直しを待つ
+    user.find(marker="settings-template-0-name").type("チケット")
+    user.find(marker="settings-template-0-pattern").type("https://example.com/{ID}")
+    user.find(marker="settings-apply").click()
+    assert applied == [1]
+    assert edits == [TemplateEdit([UrlTemplate("チケット", "https://example.com/{ID}")], {}, [])]
+
+
+async def test_unchanged_templates_do_not_call_on_templates(user: User) -> None:
+    applied: list[int] = []
+    edits: list[TemplateEdit] = []
+    mount_settings([UrlTemplate("チケット", "https://example.com/{ID}")], {}, applied, edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-apply").click()
+    assert applied == [1] and edits == []
+
+
+async def test_a_blank_added_row_is_ignored(user: User) -> None:
+    applied: list[int] = []
+    edits: list[TemplateEdit] = []
+    mount_settings([], {}, applied, edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-template-add").click()
+    await asyncio.sleep(0.2)  # 行の描き直しを待つ
+    user.find(marker="settings-apply").click()
+    assert applied == [1] and edits == []
+
+
+@pytest.mark.parametrize(
+    ("name", "pattern", "message"),
+    [
+        ("", "https://x.test/{ID}", "名前を入力"),
+        ("a", "javascript:{ID}", "http://"),
+        ("チケット", "https://y.test/{ID}", "重複"),
+    ],
+)
+async def test_invalid_templates_keep_the_dialog_and_call_nothing(
+    user: User, name: str, pattern: str, message: str
+) -> None:
+    applied: list[int] = []
+    edits: list[TemplateEdit] = []
+    mount_settings([UrlTemplate("チケット", "https://example.com/{ID}")], {}, applied, edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-template-add").click()
+    await asyncio.sleep(0.2)  # 行の描き直しを待つ
+    user.find(marker="settings-template-1-name").type(name)
+    user.find(marker="settings-template-1-pattern").type(pattern)
+    user.find(marker="settings-apply").click()
+    await user.should_see(message)
+    assert applied == [] and edits == []
+
+
+async def test_renaming_a_template_is_reported_as_a_rename(user: User) -> None:
+    applied: list[int] = []
+    edits: list[TemplateEdit] = []
+    mount_settings(
+        [UrlTemplate("チケット", "https://example.com/{ID}")], {"チケット": 3}, applied, edits
+    )
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-template-0-name").clear().type("課題")
+    user.find(marker="settings-apply").click()
+    assert edits == [
+        TemplateEdit([UrlTemplate("課題", "https://example.com/{ID}")], {"チケット": "課題"}, [])
+    ]
+
+
+async def test_deleting_an_unused_template_needs_no_confirmation(user: User) -> None:
+    applied: list[int] = []
+    edits: list[TemplateEdit] = []
+    mount_settings([UrlTemplate("チケット", "https://example.com/{ID}")], {}, applied, edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-template-0-remove").click()
+    user.find(marker="settings-apply").click()
+    assert edits == [TemplateEdit([], {}, ["チケット"])]
+
+
+async def test_deleting_a_used_template_asks_with_the_count(user: User) -> None:
+    applied: list[int] = []
+    edits: list[TemplateEdit] = []
+    mount_settings(
+        [UrlTemplate("チケット", "https://example.com/{ID}")], {"チケット": 3}, applied, edits
+    )
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-template-0-remove").click()
+    user.find(marker="settings-apply").click()
+    await user.should_see("3件")
+    assert applied == [] and edits == []
+    user.find(marker="settings-confirm-delete").click()
+    assert applied == [1]
+    assert edits == [TemplateEdit([], {}, ["チケット"])]
+
+
+async def test_cancelling_the_delete_confirmation_changes_nothing(user: User) -> None:
+    applied: list[int] = []
+    edits: list[TemplateEdit] = []
+    mount_settings(
+        [UrlTemplate("チケット", "https://example.com/{ID}")], {"チケット": 3}, applied, edits
+    )
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-template-0-remove").click()
+    user.find(marker="settings-apply").click()
+    user.find(marker="settings-confirm-cancel").click()
+    assert applied == [] and edits == []
+    await user.should_see(marker="settings-apply")  # 設定ダイアログは開いたまま

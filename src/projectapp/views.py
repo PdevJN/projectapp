@@ -66,6 +66,7 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.task_dialog import open_task_dialog
+from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
 from projectapp.timeline import Schedule, build_columns, clip_overloads, overallocations, visible_range
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
@@ -257,6 +258,9 @@ class MainView:
             self.apply_settings,
             self.project.actual_mode,
             self.multi_interval_count(),
+            templates=self.project.url_templates,
+            template_usage=lambda name: count_usage(self.project, name),
+            on_templates=self.apply_templates,
         )
 
     def multi_interval_count(self) -> int:
@@ -449,6 +453,11 @@ class MainView:
         self.project.actual_mode = mode
         self.gantt.set_project(self.project)
 
+    def apply_templates(self, edit: TemplateEdit) -> None:
+        """URL テンプレートの編集を反映する(削除分のリンクは URL に展開される)。保存はしない。"""
+        apply_template_edit(self.project, edit)
+        self.gantt.set_project(self.project)
+
     def save_project_clicked(self) -> None:
         if self.path is None:
             open_name_dialog(
@@ -492,7 +501,7 @@ class MainView:
         self.gantt.set_project(self.project)
 
     def link_args(self, task: Task | None) -> dict[str, Any]:
-        """編集ダイアログの「先行タスク」欄に渡す引数。"""
+        """編集ダイアログに渡す、先行タスクとリンクの引数。"""
         schedule = Schedule(self.project, self.holidays)
         by_id = {t.id: t for t in self.project.all_tasks()}
 
@@ -500,7 +509,11 @@ class MainView:
             pred = by_id.get(task_id)
             return None if pred is None else schedule.finish(pred)
 
-        return {"link_options": link_options(self.project, task), "finish_of": finish_of}
+        return {
+            "link_options": link_options(self.project, task),
+            "finish_of": finish_of,
+            "url_templates": self.project.url_templates,
+        }
 
     def add_task(self, section_index: int) -> None:
         open_task_dialog(

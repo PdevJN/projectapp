@@ -16,6 +16,8 @@
 | `preview.py` | エクスポートのプレビュー(`PreviewSettings`・期間の検証・`fit_scale`・`PreviewBar`) |
 | `filemanager.py` | フォルダを OS のファイラで開く(`open_command`・`open_folder`。macOS は `open`、Windows は `explorer`、それ以外は `xdg-open`。シェルを通さない)。純粋に近い関数で、起動は差し替えられる |
 | `export.py` | 画像化(html-to-image)・倍率・PNG の書き出し・保存ダイアログ(`ImageExporter`。`ask_path` はファイルの種類を引数に取り、担当者向けファイルでも使う) |
+| `urls.py` | タスクのリンク(URL)の規則。`resolve`(`{ID}` の置き換えと、`http`・`https` の検証)、`validate_templates`、`validate_urls`、`count_usage`、`expand_template`(削除時にリンクを URL へ展開)、`rename_templates`、`apply_template_edit`(`TemplateEdit`)。純粋関数(NiceGUI に依存しない) |
+| `browser.py` | URL を既定のブラウザで開く(`open_url`)。`http`・`https` 以外と、開けなかったときは `OSError`。開く処理は差し替えられる |
 | `dashboard.py` | ダッシュボードの集計(期間 `period_for`、進捗・負荷・工数・期限、`summarize`)。純粋関数(NiceGUI に依存しない)。負荷は `timeline.counted_span` を使い、割り当て超過の縞と同じ前提 |
 | `dashboard_view.py` | ダッシュボードの表示(カードと横棒。`DashboardView`) |
 | `handoff.py` | 担当者向けファイルの書き出し。タスクを todoapp 形式(`items`・`records`・`categories`)へ変える(`build_todos`)、書き込み(`write_json`)。純粋関数(NiceGUI に依存しない)。id は`uuid5`で決まる(同名のタスクは`名前#2`)。todoapp の形式は`file-format.md`(git 管理外) |
@@ -78,6 +80,7 @@ uvx ty check src
 
 ## ファイル形式の注意
 
+- リンクは `Task.urls`(`[{"title", "template", "values"}]`)、URL の型は `Project.url_templates`(`[{"name", "pattern"}]`)。`values` のキーは、テンプレートなしが `URL`、ありが `ID`。キーなし・`null` は空で読む(移行は要らない)。名前の空・重複、`http`・`https` でない型や URL、存在しないテンプレート名、キーの不一致、型の違いは読込を拒否する(`storage._url_templates`・`_task_urls`、読込後に `validate_urls`)。フィールド名は `urls`(先行タスクの連結 `predecessors` と区別する)。ID の置き換えは `str.replace` と `quote(safe="")` だけ。
 - ヘッダーの日付・曜日の行(`label_row`)は、列ごとに要素を作らず、1 つの `ui.html`(マーカー `label-row-cells`)にまとめる(`header_cell_html`。セルは `data-col="<日付>"`、日次は日付と曜日の 2 行、週次・月次は日付の 1 行。内容は日付のみだが、念のため `html.escape` を通す)。NiceGUI の要素は、1 個ずつの生成が重く(`Element.__init__` が、監視付きのコレクションを 3 つ作り、それぞれで `inspect.signature` を呼ぶ)、列ごとの要素は、描画の約 8 割を占めていたため。格子線・縞と同じ作り方。個々のラベルのマーカー(`col-<日付>`・`weekday-<日付>`)はないので、テストは `test/header_cells.py` の `header_cells` で、`label-row-cells` の内容から読む。年・月の帯(`band_row`)は、要素が少ないので、そのまま。
 - セクションの折りたたみ(`GanttChart.collapsed`。セクションの添字の集合)は保存しない。切り替え(`toggle_section`)は、再描画せず、`section_views` に持つ行の表示と矢印のアイコンだけを変える(行は、折りたたみ中も作って隠す)。絞り込み中とプレビュー(読み取り専用)は無視する。セクションの並べ替え・削除を足すときは、同時に添字をずらすこと(現状はセクションの追加が末尾への追加だけなので、ずれない)。
 - `Task.kind`(`TaskKind`。`"通常"` / `"チェックポイント"`)。保存は `"kind"`(キーなし・`null` は通常。不正な値は読込を拒否)。チェックポイントは、締切が必須で、状態は未着手か終了だけ(`CHECKPOINT_STATUSES`)。読込(`storage._checkpoint`)は、締切なし・状態の不正を拒否し、開始予定・完了予定・工数・担当・割り当て率・実績が入っていても使わず空にする。保存(`forms.build_task` → `_build_checkpoint`)も、それらを空にし、隠した欄の入力は検証しない。`Schedule` は、チェックポイントの実効の開始・完了をどちらも締切にする(押し出されない。先行にすると後続を締切まで押し出す)。`is_overdue` は、チェックポイントだけ、先行の完了が締切を超える見込みでも超過とする(通常タスクは現在時刻だけ)。ガントチャートは、バー・実績・縞・進捗のチップを出さず、`checkpoint-<key>-<ti>` の大きめの ◆(状態の色。`CHECKPOINT_MARKER_PX`)を、締切の位置・行の中央に出す(`task_row` の早期 return)。矢印は ◆ の左右の端につなぐ。ダッシュボードは、状態別の件数に含め、進捗率の重みからは外す(見込みの超過の一覧の基準は締切)。人ごとの負荷・工数・担当者向けの書き出しは、担当と工数がないので対象外。編集ダイアログは、種別のトグル(`task-kind`)で、開始予定・完了予定・工数・担当・実績の欄を隠し、状態を 2 つにする(`apply_kind`)。

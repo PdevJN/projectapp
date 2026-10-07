@@ -6,7 +6,7 @@ import pytest
 from projectapp import arrange
 from projectapp.dashboard import Period, summarize_due, summarize_progress, summarize_workload
 from projectapp.forms import build_task
-from projectapp.models import Priority, Project, Section, Status, Task, TaskKind
+from projectapp.models import Priority, Project, Section, Status, Task, TaskKind, TaskUrl
 from projectapp.storage import load_project, save_project
 from projectapp.timeline import Schedule, effective_end, effective_start, is_overdue
 from test_storage import write_raw
@@ -255,3 +255,15 @@ def test_a_checkpoint_appears_once_in_the_due_list() -> None:
 def test_checkpoints_are_left_out_of_the_workload() -> None:
     period = Period(datetime(2026, 10, 5).date(), datetime(2026, 10, 9).date())
     assert summarize_workload(project(checkpoint("c", WED_NOON)), period, MON, {}) == []
+
+
+def test_a_checkpoint_keeps_and_replaces_its_links() -> None:
+    existing = Task(
+        "レビュー",
+        kind=TaskKind.CHECKPOINT,
+        deadline=datetime(2026, 10, 12, 17),
+        urls=[TaskUrl("", None, {"URL": "https://example.com/a"})],
+    )
+    assert make(existing).urls == existing.urls
+    replaced = [TaskUrl("資料", None, {"URL": "https://example.com/b"})]
+    assert make(existing, urls=replaced).urls == replaced

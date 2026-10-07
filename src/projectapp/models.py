@@ -68,6 +68,23 @@ class Actual:
     progress: int | None = None  # 区間の終わり時点の累積(0〜100%)。Noneは未入力
 
 
+URL_KEY = "URL"  # テンプレートなしのリンクの値のキー
+ID_KEY = "ID"  # テンプレートありのリンクの値のキー(型の `{ID}` を置き換える)
+
+
+@dataclass
+class UrlTemplate:
+    name: str
+    pattern: str  # URL の型。`{ID}` を、リンクの ID で置き換える
+
+
+@dataclass
+class TaskUrl:
+    title: str = ""  # 表示名(任意)
+    template: str | None = None  # テンプレート名。None はテンプレートなし
+    values: dict[str, str] = field(default_factory=dict)  # {"ID": …} か {"URL": …}
+
+
 @dataclass
 class Task:
     name: str
@@ -86,6 +103,7 @@ class Task:
     actuals: list[Actual] = field(default_factory=list)  # 実績の区間(今回の画面は0〜1件)
     project_code: str = ""  # ProjectCode。前後の空白は除く。最大 MAX_PROJECT_CODE_LENGTH 文字
     kind: TaskKind = TaskKind.NORMAL  # チェックポイントは、締切だけを持つ(他の日時・工数・担当・実績は持たない)
+    urls: list[TaskUrl] = field(default_factory=list)  # 関連する URL(チケット・資料など)
 
 
 @dataclass
@@ -104,6 +122,7 @@ class Project:
     sections: list[Section] = field(default_factory=list)
     tasks: list[Task] = field(default_factory=list)  # セクションに属さないタスク
     actual_mode: ActualMode = ActualMode.SIMPLE  # 実績の記録方式
+    url_templates: list[UrlTemplate] = field(default_factory=list)  # リンクの URL の型(プロジェクト共通)
 
     def all_tasks(self) -> list[Task]:
         """セクションなしのタスク、続いてセクションのタスク。"""
