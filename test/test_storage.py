@@ -417,7 +417,7 @@ def test_allocation_roundtrip_and_default(tmp_path: Path) -> None:
         tasks=[Task("a", assignees=[Assignee("田中", 0.6)]), Task("b")],
     )
     loaded = load_project(save_project(project, tmp_path))
-    assert [t.allocation for t in loaded.tasks] == [0.6, 1.0]
+    assert [[a.allocation for a in t.assignees] for t in loaded.tasks] == [[0.6], []]
     assert loaded.members == [Member("田中", 1.2)]
 
 
@@ -437,14 +437,14 @@ def test_load_accepts_the_ratio_and_allocation_boundaries(tmp_path: Path) -> Non
     )
     loaded = load_project(save_project(project, tmp_path))
     assert [m.ratio for m in loaded.members] == [0.1, 3.0]
-    assert [t.allocation for t in loaded.tasks] == [0.01, 1.0]
+    assert [[a.allocation for a in t.assignees] for t in loaded.tasks] == [[0.01], [1.0]]
 
 
 def test_an_assignee_missing_from_the_members_is_added_as_a_member(tmp_path: Path) -> None:
     project = Project("old", members=[Member("田中", 1.2)], tasks=[Task("a", assignees=[Assignee("佐藤")])])
     loaded = load_project(save_project(project, tmp_path))
     assert loaded.members == [Member("田中", 1.2), Member("佐藤", 1.0)]
-    assert loaded.tasks[0].assignee == "佐藤"
+    assert loaded.tasks[0].assignee_names == ["佐藤"]
 
 
 def test_added_members_are_not_duplicated_and_keep_the_task_order(tmp_path: Path) -> None:

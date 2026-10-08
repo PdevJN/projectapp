@@ -893,8 +893,8 @@ async def test_renaming_a_member_renames_the_assignee_of_its_tasks(
     user.find(marker="open-members").click()
     user.find(marker="member-name-0").clear().type("田中太郎")
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: view.project.tasks[0].assignee == "田中太郎")
-    assert [t.assignee for t in view.project.tasks] == ["田中太郎", "鈴木", None]
+    assert await wait_until(lambda: view.project.tasks[0].assignee_names == ["田中太郎"])
+    assert [t.assignee_names for t in view.project.tasks] == [["田中太郎"], ["鈴木"], []]
     assert [m.name for m in view.project.members] == ["田中太郎", "鈴木"]
 
 
@@ -992,8 +992,8 @@ async def test_swapping_two_member_names_swaps_the_assignees_once(user: User, tm
     user.find(marker="member-name-0").clear().type("B")
     user.find(marker="member-name-1").clear().type("A")
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: view.project.tasks[0].assignee == "B")
-    assert [t.assignee for t in view.project.tasks] == ["B", "A"]
+    assert await wait_until(lambda: view.project.tasks[0].assignee_names == ["B"])
+    assert [t.assignee_names for t in view.project.tasks] == [["B"], ["A"]]
     assert [m.name for m in view.project.members] == ["B", "A"]
 
 

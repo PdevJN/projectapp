@@ -114,15 +114,6 @@ class Task:
     def assignee_names(self) -> list[str]:
         return [a.name for a in self.assignees]
 
-    # --- 移行用の読み取り専用の別名(Task 7 で消す) ---
-    @property
-    def assignee(self) -> str | None:
-        return self.assignees[0].name if self.assignees else None
-
-    @property
-    def allocation(self) -> float:
-        return self.assignees[0].allocation if self.assignees else 1.0
-
 
 @dataclass
 class Section:
