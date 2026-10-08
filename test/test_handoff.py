@@ -227,3 +227,18 @@ def test_the_anchor_date_is_the_pushed_start() -> None:
     )
     project = Project("p", tasks=[a, b])
     assert _schedule(b, project, {}) == ("daily", "2026-10-06")  # 火 15:30 開始 → 水 9:00〜10:00
+
+
+def test_a_task_is_exported_for_every_assignee() -> None:
+    shared = task("共同", assignees=[Assignee("田中"), Assignee("鈴木")])
+    project = make_project(shared, members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    assert [t.name for t in tasks_for(project, "田中")] == ["共同"]
+    assert [t.name for t in tasks_for(project, "鈴木")] == ["共同"]
+
+
+def test_the_estimate_is_the_assignees_own_share_of_the_effort() -> None:
+    shared = task("共同", effort_hours=15.0, assignees=[Assignee("田中", 1.0), Assignee("鈴木", 0.5)])
+    project = make_project(shared, members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    # 換算率は 1.0 + 0.5 = 1.5。田中は 15 × 1.0 / 1.5 = 10h、鈴木は 15 × 0.5 / 1.5 = 5h
+    assert build(project, "田中").data["items"][0]["estimate_hours"] == pytest.approx(10.0)
+    assert build(project, "鈴木").data["items"][0]["estimate_hours"] == pytest.approx(5.0)
