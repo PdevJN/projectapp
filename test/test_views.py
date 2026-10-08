@@ -1287,13 +1287,13 @@ async def open_preview(
     return view
 
 
-def key_event(name: str, keydown: bool = True) -> KeyEventArguments:
+def key_event(name: str, keydown: bool = True, ctrl: bool = False, shift: bool = False) -> KeyEventArguments:
     return KeyEventArguments(
         sender=None,  # type: ignore[arg-type]
         client=None,  # type: ignore[arg-type]
         action=KeyboardAction(keydown=keydown, keyup=not keydown, repeat=False),
         key=KeyboardKey(name=name, code=name, location=0),
-        modifiers=KeyboardModifiers(alt=False, ctrl=False, meta=False, shift=False),
+        modifiers=KeyboardModifiers(alt=False, ctrl=ctrl, meta=False, shift=shift),
     )
 
 
@@ -1955,7 +1955,7 @@ async def test_the_help_menu_opens_the_shortcut_help(user: User, tmp_path: Path)
     await open_header_view(user, tmp_path)
     user.find(marker="help-shortcuts").click()
     await user.should_see("キー操作")
-    await user.should_see("登録されたキー操作はありません")
+    await user.should_see("Ctrl/Cmd+S: 上書き保存")
 
 
 async def test_the_theme_menu_marks_the_selected_theme_and_switches_it(user: User, tmp_path: Path) -> None:
@@ -1997,7 +1997,7 @@ async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path
     assert "font-size: 12px" in HEADER_CSS  # 14px から -2
     assert "var(--q-primary)" in HEADER_CSS and "color: #fff" in HEADER_CSS  # テーマカラーの背景 + 白文字
     assert "body.body--dark .app-header" in HEADER_CSS and "color-mix" in HEADER_CSS  # ダークは暗めのテーマカラー
-    title = user.find(kind=ui.label, content="新規プロジェクト").elements.pop()
+    title = next(e for e in user.find(kind=ui.label, content="新規プロジェクト").elements if e.text == "新規プロジェクト")  # ヘルプの「新規プロジェクト作成」と区別する
     assert "app-title" in title.classes
     assert not any(node is view.header_box for node in ancestors(title))  # タイトルは、ヘッダーの外(メイン側の左上)
     title_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-title {"))
@@ -2037,7 +2037,7 @@ async def test_the_menus_start_at_the_left_of_the_header_and_the_title_is_in_the
     assert ids == sorted(ids)  # 左から、メニュー 4 つ。右側に、コンボ・ダッシュボード・テーマ
     header_children = view.header_box.default_slot.children
     assert isinstance(header_children[0], ui.button)  # 先頭は、メニューのボタン(タイトルではない)
-    title = user.find(kind=ui.label, content="新規プロジェクト").elements.pop()
+    title = next(e for e in user.find(kind=ui.label, content="新規プロジェクト").elements if e.text == "新規プロジェクト")  # ヘルプの「新規プロジェクト作成」と区別する
     assert view.header_box not in ancestors(title)
 
 
@@ -2222,3 +2222,80 @@ async def test_renaming_a_template_follows_the_links(user: User, tmp_path: Path)
     user.find(marker="settings-template-0-name").clear().type("課題")
     user.find(marker="settings-apply").click()
     assert view.project.tasks[0].urls[0].template == "課題"
+
+
+SHORTCUT_METHODS = [
+    (key_args, method)
+    for key_args, method in [
+        (("s", True, False), "save_project_clicked"),
+        (("S", True, True), "save_as"),
+        (("o", True, False), "show_file_list"),
+        (("n", True, False), "request_new"),
+        ((",", True, False), "open_settings"),
+        (("e", True, False), "open_handoff"),
+        (("p", True, False), "enter_preview"),
+        (("d", False, False), "open_dashboard"),
+    ]
+]
+
+
+async def shortcut_view(user: User, tmp_path: Path) -> tuple[MainView, list[str]]:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view, calls = views[0], []
+    for _, method in SHORTCUT_METHODS:
+        setattr(view, method, lambda method=method: calls.append(method))
+    view.gantt.focus_search = lambda: calls.append("focus_search")
+    return view, calls
+
+
+@pytest.mark.parametrize(("key_args", "method"), SHORTCUT_METHODS)
+async def test_a_shortcut_runs_its_menu_action(user: User, tmp_path: Path, key_args, method) -> None:
+    view, calls = await shortcut_view(user, tmp_path)
+    name, ctrl, shift = key_args
+    view.on_key(key_event(name, ctrl=ctrl, shift=shift))
+    assert calls == [method]
+
+
+async def test_slash_focuses_the_search_input_and_question_mark_opens_the_help(user: User, tmp_path: Path) -> None:
+    view, calls = await shortcut_view(user, tmp_path)
+    view.on_key(key_event("/"))
+    assert calls == ["focus_search"]
+    view.on_key(key_event("?", shift=True))
+    assert view.help_dialog.value
+
+
+async def test_shortcuts_do_nothing_while_a_dialog_is_open(user: User, tmp_path: Path) -> None:
+    view, calls = await shortcut_view(user, tmp_path)
+    view.help_dialog.open()
+    view.on_key(key_event("s", ctrl=True))
+    view.on_key(key_event("d"))
+    assert calls == []
+
+
+async def test_shortcuts_do_nothing_in_the_preview_and_the_dashboard(user: User, tmp_path: Path) -> None:
+    view, calls = await shortcut_view(user, tmp_path)
+    view.preview = object()  # type: ignore[assignment]
+    view.on_key(key_event("s", ctrl=True))
+    view.preview = None
+    view.dashboard_kind = PeriodKind.WEEK
+    view.on_key(key_event("d"))
+    assert calls == []
+
+
+async def test_key_releases_do_not_run_shortcuts(user: User, tmp_path: Path) -> None:
+    view, calls = await shortcut_view(user, tmp_path)
+    view.on_key(key_event("s", keydown=False, ctrl=True))
+    assert calls == []
+
+
+async def test_the_help_dialog_lists_the_shortcuts(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    views[0].help_dialog.open()
+    await user.should_see("Ctrl/Cmd+S: 上書き保存")
+    await user.should_see("?: ショートカットヘルプ")
