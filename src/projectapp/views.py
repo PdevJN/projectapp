@@ -24,10 +24,12 @@ from projectapp.config import (
     step_zoom,
 )
 from projectapp.forms import (
+    MEMBER_TABLE_CSS,
     open_file_dialog,
     open_handoff_dialog,
     open_members_dialog,
     open_name_dialog,
+    open_parameters_dialog,
     open_section_dialog,
     open_settings_dialog,
     open_unsaved_dialog,
@@ -77,6 +79,7 @@ from projectapp.storage import (
 )
 from projectapp.task_dialog import open_task_dialog
 from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
+from projectapp.ratios import ParameterEdit, apply_parameter_edit, deletion_impacts
 from projectapp.timeline import Schedule, build_columns, clip_overloads, overallocations, visible_range
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
@@ -507,7 +510,9 @@ class MainView:
         return True
 
     def open_members(self) -> None:
-        open_members_dialog(self.project.members, self.assigned_count, self.apply_members)
+        open_members_dialog(
+            self.project.members, self.assigned_count, self.apply_members, self.project.parameters
+        )
 
     def assigned_count(self, name: str) -> int:
         return sum(1 for task in self.project.all_tasks() if name in task.assignee_names)
@@ -522,6 +527,20 @@ class MainView:
                 for assignee in task.assignees:
                     if assignee.name in renames:
                         assignee.name = renames[assignee.name]
+        self.gantt.set_project(self.project)
+
+    def open_parameters(self) -> None:
+        open_parameters_dialog(
+            self.project.parameters,
+            lambda edit: deletion_impacts(self.project, edit),
+            self.apply_parameters,
+        )
+
+    def apply_parameters(self, edit: ParameterEdit) -> None:
+        """パラメータの定義を更新し、メンバーの選択に改名・削除を伝える。保存はしない(編集中の判定に入る)。"""
+        if not edit.changes(self.project.parameters):
+            return
+        apply_parameter_edit(self.project, edit)
         self.gantt.set_project(self.project)
 
     def apply_settings(self, hours: float, start: time, mode: ActualMode) -> None:
@@ -596,6 +615,7 @@ class MainView:
             "link_options": link_options(self.project, task),
             "finish_of": finish_of,
             "url_templates": self.project.url_templates,
+            "parameters": self.project.parameters,
         }
 
     def add_task(self, section_index: int) -> None:
@@ -722,6 +742,7 @@ class MainView:
     def build(self) -> None:
         ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
         ui.add_css(HEADER_CSS)
+        ui.add_css(MEMBER_TABLE_CSS)
         self.help_dialog = self.build_help_dialog()
         self.header()
         with ui.row().classes("w-full items-center") as title_box:
@@ -762,6 +783,7 @@ class MainView:
                     ("新規プロジェクト作成", self.request_new, "file-new"),
                     ("設定", self.open_settings, "open-settings"),
                     ("メンバー", self.open_members, "open-members"),
+                    ("パラメータ", self.open_parameters, "open-parameters"),
                 ],
             )
             self.header_menu(

@@ -1,7 +1,7 @@
 """タスク・セクションの追加・編集の入力検証と、ファイル・名前・設定のダイアログ。"""
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, time
 from decimal import Decimal
 from math import isfinite
@@ -13,11 +13,13 @@ from projectapp.models import (
     CHECKPOINT_STATUSES,
     ID_KEY,
     MAX_ALLOCATION,
+    MAX_LEVEL_VALUE,
     MAX_PROGRESS,
     MAX_PROJECT_CODE_LENGTH,
     MAX_RATIO,
     MAX_YEAR,
     MIN_ALLOCATION,
+    MIN_LEVEL_VALUE,
     MIN_PROGRESS,
     MIN_RATIO,
     MIN_YEAR,
@@ -25,7 +27,9 @@ from projectapp.models import (
     Actual,
     Assignee,
     ActualMode,
+    Level,
     Member,
+    Parameter,
     Priority,
     Status,
     Task,
@@ -34,6 +38,7 @@ from projectapp.models import (
     UrlTemplate,
     is_hex_color,
 )
+from projectapp.ratios import ParameterEdit, ratio_detail, validate_parameters
 from projectapp.urls import TemplateEdit, resolve, validate_templates
 
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
@@ -380,16 +385,67 @@ class TemplateRow:
 
 
 @dataclass
+class LevelRow:
+    """パラメータのダイアログの段階の 1 行。originalは、開いた時点の名前(新しい行はNone)。"""
+
+    original: str | None
+    name: str
+    value_percent: float | None
+
+
+@dataclass
+class ParameterRow:
+    """パラメータのダイアログの 1 行(下に段階の行を持つ)。originalは、開いた時点の名前(新しい行はNone)。"""
+
+    original: str | None
+    name: str
+    levels: list[LevelRow]
+
+
+def build_parameter_edit(rows: list[ParameterRow], before: list[Parameter]) -> ParameterEdit:
+    """ダイアログの行を検証して、新しい定義と、旧い名前からの対応を返す。不正なら ValueError。"""
+    parameters: list[Parameter] = []
+    for row in rows:
+        levels: list[Level] = []
+        for level_row in row.levels:
+            value = level_row.value_percent
+            if value is None or not isfinite(value):
+                raise ValueError("判定値を入力してください")
+            if exceeds_decimals(value):
+                raise ValueError(f"判定値は小数点以下{HOURS_DECIMALS}桁までで入力してください")
+            levels.append(Level(level_row.name.strip(), round(value / 100, 4)))
+        parameters.append(Parameter(row.name.strip(), levels))
+    validate_parameters(parameters)
+    by_name = {p.name: p for p in before}
+    parameter_map: dict[str, str | None] = {p.name: None for p in before}
+    level_map: dict[str, dict[str, str | None]] = {}
+    for row, built in zip(rows, parameters):
+        if row.original is None or row.original not in by_name:
+            continue
+        parameter_map[row.original] = built.name
+        mapping: dict[str, str | None] = {lv.name: None for lv in by_name[row.original].levels}
+        for level_row, level in zip(row.levels, built.levels):
+            if level_row.original is not None and level_row.original in mapping:
+                mapping[level_row.original] = level.name
+        level_map[row.original] = mapping
+    return ParameterEdit(parameters, parameter_map, level_map)
+
+
+@dataclass
 class MemberRow:
     """メンバーのダイアログの1行。originalは、開いた時点の名前(新しい行はNone)。"""
 
     original: str | None
     name: str
     ratio_percent: float | None
+    levels: dict[str, str] = field(default_factory=dict)  # パラメータ名 → 選んだ段階名
 
 
 def build_members(
-    rows: list[MemberRow], originals: list[str], assigned: Callable[[str], int]
+    rows: list[MemberRow],
+    originals: list[str],
+    assigned: Callable[[str], int],
+    parameters: list[Parameter] | None = None,
 ) -> tuple[list[Member], dict[str, str]]:
     """ダイアログの行を検証して、メンバー一覧と、改名の対応({旧: 新})を返す。"""
     members: list[Member] = []
@@ -408,7 +464,9 @@ def build_members(
             raise ValueError(f"相対比率は{low:g}〜{high:g}%で入力してください")
         if exceeds_decimals(ratio):
             raise ValueError(f"相対比率は小数点以下{HOURS_DECIMALS}桁までで入力してください")
-        members.append(Member(name, round(ratio / 100, 4)))
+        existing = {p.name: {lv.name for lv in p.levels} for p in parameters or []}
+        levels = {p: lv for p, lv in row.levels.items() if lv in existing.get(p, set())}
+        members.append(Member(name, round(ratio / 100, 4), levels))
         if row.original is not None and row.original != name:
             renames[row.original] = name
     kept = {row.original for row in rows if row.original is not None}
@@ -731,36 +789,256 @@ def open_settings_dialog(
     dialog.open()
 
 
+def open_parameters_dialog(
+    parameters: list[Parameter],
+    impacts: Callable[[ParameterEdit], list[tuple[str, int]]],
+    on_apply: Callable[[ParameterEdit], object],
+) -> None:
+    """パラメータの定義の編集。削除でメンバーの選択が外れるときは、適用の前に確認する。"""
+    rows = [
+        ParameterRow(p.name, p.name, [LevelRow(lv.name, lv.name, round(lv.value * 100, 2)) for lv in p.levels])
+        for p in parameters
+    ]
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[36rem] max-w-full"):
+        ui.label("パラメータ").classes("text-h6")
+        ui.label("相対比率 = 基本比率 + 選んだ段階の判定値の合計(10〜300% に丸めます)").classes("text-caption text-grey")
+
+        @ui.refreshable
+        def table() -> None:
+            with ui.column().classes("w-full gap-2"):
+                if not rows:
+                    ui.label("パラメータがありません").classes("text-grey")
+                for p, row in enumerate(rows):
+                    with ui.column().classes("w-full gap-1 q-pa-sm").style("border: 1px solid rgba(128,128,128,0.4)"):
+                        with ui.row().classes("w-full items-center no-wrap gap-2"):
+                            ui.input(
+                                "パラメータ名",
+                                value=row.name,
+                                on_change=lambda e, r=row: setattr(r, "name", e.value or ""),
+                            ).classes("flex-1").mark(f"parameter-name-{p}")
+                            ui.button(icon="delete", on_click=lambda _e, r=row: remove_parameter(r)).props(
+                                "flat dense round color=negative"
+                            ).mark(f"parameter-delete-{p}")
+                        for n, level in enumerate(row.levels):
+                            with ui.row().classes("w-full items-center no-wrap gap-2 q-pl-md"):
+                                ui.input(
+                                    "段階",
+                                    value=level.name,
+                                    on_change=lambda e, lv=level: setattr(lv, "name", e.value or ""),
+                                ).classes("flex-1").mark(f"level-name-{p}-{n}")
+                                ui.number(
+                                    "判定値(%)",
+                                    value=level.value_percent,
+                                    min=MIN_LEVEL_VALUE * 100,
+                                    max=MAX_LEVEL_VALUE * 100,
+                                    step=5,
+                                    on_change=lambda e, lv=level: setattr(lv, "value_percent", e.value),
+                                ).classes("w-32").mark(f"level-value-{p}-{n}")
+                                ui.button(
+                                    icon="delete", on_click=lambda _e, r=row, lv=level: remove_level(r, lv)
+                                ).props("flat dense round").mark(f"level-delete-{p}-{n}")
+                        ui.button("段階を追加", icon="add", on_click=lambda _e, r=row: add_level(r)).props(
+                            "flat dense"
+                        ).classes("q-ml-md").mark(f"level-add-{p}")
+
+        def add_parameter() -> None:
+            rows.append(ParameterRow(None, "", []))
+            table.refresh()
+
+        def remove_parameter(row: ParameterRow) -> None:
+            rows.remove(row)
+            table.refresh()
+
+        def add_level(row: ParameterRow) -> None:
+            row.levels.append(LevelRow(None, "", 0.0))
+            table.refresh()
+
+        def remove_level(row: ParameterRow, level: LevelRow) -> None:
+            row.levels.remove(level)
+            table.refresh()
+
+        table()
+        ui.button("パラメータを追加", icon="add", on_click=add_parameter).props("flat").mark("parameter-add")
+        error = ui.label("").classes("text-negative").mark("parameter-error")
+        pending: dict[str, ParameterEdit] = {}
+        with ui.dialog() as confirm, ui.card():
+            confirm_text = ui.label("").style("white-space: pre-line")
+            with ui.row():
+                ui.button("キャンセル", on_click=confirm.close).props("flat").mark("parameter-delete-cancel")
+                ui.button("削除する", on_click=lambda: confirm_apply()).props("color=negative").mark(
+                    "parameter-delete-confirm"
+                )
+
+        def commit(edit: ParameterEdit) -> None:
+            on_apply(edit)
+            dialog.close()
+
+        def confirm_apply() -> None:
+            confirm.close()
+            commit(pending["edit"])
+
+        def apply() -> None:
+            error.set_text("")
+            try:
+                edit = build_parameter_edit(rows, parameters)
+            except ValueError as exc:
+                error.set_text(str(exc))
+                return
+            affected = impacts(edit)
+            if affected:
+                pending["edit"] = edit
+                confirm_text.set_text(
+                    "\n".join(f"{label}を選んでいるメンバーが{count}人います" for label, count in affected)
+                    + "\n削除すると、その選択は外れて判定値 0% になります"
+                )
+                confirm.open()
+                return
+            commit(edit)
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat")
+            ui.button("適用", on_click=apply).mark("parameter-apply")
+    dialog.open()
+
+
+def effective_ratio_text(row: MemberRow, parameters: list[Parameter]) -> str:
+    """メンバーの行の、実効比率の表示。基本比率が空・非有限のときは空。範囲に丸めたときは、その旨を足す。"""
+    percent = row.ratio_percent
+    if percent is None or not isfinite(percent):
+        return ""
+    detail = ratio_detail(Member(row.name, percent / 100, row.levels), parameters)
+    note = "(範囲に丸めました)" if detail.clamped else ""
+    return f"相対比率 {detail.ratio * 100:g}%{note}"
+
+
+def _signed_percent(value: float) -> str:
+    return f"{value * 100:+g}%" if value else "0%"
+
+
+MEMBER_NAME_COLUMN_REM = 7  # 名前の列(固定。列の数や画面の幅で変わらない)
+MEMBER_RATIO_COLUMN_REM = 7
+MEMBER_LEVEL_COLUMN_REM = 9
+MEMBER_EFFECTIVE_COLUMN_REM = 11
+MEMBER_DELETE_COLUMN_REM = 3
+MEMBER_ROW_HEIGHT_PX = 36
+# メンバーの表の中のコントロールを 14px にそろえる(入力・選択の文字、プルダウンの項目、実効比率)。見出しは 12px のまま
+MEMBER_TABLE_CSS = f"""
+.member-table .q-field__native, .member-table .q-field__input, .member-table .q-field__label {{ font-size: 14px; line-height: 20px; }}
+.member-table .q-field--dense .q-field__control, .member-table .q-field--dense .q-field__marginal {{ height: {MEMBER_ROW_HEIGHT_PX}px; min-height: {MEMBER_ROW_HEIGHT_PX}px; }}
+.member-table .q-field--dense .q-field__native {{ min-height: {MEMBER_ROW_HEIGHT_PX}px; }}
+.member-table .member-effective {{ font-size: 14px; }}
+.member-popup .q-item {{ font-size: 14px; min-height: {MEMBER_ROW_HEIGHT_PX}px; }}
+"""
+
+
+def member_columns(level_count: int, with_effective: bool) -> list[str]:
+    """メンバーの表の列の幅(名前・基本比率・パラメータごとの段階・実効比率・削除)。"""
+    columns = [f"{MEMBER_NAME_COLUMN_REM}rem", f"{MEMBER_RATIO_COLUMN_REM}rem"]
+    columns += [f"{MEMBER_LEVEL_COLUMN_REM}rem"] * level_count
+    if with_effective:
+        columns.append(f"{MEMBER_EFFECTIVE_COLUMN_REM}rem")
+    columns.append(f"{MEMBER_DELETE_COLUMN_REM}rem")
+    return columns
+
+
+def member_table_min_rem(level_count: int, with_effective: bool) -> int:
+    """表の最小の幅(rem)。これより狭い画面では、表を横にスクロールさせる。"""
+    return (
+        MEMBER_NAME_COLUMN_REM
+        + MEMBER_RATIO_COLUMN_REM
+        + MEMBER_LEVEL_COLUMN_REM * level_count
+        + (MEMBER_EFFECTIVE_COLUMN_REM if with_effective else 0)
+        + MEMBER_DELETE_COLUMN_REM
+        + 2 * (3 + level_count + (1 if with_effective else 0))  # 列の間隔(gap 0.5rem)の概算
+    )
+
+
 def open_members_dialog(
     members: list[Member],
     assigned: Callable[[str], int],
     on_apply: Callable[[list[Member], dict[str, str]], object],
+    parameters: list[Parameter] | None = None,
 ) -> None:
-    rows = [MemberRow(m.name, m.name, round(m.ratio * 100, 2)) for m in members]
+    """メンバーの編集。1 行が 1 人の表(名前・基本比率・パラメータごとの段階・実効比率・削除)。"""
+    chosen_parameters = parameters or []
+    with_effective = bool(chosen_parameters)
+    rows = [MemberRow(m.name, m.name, round(m.ratio * 100, 2), dict(m.levels)) for m in members]
     originals = [m.name for m in members]
-    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[28rem] max-w-full"):
+    columns = member_columns(len(chosen_parameters), with_effective)
+    min_rem = member_table_min_rem(len(chosen_parameters), with_effective)
+    with disposable(ui.dialog()) as dialog, ui.card().style(f"width: {min_rem + 3}rem; max-width: 96vw"):
         ui.label("メンバー").classes("text-h6")
 
         @ui.refreshable
         def table() -> None:
-            with ui.column().classes("w-full gap-1"):
-                if not rows:
-                    ui.label("メンバーがいません").classes("text-grey")
-                for index, row in enumerate(rows):
-                    with ui.row().classes("w-full items-center no-wrap gap-2"):
+            if not rows:
+                ui.label("メンバーがいません").classes("text-grey")
+            # 横に伸びる(パラメータが多い)ときは、表だけを横にスクロールさせる
+            with ui.element("div").classes("w-full").style("overflow-x: auto").mark("member-scroll"):
+                with ui.grid(columns=" ".join(columns)).classes("member-table items-center gap-x-2 gap-y-1").style(
+                    f"min-width: {min_rem}rem"
+                ).mark("member-grid"):
+                    header = "text-caption text-grey"
+                    ui.label("名前").classes(header).mark("member-header-name")
+                    ui.label("基本比率(%)" if with_effective else "相対比率(%)").classes(header).mark(
+                        "member-header-ratio"
+                    )
+                    for p, parameter in enumerate(chosen_parameters):
+                        ui.label(parameter.name).classes(f"{header} ellipsis").mark(f"member-header-level-{p}")
+                    if with_effective:
+                        ui.label("相対比率").classes(header).mark("member-header-effective")
+                    ui.label("")
+                    for index, row in enumerate(rows):
+                        effective: list[ui.label] = []  # 行の実効比率のラベル(各入力の変更で更新する)
+
+                        def refresh_effective(r: MemberRow, holder: list[ui.label] = effective) -> None:
+                            if holder:
+                                holder[0].set_text(effective_ratio_text(r, chosen_parameters))
+
+                        def on_ratio(e, r=row) -> None:  # noqa: ANN001
+                            r.ratio_percent = e.value
+                            refresh_effective(r)
+
                         ui.input(
-                            "名前",
                             value=row.name,
                             on_change=lambda e, r=row: setattr(r, "name", e.value or ""),
-                        ).classes("flex-1").mark(f"member-name-{index}")
+                        ).props("dense outlined aria-label=名前").classes("w-full").mark(f"member-name-{index}")
                         ui.number(
-                            "相対比率(%)",
                             value=row.ratio_percent,
                             min=MIN_RATIO * 100,
                             max=MAX_RATIO * 100,
                             step=5,
-                            on_change=lambda e, r=row: setattr(r, "ratio_percent", e.value),
-                        ).classes("w-32").mark(f"member-ratio-{index}")
+                            on_change=on_ratio,
+                        ).props("dense outlined aria-label=比率").classes("w-full").mark(f"member-ratio-{index}")
+                        for p, parameter in enumerate(chosen_parameters):
+
+                            def on_level(e, r=row, name=parameter.name) -> None:  # noqa: ANN001
+                                if e.value:
+                                    r.levels[name] = e.value
+                                else:
+                                    r.levels.pop(name, None)
+                                refresh_effective(r)
+
+                            options = {
+                                "": "(なし)",
+                                **{lv.name: f"{lv.name} {_signed_percent(lv.value)}" for lv in parameter.levels},
+                            }
+                            current = row.levels.get(parameter.name, "")
+                            ui.select(
+                                options,
+                                value=current if current in options else "",
+                                on_change=on_level,
+                            ).props(
+                                f"dense outlined aria-label={parameter.name} popup-content-class=member-popup"
+                            ).classes("w-full").mark(
+                                f"member-level-{index}-{p}"
+                            )
+                        if with_effective:
+                            effective.append(
+                                ui.label(effective_ratio_text(row, chosen_parameters))
+                                .classes("text-grey member-effective")
+                                .mark(f"member-effective-{index}")
+                            )
                         ui.button(icon="delete", on_click=lambda r=row: remove(r)).props(
                             "flat dense round"
                         ).mark(f"member-delete-{index}")
@@ -779,7 +1057,7 @@ def open_members_dialog(
 
         def apply() -> None:
             try:
-                result = build_members(rows, originals, assigned)
+                result = build_members(rows, originals, assigned, chosen_parameters)
             except ValueError as exc:
                 error.set_text(str(exc))
                 return

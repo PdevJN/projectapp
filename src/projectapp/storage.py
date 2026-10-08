@@ -16,17 +16,21 @@ from projectapp.models import (
     URL_KEY,
     ActualMode,
     MAX_ALLOCATION,
+    MAX_LEVEL_VALUE,
     MAX_PROJECT_CODE_LENGTH,
     MAX_PROGRESS,
     MAX_RATIO,
     MAX_YEAR,
     MIN_ALLOCATION,
+    MIN_LEVEL_VALUE,
     MIN_PROGRESS,
     MIN_RATIO,
     MIN_YEAR,
     Actual,
     Assignee,
+    Level,
     Member,
+    Parameter,
     Priority,
     Project,
     Section,
@@ -369,6 +373,58 @@ def _assignees(raw: dict[str, Any]) -> list[Assignee]:
     return assignees
 
 
+def _label_name(value: Any, label: str) -> str:
+    """パラメータ・段階の名前。前後の空白を除く。空・文字列以外は ValueError。"""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label}の名前が正しくありません")
+    return value.strip()
+
+
+def _parameters(value: Any) -> list[Parameter]:
+    """パラメータの定義。キーがない・null は空。名前の空・重複、判定値の範囲外・非有限は ValueError。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("パラメータがリストではありません")
+    parameters: list[Parameter] = []
+    seen: set[str] = set()
+    for raw in value:
+        if not isinstance(raw, dict):
+            raise ValueError("パラメータの形式が正しくありません")
+        name = _label_name(raw.get("name"), "パラメータ")
+        if name in seen:
+            raise ValueError(f"パラメータ名が重複しています: {name}")
+        seen.add(name)
+        raw_levels = raw.get("levels")
+        if raw_levels is None:
+            raw_levels = []
+        if not isinstance(raw_levels, list):
+            raise ValueError("段階がリストではありません")
+        levels: list[Level] = []
+        level_names: set[str] = set()
+        for item in raw_levels:
+            if not isinstance(item, dict):
+                raise ValueError("段階の形式が正しくありません")
+            level_name = _label_name(item.get("name"), "段階")
+            if level_name in level_names:
+                raise ValueError(f"段階名が重複しています: {name} の {level_name}")
+            level_names.add(level_name)
+            levels.append(
+                Level(level_name, _number_in_range(item.get("value"), MIN_LEVEL_VALUE, MAX_LEVEL_VALUE, "判定値"))
+            )
+        parameters.append(Parameter(name, levels))
+    return parameters
+
+
+def _member_levels(value: Any) -> dict[str, str]:
+    """メンバーが選んだ段階(パラメータ名 → 段階名)。キーがない・null は空。存在しない参照は拒否しない。"""
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+        raise ValueError("メンバーの段階の選択が正しくありません")
+    return dict(value)
+
+
 def _members(raw_members: list[dict[str, Any]]) -> list[Member]:
     """メンバーを読む。相対比率は検証し、空の名前と重複は(最初の1件を残して)捨てる。"""
     members: list[Member] = []
@@ -376,10 +432,11 @@ def _members(raw_members: list[dict[str, Any]]) -> list[Member]:
     for raw in raw_members:
         name = str(raw["name"]).strip()
         ratio = _number_in_range(raw.get("ratio", 1.0), MIN_RATIO, MAX_RATIO, "相対比率")
+        levels = _member_levels(raw.get("levels"))
         if not name or name in seen:
             continue
         seen.add(name)
-        members.append(Member(name, ratio))
+        members.append(Member(name, ratio, levels))
     return members
 
 
@@ -423,6 +480,7 @@ def load_project(path: Path) -> Project:
         tasks=[_task(t) for t in raw.get("tasks", [])],
         actual_mode=_actual_mode(raw.get("actual_mode", "simple")),
         url_templates=_url_templates(raw.get("url_templates")),
+        parameters=_parameters(raw.get("parameters")),
     )
     validate_links(project.all_tasks())
     for task in project.all_tasks():

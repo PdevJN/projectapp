@@ -6,9 +6,12 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.forms import (
+    LevelRow,
     MemberRow,
+    ParameterRow,
     build_actual_intervals,
     build_members,
+    build_parameter_edit,
     build_section_name,
     build_task,
     build_urls,
@@ -16,6 +19,7 @@ from projectapp.forms import (
     compose_actual,
     compose_datetime,
     default_times,
+    effective_ratio_text,
     exceeds_decimals,
     in_hours_range,
     needs_end_time,
@@ -29,7 +33,19 @@ from projectapp.forms import (
     push_hint,
     suggest_status,
 )
-from projectapp.models import Actual, Assignee, ActualMode, Member, Priority, Status, Task, TaskUrl, UrlTemplate
+from projectapp.models import (
+    Actual,
+    ActualMode,
+    Assignee,
+    Level,
+    Member,
+    Parameter,
+    Priority,
+    Status,
+    Task,
+    TaskUrl,
+    UrlTemplate,
+)
 from projectapp.urls import TemplateEdit
 from projectapp.task_dialog import open_task_dialog
 
@@ -1273,3 +1289,99 @@ async def test_cancelling_the_delete_confirmation_changes_nothing(user: User) ->
     user.find(marker="settings-confirm-cancel").click()
     assert applied == [] and edits == []
     await user.should_see(marker="settings-apply")  # 設定ダイアログは開いたまま
+
+
+def prow(original: str | None, name: str, *levels: tuple[str | None, str, float | None]) -> ParameterRow:
+    return ParameterRow(original, name, [LevelRow(o, n, v) for o, n, v in levels])
+
+
+BEFORE = [Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)]), Parameter("専門", [Level("高", 0.1)])]
+
+
+def test_build_parameter_edit_converts_percent_to_a_fraction_and_trims_names() -> None:
+    edit = build_parameter_edit([prow(None, " 経験 ", (None, " 上級 ", 20.0), (None, "初級", -20.0))], [])
+    assert edit.parameters == [Parameter("経験", [Level("上級", 0.2), Level("初級", -0.2)])]
+    assert edit.parameter_map == {} and edit.level_map == {}
+
+
+def test_build_parameter_edit_maps_renames_and_deletions_by_the_old_names() -> None:
+    rows = [prow("経験", "スキル", ("初級", "初級", -20.0), (None, "中級", 0.0))]  # 上級を削除、中級を追加
+    edit = build_parameter_edit(rows, BEFORE)
+    assert edit.parameter_map == {"経験": "スキル", "専門": None}
+    assert edit.level_map == {"経験": {"初級": "初級", "上級": None}}
+
+
+def test_build_parameter_edit_keeps_swapped_names_apart() -> None:
+    before = [Parameter("A", [Level("x", 0.1)]), Parameter("B", [Level("y", 0.2)])]
+    rows = [prow("B", "A", ("y", "y", 20.0)), prow("A", "B", ("x", "x", 10.0))]
+    edit = build_parameter_edit(rows, before)
+    assert edit.parameter_map == {"A": "B", "B": "A"}
+    assert edit.level_map == {"A": {"x": "x"}, "B": {"y": "y"}}
+
+
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        ([prow(None, "")], "名前"),
+        ([prow(None, "A"), prow(None, "A")], "重複"),
+        ([prow(None, "A", (None, "", 10.0))], "名前"),
+        ([prow(None, "A", (None, "x", 10.0), (None, "x", 20.0))], "重複"),
+        ([prow(None, "A", (None, "x", None))], "判定値"),
+        ([prow(None, "A", (None, "x", float("nan")))], "判定値"),
+        ([prow(None, "A", (None, "x", -90.01))], "判定値"),
+        ([prow(None, "A", (None, "x", 290.01))], "判定値"),
+        ([prow(None, "A", (None, "x", 10.005))], "小数点"),
+    ],
+)
+def test_build_parameter_edit_rejects_bad_rows(rows: list[ParameterRow], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        build_parameter_edit(rows, [])
+
+
+def test_build_parameter_edit_accepts_the_boundaries() -> None:
+    edit = build_parameter_edit([prow(None, "A", (None, "lo", -90.0), (None, "hi", 290.0), (None, "z", 12.5))], [])
+    assert [lv.value for lv in edit.parameters[0].levels] == [-0.9, 2.9, 0.125]
+
+
+EXPERIENCE = Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)])
+
+
+def test_build_members_keeps_the_levels_that_exist() -> None:
+    row = MemberRow(None, "田中", 100.0, {"経験": "上級", "消えた": "x", "経験2": "y"})
+    members, _ = build_members([row], [], no_tasks, [EXPERIENCE])
+    assert members == [Member("田中", 1.0, {"経験": "上級"})]
+
+
+def test_build_members_drops_a_level_that_no_longer_exists() -> None:
+    row = MemberRow(None, "田中", 100.0, {"経験": "存在しない"})
+    members, _ = build_members([row], [], no_tasks, [EXPERIENCE])
+    assert members[0].levels == {}
+
+
+def test_build_members_without_parameters_has_no_levels() -> None:
+    members, _ = build_members([MemberRow(None, "田中", 100.0, {"経験": "上級"})], [], no_tasks)
+    assert members[0].levels == {}
+
+
+def test_a_renamed_member_keeps_the_levels() -> None:
+    row = MemberRow("田中", "田中太郎", 100.0, {"経験": "上級"})
+    members, renames = build_members([row], ["田中"], no_tasks, [EXPERIENCE])
+    assert members == [Member("田中太郎", 1.0, {"経験": "上級"})]
+    assert renames == {"田中": "田中太郎"}
+
+
+@pytest.mark.parametrize(
+    ("percent", "levels", "text"),
+    [
+        (100.0, {}, "相対比率 100%"),
+        (100.0, {"経験": "上級"}, "相対比率 120%"),
+        (100.0, {"経験": "初級"}, "相対比率 80%"),
+        (290.0, {"経験": "上級"}, "相対比率 300%(範囲に丸めました)"),
+        (10.0, {"経験": "初級"}, "相対比率 10%(範囲に丸めました)"),
+        (30.0, {"経験": "初級"}, "相対比率 10%"),  # ちょうど下限は、丸めたことにしない
+        (None, {}, ""),
+        (float("nan"), {}, ""),
+    ],
+)
+def test_effective_ratio_text(percent: float | None, levels: dict[str, str], text: str) -> None:
+    assert effective_ratio_text(MemberRow(None, "a", percent, levels), [EXPERIENCE]) == text
