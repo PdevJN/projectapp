@@ -459,6 +459,20 @@ async def test_the_section_add_row_stays_while_filtering(user: User) -> None:
     await user.should_see(marker="add-section")
 
 
+async def test_add_buttons_use_a_task_icon_and_a_folder_icon_to_tell_them_apart(user: User) -> None:
+    mount(nested_chart_project())
+    await user.open("/")
+    await user.should_see(marker="add-section")
+
+    def icon(marker: str) -> str:
+        return user.find(marker=marker).elements.pop().props["icon"]
+
+    for marker in ("add-task-top", "add-task-0", "add-task-0.0", "add-task-0.0.0"):  # タスクを足す
+        assert icon(marker) == "add_task", marker
+    for marker in ("add-section", "add-subsection-0", "add-subsection-0.0"):  # セクションを足す
+        assert icon(marker) == "create_new_folder", marker
+
+
 def row_background(user: User, marker: str) -> str | None:
     row = user.find(marker=marker).elements.pop().parent_slot.parent
     return row._style.get("background")

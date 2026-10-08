@@ -721,7 +721,7 @@ class GanttChart:
         row, cell = self.add_row("top-end")
         row.props(self.drag_props("top-end", "top", count=len(self.project.tasks)))
         with cell:
-            ui.button("タスク追加", icon="add", on_click=self.actions.add_top_task).props(
+            ui.button("タスク追加", icon="add_task", on_click=self.actions.add_top_task).props(
                 "flat dense size=sm"
             ).mark("add-task-top")
 
@@ -731,7 +731,7 @@ class GanttChart:
             return
         _, cell = self.add_row("bottom-end")
         with cell:
-            ui.button("セクション追加", icon="add", on_click=self.actions.add_section).props(
+            ui.button("セクション追加", icon="create_new_folder", on_click=self.actions.add_section).props(
                 "flat dense size=sm"
             ).mark("add-section")
 
@@ -846,7 +846,7 @@ class GanttChart:
                     )
                 if not self.options.read_only:
                     ui.button(
-                        icon="add", on_click=lambda path=path: self.actions.add_task(path)
+                        icon="add_task", on_click=lambda path=path: self.actions.add_task(path)
                     ).props("flat dense round size=sm").classes("shrink-0").tooltip("タスク追加").mark(
                         f"add-task-{key}"
                     )
