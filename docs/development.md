@@ -17,6 +17,7 @@
 | `filemanager.py` | フォルダを OS のファイラで開く(`open_command`・`open_folder`。macOS は `open`、Windows は `explorer`、それ以外は `xdg-open`。シェルを通さない)。純粋に近い関数で、起動は差し替えられる |
 | `export.py` | 画像化(html-to-image)・倍率・PNG の書き出し・保存ダイアログ(`ImageExporter`。`ask_path` はファイルの種類を引数に取り、担当者向けファイルでも使う) |
 | `urls.py` | タスクのリンク(URL)の規則。`resolve`(`{ID}` の置き換えと、`http`・`https` の検証)、`validate_templates`、`validate_urls`、`count_usage`、`expand_template`(削除時にリンクを URL へ展開)、`rename_templates`、`apply_template_edit`(`TemplateEdit`)。純粋関数(NiceGUI に依存しない) |
+| `ratios.py` | 相対比率のパラメータ。`ratio_detail`・`effective_ratio`(基本比率 + 選んだ段階の判定値の合計。10〜300% に丸める。合計は 4 桁に丸めて、境界を誤差で外さない)、`ParameterEdit`(旧い名前からの対応。削除は None)、`validate_parameters`、`apply_parameter_edit`(入れ替えや、削除と改名の組み合わせでも取り違えない)、`deletion_impacts`。純粋関数(NiceGUI に依存しない)。換算は `timeline.assignees_rate` が、編集ダイアログは実効比率のコピーを通して使う |
 | `browser.py` | URL を既定のブラウザで開く(`open_url`)。`http`・`https` 以外と、開けなかったときは `OSError`。開く処理は差し替えられる |
 | `shortcuts.py` | キーボードショートカットの割り当て表 `SHORTCUTS` と、判定 `resolve`(キー・修飾キー・ダイアログの有無・画面から操作名を返す。`always` の操作(倍率)は、ダイアログ・プレビュー・ダッシュボードでも効く。`aliases` は同じ操作の別のキー、`any_shift` は Shift を見ない)、`help_entries`、`ctrl_keys`。純粋関数(NiceGUI に依存しない)。`views.MainView.on_key` が操作名をメニューと同じメソッドへ振り分ける。`ui.keyboard` は 2 つ(文字キー用は入力欄で無効、`Ctrl/Cmd` 用は `ignore=[]`)。ブラウザ側は `key_guard_js`(`views.KEY_GUARD_JS`)で、割り当てたキーの既定の動き(`Ctrl+S`・`Ctrl+P` など)と macOS の警告音を止める。タスク編集ダイアログの ESC は、`persistent` の Quasar が `escapeKey` を送らない(ゆらすだけ)ので、`task_dialog.ESCAPE_KEYDOWN_JS` の keydown で受ける。ヘルプにラベルが増えるので、テストで部分一致の文字列を探すときは注意 |
 | `dashboard.py` | ダッシュボードの集計(期間 `period_for`、進捗・負荷・工数・期限、`summarize`)。純粋関数(NiceGUI に依存しない)。負荷は `timeline.counted_span` を使い、割り当て超過の縞と同じ前提 |
@@ -48,6 +49,7 @@
 | ダッシュボード | `2026-10-07-dashboard-design.md` |
 | 担当者向けファイルの書き出し | `2026-10-07-assignee-handoff-design.md` |
 | 複数の担当者 | `2026-10-08-multi-assignee-design.md` |
+| メンバーの相対比率のパラメータ化 | `2026-10-09-ratio-parameters-design.md` |
 
 実装計画は `docs/superpowers/plans/` に、同じ日付・名前(`-design` なし)である。
 
@@ -82,6 +84,7 @@ uvx ty check src
 
 ## ファイル形式の注意
 
+- パラメータは `Project.parameters`(`[{"name", "levels": [{"name", "value"}]}]`。`value` は割合で -0.9〜+2.9)、メンバーの選択は `Member.levels`(`{"パラメータ名": "段階名"}`)。キーがない・`null` は空。名前の空・重複、`value` の範囲外・非有限・型の違いは読込を拒否する。メンバーの選択が存在しないパラメータ・段階を指していても、読込は拒否せず、`ratios.ratio_detail` が判定値 0% として扱い、メンバーのダイアログの適用で捨てる。`Member.ratio` は基本比率。
 - 担当者は `Task.assignees`(`[{"name", "allocation"}]`。`allocation` は 0.01〜1.0)。古いキー `assignee`・`allocation` は、`assignees` がないときだけ 1 人のリストとして読む(`storage._assignees`。担当者がなくても、不正な割り当て率は拒否する)。名前が空・重複、割り当て率が範囲外・非有限は読込を拒否する。保存は `assignees` だけ(`asdict` で書くので、空のときも `[]`)。チェックポイントは常に空。換算率は `timeline.assignees_rate`(メンバーにいる担当者の `相対比率 × 割り当て率` の合計。誰もいなければ 1.0)。
 - リンクは `Task.urls`(`[{"title", "template", "values"}]`)、URL の型は `Project.url_templates`(`[{"name", "pattern"}]`)。`values` のキーは、テンプレートなしが `URL`、ありが `ID`。キーなし・`null` は空で読む(移行は要らない)。名前の空・重複、`http`・`https` でない型や URL、存在しないテンプレート名、キーの不一致、型の違いは読込を拒否する(`storage._url_templates`・`_task_urls`、読込後に `validate_urls`)。フィールド名は `urls`(先行タスクの連結 `predecessors` と区別する)。ID の置き換えは `str.replace` と `quote(safe="")` だけ。
 - ヘッダーの日付・曜日の行(`label_row`)は、列ごとに要素を作らず、1 つの `ui.html`(マーカー `label-row-cells`)にまとめる(`header_cell_html`。セルは `data-col="<日付>"`、日次は日付と曜日の 2 行、週次・月次は日付の 1 行。内容は日付のみだが、念のため `html.escape` を通す)。NiceGUI の要素は、1 個ずつの生成が重く(`Element.__init__` が、監視付きのコレクションを 3 つ作り、それぞれで `inspect.signature` を呼ぶ)、列ごとの要素は、描画の約 8 割を占めていたため。格子線・縞と同じ作り方。個々のラベルのマーカー(`col-<日付>`・`weekday-<日付>`)はないので、テストは `test/header_cells.py` の `header_cells` で、`label-row-cells` の内容から読む。年・月の帯(`band_row`)は、要素が少ないので、そのまま。
