@@ -2407,3 +2407,55 @@ async def test_the_image_is_captured_at_100_percent_and_the_zoom_comes_back(user
     assert exporter.zoom_at_capture == "document.body.style.zoom = 1.0"  # 倍率をかけたままだと、画像の大きさがずれる
     assert zoom_calls(view_calls)[-1] == "document.body.style.zoom = 1.5"
     assert view.zoom == 150
+
+
+async def test_assigned_count_counts_tasks_where_the_member_is_one_of_the_assignees(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.tasks = [
+        Task("a", assignees=[Assignee("田中"), Assignee("鈴木")]),
+        Task("b", assignees=[Assignee("鈴木")]),
+        Task("c"),
+    ]
+    assert view.assigned_count("田中") == 1
+    assert view.assigned_count("鈴木") == 2
+    assert view.assigned_count("佐藤") == 0
+
+
+async def test_renaming_a_member_renames_every_assignee_entry(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.members = [Member("A"), Member("B")]
+    view.project.tasks = [Task("t", assignees=[Assignee("A", 0.5), Assignee("B", 0.25)])]
+    view.apply_members([Member("B"), Member("A")], {"A": "B", "B": "A"})  # 入れ替え
+    assert view.project.tasks[0].assignees == [Assignee("B", 0.5), Assignee("A", 0.25)]
+
+
+async def test_saving_a_task_warns_for_each_overloaded_assignee(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.members = [Member("田中"), Member("鈴木")]
+
+    def task(name: str, start: int, end: int) -> Task:
+        return Task(
+            name,
+            planned_start=datetime(2026, 10, start),
+            planned_end=datetime(2026, 10, end),
+            assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.6)],
+        )
+
+    view.save_task(None, None, task("a", 5, 9))
+    view.save_task(None, None, task("b", 7, 12))
+    await user.should_see("田中 の割り当てが最大120%になる期間があります")
+    await user.should_see("鈴木 の割り当てが最大120%になる期間があります")

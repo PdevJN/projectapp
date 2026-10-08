@@ -510,7 +510,7 @@ class MainView:
         open_members_dialog(self.project.members, self.assigned_count, self.apply_members)
 
     def assigned_count(self, name: str) -> int:
-        return sum(1 for task in self.project.all_tasks() if task.assignee == name)
+        return sum(1 for task in self.project.all_tasks() if name in task.assignee_names)
 
     def apply_members(self, members: list[Member], renames: dict[str, str]) -> None:
         """メンバーを更新し、改名をタスクの担当者に伝える。保存はしない(編集中の判定に入る)。"""
@@ -692,17 +692,18 @@ class MainView:
         self.warn_overallocation(task)
 
     def warn_overallocation(self, task: Task) -> None:
-        """保存したタスクが担当者の割り当て合計の超過に関わるなら、通知する(保存は妨げない)。"""
-        if not task.assignee:
+        """保存したタスクが担当者の割り当て合計の超過に関わるなら、担当者ごとに通知する(保存は妨げない)。"""
+        if not task.assignees:
             return
         overloads = overallocations(self.project, self.holidays)
         mine = clip_overloads(task, self.project, self.holidays, overloads)
-        if mine:
-            peak = max(o.total for o in mine)
-            ui.notify(
-                f"{task.assignee} の割り当てが最大{round(peak * 100)}%になる期間があります",
-                type="warning",
-            )
+        for name in task.assignee_names:
+            peaks = [o.total for o in mine if o.member == name]
+            if peaks:
+                ui.notify(
+                    f"{name} の割り当てが最大{round(max(peaks) * 100)}%になる期間があります",
+                    type="warning",
+                )
 
     async def refresh_holidays(self, quiet: bool = False) -> None:
         """祝日を取得してチャートに反映する。失敗しても画面は変えず通知だけ出す。"""
