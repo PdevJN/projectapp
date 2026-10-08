@@ -2560,3 +2560,72 @@ async def test_a_parameter_edit_changes_the_computed_end(user: User, tmp_path: P
     user.find(marker="parameter-apply").click()
     # 15h / 1.5 = 10h → 金6.5h + 月3.5h
     assert await wait_until(lambda: effective_end(task, view.project, {}) == datetime(2026, 10, 12, 12, 30))
+
+
+def params_view_setup(view: MainView) -> None:
+    view.project.parameters = [Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)])]
+    view.project.members = [Member("田中", 1.0)]
+    view.mark_clean()
+
+
+async def test_the_members_dialog_without_parameters_looks_as_before(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("田中", 1.0)]
+    user.find(marker="open-members").click()
+    await user.should_see(marker="member-ratio-0")
+    ratio = user.find(marker="member-ratio-0").elements.pop()
+    assert ratio.props["label"] == "相対比率(%)"
+    await user.should_not_see(marker="member-effective-0")
+    await user.should_not_see(marker="member-level-0-0")
+
+
+async def test_the_members_dialog_with_parameters_shows_selects_and_the_effective_ratio(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    params_view_setup(view)
+    user.find(marker="open-members").click()
+    await user.should_see(marker="member-level-0-0")
+    assert user.find(marker="member-ratio-0").elements.pop().props["label"] == "基本比率(%)"
+    select = user.find(marker="member-level-0-0").elements.pop()
+    assert select.options == {"": "(なし)", "初級": "初級 -20%", "上級": "上級 +20%"}
+    assert user.find(marker="member-effective-0").elements.pop().text == "相対比率 100%"
+    with user.client:
+        select.set_value("上級")
+    assert user.find(marker="member-effective-0").elements.pop().text == "相対比率 120%"
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members == [Member("田中", 1.0, {"経験": "上級"})])
+    assert view.is_dirty()
+
+
+async def test_the_effective_ratio_follows_the_base_ratio_and_shows_the_rounding(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    params_view_setup(view)
+    user.find(marker="open-members").click()
+    await user.should_see(marker="member-level-0-0")
+    with user.client:
+        user.find(marker="member-level-0-0").elements.pop().set_value("上級")
+    user.find(marker="member-ratio-0").clear().type("290")
+    assert user.find(marker="member-effective-0").elements.pop().text == "相対比率 300%(範囲に丸めました)"
+
+
+async def test_applying_members_drops_selections_that_point_nowhere(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    params_view_setup(view)
+    view.project.members = [Member("田中", 1.0, {"経験": "存在しない", "消えた": "x"})]
+    view.mark_clean()
+    user.find(marker="open-members").click()
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members[0].levels == {})
+
+
+async def test_a_new_member_row_has_no_selection_and_is_saved(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    params_view_setup(view)
+    user.find(marker="open-members").click()
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-1")
+    user.find(marker="member-name-1").type("鈴木")
+    with user.client:
+        user.find(marker="member-level-1-0").elements.pop().set_value("初級")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: len(view.project.members) == 2)
+    assert view.project.members[1] == Member("鈴木", 1.0, {"経験": "初級"})

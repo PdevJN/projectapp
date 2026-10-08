@@ -19,6 +19,7 @@ from projectapp.forms import (
     compose_actual,
     compose_datetime,
     default_times,
+    effective_ratio_text,
     exceeds_decimals,
     in_hours_range,
     needs_end_time,
@@ -1340,3 +1341,47 @@ def test_build_parameter_edit_rejects_bad_rows(rows: list[ParameterRow], message
 def test_build_parameter_edit_accepts_the_boundaries() -> None:
     edit = build_parameter_edit([prow(None, "A", (None, "lo", -90.0), (None, "hi", 290.0), (None, "z", 12.5))], [])
     assert [lv.value for lv in edit.parameters[0].levels] == [-0.9, 2.9, 0.125]
+
+
+EXPERIENCE = Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)])
+
+
+def test_build_members_keeps_the_levels_that_exist() -> None:
+    row = MemberRow(None, "田中", 100.0, {"経験": "上級", "消えた": "x", "経験2": "y"})
+    members, _ = build_members([row], [], no_tasks, [EXPERIENCE])
+    assert members == [Member("田中", 1.0, {"経験": "上級"})]
+
+
+def test_build_members_drops_a_level_that_no_longer_exists() -> None:
+    row = MemberRow(None, "田中", 100.0, {"経験": "存在しない"})
+    members, _ = build_members([row], [], no_tasks, [EXPERIENCE])
+    assert members[0].levels == {}
+
+
+def test_build_members_without_parameters_has_no_levels() -> None:
+    members, _ = build_members([MemberRow(None, "田中", 100.0, {"経験": "上級"})], [], no_tasks)
+    assert members[0].levels == {}
+
+
+def test_a_renamed_member_keeps_the_levels() -> None:
+    row = MemberRow("田中", "田中太郎", 100.0, {"経験": "上級"})
+    members, renames = build_members([row], ["田中"], no_tasks, [EXPERIENCE])
+    assert members == [Member("田中太郎", 1.0, {"経験": "上級"})]
+    assert renames == {"田中": "田中太郎"}
+
+
+@pytest.mark.parametrize(
+    ("percent", "levels", "text"),
+    [
+        (100.0, {}, "相対比率 100%"),
+        (100.0, {"経験": "上級"}, "相対比率 120%"),
+        (100.0, {"経験": "初級"}, "相対比率 80%"),
+        (290.0, {"経験": "上級"}, "相対比率 300%(範囲に丸めました)"),
+        (10.0, {"経験": "初級"}, "相対比率 10%(範囲に丸めました)"),
+        (30.0, {"経験": "初級"}, "相対比率 10%"),  # ちょうど下限は、丸めたことにしない
+        (None, {}, ""),
+        (float("nan"), {}, ""),
+    ],
+)
+def test_effective_ratio_text(percent: float | None, levels: dict[str, str], text: str) -> None:
+    assert effective_ratio_text(MemberRow(None, "a", percent, levels), [EXPERIENCE]) == text

@@ -509,7 +509,9 @@ class MainView:
         return True
 
     def open_members(self) -> None:
-        open_members_dialog(self.project.members, self.assigned_count, self.apply_members)
+        open_members_dialog(
+            self.project.members, self.assigned_count, self.apply_members, self.project.parameters
+        )
 
     def assigned_count(self, name: str) -> int:
         return sum(1 for task in self.project.all_tasks() if name in task.assignee_names)
