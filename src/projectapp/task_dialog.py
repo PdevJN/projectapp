@@ -35,6 +35,7 @@ from projectapp.models import (
     URL_KEY,
     Actual,
     ActualMode,
+    Assignee,
     Member,
     Priority,
     Status,
@@ -43,7 +44,7 @@ from projectapp.models import (
     TaskUrl,
     UrlTemplate,
 )
-from projectapp.timeline import combine_rate, computed_end, effort_days
+from projectapp.timeline import assignees_rate, combine_rate, computed_end, effort_days
 from projectapp.urls import resolve
 
 # 赤は「予定超過」の背景色と意味が競合するため、優先度には使わない
@@ -586,6 +587,101 @@ class UrlFields:
         return tuple(self.rows())
 
 
+NO_MEMBER = ""
+AssigneeRow = tuple[str, float | None]  # (メンバー名, 割り当て率の%)
+
+
+@dataclass
+class AssigneeItem:
+    row: ui.row
+    member: ui.select
+    allocation: ui.number
+
+
+class AssigneeFields:
+    """タスクの担当者の節。1 行が メンバー・割り当て率(%)・削除。メンバーは行をまたいで重ならない。"""
+
+    def __init__(self, assignees: list[Assignee], members: list[Member], on_change: Callable[[], object]) -> None:
+        self.members = members
+        self.on_change = on_change
+        self.items: list[AssigneeItem] = []
+        self.counter = 0
+        self.container = ui.column().classes("w-full gap-1")
+        with self.container:
+            ui.label("担当者").classes("text-caption text-grey")
+            self.box = ui.column().classes("w-full gap-1")
+            for assignee in assignees or [None]:
+                self._add_row(assignee)
+            ui.button("担当者を追加", icon="add", on_click=self._add_blank).props("flat dense").mark(
+                "task-assignee-add"
+            )
+        self._sync()
+
+    def _add_blank(self) -> None:
+        self._add_row(None)
+        self._sync()
+        self.on_change()
+
+    def _add_row(self, assignee: Assignee | None) -> None:
+        self.counter += 1
+        suffix = "" if self.counter == 1 else f"-{self.counter}"
+        name = NO_MEMBER if assignee is None else assignee.name
+        fraction = 1.0 if assignee is None else assignee.allocation
+        with self.box:
+            with ui.row().classes("w-full items-center no-wrap gap-4") as row:
+                member = ui.select(
+                    {NO_MEMBER: "(なし)", **({name: name} if name else {})}, label="担当者", value=name
+                )
+                member.classes("flex-1").mark(f"task-assignee{suffix}")
+                allocation = ui.number(
+                    "割り当て率(%)",
+                    value=round(fraction * 100, 2),
+                    min=MIN_ALLOCATION * 100,
+                    max=MAX_ALLOCATION * 100,
+                    step=5,
+                )
+                allocation.classes("flex-1").mark(f"task-allocation{suffix}")
+                item = AssigneeItem(row, member, allocation)
+                ui.button(icon="delete", on_click=lambda: self._remove(item)).props(
+                    "flat dense color=negative"
+                ).mark(f"task-assignee-remove{suffix}")
+        member.on_value_change(lambda _e: self._changed())
+        allocation.on_value_change(lambda _e: self.on_change())
+        self.items.append(item)
+
+    def _remove(self, item: AssigneeItem) -> None:
+        self.items.remove(item)
+        item.row.delete()
+        self._sync()
+        self.on_change()
+
+    def _changed(self) -> None:
+        self._sync()
+        self.on_change()
+
+    def _options(self, item: AssigneeItem) -> dict[str, str]:
+        taken = {other.member.value for other in self.items if other is not item}
+        own = item.member.value
+        names = [m.name for m in self.members if m.name == own or m.name not in taken]
+        return {NO_MEMBER: "(なし)", **{n: n for n in names}}
+
+    def _sync(self) -> None:
+        for item in self.items:
+            item.member.set_options(self._options(item), value=item.member.value)
+            item.allocation.set_enabled(bool(item.member.value))
+
+    def rows(self) -> list[AssigneeRow]:
+        return [(item.member.value or "", item.allocation.value) for item in self.items]
+
+    def state(self) -> tuple[AssigneeRow, ...]:
+        return tuple(self.rows())
+
+    def chosen(self) -> list[tuple[Member, float]]:
+        """メンバーを選んだ行の、(メンバー, 割り当ての割合)。"""
+        by_name = {m.name: m for m in self.members}
+        return [(by_name[name], (percent or 100) / 100) for name, percent in self.rows() if name in by_name]
+
+
 def open_task_dialog(
     task: Task | None,
     on_save: Callable[[Task], object],
@@ -602,12 +698,10 @@ def open_task_dialog(
 ) -> ui.dialog:
     initial = task or Task("")
     member_list = list(members or [])
-    if initial.assignee and all(m.name != initial.assignee for m in member_list):
-        member_list.append(Member(initial.assignee, 1.0))  # 一覧にいない担当者も、保存で失わない
-    initial_member = next((m for m in member_list if m.name == initial.assignee), None)
-    initial_rate = (
-        combine_rate(initial_member.ratio, initial.allocation) if initial_member else 1.0
-    )
+    for assignee in initial.assignees:  # 一覧にいない担当者も、保存で失わない(相対比率は 100% とみなす)
+        if all(m.name != assignee.name for m in member_list):
+            member_list.append(Member(assignee.name, 1.0))
+    initial_rate = assignees_rate(initial.assignees, member_list)
     with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[36rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
         kind = ui.toggle({k: k.value for k in TaskKind}, value=initial.kind).mark("task-kind")
@@ -629,55 +723,25 @@ def open_task_dialog(
                 .classes("flex-1")
                 .mark("task-effort")
             )
-        assignee_row = ui.row().classes("w-full no-wrap gap-4")
-        with assignee_row:
-            assignee = (
-                ui.select(
-                    {"": "(なし)", **{m.name: m.name for m in member_list}},
-                    label="担当者",
-                    value=initial.assignee if initial_member else "",
-                )
-                .classes("flex-1")
-                .mark("task-assignee")
-            )
-            allocation = (
-                ui.number(
-                    "割り当て率(%)",
-                    value=round(initial.allocation * 100, 2),
-                    min=MIN_ALLOCATION * 100,
-                    max=MAX_ALLOCATION * 100,
-                    step=5,
-                )
-                .classes("flex-1")
-                .mark("task-allocation")
-            )
+        assignee_fields = AssigneeFields(initial.assignees, member_list, lambda: refresh_conversion())
         conversion = ui.label("").classes("text-caption text-grey").mark("task-conversion")
 
-        def current_member() -> Member | None:
-            return next((m for m in member_list if m.name == assignee.value), None)
-
         def refresh_conversion(_event: object = None) -> None:
-            member = current_member()
-            allocation.set_enabled(member is not None)
-            fraction = (allocation.value or 100) / 100 if member else 1.0
-            rate = combine_rate(member.ratio, fraction) if member else 1.0
+            chosen = assignee_fields.chosen()
+            rate = sum(combine_rate(m.ratio, f) for m, f in chosen) if chosen else 1.0
             fields.set_rate(rate)
-            days = effort_days(effort.value or 0.0, rate, daily_hours) if member else None
-            if member is None or days is None:
+            days = effort_days(effort.value or 0.0, rate, daily_hours) if chosen else None
+            if not chosen or days is None:
                 conversion.set_text("")
                 return
-            conversion.set_text(
-                f"{effort.value:g}h → {days:.1f}日分"
-                f"(相対比率 {member.ratio * 100:g}% × 割り当て {fraction * 100:g}%)"
-            )
+            detail = " + ".join(f"{m.name} {m.ratio * 100:g}%×{f * 100:g}%" for m, f in chosen)
+            conversion.set_text(f"換算率 {rate * 100:g}%({detail})→ {effort.value:g}h は約 {days:.1f}日分")
 
         def on_effort_change(e: object) -> None:
             fields.set_effort(getattr(e, "value", None))
             refresh_conversion()
 
         effort.on_value_change(on_effort_change)
-        assignee.on_value_change(refresh_conversion)
-        allocation.on_value_change(refresh_conversion)
         refresh_conversion()
         options = dict(link_options or {})
         kept = [pid for pid in initial.predecessors if pid in options]  # 候補にない参照は、欄に出さない
@@ -755,14 +819,14 @@ def open_task_dialog(
             initial.planned_start
             or initial.planned_end
             or initial.effort_hours
-            or initial.assignee
+            or initial.assignees
             or initial.actuals
         )
 
         def apply_kind(_event: object = None) -> None:
             """チェックポイントでは、開始予定・完了予定・工数・担当・実績の欄を隠し、状態を 2 つにする。"""
             checkpoint = kind.value == TaskKind.CHECKPOINT
-            for widget in (fields.first_row, effort, assignee_row, conversion, actual_box):
+            for widget in (fields.first_row, effort, assignee_fields.container, conversion, actual_box):
                 widget.set_visibility(not checkpoint)
             allowed = CHECKPOINT_STATUSES if checkpoint else tuple(Status)
             suggest["setting"] = True
@@ -798,8 +862,7 @@ def open_task_dialog(
                 priority.value,
                 status.value,
                 color.value,
-                assignee.value,
-                allocation.value,
+                assignee_fields.state(),
                 tuple(predecessors.value or []),
                 *actual_fields.state(),
                 url_fields.state(),
@@ -822,8 +885,7 @@ def open_task_dialog(
                     priority=priority.value,
                     status=Status(status.value),
                     color=color.value or initial.color,
-                    assignee=assignee.value or "",
-                    allocation_percent=allocation.value,
+                    assignees=assignee_fields.rows(),
                     predecessors=merged_predecessors(),
                     kind=TaskKind(kind.value),
                     linkable_ids=frozenset(options) | frozenset(initial.predecessors),
