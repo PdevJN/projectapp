@@ -296,9 +296,12 @@ const cell = {
   draggable: true,
   style: { width: "var(--name-w)" },
   closest(selector) { return selector === ".gantt-name-resizable" ? this : null; },
+  contains(element) { return element === this; },
   getBoundingClientRect: () => ({ right: 200 }),
   setPointerCapture() {},
 };
+let visualRight = 200;  // 欄の画面上の右端。elementFromPoint は、その内側だけ欄を返す(外は、隣のチャート)
+document.elementFromPoint = (x) => (x <= visualRight ? cell : null);
 const other = { draggable: true, style: { width: "var(--name-w)" } };  // 同じ幅の、別の名前の欄
 area.querySelectorAll = (selector) => (selector === ".gantt-name-resizable" ? [cell, other] : []);
 const edge = (x) => ({ target: cell, button: 0, pointerId: 1, isPrimary: true, clientX: x, buttons: 1, preventDefault() {} });
@@ -388,11 +391,13 @@ fire("dragstart", dragEvent);
 scenarios.dragstart = dragEvent.prevented;
 fire("pointerup", edge(197)); click(); flush();
 
-// 画面を 150% に拡大(CSS の zoom)しているとき: 画面上の移動量(clientX)を、CSS の px へ戻して計算する
+// 画面を 150% に拡大(body の CSS zoom)しているとき: 画面上の移動量(clientX)を、CSS の px へ戻して計算する。
+// WebKit は、zoom 中も getBoundingClientRect と offsetWidth を拡大前の値で返す(clientX と elementFromPoint は画面上の座標)
+document.body.style.zoom = "1.5";
 const zoomBar = {
   dataset: { si: "0", ti: "0", dayWidth: "40", minDays: "-5" },
   style: {}, isConnected: true, offsetWidth: 40,
-  getBoundingClientRect: () => ({ width: 60 }),
+  getBoundingClientRect: () => ({ width: 40 }),
   setPointerCapture() {},
   closest(selector) { return selector === "[data-bar]" ? this : null; },
 };
@@ -404,7 +409,8 @@ scenarios.zoomBar = { during: zoomDuring, emitted: emitted.splice(0) };
 click(); flush();
 
 cell.offsetWidth = 200;
-cell.getBoundingClientRect = () => ({ right: 300, width: 300 });  // 画面上は 300px(CSS の 200px の 1.5 倍)
+cell.getBoundingClientRect = () => ({ right: 200, width: 200 });  // 拡大前の値のまま
+visualRight = 300;  // 画面上は 300px(CSS の 200px の 1.5 倍)
 fire("pointerdown", edge(295)); fire("pointermove", edge(445));  // 掴み場所の幅(6px)も 1.5 倍。150px は CSS の 100px
 const zoomResizeDuring = widths()[0];
 fire("pointerup", edge(445));
