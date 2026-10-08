@@ -20,7 +20,7 @@ from projectapp.config import (
 from projectapp.filtering import TaskFilter, matches, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
-from projectapp.models import Priority, Project, Section, Status, Task, TaskKind
+from projectapp.models import Priority, Project, Section, SectionPath, Status, Task, TaskKind
 from projectapp.timeline import (
     in_range,
     Band,
@@ -302,7 +302,7 @@ class GanttActions:
     add_top_task: Callable[[], object]
     edit_task: Callable[[int | None, int], object]  # セクション番号(Noneはセクションなし), タスク番号
     move_task: Callable[[Position, Position, bool], object]  # 元, 挿入先, コピーか
-    shift_task: Callable[[int | None, int, int], object]  # セクション番号, タスク番号, 日数
+    shift_task: Callable[[SectionPath, int, int], object]  # セクションのパス(root は ()), タスク番号, 日数
     set_name_width: Callable[[int], object]  # 名前の欄の幅(px)。範囲に収めた整数。保存は受け取り側
 
 

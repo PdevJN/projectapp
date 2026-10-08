@@ -1,3 +1,4 @@
+import pytest
 from dataclasses import replace
 from datetime import date, datetime
 
@@ -166,17 +167,17 @@ def test_shift_is_atomic_when_only_the_end_goes_out_of_range() -> None:
 
 
 def test_parse_position() -> None:
-    assert arrange.parse_position([None, 0]) == (None, 0)
-    assert arrange.parse_position([2, 5]) == (2, 5)
-    assert arrange.parse_position((1, 0)) == (1, 0)
-    for bad in (None, 3, "ab", [1], [1, 2, 3], ["0", 1], [True, 1], [0, 1.5], [0, "1"], [0, True]):
+    assert arrange.parse_position([None, 0]) == ((), 0)
+    assert arrange.parse_position([2, 5]) == ((2,), 5)
+    assert arrange.parse_position((1, 0)) == ((1,), 0)
+    for bad in (None, 3, "ab", [1], [1, 2, 3], ["x", 1], [True, 1], [0, 1.5], [0, "1"], [0, True]):
         assert arrange.parse_position(bad) is None
 
 
 def test_parse_move() -> None:
     ok = {"src": [0, 1], "dst": [None, 2], "copy": True}
-    assert arrange.parse_move(ok) == ((0, 1), (None, 2), True)
-    assert arrange.parse_move({**ok, "copy": False}) == ((0, 1), (None, 2), False)
+    assert arrange.parse_move(ok) == (((0,), 1), ((), 2), True)
+    assert arrange.parse_move({**ok, "copy": False}) == (((0,), 1), ((), 2), False)
     assert arrange.parse_move({**ok, "copy": 1}) is None
     assert arrange.parse_move({**ok, "src": "x"}) is None
     assert arrange.parse_move({"src": [0, 1], "copy": False}) is None
@@ -185,8 +186,8 @@ def test_parse_move() -> None:
 
 
 def test_parse_shift_accepts_integers_within_the_limit_only() -> None:
-    assert arrange.parse_shift({"si": None, "ti": 0, "days": -3}) == ((None, 0), -3)
-    assert arrange.parse_shift({"si": 1, "ti": 2, "days": 3650}) == ((1, 2), 3650)
+    assert arrange.parse_shift({"si": None, "ti": 0, "days": -3}) == (((), 0), -3)
+    assert arrange.parse_shift({"si": 1, "ti": 2, "days": 3650}) == (((1,), 2), 3650)
     assert arrange.parse_shift({"si": 1, "ti": 2, "days": 3651}) is None
     assert arrange.parse_shift({"si": 1, "ti": 2, "days": -3651}) is None
     assert arrange.parse_shift({"si": 1, "ti": 2, "days": 1.5}) is None
@@ -293,3 +294,98 @@ def test_copy_does_not_share_the_assignees() -> None:
     copy = arrange.copy_task(project, (0, 1), (1, 0))
     copy.assignees[0].allocation = 0.9
     assert original.assignees == [Assignee("田中", 0.5)]
+
+
+def tree() -> Project:
+    deep = Section("孫", [Task("g")])
+    child = Section("子", [Task("c1"), Task("c2")], [deep])
+    return Project("p", tasks=[Task("r0"), Task("r1")], sections=[Section("親", [Task("p0")], [child]), Section("別", [Task("o0")])])
+
+
+@pytest.mark.parametrize(
+    ("path", "found"),
+    [((), None), ((0,), "親"), ((0, 0), "子"), ((0, 0, 0), "孫"), ((1,), "別"), ((2,), None), ((0, 1), None), ((-1,), None), ((0, 0, 0, 0), None)],
+)
+def test_section_at(path: tuple[int, ...], found: str | None) -> None:
+    section = arrange.section_at(tree(), path)
+    assert (section.name if section else None) == found
+
+
+def test_tasks_at_returns_the_list_of_the_section() -> None:
+    project = tree()
+    assert [t.name for t in arrange.tasks_at(project, ())] == ["r0", "r1"]
+    assert [t.name for t in arrange.tasks_at(project, (0, 0))] == ["c1", "c2"]
+    assert arrange.tasks_at(project, (0, 0, 0)) is project.sections[0].sections[0].sections[0].tasks
+    with pytest.raises(IndexError):
+        arrange.tasks_at(project, (5,))
+
+
+@pytest.mark.parametrize(
+    ("path", "valid"),
+    [((), True), ((0,), True), ((0, 0, 0), True), ((0, 0, 1), False), ((3,), False), ((0, 0, 0, 0), False), ((-1,), False)],
+)
+def test_valid_section(path: tuple[int, ...], valid: bool) -> None:
+    assert arrange.valid_section(tree(), path) is valid
+
+
+@pytest.mark.parametrize(
+    ("path", "key"),
+    [((), "top"), ((0,), "0"), ((12,), "12"), ((0, 1), "0.1"), ((3, 0, 2), "3.0.2")],
+)
+def test_section_key_and_parse_are_inverse(path: tuple[int, ...], key: str) -> None:
+    assert arrange.section_key(path) == key
+    assert arrange.parse_section_key(key) == path
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["", " ", "0.", ".0", "-1", "01", "0.01", "0.0.0.0", "top.1", "x", "0,1", " 0", "0 ", "１", "0..1", "1e3", "+1"],
+)
+def test_parse_section_key_rejects_malformed_keys(bad: str) -> None:
+    assert arrange.parse_section_key(bad) is None
+
+
+def test_move_task_into_a_nested_section() -> None:
+    project = tree()
+    assert arrange.move_task(project, ((), 1), ((0, 0), 1)) is True
+    assert [t.name for t in project.tasks] == ["r0"]
+    assert [t.name for t in project.sections[0].sections[0].tasks] == ["c1", "r1", "c2"]
+
+
+def test_move_task_from_a_parent_to_its_child_end() -> None:
+    project = tree()
+    child_tasks = project.sections[0].sections[0].tasks
+    arrange.move_task(project, ((0,), 0), ((0, 0), len(child_tasks)))
+    assert [t.name for t in child_tasks] == ["c1", "c2", "p0"]
+    assert project.sections[0].tasks == []
+
+
+def test_moving_inside_one_nested_list_adjusts_the_position() -> None:
+    project = tree()
+    assert arrange.move_task(project, ((0, 0), 0), ((0, 0), 2)) is True
+    assert [t.name for t in project.sections[0].sections[0].tasks] == ["c2", "c1"]
+    assert arrange.move_task(project, ((0, 0), 0), ((0, 0), 1)) is False  # 位置が変わらない
+
+
+def test_copy_task_into_a_deep_section() -> None:
+    project = tree()
+    copy = arrange.copy_task(project, ((0, 0), 0), ((0, 0, 0), 0))
+    assert copy.name == "c1(コピー)"
+    assert [t.name for t in project.sections[0].sections[0].sections[0].tasks] == ["c1(コピー)", "g"]
+    assert [t.name for t in project.sections[0].sections[0].tasks] == ["c1", "c2"]
+
+
+def test_has_task_and_has_list_follow_the_path() -> None:
+    project = tree()
+    assert arrange.has_task(project, ((0, 0), 1)) and not arrange.has_task(project, ((0, 0), 2))
+    assert arrange.has_list(project, ((0, 0, 0), 5)) and not arrange.has_list(project, ((0, 0, 1), 0))
+
+
+def test_parse_position_accepts_keys_integers_and_none() -> None:
+    assert arrange.parse_position(["top", 0]) == ((), 0)
+    assert arrange.parse_position(["0.1", 5]) == ((0, 1), 5)
+    assert arrange.parse_position(["2", 1]) == ((2,), 1)
+    assert arrange.parse_position([None, 0]) == ((), 0)
+    assert arrange.parse_position([2, 5]) == ((2,), 5)
+    for bad in (["0.", 1], ["x", 1], [[0], 1], ["0", "1"], ["0", True], "ab", None):
+        assert arrange.parse_position(bad) is None

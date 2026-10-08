@@ -59,7 +59,7 @@ from projectapp.handoff import (
 from projectapp.handoff import default_filename as handoff_filename
 from projectapp.filemanager import open_folder
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
-from projectapp.models import ActualMode, Member, Project, Section, Task
+from projectapp.models import ActualMode, Member, Project, Section, SectionPath, Task
 from projectapp.preview import (
     LARGE_IMAGE_MESSAGE,
     NOT_NATIVE_MESSAGE,
@@ -674,7 +674,7 @@ class MainView:
             return
         self.gantt.set_project(self.project)
 
-    def shift_task(self, section_index: int | None, task_index: int, days: int) -> None:
+    def shift_task(self, section_index: SectionPath, task_index: int, days: int) -> None:
         """開始予定(と入っていれば完了予定)を days 日ずらす。締切は動かさず、基準日より前へは動かさない。"""
         if days == 0 or not arrange.has_task(self.project, (section_index, task_index)):
             return
@@ -692,11 +692,9 @@ class MainView:
         self.gantt.set_project(self.project)
         self.warn_overallocation(task)
 
-    def tasks_in(self, section_index: int | None) -> list[Task]:
-        """セクション番号のタスク一覧。Noneはセクションに属さないタスク。"""
-        if section_index is None:
-            return self.project.tasks
-        return self.project.sections[section_index].tasks
+    def tasks_in(self, section_index: object) -> list[Task]:
+        """セクション(パス。移行中は None・整数も可)のタスク一覧。root は (): セクションに属さないタスク。"""
+        return arrange.tasks_at(self.project, section_index)
 
     def save_task(
         self, section_index: int | None, task_index: int | None, task: Task

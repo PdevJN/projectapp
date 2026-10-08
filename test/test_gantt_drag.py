@@ -90,7 +90,7 @@ async def test_handle_move_passes_valid_events_to_the_action(user: User) -> None
     recorder, charts = mount(project_with_top())
     await user.open("/")
     charts[0].handle_move({"src": [None, 0], "dst": [0, 1], "copy": True})
-    assert recorder.events == [("move_task", ((None, 0), (0, 1), True))]
+    assert recorder.events == [("move_task", (((), 0), ((0,), 1), True))]
 
 
 async def test_handle_move_ignores_bad_events_and_filtering(user: User) -> None:
@@ -171,7 +171,7 @@ async def test_handle_shift_passes_valid_events_on_the_day_scale(user: User) -> 
     await user.open("/")
     charts[0].handle_shift({"si": 0, "ti": 0, "days": -2})
     charts[0].handle_shift({"si": None, "ti": 1, "days": 5})
-    assert recorder.events == [("shift_task", (0, 0, -2)), ("shift_task", (None, 1, 5))]
+    assert recorder.events == [("shift_task", ((0,), 0, -2)), ("shift_task", ((), 1, 5))]
 
 
 async def test_handle_shift_ignores_bad_events_and_other_scales(user: User) -> None:
@@ -179,7 +179,7 @@ async def test_handle_shift_ignores_bad_events_and_other_scales(user: User) -> N
     await user.open("/")
     charts[0].handle_shift({"si": 0, "ti": 0, "days": 3651})
     charts[0].handle_shift({"si": 0, "ti": 0, "days": 1.5})
-    charts[0].handle_shift({"si": "0", "ti": 0, "days": 1})
+    charts[0].handle_shift({"si": "0.", "ti": 0, "days": 1})
     charts[0].handle_shift(None)
     charts[0].set_scale(Scale.WEEK)
     charts[0].handle_shift({"si": 0, "ti": 0, "days": 1})
