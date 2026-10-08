@@ -337,12 +337,72 @@ def confirm_dialog_of(user: User) -> ui.dialog:
     return element
 
 
-async def test_the_dialog_is_persistent_and_listens_for_escape(user: User) -> None:
+def escape_listener_id(dialog: ui.dialog) -> str:
+    """ダイアログの ESC を受けるリスナー。persistent の Quasar は escapeKey を送らないので、keydown で受ける。"""
+    return next(i for i, listener in dialog._event_listeners.items() if listener.type == "keydown")
+
+
+def press_escape(dialog: ui.dialog) -> None:
+    dialog._handle_event({"listener_id": escape_listener_id(dialog), "args": {}})
+
+
+async def test_the_dialog_is_persistent_and_listens_for_escape_as_a_keydown(user: User) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
     dialog = dialog_of(user)
     assert dialog.props.get("persistent") is True
-    assert "escapeKey" in {listener.type for listener in dialog._event_listeners.values()}
+    # Quasar は、persistent のダイアログでは escapeKey を送らず、ゆらすだけ(実機で ESC が効かなかった)
+    assert "escapeKey" not in {listener.type for listener in dialog._event_listeners.values()}
+    assert "Escape" in (dialog._event_listeners[escape_listener_id(dialog)].js_handler or "")
+
+
+async def test_escape_without_changes_closes_the_dialog(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    press_escape(dialog_of(user))
+    assert dialog_of(user).value is False
+    assert confirm_dialog_of(user).value is False
+
+
+async def test_escape_with_changes_asks_first(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    press_escape(dialog_of(user))
+    assert confirm_dialog_of(user).value is True
+    assert dialog_of(user).value is True
+    assert saved == []
+
+
+def test_the_escape_handler_ignores_other_keys_and_composition():
+    import json
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    from projectapp.task_dialog import ESCAPE_KEYDOWN_JS
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node がないので JS の動作を確かめない")
+    script = (
+        "let emitted = 0; const emit = () => { emitted += 1; };"
+        f"const handler = {ESCAPE_KEYDOWN_JS};"
+        "const run = (e) => { emitted = 0; handler(e); return emitted; };"
+        "console.log(JSON.stringify({"
+        " esc: run({ code: 'Escape', isComposing: false }),"
+        " ime: run({ code: 'Escape', key: 'Process', keyCode: 229, isComposing: false }),"
+        " composing: run({ code: 'Escape', isComposing: true }),"
+        " other: run({ code: 'KeyA', isComposing: false }) }));"
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "escape.js"
+        path.write_text(script)
+        run = subprocess.run([node, str(path)], capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    assert json.loads(run.stdout) == {"esc": 1, "ime": 1, "composing": 0, "other": 0}  # 変換中の ESC は、変換の取り消し
 
 
 async def test_cancel_without_changes_closes_without_asking(user: User) -> None:

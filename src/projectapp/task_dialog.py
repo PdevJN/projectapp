@@ -79,6 +79,10 @@ class PriorityChips:
             chip.update()
 
 
+# ESC だけをサーバーへ送る。日本語の変換中の ESC は、変換の取り消しなので送らない
+ESCAPE_KEYDOWN_JS = "(e) => { if (e.code === 'Escape' && !e.isComposing) emit(); }"
+
+
 def add_picker(
     field: ui.input, picker_factory: Callable[[], ui.date | ui.time], icon: str, key: str, fmt: str
 ) -> None:
@@ -876,7 +880,8 @@ def open_task_dialog(
             else:
                 confirm.open()
 
-        dialog.on("escape-key", request_close)  # persistent なので、ESCでは自動で閉じない
+        # persistent の Quasar は、ESC で escapeKey を送らない(ゆらすだけ)ので、keydown で受ける
+        dialog.on("keydown", request_close, js_handler=ESCAPE_KEYDOWN_JS)
         with ui.row().classes("w-full items-center"):
             if delete_confirm is not None:
                 ui.button("削除", on_click=delete_confirm.open).props(

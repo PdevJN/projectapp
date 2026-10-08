@@ -78,23 +78,13 @@ def plain_keys() -> set[str]:
 
 
 def key_guard_js() -> str:
-    """ブラウザ側のキーの下ごしらえをする JS。
-
-    - 割り当てたキーの既定の動き(`Ctrl+S` の保存・`Ctrl+P` の印刷、macOS の警告音)を止める。
-      文字キーは、入力欄の中では止めない。
-    - 日本語 IME がオンだと、WebKit は入力欄での keydown の keyCode を 229 で返し、Quasar は ESC と
-      見なさない(ダイアログが ESC で閉じない)。そのときだけ、keyCode 27 の keydown・keyup を送り直す。
-    """
+    """割り当てたキーの既定の動き(`Ctrl+S` の保存・`Ctrl+P` の印刷、macOS の警告音)を止める JS。
+    文字キーは、入力欄の中では止めない。"""
     return (
         "document.addEventListener('keydown', e => {"
         f" const ctrl = {sorted(ctrl_keys())!r}, plain = {sorted(plain_keys())!r};"
         " const key = e.key.toLowerCase(), t = e.target || {}, tag = (t.tagName || '').toLowerCase();"
         " const editable = ['input', 'textarea', 'select'].includes(tag) || t.isContentEditable === true;"
         " if (e.ctrlKey || e.metaKey ? ctrl.includes(key) : plain.includes(key) && !editable) e.preventDefault();"
-        " if (e.code === 'Escape' && e.keyCode === 229 && !e.isComposing) {"
-        " for (const type of ['keydown', 'keyup']) {"
-        " const ev = new KeyboardEvent(type, { key: 'Escape', code: 'Escape', bubbles: true });"
-        " Object.defineProperty(ev, 'keyCode', { get: () => 27 });"
-        " window.dispatchEvent(ev); } }"
         " }, true);"
     )

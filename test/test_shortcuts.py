@@ -64,17 +64,13 @@ def test_the_key_lists_for_the_browser_guard_come_from_the_table():
 HARNESS = """
 const fs = require("fs");
 const listeners = [];
-const dispatched = [];
 global.document = { addEventListener: (type, fn) => listeners.push({ type, fn }) };
-global.window = { dispatchEvent: (ev) => dispatched.push([ev.type, ev.keyCode]) };
-global.KeyboardEvent = class { constructor(type, init) { this.type = type; Object.assign(this, init); } };
 eval(fs.readFileSync(process.argv[2], "utf8"));
 function press(init) {
   const ev = { ctrlKey: false, metaKey: false, key: "", code: "", keyCode: 0, isComposing: false,
     target: { tagName: "DIV" }, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...init };
-  dispatched.length = 0;
   for (const l of listeners.filter((l) => l.type === "keydown")) l.fn(ev);
-  return { prevented: ev.defaultPrevented, dispatched: dispatched.slice() };
+  return { prevented: ev.defaultPrevented };
 }
 console.log(JSON.stringify({
   ctrlS: press({ ctrlKey: true, key: "s", code: "KeyS", keyCode: 83 }),
@@ -85,13 +81,11 @@ console.log(JSON.stringify({
   esc: press({ key: "Escape", code: "Escape", keyCode: 27 }),
   dInInput: press({ key: "d", code: "KeyD", keyCode: 68, target: { tagName: "INPUT" } }),
   x: press({ key: "x", code: "KeyX", keyCode: 88 }),
-  imeEsc: press({ key: "Process", code: "Escape", keyCode: 229, target: { tagName: "INPUT" } }),
-  composingEsc: press({ key: "Process", code: "Escape", keyCode: 229, isComposing: true, target: { tagName: "INPUT" } }),
 }));
 """
 
 
-def test_the_key_guard_blocks_the_beep_and_replays_an_ime_escape(tmp_path):
+def test_the_key_guard_blocks_the_browser_default_and_the_beep(tmp_path):
     import json
     import shutil
     import subprocess
@@ -112,7 +106,3 @@ def test_the_key_guard_blocks_the_beep_and_replays_an_ime_escape(tmp_path):
         assert out[name]["prevented"], name  # ブラウザ既定の動き・macOS の警告音を止める
     for name in ("ctrlX", "dInInput", "x"):
         assert not out[name]["prevented"], name  # 割り当てのないキーと、入力欄の文字は止めない
-    replay = [["keydown", 27], ["keyup", 27]]
-    assert out["imeEsc"]["dispatched"] == replay  # IME オンの ESC(keyCode 229)を、Quasar に 27 として渡す
-    assert out["esc"]["dispatched"] == []  # 普通の ESC は二重にしない
-    assert out["composingEsc"]["dispatched"] == []  # 変換中の ESC は、変換の取り消しなので閉じない
