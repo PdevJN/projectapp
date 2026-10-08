@@ -12,7 +12,9 @@ from projectapp.models import (
     Actual,
     ActualMode,
     Assignee,
+    Level,
     Member,
+    Parameter,
     Priority,
     Project,
     Section,
@@ -976,3 +978,86 @@ def test_a_checkpoint_has_no_assignees(tmp_path: Path) -> None:
     checkpoint = Task("c", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17), assignees=[Assignee("田中")])
     path = save_project(Project("p", members=[Member("田中")], tasks=[checkpoint]), tmp_path)
     assert load_project(path).tasks[0].assignees == []
+
+
+def test_parameters_and_levels_roundtrip(tmp_path: Path) -> None:
+    project = Project(
+        "p",
+        members=[Member("田中", 1.0, {"経験": "上級", "専門": "高"}), Member("鈴木")],
+        parameters=[
+            Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)]),
+            Parameter("専門", [Level("高", 0.1)]),
+            Parameter("空", []),
+        ],
+    )
+    path = save_project(project, tmp_path)
+    loaded = load_project(path)
+    assert loaded.parameters == project.parameters
+    assert loaded.members[0].levels == {"経験": "上級", "専門": "高"}
+    assert loaded.members[1].levels == {}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["parameters"][0] == {"name": "経験", "levels": [{"name": "初級", "value": -0.2}, {"name": "上級", "value": 0.2}]}
+    assert raw["members"][0]["levels"] == {"経験": "上級", "専門": "高"}
+
+
+def test_a_file_without_parameters_or_levels_loads_as_empty(tmp_path: Path) -> None:
+    path = save_project(Project("p", members=[Member("田中", 1.2)]), tmp_path)
+
+    def legacy(data: dict) -> None:
+        data.pop("parameters")
+        data["members"][0].pop("levels")
+
+    _rewrite(path, legacy)
+    loaded = load_project(path)
+    assert loaded.parameters == []
+    assert loaded.members == [Member("田中", 1.2)]
+    _rewrite(path, lambda d: d.update(parameters=None))
+    assert load_project(path).parameters == []
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "経験",  # リストでない
+        ["経験"],  # 辞書でない
+        [{"name": "", "levels": []}],
+        [{"name": "  ", "levels": []}],
+        [{"name": 3, "levels": []}],
+        [{"name": "経験", "levels": []}, {"name": " 経験 ", "levels": []}],  # 重複
+        [{"name": "経験", "levels": "上級"}],  # levels がリストでない
+        [{"name": "経験", "levels": ["上級"]}],  # 段階が辞書でない
+        [{"name": "経験", "levels": [{"name": "", "value": 0.1}]}],
+        [{"name": "経験", "levels": [{"name": "上級", "value": 0.1}, {"name": "上級", "value": 0.2}]}],  # 段階名の重複
+        [{"name": "経験", "levels": [{"name": "上級"}]}],  # 値がない
+        [{"name": "経験", "levels": [{"name": "上級", "value": "x"}]}],
+        [{"name": "経験", "levels": [{"name": "上級", "value": True}]}],
+        [{"name": "経験", "levels": [{"name": "上級", "value": -0.91}]}],
+        [{"name": "経験", "levels": [{"name": "上級", "value": 2.91}]}],
+        [{"name": "経験", "levels": [{"name": "上級", "value": float("nan")}]}],
+    ],
+)
+def test_bad_parameters_are_rejected(bad: object, tmp_path: Path) -> None:
+    path = save_project(Project("p", members=[Member("田中")]), tmp_path)
+    _rewrite(path, lambda d: d.update(parameters=bad))
+    with pytest.raises(ValueError):
+        load_project(path)
+
+
+@pytest.mark.parametrize("value", [-0.9, 2.9, 0.0])
+def test_the_level_value_boundaries_are_accepted(value: float, tmp_path: Path) -> None:
+    project = Project("p", parameters=[Parameter("経験", [Level("a", value)])])
+    assert load_project(save_project(project, tmp_path)).parameters[0].levels[0].value == pytest.approx(value)
+
+
+@pytest.mark.parametrize("bad", ["上級", ["経験"], {"経験": 3}, {"3": 3}])
+def test_bad_member_levels_are_rejected(bad: object, tmp_path: Path) -> None:
+    path = save_project(Project("p", members=[Member("田中")]), tmp_path)
+    _rewrite(path, lambda d: d["members"][0].update(levels=bad))
+    with pytest.raises(ValueError):
+        load_project(path)
+
+
+def test_a_member_selection_that_points_nowhere_is_kept(tmp_path: Path) -> None:
+    project = Project("p", members=[Member("田中", 1.0, {"消えた": "上級"})], parameters=[Parameter("経験", [Level("初級", -0.2)])])
+    loaded = load_project(save_project(project, tmp_path))
+    assert loaded.members[0].levels == {"消えた": "上級"}  # 読込は拒否しない。計算では 0% として扱う

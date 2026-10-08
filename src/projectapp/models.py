@@ -11,6 +11,7 @@ DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
 MIN_YEAR, MAX_YEAR = 2000, 2100  # 入力ミスで表示範囲が際限なく広がるのを防ぐ
 MIN_RATIO, MAX_RATIO = 0.1, 3.0  # 相対比率(10%〜300%)
+MIN_LEVEL_VALUE, MAX_LEVEL_VALUE = -0.9, 2.9  # パラメータの段階の判定値(-90%〜+290%)
 MIN_ALLOCATION, MAX_ALLOCATION = 0.01, 1.0  # 割り当て率(1%〜100%)
 MIN_PROGRESS, MAX_PROGRESS = 0, 100  # 実績の進捗度(%)
 MAX_PROJECT_CODE_LENGTH = 20  # ProjectCode の最大文字数
@@ -56,7 +57,20 @@ class ActualMode(StrEnum):
 @dataclass
 class Member:
     name: str
-    ratio: float = 1.0  # 基準倍率(1.0 = 100%)
+    ratio: float = 1.0  # 基本比率(1.0 = 100%)。相対比率 = 基本比率 + 選んだ段階の判定値の合計
+    levels: dict[str, str] = field(default_factory=dict)  # パラメータ名 → 選んだ段階名
+
+
+@dataclass
+class Level:
+    name: str
+    value: float  # 判定値。割合(+0.2 = +20%)
+
+
+@dataclass
+class Parameter:
+    name: str
+    levels: list[Level] = field(default_factory=list)
 
 
 @dataclass
@@ -132,6 +146,7 @@ class Project:
     tasks: list[Task] = field(default_factory=list)  # セクションに属さないタスク
     actual_mode: ActualMode = ActualMode.SIMPLE  # 実績の記録方式
     url_templates: list[UrlTemplate] = field(default_factory=list)  # リンクの URL の型(プロジェクト共通)
+    parameters: list[Parameter] = field(default_factory=list)  # 相対比率のパラメータ(プロジェクト共通)
 
     def all_tasks(self) -> list[Task]:
         """セクションなしのタスク、続いてセクションのタスク。"""
