@@ -36,6 +36,14 @@ CHART_DRAG_JS = """
   let resizeClickTimer = null;
   const RESIZE_CLICK_MS = 400;  // click が来るのを待つ時間。タイマーが click より先に走らないよう、長めにする
 
+  // 画面に CSS の zoom がかかっていると、clientX の差(画面上の px)と、要素の CSS の px がずれる。
+  // 要素の画面上の幅 ÷ CSS の幅 で比を求め、移動量を CSS の px へ戻す(zoom がなければ 1)
+  const cssScale = (el) => {
+    const css = el.offsetWidth;
+    const shown = el.getBoundingClientRect ? el.getBoundingClientRect().width : 0;
+    return css > 0 && shown > 0 ? shown / css : 1;
+  };
+
   const isRowDrag = (event) => Array.from((event.dataTransfer || {}).types || []).includes(ROW_TYPE);
   const clearMarks = () => {
     document.querySelectorAll(".drop-before, .drop-after, .drop-into").forEach((el) => {
@@ -113,7 +121,7 @@ CHART_DRAG_JS = """
     if (!el || event.button !== 0) return;
     abortBar();
     bar = {
-      el, x0: event.clientX, width: Number(el.dataset.dayWidth),
+      el, x0: event.clientX, width: Number(el.dataset.dayWidth), scale: cssScale(el),
       minDays: Number(el.dataset.minDays),  // 基準日より前へは動かさない
       moved: false, cancelled: false, days: 0,
     };
@@ -127,7 +135,7 @@ CHART_DRAG_JS = """
       return;
     }
     if (bar.cancelled) return;
-    const dx = event.clientX - bar.x0;
+    const dx = (event.clientX - bar.x0) / bar.scale;
     if (!bar.moved && Math.abs(dx) < MOVE_THRESHOLD_PX) return;
     bar.moved = true;
     bar.days = Math.max(Math.round(dx / bar.width), bar.minDays);
@@ -184,7 +192,8 @@ CHART_DRAG_JS = """
     const area = content();
     if (!cell || !area) return null;
     const right = cell.getBoundingClientRect().right;
-    return event.clientX <= right && event.clientX >= right - Number(area.dataset.nameEdge) ? cell : null;
+    const edge = Number(area.dataset.nameEdge) * cssScale(cell);
+    return event.clientX <= right && event.clientX >= right - edge ? cell : null;
   };
   const setWidth = (area, value) => area.style.setProperty("--name-w", `${value}px`);
   const restoreCells = (state) => state.cells.forEach(([el, original]) => { el.style.width = original; });
@@ -210,6 +219,7 @@ CHART_DRAG_JS = """
     const cells = Array.from(area.querySelectorAll(".gantt-name-resizable"), (el) => [el, el.style.width]);
     resize = {
       cell, area, cells, x0: event.clientX, start, width: start, draggable: cell.draggable, cancelled: false,
+      scale: cssScale(cell),
     };
     cell.draggable = false;  // 欄は行の移動の掴み場所でもあるので、幅の調整中は止める
     cell.setPointerCapture(event.pointerId);
@@ -226,7 +236,7 @@ CHART_DRAG_JS = """
     if (resize.cancelled) return;
     const min = Number(resize.area.dataset.nameMin);
     const max = Number(resize.area.dataset.nameMax);
-    resize.width = Math.round(Math.min(Math.max(resize.start + event.clientX - resize.x0, min), max));
+    resize.width = Math.round(Math.min(Math.max(resize.start + (event.clientX - resize.x0) / resize.scale, min), max));
     resize.cells.forEach(([el]) => { el.style.width = `${resize.width}px`; });
   });
 

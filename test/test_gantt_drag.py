@@ -388,6 +388,32 @@ fire("dragstart", dragEvent);
 scenarios.dragstart = dragEvent.prevented;
 fire("pointerup", edge(197)); click(); flush();
 
+// 画面を 150% に拡大(CSS の zoom)しているとき: 画面上の移動量(clientX)を、CSS の px へ戻して計算する
+const zoomBar = {
+  dataset: { si: "0", ti: "0", dayWidth: "40", minDays: "-5" },
+  style: {}, isConnected: true, offsetWidth: 40,
+  getBoundingClientRect: () => ({ width: 60 }),
+  setPointerCapture() {},
+  closest(selector) { return selector === "[data-bar]" ? this : null; },
+};
+const zoomPointer = (x) => ({ target: zoomBar, button: 0, pointerId: 1, clientX: x, buttons: 1 });
+fire("pointerdown", zoomPointer(0)); fire("pointermove", zoomPointer(120));
+const zoomDuring = zoomBar.style.transform;  // 画面上の 120px は CSS の 80px = 2日
+fire("pointerup", zoomPointer(120));
+scenarios.zoomBar = { during: zoomDuring, emitted: emitted.splice(0) };
+click(); flush();
+
+cell.offsetWidth = 200;
+cell.getBoundingClientRect = () => ({ right: 300, width: 300 });  // 画面上は 300px(CSS の 200px の 1.5 倍)
+fire("pointerdown", edge(295)); fire("pointermove", edge(445));  // 掴み場所の幅(6px)も 1.5 倍。150px は CSS の 100px
+const zoomResizeDuring = widths()[0];
+fire("pointerup", edge(445));
+scenarios.zoomResize = { during: zoomResizeDuring, variable: variable(), emitted: emitted.splice(0) };
+click(); flush();
+fire("pointerdown", edge(285));  // 画面上 15px の内側は、掴み場所の外(CSS では 10px)
+scenarios.zoomOutsideEdge = { widths: widths(), emitted: emitted.splice(0) };
+fire("pointerup", edge(285));
+
 console.log(JSON.stringify(scenarios));
 """
 
@@ -567,3 +593,12 @@ async def test_min_days_stops_at_the_predecessors_finish(user: User) -> None:
     await user.open("/")
     # 先行の完了は火曜(10/6)の 15:30。後続の開始 10/12 から 10/6 まで -6 日
     assert props_of(user, "bar-0-1")["data-min-days"] == "-6"
+
+
+def test_a_zoomed_page_converts_pointer_distances_back_to_css_pixels(js_scenarios: dict) -> None:
+    assert js_scenarios["zoomBar"]["during"] == "translateX(80px)"
+    assert js_scenarios["zoomBar"]["emitted"] == [["chart_shift", {"si": 0, "ti": 0, "days": 2}]]
+    assert js_scenarios["zoomResize"]["during"] == "300px"
+    assert js_scenarios["zoomResize"]["variable"] == "300px"
+    assert js_scenarios["zoomResize"]["emitted"] == [["chart_name_width", {"width": 300}]]
+    assert js_scenarios["zoomOutsideEdge"]["emitted"] == []

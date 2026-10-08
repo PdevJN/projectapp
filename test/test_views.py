@@ -10,6 +10,7 @@ import pytest
 from nicegui import ui
 from nicegui.testing import User
 
+from projectapp.config import load_zoom, save_zoom
 from projectapp.calendar import DayKind, save_cache
 from projectapp.filtering import TaskFilter
 from projectapp.gantt import KIND_COLORS
@@ -2299,3 +2300,113 @@ async def test_the_help_dialog_lists_the_shortcuts(user: User, tmp_path: Path) -
     views[0].help_dialog.open()
     await user.should_see("Ctrl/Cmd+S: 上書き保存")
     await user.should_see("?: ショートカットヘルプ")
+
+
+# --- 画面の拡大・縮小(Ctrl/Cmd + `+` / `-` / `0`) ---
+
+
+def zoom_calls(calls: list[str]) -> list[str]:
+    return [c for c in calls if "style.zoom" in c]
+
+
+async def open_zoom_view(user: User, tmp_path: Path, exporter: FakeExporter | None = None) -> tuple[MainView, list[str]]:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    calls: list[str] = []
+
+    @ui.page("/")
+    def index() -> None:
+        view = MainView(tmp_path, make_transport(200, []), exporter or FakeExporter())
+        view.run_js = lambda script, **_: calls.append(script)  # ブラウザの偽物
+        views.append(view)
+        view.build()
+
+    await user.open("/")
+    return views[0], calls
+
+
+async def test_the_zoom_starts_at_100_percent_and_applies_it(user: User, tmp_path: Path) -> None:
+    view, calls = await open_zoom_view(user, tmp_path)
+    assert view.zoom == 100
+    assert zoom_calls(calls) == ["document.body.style.zoom = 1.0"]
+
+
+async def test_the_saved_zoom_is_restored_on_startup(user: User, tmp_path: Path) -> None:
+    save_zoom(130, tmp_path)
+    view, calls = await open_zoom_view(user, tmp_path)
+    assert view.zoom == 130
+    assert zoom_calls(calls) == ["document.body.style.zoom = 1.3"]
+
+
+async def test_ctrl_plus_and_minus_zoom_in_and_out_and_save_it(user: User, tmp_path: Path) -> None:
+    view, calls = await open_zoom_view(user, tmp_path)
+    view.on_key(key_event("+", ctrl=True, shift=True))
+    view.on_key(key_event("=", ctrl=True))
+    assert view.zoom == 120
+    view.on_key(key_event("-", ctrl=True))
+    assert view.zoom == 110
+    assert zoom_calls(calls)[-1] == "document.body.style.zoom = 1.1"
+    assert load_zoom(tmp_path) == 110
+    view.on_key(key_event("0", ctrl=True))
+    assert (view.zoom, load_zoom(tmp_path)) == (100, 100)
+
+
+async def test_the_zoom_stops_at_the_limits(user: User, tmp_path: Path) -> None:
+    view, _ = await open_zoom_view(user, tmp_path)
+    for _ in range(20):
+        view.on_key(key_event("+", ctrl=True, shift=True))
+    assert view.zoom == 200
+    for _ in range(30):
+        view.on_key(key_event("-", ctrl=True))
+    assert view.zoom == 70
+
+
+async def test_the_zoom_works_while_a_dialog_is_open_and_in_the_preview(user: User, tmp_path: Path) -> None:
+    view, _ = await open_zoom_view(user, tmp_path)
+    view.help_dialog.open()
+    view.on_key(key_event("+", ctrl=True, shift=True))
+    assert view.zoom == 110
+    view.help_dialog.close()
+    view.enter_preview()
+    view.on_key(key_event("-", ctrl=True))
+    assert view.zoom == 100
+
+
+async def test_a_zoom_that_cannot_be_saved_still_applies_and_warns(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    view, _ = await open_zoom_view(user, tmp_path)
+
+    def fail(*_: object) -> None:
+        raise OSError("読み取り専用")
+
+    monkeypatch.setattr("projectapp.views.save_zoom", fail)
+    view.on_key(key_event("+", ctrl=True, shift=True))
+    assert view.zoom == 110
+    await user.should_see("倍率を保存できませんでした")
+
+
+class ZoomSpyExporter(FakeExporter):
+    """画像化の瞬間の、画面の倍率を記録する偽物。"""
+
+    def __init__(self, calls: list[str]) -> None:
+        super().__init__()
+        self.calls = calls
+        self.zoom_at_capture: str | None = None
+
+    async def capture(self, pixel_ratio: float) -> bytes:
+        self.zoom_at_capture = zoom_calls(self.calls)[-1]
+        return await super().capture(pixel_ratio)
+
+
+async def test_the_image_is_captured_at_100_percent_and_the_zoom_comes_back(user: User, tmp_path: Path) -> None:
+    calls: list[str] = []
+    exporter = ZoomSpyExporter(calls)
+    save_zoom(150, tmp_path)
+    view, view_calls = await open_zoom_view(user, tmp_path, exporter)
+    exporter.calls = view_calls
+    view.enter_preview()
+    await view.save_image()
+    assert exporter.zoom_at_capture == "document.body.style.zoom = 1.0"  # 倍率をかけたままだと、画像の大きさがずれる
+    assert zoom_calls(view_calls)[-1] == "document.body.style.zoom = 1.5"
+    assert view.zoom == 150

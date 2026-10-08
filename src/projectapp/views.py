@@ -13,7 +13,16 @@ from nicegui.events import KeyEventArguments
 from projectapp.calendar import load_cache
 from projectapp.linkgraph import drop_task_links, link_options
 from projectapp.calendar import refresh_holidays as download_holidays
-from projectapp.config import THEMES, load_name_width, load_theme, save_name_width, save_theme
+from projectapp.config import (
+    THEMES,
+    load_name_width,
+    load_theme,
+    load_zoom,
+    save_name_width,
+    save_theme,
+    save_zoom,
+    step_zoom,
+)
 from projectapp.forms import (
     open_file_dialog,
     open_handoff_dialog,
@@ -93,6 +102,14 @@ HANDOFF_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、書き�
 KEY_GUARD_JS = key_guard_js()
 
 
+def zoom_js(percent: int) -> str:
+    """画面全体の倍率をかける JS(CSS の zoom。行の高さ・バー・矢印・文字・ダイアログがそろって変わる)。"""
+    return f"document.body.style.zoom = {round(percent / 100, 2)}"
+
+
+ZOOM_DIRECTIONS = {"zoom_in": 1, "zoom_out": -1, "zoom_reset": 0}
+
+
 class MainView:
     """メインパネル。現在のプロジェクトと画面部品を保持する。"""
 
@@ -111,6 +128,8 @@ class MainView:
         self.dashboard_kind: PeriodKind | None = None  # 開いているときの期間。保存しない
         self.open_folder: Callable[[Path], object] = open_folder  # テストで差し替える(実際にはファイラを開かない)
         self.saving = False
+        self.zoom = load_zoom(base_dir)  # 画面全体の倍率(%)。全プロジェクト共通
+        self.run_js: Callable[..., Any] = ui.run_javascript  # テストで差し替える
         self.project = Project(NEW_PROJECT_NAME)
         self.files: dict[str, Path] = {p.stem: p for p in list_project_files(base_dir)}
         self.path: Path | None = None
@@ -268,6 +287,19 @@ class MainView:
         """2区間以上の実績を持つタスクの数。簡易へ戻せるかの判定に使う。"""
         return sum(1 for task in self.project.all_tasks() if len(task.actuals) > 1)
 
+    def change_zoom(self, direction: int) -> None:
+        """画面の倍率を 1 刻み変える(+1 拡大・-1 縮小・0 で 100%)。全体の設定として保存する。
+        保存できなくても、画面には反映する(通知だけ出す)。画像の書き出し中は変えない。"""
+        zoom = step_zoom(self.zoom, direction)
+        if zoom == self.zoom or self.saving:
+            return
+        self.zoom = zoom
+        self.run_js(zoom_js(zoom))
+        try:
+            save_zoom(zoom, self.base_dir)
+        except OSError:
+            ui.notify("倍率を保存できませんでした", type="warning")
+
     SHORTCUT_METHODS = {
         "save": "save_project_clicked",
         "save_as": "save_as",
@@ -316,6 +348,8 @@ class MainView:
             self.gantt.focus_search()
         elif action == "help":
             self.help_dialog.open()
+        elif action in ZOOM_DIRECTIONS:
+            self.change_zoom(ZOOM_DIRECTIONS[action])
         elif action is not None:
             getattr(self, self.SHORTCUT_METHODS[action])()
 
@@ -418,6 +452,8 @@ class MainView:
             return
         self.saving = True
         self.preview_bar.set_save_enabled(False)
+        if self.zoom != 100:
+            self.run_js(zoom_js(100))  # 倍率をかけたままだと、画像の大きさがずれる
         try:
             ratio = export_pixel_ratio(self.gantt.content_width())
             try:
@@ -436,6 +472,8 @@ class MainView:
             ui.notify("保存しました")
         finally:
             self.saving = False
+            if self.zoom != 100:
+                self.run_js(zoom_js(self.zoom))
             if self.preview is not None:
                 self.preview_bar.set_save_enabled(self.exporter.available)
 
@@ -692,7 +730,8 @@ class MainView:
         self.dashboard_view.build()
         self.gantt.build()
         self.client = ui.context.client
-        ui.run_javascript(KEY_GUARD_JS)
+        self.run_js(KEY_GUARD_JS)
+        self.run_js(zoom_js(self.zoom))
         ui.keyboard(on_key=self.on_plain_key)  # 入力欄・ボタンにフォーカスがあるときは、受けない
         ui.keyboard(on_key=self.on_modified_key, ignore=[])  # Ctrl/Cmd 付きだけは、入力欄でも受ける
         if self.needs_first_fetch:
