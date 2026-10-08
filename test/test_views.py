@@ -1596,7 +1596,7 @@ async def test_editing_a_task_keeps_the_section_collapsed(user: User, tmp_path: 
     view.gantt.set_project(view.project)
     view.gantt.toggle_section(0)
     view.save_task(0, 0, planned_task())
-    assert view.gantt.collapsed == {0}
+    assert view.gantt.collapsed == {(0,)}
 
 
 async def test_adding_a_top_level_task_keeps_collapsed_sections(user: User, tmp_path: Path) -> None:
@@ -1609,7 +1609,7 @@ async def test_adding_a_top_level_task_keeps_collapsed_sections(user: User, tmp_
     view.gantt.set_project(view.project)
     view.gantt.toggle_section(0)
     view.save_task(None, None, planned_task())
-    assert view.gantt.collapsed == {0}
+    assert view.gantt.collapsed == {(0,)}
 
 
 async def test_opening_a_project_expands_every_section(user: User, tmp_path: Path) -> None:
@@ -1656,7 +1656,7 @@ async def test_the_preview_shows_a_collapsed_section_and_returns_to_it(user: Use
     await user.should_not_see(marker="section-toggle-0")
     view.exit_preview()
     await user.should_not_see(marker="task-0-0")
-    assert view.gantt.collapsed == {0}
+    assert view.gantt.collapsed == {(0,)}
 
 
 async def test_the_saved_name_width_is_restored_on_startup(user: User, tmp_path: Path) -> None:
@@ -2712,3 +2712,41 @@ async def test_the_member_table_uses_14px_controls(user: User, tmp_path: Path) -
     assert ".member-popup .q-item" in MEMBER_TABLE_CSS
     assert "height: 36px" in MEMBER_TABLE_CSS  # 14px の文字に合わせて、行の高さは 36px
     assert "member-table" in user.client.head_html  # ページに CSS が入っている
+
+
+async def open_nested_view(user: User, tmp_path: Path) -> MainView:
+    view = await open_members_view(user, tmp_path)
+    view.project.sections = [Section("親", [Task("p0")], [Section("子", [Task("c0")])])]
+    view.project.tasks = [Task("r0")]
+    view.gantt.set_project(view.project)
+    return view
+
+
+async def test_a_task_is_saved_into_a_nested_section(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.save_task((0, 0), None, Task("新しい"))
+    assert [t.name for t in view.project.sections[0].sections[0].tasks] == ["c0", "新しい"]
+    await user.should_see(marker="task-0.0-1")
+
+
+async def test_saving_into_a_nested_section_opens_it_and_its_parents(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.gantt.collapsed.update({(0,), (0, 0)})
+    view.save_task((0, 0), None, Task("新しい"))
+    assert view.gantt.collapsed == set()
+
+
+async def test_a_nested_task_can_be_deleted_and_shifted(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.project.sections[0].sections[0].tasks[0].planned_start = datetime(2026, 10, 7, 9)
+    view.shift_task((0, 0), 0, 2)
+    assert view.project.sections[0].sections[0].tasks[0].planned_start == datetime(2026, 10, 9, 9)
+    view.delete_task((0, 0), 0)
+    assert view.project.sections[0].sections[0].tasks == []
+    assert view.tasks_in((0,))[0].name == "p0"
+
+
+async def test_shift_ignores_a_path_that_does_not_exist(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.shift_task((0, 5), 0, 1)  # 存在しない。落ちない
+    view.shift_task((9,), 0, 1)

@@ -618,10 +618,10 @@ class MainView:
             "parameters": self.project.parameters,
         }
 
-    def add_task(self, section_index: int) -> None:
+    def add_task(self, path: SectionPath) -> None:
         open_task_dialog(
             None,
-            lambda task: self.save_task(section_index, None, task),
+            lambda task: self.save_task(path, None, task),
             work_start=self.project.work_start,
             daily_hours=self.project.daily_hours,
             holidays=self.holidays,
@@ -633,7 +633,7 @@ class MainView:
     def add_top_task(self) -> None:
         open_task_dialog(
             None,
-            lambda task: self.save_task(None, None, task),
+            lambda task: self.save_task((), None, task),
             work_start=self.project.work_start,
             daily_hours=self.project.daily_hours,
             holidays=self.holidays,
@@ -642,23 +642,23 @@ class MainView:
             **self.link_args(None),
         )
 
-    def edit_task(self, section_index: int | None, task_index: int) -> None:
-        task = self.tasks_in(section_index)[task_index]
+    def edit_task(self, path: SectionPath, task_index: int) -> None:
+        task = self.tasks_in(path)[task_index]
         open_task_dialog(
             task,
-            lambda t: self.save_task(section_index, task_index, t),
+            lambda t: self.save_task(path, task_index, t),
             work_start=self.project.work_start,
             daily_hours=self.project.daily_hours,
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
-            on_delete=lambda: self.delete_task(section_index, task_index),
+            on_delete=lambda: self.delete_task(path, task_index),
             **self.link_args(task),
         )
 
-    def delete_task(self, section_index: int | None, task_index: int) -> None:
+    def delete_task(self, path: SectionPath, task_index: int) -> None:
         """タスクを取り除いて再描画する。保存は自動では行わない(編集中の判定に入る)。"""
-        removed = self.tasks_in(section_index).pop(task_index)
+        removed = self.tasks_in(path).pop(task_index)
         drop_task_links(self.project, removed.id)
         self.gantt.set_project(self.project)
 
@@ -674,11 +674,11 @@ class MainView:
             return
         self.gantt.set_project(self.project)
 
-    def shift_task(self, section_index: SectionPath, task_index: int, days: int) -> None:
+    def shift_task(self, path: SectionPath, task_index: int, days: int) -> None:
         """開始予定(と入っていれば完了予定)を days 日ずらす。締切は動かさず、基準日より前へは動かさない。"""
-        if days == 0 or not arrange.has_task(self.project, (section_index, task_index)):
+        if days == 0 or not arrange.has_task(self.project, (path, task_index)):
             return
-        task = self.tasks_in(section_index)[task_index]
+        task = self.tasks_in(path)[task_index]
         schedule = Schedule(self.project, self.holidays)
         shown = schedule.start(task)
         floor = schedule.latest_finish(task)
@@ -692,20 +692,20 @@ class MainView:
         self.gantt.set_project(self.project)
         self.warn_overallocation(task)
 
-    def tasks_in(self, section_index: object) -> list[Task]:
+    def tasks_in(self, path: object) -> list[Task]:
         """セクション(パス。移行中は None・整数も可)のタスク一覧。root は (): セクションに属さないタスク。"""
-        return arrange.tasks_at(self.project, section_index)
+        return arrange.tasks_at(self.project, path)
 
     def save_task(
-        self, section_index: int | None, task_index: int | None, task: Task
+        self, path: SectionPath, task_index: int | None, task: Task
     ) -> None:
-        tasks = self.tasks_in(section_index)
+        tasks = self.tasks_in(path)
         if task_index is None:
             tasks.append(task)
         else:
             tasks[task_index] = task
-        if task_index is None and section_index is not None:
-            self.gantt.expand_section(section_index)  # 追加したタスクが見えるように
+        if task_index is None and arrange.as_path(path):
+            self.gantt.expand_section(path)  # 追加したタスクが、親も含めて見えるように
         self.gantt.set_project(self.project)
         self.warn_overallocation(task)
 

@@ -9,7 +9,7 @@ from nicegui import Client, context, ui
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp import arrange
-from projectapp.arrange import Position
+from projectapp.arrange import Position, section_key
 from projectapp.calendar import DayKind, day_kind
 from projectapp.config import (
     DEFAULT_NAME_WIDTH_PX,
@@ -17,7 +17,7 @@ from projectapp.config import (
     MIN_NAME_WIDTH_PX,
     parse_name_width,
 )
-from projectapp.filtering import TaskFilter, matches, visible_task_indexes
+from projectapp.filtering import TaskFilter, matches, section_has_match, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
 from projectapp.models import Priority, Project, Section, SectionPath, Status, Task, TaskKind
@@ -290,7 +290,9 @@ class SectionView:
     """描画したセクションの、折りたたみで切り替える部品。描き直すたびに作り直す。"""
 
     arrow: ui.button | None = None  # 開閉の矢印(読み取り専用では出さない)
-    rows: list[ui.element] = field(default_factory=list)  # このセクションのタスクの行
+    header: ui.element | None = None  # 見出しの行(親が折りたたまれると隠す)
+    rows: list[ui.element] = field(default_factory=list)  # このセクション自身のタスクの行
+    children: list[SectionPath] = field(default_factory=list)  # 描いたサブセクション
 
 
 @dataclass
@@ -298,9 +300,9 @@ class GanttActions:
     """チャートからの操作要求を受け取るコールバック。"""
 
     add_section: Callable[[], object]
-    add_task: Callable[[int], object]
+    add_task: Callable[[SectionPath], object]
     add_top_task: Callable[[], object]
-    edit_task: Callable[[int | None, int], object]  # セクション番号(Noneはセクションなし), タスク番号
+    edit_task: Callable[[SectionPath, int], object]  # セクションのパス(root は ()), タスク番号
     move_task: Callable[[Position, Position, bool], object]  # 元, 挿入先, コピーか
     shift_task: Callable[[SectionPath, int, int], object]  # セクションのパス(root は ()), タスク番号, 日数
     set_name_width: Callable[[int], object]  # 名前の欄の幅(px)。範囲に収めた整数。保存は受け取り側
@@ -329,8 +331,8 @@ class GanttChart:
         self.toolbar: ui.row | None = None
         self.scroll_box: ui.element | None = None
         self.task_filter = TaskFilter()
-        self.collapsed: set[int] = set()  # 折りたたんだセクションの添字。保存しない
-        self.section_views: dict[int, SectionView] = {}  # 描画中のセクションの部品
+        self.collapsed: set[SectionPath] = set()  # 折りたたんだセクションのパス。保存しない
+        self.section_views: dict[SectionPath, SectionView] = {}  # 描画中のセクションの部品
         self.search_input: ui.input | None = None
         self.assignee_select: ui.select | None = None
         self.client: Client | None = None
@@ -390,7 +392,7 @@ class GanttChart:
         self.name_width = width
         self.actions.set_name_width(width)
 
-    def drag_props(self, kind: str, key: int | str, **extra: object) -> str:
+    def drag_props(self, kind: str, key: str, **extra: object) -> str:
         """ドロップ先の `data-*` 属性。絞り込み中は空(ドロップできない)。"""
         if self.task_filter.active or self.options.read_only:
             return ""
@@ -398,23 +400,41 @@ class GanttChart:
         parts += [f"data-{name}={value}" for name, value in extra.items()]
         return " ".join(parts)
 
-    def toggle_section(self, si: int) -> None:
+    def hidden_by_ancestor(self, path: SectionPath) -> bool:
+        """親のどれかが折りたたまれているか。"""
+        return any(path[:n] in self.collapsed for n in range(1, len(path)))
+
+    def toggle_section(self, section: object) -> None:
         """セクションの折りたたみを切り替える。描き直さず、行の表示と矢印だけを変える。"""
-        self.collapsed.symmetric_difference_update({si})
-        view = self.section_views.get(si)
+        path = arrange.as_path(section)
+        self.collapsed.symmetric_difference_update({path})
+        view = self.section_views.get(path)
         if view is None or self.options.read_only:
             return
         self.update_links()
-        collapsed = si in self.collapsed
         if view.arrow is not None:
-            view.arrow.props(f"icon={ARROW_COLLAPSED if collapsed else ARROW_EXPANDED}")
+            view.arrow.props(f"icon={ARROW_COLLAPSED if path in self.collapsed else ARROW_EXPANDED}")
         if not self.task_filter.active:  # 絞り込み中は、折りたたみを無視する(表示は変えない)
-            for row in view.rows:
-                row.set_visibility(not collapsed)
+            self.apply_visibility(path, self.hidden_by_ancestor(path))
 
-    def expand_section(self, si: int) -> None:
-        """セクションを展開する(描き直しは、呼び出し側のあとの処理に任せる)。"""
-        self.collapsed.discard(si)
+    def apply_visibility(self, path: SectionPath, hidden: bool) -> None:
+        """セクションの見出し・タスク・サブセクションの表示を、折りたたみの状態に合わせる。"""
+        view = self.section_views.get(path)
+        if view is None:
+            return
+        collapsed = path in self.collapsed
+        if view.header is not None:
+            view.header.set_visibility(not hidden)
+        for row in view.rows:
+            row.set_visibility(not hidden and not collapsed)
+        for child in view.children:
+            self.apply_visibility(child, hidden or collapsed)
+
+    def expand_section(self, section: object) -> None:
+        """セクションと、その親をすべて展開する(描き直しは、呼び出し側のあとの処理に任せる)。"""
+        path = arrange.as_path(section)
+        for n in range(1, len(path) + 1):
+            self.collapsed.discard(path[:n])
 
     def reset_collapsed(self) -> None:
         """すべて展開に戻す(描き直しは、呼び出し側のあとの処理に任せる)。"""
@@ -498,10 +518,10 @@ class GanttChart:
         """名前の欄の右端を、幅の調整の掴み場所にするクラス(先頭に空白)。読み取り専用では付けない。"""
         return "" if self.options.read_only else " gantt-name-resizable"
 
-    def edit_on_click(self, element: ui.element, si: int | None, ti: int) -> ui.element:
+    def edit_on_click(self, element: ui.element, path: SectionPath, ti: int) -> ui.element:
         """クリックでタスクの編集を開く。読み取り専用では何も付けない。"""
         if not self.options.read_only:
-            element.on("click", lambda si=si, ti=ti: self.actions.edit_task(si, ti))
+            element.on("click", lambda path=path, ti=ti: self.actions.edit_task(path, ti))
         return element
 
     def content_width(self) -> int:
@@ -521,7 +541,7 @@ class GanttChart:
         return row_slots(
             self.project,
             self.task_filter,
-            {arrange.as_path(si) for si in self.collapsed},  # 次のタスクで、collapsed 自体をパスの集合にする
+            self.collapsed,
             self.options.read_only,
             ROW_HEIGHT_PX,
             ADD_ROW_HEIGHT_PX,
@@ -669,10 +689,10 @@ class GanttChart:
             self.links(columns, width)
             for ti, task in enumerate(self.project.tasks):
                 if matches(task, self.task_filter):
-                    self.task_row(None, ti, task, columns, width)
+                    self.task_row((), ti, task, columns, width)
             self.top_add_row()
-            for si, section in enumerate(self.project.sections):
-                self.section_rows(si, section, columns, width)
+            for index, section in enumerate(self.project.sections):
+                self.section_rows((index,), section, columns, width)
 
     def no_match_message(self) -> None:
         """絞り込み中に1件も一致しないとき(タスクが1つもないときは出さない)。"""
@@ -770,56 +790,65 @@ class GanttChart:
             ).mark("label-row-cells")
 
     def section_rows(
-        self, si: int, section: Section, columns: list[Column], width: int
+        self, path: SectionPath, section: Section, columns: list[Column], width: int, hidden: bool = False
     ) -> None:
-        collapsed = si in self.collapsed and not self.options.read_only
-        visible = visible_task_indexes(section, self.task_filter, collapsed)
-        if self.task_filter.active and not visible:
+        """セクションの見出し・タスク・サブセクション(再帰)を描く。hidden は、親のどれかが折りたたまれている。"""
+        if self.task_filter.active and not section_has_match(section, self.task_filter):
             return
-        view = self.section_views[si] = SectionView()
+        key = section_key(path)
+        collapsed = path in self.collapsed and not self.options.read_only
+        effective = collapsed and not self.task_filter.active
+        visible = visible_task_indexes(section, self.task_filter, collapsed)
+        view = self.section_views[path] = SectionView()
+        indent = 12 * (len(path) - 1)
         header = ui.row().classes("items-center no-wrap gap-2").style(ROW_STYLE)
-        header.props(self.drag_props("section", si, count=len(section.tasks)))
-        header.mark(f"section-{si}")
+        header.props(self.drag_props("section", key, count=len(section.tasks)))
+        header.mark(f"section-{key}")
+        header.set_visibility(not hidden)
+        view.header = header
         with header:
             name = ui.row().classes("items-center no-wrap gap-2 gantt-sticky" + self.resize_classes())
             name.style(  # 名前の列にちょうど収める(狭いと縞や格子線が見え、広いと棒を隠す)
                 f"width: var(--name-w); overflow: hidden; align-self: stretch;"
-                f" {sticky_left(STICKY_Z_NAME)}"
+                f" padding-left: {indent}px; {sticky_left(STICKY_Z_NAME)}"
             )
-            with name.mark(f"section-name-{si}"):
+            with name.mark(f"section-name-{key}"):
                 if not self.options.read_only:
                     arrow = ARROW_COLLAPSED if collapsed else ARROW_EXPANDED
                     view.arrow = ui.button(
-                        icon=arrow, on_click=lambda si=si: self.toggle_section(si)
-                    ).props("flat dense round size=sm").classes("shrink-0").mark(
-                        f"section-toggle-{si}"
-                    )
+                        icon=arrow, on_click=lambda path=path: self.toggle_section(path)
+                    ).props("flat dense round size=sm").classes("shrink-0").mark(f"section-toggle-{key}")
                 label = ui.label(section.name).classes("text-subtitle2 ellipsis")
                 label.style("min-width: 0; padding-left: 4px")  # 長い名前は縮めて、ボタンを残す
-                label.tooltip(section.name).mark(f"section-label-{si}")
+                label.tooltip(section.name).mark(f"section-label-{key}")
                 if not self.options.read_only:
-                    label.classes("cursor-pointer").on("click", lambda si=si: self.toggle_section(si))
-                ui.label(f"({len(section.tasks)})").classes("text-caption shrink-0").mark(
-                    f"section-count-{si}"
+                    label.classes("cursor-pointer").on("click", lambda path=path: self.toggle_section(path))
+                ui.label(f"({len(section.all_tasks())})").classes("text-caption shrink-0").mark(
+                    f"section-count-{key}"
                 )
                 if not self.options.read_only:
                     ui.button(
-                        icon="add", on_click=lambda si=si: self.actions.add_task(si)
-                    ).props("flat dense round size=sm").classes("shrink-0").tooltip(
-                        "タスク追加"
-                    ).mark(f"add-task-{si}")
+                        icon="add", on_click=lambda path=path: self.actions.add_task(path)
+                    ).props("flat dense round size=sm").classes("shrink-0").tooltip("タスク追加").mark(
+                        f"add-task-{key}"
+                    )
         shown = set(visible)
         for ti, task in enumerate(section.tasks):
             if self.task_filter.active and ti not in shown:
                 continue  # 絞り込みで外れたタスクは、描かない
-            row = self.task_row(si, ti, task, columns, width)
-            row.set_visibility(ti in shown)  # 折りたたみ中は、行を作って隠しておく(開くとき作り直さない)
+            row = self.task_row(path, ti, task, columns, width)
+            row.set_visibility(not hidden and ti in shown)  # 折りたたみ中は、行を作って隠しておく(開くとき作り直さない)
             view.rows.append(row)
+        for index, child in enumerate(section.sections):
+            child_path = (*path, index)
+            self.section_rows(child_path, child, columns, width, hidden or effective)
+            if child_path in self.section_views:
+                view.children.append(child_path)
 
     def task_row(
-        self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
+        self, path: SectionPath, ti: int, task: Task, columns: list[Column], width: int
     ) -> ui.element:
-        key = "top" if si is None else si
+        key = section_key(path)
         style = ROW_STYLE
         now = self.now()
         overdue = is_overdue(task, self.project, self.holidays, now, self.schedule) and self.options.show_alerts
@@ -835,7 +864,7 @@ class GanttChart:
                 f" {PRIORITY_CLASSES[task.priority]}" + self.resize_classes()
             )
             cell_style = (
-                f"width: var(--name-w); padding-left: 16px; padding-right: 4px;"
+                f"width: var(--name-w); padding-left: {16 + 12 * max(len(path) - 1, 0)}px; padding-right: 4px;"
                 f" align-self: stretch; background-color: {PRIORITY_BACKGROUND_VAR};"
                 f" {sticky_left(STICKY_Z_NAME)}"
             )
@@ -844,7 +873,7 @@ class GanttChart:
                     f"; background-image: linear-gradient({OVERDUE_COLOR}, {OVERDUE_COLOR})"
                 )
             cell.style(cell_style)
-            self.edit_on_click(cell, si, ti)
+            self.edit_on_click(cell, path, ti)
             cell.mark(f"task-{key}-{ti}")
             if not self.task_filter.active and not self.options.read_only:
                 cell.props(f"draggable=true data-drag-handle data-si={key} data-ti={ti}")
@@ -858,7 +887,7 @@ class GanttChart:
                 if self.options.show_chips:
                     self.task_chips(key, ti, task)
             if task.kind is TaskKind.CHECKPOINT:  # バーも実績もなく、◆ だけを出す
-                self.checkpoint_marker(si, ti, task, columns, width)
+                self.checkpoint_marker(path, ti, task, columns, width)
                 return row
             start = self.schedule.start(task)
             end = self.schedule.end(task)
@@ -882,7 +911,7 @@ class GanttChart:
                 bar.classes(STATUS_CLASSES[task.status])
                 if state in PROGRESS_STATE_CLASSES:
                     bar.classes(PROGRESS_STATE_CLASSES[state])
-                self.edit_on_click(bar, si, ti)
+                self.edit_on_click(bar, path, ti)
                 bar.mark(f"bar-{key}-{ti}")
                 if draggable:
                     least = arrange.min_shift_days(
@@ -900,8 +929,8 @@ class GanttChart:
                 total = width * len(columns)
                 if self.options.period is None or mark_left <= total - MARK_WIDTH_PX:
                     self.progress_marker(key, ti, task, state, mark_left, end)  # 期間の右端の外へは出さない
-            self.actual_bars(si, ti, task, columns, width)
-            self.deadline_marker(si, ti, task, columns, width)
+            self.actual_bars(path, ti, task, columns, width)
+            self.deadline_marker(path, ti, task, columns, width)
         return row
 
     def task_chips(self, key: int | str, ti: int, task: Task) -> None:
@@ -1002,14 +1031,14 @@ class GanttChart:
 
     def actual_bars(
         self,
-        si: int | None,
+        path: SectionPath,
         ti: int,
         task: Task,
         columns: list[Column],
         width: int,
     ) -> None:
         """実績の棒。予定の棒の下半分に、不透明で重ねる。進行中は現在時刻まで。ドラッグはできない。色は状態の色。"""
-        key = "top" if si is None else si
+        key = section_key(path)
         for n, actual in enumerate(task.actuals):
             finish = actual.end if actual.end is not None else self.now()
             if not self.bar_visible(actual.start, finish, columns):
@@ -1022,7 +1051,7 @@ class GanttChart:
                 f" background: {STATUS_COLOR_VAR}; border-radius: 3px; cursor: pointer;"
                 " user-select: none; overflow: hidden"
             ).classes(STATUS_CLASSES[task.status])
-            self.edit_on_click(bar, si, ti)
+            self.edit_on_click(bar, path, ti)
             bar.mark(f"actual-{key}-{ti}-{n}")
             if actual.progress is not None:
                 with bar:
@@ -1044,7 +1073,7 @@ class GanttChart:
                 f" top: {ACTUAL_TOP_PX}px; height: {ACTUAL_HEIGHT_PX}px;"
                 f" background: {ACTUAL_GAP_BACKGROUND}; cursor: pointer; user-select: none"
             ).classes(STATUS_CLASSES[task.status])
-            self.edit_on_click(gap, si, ti)
+            self.edit_on_click(gap, path, ti)
             gap.mark(f"actual-gap-{key}-{ti}-{n}")
 
     def overload_stripes(
@@ -1081,7 +1110,7 @@ class GanttChart:
             ui.tooltip(" / ".join(lines))
 
     def checkpoint_marker(
-        self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
+        self, path: SectionPath, ti: int, task: Task, columns: list[Column], width: int
     ) -> None:
         """チェックポイントの ◆。締切の位置・行の中央。表示範囲の外なら出さない。"""
         if task.deadline is None:
@@ -1089,7 +1118,7 @@ class GanttChart:
         position = deadline_position(task.deadline, columns)
         if position is None:
             return
-        key = "top" if si is None else si
+        key = section_key(path)
         left = position * width - CHECKPOINT_MARKER_PX / 2
         marker = ui.label("◆").style(
             f"position: absolute; left: {from_name(left)}; top: 0; width: {CHECKPOINT_MARKER_PX}px;"
@@ -1097,13 +1126,13 @@ class GanttChart:
             f" font-size: {CHECKPOINT_MARKER_PX}px; color: {STATUS_COLOR_VAR}; cursor: pointer;"
             " user-select: none"
         ).classes(STATUS_CLASSES[task.status])
-        self.edit_on_click(marker, si, ti)
+        self.edit_on_click(marker, path, ti)
         marker.tooltip(f"チェックポイント {task.deadline:%Y-%m-%d %H:%M}").mark(
             f"checkpoint-{key}-{ti}"
         )
 
     def deadline_marker(
-        self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
+        self, path: SectionPath, ti: int, task: Task, columns: list[Column], width: int
     ) -> None:
         """締切がある行に、締切の位置へ「◆」を出す。表示範囲の外なら出さない。"""
         if task.deadline is None:
@@ -1111,11 +1140,11 @@ class GanttChart:
         position = deadline_position(task.deadline, columns)
         if position is None:
             return
-        key = "top" if si is None else si
+        key = section_key(path)
         left = position * width - DEADLINE_MARKER_HALF_PX
         marker = ui.label("◆").style(
             f"position: absolute; left: {from_name(left)}; top: 4px; line-height: 1;"
             f" color: {DEADLINE_COLOR}; cursor: pointer"
         )
-        self.edit_on_click(marker, si, ti)
+        self.edit_on_click(marker, path, ti)
         marker.tooltip(f"締切 {task.deadline:%Y-%m-%d %H:%M}").mark(f"deadline-{key}-{ti}")

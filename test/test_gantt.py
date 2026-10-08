@@ -186,9 +186,9 @@ async def test_clicks_call_the_actions(user: User) -> None:
     user.find(marker="add-task-0").click()
     user.find(marker="add-section").click()
     assert recorder.events == [
-        ("edit_task", (0, 0)),
-        ("edit_task", (0, 1)),
-        ("add_task", (0,)),
+        ("edit_task", ((0,), 0)),
+        ("edit_task", ((0,), 1)),
+        ("add_task", ((0,),)),
         ("add_section", ()),
     ]
 
@@ -285,7 +285,7 @@ async def test_top_level_task_clicks_call_edit_with_no_section(user: User) -> No
     await user.open("/")
     user.find(marker="bar-top-0").click()
     user.find(marker="task-top-1").click()
-    assert recorder.events == [("edit_task", (None, 0)), ("edit_task", (None, 1))]
+    assert recorder.events == [("edit_task", ((), 0)), ("edit_task", ((), 1))]
 
 
 async def test_top_level_tasks_come_before_sections(user: User) -> None:
@@ -514,7 +514,7 @@ async def test_clicking_the_deadline_marker_edits_the_task(user: User) -> None:
     recorder = mount(project)
     await user.open("/")
     user.find(marker="deadline-0-0").click()
-    assert recorder.events == [("edit_task", (0, 0))]
+    assert recorder.events == [("edit_task", ((0,), 0))]
 
 
 async def test_a_task_with_a_start_and_a_deadline_draws_the_bar_up_to_the_deadline(
@@ -568,7 +568,7 @@ async def test_stripes_do_not_block_clicks_on_the_bar(user: User) -> None:
     await user.open("/")
     assert user.find(marker="overload-top-0-0").elements.pop()._style["pointer-events"] == "none"
     user.find(marker="bar-top-0").click()
-    assert recorder.events == [("edit_task", (None, 0))]
+    assert recorder.events == [("edit_task", ((), 0))]
 
 
 async def test_the_bar_tooltip_names_the_member_and_the_peak(user: User) -> None:
@@ -700,7 +700,7 @@ async def test_clicking_the_section_name_toggles_it(user: User) -> None:
     await user.open("/")
     user.find(marker="section-label-0").click()
     await user.should_not_see(marker="task-0-0")
-    assert charts[0].collapsed == {0}
+    assert charts[0].collapsed == {(0,)}
 
 
 async def test_the_header_shows_the_task_count_open_or_collapsed(user: User) -> None:
@@ -719,7 +719,7 @@ async def test_a_collapsed_header_keeps_the_add_button(user: User) -> None:
     user.find(marker="section-toggle-0").click()
     await user.should_see(marker="add-task-0")
     user.find(marker="add-task-0").click()
-    assert charts[0].collapsed == {0}  # 追加ボタンは開閉しない
+    assert charts[0].collapsed == {(0,)}  # 追加ボタンは開閉しない
 
 
 async def test_a_collapsed_header_stays_a_drop_target(user: User) -> None:
@@ -737,7 +737,7 @@ async def test_a_filter_opens_collapsed_sections_and_clearing_it_collapses_again
     charts[0].set_filter(TaskFilter(query="実"))
     await user.should_see(marker="task-0-1")
     await user.should_not_see(marker="task-0-0")
-    assert charts[0].collapsed == {0}  # 絞り込みでは変えない
+    assert charts[0].collapsed == {(0,)}  # 絞り込みでは変えない
     charts[0].set_filter(TaskFilter())
     await user.should_not_see(marker="task-0-0")
     await user.should_not_see(marker="task-0-1")
@@ -785,7 +785,7 @@ async def test_read_only_shows_every_row_without_arrows_and_keeps_the_state(user
     assert user.find(marker="section-count-0").elements.pop().text == "(2)"
     charts[0].set_options(ViewOptions())
     await user.should_not_see(marker="task-0-0")
-    assert charts[0].collapsed == {0}
+    assert charts[0].collapsed == {(0,)}
 
 
 def elements_marked(chart: GanttChart, marker: str) -> list[ui.element]:
@@ -802,7 +802,7 @@ async def test_toggling_does_not_redraw_the_chart(user: User) -> None:
     user.find(marker="section-toggle-0").click()
     user.find(marker="section-toggle-0").click()
     await asyncio.sleep(0.3)  # 再描画は背景タスクなので、起きるなら、ここまでに終わる
-    assert charts[0].collapsed == {0}
+    assert charts[0].collapsed == {(0,)}
     assert user.find(marker="chart-header").elements.pop() is header  # 作り直していない
     assert user.find(marker="gridlines").elements.pop() is gridlines
     assert header.client is charts[0].client and header.id in charts[0].client.elements
@@ -834,7 +834,7 @@ async def test_the_arrow_icon_follows_the_state(user: User) -> None:
 async def test_a_section_collapsed_before_drawing_is_drawn_hidden(user: User) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
-    charts[0].collapsed.add(0)
+    charts[0].collapsed.add((0,))
     await charts[0].render.refresh()
     (row,) = elements_marked(charts[0], "row-0-1")
     assert not row.visible
@@ -847,7 +847,7 @@ async def test_toggling_while_filtering_keeps_the_rows_and_applies_after_clearin
     charts[0].set_filter(TaskFilter(query="実"))
     await user.should_see(marker="task-0-1")
     user.find(marker="section-toggle-0").click()
-    assert charts[0].collapsed == {0}
+    assert charts[0].collapsed == {(0,)}
     await user.should_see(marker="task-0-1")  # 絞り込み中は、折りたたみを無視する
     charts[0].set_filter(TaskFilter())
     await user.should_not_see(marker="task-0-0")
@@ -860,7 +860,7 @@ async def test_expand_and_reset_clear_the_state_without_drawing(user: User) -> N
     charts[0].toggle_section(0)
     charts[0].toggle_section(1)
     charts[0].expand_section(0)
-    assert charts[0].collapsed == {1}
+    assert charts[0].collapsed == {(1,)}
     charts[0].reset_collapsed()
     assert charts[0].collapsed == set()
 
@@ -893,7 +893,7 @@ async def test_original_indexes_are_kept_for_clicks_and_markers(user: User) -> N
     await user.should_not_see(marker="bar-0-0")
     user.find(marker="task-0-1").click()
     user.find(marker="bar-1-0").click()
-    assert recorder.events == [("edit_task", (0, 1)), ("edit_task", (1, 0))]
+    assert recorder.events == [("edit_task", ((0,), 1)), ("edit_task", ((1,), 0))]
 
 
 async def test_query_and_assignee_are_combined(user: User) -> None:
@@ -1547,7 +1547,7 @@ async def test_clicking_an_actual_bar_edits_the_task(user: User) -> None:
     recorder = mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))))
     await user.open("/")
     user.find(marker="actual-0-0-0").click()
-    assert recorder.events == [("edit_task", (0, 0))]
+    assert recorder.events == [("edit_task", ((0,), 0))]
 
 
 async def test_actual_bar_follows_the_week_scale(user: User) -> None:
@@ -2049,7 +2049,7 @@ async def test_the_click_is_handled_once_by_the_name_cell_so_the_chips_bubble_to
     for marker in ("task-name-0-0", "task-code-0-0", "task-assignee-0-0", "task-progress-0-0"):
         assert click_listeners(chip(user, marker)) == []
     user.find(marker="task-0-0").click()
-    assert recorder.events == [("edit_task", (0, 0))]
+    assert recorder.events == [("edit_task", ((0,), 0))]
 
 
 def mount_with(project: Project, options: ViewOptions, now: datetime = datetime(2026, 10, 1)) -> None:
@@ -2230,7 +2230,7 @@ async def test_the_edit_handlers_are_kept_when_not_read_only(user: User) -> None
     await user.open("/")
     user.find(marker="bar-0-0").click()
     user.find(marker="task-0-1").click()
-    assert recorder.events == [("edit_task", (0, 0)), ("edit_task", (0, 1))]
+    assert recorder.events == [("edit_task", ((0,), 0)), ("edit_task", ((0,), 1))]
 
 
 async def test_content_width_and_the_content_attribute(user: User) -> None:
@@ -2807,7 +2807,7 @@ async def test_clicking_a_checkpoint_opens_the_editor(user: User) -> None:
     recorder = mount(checkpoint_project())
     await user.open("/")
     user.find(marker="checkpoint-0-0").click()
-    assert ("edit_task", (0, 0)) in recorder.events
+    assert ("edit_task", ((0,), 0)) in recorder.events
 
 
 async def test_a_finished_checkpoint_is_grey_and_struck_through_without_chips(user: User) -> None:
@@ -2875,3 +2875,111 @@ async def test_a_checkpoint_outside_the_period_has_no_diamond(user: User) -> Non
         ViewOptions(period=(date(2026, 10, 5), date(2026, 10, 5)), read_only=True)
     )
     await user.should_not_see(marker="checkpoint-0-0")
+
+
+def nested_chart_project() -> Project:
+    def task(name: str) -> Task:
+        return Task(name, planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5)
+
+    grandchild = Section("孫", [task("孫タスク")])
+    child = Section("子", [task("子タスク")], [grandchild])
+    parent = Section("親", [task("親タスク")], [child, Section("子2", [task("子2タスク")])])
+    return Project("demo", base_date=BASE, tasks=[task("根タスク")], sections=[parent, Section("別", [task("別タスク")])])
+
+
+NESTED_MARKERS = [
+    "task-top-0", "section-0", "task-0-0", "section-0.0", "task-0.0-0", "section-0.0.0",
+    "task-0.0.0-0", "section-0.1", "task-0.1-0", "section-1", "task-1-0",
+]
+
+
+async def test_nested_sections_render_depth_first_with_their_keys(user: User) -> None:
+    mount(nested_chart_project())
+    await user.open("/")
+    for marker in NESTED_MARKERS:
+        await user.should_see(marker=marker)
+
+
+async def test_a_section_header_counts_every_task_below_it(user: User) -> None:
+    mount(nested_chart_project())
+    await user.open("/")
+    counts = {key: chip(user, f"section-count-{key}").text for key in ("0", "0.0", "0.0.0", "0.1", "1")}
+    assert counts == {"0": "(4)", "0.0": "(2)", "0.0.0": "(1)", "0.1": "(1)", "1": "(1)"}
+
+
+async def test_each_level_is_indented_by_12px(user: User) -> None:
+    mount(nested_chart_project())
+    await user.open("/")
+    assert chip(user, "task-top-0")._style["padding-left"] == "16px"  # root は今のまま
+    assert chip(user, "task-0-0")._style["padding-left"] == "16px"  # 1 階層目も今のまま
+    assert chip(user, "task-0.0-0")._style["padding-left"] == "28px"
+    assert chip(user, "task-0.0.0-0")._style["padding-left"] == "40px"
+    assert chip(user, "section-name-0")._style["padding-left"] == "0px"
+    assert chip(user, "section-name-0.0")._style["padding-left"] == "12px"
+    assert chip(user, "section-name-0.0.0")._style["padding-left"] == "24px"
+
+
+async def test_collapsing_a_parent_hides_every_descendant(user: User) -> None:
+    charts, _ = mount_chart(nested_chart_project())
+    await user.open("/")
+    charts[0].toggle_section((0,))
+    await user.should_see(marker="section-0")
+    for marker in ("task-0-0", "section-0.0", "task-0.0-0", "section-0.0.0", "task-0.0.0-0", "section-0.1", "task-0.1-0"):
+        await user.should_not_see(marker=marker)
+    await user.should_see(marker="section-1")
+    await user.should_see(marker="task-1-0")
+
+
+async def test_reopening_a_parent_keeps_the_childs_own_collapsed_state(user: User) -> None:
+    charts, _ = mount_chart(nested_chart_project())
+    await user.open("/")
+    charts[0].toggle_section((0, 0))  # 子を閉じる
+    charts[0].toggle_section((0,))  # 親を閉じる
+    charts[0].toggle_section((0,))  # 親を開く
+    await user.should_see(marker="section-0.0")  # 子の見出しは見える
+    await user.should_not_see(marker="task-0.0-0")  # 子は閉じたまま
+    await user.should_not_see(marker="section-0.0.0")
+    await user.should_see(marker="task-0.1-0")  # 兄弟は開いている
+
+
+async def test_expand_section_opens_every_ancestor(user: User) -> None:
+    charts, _ = mount_chart(nested_chart_project())
+    await user.open("/")
+    chart = charts[0]
+    chart.collapsed.update({(0,), (0, 0), (0, 0, 0), (1,)})
+    chart.expand_section((0, 0, 0))
+    assert chart.collapsed == {(1,)}  # 親すべてと自分を開き、無関係なセクションは閉じたまま
+
+
+async def test_a_filter_shows_the_parents_of_a_match_and_ignores_collapse(user: User) -> None:
+    charts, _ = mount_chart(nested_chart_project())
+    await user.open("/")
+    charts[0].collapsed.update({(0,), (0, 0)})
+    charts[0].set_filter(TaskFilter(query="孫"))
+    for marker in ("section-0", "section-0.0", "section-0.0.0", "task-0.0.0-0"):
+        await user.should_see(marker=marker)
+    for marker in ("task-top-0", "task-0-0", "task-0.0-0", "section-0.1", "section-1"):
+        await user.should_not_see(marker=marker)
+
+
+async def test_clicking_a_nested_task_reports_its_path(user: User) -> None:
+    recorder = mount(nested_chart_project())
+    await user.open("/")
+    user.find(marker="task-0.0-0").click()
+    assert recorder.events == [("edit_task", ((0, 0), 0))]
+
+
+async def test_the_add_task_button_of_a_nested_section_reports_its_path(user: User) -> None:
+    recorder = mount(nested_chart_project())
+    await user.open("/")
+    user.find(marker="add-task-0.0.0").click()
+    assert recorder.events == [("add_task", ((0, 0, 0),))]
+
+
+async def test_read_only_shows_every_nested_row_ignoring_collapse(user: User) -> None:
+    charts, _ = mount_chart(nested_chart_project())
+    await user.open("/")
+    charts[0].collapsed.add((0,))
+    charts[0].set_options(ViewOptions(read_only=True))
+    for marker in ("section-0.0.0", "task-0.0.0-0"):
+        await user.should_see(marker=marker)
