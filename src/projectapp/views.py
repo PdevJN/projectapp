@@ -24,6 +24,7 @@ from projectapp.config import (
     step_zoom,
 )
 from projectapp.forms import (
+    MEMBER_TABLE_CSS,
     open_file_dialog,
     open_handoff_dialog,
     open_members_dialog,
@@ -741,6 +742,7 @@ class MainView:
     def build(self) -> None:
         ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
         ui.add_css(HEADER_CSS)
+        ui.add_css(MEMBER_TABLE_CSS)
         self.help_dialog = self.build_help_dialog()
         self.header()
         with ui.row().classes("w-full items-center") as title_box:

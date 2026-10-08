@@ -24,6 +24,7 @@ from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.dashboard import PeriodKind
 from projectapp.timeline import Scale, effective_end
 from projectapp.gantt import ViewOptions
+from projectapp.forms import MEMBER_TABLE_CSS
 from projectapp.views import HEADER_CSS, THEME_ICONS, MainView
 
 
@@ -2668,8 +2669,7 @@ async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(user: U
     assert scroll._style["overflow-x"] == "auto"  # パラメータが多くて広がっても、横にスクロールできる
     grid = user.find(marker="member-grid").elements.pop()
     assert "min-width" in grid._style  # 列を押しつぶさない
-    name_column = grid_columns(user)[0]
-    assert name_column.startswith("minmax(") or name_column.endswith("rem")  # 名前の列は、列の数にかかわらず十分な幅
+    assert grid_columns(user)[0] == "7rem"  # 名前の列は、列の数にかかわらず固定(狭くも広くもならない)
     assert len(grid_columns(user)) == 2 + 7 + 2
 
 
@@ -2682,3 +2682,33 @@ async def test_the_table_inputs_have_no_floating_labels(user: User, tmp_path: Pa
         props = user.find(marker=marker).elements.pop().props
         assert not props.get("label")  # 見出しの行が列の意味を示す
         assert props.get("dense") in (True, "")
+
+
+async def test_the_name_column_is_a_narrow_fixed_width_with_or_without_parameters(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("田中", 1.0)]
+    user.find(marker="open-members").click()
+    await user.should_see(marker="member-grid")
+    assert grid_columns(user) == ["7rem", "7rem", "3rem"]  # 名前・相対比率・削除
+
+
+async def test_the_dialog_width_follows_the_columns_without_the_old_wide_name(user: User, tmp_path: Path) -> None:
+    from projectapp.forms import member_table_min_rem
+
+    # 名前 7rem + 比率 7rem + 削除 3rem + 列の間隔。以前の名前 12rem 以上の幅ではない
+    assert member_table_min_rem(0, False) == 7 + 7 + 3 + 2 * 3
+    assert member_table_min_rem(2, True) == 7 + 7 + 9 * 2 + 11 + 3 + 2 * 6
+
+
+async def test_the_member_table_uses_14px_controls(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    params_view_setup(view)
+    user.find(marker="open-members").click()
+    await user.should_see(marker="member-level-0-0")
+    assert "member-table" in user.find(marker="member-grid").elements.pop().classes
+    select = user.find(marker="member-level-0-0").elements.pop()
+    assert "member-popup" in str(select.props.get("popup-content-class"))
+    assert ".member-table .q-field__native" in MEMBER_TABLE_CSS and "font-size: 14px" in MEMBER_TABLE_CSS
+    assert ".member-popup .q-item" in MEMBER_TABLE_CSS
+    assert "height: 36px" in MEMBER_TABLE_CSS  # 14px の文字に合わせて、行の高さは 36px
+    assert "member-table" in user.client.head_html  # ページに CSS が入っている

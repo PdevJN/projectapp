@@ -915,17 +915,25 @@ def _signed_percent(value: float) -> str:
     return f"{value * 100:+g}%" if value else "0%"
 
 
-MEMBER_NAME_COLUMN = "minmax(12rem,1fr)"  # 名前の列。列の数が増えても、狭くならない
+MEMBER_NAME_COLUMN_REM = 7  # 名前の列(固定。列の数や画面の幅で変わらない)
 MEMBER_RATIO_COLUMN_REM = 7
 MEMBER_LEVEL_COLUMN_REM = 9
 MEMBER_EFFECTIVE_COLUMN_REM = 11
 MEMBER_DELETE_COLUMN_REM = 3
-MEMBER_NAME_COLUMN_MIN_REM = 12
+MEMBER_ROW_HEIGHT_PX = 36
+# メンバーの表の中のコントロールを 14px にそろえる(入力・選択の文字、プルダウンの項目、実効比率)。見出しは 12px のまま
+MEMBER_TABLE_CSS = f"""
+.member-table .q-field__native, .member-table .q-field__input, .member-table .q-field__label {{ font-size: 14px; line-height: 20px; }}
+.member-table .q-field--dense .q-field__control, .member-table .q-field--dense .q-field__marginal {{ height: {MEMBER_ROW_HEIGHT_PX}px; min-height: {MEMBER_ROW_HEIGHT_PX}px; }}
+.member-table .q-field--dense .q-field__native {{ min-height: {MEMBER_ROW_HEIGHT_PX}px; }}
+.member-table .member-effective {{ font-size: 14px; }}
+.member-popup .q-item {{ font-size: 14px; min-height: {MEMBER_ROW_HEIGHT_PX}px; }}
+"""
 
 
 def member_columns(level_count: int, with_effective: bool) -> list[str]:
     """メンバーの表の列の幅(名前・基本比率・パラメータごとの段階・実効比率・削除)。"""
-    columns = [MEMBER_NAME_COLUMN, f"{MEMBER_RATIO_COLUMN_REM}rem"]
+    columns = [f"{MEMBER_NAME_COLUMN_REM}rem", f"{MEMBER_RATIO_COLUMN_REM}rem"]
     columns += [f"{MEMBER_LEVEL_COLUMN_REM}rem"] * level_count
     if with_effective:
         columns.append(f"{MEMBER_EFFECTIVE_COLUMN_REM}rem")
@@ -936,7 +944,7 @@ def member_columns(level_count: int, with_effective: bool) -> list[str]:
 def member_table_min_rem(level_count: int, with_effective: bool) -> int:
     """表の最小の幅(rem)。これより狭い画面では、表を横にスクロールさせる。"""
     return (
-        MEMBER_NAME_COLUMN_MIN_REM
+        MEMBER_NAME_COLUMN_REM
         + MEMBER_RATIO_COLUMN_REM
         + MEMBER_LEVEL_COLUMN_REM * level_count
         + (MEMBER_EFFECTIVE_COLUMN_REM if with_effective else 0)
@@ -967,7 +975,7 @@ def open_members_dialog(
                 ui.label("メンバーがいません").classes("text-grey")
             # 横に伸びる(パラメータが多い)ときは、表だけを横にスクロールさせる
             with ui.element("div").classes("w-full").style("overflow-x: auto").mark("member-scroll"):
-                with ui.grid(columns=" ".join(columns)).classes("items-center gap-x-2 gap-y-1").style(
+                with ui.grid(columns=" ".join(columns)).classes("member-table items-center gap-x-2 gap-y-1").style(
                     f"min-width: {min_rem}rem"
                 ).mark("member-grid"):
                     header = "text-caption text-grey"
@@ -1020,13 +1028,15 @@ def open_members_dialog(
                                 options,
                                 value=current if current in options else "",
                                 on_change=on_level,
-                            ).props(f"dense outlined aria-label={parameter.name}").classes("w-full").mark(
+                            ).props(
+                                f"dense outlined aria-label={parameter.name} popup-content-class=member-popup"
+                            ).classes("w-full").mark(
                                 f"member-level-{index}-{p}"
                             )
                         if with_effective:
                             effective.append(
                                 ui.label(effective_ratio_text(row, chosen_parameters))
-                                .classes("text-caption text-grey")
+                                .classes("text-grey member-effective")
                                 .mark(f"member-effective-{index}")
                             )
                         ui.button(icon="delete", on_click=lambda r=row: remove(r)).props(
