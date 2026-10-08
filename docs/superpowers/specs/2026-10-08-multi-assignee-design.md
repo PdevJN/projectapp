@@ -27,7 +27,7 @@
   - `Task.assignee_names`(名前のリスト)を、読むだけの property として足す。
 - `Task.assignee` と `Task.allocation` は削除する。コードに残る参照は、すべて `assignees` に置き換える。
 - チェックポイントは担当を持たないので、`assignees` は空(今の `assignee=None` と同じ扱い)。
-- 保存: `"assignees": [{"name": …, "allocation": …}]`。空のときは、キーを書く(`[]`)か省くかは、既存のキーの書き方(`storage.py`)に合わせる。
+- 保存: `"assignees": [{"name": …, "allocation": …}]`。保存は `asdict(project)` でデータクラスをそのまま書くので、空のときも `[]` を書く。古いキー `assignee`・`allocation` は書かない。
 - 読込:
   - `assignees` があればそれを使う。なければ、古いキー `assignee`・`allocation` を 1 人のリストにする(`assignee` が空・`null` なら空のリスト)。
   - 両方あるときは `assignees` を使う(古いキーは無視する)。
