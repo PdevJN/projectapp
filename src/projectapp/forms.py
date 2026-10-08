@@ -915,27 +915,73 @@ def _signed_percent(value: float) -> str:
     return f"{value * 100:+g}%" if value else "0%"
 
 
+MEMBER_NAME_COLUMN = "minmax(12rem,1fr)"  # 名前の列。列の数が増えても、狭くならない
+MEMBER_RATIO_COLUMN_REM = 7
+MEMBER_LEVEL_COLUMN_REM = 9
+MEMBER_EFFECTIVE_COLUMN_REM = 11
+MEMBER_DELETE_COLUMN_REM = 3
+MEMBER_NAME_COLUMN_MIN_REM = 12
+
+
+def member_columns(level_count: int, with_effective: bool) -> list[str]:
+    """メンバーの表の列の幅(名前・基本比率・パラメータごとの段階・実効比率・削除)。"""
+    columns = [MEMBER_NAME_COLUMN, f"{MEMBER_RATIO_COLUMN_REM}rem"]
+    columns += [f"{MEMBER_LEVEL_COLUMN_REM}rem"] * level_count
+    if with_effective:
+        columns.append(f"{MEMBER_EFFECTIVE_COLUMN_REM}rem")
+    columns.append(f"{MEMBER_DELETE_COLUMN_REM}rem")
+    return columns
+
+
+def member_table_min_rem(level_count: int, with_effective: bool) -> int:
+    """表の最小の幅(rem)。これより狭い画面では、表を横にスクロールさせる。"""
+    return (
+        MEMBER_NAME_COLUMN_MIN_REM
+        + MEMBER_RATIO_COLUMN_REM
+        + MEMBER_LEVEL_COLUMN_REM * level_count
+        + (MEMBER_EFFECTIVE_COLUMN_REM if with_effective else 0)
+        + MEMBER_DELETE_COLUMN_REM
+        + 2 * (3 + level_count + (1 if with_effective else 0))  # 列の間隔(gap 0.5rem)の概算
+    )
+
+
 def open_members_dialog(
     members: list[Member],
     assigned: Callable[[str], int],
     on_apply: Callable[[list[Member], dict[str, str]], object],
     parameters: list[Parameter] | None = None,
 ) -> None:
+    """メンバーの編集。1 行が 1 人の表(名前・基本比率・パラメータごとの段階・実効比率・削除)。"""
     chosen_parameters = parameters or []
+    with_effective = bool(chosen_parameters)
     rows = [MemberRow(m.name, m.name, round(m.ratio * 100, 2), dict(m.levels)) for m in members]
     originals = [m.name for m in members]
-    width = "w-[28rem]" if not chosen_parameters else "w-[48rem]"
-    with disposable(ui.dialog()) as dialog, ui.card().classes(f"{width} max-w-full"):
+    columns = member_columns(len(chosen_parameters), with_effective)
+    min_rem = member_table_min_rem(len(chosen_parameters), with_effective)
+    with disposable(ui.dialog()) as dialog, ui.card().style(f"width: {min_rem + 3}rem; max-width: 96vw"):
         ui.label("メンバー").classes("text-h6")
 
         @ui.refreshable
         def table() -> None:
-            with ui.column().classes("w-full gap-1"):
-                if not rows:
-                    ui.label("メンバーがいません").classes("text-grey")
-                for index, row in enumerate(rows):
-                    with ui.row().classes("w-full items-center gap-2"):
-                        effective: list[ui.label] = []  # 行の最後に作る実効比率のラベル(各入力の変更で更新する)
+            if not rows:
+                ui.label("メンバーがいません").classes("text-grey")
+            # 横に伸びる(パラメータが多い)ときは、表だけを横にスクロールさせる
+            with ui.element("div").classes("w-full").style("overflow-x: auto").mark("member-scroll"):
+                with ui.grid(columns=" ".join(columns)).classes("items-center gap-x-2 gap-y-1").style(
+                    f"min-width: {min_rem}rem"
+                ).mark("member-grid"):
+                    header = "text-caption text-grey"
+                    ui.label("名前").classes(header).mark("member-header-name")
+                    ui.label("基本比率(%)" if with_effective else "相対比率(%)").classes(header).mark(
+                        "member-header-ratio"
+                    )
+                    for p, parameter in enumerate(chosen_parameters):
+                        ui.label(parameter.name).classes(f"{header} ellipsis").mark(f"member-header-level-{p}")
+                    if with_effective:
+                        ui.label("相対比率").classes(header).mark("member-header-effective")
+                    ui.label("")
+                    for index, row in enumerate(rows):
+                        effective: list[ui.label] = []  # 行の実効比率のラベル(各入力の変更で更新する)
 
                         def refresh_effective(r: MemberRow, holder: list[ui.label] = effective) -> None:
                             if holder:
@@ -946,18 +992,16 @@ def open_members_dialog(
                             refresh_effective(r)
 
                         ui.input(
-                            "名前",
                             value=row.name,
                             on_change=lambda e, r=row: setattr(r, "name", e.value or ""),
-                        ).classes("flex-1").mark(f"member-name-{index}")
+                        ).props("dense outlined aria-label=名前").classes("w-full").mark(f"member-name-{index}")
                         ui.number(
-                            "基本比率(%)" if chosen_parameters else "相対比率(%)",
                             value=row.ratio_percent,
                             min=MIN_RATIO * 100,
                             max=MAX_RATIO * 100,
                             step=5,
                             on_change=on_ratio,
-                        ).classes("w-32").mark(f"member-ratio-{index}")
+                        ).props("dense outlined aria-label=比率").classes("w-full").mark(f"member-ratio-{index}")
                         for p, parameter in enumerate(chosen_parameters):
 
                             def on_level(e, r=row, name=parameter.name) -> None:  # noqa: ANN001
@@ -974,11 +1018,12 @@ def open_members_dialog(
                             current = row.levels.get(parameter.name, "")
                             ui.select(
                                 options,
-                                label=parameter.name,
                                 value=current if current in options else "",
                                 on_change=on_level,
-                            ).classes("w-36").mark(f"member-level-{index}-{p}")
-                        if chosen_parameters:
+                            ).props(f"dense outlined aria-label={parameter.name}").classes("w-full").mark(
+                                f"member-level-{index}-{p}"
+                            )
+                        if with_effective:
                             effective.append(
                                 ui.label(effective_ratio_text(row, chosen_parameters))
                                 .classes("text-caption text-grey")

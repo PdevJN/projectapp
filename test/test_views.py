@@ -2573,8 +2573,9 @@ async def test_the_members_dialog_without_parameters_looks_as_before(user: User,
     view.project.members = [Member("田中", 1.0)]
     user.find(marker="open-members").click()
     await user.should_see(marker="member-ratio-0")
-    ratio = user.find(marker="member-ratio-0").elements.pop()
-    assert ratio.props["label"] == "相対比率(%)"
+    assert user.find(marker="member-header-name").elements.pop().text == "名前"
+    assert user.find(marker="member-header-ratio").elements.pop().text == "相対比率(%)"
+    await user.should_not_see(marker="member-header-effective")
     await user.should_not_see(marker="member-effective-0")
     await user.should_not_see(marker="member-level-0-0")
 
@@ -2584,7 +2585,9 @@ async def test_the_members_dialog_with_parameters_shows_selects_and_the_effectiv
     params_view_setup(view)
     user.find(marker="open-members").click()
     await user.should_see(marker="member-level-0-0")
-    assert user.find(marker="member-ratio-0").elements.pop().props["label"] == "基本比率(%)"
+    assert user.find(marker="member-header-ratio").elements.pop().text == "基本比率(%)"
+    assert user.find(marker="member-header-level-0").elements.pop().text == "経験"
+    assert user.find(marker="member-header-effective").elements.pop().text == "相対比率"
     select = user.find(marker="member-level-0-0").elements.pop()
     assert select.options == {"": "(なし)", "初級": "初級 -20%", "上級": "上級 +20%"}
     assert user.find(marker="member-effective-0").elements.pop().text == "相対比率 100%"
@@ -2629,3 +2632,53 @@ async def test_a_new_member_row_has_no_selection_and_is_saved(user: User, tmp_pa
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: len(view.project.members) == 2)
     assert view.project.members[1] == Member("鈴木", 1.0, {"経験": "初級"})
+
+
+def grid_columns(user: User) -> list[str]:
+    return user.find(marker="member-grid").elements.pop()._style["grid-template-columns"].split()
+
+
+async def test_the_members_dialog_is_a_table_whose_columns_follow_the_parameters(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("田中", 1.0)]
+    user.find(marker="open-members").click()
+    await user.should_see(marker="member-grid")
+    # 名前・相対比率・削除
+    assert len(grid_columns(user)) == 3
+
+
+async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    params_view_setup(view)
+    view.project.parameters.append(Parameter("専門性", [Level("高", 0.1)]))
+    user.find(marker="open-members").click()
+    await user.should_see(marker="member-grid")
+    # 名前・基本比率・経験・専門性・相対比率・削除
+    assert len(grid_columns(user)) == 6
+    assert user.find(marker="member-header-level-1").elements.pop().text == "専門性"
+
+
+async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    params_view_setup(view)
+    view.project.parameters += [Parameter(f"P{n}", [Level("高", 0.1)]) for n in range(6)]
+    user.find(marker="open-members").click()
+    await user.should_see(marker="member-grid")
+    scroll = user.find(marker="member-scroll").elements.pop()
+    assert scroll._style["overflow-x"] == "auto"  # パラメータが多くて広がっても、横にスクロールできる
+    grid = user.find(marker="member-grid").elements.pop()
+    assert "min-width" in grid._style  # 列を押しつぶさない
+    name_column = grid_columns(user)[0]
+    assert name_column.startswith("minmax(") or name_column.endswith("rem")  # 名前の列は、列の数にかかわらず十分な幅
+    assert len(grid_columns(user)) == 2 + 7 + 2
+
+
+async def test_the_table_inputs_have_no_floating_labels(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    params_view_setup(view)
+    user.find(marker="open-members").click()
+    await user.should_see(marker="member-name-0")
+    for marker in ("member-name-0", "member-ratio-0", "member-level-0-0"):
+        props = user.find(marker=marker).elements.pop().props
+        assert not props.get("label")  # 見出しの行が列の意味を示す
+        assert props.get("dense") in (True, "")
