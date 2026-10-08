@@ -7,7 +7,7 @@
 | `main.py` | エントリポイント(NiceGUI + pywebview。静的ファイルの登録) |
 | `views.py` | メイン画面(ヘッダー〔メニュー 4 つ・プロジェクトの切り替え・ダッシュボード・テーマのメニュー。プロジェクト名はヘッダーの外の `title_box`。`header` / `header_menu` / `theme_menu`。配色とフォントは `HEADER_CSS`〕・チャート領域・ヘルプのダイアログ・プレビューとダッシュボードの出入り・画像の保存・担当者向けファイルの書き出し) |
 | `calendar.py` | 祝日の取得・キャッシュ(`holidays.json`)と日付種別の判定 |
-| `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |
+| `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`・`assignees_rate`・`counted_assignees`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |
 | `filtering.py` | 絞り込み条件(`TaskFilter`)とタスクの判定(`matches`)、セクションで描くタスクの決定(`visible_task_indexes`)(純粋関数) |
 | `arrange.py` | タスクの移動(`move_task`)・コピー(`copy_task`)・日程のずらし(`shift_task`、左へずらせる限度 `min_shift_days`)と、画面から届く値の検証(`parse_move`・`parse_shift`)(純粋関数) |
 | `gantt_drag.py` | ガントチャートのドラッグ操作用の JS と CSS(定数のみ。行は HTML5 の drag、バーと名前の欄の右端は pointer イベント) |
@@ -47,6 +47,7 @@
 | 名前の欄の幅 | `2026-10-06-name-width-design.md` |
 | ダッシュボード | `2026-10-07-dashboard-design.md` |
 | 担当者向けファイルの書き出し | `2026-10-07-assignee-handoff-design.md` |
+| 複数の担当者 | `2026-10-08-multi-assignee-design.md` |
 
 実装計画は `docs/superpowers/plans/` に、同じ日付・名前(`-design` なし)である。
 
@@ -81,6 +82,7 @@ uvx ty check src
 
 ## ファイル形式の注意
 
+- 担当者は `Task.assignees`(`[{"name", "allocation"}]`。`allocation` は 0.01〜1.0)。古いキー `assignee`・`allocation` は、`assignees` がないときだけ 1 人のリストとして読む(`storage._assignees`。担当者がなくても、不正な割り当て率は拒否する)。名前が空・重複、割り当て率が範囲外・非有限は読込を拒否する。保存は `assignees` だけ(`asdict` で書くので、空のときも `[]`)。チェックポイントは常に空。換算率は `timeline.assignees_rate`(メンバーにいる担当者の `相対比率 × 割り当て率` の合計。誰もいなければ 1.0)。
 - リンクは `Task.urls`(`[{"title", "template", "values"}]`)、URL の型は `Project.url_templates`(`[{"name", "pattern"}]`)。`values` のキーは、テンプレートなしが `URL`、ありが `ID`。キーなし・`null` は空で読む(移行は要らない)。名前の空・重複、`http`・`https` でない型や URL、存在しないテンプレート名、キーの不一致、型の違いは読込を拒否する(`storage._url_templates`・`_task_urls`、読込後に `validate_urls`)。フィールド名は `urls`(先行タスクの連結 `predecessors` と区別する)。ID の置き換えは `str.replace` と `quote(safe="")` だけ。
 - ヘッダーの日付・曜日の行(`label_row`)は、列ごとに要素を作らず、1 つの `ui.html`(マーカー `label-row-cells`)にまとめる(`header_cell_html`。セルは `data-col="<日付>"`、日次は日付と曜日の 2 行、週次・月次は日付の 1 行。内容は日付のみだが、念のため `html.escape` を通す)。NiceGUI の要素は、1 個ずつの生成が重く(`Element.__init__` が、監視付きのコレクションを 3 つ作り、それぞれで `inspect.signature` を呼ぶ)、列ごとの要素は、描画の約 8 割を占めていたため。格子線・縞と同じ作り方。個々のラベルのマーカー(`col-<日付>`・`weekday-<日付>`)はないので、テストは `test/header_cells.py` の `header_cells` で、`label-row-cells` の内容から読む。年・月の帯(`band_row`)は、要素が少ないので、そのまま。
 - セクションの折りたたみ(`GanttChart.collapsed`。セクションの添字の集合)は保存しない。切り替え(`toggle_section`)は、再描画せず、`section_views` に持つ行の表示と矢印のアイコンだけを変える(行は、折りたたみ中も作って隠す)。絞り込み中とプレビュー(読み取り専用)は無視する。セクションの並べ替え・削除を足すときは、同時に添字をずらすこと(現状はセクションの追加が末尾への追加だけなので、ずれない)。

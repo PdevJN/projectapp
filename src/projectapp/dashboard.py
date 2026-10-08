@@ -6,11 +6,12 @@ from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from math import isfinite
 
-from projectapp.models import Project, Status, TaskKind
+from projectapp.models import Project, Status, Task, TaskKind
 from projectapp.timeline import (
     OVERLOAD_EPSILON,
     Schedule,
     actual_end,
+    counted_assignees,
     counted_span,
     current_progress,
     is_overdue,
@@ -60,6 +61,11 @@ def period_for(kind: PeriodKind, today: date, project: Project, holidays: dict[d
     return Period(min(moments).date(), max(moments).date())
 
 
+def assignee_label(task: Task) -> str | None:
+    """担当者の名前を「、」でつなぐ。担当なしは None。"""
+    return "、".join(task.assignee_names) or None
+
+
 @dataclass(frozen=True)
 class OverdueRow:
     name: str
@@ -98,7 +104,7 @@ def summarize_progress(project: Project, holidays: dict[date, str], now: datetim
                 if limit is not None and moment > limit
             ]
             limit = min(limits, default=task.deadline or now)  # 見込みの超過は、締切を基準にする
-            overdue.append(OverdueRow(task.name, task.assignee, limit))
+            overdue.append(OverdueRow(task.name, assignee_label(task), limit))
     overdue.sort(key=lambda row: row.limit)
     return Progress(weighted / total if total else None, counts, overdue)
 
@@ -158,8 +164,9 @@ def summarize_loads(project: Project, period: Period, holidays: dict[date, str])
     schedule = Schedule(project, holidays)
     for task in project.all_tasks():
         counted = counted_span(task, project, holidays, schedule)
-        if counted is not None and task.assignee is not None:
-            spans.setdefault(task.assignee, []).append((*counted, task.allocation))
+        if counted is not None:
+            for assignee in counted_assignees(task, project):
+                spans.setdefault(assignee.name, []).append((*counted, assignee.allocation))
     loads: dict[str, LoadStats] = {}
     for member in project.members:
         items = spans.get(member.name, [])
@@ -172,6 +179,22 @@ def summarize_loads(project: Project, period: Period, holidays: dict[date, str])
     return loads
 
 
+def _shares(task: Task, names: list[str]) -> list[tuple[str, float, float]]:
+    """(集計先, 割り当て率, 実績の按分の比)。メンバーでない担当者と担当なしは「未割当」。"""
+    if not task.assignees:
+        return [(UNASSIGNED, 1.0, 1.0)]
+    total = sum(a.allocation for a in task.assignees)
+    usable = isfinite(total) and total > 0
+    return [
+        (
+            a.name if a.name in names else UNASSIGNED,
+            a.allocation,
+            a.allocation / total if usable else 1 / len(task.assignees),
+        )
+        for a in task.assignees
+    ]
+
+
 def summarize_workload(
     project: Project, period: Period, now: datetime, holidays: dict[date, str]
 ) -> list[WorkloadRow]:
@@ -182,15 +205,19 @@ def summarize_workload(
     low, high = period.bounds()
     schedule = Schedule(project, holidays)
     for task in project.all_tasks():
-        key = task.assignee if task.assignee in names else UNASSIGNED
         start, end = schedule.start(task), schedule.end(task)
-        if start is not None and end is not None and end > start and isfinite(task.allocation):
-            count = sum(1 for day in days if _covers(start, end, day))
-            planned[key] += task.allocation * project.daily_hours * count
-        for interval in task.actuals:
-            seconds = (min(interval.end or now, high) - max(interval.start, low)).total_seconds()
-            if seconds > 0:
-                actual[key] += seconds / 3600
+        count = (
+            sum(1 for day in days if _covers(start, end, day))
+            if start is not None and end is not None and end > start
+            else 0
+        )
+        for key, allocation, share in _shares(task, names):
+            if count and isfinite(allocation):
+                planned[key] += allocation * project.daily_hours * count
+            for interval in task.actuals:
+                seconds = (min(interval.end or now, high) - max(interval.start, low)).total_seconds()
+                if seconds > 0:
+                    actual[key] += seconds / 3600 * share
     rows = [WorkloadRow(name, planned[name], actual[name]) for name in names]
     if planned[UNASSIGNED] or actual[UNASSIGNED]:
         rows.append(WorkloadRow(UNASSIGNED, planned[UNASSIGNED], actual[UNASSIGNED]))
@@ -211,7 +238,7 @@ def summarize_due(
             if kind == PLANNED_END and moment == task.deadline:
                 continue  # 締切だけのタスクは、完了予定が締切と同じになる。同じ日時の 2 行にしない
             if moment is not None and low <= moment < high:
-                rows.append(DueRow(moment, kind, task.name, task.assignee, late))
+                rows.append(DueRow(moment, kind, task.name, assignee_label(task), late))
     rows.sort(key=lambda row: (row.moment, row.kind))
     return rows
 

@@ -2,7 +2,7 @@ from dataclasses import replace
 from datetime import date, datetime
 
 from projectapp import arrange
-from projectapp.models import Actual, Priority, Project, Section, Status, Task, TaskUrl
+from projectapp.models import Actual, Assignee, Priority, Project, Section, Status, Task, TaskUrl
 
 
 def names(tasks: list[Task]) -> list[str]:
@@ -93,8 +93,7 @@ def test_copy_adds_a_suffix_clears_predecessors_and_keeps_the_rest() -> None:
     original.effort_hours = 12.0
     original.priority = Priority.HIGH
     original.status = Status.PAUSED
-    original.assignee = "田中"
-    original.allocation = 0.5
+    original.assignees = [Assignee("田中", 0.5)]
     original.color = "#ff0000"
     copy = arrange.copy_task(project, (0, 1), (1, 0))
     assert project.sections[1].tasks == [copy]
@@ -285,3 +284,12 @@ def test_copy_task_keeps_the_links_as_independent_copies() -> None:
     assert copy.urls == [link]
     copy.urls[0].values["ID"] = "2"
     assert project.tasks[0].urls[0].values["ID"] == "1"
+
+
+def test_copy_does_not_share_the_assignees() -> None:
+    project = sample()
+    original = project.sections[0].tasks[1]
+    original.assignees = [Assignee("田中", 0.5)]
+    copy = arrange.copy_task(project, (0, 1), (1, 0))
+    copy.assignees[0].allocation = 0.9
+    assert original.assignees == [Assignee("田中", 0.5)]

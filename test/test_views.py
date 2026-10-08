@@ -16,7 +16,7 @@ from projectapp.filtering import TaskFilter
 from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.handoff import JSON_FILE_TYPES
-from projectapp.models import Actual, ActualMode, Member, Project, Section, Task, TaskUrl, UrlTemplate
+from projectapp.models import Assignee, Actual, ActualMode, Member, Project, Section, Task, TaskUrl, UrlTemplate
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
@@ -888,20 +888,20 @@ async def test_renaming_a_member_renames_the_assignee_of_its_tasks(
 ) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0), Member("鈴木", 1.0)]
-    view.project.tasks = [Task("a", assignee="田中"), Task("b", assignee="鈴木"), Task("c")]
+    view.project.tasks = [Task("a", assignees=[Assignee("田中")]), Task("b", assignees=[Assignee("鈴木")]), Task("c")]
     view.mark_clean()
     user.find(marker="open-members").click()
     user.find(marker="member-name-0").clear().type("田中太郎")
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: view.project.tasks[0].assignee == "田中太郎")
-    assert [t.assignee for t in view.project.tasks] == ["田中太郎", "鈴木", None]
+    assert await wait_until(lambda: view.project.tasks[0].assignee_names == ["田中太郎"])
+    assert [t.assignee_names for t in view.project.tasks] == [["田中太郎"], ["鈴木"], []]
     assert [m.name for m in view.project.members] == ["田中太郎", "鈴木"]
 
 
 async def test_a_member_with_tasks_cannot_be_deleted(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
-    view.project.tasks = [Task("a", assignee="田中")]
+    view.project.tasks = [Task("a", assignees=[Assignee("田中")])]
     view.mark_clean()
     user.find(marker="open-members").click()
     user.find(marker="member-delete-0").click()
@@ -942,8 +942,7 @@ async def test_saving_a_task_that_overloads_the_assignee_warns(user: User, tmp_p
             "a",
             planned_start=datetime(2026, 10, 5),
             planned_end=datetime(2026, 10, 9),
-            assignee="田中",
-            allocation=0.6,
+            assignees=[Assignee("田中", 0.6)],
         ),
     )
     assert not user.notify.contains("割り当て")
@@ -954,8 +953,7 @@ async def test_saving_a_task_that_overloads_the_assignee_warns(user: User, tmp_p
             "b",
             planned_start=datetime(2026, 10, 7),
             planned_end=datetime(2026, 10, 12),
-            assignee="田中",
-            allocation=0.6,
+            assignees=[Assignee("田中", 0.6)],
         ),
     )
     assert user.notify.contains("田中 の割り当てが最大120%")
@@ -979,8 +977,7 @@ async def test_saving_a_task_that_does_not_overload_shows_no_warning(
                 name,
                 planned_start=datetime(2026, 10, start),
                 planned_end=datetime(2026, 10, end),
-                assignee="田中",
-                allocation=allocation,
+                assignees=[Assignee("田中", allocation)],
             ),
         )
     assert not user.notify.contains("割り当て")
@@ -989,14 +986,14 @@ async def test_saving_a_task_that_does_not_overload_shows_no_warning(
 async def test_swapping_two_member_names_swaps_the_assignees_once(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("A", 1.0), Member("B", 1.0)]
-    view.project.tasks = [Task("t1", assignee="A"), Task("t2", assignee="B")]
+    view.project.tasks = [Task("t1", assignees=[Assignee("A")]), Task("t2", assignees=[Assignee("B")])]
     view.mark_clean()
     user.find(marker="open-members").click()
     user.find(marker="member-name-0").clear().type("B")
     user.find(marker="member-name-1").clear().type("A")
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: view.project.tasks[0].assignee == "B")
-    assert [t.assignee for t in view.project.tasks] == ["B", "A"]
+    assert await wait_until(lambda: view.project.tasks[0].assignee_names == ["B"])
+    assert [t.assignee_names for t in view.project.tasks] == [["B"], ["A"]]
     assert [m.name for m in view.project.members] == ["B", "A"]
 
 
@@ -1120,8 +1117,8 @@ async def test_shift_task_warns_when_the_assignee_goes_over_100_percent(
     view = views[0]
     view.project.base_date = date(2026, 10, 5)  # 既定は「今日」。日付が進むと、基準日より前へは動かせず、テストが落ちる
     view.apply_members([Member("田中")], {})
-    first = Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5, assignee="田中")
-    second = Task("b", planned_start=datetime(2026, 10, 6, 9), effort_hours=6.5, assignee="田中")
+    first = Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5, assignees=[Assignee("田中")])
+    second = Task("b", planned_start=datetime(2026, 10, 6, 9), effort_hours=6.5, assignees=[Assignee("田中")])
     view.project.tasks.extend([first, second])
     view.shift_task(None, 1, -1)  # 同じ日に重なる(割り当て 100% + 100%)
     await user.should_see("田中 の割り当てが最大200%になる期間があります")
@@ -1740,7 +1737,7 @@ async def open_handoff_view(user: User, tmp_path: Path, exporter: FakeExporter) 
 
 def assign(view: MainView) -> None:
     view.project.members = [Member("田中", 0.5)]
-    view.save_task(None, None, Task("設計", assignee="田中", planned_start=datetime(2026, 10, 5, 9), effort_hours=3))
+    view.save_task(None, None, Task("設計", assignees=[Assignee("田中")], planned_start=datetime(2026, 10, 5, 9), effort_hours=3))
     view.mark_clean()
 
 
@@ -1824,7 +1821,7 @@ async def open_dashboard_view(user: User, tmp_path: Path, with_task: bool = True
             None,
             Task(
                 "設計",
-                assignee="田中",
+                assignees=[Assignee("田中")],
                 planned_start=datetime(2026, 10, 6, 9),
                 planned_end=datetime(2026, 10, 9, 12),
                 deadline=datetime(2026, 10, 20, 17),
@@ -2410,3 +2407,55 @@ async def test_the_image_is_captured_at_100_percent_and_the_zoom_comes_back(user
     assert exporter.zoom_at_capture == "document.body.style.zoom = 1.0"  # 倍率をかけたままだと、画像の大きさがずれる
     assert zoom_calls(view_calls)[-1] == "document.body.style.zoom = 1.5"
     assert view.zoom == 150
+
+
+async def test_assigned_count_counts_tasks_where_the_member_is_one_of_the_assignees(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.tasks = [
+        Task("a", assignees=[Assignee("田中"), Assignee("鈴木")]),
+        Task("b", assignees=[Assignee("鈴木")]),
+        Task("c"),
+    ]
+    assert view.assigned_count("田中") == 1
+    assert view.assigned_count("鈴木") == 2
+    assert view.assigned_count("佐藤") == 0
+
+
+async def test_renaming_a_member_renames_every_assignee_entry(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.members = [Member("A"), Member("B")]
+    view.project.tasks = [Task("t", assignees=[Assignee("A", 0.5), Assignee("B", 0.25)])]
+    view.apply_members([Member("B"), Member("A")], {"A": "B", "B": "A"})  # 入れ替え
+    assert view.project.tasks[0].assignees == [Assignee("B", 0.5), Assignee("A", 0.25)]
+
+
+async def test_saving_a_task_warns_for_each_overloaded_assignee(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.members = [Member("田中"), Member("鈴木")]
+
+    def task(name: str, start: int, end: int) -> Task:
+        return Task(
+            name,
+            planned_start=datetime(2026, 10, start),
+            planned_end=datetime(2026, 10, end),
+            assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.6)],
+        )
+
+    view.save_task(None, None, task("a", 5, 9))
+    view.save_task(None, None, task("b", 7, 12))
+    await user.should_see("田中 の割り当てが最大120%になる期間があります")
+    await user.should_see("鈴木 の割り当てが最大120%になる期間があります")

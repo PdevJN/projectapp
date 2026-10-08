@@ -29,7 +29,7 @@ from projectapp.forms import (
     push_hint,
     suggest_status,
 )
-from projectapp.models import Actual, ActualMode, Member, Priority, Status, Task, TaskUrl, UrlTemplate
+from projectapp.models import Actual, Assignee, ActualMode, Member, Priority, Status, Task, TaskUrl, UrlTemplate
 from projectapp.urls import TemplateEdit
 from projectapp.task_dialog import open_task_dialog
 
@@ -45,25 +45,24 @@ def make(existing: Task | None = None, **overrides: object) -> Task:
         "priority": Priority.HIGH,
         "status": Status.RUNNING,
         "color": "#112233",
-        "assignee": "",
-        "allocation_percent": 100.0,
+        "assignees": [],
     }
     values.update(overrides)
     return build_task(existing, **values)  # type: ignore[arg-type]
 
 
 def test_build_task_normalizes_input() -> None:
-    task = make(name="  設計  ", assignee=" 佐藤 ")
+    task = make(name="  設計  ", assignees=[(" 佐藤 ", 100.0)])
     assert task.name == "設計"
     assert task.planned_start == datetime(2026, 10, 5, 9, 0)
     assert task.planned_end == datetime(2026, 10, 7, 18, 0)
     assert task.effort_hours == 8.0
-    assert task.assignee == "佐藤"
+    assert task.assignee_names == ["佐藤"]
 
 
 def test_blank_assignee_and_dates_become_none() -> None:
-    task = make(planned_start="", planned_end="", assignee="  ", effort_hours=None)
-    assert (task.planned_start, task.planned_end, task.assignee, task.effort_hours) == (None, None, None, 0.0)
+    task = make(planned_start="", planned_end="", assignees=[("  ", None)], effort_hours=None)
+    assert (task.planned_start, task.planned_end, task.assignees, task.effort_hours) == (None, None, [], 0.0)
 
 
 @pytest.mark.parametrize("name", ["", "   ", "　"])
@@ -642,7 +641,6 @@ def test_build_task_requires_the_deadline_text() -> None:
             priority=Priority.HIGH,
             status=Status.RUNNING,
             color="#112233",
-            assignee="",
         )
 
 
@@ -727,25 +725,34 @@ def test_build_members_rejects_taking_the_name_of_a_member_that_is_deleted_with_
         build_members(rows(("A", "B", 100.0)), ["A", "B"], lambda name: counts.get(name, 0))
 
 
-def test_allocation_is_stored_as_a_fraction_when_there_is_an_assignee() -> None:
-    task = make(assignee="田中", allocation_percent=60.0)
-    assert task.allocation == pytest.approx(0.6)
+def test_allocation_is_stored_as_a_fraction() -> None:
+    task = make(assignees=[("田中", 60.0)])
+    assert task.assignees == [Assignee("田中", pytest.approx(0.6))]
 
 
-def test_allocation_is_one_without_an_assignee() -> None:
-    assert make(assignee="", allocation_percent=60.0).allocation == 1.0
-    assert make(assignee="  ", allocation_percent=None).allocation == 1.0
+def test_blank_rows_are_dropped() -> None:
+    assert make(assignees=[("", 60.0), ("  ", None)]).assignees == []
 
 
-@pytest.mark.parametrize("percent", [None, 0.0, 0.99, 100.01, -5.0, float("nan"), float("inf")])
-def test_a_bad_allocation_is_rejected_when_there_is_an_assignee(percent: float | None) -> None:
+@pytest.mark.parametrize("percent", [None, 0.0, 0.5, 100.5, float("nan"), float("inf")])
+def test_a_bad_allocation_is_rejected_for_a_chosen_member(percent: float | None) -> None:
     with pytest.raises(ValueError, match="割り当て率"):
-        make(assignee="田中", allocation_percent=percent)
+        make(assignees=[("田中", percent)])
 
 
 @pytest.mark.parametrize("percent", [1.0, 100.0, 33.33])
 def test_allocation_boundaries_are_accepted(percent: float) -> None:
-    assert make(assignee="田中", allocation_percent=percent).allocation == pytest.approx(percent / 100)
+    assert make(assignees=[("田中", percent)]).assignees[0].allocation == pytest.approx(percent / 100)
+
+
+def test_several_assignees_keep_their_order_and_allocations() -> None:
+    task = make(assignees=[("田中", 100.0), ("鈴木", 50.0)])
+    assert task.assignees == [Assignee("田中", 1.0), Assignee("鈴木", 0.5)]
+
+
+def test_the_same_member_twice_is_rejected() -> None:
+    with pytest.raises(ValueError, match="重複"):
+        make(assignees=[("田中", 100.0), (" 田中 ", 50.0)])
 
 
 def test_actuals_default_to_none() -> None:

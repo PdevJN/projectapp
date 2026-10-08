@@ -76,7 +76,7 @@ def test_a_checkpoint_with_stray_fields_is_loaded_without_them(tmp_path: Path) -
     loaded = load_project(path)
     task = loaded.sections[0].tasks[0]
     assert (task.planned_start, task.planned_end, task.planned_end_manual) == (None, None, False)
-    assert (task.effort_hours, task.assignee, task.allocation, task.actuals) == (0.0, None, 1.0, [])
+    assert (task.effort_hours, task.assignees, task.actuals) == (0.0, [], [])
     assert task.deadline == DEADLINE
     assert loaded.members == []  # 担当は使わないので、メンバーも補わない
 
@@ -170,8 +170,7 @@ def make(existing: Task | None = None, **overrides: object) -> Task:
         "priority": Priority.HIGH,
         "status": Status.NOT_STARTED,
         "color": "#112233",
-        "assignee": "",
-        "allocation_percent": None,
+        "assignees": [],
         "kind": TaskKind.CHECKPOINT,
     }
     values.update(overrides)
@@ -183,14 +182,13 @@ def test_a_checkpoint_keeps_only_the_deadline() -> None:
         planned_start="日付ではない",  # 隠した欄の不正な入力は、保存を妨げない
         planned_end="2026-10-07T18:00",
         effort_hours=-3.0,
-        assignee="佐藤",
-        allocation_percent=500.0,
+        assignees=[("佐藤", 500.0)],
         actual_start="2026-10-05T09:00",
     )
     assert task.kind is TaskKind.CHECKPOINT
     assert task.deadline == DEADLINE
     assert (task.planned_start, task.planned_end, task.planned_end_manual) == (None, None, False)
-    assert (task.effort_hours, task.assignee, task.allocation, task.actuals) == (0.0, None, 1.0, [])
+    assert (task.effort_hours, task.assignees, task.actuals) == (0.0, [], [])
     assert task.priority is Priority.HIGH and task.color == "#112233"
 
 
@@ -214,7 +212,6 @@ def test_a_checkpoint_can_become_normal_again() -> None:
         planned_end="2026-10-07T18:00",
         effort_hours=8.0,
         status=Status.RUNNING,
-        allocation_percent=100.0,
     )
     assert task.kind is TaskKind.NORMAL and task.id == "x"
     assert task.planned_start == datetime(2026, 10, 5, 9, 0)

@@ -1,12 +1,12 @@
 from projectapp.filtering import TaskFilter, matches, visible_task_indexes
-from projectapp.models import Section, Task
+from projectapp.models import Assignee, Section, Task
 
 
 def test_an_empty_filter_is_inactive_and_matches_everything() -> None:
     task_filter = TaskFilter()
     assert not task_filter.active
     assert matches(Task("設計"), task_filter)
-    assert matches(Task("設計", assignee="田中"), task_filter)
+    assert matches(Task("設計", assignees=[Assignee("田中")]), task_filter)
 
 
 def test_query_is_a_case_insensitive_substring_match_on_the_name() -> None:
@@ -35,9 +35,9 @@ def test_query_is_literal_not_a_pattern_or_markup() -> None:
 def test_assignee_must_match_exactly() -> None:
     task_filter = TaskFilter(assignee="田中")
     assert task_filter.active
-    assert matches(Task("設計", assignee="田中"), task_filter)
-    assert not matches(Task("設計", assignee="田中さん"), task_filter)
-    assert not matches(Task("設計", assignee="鈴木"), task_filter)
+    assert matches(Task("設計", assignees=[Assignee("田中")]), task_filter)
+    assert not matches(Task("設計", assignees=[Assignee("田中さん")]), task_filter)
+    assert not matches(Task("設計", assignees=[Assignee("鈴木")]), task_filter)
 
 
 def test_a_task_without_an_assignee_is_hidden_when_an_assignee_is_chosen() -> None:
@@ -46,15 +46,15 @@ def test_a_task_without_an_assignee_is_hidden_when_an_assignee_is_chosen() -> No
 
 def test_query_and_assignee_are_combined_with_and() -> None:
     task_filter = TaskFilter(query="設", assignee="田中")
-    assert matches(Task("設計", assignee="田中"), task_filter)
-    assert not matches(Task("設計", assignee="鈴木"), task_filter)
-    assert not matches(Task("実装", assignee="田中"), task_filter)
+    assert matches(Task("設計", assignees=[Assignee("田中")]), task_filter)
+    assert not matches(Task("設計", assignees=[Assignee("鈴木")]), task_filter)
+    assert not matches(Task("実装", assignees=[Assignee("田中")]), task_filter)
 
 
 def section_of_three() -> Section:
     return Section(
         "開発",
-        [Task("設計", assignee="田中"), Task("実装", assignee="鈴木"), Task("試験", assignee="田中")],
+        [Task("設計", assignees=[Assignee("田中")]), Task("実装", assignees=[Assignee("鈴木")]), Task("試験", assignees=[Assignee("田中")])],
     )
 
 
@@ -78,3 +78,10 @@ def test_an_active_filter_with_no_match_shows_nothing() -> None:
 
 def test_an_empty_section_shows_nothing() -> None:
     assert visible_task_indexes(Section("空"), TaskFilter(), collapsed=False) == []
+
+
+def test_a_task_matches_when_the_member_is_any_of_its_assignees() -> None:
+    task = Task("設計", assignees=[Assignee("鈴木"), Assignee("田中")])
+    assert matches(task, TaskFilter(assignee="田中"))
+    assert matches(task, TaskFilter(assignee="鈴木"))
+    assert not matches(task, TaskFilter(assignee="佐藤"))

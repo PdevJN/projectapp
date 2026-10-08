@@ -23,6 +23,7 @@ from projectapp.models import (
     MIN_YEAR,
     URL_KEY,
     Actual,
+    Assignee,
     ActualMode,
     Member,
     Priority,
@@ -147,8 +148,7 @@ def _build_checkpoint(
         priority=priority,
         status=status,
         color=color,
-        assignee=None,
-        allocation=1.0,
+        assignees=[],
         actuals=[],
         project_code=code,
         predecessors=_links(base, predecessors, linkable_ids),
@@ -178,6 +178,29 @@ def build_urls(rows: list[UrlRow], templates: list[UrlTemplate]) -> list[TaskUrl
 ActualRow = tuple[str, str, float | None]  # 区間の1行の入力(開始・終了の文字列、進捗度)
 
 
+def _build_assignees(rows: list[tuple[str, float | None]]) -> list[Assignee]:
+    """担当者の行を検証して Assignee にする。メンバーを選んでいない行は捨てる。"""
+    result: list[Assignee] = []
+    seen: set[str] = set()
+    for raw_name, percent in rows:
+        name = raw_name.strip()
+        if not name:
+            continue
+        if name in seen:
+            raise ValueError(f"担当者が重複しています: {name}")
+        seen.add(name)
+        if (
+            percent is None
+            or not isfinite(percent)
+            or not MIN_ALLOCATION * 100 <= percent <= MAX_ALLOCATION * 100
+        ):
+            raise ValueError(
+                f"割り当て率は{MIN_ALLOCATION * 100:g}〜{MAX_ALLOCATION * 100:g}%で入力してください"
+            )
+        result.append(Assignee(name, round(percent / 100, 4)))
+    return result
+
+
 def build_task(
     existing: Task | None,
     *,
@@ -190,8 +213,6 @@ def build_task(
     priority: Priority,
     status: Status,
     color: str,
-    assignee: str,
-    allocation_percent: float | None,
     actual_start: str = "",
     actual_end: str = "",
     actual_progress: float | None = None,
@@ -201,6 +222,7 @@ def build_task(
     linkable_ids: frozenset[str] | None = None,
     kind: TaskKind = TaskKind.NORMAL,
     urls: list[TaskUrl] | None = None,
+    assignees: list[tuple[str, float | None]] | None = None,
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。"""
     clean = name.strip()
@@ -231,18 +253,7 @@ def build_task(
         raise ValueError("色は#RRGGBBの形式で入力してください")
     if uses_planned_end and start_at and end_at and end_at < start_at:
         raise ValueError("完了予定は開始予定以降の日時にしてください")
-    assignee_name = assignee.strip()
-    allocation = 1.0
-    if assignee_name:
-        if (
-            allocation_percent is None
-            or not isfinite(allocation_percent)
-            or not MIN_ALLOCATION * 100 <= allocation_percent <= MAX_ALLOCATION * 100
-        ):
-            raise ValueError(
-                f"割り当て率は{MIN_ALLOCATION * 100:g}〜{MAX_ALLOCATION * 100:g}%で入力してください"
-            )
-        allocation = round(allocation_percent / 100, 4)
+    assignee_list = _build_assignees(assignees or [])
     if actual_rows is not None:
         actuals = build_actual_intervals(actual_rows)
     elif len(base.actuals) > 1:
@@ -262,8 +273,7 @@ def build_task(
         priority=priority,
         status=status,
         color=color,
-        assignee=assignee_name or None,
-        allocation=allocation,
+        assignees=assignee_list,
         actuals=actuals,
         project_code=code,
         predecessors=links,

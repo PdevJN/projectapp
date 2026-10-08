@@ -17,7 +17,7 @@ class TaskFilter:
 
 def matches(task: Task, task_filter: TaskFilter) -> bool:
     """検索と担当者の両方に合うとき True。条件が空なら常に True。"""
-    if task_filter.assignee is not None and task.assignee != task_filter.assignee:
+    if task_filter.assignee is not None and task_filter.assignee not in task.assignee_names:
         return False
     return task_filter.query.strip().casefold() in task.name.casefold()
 

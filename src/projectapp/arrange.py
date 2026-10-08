@@ -51,6 +51,7 @@ def copy_task(project: Project, src: Position, dst: Position) -> Task:
         id=new_id(),
         predecessors=[],
         actuals=[],
+        assignees=[replace(a) for a in original.assignees],
         urls=[replace(u, values=dict(u.values)) for u in original.urls],
     )
     target = tasks_at(project, dst[0])

@@ -65,6 +65,7 @@ from projectapp.gantt import (
 )
 from projectapp.timeline import Column, build_columns
 from projectapp.models import (
+    Assignee,
     DEFAULT_COLOR,
     Actual,
     Member,
@@ -540,15 +541,13 @@ def overloaded_project() -> Project:
         "A",
         planned_start=datetime(2026, 10, 5),
         planned_end=datetime(2026, 10, 9),
-        assignee="田中",
-        allocation=0.6,
+        assignees=[Assignee("田中", 0.6)],
     )
     b = Task(
         "B",
         planned_start=datetime(2026, 10, 7),
         planned_end=datetime(2026, 10, 12),
-        assignee="田中",
-        allocation=0.6,
+        assignees=[Assignee("田中", 0.6)],
     )
     return Project("demo", base_date=BASE, members=[Member("田中")], tasks=[a, b])
 
@@ -581,9 +580,33 @@ async def test_the_bar_tooltip_names_the_member_and_the_peak(user: User) -> None
     assert "2026-10-07" in tooltips[0].text
 
 
+async def test_the_bar_tooltip_names_each_overloaded_member_with_his_own_peak(user: User) -> None:
+    a = Task(
+        "A",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 9),
+        assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.9)],
+    )
+    b = Task(
+        "B",
+        planned_start=datetime(2026, 10, 7),
+        planned_end=datetime(2026, 10, 12),
+        assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.9)],
+    )
+    mount(Project("demo", base_date=BASE, members=[Member("田中"), Member("鈴木")], tasks=[a, b]))
+    await user.open("/")
+    bar = user.find(marker="bar-top-0").elements.pop()
+    tooltips = [c for c in bar.default_slot.children if isinstance(c, ui.tooltip)]
+    assert len(tooltips) == 1
+    text = tooltips[0].text
+    assert "田中 の割り当てが最大120%" in text  # 鈴木の 180% と取り違えない
+    assert "鈴木 の割り当てが最大180%" in text
+    assert "田中 の割り当てが最大180%" not in text
+
+
 async def test_no_stripes_without_an_overload(user: User) -> None:
     project = overloaded_project()
-    project.tasks[1].allocation = 0.4  # 合計ちょうど100%
+    project.tasks[1].assignees[0].allocation = 0.4  # 合計ちょうど100%
     mount(project)
     await user.open("/")
     await user.should_see(marker="bar-top-0")
@@ -607,8 +630,7 @@ async def test_stripes_stay_inside_a_thin_bar(user: User) -> None:
             name,
             planned_start=datetime(2026, 10, 5),
             planned_end=datetime(2026, 10, 5, 0, 1),
-            assignee="田中",
-            allocation=0.6,
+            assignees=[Assignee("田中", 0.6)],
         )
 
     mount(Project("demo", base_date=BASE, members=[Member("田中")], tasks=[thin("A"), thin("B")]))
@@ -644,7 +666,7 @@ def filter_project() -> Project:
             name,
             planned_start=datetime(2026, 10, 5, 12),
             planned_end=datetime(2026, 10, 7, 12),
-            assignee=assignee,
+            assignees=[Assignee(assignee)],
         )
 
     return Project(
@@ -1910,19 +1932,52 @@ async def test_project_code_chip(user: User) -> None:
 
 
 async def test_assignee_chip_shows_the_first_character_and_the_name_on_hover(user: User) -> None:
-    mount(project_with(Task("設計", assignee="山田太郎")))
+    mount(project_with(Task("設計", assignees=[Assignee("山田太郎")])))
     await user.open("/")
     who = chip(user, "task-assignee-0-0")
     assert who.text == "山"
-    assert tooltips_targeting(who) == ["山田太郎"]
+    assert tooltips_targeting(who) == ["山田太郎 100%"]
     assert who._style["width"] == who._style["height"] == "16px"
     assert who.parent_slot.parent is chip(user, "task-0-0")
+
+
+async def test_several_assignees_get_one_chip_each(user: User) -> None:
+    mount(project_with(Task("設計", assignees=[Assignee("山田", 1.0), Assignee("鈴木", 0.5)])))
+    await user.open("/")
+    first, second = chip(user, "task-assignee-0-0"), chip(user, "task-assignee-0-0-1")
+    assert (first.text, second.text) == ("山", "鈴")
+    assert tooltips_targeting(first) == ["山田 100%"]
+    assert tooltips_targeting(second) == ["鈴木 50%"]
+
+
+async def test_more_than_three_assignees_are_summarized_in_a_plus_chip(user: User) -> None:
+    names = ["山田", "鈴木", "佐藤", "高橋", "伊藤"]
+    mount(project_with(Task("設計", assignees=[Assignee(n, 0.5) for n in names])))
+    await user.open("/")
+    assert chip(user, "task-assignee-0-0-2").text == "佐"  # 3 人目まで
+    await user.should_not_see(marker="task-assignee-0-0-3")
+    more = chip(user, "task-assignee-more-0-0")
+    assert more.text == "+2"
+    assert tooltips_targeting(more) == ["高橋 50%\n伊藤 50%"]
+
+
+async def test_exactly_three_assignees_have_no_plus_chip(user: User) -> None:
+    mount(project_with(Task("設計", assignees=[Assignee(n) for n in ("山田", "鈴木", "佐藤")])))
+    await user.open("/")
+    await user.should_see(marker="task-assignee-0-0-2")
+    await user.should_not_see(marker="task-assignee-more-0-0")
+
+
+async def test_a_task_without_assignees_has_no_chip(user: User) -> None:
+    mount(project_with(Task("設計")))
+    await user.open("/")
+    await user.should_not_see(marker="task-assignee-0-0")
 
 
 async def test_an_assignee_who_is_not_a_member_and_an_emoji_name_do_not_break_the_chart(
     user: User,
 ) -> None:
-    mount(project_with(Task("設計", assignee="👨‍👩‍👧 家族")))  # メンバーにいない・複数のコードポイント
+    mount(project_with(Task("設計", assignees=[Assignee("👨‍👩‍👧 家族")])))  # メンバーにいない・複数のコードポイント
     await user.open("/")
     assert chip(user, "task-assignee-0-0").text == "👨"
 
@@ -1960,7 +2015,7 @@ async def test_a_zero_progress_is_shown(user: User) -> None:
 
 
 async def test_the_strike_through_covers_the_name_only(user: User) -> None:
-    mount(project_with(Task("設計", status=Status.DONE, project_code="P", assignee="山")))
+    mount(project_with(Task("設計", status=Status.DONE, project_code="P", assignees=[Assignee("山")])))
     await user.open("/")
     assert chip(user, "task-name-0-0")._style["text-decoration"] == "line-through"
     for marker in ("task-0-0", "task-code-0-0", "task-assignee-0-0", "task-progress-0-0"):
@@ -1970,7 +2025,7 @@ async def test_the_strike_through_covers_the_name_only(user: User) -> None:
 async def test_the_chips_do_not_shrink_and_the_name_does(user: User) -> None:
     mount(
         project_with(
-            Task("とても長いタスクの名前" * 3, project_code="PRJ-LONG-CODE-0001", assignee="山")
+            Task("とても長いタスクの名前" * 3, project_code="PRJ-LONG-CODE-0001", assignees=[Assignee("山")])
         )
     )
     await user.open("/")
@@ -1986,7 +2041,7 @@ async def test_the_click_is_handled_once_by_the_name_cell_so_the_chips_bubble_to
     # User のシミュレーションのクリックは、親へ伝わらない(実ブラウザでは、DOM のクリックが枠へ伝わる)。
     # そのため、枠だけがクリックを処理し、名前とチップは自分では処理しないことを確かめる。
     recorder = mount(
-        project_with(Task("設計", project_code="PRJ-1", assignee="山", status=Status.DONE))
+        project_with(Task("設計", project_code="PRJ-1", assignees=[Assignee("山")], status=Status.DONE))
     )
     await user.open("/")
     assert len(click_listeners(chip(user, "task-0-0"))) == 1
@@ -2067,7 +2122,7 @@ async def test_preview_scale_is_separate_from_the_toolbar_scale(user: User) -> N
 
 
 async def test_show_chips_false_hides_the_chips_and_progress(user: User) -> None:
-    task = Task("設計", project_code="PRJ-1", assignee="山", status=Status.DONE)
+    task = Task("設計", project_code="PRJ-1", assignees=[Assignee("山")], status=Status.DONE)
     project = Project("demo", base_date=BASE, sections=[Section("開発", [task])])
     mount_with(project, ViewOptions(show_chips=False))
     await user.open("/")

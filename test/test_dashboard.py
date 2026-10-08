@@ -15,7 +15,7 @@ from projectapp.dashboard import (
     summarize_workload,
 )
 from projectapp.timeline import overallocations
-from projectapp.models import Actual, Member, Project, Status, Task
+from projectapp.models import Assignee, Actual, Member, Project, Status, Task
 
 TODAY = date(2026, 10, 7)  # 水曜
 NOW = datetime(2026, 10, 7, 12)
@@ -89,7 +89,7 @@ def test_progress_is_none_without_tasks() -> None:
 
 
 def test_overdue_rows_use_the_earliest_passed_limit_and_are_sorted() -> None:
-    late = Task("late", status=Status.RUNNING, deadline=datetime(2026, 10, 6, 17), assignee="田中")
+    late = Task("late", status=Status.RUNNING, deadline=datetime(2026, 10, 6, 17), assignees=[Assignee("田中")])
     ended = Task(
         "ended",
         status=Status.RUNNING,
@@ -128,8 +128,7 @@ def span_task(name: str, start_day: int, end_day: int, allocation: float, **kwar
         name,
         planned_start=datetime(2026, 10, start_day, 9),
         planned_end=datetime(2026, 10, end_day, 17),
-        assignee="田中",
-        allocation=allocation,
+        assignees=[Assignee("田中", allocation)],
         **kwargs,
     )
 
@@ -174,7 +173,7 @@ def test_a_period_without_workdays_is_zero_and_does_not_divide() -> None:
 def test_loads_list_the_members_in_order_and_skip_non_members() -> None:
     members = [Member("田中", 1.0), Member("佐藤", 1.0)]
     stranger = span_task("x", 5, 7, 0.5)
-    stranger.assignee = "鈴木"
+    stranger.assignees = [Assignee("鈴木")]
     loads = summarize_loads(project_of(span_task("a", 5, 7, 0.5), stranger, members=members), WEEK, {})
     assert list(loads) == ["田中", "佐藤"]
     assert loads["佐藤"].peak == 0.0
@@ -202,7 +201,7 @@ def test_actual_hours_clip_to_the_period_and_run_until_now() -> None:
     crossing = Actual(datetime(2026, 10, 5, 22), datetime(2026, 10, 6, 2))  # 期間内は 2 時間
     running = Actual(datetime(2026, 10, 6, 9))  # now(11:30)まで 2.5 時間
     outside = Actual(datetime(2026, 10, 1, 9), datetime(2026, 10, 1, 12))
-    project = project_of(Task("a", assignee="田中", actuals=[crossing, running, outside]))
+    project = project_of(Task("a", assignees=[Assignee("田中")], actuals=[crossing, running, outside]))
     rows = summarize_workload(project, DAY, datetime(2026, 10, 6, 11, 30), {})
     assert rows[0].actual_hours == pytest.approx(4.5)
 
@@ -219,7 +218,7 @@ def test_dashboard_totals_add_up_the_rows() -> None:
 def test_due_rows_list_deadlines_and_planned_ends_in_the_period_sorted() -> None:
     both = Task(
         "t1",
-        assignee="田中",
+        assignees=[Assignee("田中")],
         deadline=datetime(2026, 10, 8, 17),
         planned_start=datetime(2026, 10, 6, 9),
         planned_end=datetime(2026, 10, 9, 12),
@@ -244,14 +243,14 @@ def test_the_whole_period_reaches_today_while_an_actual_is_running() -> None:
 
 
 def test_a_running_actual_is_counted_until_now_over_the_whole_period() -> None:
-    project = project_of(Task("a", assignee="田中", actuals=[Actual(datetime(2026, 10, 6, 9))]))
+    project = project_of(Task("a", assignees=[Assignee("田中")], actuals=[Actual(datetime(2026, 10, 6, 9))]))
     period = period_for(PeriodKind.ALL, TODAY, project, {})
     assert summarize_workload(project, period, NOW, {})[0].actual_hours == pytest.approx(27.0)  # 10/6 9:00 → 10/7 12:00
 
 
 def test_back_to_back_tasks_on_one_day_are_not_an_overload_like_the_stripes() -> None:
-    first = Task("a", planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 6, 12), assignee="田中", allocation=1.0)
-    second = Task("b", planned_start=datetime(2026, 10, 6, 12), planned_end=datetime(2026, 10, 6, 17), assignee="田中", allocation=1.0)
+    first = Task("a", planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 6, 12), assignees=[Assignee("田中", 1.0)])
+    second = Task("b", planned_start=datetime(2026, 10, 6, 12), planned_end=datetime(2026, 10, 6, 17), assignees=[Assignee("田中", 1.0)])
     project = project_of(first, second)
     stats = summarize_loads(project, WEEK, {})["田中"]
     assert (stats.peak, stats.overload_days) == (1.0, 0)
@@ -260,8 +259,8 @@ def test_back_to_back_tasks_on_one_day_are_not_an_overload_like_the_stripes() ->
 
 
 def test_overload_days_are_the_days_the_stripes_touch() -> None:
-    long = Task("a", planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 8, 12), assignee="田中", allocation=0.6)
-    short = Task("b", planned_start=datetime(2026, 10, 7, 9), planned_end=datetime(2026, 10, 7, 17), assignee="田中", allocation=0.6)
+    long = Task("a", planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 8, 12), assignees=[Assignee("田中", 0.6)])
+    short = Task("b", planned_start=datetime(2026, 10, 7, 9), planned_end=datetime(2026, 10, 7, 17), assignees=[Assignee("田中", 0.6)])
     project = project_of(long, short)
     stats = summarize_loads(project, WEEK, {})["田中"]
     assert (stats.peak, stats.overload_days) == (pytest.approx(1.2), 1)
@@ -279,7 +278,7 @@ def test_workload_uses_the_pushed_start() -> None:
         id="bbbbbbbb",
         planned_start=datetime(2026, 10, 5, 9),
         effort_hours=6.5,
-        assignee="x",
+        assignees=[Assignee("x")],
         predecessors=["aaaaaaaa"],
     )
     project = Project("p", tasks=[a, b], members=[Member("x")])
@@ -287,3 +286,67 @@ def test_workload_uses_the_pushed_start() -> None:
     rows = summarize_workload(project, monday, datetime(2026, 10, 1), {})
     # b は a が終わる金曜の 15:30 以降に始まるので、月曜には数えない
     assert next(r for r in rows if r.name == "x").planned_hours == 0.0
+
+
+def test_assignee_label_joins_the_names() -> None:
+    from projectapp.dashboard import assignee_label
+
+    assert assignee_label(Task("t")) is None
+    assert assignee_label(Task("t", assignees=[Assignee("田中")])) == "田中"
+    assert assignee_label(Task("t", assignees=[Assignee("田中"), Assignee("鈴木")])) == "田中、鈴木"
+
+
+def test_load_counts_each_assignee_with_his_own_allocation() -> None:
+    task = Task(
+        "a",
+        planned_start=datetime(2026, 10, 6, 9),
+        planned_end=datetime(2026, 10, 6, 17),
+        assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.3)],
+    )
+    other = Task("b", planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 6, 17), assignees=[Assignee("田中", 0.6)])
+    project = project_of(task, other, members=[Member("田中"), Member("鈴木")])
+    loads = summarize_loads(project, Period(date(2026, 10, 6), date(2026, 10, 6)), {})
+    assert loads["田中"].peak == pytest.approx(1.2) and loads["田中"].overload_days == 1
+    assert loads["鈴木"].peak == pytest.approx(0.3) and loads["鈴木"].overload_days == 0
+
+
+def test_planned_hours_use_each_assignees_allocation() -> None:
+    task = Task(
+        "a",
+        planned_start=datetime(2026, 10, 6, 9),
+        planned_end=datetime(2026, 10, 6, 17),
+        assignees=[Assignee("田中", 1.0), Assignee("鈴木", 0.5)],
+    )
+    project = project_of(task, members=[Member("田中"), Member("鈴木")])
+    project.daily_hours = 6.5
+    rows = summarize_workload(project, Period(date(2026, 10, 6), date(2026, 10, 6)), NOW, {})
+    assert {r.name: r.planned_hours for r in rows} == {"田中": pytest.approx(6.5), "鈴木": pytest.approx(3.25)}
+
+
+def test_actual_hours_are_split_by_allocation() -> None:
+    task = Task(
+        "a",
+        assignees=[Assignee("田中", 0.75), Assignee("鈴木", 0.25), Assignee("不明", 1.0)],
+        actuals=[Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 11))],
+    )
+    project = project_of(task, members=[Member("田中"), Member("鈴木")])
+    rows = summarize_workload(project, Period(date(2026, 10, 6), date(2026, 10, 6)), NOW, {})
+    by_name = {r.name: r.actual_hours for r in rows}
+    # 2h を 0.75 : 0.25 : 1.0 で按分(合計 2.0)。メンバーでない担当者の分は「未割当」
+    assert by_name["田中"] == pytest.approx(0.75)
+    assert by_name["鈴木"] == pytest.approx(0.25)
+    assert by_name[UNASSIGNED] == pytest.approx(1.0)
+    assert sum(by_name.values()) == pytest.approx(2.0)  # タスク全体の実績が変わらない
+
+
+def test_overdue_and_due_rows_show_every_assignee() -> None:
+    late = Task(
+        "late",
+        status=Status.RUNNING,
+        deadline=datetime(2026, 10, 6, 17),
+        assignees=[Assignee("田中"), Assignee("鈴木")],
+    )
+    project = project_of(late, members=[Member("田中"), Member("鈴木")])
+    assert summarize_progress(project, {}, NOW).overdue[0].assignee == "田中、鈴木"
+    due = summarize_due(project, Period(date(2026, 10, 5), date(2026, 10, 11)), NOW, {})
+    assert due[0].assignee == "田中、鈴木"

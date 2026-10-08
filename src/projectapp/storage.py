@@ -25,6 +25,7 @@ from projectapp.models import (
     MIN_RATIO,
     MIN_YEAR,
     Actual,
+    Assignee,
     Member,
     Priority,
     Project,
@@ -166,9 +167,8 @@ def _task(raw: dict[str, Any]) -> Task:
         priority=Priority(raw["priority"]),
         status=_status(raw["status"]),
         color=raw["color"],
-        assignee=_assignee(raw.get("assignee")),
+        assignees=_assignees(raw),
         predecessors=_predecessors(raw.get("predecessors")),
-        allocation=_allocation(raw.get("allocation", 1.0)),
         actuals=_actuals(raw.get("actuals")),
         project_code=_project_code(raw.get("project_code")),
         kind=kind,
@@ -277,8 +277,7 @@ def _checkpoint(task: Task) -> Task:
         planned_end=None,
         planned_end_manual=False,
         effort_hours=0.0,
-        assignee=None,
-        allocation=1.0,
+        assignees=[],
         actuals=[],
     )
 
@@ -345,6 +344,31 @@ def _assignee(value: Any) -> str | None:
     return value.strip() or None
 
 
+def _assignees(raw: dict[str, Any]) -> list[Assignee]:
+    """担当者のリスト。`assignees` を使う。なければ、古いキー(assignee・allocation)を 1 人にする。"""
+    value = raw.get("assignees")
+    if value is None:
+        allocation = _allocation(raw.get("allocation", 1.0))  # 古いファイルも、不正な値は拒否する
+        name = _assignee(raw.get("assignee"))
+        return [Assignee(name, allocation)] if name else []
+    if not isinstance(value, list):
+        raise ValueError("担当者が配列ではありません")
+    assignees: list[Assignee] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("担当者の形式が正しくありません")
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("担当者の名前が正しくありません")
+        name = name.strip()
+        if name in seen:
+            raise ValueError(f"担当者が重複しています: {name}")
+        seen.add(name)
+        assignees.append(Assignee(name, _allocation(item.get("allocation", 1.0))))
+    return assignees
+
+
 def _members(raw_members: list[dict[str, Any]]) -> list[Member]:
     """メンバーを読む。相対比率は検証し、空の名前と重複は(最初の1件を残して)捨てる。"""
     members: list[Member] = []
@@ -405,7 +429,8 @@ def load_project(path: Path) -> Project:
         validate_urls(task.urls, project.url_templates)
     known = {m.name for m in project.members}
     for task in project.all_tasks():  # 古いファイルの自由入力の担当者を、メンバーとして補う
-        if task.assignee and task.assignee not in known:
-            known.add(task.assignee)
-            project.members.append(Member(task.assignee, 1.0))
+        for assignee in task.assignees:
+            if assignee.name not in known:
+                known.add(assignee.name)
+                project.members.append(Member(assignee.name, 1.0))
     return project
