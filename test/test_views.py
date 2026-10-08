@@ -1997,7 +1997,7 @@ async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path
     assert "font-size: 12px" in HEADER_CSS  # 14px から -2
     assert "var(--q-primary)" in HEADER_CSS and "color: #fff" in HEADER_CSS  # テーマカラーの背景 + 白文字
     assert "body.body--dark .app-header" in HEADER_CSS and "color-mix" in HEADER_CSS  # ダークは暗めのテーマカラー
-    title = user.find(kind=ui.label, content="新規プロジェクト").elements.pop()
+    title = next(e for e in user.find(kind=ui.label, content="新規プロジェクト").elements if e.text == "新規プロジェクト")  # ヘルプの「新規プロジェクト作成」と区別する
     assert "app-title" in title.classes
     assert not any(node is view.header_box for node in ancestors(title))  # タイトルは、ヘッダーの外(メイン側の左上)
     title_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-title {"))
@@ -2037,7 +2037,7 @@ async def test_the_menus_start_at_the_left_of_the_header_and_the_title_is_in_the
     assert ids == sorted(ids)  # 左から、メニュー 4 つ。右側に、コンボ・ダッシュボード・テーマ
     header_children = view.header_box.default_slot.children
     assert isinstance(header_children[0], ui.button)  # 先頭は、メニューのボタン(タイトルではない)
-    title = user.find(kind=ui.label, content="新規プロジェクト").elements.pop()
+    title = next(e for e in user.find(kind=ui.label, content="新規プロジェクト").elements if e.text == "新規プロジェクト")  # ヘルプの「新規プロジェクト作成」と区別する
     assert view.header_box not in ancestors(title)
 
 

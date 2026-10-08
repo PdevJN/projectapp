@@ -24,7 +24,7 @@ from projectapp.forms import (
     open_unsaved_dialog,
 )
 from projectapp import arrange
-from projectapp.shortcuts import Screen, ctrl_keys, help_entries, resolve
+from projectapp.shortcuts import Screen, help_entries, key_guard_js, resolve
 from projectapp.dashboard import PeriodKind, period_for, summarize
 from projectapp.dashboard_view import DashboardView
 from projectapp.export import (
@@ -90,12 +90,7 @@ body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55
 .app-menu .q-item { font-size: 12px; min-height: 32px; }
 """
 HANDOFF_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、書き出せます"
-# ブラウザ既定の動き(`Ctrl+S` の保存、`Ctrl+P` の印刷など)を止める JS。`ui.keyboard` では止められない
-PREVENT_DEFAULT_JS = (
-    "document.addEventListener('keydown', e => {"
-    f" if ((e.ctrlKey || e.metaKey) && {sorted(ctrl_keys())!r}.includes(e.key.toLowerCase())) e.preventDefault();"
-    " }, true);"
-)
+KEY_GUARD_JS = key_guard_js()
 
 
 class MainView:
@@ -697,7 +692,7 @@ class MainView:
         self.dashboard_view.build()
         self.gantt.build()
         self.client = ui.context.client
-        ui.run_javascript(PREVENT_DEFAULT_JS)
+        ui.run_javascript(KEY_GUARD_JS)
         ui.keyboard(on_key=self.on_plain_key)  # 入力欄・ボタンにフォーカスがあるときは、受けない
         ui.keyboard(on_key=self.on_modified_key, ignore=[])  # Ctrl/Cmd 付きだけは、入力欄でも受ける
         if self.needs_first_fetch:

@@ -18,7 +18,7 @@
 | `export.py` | 画像化(html-to-image)・倍率・PNG の書き出し・保存ダイアログ(`ImageExporter`。`ask_path` はファイルの種類を引数に取り、担当者向けファイルでも使う) |
 | `urls.py` | タスクのリンク(URL)の規則。`resolve`(`{ID}` の置き換えと、`http`・`https` の検証)、`validate_templates`、`validate_urls`、`count_usage`、`expand_template`(削除時にリンクを URL へ展開)、`rename_templates`、`apply_template_edit`(`TemplateEdit`)。純粋関数(NiceGUI に依存しない) |
 | `browser.py` | URL を既定のブラウザで開く(`open_url`)。`http`・`https` 以外と、開けなかったときは `OSError`。開く処理は差し替えられる |
-| `shortcuts.py` | キーボードショートカットの割り当て表 `SHORTCUTS` と、判定 `resolve`(キー・修飾キー・ダイアログの有無・画面から操作名を返す)、`help_entries`、`ctrl_keys`。純粋関数(NiceGUI に依存しない)。`views.MainView.on_key` が操作名をメニューと同じメソッドへ振り分ける。`ui.keyboard` は 2 つ(文字キー用は入力欄で無効、`Ctrl/Cmd` 用は `ignore=[]`)。ブラウザ既定の動き(`Ctrl+S`・`Ctrl+P` など)は `PREVENT_DEFAULT_JS` で止める |
+| `shortcuts.py` | キーボードショートカットの割り当て表 `SHORTCUTS` と、判定 `resolve`(キー・修飾キー・ダイアログの有無・画面から操作名を返す)、`help_entries`、`ctrl_keys`。純粋関数(NiceGUI に依存しない)。`views.MainView.on_key` が操作名をメニューと同じメソッドへ振り分ける。`ui.keyboard` は 2 つ(文字キー用は入力欄で無効、`Ctrl/Cmd` 用は `ignore=[]`)。ブラウザ側の下ごしらえは `key_guard_js`(`views.KEY_GUARD_JS`): 割り当てたキーの既定の動き(`Ctrl+S`・`Ctrl+P` など)と macOS の警告音を止め、日本語 IME オン(WebKit が入力欄で keyCode 229 を返す)の ESC を keyCode 27 で Quasar へ送り直す(送り直さないと、入力欄にフォーカスがあるダイアログが ESC で閉じない)。ヘルプに、ラベルが増えるので、テストで部分一致の文字列を探すときは注意 |
 | `dashboard.py` | ダッシュボードの集計(期間 `period_for`、進捗・負荷・工数・期限、`summarize`)。純粋関数(NiceGUI に依存しない)。負荷は `timeline.counted_span` を使い、割り当て超過の縞と同じ前提 |
 | `dashboard_view.py` | ダッシュボードの表示(カードと横棒。`DashboardView`) |
 | `handoff.py` | 担当者向けファイルの書き出し。タスクを todoapp 形式(`items`・`records`・`categories`)へ変える(`build_todos`)、書き込み(`write_json`)。純粋関数(NiceGUI に依存しない)。id は`uuid5`で決まる(同名のタスクは`名前#2`)。todoapp の形式は`file-format.md`(git 管理外) |

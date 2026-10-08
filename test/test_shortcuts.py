@@ -54,10 +54,65 @@ def test_help_lists_every_shortcut_once_with_its_description():
     assert ("ESC", "開いているダイアログを閉じる(プレビュー・ダッシュボードから戻る)") in entries
 
 
-def test_only_ctrl_keys_are_listed_for_blocking_the_browser_default():
-    from projectapp.shortcuts import ctrl_keys
-    from projectapp.views import PREVENT_DEFAULT_JS
+def test_the_key_lists_for_the_browser_guard_come_from_the_table():
+    from projectapp.shortcuts import ctrl_keys, plain_keys
 
     assert ctrl_keys() == {"s", "o", "n", ",", "e", "p"}
-    assert "preventDefault" in PREVENT_DEFAULT_JS
-    assert "'p'" in PREVENT_DEFAULT_JS and "'d'" not in PREVENT_DEFAULT_JS
+    assert plain_keys() == {"escape", "d", "/", "?"}
+
+
+HARNESS = """
+const fs = require("fs");
+const listeners = [];
+const dispatched = [];
+global.document = { addEventListener: (type, fn) => listeners.push({ type, fn }) };
+global.window = { dispatchEvent: (ev) => dispatched.push([ev.type, ev.keyCode]) };
+global.KeyboardEvent = class { constructor(type, init) { this.type = type; Object.assign(this, init); } };
+eval(fs.readFileSync(process.argv[2], "utf8"));
+function press(init) {
+  const ev = { ctrlKey: false, metaKey: false, key: "", code: "", keyCode: 0, isComposing: false,
+    target: { tagName: "DIV" }, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...init };
+  dispatched.length = 0;
+  for (const l of listeners.filter((l) => l.type === "keydown")) l.fn(ev);
+  return { prevented: ev.defaultPrevented, dispatched: dispatched.slice() };
+}
+console.log(JSON.stringify({
+  ctrlS: press({ ctrlKey: true, key: "s", code: "KeyS", keyCode: 83 }),
+  cmdP: press({ metaKey: true, key: "p", code: "KeyP", keyCode: 80 }),
+  ctrlX: press({ ctrlKey: true, key: "x", code: "KeyX", keyCode: 88 }),
+  d: press({ key: "d", code: "KeyD", keyCode: 68 }),
+  slash: press({ key: "/", code: "Slash", keyCode: 191 }),
+  esc: press({ key: "Escape", code: "Escape", keyCode: 27 }),
+  dInInput: press({ key: "d", code: "KeyD", keyCode: 68, target: { tagName: "INPUT" } }),
+  x: press({ key: "x", code: "KeyX", keyCode: 88 }),
+  imeEsc: press({ key: "Process", code: "Escape", keyCode: 229, target: { tagName: "INPUT" } }),
+  composingEsc: press({ key: "Process", code: "Escape", keyCode: 229, isComposing: true, target: { tagName: "INPUT" } }),
+}));
+"""
+
+
+def test_the_key_guard_blocks_the_beep_and_replays_an_ime_escape(tmp_path):
+    import json
+    import shutil
+    import subprocess
+
+    from projectapp.views import KEY_GUARD_JS
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node がないので JS の動作を確かめない")
+    (tmp_path / "guard.js").write_text(KEY_GUARD_JS)
+    (tmp_path / "harness.js").write_text(HARNESS)
+    run = subprocess.run(
+        [node, str(tmp_path / "harness.js"), str(tmp_path / "guard.js")], capture_output=True, text=True
+    )
+    assert run.returncode == 0, run.stderr
+    out = json.loads(run.stdout)
+    for name in ("ctrlS", "cmdP", "d", "slash", "esc"):
+        assert out[name]["prevented"], name  # ブラウザ既定の動き・macOS の警告音を止める
+    for name in ("ctrlX", "dInInput", "x"):
+        assert not out[name]["prevented"], name  # 割り当てのないキーと、入力欄の文字は止めない
+    replay = [["keydown", 27], ["keyup", 27]]
+    assert out["imeEsc"]["dispatched"] == replay  # IME オンの ESC(keyCode 229)を、Quasar に 27 として渡す
+    assert out["esc"]["dispatched"] == []  # 普通の ESC は二重にしない
+    assert out["composingEsc"]["dispatched"] == []  # 変換中の ESC は、変換の取り消しなので閉じない
