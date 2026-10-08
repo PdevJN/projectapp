@@ -1,6 +1,6 @@
 """タスクの連結(先行 → 後続)のグラフ操作。NiceGUI には依存しない純粋関数。"""
 
-from projectapp.models import Project, Task
+from projectapp.models import Project, Task, walk_sections
 
 
 def downstream_ids(project: Project, task_id: str) -> set[str]:
@@ -69,8 +69,10 @@ def link_options(project: Project, task: Task | None) -> dict[str, str]:
     if task is not None:
         excluded = {task.id, *downstream_ids(project, task.id)}
     labelled: list[tuple[str, str]] = [(t.id, t.name) for t in project.tasks]
-    for section in project.sections:
-        labelled += [(t.id, f"{section.name} / {t.name}") for t in section.tasks]
+    names: dict[tuple[int, ...], str] = {}
+    for path, section in walk_sections(project.sections):
+        names[path] = f"{names[path[:-1]]} / {section.name}" if path[:-1] else section.name
+        labelled += [(t.id, f"{names[path]} / {t.name}") for t in section.tasks]
     seen: dict[str, int] = {}
     options: dict[str, str] = {}
     for task_id, label in labelled:

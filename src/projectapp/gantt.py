@@ -521,7 +521,7 @@ class GanttChart:
         return row_slots(
             self.project,
             self.task_filter,
-            self.collapsed,
+            {arrange.as_path(si) for si in self.collapsed},  # 次のタスクで、collapsed 自体をパスの集合にする
             self.options.read_only,
             ROW_HEIGHT_PX,
             ADD_ROW_HEIGHT_PX,

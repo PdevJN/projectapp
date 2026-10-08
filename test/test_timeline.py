@@ -927,3 +927,11 @@ def test_an_assignee_who_is_not_a_member_is_not_counted_for_overload() -> None:
     project = member_project(Member("田中"), tasks=[a, b])
     assert overallocations(project, {}) == []
     assert counted_span(a, project, {}) is None
+
+
+def test_visible_range_includes_tasks_in_nested_sections() -> None:
+    far = Task("遠い", planned_start=datetime(2026, 12, 1, 9), planned_end=datetime(2026, 12, 3, 9))
+    project = Project("p", base_date=date(2026, 10, 5), sections=[Section("親", sections=[Section("子", [far])])])
+    start, end = visible_range(project)
+    assert start == date(2026, 10, 5)
+    assert end >= date(2026, 12, 4)  # 入れ子のタスクのバーまで、範囲が広がる

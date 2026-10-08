@@ -62,3 +62,14 @@ def test_link_options_number_duplicate_labels() -> None:
     a, b = task("設計", "a"), task("設計", "b")
     options = link_options(Project("p", tasks=[a, b]), None)
     assert options == {"a": "設計", "b": "設計 (2)"}
+
+
+def test_link_options_label_nested_tasks_with_every_section_name() -> None:
+    deep = Section("孫", [Task("深い", id="g")])
+    project = Project(
+        "p",
+        tasks=[Task("根", id="r")],
+        sections=[Section("親", [Task("上", id="u")], [Section("子", [Task("中", id="m")], [deep])])],
+    )
+    options = link_options(project, None)
+    assert options == {"r": "根", "u": "親 / 上", "m": "親 / 子 / 中", "g": "親 / 子 / 孫 / 深い"}

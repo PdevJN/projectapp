@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from projectapp.filtering import TaskFilter, matches, visible_task_indexes
-from projectapp.models import Project
+from projectapp.filtering import TaskFilter, matches, section_has_match, visible_task_indexes
+from projectapp.models import Project, Section, SectionPath
 
 STUB_PX = 6  # 先行の棒の右端から出る長さ。後続の棒の左端へ入る手前も同じ長さ
 MIN_GAP_PX = 2 * STUB_PX  # 後続の左端がこれ未満のときは、行の間を通る経路にする
@@ -15,7 +15,7 @@ class RowSlot:
     """描く行 1 つ。折りたたみで隠れる行は、作るが shown=False(高さを持たない)。"""
 
     kind: Literal["task", "section", "top-add"]
-    si: int | None
+    path: SectionPath  # 行が属するセクションのパス(root と追加行は ())
     ti: int | None
     task_id: str | None
     shown: bool
@@ -25,7 +25,7 @@ class RowSlot:
 def row_slots(
     project: Project,
     task_filter: TaskFilter,
-    collapsed: set[int],
+    collapsed: set[SectionPath],
     read_only: bool,
     row_height: int,
     add_height: int,
@@ -34,21 +34,38 @@ def row_slots(
     slots: list[RowSlot] = []
     for ti, task in enumerate(project.tasks):
         if matches(task, task_filter):
-            slots.append(RowSlot("task", None, ti, task.id, True, row_height))
+            slots.append(RowSlot("task", (), ti, task.id, True, row_height))
     if not read_only:
-        slots.append(RowSlot("top-add", None, None, None, True, add_height))
-    for si, section in enumerate(project.sections):
-        is_collapsed = si in collapsed and not read_only
-        shown = visible_task_indexes(section, task_filter, is_collapsed)
-        if task_filter.active and not shown:
-            continue
-        slots.append(RowSlot("section", si, None, None, True, row_height))
-        visible = set(shown)
-        for ti, task in enumerate(section.tasks):
-            if task_filter.active and ti not in visible:
-                continue
-            slots.append(RowSlot("task", si, ti, task.id, ti in visible, row_height))
+        slots.append(RowSlot("top-add", (), None, None, True, add_height))
+    for index, section in enumerate(project.sections):
+        _section_slots(slots, section, (index,), task_filter, collapsed, read_only, False, row_height)
     return slots
+
+
+def _section_slots(
+    slots: list[RowSlot],
+    section: Section,
+    path: SectionPath,
+    task_filter: TaskFilter,
+    collapsed: set[SectionPath],
+    read_only: bool,
+    hidden: bool,
+    row_height: int,
+) -> None:
+    """セクションの見出し・タスク・サブセクションの行を足す。hidden は、親のどれかが折りたたまれている。"""
+    if task_filter.active and not section_has_match(section, task_filter):
+        return
+    own_collapsed = path in collapsed and not read_only and not task_filter.active
+    slots.append(RowSlot("section", path, None, None, not hidden, row_height))
+    visible = set(visible_task_indexes(section, task_filter, own_collapsed))
+    for ti, task in enumerate(section.tasks):
+        if task_filter.active and ti not in visible:
+            continue
+        slots.append(RowSlot("task", path, ti, task.id, not hidden and ti in visible, row_height))
+    for index, child in enumerate(section.sections):
+        _section_slots(
+            slots, child, (*path, index), task_filter, collapsed, read_only, hidden or own_collapsed, row_height
+        )
 
 
 def row_centers(slots: list[RowSlot], top: float) -> dict[str, float]:

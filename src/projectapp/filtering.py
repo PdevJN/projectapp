@@ -27,3 +27,12 @@ def visible_task_indexes(section: Section, task_filter: TaskFilter, collapsed: b
     if task_filter.active:
         return [i for i, task in enumerate(section.tasks) if matches(task, task_filter)]
     return [] if collapsed else list(range(len(section.tasks)))
+
+
+def section_has_match(section: Section, task_filter: TaskFilter) -> bool:
+    """セクション自身か、子孫のどれかのタスクが条件に合うか。条件が空なら常に True。"""
+    if not task_filter.active:
+        return True
+    return any(matches(task, task_filter) for task in section.tasks) or any(
+        section_has_match(child, task_filter) for child in section.sections
+    )

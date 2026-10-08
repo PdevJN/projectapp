@@ -1,4 +1,4 @@
-from projectapp.filtering import TaskFilter, matches, visible_task_indexes
+from projectapp.filtering import TaskFilter, matches, section_has_match, visible_task_indexes
 from projectapp.models import Assignee, Section, Task
 
 
@@ -85,3 +85,22 @@ def test_a_task_matches_when_the_member_is_any_of_its_assignees() -> None:
     assert matches(task, TaskFilter(assignee="田中"))
     assert matches(task, TaskFilter(assignee="鈴木"))
     assert not matches(task, TaskFilter(assignee="佐藤"))
+
+
+def tree_section() -> Section:
+    grandchild = Section("孫", [Task("深い")])
+    return Section("親", [Task("上")], [Section("子", [Task("中")], [grandchild]), Section("子2", [Task("横")])])
+
+
+def test_section_has_match_looks_at_the_whole_subtree() -> None:
+    parent = tree_section()
+    assert section_has_match(parent, TaskFilter(query="深"))  # 孫のタスクで、親も一致
+    assert section_has_match(parent.sections[0], TaskFilter(query="深"))
+    assert not section_has_match(parent.sections[1], TaskFilter(query="深"))
+    assert section_has_match(parent, TaskFilter(query="上"))
+    assert not section_has_match(parent, TaskFilter(query="存在しない"))
+
+
+def test_section_has_match_with_an_inactive_filter_is_true() -> None:
+    assert section_has_match(tree_section(), TaskFilter())
+    assert section_has_match(Section("空"), TaskFilter())  # 条件がなければ、空のセクションも出す

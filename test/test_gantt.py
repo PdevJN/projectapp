@@ -8,6 +8,7 @@ from nicegui import ui
 from nicegui.testing import User
 
 from header_cells import header_cells, settles, should_not_see_column, should_see_column
+from projectapp.arrange import section_key
 from projectapp.calendar import DayKind
 from projectapp.config import DEFAULT_NAME_WIDTH_PX, MAX_NAME_WIDTH_PX, MIN_NAME_WIDTH_PX
 from projectapp.filtering import TaskFilter
@@ -2765,9 +2766,9 @@ async def test_the_slots_match_the_rendered_rows(user: User) -> None:
     chart.toggle_section(0)
     for slot in chart.slots():
         marker = (
-            f"row-{'top' if slot.si is None else slot.si}-{slot.ti}"
+            f"row-{section_key(slot.path)}-{slot.ti}"
             if slot.kind == "task"
-            else {"top-add": "top-end", "section": f"section-{slot.si}"}[slot.kind]
+            else {"top-add": "top-end", "section": f"section-{section_key(slot.path)}"}[slot.kind]
         )
         if slot.shown:
             await user.should_see(marker=marker)
