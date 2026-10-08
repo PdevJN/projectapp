@@ -1912,9 +1912,42 @@ async def test_assignee_chip_shows_the_first_character_and_the_name_on_hover(use
     await user.open("/")
     who = chip(user, "task-assignee-0-0")
     assert who.text == "山"
-    assert tooltips_targeting(who) == ["山田太郎"]
+    assert tooltips_targeting(who) == ["山田太郎 100%"]
     assert who._style["width"] == who._style["height"] == "16px"
     assert who.parent_slot.parent is chip(user, "task-0-0")
+
+
+async def test_several_assignees_get_one_chip_each(user: User) -> None:
+    mount(project_with(Task("設計", assignees=[Assignee("山田", 1.0), Assignee("鈴木", 0.5)])))
+    await user.open("/")
+    first, second = chip(user, "task-assignee-0-0"), chip(user, "task-assignee-0-0-1")
+    assert (first.text, second.text) == ("山", "鈴")
+    assert tooltips_targeting(first) == ["山田 100%"]
+    assert tooltips_targeting(second) == ["鈴木 50%"]
+
+
+async def test_more_than_three_assignees_are_summarized_in_a_plus_chip(user: User) -> None:
+    names = ["山田", "鈴木", "佐藤", "高橋", "伊藤"]
+    mount(project_with(Task("設計", assignees=[Assignee(n, 0.5) for n in names])))
+    await user.open("/")
+    assert chip(user, "task-assignee-0-0-2").text == "佐"  # 3 人目まで
+    await user.should_not_see(marker="task-assignee-0-0-3")
+    more = chip(user, "task-assignee-more-0-0")
+    assert more.text == "+2"
+    assert tooltips_targeting(more) == ["高橋 50%\n伊藤 50%"]
+
+
+async def test_exactly_three_assignees_have_no_plus_chip(user: User) -> None:
+    mount(project_with(Task("設計", assignees=[Assignee(n) for n in ("山田", "鈴木", "佐藤")])))
+    await user.open("/")
+    await user.should_see(marker="task-assignee-0-0-2")
+    await user.should_not_see(marker="task-assignee-more-0-0")
+
+
+async def test_a_task_without_assignees_has_no_chip(user: User) -> None:
+    mount(project_with(Task("設計")))
+    await user.open("/")
+    await user.should_not_see(marker="task-assignee-0-0")
 
 
 async def test_an_assignee_who_is_not_a_member_and_an_emoji_name_do_not_break_the_chart(

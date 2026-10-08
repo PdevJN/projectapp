@@ -137,6 +137,7 @@ CODE_CHIP_STYLE = (
     "flex: none; max-width: 56px; padding: 0 6px; font-size: 10px; line-height: 16px;"
     " border: 1px solid rgba(128, 128, 128, 0.6); border-radius: 8px"
 )
+MAX_ASSIGNEE_CHIPS = 3  # これを超える担当者は、「+n」のチップ 1 つにまとめる
 ASSIGNEE_CHIP_STYLE = (
     "flex: none; width: 16px; height: 16px; line-height: 16px; text-align: center;"
     " font-size: 10px; border-radius: 50%; background: rgba(128, 128, 128, 0.3)"
@@ -909,10 +910,16 @@ class GanttChart:
             ui.label(task.project_code).classes("ellipsis code-chip").style(CODE_CHIP_STYLE).tooltip(
                 task.project_code
             ).mark(f"task-code-{key}-{ti}")
-        if task.assignee:
-            ui.label(task.assignee[0]).style(ASSIGNEE_CHIP_STYLE).tooltip(task.assignee).mark(
-                f"task-assignee-{key}-{ti}"
-            )
+        for n, assignee in enumerate(task.assignees[:MAX_ASSIGNEE_CHIPS]):
+            suffix = "" if n == 0 else f"-{n}"
+            ui.label(assignee.name[0]).style(ASSIGNEE_CHIP_STYLE).tooltip(
+                f"{assignee.name} {round(assignee.allocation * 100)}%"
+            ).mark(f"task-assignee-{key}-{ti}{suffix}")
+        rest = task.assignees[MAX_ASSIGNEE_CHIPS:]
+        if rest:
+            ui.label(f"+{len(rest)}").style(ASSIGNEE_CHIP_STYLE).tooltip(
+                "\n".join(f"{a.name} {round(a.allocation * 100)}%" for a in rest)
+            ).mark(f"task-assignee-more-{key}-{ti}")
         percent = None if task.kind is TaskKind.CHECKPOINT else fill_percent(task)
         if percent is not None:
             ui.label(f"{percent}%").style(PROGRESS_TEXT_STYLE).mark(f"task-progress-{key}-{ti}")

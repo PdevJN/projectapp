@@ -78,3 +78,10 @@ def test_an_active_filter_with_no_match_shows_nothing() -> None:
 
 def test_an_empty_section_shows_nothing() -> None:
     assert visible_task_indexes(Section("空"), TaskFilter(), collapsed=False) == []
+
+
+def test_a_task_matches_when_the_member_is_any_of_its_assignees() -> None:
+    task = Task("設計", assignees=[Assignee("鈴木"), Assignee("田中")])
+    assert matches(task, TaskFilter(assignee="田中"))
+    assert matches(task, TaskFilter(assignee="鈴木"))
+    assert not matches(task, TaskFilter(assignee="佐藤"))
