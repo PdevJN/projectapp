@@ -28,7 +28,7 @@ CHART_DRAG_JS = """
 (() => {
   if (window.__ganttDragInstalled) return;
   window.__ganttDragInstalled = true;
-  const section = (value) => (value === "top" ? null : Number(value));
+  const section = (value) => value;  // data-si のキー(top・0・0.1)をそのまま送る
   const ROW_TYPE = "application/x-gantt-row";  // 自分が始めた drag かを見分ける
   let source = null;
   let resize = null;  // 名前の欄の幅の調整中の状態
@@ -36,13 +36,9 @@ CHART_DRAG_JS = """
   let resizeClickTimer = null;
   const RESIZE_CLICK_MS = 400;  // click が来るのを待つ時間。タイマーが click より先に走らないよう、長めにする
 
-  // 画面に CSS の zoom がかかっていると、clientX の差(画面上の px)と、要素の CSS の px がずれる。
-  // 要素の画面上の幅 ÷ CSS の幅 で比を求め、移動量を CSS の px へ戻す(zoom がなければ 1)
-  const cssScale = (el) => {
-    const css = el.offsetWidth;
-    const shown = el.getBoundingClientRect ? el.getBoundingClientRect().width : 0;
-    return css > 0 && shown > 0 ? shown / css : 1;
-  };
+  // 画面に CSS の zoom(body)がかかっていると、clientX の差(画面上の px)と、要素の CSS の px がずれる。
+  // WebKit は、zoom 中も要素の幅や位置を拡大前の値で返すので、自分でかけた倍率をそのまま使う(zoom がなければ 1)
+  const cssScale = () => parseFloat(document.body.style.zoom) || 1;
 
   const isRowDrag = (event) => Array.from((event.dataTransfer || {}).types || []).includes(ROW_TYPE);
   const clearMarks = () => {
@@ -121,7 +117,7 @@ CHART_DRAG_JS = """
     if (!el || event.button !== 0) return;
     abortBar();
     bar = {
-      el, x0: event.clientX, width: Number(el.dataset.dayWidth), scale: cssScale(el),
+      el, x0: event.clientX, width: Number(el.dataset.dayWidth), scale: cssScale(),
       minDays: Number(el.dataset.minDays),  // 基準日より前へは動かさない
       moved: false, cancelled: false, days: 0,
     };
@@ -191,9 +187,9 @@ CHART_DRAG_JS = """
     const cell = event.target.closest ? event.target.closest(".gantt-name-resizable") : null;
     const area = content();
     if (!cell || !area) return null;
-    const right = cell.getBoundingClientRect().right;
-    const edge = Number(area.dataset.nameEdge) * cssScale(cell);
-    return event.clientX <= right && event.clientX >= right - edge ? cell : null;
+    // 位置の計算は使わず、画面上で右へ掴み場所の幅だけ進んだ点が、欄の外(隣のチャート)なら右端とする
+    const next = document.elementFromPoint(event.clientX + Number(area.dataset.nameEdge) * cssScale(), event.clientY);
+    return next && cell.contains(next) ? null : cell;
   };
   const setWidth = (area, value) => area.style.setProperty("--name-w", `${value}px`);
   const restoreCells = (state) => state.cells.forEach(([el, original]) => { el.style.width = original; });
@@ -219,7 +215,7 @@ CHART_DRAG_JS = """
     const cells = Array.from(area.querySelectorAll(".gantt-name-resizable"), (el) => [el, el.style.width]);
     resize = {
       cell, area, cells, x0: event.clientX, start, width: start, draggable: cell.draggable, cancelled: false,
-      scale: cssScale(cell),
+      scale: cssScale(),
     };
     cell.draggable = false;  // 欄は行の移動の掴み場所でもあるので、幅の調整中は止める
     cell.setPointerCapture(event.pointerId);

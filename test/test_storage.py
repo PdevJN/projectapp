@@ -1061,3 +1061,53 @@ def test_a_member_selection_that_points_nowhere_is_kept(tmp_path: Path) -> None:
     project = Project("p", members=[Member("田中", 1.0, {"消えた": "上級"})], parameters=[Parameter("経験", [Level("初級", -0.2)])])
     loaded = load_project(save_project(project, tmp_path))
     assert loaded.members[0].levels == {"消えた": "上級"}  # 読込は拒否しない。計算では 0% として扱う
+
+
+def nested_sections() -> list[Section]:
+    deep = Section("孫", [Task("孫タスク")])
+    child = Section("子", [Task("子タスク")], [deep])
+    return [Section("親", [Task("親タスク")], [child, Section("子2", [Task("子2タスク")])]), Section("別", [Task("別タスク")])]
+
+
+def test_nested_sections_roundtrip(tmp_path: Path) -> None:
+    project = Project("p", tasks=[Task("root")], sections=nested_sections())
+    path = save_project(project, tmp_path)
+    loaded = load_project(path)
+    assert loaded.sections == project.sections
+    assert [t.name for t in loaded.all_tasks()] == ["root", "親タスク", "子タスク", "孫タスク", "子2タスク", "別タスク"]
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["sections"][0]["sections"][0]["sections"][0]["name"] == "孫"
+
+
+def test_a_file_without_nested_sections_loads_as_flat(tmp_path: Path) -> None:
+    path = save_project(Project("p", sections=[Section("A", [Task("a")])]), tmp_path)
+
+    def legacy(data: dict) -> None:
+        data["sections"][0].pop("sections")
+
+    _rewrite(path, legacy)
+    loaded = load_project(path)
+    assert loaded.sections == [Section("A", [Task("a")])]
+    _rewrite(path, lambda d: d["sections"][0].update(sections=None))
+    assert load_project(path).sections[0].sections == []
+
+
+def test_four_levels_of_sections_are_rejected(tmp_path: Path) -> None:
+    four = Section("1", sections=[Section("2", sections=[Section("3", sections=[Section("4")])])])
+    path = save_project(Project("p", sections=[four]), tmp_path)
+    with pytest.raises(ValueError, match="3階層"):
+        load_project(path)
+
+
+def test_three_levels_of_sections_are_accepted(tmp_path: Path) -> None:
+    three = Section("1", sections=[Section("2", sections=[Section("3")])])
+    loaded = load_project(save_project(Project("p", sections=[three]), tmp_path))
+    assert loaded.sections[0].sections[0].sections[0].name == "3"
+
+
+@pytest.mark.parametrize("bad", ["子", ["子"], [3], [None]])
+def test_bad_nested_sections_are_rejected(bad: object, tmp_path: Path) -> None:
+    path = save_project(Project("p", sections=[Section("A")]), tmp_path)
+    _rewrite(path, lambda d: d["sections"][0].update(sections=bad))
+    with pytest.raises(ValueError):
+        load_project(path)

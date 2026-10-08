@@ -1,5 +1,6 @@
 """プロジェクトのデータモデル。"""
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 import re
@@ -11,6 +12,8 @@ DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
 MIN_YEAR, MAX_YEAR = 2000, 2100  # 入力ミスで表示範囲が際限なく広がるのを防ぐ
 MIN_RATIO, MAX_RATIO = 0.1, 3.0  # 相対比率(10%〜300%)
+MAX_SECTION_DEPTH = 3  # セクションの入れ子の上限(root 直下が 1 階層目。root は数えない)
+SectionPath = tuple[int, ...]  # セクションの位置。root は ()、1 番目のセクションは (0,)、その 2 番目のサブセクションは (0, 1)
 MIN_LEVEL_VALUE, MAX_LEVEL_VALUE = -0.9, 2.9  # パラメータの段階の判定値(-90%〜+290%)
 MIN_ALLOCATION, MAX_ALLOCATION = 0.01, 1.0  # 割り当て率(1%〜100%)
 MIN_PROGRESS, MAX_PROGRESS = 0, 100  # 実績の進捗度(%)
@@ -133,6 +136,22 @@ class Task:
 class Section:
     name: str
     tasks: list[Task] = field(default_factory=list)
+    sections: list["Section"] = field(default_factory=list)  # サブセクション(タスクの後ろに並ぶ)
+
+    def all_tasks(self) -> list[Task]:
+        """このセクションのタスク、続いてサブセクションのタスク(深さ優先)。"""
+        tasks = list(self.tasks)
+        for child in self.sections:
+            tasks += child.all_tasks()
+        return tasks
+
+
+def walk_sections(sections: list[Section], prefix: SectionPath = ()) -> Iterator[tuple[SectionPath, Section]]:
+    """セクションを深さ優先でたどる(親 → その子孫 → 次の兄弟)。パスは root からの番号の並び。"""
+    for index, section in enumerate(sections):
+        path = (*prefix, index)
+        yield path, section
+        yield from walk_sections(section.sections, path)
 
 
 @dataclass
@@ -149,5 +168,8 @@ class Project:
     parameters: list[Parameter] = field(default_factory=list)  # 相対比率のパラメータ(プロジェクト共通)
 
     def all_tasks(self) -> list[Task]:
-        """セクションなしのタスク、続いてセクションのタスク。"""
-        return [*self.tasks, *(t for section in self.sections for t in section.tasks)]
+        """セクションなしのタスク、続いて各セクションを深さ優先で(そのタスク → そのサブセクション)。"""
+        tasks = list(self.tasks)
+        for section in self.sections:
+            tasks += section.all_tasks()
+        return tasks

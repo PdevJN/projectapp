@@ -1,21 +1,55 @@
 """タスクの移動・コピー・日程のずらし(純粋関数)と、画面から届く値の検証。"""
 
+import re
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 
-from projectapp.models import MAX_YEAR, MIN_YEAR, Project, Task, new_id
 
-Position = tuple[int | None, int]  # (セクション番号。Noneはセクションなし, 番号)
+from projectapp.models import MAX_SECTION_DEPTH, MAX_YEAR, MIN_YEAR, Project, Section, SectionPath, Task, new_id
+
+Position = tuple[SectionPath, int]  # (セクションのパス。root は (), 番号)
 COPY_SUFFIX = "(コピー)"
 MAX_SHIFT_DAYS = 3650
+_KEY = re.compile(r"(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){0,%d}" % (MAX_SECTION_DEPTH - 1))
 
 
-def tasks_at(project: Project, section: int | None) -> list[Task]:
-    return project.tasks if section is None else project.sections[section].tasks
+def section_key(path: SectionPath) -> str:
+    """マーカーと `data-si` に使うキー。root は `top`、それ以外は番号を「.」でつなぐ(`0`・`0.1`)。"""
+    return ".".join(str(n) for n in path) if path else "top"
 
 
-def valid_section(project: Project, section: int | None) -> bool:
-    return section is None or 0 <= section < len(project.sections)
+def parse_section_key(text: str) -> SectionPath | None:
+    """`section_key` の逆。不正(空・先頭の 0・空白・全角・4 階層以上など)は None。"""
+    if text == "top":
+        return ()
+    if not text.isascii() or _KEY.fullmatch(text) is None:
+        return None
+    return tuple(int(part) for part in text.split("."))
+
+
+def section_at(project: Project, path: SectionPath) -> Section | None:
+    """パスのセクション。root(`()`)と、存在しないパスは None。"""
+    sections = project.sections
+    found: Section | None = None
+    for index in path:
+        if not 0 <= index < len(sections):
+            return None
+        found = sections[index]
+        sections = found.sections
+    return found
+
+
+def tasks_at(project: Project, path: SectionPath) -> list[Task]:
+    if not path:
+        return project.tasks
+    found = section_at(project, path)
+    if found is None:
+        raise IndexError(path)
+    return found.tasks
+
+
+def valid_section(project: Project, path: SectionPath) -> bool:
+    return not path or (len(path) <= MAX_SECTION_DEPTH and section_at(project, path) is not None)
 
 
 def has_task(project: Project, position: Position) -> bool:
@@ -100,17 +134,20 @@ def as_int(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def parse_section(value: object) -> SectionPath | None:
+    """画面から届くセクションの指定(キーの文字列 `top`・`0`・`0.1`)。不正は None。"""
+    return parse_section_key(value) if isinstance(value, str) else None
+
+
 def parse_position(value: object) -> Position | None:
     if not isinstance(value, (list, tuple)) or len(value) != 2:
         return None
     section, raw_index = value
     index = as_int(raw_index)
-    if index is None:
+    path = parse_section(section)
+    if index is None or path is None:
         return None
-    if section is None:
-        return None, index
-    number = as_int(section)
-    return None if number is None else (number, index)
+    return path, index
 
 
 def parse_move(args: object) -> tuple[Position, Position, bool] | None:

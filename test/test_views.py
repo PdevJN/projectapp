@@ -214,11 +214,11 @@ async def test_save_task_adds_then_replaces(user: User, tmp_path: Path) -> None:
 
     await user.open("/")
     view = views[0]
-    view.save_task(None, None, Task("a"))
-    view.save_task(None, 0, Task("b"))
+    view.save_task((), None, Task("a"))
+    view.save_task((), 0, Task("b"))
     view.save_section("開発")
-    view.save_task(0, None, Task("x"))
-    view.save_task(0, 0, Task("y"))
+    view.save_task((0,), None, Task("x"))
+    view.save_task((0,), 0, Task("y"))
     assert [t.name for t in view.project.tasks] == ["b"]
     assert [t.name for t in view.project.sections[0].tasks] == ["y"]
     await user.should_see(marker="task-top-0")
@@ -240,7 +240,7 @@ async def test_saving_start_and_effort_shows_a_bar_without_storing_the_end(
     views: list[MainView] = []
     make_view(tmp_path, views)
     await user.open("/")
-    views[0].save_task(None, None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    views[0].save_task((), None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
     assert views[0].project.tasks[0].planned_end is None  # 完了予定は保存せず、その都度計算する
     await user.should_see(marker="bar-top-0")
 
@@ -250,7 +250,7 @@ async def test_a_task_with_only_a_start_shows_a_one_day_bar(user: User, tmp_path
     views: list[MainView] = []
     make_view(tmp_path, views)
     await user.open("/")
-    views[0].save_task(None, None, Task("a", planned_start=datetime(2026, 10, 9, 9)))
+    views[0].save_task((), None, Task("a", planned_start=datetime(2026, 10, 9, 9)))
     assert views[0].project.tasks[0].planned_end is None
     await user.should_see(marker="bar-top-0")
     bar = user.find(marker="bar-top-0").elements.pop()
@@ -616,7 +616,7 @@ async def test_settings_are_saved_with_the_project(user: User, tmp_path: Path) -
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    view.save_task(None, None, Task("自動", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    view.save_task((), None, Task("自動", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
     await open_settings_and_apply(user, "8", "10:00")
     assert await wait_until(lambda: view.is_dirty())
     await save_new_as(user, "設定")
@@ -661,10 +661,10 @@ async def test_delete_task_removes_only_that_task_and_makes_the_view_dirty(
     await choose_in_combo(user, "既存")
     assert await wait_until(lambda: view.path is not None)
     assert not view.is_dirty()
-    view.delete_task(None, 0)
+    view.delete_task((), 0)
     assert [t.name for t in view.project.tasks] == ["b"]
     assert [t.name for t in view.project.sections[0].tasks] == ["x", "y"]
-    view.delete_task(0, 1)
+    view.delete_task((0,), 1)
     assert [t.name for t in view.project.sections[0].tasks] == ["x"]
     assert [t.name for t in view.project.tasks] == ["b"]
     assert view.is_dirty()
@@ -683,7 +683,7 @@ async def test_delete_task_removes_its_id_from_the_successors(
     view = views[0]
     await choose_in_combo(user, "既存")
     assert await wait_until(lambda: view.path is not None)
-    view.delete_task(None, 0)
+    view.delete_task((), 0)
     assert view.project.tasks[0].predecessors == []
 
 
@@ -726,7 +726,7 @@ async def test_shift_task_does_not_go_before_the_predecessors_finish(
     view = views[0]
     await choose_in_combo(user, "既存")
     assert await wait_until(lambda: view.path is not None)
-    view.shift_task(None, 1, -30)  # 大きく左へ
+    view.shift_task((), 1, -30)  # 大きく左へ
     assert view.project.tasks[1].planned_start == datetime(2026, 10, 6, 9)  # 先行の完了の日まで
 
 
@@ -810,7 +810,7 @@ async def test_apply_settings_rerenders_without_a_recalculation_notice(
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    view.save_task(None, None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    view.save_task((), None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
     await user.should_see(marker="bar-top-0")
     before = bar_width(user)
     await open_settings_and_apply(user, "8", "09:00")
@@ -828,7 +828,7 @@ async def test_refreshing_holidays_rerenders_the_bar(
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    view.save_task(None, None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    view.save_task((), None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
     await user.should_see(marker="bar-top-0")
     before = bar_width(user)
 
@@ -937,7 +937,7 @@ async def test_saving_a_task_that_overloads_the_assignee_warns(user: User, tmp_p
     view = views[0]
     view.project.members = [Member("田中", 1.0)]
     view.save_task(
-        None,
+        (),
         None,
         Task(
             "a",
@@ -948,7 +948,7 @@ async def test_saving_a_task_that_overloads_the_assignee_warns(user: User, tmp_p
     )
     assert not user.notify.contains("割り当て")
     view.save_task(
-        None,
+        (),
         None,
         Task(
             "b",
@@ -972,7 +972,7 @@ async def test_saving_a_task_that_does_not_overload_shows_no_warning(
     view.project.members = [Member("田中", 1.0)]
     for name, start, end, allocation in (("a", 5, 9, 0.7), ("b", 7, 12, 0.3)):
         view.save_task(
-            None,
+            (),
             None,
             Task(
                 name,
@@ -1008,7 +1008,7 @@ async def test_move_task_moves_marks_dirty_and_redraws(user: User, tmp_path: Pat
     view.project.tasks.append(Task("上"))
     view.project.sections[0].tasks.extend([Task("a"), Task("b")])
     view.mark_clean()
-    view.move_task((0, 0), (None, 1), False)
+    view.move_task(((0,), 0), ((), 1), False)
     assert [t.name for t in view.project.tasks] == ["上", "a"]
     assert [t.name for t in view.project.sections[0].tasks] == ["b"]
     assert view.is_dirty()
@@ -1023,7 +1023,7 @@ async def test_move_task_to_the_same_place_does_nothing(user: User, tmp_path: Pa
     view = views[0]
     view.project.tasks.extend([Task("a"), Task("b")])
     view.mark_clean()
-    view.move_task((None, 0), (None, 1), False)
+    view.move_task(((), 0), ((), 1), False)
     assert [t.name for t in view.project.tasks] == ["a", "b"]
     assert not view.is_dirty()
 
@@ -1036,10 +1036,10 @@ async def test_move_task_with_stale_positions_is_ignored(user: User, tmp_path: P
     view = views[0]
     view.project.tasks.append(Task("a"))
     view.mark_clean()
-    view.move_task((None, 5), (None, 0), False)
-    view.move_task((3, 0), (None, 0), False)
-    view.move_task((None, 0), (7, 0), False)
-    view.move_task((None, 0), (None, -1), True)
+    view.move_task(((), 5), ((), 0), False)
+    view.move_task(((3,), 0), ((), 0), False)
+    view.move_task(((), 0), ((7,), 0), False)
+    view.move_task(((), 0), ((), -1), True)
     assert [t.name for t in view.project.tasks] == ["a"]
     assert not view.is_dirty()
 
@@ -1053,7 +1053,7 @@ async def test_copy_task_adds_a_copy_and_notifies(user: User, tmp_path: Path) ->
     view.save_section("開発")
     view.project.tasks.append(Task("設計"))
     view.mark_clean()
-    view.move_task((None, 0), (0, 0), True)
+    view.move_task(((), 0), ((0,), 0), True)
     assert [t.name for t in view.project.tasks] == ["設計"]
     assert [t.name for t in view.project.sections[0].tasks] == ["設計(コピー)"]
     assert view.is_dirty()
@@ -1070,7 +1070,7 @@ async def test_shift_task_moves_the_dates_and_marks_dirty(user: User, tmp_path: 
         Task("a", planned_start=datetime(2026, 10, 5, 9), deadline=datetime(2026, 10, 9))
     )
     view.mark_clean()
-    view.shift_task(None, 0, 2)
+    view.shift_task((), 0, 2)
     task = view.project.tasks[0]
     assert task.planned_start == datetime(2026, 10, 7, 9)
     assert task.deadline == datetime(2026, 10, 9)
@@ -1085,9 +1085,9 @@ async def test_shift_task_ignores_zero_and_stale_positions(user: User, tmp_path:
     view = views[0]
     view.project.tasks.append(Task("a", planned_start=datetime(2026, 10, 5, 9)))
     view.mark_clean()
-    view.shift_task(None, 0, 0)
-    view.shift_task(None, 4, 1)
-    view.shift_task(2, 0, 1)
+    view.shift_task((), 0, 0)
+    view.shift_task((), 4, 1)
+    view.shift_task((2,), 0, 1)
     assert view.project.tasks[0].planned_start == datetime(2026, 10, 5, 9)
     assert not view.is_dirty()
 
@@ -1102,7 +1102,7 @@ async def test_shift_task_out_of_the_year_range_notifies_and_keeps_the_dates(
     view = views[0]
     view.project.tasks.append(Task("a", planned_start=datetime(2100, 12, 31, 9)))
     view.mark_clean()
-    view.shift_task(None, 0, 1)
+    view.shift_task((), 0, 1)
     assert view.project.tasks[0].planned_start == datetime(2100, 12, 31, 9)
     assert not view.is_dirty()
     await user.should_see("日付の範囲を超えるため動かせません")
@@ -1121,7 +1121,7 @@ async def test_shift_task_warns_when_the_assignee_goes_over_100_percent(
     first = Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5, assignees=[Assignee("田中")])
     second = Task("b", planned_start=datetime(2026, 10, 6, 9), effort_hours=6.5, assignees=[Assignee("田中")])
     view.project.tasks.extend([first, second])
-    view.shift_task(None, 1, -1)  # 同じ日に重なる(割り当て 100% + 100%)
+    view.shift_task((), 1, -1)  # 同じ日に重なる(割り当て 100% + 100%)
     await user.should_see("田中 の割り当てが最大200%になる期間があります")
 
 
@@ -1140,14 +1140,14 @@ async def test_shift_task_stops_at_the_base_date(user: User, tmp_path: Path) -> 
     )
     view.project.tasks.append(task)
     view.mark_clean()
-    view.shift_task(None, 0, -5)  # 基準日(10/5)で止まる = 2日分だけ左へ
+    view.shift_task((), 0, -5)  # 基準日(10/5)で止まる = 2日分だけ左へ
     assert task.planned_start == datetime(2026, 10, 5, 9)
     assert task.planned_end == datetime(2026, 10, 6, 18)
     view.mark_clean()
-    view.shift_task(None, 0, -1)  # すでに基準日なので、これ以上は左へ動かない
+    view.shift_task((), 0, -1)  # すでに基準日なので、これ以上は左へ動かない
     assert task.planned_start == datetime(2026, 10, 5, 9)
     assert not view.is_dirty()
-    view.shift_task(None, 0, 3)  # 右へは動く
+    view.shift_task((), 0, 3)  # 右へは動く
     assert task.planned_start == datetime(2026, 10, 8, 9)
 
 
@@ -1162,9 +1162,9 @@ async def test_shift_task_before_the_base_date_can_only_move_right(
     view.project.base_date = date(2026, 10, 5)
     task = Task("a", planned_start=datetime(2026, 10, 3, 9))
     view.project.tasks.append(task)
-    view.shift_task(None, 0, -1)
+    view.shift_task((), 0, -1)
     assert task.planned_start == datetime(2026, 10, 3, 9)
-    view.shift_task(None, 0, 1)
+    view.shift_task((), 0, 1)
     assert task.planned_start == datetime(2026, 10, 4, 9)
 
 
@@ -1225,8 +1225,8 @@ async def test_multi_interval_count_counts_tasks_with_two_or_more_actuals(
     await user.open("/")
     view = views[0]
     two = [Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)), Actual(datetime(2026, 10, 6, 9))]
-    view.save_task(None, None, Task("複数", actuals=two))
-    view.save_task(None, None, Task("単独", actuals=two[:1]))
+    view.save_task((), None, Task("複数", actuals=two))
+    view.save_task((), None, Task("単独", actuals=two[:1]))
     assert view.multi_interval_count() == 1
 
 
@@ -1279,9 +1279,9 @@ async def open_preview(
     await user.open("/")
     view = views[0]
     view.project.base_date = date(2026, 10, 5)
-    view.save_task(None, None, planned_task())
+    view.save_task((), None, planned_task())
     if extra is not None:
-        view.save_task(None, None, extra)
+        view.save_task((), None, extra)
     user.find(marker="export-preview").click()
     return view
 
@@ -1579,9 +1579,9 @@ async def test_adding_a_task_to_a_collapsed_section_expands_it(user: User, tmp_p
     view.project.base_date = date(2026, 10, 5)
     view.project.sections.append(Section("開発", [planned_task()]))
     view.gantt.set_project(view.project)
-    view.gantt.toggle_section(0)
+    view.gantt.toggle_section((0,))
     await user.should_not_see(marker="task-0-0")
-    view.save_task(0, None, planned_task())
+    view.save_task((0,), None, planned_task())
     assert view.gantt.collapsed == set()
     await user.should_see(marker="task-0-1")
 
@@ -1594,9 +1594,9 @@ async def test_editing_a_task_keeps_the_section_collapsed(user: User, tmp_path: 
     view = views[0]
     view.project.sections.append(Section("開発", [planned_task()]))
     view.gantt.set_project(view.project)
-    view.gantt.toggle_section(0)
-    view.save_task(0, 0, planned_task())
-    assert view.gantt.collapsed == {0}
+    view.gantt.toggle_section((0,))
+    view.save_task((0,), 0, planned_task())
+    assert view.gantt.collapsed == {(0,)}
 
 
 async def test_adding_a_top_level_task_keeps_collapsed_sections(user: User, tmp_path: Path) -> None:
@@ -1607,9 +1607,9 @@ async def test_adding_a_top_level_task_keeps_collapsed_sections(user: User, tmp_
     view = views[0]
     view.project.sections.append(Section("開発", [planned_task()]))
     view.gantt.set_project(view.project)
-    view.gantt.toggle_section(0)
-    view.save_task(None, None, planned_task())
-    assert view.gantt.collapsed == {0}
+    view.gantt.toggle_section((0,))
+    view.save_task((), None, planned_task())
+    assert view.gantt.collapsed == {(0,)}
 
 
 async def test_opening_a_project_expands_every_section(user: User, tmp_path: Path) -> None:
@@ -1621,7 +1621,7 @@ async def test_opening_a_project_expands_every_section(user: User, tmp_path: Pat
     view = views[0]
     view.project.sections.append(Section("今の", [planned_task()]))
     view.gantt.set_project(view.project)
-    view.gantt.toggle_section(0)
+    view.gantt.toggle_section((0,))
     view.open_project("既存")
     assert view.gantt.collapsed == set()
     await user.should_see(marker="task-0-0")
@@ -1636,7 +1636,7 @@ async def test_collapsing_is_not_an_edit(user: User, tmp_path: Path) -> None:
     view.project.sections.append(Section("開発", [planned_task()]))
     view.gantt.set_project(view.project)
     view.mark_clean()
-    view.gantt.toggle_section(0)
+    view.gantt.toggle_section((0,))
     assert not view.is_dirty()
 
 
@@ -1649,14 +1649,14 @@ async def test_the_preview_shows_a_collapsed_section_and_returns_to_it(user: Use
     view.project.base_date = date(2026, 10, 5)
     view.project.sections.append(Section("開発", [planned_task()]))
     view.gantt.set_project(view.project)
-    view.gantt.toggle_section(0)
+    view.gantt.toggle_section((0,))
     await user.should_not_see(marker="task-0-0")
     user.find(marker="export-preview").click()
     await user.should_see(marker="task-0-0")
     await user.should_not_see(marker="section-toggle-0")
     view.exit_preview()
     await user.should_not_see(marker="task-0-0")
-    assert view.gantt.collapsed == {0}
+    assert view.gantt.collapsed == {(0,)}
 
 
 async def test_the_saved_name_width_is_restored_on_startup(user: User, tmp_path: Path) -> None:
@@ -1738,7 +1738,7 @@ async def open_handoff_view(user: User, tmp_path: Path, exporter: FakeExporter) 
 
 def assign(view: MainView) -> None:
     view.project.members = [Member("田中", 0.5)]
-    view.save_task(None, None, Task("設計", assignees=[Assignee("田中")], planned_start=datetime(2026, 10, 5, 9), effort_hours=3))
+    view.save_task((), None, Task("設計", assignees=[Assignee("田中")], planned_start=datetime(2026, 10, 5, 9), effort_hours=3))
     view.mark_clean()
 
 
@@ -1818,7 +1818,7 @@ async def open_dashboard_view(user: User, tmp_path: Path, with_task: bool = True
     if with_task:
         view.project.members = [Member("田中", 1.0)]
         view.save_task(
-            None,
+            (),
             None,
             Task(
                 "設計",
@@ -2200,7 +2200,7 @@ async def test_deleting_a_used_template_turns_its_links_into_urls(
     await user.open("/")
     view = views[0]
     view.project.url_templates = [UrlTemplate("チケット", "https://example.com/{ID}")]
-    view.save_task(None, None, Task("設計", urls=[TaskUrl("課題", "チケット", {"ID": "231"})]))
+    view.save_task((), None, Task("設計", urls=[TaskUrl("課題", "チケット", {"ID": "231"})]))
     user.find(marker="open-settings").click()
     user.find(marker="settings-template-0-remove").click()
     user.find(marker="settings-apply").click()
@@ -2217,7 +2217,7 @@ async def test_renaming_a_template_follows_the_links(user: User, tmp_path: Path)
     await user.open("/")
     view = views[0]
     view.project.url_templates = [UrlTemplate("チケット", "https://example.com/{ID}")]
-    view.save_task(None, None, Task("設計", urls=[TaskUrl("", "チケット", {"ID": "1"})]))
+    view.save_task((), None, Task("設計", urls=[TaskUrl("", "チケット", {"ID": "1"})]))
     user.find(marker="open-settings").click()
     user.find(marker="settings-template-0-name").clear().type("課題")
     user.find(marker="settings-apply").click()
@@ -2457,8 +2457,8 @@ async def test_saving_a_task_warns_for_each_overloaded_assignee(user: User, tmp_
             assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.6)],
         )
 
-    view.save_task(None, None, task("a", 5, 9))
-    view.save_task(None, None, task("b", 7, 12))
+    view.save_task((), None, task("a", 5, 9))
+    view.save_task((), None, task("b", 7, 12))
     await user.should_see("田中 の割り当てが最大120%になる期間があります")
     await user.should_see("鈴木 の割り当てが最大120%になる期間があります")
 
@@ -2712,3 +2712,81 @@ async def test_the_member_table_uses_14px_controls(user: User, tmp_path: Path) -
     assert ".member-popup .q-item" in MEMBER_TABLE_CSS
     assert "height: 36px" in MEMBER_TABLE_CSS  # 14px の文字に合わせて、行の高さは 36px
     assert "member-table" in user.client.head_html  # ページに CSS が入っている
+
+
+async def open_nested_view(user: User, tmp_path: Path) -> MainView:
+    view = await open_members_view(user, tmp_path)
+    view.project.sections = [Section("親", [Task("p0")], [Section("子", [Task("c0")])])]
+    view.project.tasks = [Task("r0")]
+    view.gantt.set_project(view.project)
+    return view
+
+
+async def test_a_task_is_saved_into_a_nested_section(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.save_task((0, 0), None, Task("新しい"))
+    assert [t.name for t in view.project.sections[0].sections[0].tasks] == ["c0", "新しい"]
+    await user.should_see(marker="task-0.0-1")
+
+
+async def test_saving_into_a_nested_section_opens_it_and_its_parents(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.gantt.collapsed.update({(0,), (0, 0)})
+    view.save_task((0, 0), None, Task("新しい"))
+    assert view.gantt.collapsed == set()
+
+
+async def test_a_nested_task_can_be_deleted_and_shifted(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.project.sections[0].sections[0].tasks[0].planned_start = datetime(2026, 10, 7, 9)
+    view.shift_task((0, 0), 0, 2)
+    assert view.project.sections[0].sections[0].tasks[0].planned_start == datetime(2026, 10, 9, 9)
+    view.delete_task((0, 0), 0)
+    assert view.project.sections[0].sections[0].tasks == []
+    assert view.tasks_in((0,))[0].name == "p0"
+
+
+async def test_shift_ignores_a_path_that_does_not_exist(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.shift_task((0, 5), 0, 1)  # 存在しない。落ちない
+    view.shift_task((9,), 0, 1)
+
+
+async def test_adding_a_subsection_through_the_dialog(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    await user.should_see(marker="add-subsection-0")  # 描き直しを待つ
+    user.find(marker="add-subsection-0").click()
+    user.find(marker="section-name").type("新しい子")
+    user.find(marker="section-save").click()
+    assert [s.name for s in view.project.sections[0].sections] == ["子", "新しい子"]
+    await user.should_see(marker="section-0.1")
+    assert view.is_dirty()
+
+
+async def test_a_subsection_can_be_added_to_a_subsection_but_not_below_level_three(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.save_subsection((0, 0), "孫")
+    assert view.project.sections[0].sections[0].sections[0].name == "孫"
+    view.save_subsection((0, 0, 0), "ひ孫")  # 3 階層目の親には足せない
+    assert view.project.sections[0].sections[0].sections[0].sections == []
+
+
+async def test_save_subsection_ignores_a_missing_parent(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.save_subsection((7,), "どこにも")
+    view.save_subsection((), "root は別の操作")
+    assert [s.name for s in view.project.sections] == ["親"]
+
+
+async def test_adding_a_subsection_opens_the_parent_chain(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.gantt.collapsed.update({(0,), (0, 0)})
+    view.save_subsection((0, 0), "孫")
+    assert view.gantt.collapsed == set()
+
+
+async def test_the_subsection_dialog_has_its_own_title(user: User, tmp_path: Path) -> None:
+    await open_nested_view(user, tmp_path)
+    await user.should_see(marker="add-subsection-0")  # 描き直しを待つ
+    user.find(marker="add-subsection-0").click()
+    await user.should_see("サブセクションの追加")

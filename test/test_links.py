@@ -26,7 +26,7 @@ def project() -> Project:
 
 def slots(
     task_filter: TaskFilter | None = None,
-    collapsed: set[int] | None = None,
+    collapsed: set[tuple[int, ...]] | None = None,
     read_only: bool = False,
 ) -> list[RowSlot]:
     return row_slots(project(), task_filter or TaskFilter(), collapsed or set(), read_only, ROW, ADD)
@@ -59,7 +59,7 @@ def test_centers_use_each_rows_height() -> None:
 
 
 def test_a_collapsed_section_has_hidden_rows_that_take_no_space() -> None:
-    result = slots(collapsed={0})
+    result = slots(collapsed={(0,)})
     assert [s.shown for s in result if s.task_id in ("a0", "a1")] == [False, False]
     centers = row_centers(result, top=0)
     assert "a0" not in centers and "a1" not in centers
@@ -67,7 +67,7 @@ def test_a_collapsed_section_has_hidden_rows_that_take_no_space() -> None:
 
 
 def test_a_filter_keeps_only_matching_tasks_and_ignores_collapse() -> None:
-    result = slots(task_filter=TaskFilter(query="a1"), collapsed={0})
+    result = slots(task_filter=TaskFilter(query="a1"), collapsed={(0,)})
     assert [(s.kind, s.task_id) for s in result] == [
         ("top-add", None),
         ("section", None),
@@ -104,3 +104,81 @@ def test_link_points_for_an_upward_arrow_use_the_row_above() -> None:
 
 def test_path_data_is_an_svg_move_and_lines() -> None:
     assert path_data([(1, 2), (3.5, 2), (3.5, 8)]) == "M1,2 L3.5,2 L3.5,8"
+
+
+def nested_project() -> Project:
+    deep = Section("孫", [Task("g", id="g")])
+    child = Section("子", [Task("c", id="c")], [deep])
+    return Project(
+        "p",
+        tasks=[Task("r", id="r")],
+        sections=[
+            Section("親", [Task("p", id="p")], [child, Section("子2", [Task("c2", id="c2")])]),
+            Section("別", [Task("o", id="o")]),
+        ],
+    )
+
+
+def summary(result: list[RowSlot]) -> list[tuple[str, tuple[int, ...], int | None, bool]]:
+    return [(slot.kind, slot.path, slot.ti, slot.shown) for slot in result]
+
+
+def test_nested_sections_make_slots_depth_first() -> None:
+    result = row_slots(nested_project(), TaskFilter(), set(), False, ROW, ADD)
+    assert summary(result) == [
+        ("task", (), 0, True),
+        ("top-add", (), None, True),
+        ("section", (0,), None, True),
+        ("task", (0,), 0, True),
+        ("section", (0, 0), None, True),
+        ("task", (0, 0), 0, True),
+        ("section", (0, 0, 0), None, True),
+        ("task", (0, 0, 0), 0, True),
+        ("section", (0, 1), None, True),
+        ("task", (0, 1), 0, True),
+        ("section", (1,), None, True),
+        ("task", (1,), 0, True),
+    ]
+
+
+def test_collapsing_a_parent_hides_its_descendants_but_keeps_the_childs_own_state() -> None:
+    def shown(collapsed: set[tuple[int, ...]]) -> dict[tuple[str, tuple[int, ...], int | None], bool]:
+        result = row_slots(nested_project(), TaskFilter(), collapsed, False, ROW, ADD)
+        return {(s.kind, s.path, s.ti): s.shown for s in result}
+
+    parent_closed = shown({(0,)})
+    assert parent_closed[("section", (0,), None)] is True  # 閉じた親の見出し自身は見える
+    assert parent_closed[("task", (0,), 0)] is False
+    assert parent_closed[("section", (0, 0), None)] is False
+    assert parent_closed[("task", (0, 0, 0), 0)] is False
+    assert parent_closed[("section", (1,), None)] is True and parent_closed[("task", (1,), 0)] is True
+    reopened = shown({(0, 0)})  # 親を開いても、子は閉じたまま
+    assert reopened[("section", (0, 0), None)] is True
+    assert reopened[("task", (0, 0), 0)] is False
+    assert reopened[("section", (0, 0, 0), None)] is False
+    assert reopened[("task", (0, 1), 0)] is True
+    both = shown({(0,), (0, 0)})
+    assert both[("section", (0, 1), None)] is False
+
+
+def test_a_filter_ignores_collapse_and_keeps_the_parents_of_matches() -> None:
+    result = row_slots(nested_project(), TaskFilter(query="g"), {(0,), (0, 0)}, False, ROW, ADD)
+    assert [(s.kind, s.path, s.ti) for s in result if s.kind != "top-add"] == [
+        ("section", (0,), None),
+        ("section", (0, 0), None),
+        ("section", (0, 0, 0), None),
+        ("task", (0, 0, 0), 0),
+    ]
+    assert all(s.shown for s in result)
+
+
+def test_read_only_ignores_collapse_and_has_no_add_row() -> None:
+    result = row_slots(nested_project(), TaskFilter(), {(0,)}, True, ROW, ADD)
+    assert all(s.shown for s in result) and not any(s.kind == "top-add" for s in result)
+
+
+def test_row_centers_skip_hidden_nested_rows() -> None:
+    result = row_slots(nested_project(), TaskFilter(), {(0,)}, False, ROW, ADD)
+    centers = row_centers(result, 0)
+    assert "p" not in centers and "c" not in centers and "g" not in centers
+    assert "r" in centers and "o" in centers

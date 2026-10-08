@@ -231,3 +231,9 @@ def test_the_capture_script_applies_the_export_css_only_while_capturing() -> Non
 
 def test_the_capture_script_template_has_the_css_placeholder() -> None:
     assert "__CSS__" in CAPTURE_JS
+
+
+def test_the_capture_skips_web_font_embedding_so_it_leaves_the_live_stylesheets_alone() -> None:
+    # html-to-image は、フォントの埋め込みで @import 先の CSS(Quasar)を、画面のスタイルシートへ insertRule する。
+    # @layer の外に出るので、画像化のあと、見出しの高さや余白が変わってしまう
+    assert "skipFonts: true" in CAPTURE_JS

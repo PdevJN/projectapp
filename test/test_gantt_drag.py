@@ -89,18 +89,18 @@ async def test_no_drag_attributes_while_filtering(user: User) -> None:
 async def test_handle_move_passes_valid_events_to_the_action(user: User) -> None:
     recorder, charts = mount(project_with_top())
     await user.open("/")
-    charts[0].handle_move({"src": [None, 0], "dst": [0, 1], "copy": True})
-    assert recorder.events == [("move_task", ((None, 0), (0, 1), True))]
+    charts[0].handle_move({"src": ["top", 0], "dst": ["0", 1], "copy": True})
+    assert recorder.events == [("move_task", (((), 0), ((0,), 1), True))]
 
 
 async def test_handle_move_ignores_bad_events_and_filtering(user: User) -> None:
     recorder, charts = mount(project_with_top())
     await user.open("/")
-    charts[0].handle_move({"src": "x", "dst": [0, 1], "copy": True})
-    charts[0].handle_move({"src": [None, 0], "dst": [0, 1], "copy": "yes"})
+    charts[0].handle_move({"src": "x", "dst": ["0", 1], "copy": True})
+    charts[0].handle_move({"src": ["top", 0], "dst": ["0", 1], "copy": "yes"})
     charts[0].handle_move(None)
     charts[0].set_filter(TaskFilter(query="上"))
-    charts[0].handle_move({"src": [None, 0], "dst": [0, 1], "copy": False})
+    charts[0].handle_move({"src": ["top", 0], "dst": ["0", 1], "copy": False})
     assert recorder.events == []
 
 
@@ -169,20 +169,20 @@ async def test_bars_stay_draggable_while_filtering(user: User) -> None:
 async def test_handle_shift_passes_valid_events_on_the_day_scale(user: User) -> None:
     recorder, charts = mount(project_with_top())
     await user.open("/")
-    charts[0].handle_shift({"si": 0, "ti": 0, "days": -2})
-    charts[0].handle_shift({"si": None, "ti": 1, "days": 5})
-    assert recorder.events == [("shift_task", (0, 0, -2)), ("shift_task", (None, 1, 5))]
+    charts[0].handle_shift({"si": "0", "ti": 0, "days": -2})
+    charts[0].handle_shift({"si": "top", "ti": 1, "days": 5})
+    assert recorder.events == [("shift_task", ((0,), 0, -2)), ("shift_task", ((), 1, 5))]
 
 
 async def test_handle_shift_ignores_bad_events_and_other_scales(user: User) -> None:
     recorder, charts = mount(project_with_top())
     await user.open("/")
-    charts[0].handle_shift({"si": 0, "ti": 0, "days": 3651})
-    charts[0].handle_shift({"si": 0, "ti": 0, "days": 1.5})
-    charts[0].handle_shift({"si": "0", "ti": 0, "days": 1})
+    charts[0].handle_shift({"si": "0", "ti": 0, "days": 3651})
+    charts[0].handle_shift({"si": "0", "ti": 0, "days": 1.5})
+    charts[0].handle_shift({"si": "0.", "ti": 0, "days": 1})
     charts[0].handle_shift(None)
     charts[0].set_scale(Scale.WEEK)
-    charts[0].handle_shift({"si": 0, "ti": 0, "days": 1})
+    charts[0].handle_shift({"si": "0", "ti": 0, "days": 1})
     assert recorder.events == []
 
 
@@ -296,9 +296,12 @@ const cell = {
   draggable: true,
   style: { width: "var(--name-w)" },
   closest(selector) { return selector === ".gantt-name-resizable" ? this : null; },
+  contains(element) { return element === this; },
   getBoundingClientRect: () => ({ right: 200 }),
   setPointerCapture() {},
 };
+let visualRight = 200;  // 欄の画面上の右端。elementFromPoint は、その内側だけ欄を返す(外は、隣のチャート)
+document.elementFromPoint = (x) => (x <= visualRight ? cell : null);
 const other = { draggable: true, style: { width: "var(--name-w)" } };  // 同じ幅の、別の名前の欄
 area.querySelectorAll = (selector) => (selector === ".gantt-name-resizable" ? [cell, other] : []);
 const edge = (x) => ({ target: cell, button: 0, pointerId: 1, isPrimary: true, clientX: x, buttons: 1, preventDefault() {} });
@@ -388,11 +391,13 @@ fire("dragstart", dragEvent);
 scenarios.dragstart = dragEvent.prevented;
 fire("pointerup", edge(197)); click(); flush();
 
-// 画面を 150% に拡大(CSS の zoom)しているとき: 画面上の移動量(clientX)を、CSS の px へ戻して計算する
+// 画面を 150% に拡大(body の CSS zoom)しているとき: 画面上の移動量(clientX)を、CSS の px へ戻して計算する。
+// WebKit は、zoom 中も getBoundingClientRect と offsetWidth を拡大前の値で返す(clientX と elementFromPoint は画面上の座標)
+document.body.style.zoom = "1.5";
 const zoomBar = {
   dataset: { si: "0", ti: "0", dayWidth: "40", minDays: "-5" },
   style: {}, isConnected: true, offsetWidth: 40,
-  getBoundingClientRect: () => ({ width: 60 }),
+  getBoundingClientRect: () => ({ width: 40 }),
   setPointerCapture() {},
   closest(selector) { return selector === "[data-bar]" ? this : null; },
 };
@@ -404,7 +409,8 @@ scenarios.zoomBar = { during: zoomDuring, emitted: emitted.splice(0) };
 click(); flush();
 
 cell.offsetWidth = 200;
-cell.getBoundingClientRect = () => ({ right: 300, width: 300 });  // 画面上は 300px(CSS の 200px の 1.5 倍)
+cell.getBoundingClientRect = () => ({ right: 200, width: 200 });  // 拡大前の値のまま
+visualRight = 300;  // 画面上は 300px(CSS の 200px の 1.5 倍)
 fire("pointerdown", edge(295)); fire("pointermove", edge(445));  // 掴み場所の幅(6px)も 1.5 倍。150px は CSS の 100px
 const zoomResizeDuring = widths()[0];
 fire("pointerup", edge(445));
@@ -437,7 +443,7 @@ def js_scenarios(tmp_path_factory: pytest.TempPathFactory) -> dict:
 
 def test_js_normal_shift_emits_the_snapped_days_and_swallows_the_click(js_scenarios: dict) -> None:
     normal = js_scenarios["normal"]
-    assert normal["emitted"] == [["chart_shift", {"si": 0, "ti": 0, "days": 3}]]
+    assert normal["emitted"] == [["chart_shift", {"si": "0", "ti": 0, "days": 3}]]
     assert normal["suppressed"] is True
 
 
@@ -472,7 +478,7 @@ def test_js_escape_after_moving_sends_nothing_and_swallows_the_click(js_scenario
 def test_js_a_drop_that_did_not_start_from_a_row_is_ignored(js_scenarios: dict) -> None:
     assert js_scenarios["foreignDrop"] == []
     assert js_scenarios["ownDrop"] == [
-        ["chart_move", {"src": [None, 1], "dst": [0, 0], "copy": True}]
+        ["chart_move", {"src": ["top", 1], "dst": ["0", 0], "copy": True}]
     ]
 
 
@@ -597,8 +603,16 @@ async def test_min_days_stops_at_the_predecessors_finish(user: User) -> None:
 
 def test_a_zoomed_page_converts_pointer_distances_back_to_css_pixels(js_scenarios: dict) -> None:
     assert js_scenarios["zoomBar"]["during"] == "translateX(80px)"
-    assert js_scenarios["zoomBar"]["emitted"] == [["chart_shift", {"si": 0, "ti": 0, "days": 2}]]
+    assert js_scenarios["zoomBar"]["emitted"] == [["chart_shift", {"si": "0", "ti": 0, "days": 2}]]
     assert js_scenarios["zoomResize"]["during"] == "300px"
     assert js_scenarios["zoomResize"]["variable"] == "300px"
     assert js_scenarios["zoomResize"]["emitted"] == [["chart_name_width", {"width": 300}]]
     assert js_scenarios["zoomOutsideEdge"]["emitted"] == []
+
+
+def test_a_nested_section_key_survives_the_roundtrip_to_the_server() -> None:
+    from projectapp.arrange import parse_move, parse_shift
+
+    assert parse_move({"src": ["0.1", 2], "dst": ["0.1.0", 0], "copy": False}) == (((0, 1), 2), ((0, 1, 0), 0), False)
+    assert parse_shift({"si": "0.1", "ti": 0, "days": 1}) == (((0, 1), 0), 1)
+    assert parse_move({"src": ["top", 0], "dst": ["1", 3], "copy": True}) == (((), 0), ((1,), 3), True)

@@ -50,6 +50,7 @@
 | 担当者向けファイルの書き出し | `2026-10-07-assignee-handoff-design.md` |
 | 複数の担当者 | `2026-10-08-multi-assignee-design.md` |
 | メンバーの相対比率のパラメータ化 | `2026-10-09-ratio-parameters-design.md` |
+| セクションの入れ子 | `2026-10-09-nested-sections-design.md` |
 
 実装計画は `docs/superpowers/plans/` に、同じ日付・名前(`-design` なし)である。
 
@@ -84,6 +85,8 @@ uvx ty check src
 
 ## ファイル形式の注意
 
+- 画像の書き出し(`export.CAPTURE_JS`)は、`htmlToImage.toPng` に **`skipFonts: true`** を渡す。渡さないと、フォントの埋め込みが `@import` 先の CSS(Quasar の約 2,000 ルール)を画面のスタイルシートへ `insertRule` し、`@layer` の外に出て、書き出しのあと、見出しの行の高さ・日付のラベルの位置が変わったままになる(拡大とは無関係。2026-10-09)。画像は、フォントなしでも見た目が変わらない(システムフォントを使うため)。
+- セクションは `Section.sections`(入れ子。`[{"name", "tasks", "sections"}]`)。キーがない・`null` は空。4 階層以上と、`sections` の型の違いは読込を拒否する(`storage._section`)。セクションの位置は `SectionPath`(番号のパス。root は `()`)で、マーカーのキーは `arrange.section_key`(`top`・`0`・`0.1`)。1 階層目は入れ子の前と同じ。ブラウザ側の JS は、`data-si` のキー(文字列)をそのまま送り、サーバーが `parse_section_key` で戻す。折りたたみは `GanttChart.collapsed`(パスの集合)で、親を閉じると子孫が隠れ、親を開いても子の状態は保たれる(`row_slots` と `apply_visibility` が同じ規則)
 - パラメータは `Project.parameters`(`[{"name", "levels": [{"name", "value"}]}]`。`value` は割合で -0.9〜+2.9)、メンバーの選択は `Member.levels`(`{"パラメータ名": "段階名"}`)。キーがない・`null` は空。名前の空・重複、`value` の範囲外・非有限・型の違いは読込を拒否する。メンバーの選択が存在しないパラメータ・段階を指していても、読込は拒否せず、`ratios.ratio_detail` が判定値 0% として扱い、メンバーのダイアログの適用で捨てる。`Member.ratio` は基本比率。
 - 担当者は `Task.assignees`(`[{"name", "allocation"}]`。`allocation` は 0.01〜1.0)。古いキー `assignee`・`allocation` は、`assignees` がないときだけ 1 人のリストとして読む(`storage._assignees`。担当者がなくても、不正な割り当て率は拒否する)。名前が空・重複、割り当て率が範囲外・非有限は読込を拒否する。保存は `assignees` だけ(`asdict` で書くので、空のときも `[]`)。チェックポイントは常に空。換算率は `timeline.assignees_rate`(メンバーにいる担当者の `相対比率 × 割り当て率` の合計。誰もいなければ 1.0)。
 - リンクは `Task.urls`(`[{"title", "template", "values"}]`)、URL の型は `Project.url_templates`(`[{"name", "pattern"}]`)。`values` のキーは、テンプレートなしが `URL`、ありが `ID`。キーなし・`null` は空で読む(移行は要らない)。名前の空・重複、`http`・`https` でない型や URL、存在しないテンプレート名、キーの不一致、型の違いは読込を拒否する(`storage._url_templates`・`_task_urls`、読込後に `validate_urls`)。フィールド名は `urls`(先行タスクの連結 `predecessors` と区別する)。ID の置き換えは `str.replace` と `quote(safe="")` だけ。
@@ -119,4 +122,4 @@ uvx ty check src
 - ダイアログは、区間のとき `IntervalFields`(行を足す)、簡易のとき `ActualFields`。どちらも `bind` / `filled` / `progress_value` / `state` の口をそろえてある(状態の提案は最後の区間で判定)。
 - ガントチャートの区間の間の点線は、`gantt.actual_bars` が、隣り合う区間の隙間(前の終了 < 次の開始)にだけ引く(`ACTUAL_GAP_BACKGROUND`。マーカー `actual-gap-<key>-<ti>-<n>`)。進行中の区間の後ろ、隙間なし、重なり・逆順は引かない。
 
-- 画面の倍率(要望 27): `config.py` の `parse_zoom`・`step_zoom`・`load_zoom`・`save_zoom`(70〜200%、10% 刻み、`config.json` の `zoom`)。`views.MainView.zoom` / `change_zoom` が、`zoom_js` で `document.body.style.zoom` をかける(`run_js` はテストで差し替える)。**CSS の `zoom` なので、クライアントの座標(`clientX`)と CSS の px がずれる**: `gantt_drag.py` の `cssScale`(要素の画面上の幅 ÷ `offsetWidth`)で、バーの移動と名前の欄の幅の調整の移動量を割り戻す。画像の書き出し(`save_image`)の間は 100% に戻し、終わったら戻す。
+- 画面の倍率(要望 27): `config.py` の `parse_zoom`・`step_zoom`・`load_zoom`・`save_zoom`(70〜200%、10% 刻み、`config.json` の `zoom`)。`views.MainView.zoom` / `change_zoom` が、`zoom_js` で `document.body.style.zoom` をかける(`run_js` はテストで差し替える)。**CSS の `zoom` なので、クライアントの座標(`clientX`)と CSS の px がずれる**: `gantt_drag.py` の `cssScale`(`document.body.style.zoom`。**WebKit は zoom 中も `getBoundingClientRect` と `offsetWidth` を拡大前の値で返すので、要素の幅の比では求めない**)で、バーの移動と名前の欄の幅の調整の移動量を割り戻す。名前の欄の右端の判定も、位置の計算ではなく、`elementFromPoint` で右へ掴み場所の幅(×倍率)進んだ点が欄の外かで決める(2026-10-09。110% 以上で、幅の調整もバーの移動量も、WebKit で外れていた)。画像の書き出し(`save_image`)の間は 100% に戻し、終わったら戻す。

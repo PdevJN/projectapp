@@ -44,7 +44,7 @@ def visible_range(
     """基準日とバーを持つタスクから、表示範囲[開始日, 終了日)を返す。"""
     holidays = holidays or {}
     start = end = project.base_date
-    tasks = [*project.tasks, *(t for section in project.sections for t in section.tasks)]
+    tasks = project.all_tasks()
     schedule = Schedule(project, holidays)
     for task in tasks:
         task_start, task_end = schedule.start(task), schedule.end(task)
