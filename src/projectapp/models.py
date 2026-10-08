@@ -86,6 +86,12 @@ class TaskUrl:
 
 
 @dataclass
+class Assignee:
+    name: str
+    allocation: float = 1.0  # 担当者の時間のうち、このタスクに使う割合(1.0 = 100%)
+
+
+@dataclass
 class Task:
     name: str
     id: str = field(default_factory=new_id, compare=False)  # 連結の参照用。ファイルに保存する
@@ -94,16 +100,28 @@ class Task:
     priority: Priority = Priority.MEDIUM
     status: Status = Status.NOT_STARTED
     color: str = DEFAULT_COLOR
-    assignee: str | None = None
+    assignees: list[Assignee] = field(default_factory=list)  # 担当者(先頭が筆頭)。空は担当なし
     predecessors: list[str] = field(default_factory=list)
     deadline: datetime | None = None  # 締切(納期)
     planned_end: datetime | None = None  # 完了予定の手入力値
     planned_end_manual: bool = False  # 工数があるときに、完了予定を手で指定するか
-    allocation: float = 1.0  # 担当者の時間のうち、このタスクに使う割合(1.0 = 100%)
     actuals: list[Actual] = field(default_factory=list)  # 実績の区間(今回の画面は0〜1件)
     project_code: str = ""  # ProjectCode。前後の空白は除く。最大 MAX_PROJECT_CODE_LENGTH 文字
     kind: TaskKind = TaskKind.NORMAL  # チェックポイントは、締切だけを持つ(他の日時・工数・担当・実績は持たない)
     urls: list[TaskUrl] = field(default_factory=list)  # 関連する URL(チケット・資料など)
+
+    @property
+    def assignee_names(self) -> list[str]:
+        return [a.name for a in self.assignees]
+
+    # --- 移行用の読み取り専用の別名(Task 7 で消す) ---
+    @property
+    def assignee(self) -> str | None:
+        return self.assignees[0].name if self.assignees else None
+
+    @property
+    def allocation(self) -> float:
+        return self.assignees[0].allocation if self.assignees else 1.0
 
 
 @dataclass

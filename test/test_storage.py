@@ -8,8 +8,10 @@ import pytest
 
 from projectapp.config import load_theme, save_theme
 from projectapp.models import (
+    Assignee,
     Actual,
     ActualMode,
+    Assignee,
     Member,
     Priority,
     Project,
@@ -53,7 +55,7 @@ def test_roundtrip_restores_dates_enums_and_base_date(tmp_path: Path) -> None:
         priority=Priority.HIGH,
         status=Status.RUNNING,
         color="#112233",
-        assignee="佐藤",
+        assignees=[Assignee("佐藤")],
         predecessors=["a"],
     )
     project = Project(
@@ -412,25 +414,11 @@ def test_allocation_roundtrip_and_default(tmp_path: Path) -> None:
     project = Project(
         "r",
         members=[Member("田中", 1.2)],
-        tasks=[Task("a", assignee="田中", allocation=0.6), Task("b")],
+        tasks=[Task("a", assignees=[Assignee("田中", 0.6)]), Task("b")],
     )
     loaded = load_project(save_project(project, tmp_path))
     assert [t.allocation for t in loaded.tasks] == [0.6, 1.0]
     assert loaded.members == [Member("田中", 1.2)]
-
-
-def test_file_without_allocation_loads_as_one(tmp_path: Path) -> None:
-    path = save_project(Project("old", tasks=[Task("a")]), tmp_path)
-    _rewrite(path, lambda d: d["tasks"][0].pop("allocation"))
-    assert load_project(path).tasks[0].allocation == 1.0
-
-
-@pytest.mark.parametrize("value", [0, -0.5, 0.0099, 1.01, float("nan"), float("inf"), True, "1", None, []])
-def test_load_rejects_an_invalid_allocation(value: object, tmp_path: Path) -> None:
-    path = save_project(Project("r", tasks=[Task("a")]), tmp_path)
-    _rewrite(path, lambda d: d["tasks"][0].update(allocation=value))
-    with pytest.raises(ValueError, match="割り当て率"):
-        load_project(path)
 
 
 @pytest.mark.parametrize("value", [0, 0.09, 3.01, -1, float("nan"), float("inf"), True, "1", None])
@@ -445,7 +433,7 @@ def test_load_accepts_the_ratio_and_allocation_boundaries(tmp_path: Path) -> Non
     project = Project(
         "r",
         members=[Member("低", 0.1), Member("高", 3.0)],
-        tasks=[Task("a", assignee="低", allocation=0.01), Task("b", assignee="高", allocation=1.0)],
+        tasks=[Task("a", assignees=[Assignee("低", 0.01)]), Task("b", assignees=[Assignee("高", 1.0)])],
     )
     loaded = load_project(save_project(project, tmp_path))
     assert [m.ratio for m in loaded.members] == [0.1, 3.0]
@@ -453,7 +441,7 @@ def test_load_accepts_the_ratio_and_allocation_boundaries(tmp_path: Path) -> Non
 
 
 def test_an_assignee_missing_from_the_members_is_added_as_a_member(tmp_path: Path) -> None:
-    project = Project("old", members=[Member("田中", 1.2)], tasks=[Task("a", assignee="佐藤")])
+    project = Project("old", members=[Member("田中", 1.2)], tasks=[Task("a", assignees=[Assignee("佐藤")])])
     loaded = load_project(save_project(project, tmp_path))
     assert loaded.members == [Member("田中", 1.2), Member("佐藤", 1.0)]
     assert loaded.tasks[0].assignee == "佐藤"
@@ -462,18 +450,23 @@ def test_an_assignee_missing_from_the_members_is_added_as_a_member(tmp_path: Pat
 def test_added_members_are_not_duplicated_and_keep_the_task_order(tmp_path: Path) -> None:
     project = Project(
         "old",
-        tasks=[Task("a", assignee="佐藤"), Task("b", assignee="鈴木"), Task("c", assignee="佐藤")],
+        tasks=[Task("a", assignees=[Assignee("佐藤")]), Task("b", assignees=[Assignee("鈴木")]), Task("c", assignees=[Assignee("佐藤")])],
     )
     loaded = load_project(save_project(project, tmp_path))
     assert [m.name for m in loaded.members] == ["佐藤", "鈴木"]
 
 
 def test_assignee_whitespace_is_trimmed_and_blank_becomes_none(tmp_path: Path) -> None:
-    project = Project(
-        "old", tasks=[Task("a", assignee=" 佐藤 "), Task("b", assignee="  "), Task("c", assignee="")]
-    )
-    loaded = load_project(save_project(project, tmp_path))
-    assert [t.assignee for t in loaded.tasks] == ["佐藤", None, None]
+    path = save_project(Project("old", tasks=[Task("a"), Task("b"), Task("c")]), tmp_path)
+
+    def legacy(data: dict) -> None:
+        for task, name in zip(data["tasks"], [" 佐藤 ", "  ", ""]):
+            task.pop("assignees")
+            task["assignee"] = name
+
+    _rewrite(path, legacy)
+    loaded = load_project(path)
+    assert [t.assignee_names for t in loaded.tasks] == [["佐藤"], [], []]
     assert [m.name for m in loaded.members] == ["佐藤"]
 
 
@@ -887,3 +880,99 @@ def test_a_checkpoint_keeps_its_links(tmp_path: Path) -> None:
     )
     loaded = load_project(save_project(project, tmp_path))
     assert loaded.tasks[0].urls == [TaskUrl("", None, {"URL": "https://example.com/doc"})]
+
+
+def test_assignees_roundtrip(tmp_path: Path) -> None:
+    project = Project(
+        "p",
+        members=[Member("田中"), Member("鈴木")],
+        tasks=[Task("a", assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.5)]), Task("b")],
+    )
+    path = save_project(project, tmp_path)
+    loaded = load_project(path)
+    assert loaded.tasks[0].assignees == [Assignee("田中", 0.6), Assignee("鈴木", 0.5)]
+    assert loaded.tasks[1].assignees == []
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["tasks"][0]["assignees"] == [
+        {"name": "田中", "allocation": 0.6},
+        {"name": "鈴木", "allocation": 0.5},
+    ]
+    assert "assignee" not in raw["tasks"][0] and "allocation" not in raw["tasks"][0]
+
+
+def test_old_keys_load_as_one_assignee(tmp_path: Path) -> None:
+    path = save_project(Project("p", members=[Member("田中")], tasks=[Task("a"), Task("b")]), tmp_path)
+
+    def legacy(data: dict) -> None:
+        for task in data["tasks"]:
+            task.pop("assignees")
+        data["tasks"][0].update(assignee=" 田中 ", allocation=0.4)
+        data["tasks"][1].update(assignee="", allocation=1.0)
+
+    _rewrite(path, legacy)
+    loaded = load_project(path)
+    assert loaded.tasks[0].assignees == [Assignee("田中", 0.4)]
+    assert loaded.tasks[1].assignees == []
+
+
+@pytest.mark.parametrize("value", [0.0, 1.5, "x", True, float("nan")])
+def test_old_keys_with_a_bad_allocation_are_rejected_even_without_an_assignee(value: object, tmp_path: Path) -> None:
+    path = save_project(Project("p", tasks=[Task("a")]), tmp_path)
+
+    def legacy(data: dict) -> None:
+        data["tasks"][0].pop("assignees")
+        data["tasks"][0].update(assignee=None, allocation=value)
+
+    _rewrite(path, legacy)
+    with pytest.raises(ValueError):
+        load_project(path)
+
+
+def test_assignees_win_over_the_old_keys(tmp_path: Path) -> None:
+    path = save_project(
+        Project("p", members=[Member("田中"), Member("鈴木")], tasks=[Task("a", assignees=[Assignee("鈴木")])]), tmp_path
+    )
+    _rewrite(path, lambda d: d["tasks"][0].update(assignee="田中", allocation=0.2))
+    assert load_project(path).tasks[0].assignees == [Assignee("鈴木", 1.0)]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "田中",  # リストでない
+        ["田中"],  # 辞書でない
+        [{"name": "", "allocation": 1.0}],
+        [{"name": 3, "allocation": 1.0}],
+        [{"name": "田中", "allocation": 0.0}],
+        [{"name": "田中", "allocation": 1.01}],
+        [{"name": "田中", "allocation": "x"}],
+        [{"name": "田中", "allocation": 1.0}, {"name": " 田中 ", "allocation": 0.5}],  # 重複
+    ],
+)
+def test_bad_assignees_are_rejected(bad: object, tmp_path: Path) -> None:
+    path = save_project(Project("p", members=[Member("田中")], tasks=[Task("a")]), tmp_path)
+    _rewrite(path, lambda d: d["tasks"][0].update(assignees=bad))
+    with pytest.raises(ValueError):
+        load_project(path)
+
+
+def test_missing_allocation_in_an_assignee_means_one(tmp_path: Path) -> None:
+    path = save_project(Project("p", members=[Member("田中")], tasks=[Task("a")]), tmp_path)
+    _rewrite(path, lambda d: d["tasks"][0].update(assignees=[{"name": "田中"}]))
+    assert load_project(path).tasks[0].assignees == [Assignee("田中", 1.0)]
+
+
+def test_every_assignee_missing_from_the_members_is_added_as_a_member(tmp_path: Path) -> None:
+    project = Project(
+        "p",
+        members=[Member("田中", 1.2)],
+        tasks=[Task("a", assignees=[Assignee("佐藤"), Assignee("鈴木")]), Task("b", assignees=[Assignee("佐藤")])],
+    )
+    loaded = load_project(save_project(project, tmp_path))
+    assert [(m.name, m.ratio) for m in loaded.members] == [("田中", 1.2), ("佐藤", 1.0), ("鈴木", 1.0)]
+
+
+def test_a_checkpoint_has_no_assignees(tmp_path: Path) -> None:
+    checkpoint = Task("c", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17), assignees=[Assignee("田中")])
+    path = save_project(Project("p", members=[Member("田中")], tasks=[checkpoint]), tmp_path)
+    assert load_project(path).tasks[0].assignees == []

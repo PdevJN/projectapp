@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from projectapp.models import Actual, Member, Project, Status, Task
+from projectapp.models import Assignee, Actual, Member, Project, Status, Task
 from projectapp.timeline import (
     Schedule,
     counted_span,
@@ -182,8 +182,8 @@ def test_latest_finish_is_none_without_predecessors() -> None:
 
 def test_counted_span_and_overallocations_use_the_pushed_start() -> None:
     a = task("a", planned_start=MON, effort_hours=13)
-    b = task("b", "a", planned_start=MON, effort_hours=2, assignee="x")
-    c = task("c", planned_start=datetime(2026, 10, 6, 15, 30), effort_hours=2, assignee="x")
+    b = task("b", "a", planned_start=MON, effort_hours=2, assignees=[Assignee("x")])
+    c = task("c", planned_start=datetime(2026, 10, 6, 15, 30), effort_hours=2, assignees=[Assignee("x")])
     proj = Project("p", tasks=[a, b, c], members=[Member("x")])
     span = counted_span(b, proj, HOLIDAYS)
     assert span is not None and span[0] == datetime(2026, 10, 6, 15, 30)

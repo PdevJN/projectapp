@@ -14,7 +14,7 @@ from projectapp.handoff import (
     tasks_for,
     write_json,
 )
-from projectapp.models import Actual, Member, Project, Section, Status, Task
+from projectapp.models import Assignee, Actual, Member, Project, Section, Status, Task
 
 BASE = date(2026, 10, 5)  # 月曜
 
@@ -25,7 +25,7 @@ def make_project(*tasks: Task, members: list[Member] | None = None, sections: li
 
 
 def task(name: str = "設計", **kwargs) -> Task:
-    kwargs.setdefault("assignee", "田中")
+    kwargs.setdefault("assignees", [Assignee("田中")])
     return Task(name, **kwargs)
 
 
@@ -62,8 +62,8 @@ def test_only_unfinished_tasks_of_the_member_are_exported_in_order() -> None:
     project = make_project(
         task("a"),
         task("done", status=Status.DONE),
-        task("other", assignee="鈴木"),
-        task("nobody", assignee=None),
+        task("other", assignees=[Assignee("鈴木")]),
+        task("nobody", assignees=[]),
         sections=[Section("S", [task("s1", status=Status.RUNNING)])],
     )
     result = build(project)
@@ -107,7 +107,7 @@ def test_estimate_hours_divides_by_the_relative_ratio(effort: float, members: li
 
 
 def test_the_allocation_does_not_change_the_estimate() -> None:
-    item = build(make_project(task(effort_hours=13.0, allocation=0.25))).data["items"][0]
+    item = build(make_project(task(effort_hours=13.0, assignees=[Assignee("田中", 0.25)]))).data["items"][0]
     assert item["estimate_hours"] == 26.0
 
 
@@ -168,7 +168,7 @@ def test_ids_are_stable_across_exports_and_task_changes() -> None:
 
 
 def test_nothing_about_other_people_is_exported() -> None:
-    project = make_project(task("自分"), task("別件", assignee="鈴木"), members=[Member("田中", 0.5), Member("鈴木", 2.0)])
+    project = make_project(task("自分"), task("別件", assignees=[Assignee("鈴木")]), members=[Member("田中", 0.5), Member("鈴木", 2.0)])
     text = json.dumps(build(project).data, ensure_ascii=False)
     assert "鈴木" not in text and "別件" not in text and "assignee" not in text
 

@@ -8,7 +8,7 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.browser import open_url as default_open_url
-from projectapp.models import Actual, ActualMode, Member, Status, Task, TaskKind, TaskUrl, UrlTemplate
+from projectapp.models import Assignee, Actual, ActualMode, Member, Status, Task, TaskKind, TaskUrl, UrlTemplate
 from projectapp.task_dialog import open_task_dialog
 
 
@@ -827,7 +827,7 @@ async def test_the_allocation_is_enabled_with_an_assignee_and_saved(user: User) 
 
 async def test_returning_the_assignee_to_none_saves_an_allocation_of_one(user: User) -> None:
     saved: list[Task] = []
-    task = Task("旧", assignee="田中", allocation=0.5)
+    task = Task("旧", assignees=[Assignee("田中", 0.5)])
     mount_dialog(task, saved, members=[TANAKA])
     await open_dialog(user)
     assert user.find(marker="task-allocation").elements.pop().value == 50
@@ -888,7 +888,7 @@ async def test_changing_the_assignee_asks_for_confirmation_on_close(user: User) 
 
 async def test_an_assignee_missing_from_the_members_is_kept_when_saving(user: User) -> None:
     saved: list[Task] = []
-    task = Task("旧", assignee="不明", allocation=0.5)
+    task = Task("旧", assignees=[Assignee("不明", 0.5)])
     mount_dialog(task, saved, members=[TANAKA])
     await open_dialog(user)
     assert user.find(marker="task-assignee").elements.pop().value == "不明"
@@ -1460,7 +1460,7 @@ async def test_saving_a_checkpoint_clears_the_normal_fields(user: User) -> None:
         "設計",
         planned_start=datetime(2026, 10, 5, 9, 0),
         effort_hours=5.0,
-        assignee="佐藤",
+        assignees=[Assignee("佐藤")],
     )
     mount_dialog(task, saved, members=[Member("佐藤")])
     await open_dialog(user)

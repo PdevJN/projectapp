@@ -65,6 +65,7 @@ from projectapp.gantt import (
 )
 from projectapp.timeline import Column, build_columns
 from projectapp.models import (
+    Assignee,
     DEFAULT_COLOR,
     Actual,
     Member,
@@ -540,15 +541,13 @@ def overloaded_project() -> Project:
         "A",
         planned_start=datetime(2026, 10, 5),
         planned_end=datetime(2026, 10, 9),
-        assignee="田中",
-        allocation=0.6,
+        assignees=[Assignee("田中", 0.6)],
     )
     b = Task(
         "B",
         planned_start=datetime(2026, 10, 7),
         planned_end=datetime(2026, 10, 12),
-        assignee="田中",
-        allocation=0.6,
+        assignees=[Assignee("田中", 0.6)],
     )
     return Project("demo", base_date=BASE, members=[Member("田中")], tasks=[a, b])
 
@@ -583,7 +582,7 @@ async def test_the_bar_tooltip_names_the_member_and_the_peak(user: User) -> None
 
 async def test_no_stripes_without_an_overload(user: User) -> None:
     project = overloaded_project()
-    project.tasks[1].allocation = 0.4  # 合計ちょうど100%
+    project.tasks[1].assignees[0].allocation = 0.4  # 合計ちょうど100%
     mount(project)
     await user.open("/")
     await user.should_see(marker="bar-top-0")
@@ -607,8 +606,7 @@ async def test_stripes_stay_inside_a_thin_bar(user: User) -> None:
             name,
             planned_start=datetime(2026, 10, 5),
             planned_end=datetime(2026, 10, 5, 0, 1),
-            assignee="田中",
-            allocation=0.6,
+            assignees=[Assignee("田中", 0.6)],
         )
 
     mount(Project("demo", base_date=BASE, members=[Member("田中")], tasks=[thin("A"), thin("B")]))
@@ -644,7 +642,7 @@ def filter_project() -> Project:
             name,
             planned_start=datetime(2026, 10, 5, 12),
             planned_end=datetime(2026, 10, 7, 12),
-            assignee=assignee,
+            assignees=[Assignee(assignee)],
         )
 
     return Project(
@@ -1910,7 +1908,7 @@ async def test_project_code_chip(user: User) -> None:
 
 
 async def test_assignee_chip_shows_the_first_character_and_the_name_on_hover(user: User) -> None:
-    mount(project_with(Task("設計", assignee="山田太郎")))
+    mount(project_with(Task("設計", assignees=[Assignee("山田太郎")])))
     await user.open("/")
     who = chip(user, "task-assignee-0-0")
     assert who.text == "山"
@@ -1922,7 +1920,7 @@ async def test_assignee_chip_shows_the_first_character_and_the_name_on_hover(use
 async def test_an_assignee_who_is_not_a_member_and_an_emoji_name_do_not_break_the_chart(
     user: User,
 ) -> None:
-    mount(project_with(Task("設計", assignee="👨‍👩‍👧 家族")))  # メンバーにいない・複数のコードポイント
+    mount(project_with(Task("設計", assignees=[Assignee("👨‍👩‍👧 家族")])))  # メンバーにいない・複数のコードポイント
     await user.open("/")
     assert chip(user, "task-assignee-0-0").text == "👨"
 
@@ -1960,7 +1958,7 @@ async def test_a_zero_progress_is_shown(user: User) -> None:
 
 
 async def test_the_strike_through_covers_the_name_only(user: User) -> None:
-    mount(project_with(Task("設計", status=Status.DONE, project_code="P", assignee="山")))
+    mount(project_with(Task("設計", status=Status.DONE, project_code="P", assignees=[Assignee("山")])))
     await user.open("/")
     assert chip(user, "task-name-0-0")._style["text-decoration"] == "line-through"
     for marker in ("task-0-0", "task-code-0-0", "task-assignee-0-0", "task-progress-0-0"):
@@ -1970,7 +1968,7 @@ async def test_the_strike_through_covers_the_name_only(user: User) -> None:
 async def test_the_chips_do_not_shrink_and_the_name_does(user: User) -> None:
     mount(
         project_with(
-            Task("とても長いタスクの名前" * 3, project_code="PRJ-LONG-CODE-0001", assignee="山")
+            Task("とても長いタスクの名前" * 3, project_code="PRJ-LONG-CODE-0001", assignees=[Assignee("山")])
         )
     )
     await user.open("/")
@@ -1986,7 +1984,7 @@ async def test_the_click_is_handled_once_by_the_name_cell_so_the_chips_bubble_to
     # User のシミュレーションのクリックは、親へ伝わらない(実ブラウザでは、DOM のクリックが枠へ伝わる)。
     # そのため、枠だけがクリックを処理し、名前とチップは自分では処理しないことを確かめる。
     recorder = mount(
-        project_with(Task("設計", project_code="PRJ-1", assignee="山", status=Status.DONE))
+        project_with(Task("設計", project_code="PRJ-1", assignees=[Assignee("山")], status=Status.DONE))
     )
     await user.open("/")
     assert len(click_listeners(chip(user, "task-0-0"))) == 1
@@ -2067,7 +2065,7 @@ async def test_preview_scale_is_separate_from_the_toolbar_scale(user: User) -> N
 
 
 async def test_show_chips_false_hides_the_chips_and_progress(user: User) -> None:
-    task = Task("設計", project_code="PRJ-1", assignee="山", status=Status.DONE)
+    task = Task("設計", project_code="PRJ-1", assignees=[Assignee("山")], status=Status.DONE)
     project = Project("demo", base_date=BASE, sections=[Section("開発", [task])])
     mount_with(project, ViewOptions(show_chips=False))
     await user.open("/")

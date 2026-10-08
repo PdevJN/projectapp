@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from projectapp.models import Actual, Member, Project, Section, Status, Task
+from projectapp.models import Assignee, Actual, Member, Project, Section, Status, Task
 from projectapp.timeline import (
     PROGRESS_TOLERANCE,
     ProgressState,
@@ -433,28 +433,28 @@ def test_combine_rate_multiplies_and_guards_bad_values() -> None:
 
 def test_conversion_rate_uses_the_member_ratio_and_the_task_allocation() -> None:
     project = member_project(Member("田中", 1.2))
-    assert conversion_rate(Task("t", assignee="田中", allocation=0.5), project) == pytest.approx(0.6)
+    assert conversion_rate(Task("t", assignees=[Assignee("田中", 0.5)]), project) == pytest.approx(0.6)
     assert conversion_rate(Task("t"), project) == 1.0  # 担当者なし
-    assert conversion_rate(Task("t", assignee="不明", allocation=0.5), project) == 1.0  # メンバーにいない
+    assert conversion_rate(Task("t", assignees=[Assignee("不明", 0.5)]), project) == 1.0  # メンバーにいない
 
 
 def test_a_faster_member_finishes_earlier() -> None:
     project = member_project(Member("田中", 1.5))
-    task = Task("t", planned_start=FRI_START, effort_hours=15.0, assignee="田中")
+    task = Task("t", planned_start=FRI_START, effort_hours=15.0, assignees=[Assignee("田中")])
     # 15h / 1.5 = 10h → 金6.5h + 月3.5h
     assert effective_end(task, project, {}) == datetime(2026, 10, 12, 12, 30)
 
 
 def test_a_smaller_allocation_finishes_later() -> None:
     project = member_project(Member("田中", 1.0))
-    task = Task("t", planned_start=FRI_START, effort_hours=6.5, assignee="田中", allocation=0.5)
+    task = Task("t", planned_start=FRI_START, effort_hours=6.5, assignees=[Assignee("田中", 0.5)])
     # 6.5h / 0.5 = 13h → 金6.5h + 月6.5h
     assert effective_end(task, project, {}) == datetime(2026, 10, 12, 15, 30)
 
 
 def test_a_rate_of_one_changes_nothing() -> None:
     project = member_project(Member("田中", 1.0))
-    task = Task("t", planned_start=FRI_START, effort_hours=15.0, assignee="田中")
+    task = Task("t", planned_start=FRI_START, effort_hours=15.0, assignees=[Assignee("田中")])
     assert effective_end(task, project, {}) == datetime(2026, 10, 13, 11)
 
 
@@ -464,7 +464,7 @@ def test_a_manual_planned_end_is_not_converted() -> None:
         "t",
         planned_start=FRI_START,
         effort_hours=15.0,
-        assignee="田中",
+        assignees=[Assignee("田中")],
         planned_end=MANUAL_END,
         planned_end_manual=True,
     )
@@ -477,13 +477,12 @@ def test_an_extreme_rate_falls_back_instead_of_raising() -> None:
         "t",
         planned_start=FRI_START,
         effort_hours=1000.0,
-        assignee="田中",
-        allocation=0.01,
+        assignees=[Assignee("田中", 0.01)],
         deadline=DEADLINE,
     )
     assert effective_end(task, project, {}) == DEADLINE  # 1,000,000h は算出できない
     no_deadline = Task(
-        "t", planned_start=FRI_START, effort_hours=1000.0, assignee="田中", allocation=0.01
+        "t", planned_start=FRI_START, effort_hours=1000.0, assignees=[Assignee("田中", 0.01)]
     )
     assert effective_end(no_deadline, project, {}) == datetime(2026, 10, 10, 9)
 
@@ -507,8 +506,7 @@ def alloc_task(name: str, start_day: int, end_day: int, allocation: float, **fie
         name,
         planned_start=datetime(2026, 10, start_day),
         planned_end=datetime(2026, 10, end_day),
-        assignee="田中",
-        allocation=allocation,
+        assignees=[Assignee("田中", allocation)],
         **fields,  # type: ignore[arg-type]
     )
 
@@ -550,8 +548,8 @@ def test_separate_overload_periods_stay_separate() -> None:
 
 def test_done_tasks_unassigned_tasks_and_tasks_without_a_start_are_not_counted() -> None:
     done = alloc_task("a", 5, 9, 0.6, status=Status.DONE)
-    other = Task("b", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9), allocation=0.6)
-    no_start = Task("c", planned_end=datetime(2026, 10, 9), assignee="田中", allocation=0.6)
+    other = Task("b", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9))
+    no_start = Task("c", planned_end=datetime(2026, 10, 9), assignees=[Assignee("田中", 0.6)])
     assert over(done, other, no_start, alloc_task("d", 5, 9, 0.6)) == []
 
 
@@ -565,8 +563,7 @@ def test_tasks_of_other_members_do_not_mix() -> None:
         "b",
         planned_start=datetime(2026, 10, 5),
         planned_end=datetime(2026, 10, 9),
-        assignee="鈴木",
-        allocation=0.6,
+        assignees=[Assignee("鈴木", 0.6)],
     )
     project = member_project(Member("田中"), Member("鈴木"), tasks=[mine, theirs])
     assert overallocations(project, {}) == []

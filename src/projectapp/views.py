@@ -519,8 +519,9 @@ class MainView:
         self.project.members = members
         if renames:
             for task in self.project.all_tasks():
-                if task.assignee in renames:
-                    task.assignee = renames[task.assignee]
+                for assignee in task.assignees:
+                    if assignee.name in renames:
+                        assignee.name = renames[assignee.name]
         self.gantt.set_project(self.project)
 
     def apply_settings(self, hours: float, start: time, mode: ActualMode) -> None:
