@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from projectapp.models import Assignee, Actual, Member, Project, Section, Status, Task
+from projectapp.models import Assignee, Actual, Level, Member, Parameter, Project, Section, Status, Task
 from projectapp.timeline import (
     PROGRESS_TOLERANCE,
     ProgressState,
@@ -458,6 +458,23 @@ def test_assignees_rate_works_on_a_member_list() -> None:
     members = [Member("A", 1.0), Member("B", 2.0)]
     assert assignees_rate([Assignee("A", 1.0), Assignee("B", 0.25)], members) == pytest.approx(1.5)
     assert assignees_rate([], members) == 1.0
+
+
+def test_assignees_rate_uses_the_effective_ratio() -> None:
+    parameters = [Parameter("経験", [Level("上級", 0.2)])]
+    members = [Member("A", 1.0, {"経験": "上級"}), Member("B", 1.0)]
+    assignees = [Assignee("A", 1.0), Assignee("B", 0.5)]
+    assert assignees_rate(assignees, members, parameters) == pytest.approx(1.2 + 0.5)
+    assert assignees_rate(assignees, members) == pytest.approx(1.0 + 0.5)  # パラメータなしは基本比率
+
+
+def test_the_computed_end_follows_the_parameters() -> None:
+    project = member_project(Member("田中", 1.0, {"経験": "上級"}))
+    project.parameters = [Parameter("経験", [Level("上級", 0.5)])]
+    task = Task("t", planned_start=FRI_START, effort_hours=15.0, assignees=[Assignee("田中")])
+    # 15h / 1.5 = 10h → 金6.5h + 月3.5h
+    assert effective_end(task, project, {}) == datetime(2026, 10, 12, 12, 30)
+    assert conversion_rate(task, project) == pytest.approx(1.5)
 
 
 def test_two_assignees_finish_earlier_than_one() -> None:

@@ -8,7 +8,19 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.browser import open_url as default_open_url
-from projectapp.models import Assignee, Actual, ActualMode, Member, Status, Task, TaskKind, TaskUrl, UrlTemplate
+from projectapp.models import (
+    Actual,
+    ActualMode,
+    Assignee,
+    Level,
+    Member,
+    Parameter,
+    Status,
+    Task,
+    TaskKind,
+    TaskUrl,
+    UrlTemplate,
+)
 from projectapp.task_dialog import open_task_dialog
 
 
@@ -25,6 +37,7 @@ def mount_dialog(
     finish_of: Callable[[str], datetime | None] | None = None,
     url_templates: list[UrlTemplate] | None = None,
     opened: list[str] | None = None,
+    parameters: list[Parameter] | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -42,6 +55,7 @@ def mount_dialog(
                 link_options=link_options,
                 finish_of=finish_of,
                 url_templates=url_templates,
+                parameters=parameters,
                 open_url=(lambda url: opened.append(url)) if opened is not None else default_open_url,
             ),
         )
@@ -1786,3 +1800,27 @@ async def test_the_assignee_rows_are_hidden_for_a_checkpoint(user: User) -> None
     with user.client:
         user.find(marker="task-kind").elements.pop().set_value(TaskKind.CHECKPOINT)
     await user.should_not_see(marker="task-assignee-add")
+
+
+async def test_the_conversion_uses_the_effective_ratio(user: User) -> None:
+    members = [Member("田中", 1.0, {"経験": "上級"})]
+    mount_dialog(None, [], members=members, parameters=[Parameter("経験", [Level("上級", 0.2)])])
+    await open_dialog(user)
+    conversion = user.find(marker="task-conversion").elements.pop()
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("田中")
+    user.find(marker="task-effort").clear().type("15")
+    # 実効比率 120%。15h / 1.2 / 6.5h = 1.92日
+    assert conversion.text == "換算率 120%(田中 120%×100%)→ 15h は約 1.9日分"
+
+
+async def test_the_computed_end_follows_the_parameters_in_the_dialog(user: User) -> None:
+    members = [Member("田中", 1.0, {"経験": "上級"})]
+    mount_dialog(None, [], members=members, parameters=[Parameter("経験", [Level("上級", 0.5)])])
+    await open_dialog(user)
+    user.find(marker="task-start-date").type("2026-10-09")
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("田中")
+    user.find(marker="task-effort").clear().type("15")
+    # 15h / 1.5 = 10h → 金6.5h + 月3.5h
+    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-12 12:30"

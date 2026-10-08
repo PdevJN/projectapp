@@ -14,7 +14,7 @@ from projectapp.handoff import (
     tasks_for,
     write_json,
 )
-from projectapp.models import Assignee, Actual, Member, Project, Section, Status, Task
+from projectapp.models import Assignee, Actual, Level, Member, Parameter, Project, Section, Status, Task
 
 BASE = date(2026, 10, 5)  # 月曜
 
@@ -242,3 +242,10 @@ def test_the_estimate_is_the_assignees_own_share_of_the_effort() -> None:
     # 換算率は 1.0 + 0.5 = 1.5。田中は 15 × 1.0 / 1.5 = 10h、鈴木は 15 × 0.5 / 1.5 = 5h
     assert build(project, "田中").data["items"][0]["estimate_hours"] == pytest.approx(10.0)
     assert build(project, "鈴木").data["items"][0]["estimate_hours"] == pytest.approx(5.0)
+
+
+def test_the_estimate_follows_the_parameters() -> None:
+    solo = task("単独", effort_hours=15.0, assignees=[Assignee("田中", 1.0)])
+    project = make_project(solo, members=[Member("田中", 1.0, {"経験": "上級"})])
+    project.parameters = [Parameter("経験", [Level("上級", 0.5)])]
+    assert build(project, "田中").data["items"][0]["estimate_hours"] == pytest.approx(10.0)  # 15 / 1.5

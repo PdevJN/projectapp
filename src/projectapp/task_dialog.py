@@ -37,6 +37,7 @@ from projectapp.models import (
     ActualMode,
     Assignee,
     Member,
+    Parameter,
     Priority,
     Status,
     Task,
@@ -44,6 +45,7 @@ from projectapp.models import (
     TaskUrl,
     UrlTemplate,
 )
+from projectapp.ratios import effective_ratio
 from projectapp.timeline import assignees_rate, combine_rate, computed_end, effort_days
 from projectapp.urls import resolve
 
@@ -695,9 +697,11 @@ def open_task_dialog(
     finish_of: Callable[[str], datetime | None] | None = None,
     url_templates: list[UrlTemplate] | None = None,
     open_url: Callable[[str], object] = default_open_url,
+    parameters: list[Parameter] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
-    member_list = list(members or [])
+    # 換算には、パラメータを反映した実効比率を使う(以降は、このコピーだけを見る)
+    member_list = [Member(m.name, effective_ratio(m, parameters or [])) for m in members or []]
     for assignee in initial.assignees:  # 一覧にいない担当者も、保存で失わない(相対比率は 100% とみなす)
         if all(m.name != assignee.name for m in member_list):
             member_list.append(Member(assignee.name, 1.0))

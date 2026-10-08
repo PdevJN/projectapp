@@ -596,6 +596,7 @@ class MainView:
             "link_options": link_options(self.project, task),
             "finish_of": finish_of,
             "url_templates": self.project.url_templates,
+            "parameters": self.project.parameters,
         }
 
     def add_task(self, section_index: int) -> None:

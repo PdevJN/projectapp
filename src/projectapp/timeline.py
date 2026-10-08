@@ -9,7 +9,8 @@ from enum import StrEnum
 from itertools import groupby
 from math import ceil, isfinite
 
-from projectapp.models import Assignee, Member, Project, Status, Task, TaskKind
+from projectapp.models import Assignee, Member, Parameter, Project, Status, Task, TaskKind
+from projectapp.ratios import effective_ratio
 
 
 class Scale(StrEnum):
@@ -327,16 +328,23 @@ def combine_rate(ratio: float, allocation: float) -> float:
     return rate if isfinite(rate) and rate > 0 else 1.0
 
 
-def assignees_rate(assignees: list[Assignee], members: list[Member]) -> float:
-    """担当者全員の換算率(相対比率 × 割り当て率)の合計。メンバーにいない担当者は数えない。
-    誰も数えられなければ 1.0(換算しない)。"""
+def assignees_rate(
+    assignees: list[Assignee], members: list[Member], parameters: list[Parameter] | None = None
+) -> float:
+    """担当者全員の換算率(相対比率 × 割り当て率)の合計。相対比率は、パラメータを反映した実効比率。
+    メンバーにいない担当者は数えない。誰も数えられなければ 1.0(換算しない)。"""
     by_name = {m.name: m for m in members}
-    rates = [combine_rate(by_name[a.name].ratio, a.allocation) for a in assignees if a.name in by_name]
+    chosen = parameters or []
+    rates = [
+        combine_rate(effective_ratio(by_name[a.name], chosen), a.allocation)
+        for a in assignees
+        if a.name in by_name
+    ]
     return sum(rates) if rates else 1.0
 
 
 def conversion_rate(task: Task, project: Project) -> float:
-    return assignees_rate(task.assignees, project.members)
+    return assignees_rate(task.assignees, project.members, project.parameters)
 
 
 def effort_days(effort_hours: float, rate: float, daily_hours: float) -> float | None:
