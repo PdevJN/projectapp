@@ -20,6 +20,7 @@ from projectapp.models import (
     MAX_PROJECT_CODE_LENGTH,
     MAX_PROGRESS,
     MAX_RATIO,
+    MAX_SECTION_DEPTH,
     MAX_YEAR,
     MIN_ALLOCATION,
     MIN_LEVEL_VALUE,
@@ -425,6 +426,20 @@ def _member_levels(value: Any) -> dict[str, str]:
     return dict(value)
 
 
+def _section(raw: Any, depth: int) -> Section:
+    """セクションを読む(入れ子)。depth は 1 階層目が 1。上限を超えたら ValueError。"""
+    if depth > MAX_SECTION_DEPTH:
+        raise ValueError(f"セクションは{MAX_SECTION_DEPTH}階層までです")
+    if not isinstance(raw, dict):
+        raise ValueError("セクションの形式が正しくありません")
+    children = raw.get("sections")
+    if children is None:
+        children = []
+    if not isinstance(children, list):
+        raise ValueError("サブセクションがリストではありません")
+    return Section(raw["name"], [_task(t) for t in raw["tasks"]], [_section(c, depth + 1) for c in children])
+
+
 def _members(raw_members: list[dict[str, Any]]) -> list[Member]:
     """メンバーを読む。相対比率は検証し、空の名前と重複は(最初の1件を残して)捨てる。"""
     members: list[Member] = []
@@ -468,7 +483,7 @@ def _actual_mode(value: Any) -> ActualMode:
 
 def load_project(path: Path) -> Project:
     raw = json.loads(path.read_text(encoding="utf-8"))
-    sections = [Section(s["name"], [_task(t) for t in s["tasks"]]) for s in raw["sections"]]
+    sections = [_section(s, 1) for s in raw["sections"]]
     members = _members(raw["members"])
     project = Project(
         name=path.stem,
