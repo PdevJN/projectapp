@@ -705,8 +705,8 @@ class MainView:
         self.gantt.set_project(self.project)
         self.warn_overallocation(task)
 
-    def tasks_in(self, path: object) -> list[Task]:
-        """セクション(パス。移行中は None・整数も可)のタスク一覧。root は (): セクションに属さないタスク。"""
+    def tasks_in(self, path: SectionPath) -> list[Task]:
+        """セクション(パス)のタスク一覧。root は (): セクションに属さないタスク。"""
         return arrange.tasks_at(self.project, path)
 
     def save_task(
@@ -717,7 +717,7 @@ class MainView:
             tasks.append(task)
         else:
             tasks[task_index] = task
-        if task_index is None and arrange.as_path(path):
+        if task_index is None and path:
             self.gantt.expand_section(path)  # 追加したタスクが、親も含めて見えるように
         self.gantt.set_project(self.project)
         self.warn_overallocation(task)

@@ -4,7 +4,6 @@ import re
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 
-from typing import cast
 
 from projectapp.models import MAX_SECTION_DEPTH, MAX_YEAR, MIN_YEAR, Project, Section, SectionPath, Task, new_id
 
@@ -12,15 +11,6 @@ Position = tuple[SectionPath, int]  # (セクションのパス。root は (), �
 COPY_SUFFIX = "(コピー)"
 MAX_SHIFT_DAYS = 3650
 _KEY = re.compile(r"(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){0,%d}" % (MAX_SECTION_DEPTH - 1))
-
-
-def as_path(section: object) -> SectionPath:
-    """移行用: None(root)・整数(1 階層目)・タプルを、セクションのパスにそろえる(最後のタスクで消す)。"""
-    if section is None:
-        return ()
-    if isinstance(section, int) and not isinstance(section, bool):
-        return (section,)
-    return tuple(cast("tuple[int, ...]", section))
 
 
 def section_key(path: SectionPath) -> str:
@@ -49,8 +39,7 @@ def section_at(project: Project, path: SectionPath) -> Section | None:
     return found
 
 
-def tasks_at(project: Project, section: object) -> list[Task]:
-    path = as_path(section)
+def tasks_at(project: Project, path: SectionPath) -> list[Task]:
     if not path:
         return project.tasks
     found = section_at(project, path)
@@ -59,8 +48,7 @@ def tasks_at(project: Project, section: object) -> list[Task]:
     return found.tasks
 
 
-def valid_section(project: Project, section: object) -> bool:
-    path = as_path(section)
+def valid_section(project: Project, path: SectionPath) -> bool:
     return not path or (len(path) <= MAX_SECTION_DEPTH and section_at(project, path) is not None)
 
 
@@ -147,13 +135,8 @@ def as_int(value: object) -> int | None:
 
 
 def parse_section(value: object) -> SectionPath | None:
-    """画面から届くセクションの指定。キーの文字列(`top`・`0`・`0.1`)、または None(root)・整数(移行用)。"""
-    if value is None:
-        return ()
-    if isinstance(value, str):
-        return parse_section_key(value)
-    number = as_int(value)
-    return None if number is None else (number,)
+    """画面から届くセクションの指定(キーの文字列 `top`・`0`・`0.1`)。不正は None。"""
+    return parse_section_key(value) if isinstance(value, str) else None
 
 
 def parse_position(value: object) -> Position | None:

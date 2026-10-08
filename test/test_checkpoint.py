@@ -83,7 +83,7 @@ def test_a_checkpoint_with_stray_fields_is_loaded_without_them(tmp_path: Path) -
 
 def test_copy_keeps_the_kind() -> None:
     project = Project("p", sections=[Section("A", [checkpoint("c")])])
-    copy = arrange.copy_task(project, (0, 0), (0, 1))
+    copy = arrange.copy_task(project, ((0,), 0), ((0,), 1))
     assert copy.kind is TaskKind.CHECKPOINT and copy.deadline == DEADLINE
 
 

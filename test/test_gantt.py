@@ -858,9 +858,9 @@ async def test_toggling_while_filtering_keeps_the_rows_and_applies_after_clearin
 async def test_expand_and_reset_clear_the_state_without_drawing(user: User) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
-    charts[0].toggle_section(0)
-    charts[0].toggle_section(1)
-    charts[0].expand_section(0)
+    charts[0].toggle_section((0,))
+    charts[0].toggle_section((1,))
+    charts[0].expand_section((0,))
     assert charts[0].collapsed == {(1,)}
     charts[0].reset_collapsed()
     assert charts[0].collapsed == set()
@@ -2538,7 +2538,7 @@ async def test_the_saved_width_survives_a_redraw(user: User) -> None:
     await wait_until(lambda: name_variable(user) == "300px")
     charts[0].set_filter(TaskFilter(query="設計"))
     await wait_until(lambda: name_variable(user) == "300px")
-    charts[0].toggle_section(0)
+    charts[0].toggle_section((0,))
     await wait_until(lambda: name_variable(user) == "300px")
 
 
@@ -2710,10 +2710,10 @@ async def test_collapsing_the_section_updates_only_the_arrows(user: User) -> Non
     charts, _ = mount_chart(linked_project())
     await user.open("/")
     before = user.find(marker="links").elements.pop()
-    charts[0].toggle_section(0)
+    charts[0].toggle_section((0,))
     assert link_paths(user) == []
     assert user.find(marker="links").elements.pop() is before  # 同じ要素の内容だけ変わる
-    charts[0].toggle_section(0)
+    charts[0].toggle_section((0,))
     assert link_paths(user) == ["aaaaaaaa-bbbbbbbb"]
 
 
@@ -2764,7 +2764,7 @@ async def test_the_slots_match_the_rendered_rows(user: User) -> None:
     charts, _ = mount_chart(linked_project())
     await user.open("/")
     chart = charts[0]
-    chart.toggle_section(0)
+    chart.toggle_section((0,))
     for slot in chart.slots():
         marker = (
             f"row-{section_key(slot.path)}-{slot.ti}"

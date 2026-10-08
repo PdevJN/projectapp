@@ -405,9 +405,8 @@ class GanttChart:
         """親のどれかが折りたたまれているか。"""
         return any(path[:n] in self.collapsed for n in range(1, len(path)))
 
-    def toggle_section(self, section: object) -> None:
+    def toggle_section(self, path: SectionPath) -> None:
         """セクションの折りたたみを切り替える。描き直さず、行の表示と矢印だけを変える。"""
-        path = arrange.as_path(section)
         self.collapsed.symmetric_difference_update({path})
         view = self.section_views.get(path)
         if view is None or self.options.read_only:
@@ -431,9 +430,8 @@ class GanttChart:
         for child in view.children:
             self.apply_visibility(child, hidden or collapsed)
 
-    def expand_section(self, section: object) -> None:
+    def expand_section(self, path: SectionPath) -> None:
         """セクションと、その親をすべて展開する(描き直しは、呼び出し側のあとの処理に任せる)。"""
-        path = arrange.as_path(section)
         for n in range(1, len(path) + 1):
             self.collapsed.discard(path[:n])
 
