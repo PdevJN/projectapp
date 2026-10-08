@@ -623,9 +623,6 @@ class GanttChart:
                 value=self.scale,
                 on_change=lambda e: self.set_scale(Scale(e.value)),
             ).classes("shrink-0").mark("scale-toggle")
-            ui.button("セクション追加", icon="add", on_click=self.actions.add_section).props(
-                "flat"
-            ).classes("shrink-0").mark("add-section")
             self.search_input = (
                 ui.input(
                     placeholder="タスク名で検索(Enterで確定)",
@@ -692,6 +689,7 @@ class GanttChart:
             self.top_add_row()
             for index, section in enumerate(self.project.sections):
                 self.section_rows((index,), section, columns, width)
+            self.bottom_add_row()
 
     def no_match_message(self) -> None:
         """絞り込み中に1件も一致しないとき(タスクが1つもないときは出さない)。"""
@@ -704,23 +702,38 @@ class GanttChart:
             "position: relative; padding: 8px 16px"
         ).mark("no-match")
 
-    def top_add_row(self) -> None:
-        """セクションなしのタスクの末尾に置く追加行。名前の列の右端にボタンを置く。"""
-        if self.options.read_only:
-            return
+    def add_row(self, marker: str) -> tuple[ui.row, ui.row]:
+        """追加行の枠(行と、名前の列の右寄せのセル)。名前の列の右端にボタンを置く。"""
         row = ui.row().classes("items-center no-wrap gap-0").style(ADD_ROW_STYLE)
-        row.props(self.drag_props("top-end", "top", count=len(self.project.tasks)))
-        row.mark("top-end")
+        row.mark(marker)
         with row:
             cell = ui.row().classes("items-center justify-end no-wrap gantt-sticky" + self.resize_classes())
             cell.style(
                 f"width: var(--name-w); padding-right: 8px; align-self: stretch;"
                 f" {sticky_left(STICKY_Z_NAME)}"
             )
-            with cell:
-                ui.button("タスク追加", icon="add", on_click=self.actions.add_top_task).props(
-                    "flat dense size=sm"
-                ).mark("add-task-top")
+        return row, cell
+
+    def top_add_row(self) -> None:
+        """セクションなしのタスクの末尾に置く追加行。"""
+        if self.options.read_only:
+            return
+        row, cell = self.add_row("top-end")
+        row.props(self.drag_props("top-end", "top", count=len(self.project.tasks)))
+        with cell:
+            ui.button("タスク追加", icon="add_task", on_click=self.actions.add_top_task).props(
+                "flat dense size=sm"
+            ).mark("add-task-top")
+
+    def bottom_add_row(self) -> None:
+        """チャートの末尾(最後のセクションの下)に置く、セクションの追加行。移動の落とし先にはしない。"""
+        if self.options.read_only:
+            return
+        _, cell = self.add_row("bottom-end")
+        with cell:
+            ui.button("セクション追加", icon="create_new_folder", on_click=self.actions.add_section).props(
+                "flat dense size=sm"
+            ).mark("add-section")
 
     def gridlines(self, columns: list[Column], width: int, top: int) -> None:
         """列の境界の縦線。全スケールで引く。年・月の帯の下から始める。"""
@@ -833,7 +846,7 @@ class GanttChart:
                     )
                 if not self.options.read_only:
                     ui.button(
-                        icon="add", on_click=lambda path=path: self.actions.add_task(path)
+                        icon="add_task", on_click=lambda path=path: self.actions.add_task(path)
                     ).props("flat dense round size=sm").classes("shrink-0").tooltip("タスク追加").mark(
                         f"add-task-{key}"
                     )

@@ -381,6 +381,8 @@ async def test_no_toolbar_add_task_button(user: User) -> None:
     mount(sample_project())
     await user.open("/")
     await user.should_see(marker="add-section")
+    button = user.find(marker="add-section").elements.pop()
+    assert user.find(marker="chart-toolbar").elements.pop() not in button.ancestors()  # ツールバーではなく、チャートの中
     await user.should_not_see(marker="add-top-task")  # ツールバーにはない
     await user.should_not_see(marker="refresh-holidays")  # 祝日更新はヘッダー側
 
@@ -421,6 +423,54 @@ async def test_add_row_comes_after_top_level_tasks_and_before_sections(user: Use
         return user.find(marker=marker).elements.pop().id
 
     assert element_id("task-top-1") < element_id("add-task-top") < element_id("add-task-0")
+
+
+async def test_the_section_add_row_is_right_aligned_in_the_name_column(user: User) -> None:
+    recorder = mount(Project("p", base_date=BASE))
+    await user.open("/")
+    await user.should_see(marker="add-section")
+    cell = user.find(marker="add-section").elements.pop().parent_slot.parent
+    assert "justify-end" in cell.classes
+    assert cell._style["width"] == "var(--name-w)"
+    assert cell._style["position"] == "sticky" and cell._style["left"] == "0px"
+    assert "gantt-sticky" in cell.classes and RESIZABLE in cell.classes
+    user.find(marker="add-section").click()
+    assert recorder.events == [("add_section", ())]
+
+
+async def test_the_section_add_row_comes_after_the_last_section_and_its_children(user: User) -> None:
+    mount(nested_chart_project())
+    await user.open("/")
+
+    def element_id(marker: str) -> int:
+        return user.find(marker=marker).elements.pop().id
+
+    assert element_id("task-1-0") < element_id("bottom-end")
+    assert element_id("task-0.1-0") < element_id("bottom-end")
+    assert element_id("add-task-top") < element_id("bottom-end")
+
+
+async def test_the_section_add_row_stays_while_filtering(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="存在しない名前"))
+    await user.should_see(marker="no-match")  # 描画し直しを待つ
+    await user.should_see(marker="bottom-end")
+    await user.should_see(marker="add-section")
+
+
+async def test_add_buttons_use_a_task_icon_and_a_folder_icon_to_tell_them_apart(user: User) -> None:
+    mount(nested_chart_project())
+    await user.open("/")
+    await user.should_see(marker="add-section")
+
+    def icon(marker: str) -> str:
+        return user.find(marker=marker).elements.pop().props["icon"]
+
+    for marker in ("add-task-top", "add-task-0", "add-task-0.0", "add-task-0.0.0"):  # タスクを足す
+        assert icon(marker) == "add_task", marker
+    for marker in ("add-section", "add-subsection-0", "add-subsection-0.0"):  # セクションを足す
+        assert icon(marker) == "create_new_folder", marker
 
 
 def row_background(user: User, marker: str) -> str | None:
@@ -2178,7 +2228,7 @@ async def test_set_options_rerenders_and_the_view_scale_follows(user: User) -> N
 async def test_read_only_removes_the_edit_parts(user: User) -> None:
     mount_with(sample_project(), ViewOptions(read_only=True))
     await user.open("/")
-    for marker in ("add-task-top", "add-task-0", "top-end"):
+    for marker in ("add-task-top", "add-task-0", "top-end", "add-section", "bottom-end"):
         await user.should_not_see(marker=marker)
     await user.should_see(marker="section-name-0")  # セクションの見出しは残る
     await user.should_see(marker="task-0-0")
