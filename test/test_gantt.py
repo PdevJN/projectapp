@@ -580,6 +580,30 @@ async def test_the_bar_tooltip_names_the_member_and_the_peak(user: User) -> None
     assert "2026-10-07" in tooltips[0].text
 
 
+async def test_the_bar_tooltip_names_each_overloaded_member_with_his_own_peak(user: User) -> None:
+    a = Task(
+        "A",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 9),
+        assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.9)],
+    )
+    b = Task(
+        "B",
+        planned_start=datetime(2026, 10, 7),
+        planned_end=datetime(2026, 10, 12),
+        assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.9)],
+    )
+    mount(Project("demo", base_date=BASE, members=[Member("田中"), Member("鈴木")], tasks=[a, b]))
+    await user.open("/")
+    bar = user.find(marker="bar-top-0").elements.pop()
+    tooltips = [c for c in bar.default_slot.children if isinstance(c, ui.tooltip)]
+    assert len(tooltips) == 1
+    text = tooltips[0].text
+    assert "田中 の割り当てが最大120%" in text  # 鈴木の 180% と取り違えない
+    assert "鈴木 の割り当てが最大180%" in text
+    assert "田中 の割り当てが最大180%" not in text
+
+
 async def test_no_stripes_without_an_overload(user: User) -> None:
     project = overloaded_project()
     project.tasks[1].assignees[0].allocation = 0.4  # 合計ちょうど100%

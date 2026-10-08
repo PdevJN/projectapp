@@ -1070,12 +1070,15 @@ class GanttChart:
                 f" top: 0; bottom: 0; background: {OVERLOAD_STRIPES}; pointer-events: none"
             ).mark(f"overload-{key}-{ti}-{n}")
         if clipped:
-            peak = round(max(o.total for o in clipped) * 100)
-            first, last = clipped[0], clipped[-1]
-            ui.tooltip(
-                f"{first.member} の割り当てが最大{peak}%"
-                f"({first.start:%Y-%m-%d}〜{last.end:%Y-%m-%d})"
-            )
+            lines: list[str] = []
+            for member in dict.fromkeys(o.member for o in clipped):  # 担当者ごとに、最大の率と期間を出す
+                mine = [o for o in clipped if o.member == member]
+                peak = round(max(o.total for o in mine) * 100)
+                lines.append(
+                    f"{member} の割り当てが最大{peak}%"
+                    f"({min(o.start for o in mine):%Y-%m-%d}〜{max(o.end for o in mine):%Y-%m-%d})"
+                )
+            ui.tooltip(" / ".join(lines))
 
     def checkpoint_marker(
         self, si: int | None, ti: int, task: Task, columns: list[Column], width: int
