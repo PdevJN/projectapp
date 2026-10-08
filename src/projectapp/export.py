@@ -35,6 +35,7 @@ EXPORT_CSS = (
 # 画像化する。対象は data-chart-content の要素の全体(スクロールの外へはみ出す分を含む)。
 # ライトは白、ダークは body の背景色。結果は window.__exportPng に置き、長さだけを返す(分けて取り出す)。
 # 失敗は、例外にせず error の文字列で返す。
+# skipFonts: フォントの埋め込みは、@import 先の CSS を画面のスタイルシートへ挿し込み(@layer の外へ出る)、画像化のあと見出しがずれる。
 CAPTURE_JS = """
 async () => {
   const root = document.querySelector('[data-chart-content]');
@@ -48,7 +49,7 @@ async () => {
   try {
     window.__exportPng = await htmlToImage.toPng(root, {
       width: root.scrollWidth, height: root.scrollHeight,
-      pixelRatio: __RATIO__, backgroundColor: bg, cacheBust: false,
+      pixelRatio: __RATIO__, backgroundColor: bg, cacheBust: false, skipFonts: true,
     });
     return JSON.stringify({length: window.__exportPng.length});
   } catch (e) { return JSON.stringify({error: String(e)}); }

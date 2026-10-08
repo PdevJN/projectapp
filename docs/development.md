@@ -85,6 +85,7 @@ uvx ty check src
 
 ## ファイル形式の注意
 
+- 画像の書き出し(`export.CAPTURE_JS`)は、`htmlToImage.toPng` に **`skipFonts: true`** を渡す。渡さないと、フォントの埋め込みが `@import` 先の CSS(Quasar の約 2,000 ルール)を画面のスタイルシートへ `insertRule` し、`@layer` の外に出て、書き出しのあと、見出しの行の高さ・日付のラベルの位置が変わったままになる(拡大とは無関係。2026-10-09)。画像は、フォントなしでも見た目が変わらない(システムフォントを使うため)。
 - セクションは `Section.sections`(入れ子。`[{"name", "tasks", "sections"}]`)。キーがない・`null` は空。4 階層以上と、`sections` の型の違いは読込を拒否する(`storage._section`)。セクションの位置は `SectionPath`(番号のパス。root は `()`)で、マーカーのキーは `arrange.section_key`(`top`・`0`・`0.1`)。1 階層目は入れ子の前と同じ。ブラウザ側の JS は、`data-si` のキー(文字列)をそのまま送り、サーバーが `parse_section_key` で戻す。折りたたみは `GanttChart.collapsed`(パスの集合)で、親を閉じると子孫が隠れ、親を開いても子の状態は保たれる(`row_slots` と `apply_visibility` が同じ規則)
 - パラメータは `Project.parameters`(`[{"name", "levels": [{"name", "value"}]}]`。`value` は割合で -0.9〜+2.9)、メンバーの選択は `Member.levels`(`{"パラメータ名": "段階名"}`)。キーがない・`null` は空。名前の空・重複、`value` の範囲外・非有限・型の違いは読込を拒否する。メンバーの選択が存在しないパラメータ・段階を指していても、読込は拒否せず、`ratios.ratio_detail` が判定値 0% として扱い、メンバーのダイアログの適用で捨てる。`Member.ratio` は基本比率。
 - 担当者は `Task.assignees`(`[{"name", "allocation"}]`。`allocation` は 0.01〜1.0)。古いキー `assignee`・`allocation` は、`assignees` がないときだけ 1 人のリストとして読む(`storage._assignees`。担当者がなくても、不正な割り当て率は拒否する)。名前が空・重複、割り当て率が範囲外・非有限は読込を拒否する。保存は `assignees` だけ(`asdict` で書くので、空のときも `[]`)。チェックポイントは常に空。換算率は `timeline.assignees_rate`(メンバーにいる担当者の `相対比率 × 割り当て率` の合計。誰もいなければ 1.0)。
