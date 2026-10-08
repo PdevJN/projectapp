@@ -12,7 +12,7 @@
 - テストの高速化(2649e93・32f4a08・88e7625): 全体テストが 415 秒から 47 秒。`test/conftest.py` と `test/test_leak_cleanup.py`。詳しくは「次にやること」の 7。
 - 並列実行(7fa9d88。`pytest-xdist`): `uv run pytest -n auto` で約 10 秒。
 - ヘッダーのラベルのまとめ(a03d69f。設計書 `2026-10-06-header-labels-design.md`): ヘッダーの日付・曜日を 1 つの HTML 要素にまとめた。再描画が、429 列のプロジェクトで約 250ms → 約 40ms。
-- **プッシュ**: `develop` は 2026-10-09 に 12adb0e(追加ボタンのマージ)までプッシュ済み。以降は、許可を得てから行う。
+- **プッシュ**: `develop` は 2026-10-09 に 44f74d7(追加ボタンの作業記録)までプッシュ済み(マージコミットは 12adb0e)。以降は、許可を得てから行う。
 - 追加ボタンの配置とアイコン(2026-10-09。`develop` へマージ済み(マージコミット 12adb0e。ブランチ `feature/add-buttons-ui` は削除済み)。ネイティブで実機確認済み): 「セクション追加」を、ツールバーからチャート末尾の行(マーカー `bottom-end`、ボタン `add-section`。プレビューでは出さず、絞り込み中は出す)へ移した。アイコンは、タスクを足すボタン=`add_task`、セクション・サブセクションを足すボタン=`create_new_folder`。テスト 1,833 件と `ty` が通る。小さな変更のため、設計書・実装計画は作っていない。
 - **ネイティブ(WebKit)でだけ起きる不具合は、実機でないと見つからない**(2026-10-09 に、セクションの入れ子の実機確認で 2 件見つかった。ヘッドレス Chrome では再現しない)。確認用に、`ui.run(native=True)` のスクリプトで JS を実行し、`screencapture -D <番号>` で画面を撮って確かめた(測定は、実際の WebKit の座標・`elementFromPoint` で)。
   - 画面の拡大中、WebKit は `getBoundingClientRect` と `offsetWidth` を拡大前の値で返し、`clientX` と `elementFromPoint` は画面上の座標を使う。`gantt_drag.py` の `cssScale` は `body.style.zoom` から取り、名前の欄の右端の判定は、`elementFromPoint` で右へ掴み場所の幅(×倍率)進んだ点が欄の外かで決める(a73deeb。以前は拡大 110% 以上で、名前の欄の幅の調整もバーの移動量も外れていた)。
