@@ -45,6 +45,39 @@ def test_nothing_resolves_while_a_dialog_is_open():
     assert resolve("d", ctrl=False, shift=False, modal=True, screen=Screen.MAIN) is None
 
 
+@pytest.mark.parametrize(
+    ("key", "shift", "action"),
+    [
+        ("+", True, "zoom_in"),
+        ("+", False, "zoom_in"),
+        ("=", False, "zoom_in"),  # US 配列の `+` は Shift+`=`、日本語配列は Shift+`;`
+        ("=", True, "zoom_in"),
+        (";", True, "zoom_in"),
+        (";", False, "zoom_in"),
+        ("-", False, "zoom_out"),
+        ("0", False, "zoom_reset"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("modal", "screen"),
+    [(False, Screen.MAIN), (True, Screen.MAIN), (False, Screen.PREVIEW), (False, Screen.DASHBOARD)],
+)
+def test_zoom_keys_work_in_every_state(key, shift, action, modal, screen):
+    assert resolve(key, ctrl=True, shift=shift, modal=modal, screen=screen) == action
+
+
+def test_zoom_keys_need_ctrl():
+    assert resolve("-", ctrl=False, shift=False, modal=False, screen=Screen.MAIN) is None
+    assert resolve("0", ctrl=False, shift=False, modal=False, screen=Screen.MAIN) is None
+
+
+def test_help_lists_the_zoom_keys():
+    entries = help_entries()
+    assert ("Ctrl/Cmd++", "画面を拡大(=・; でも可)") in entries
+    assert ("Ctrl/Cmd+-", "画面を縮小") in entries
+    assert ("Ctrl/Cmd+0", "画面の大きさを 100% に戻す") in entries
+
+
 def test_help_lists_every_shortcut_once_with_its_description():
     entries = help_entries()
     assert len(entries) == len(SHORTCUTS)
@@ -57,7 +90,7 @@ def test_help_lists_every_shortcut_once_with_its_description():
 def test_the_key_lists_for_the_browser_guard_come_from_the_table():
     from projectapp.shortcuts import ctrl_keys, plain_keys
 
-    assert ctrl_keys() == {"s", "o", "n", ",", "e", "p"}
+    assert ctrl_keys() == {"s", "o", "n", ",", "e", "p", "+", "=", ";", "-", "0"}
     assert plain_keys() == {"escape", "d", "/", "?"}
 
 
