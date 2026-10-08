@@ -549,9 +549,9 @@ def needs_end_time(end: datetime | None, work_start: time) -> bool:
     return end is not None and _minute(end) != default_times(work_start)[1]
 
 
-def open_section_dialog(on_save: Callable[[str], object]) -> None:
+def open_section_dialog(on_save: Callable[[str], object], title: str = "セクションの追加") -> None:
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-80"):
-        ui.label("セクションの追加").classes("text-h6")
+        ui.label(title).classes("text-h6")
         name = ui.input("セクション名").mark("section-name")
         error = ui.label("").classes("text-negative").mark("form-error")
 

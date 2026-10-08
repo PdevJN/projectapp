@@ -437,7 +437,7 @@ def js_scenarios(tmp_path_factory: pytest.TempPathFactory) -> dict:
 
 def test_js_normal_shift_emits_the_snapped_days_and_swallows_the_click(js_scenarios: dict) -> None:
     normal = js_scenarios["normal"]
-    assert normal["emitted"] == [["chart_shift", {"si": 0, "ti": 0, "days": 3}]]
+    assert normal["emitted"] == [["chart_shift", {"si": "0", "ti": 0, "days": 3}]]
     assert normal["suppressed"] is True
 
 
@@ -472,7 +472,7 @@ def test_js_escape_after_moving_sends_nothing_and_swallows_the_click(js_scenario
 def test_js_a_drop_that_did_not_start_from_a_row_is_ignored(js_scenarios: dict) -> None:
     assert js_scenarios["foreignDrop"] == []
     assert js_scenarios["ownDrop"] == [
-        ["chart_move", {"src": [None, 1], "dst": [0, 0], "copy": True}]
+        ["chart_move", {"src": ["top", 1], "dst": ["0", 0], "copy": True}]
     ]
 
 
@@ -597,8 +597,16 @@ async def test_min_days_stops_at_the_predecessors_finish(user: User) -> None:
 
 def test_a_zoomed_page_converts_pointer_distances_back_to_css_pixels(js_scenarios: dict) -> None:
     assert js_scenarios["zoomBar"]["during"] == "translateX(80px)"
-    assert js_scenarios["zoomBar"]["emitted"] == [["chart_shift", {"si": 0, "ti": 0, "days": 2}]]
+    assert js_scenarios["zoomBar"]["emitted"] == [["chart_shift", {"si": "0", "ti": 0, "days": 2}]]
     assert js_scenarios["zoomResize"]["during"] == "300px"
     assert js_scenarios["zoomResize"]["variable"] == "300px"
     assert js_scenarios["zoomResize"]["emitted"] == [["chart_name_width", {"width": 300}]]
     assert js_scenarios["zoomOutsideEdge"]["emitted"] == []
+
+
+def test_a_nested_section_key_survives_the_roundtrip_to_the_server() -> None:
+    from projectapp.arrange import parse_move, parse_shift
+
+    assert parse_move({"src": ["0.1", 2], "dst": ["0.1.0", 0], "copy": False}) == (((0, 1), 2), ((0, 1, 0), 0), False)
+    assert parse_shift({"si": "0.1", "ti": 0, "days": 1}) == (((0, 1), 0), 1)
+    assert parse_move({"src": ["top", 0], "dst": ["1", 3], "copy": True}) == (((), 0), ((1,), 3), True)

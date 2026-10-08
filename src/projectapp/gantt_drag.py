@@ -28,7 +28,7 @@ CHART_DRAG_JS = """
 (() => {
   if (window.__ganttDragInstalled) return;
   window.__ganttDragInstalled = true;
-  const section = (value) => (value === "top" ? null : Number(value));
+  const section = (value) => value;  // data-si のキー(top・0・0.1)をそのまま送る
   const ROW_TYPE = "application/x-gantt-row";  // 自分が始めた drag かを見分ける
   let source = null;
   let resize = null;  // 名前の欄の幅の調整中の状態

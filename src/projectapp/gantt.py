@@ -20,7 +20,7 @@ from projectapp.config import (
 from projectapp.filtering import TaskFilter, matches, section_has_match, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
-from projectapp.models import Priority, Project, Section, SectionPath, Status, Task, TaskKind
+from projectapp.models import MAX_SECTION_DEPTH, Priority, Project, Section, SectionPath, Status, Task, TaskKind
 from projectapp.timeline import (
     in_range,
     Band,
@@ -306,6 +306,7 @@ class GanttActions:
     move_task: Callable[[Position, Position, bool], object]  # 元, 挿入先, コピーか
     shift_task: Callable[[SectionPath, int, int], object]  # セクションのパス(root は ()), タスク番号, 日数
     set_name_width: Callable[[int], object]  # 名前の欄の幅(px)。範囲に収めた整数。保存は受け取り側
+    add_subsection: Callable[[SectionPath], object] = lambda path: None  # サブセクションの追加(親のセクションのパス)
 
 
 class GanttChart:
@@ -826,6 +827,12 @@ class GanttChart:
                 ui.label(f"({len(section.all_tasks())})").classes("text-caption shrink-0").mark(
                     f"section-count-{key}"
                 )
+                if not self.options.read_only and len(path) < MAX_SECTION_DEPTH:
+                    ui.button(
+                        icon="create_new_folder", on_click=lambda path=path: self.actions.add_subsection(path)
+                    ).props("flat dense round size=sm").classes("shrink-0").tooltip("サブセクション追加").mark(
+                        f"add-subsection-{key}"
+                    )
                 if not self.options.read_only:
                     ui.button(
                         icon="add", on_click=lambda path=path: self.actions.add_task(path)

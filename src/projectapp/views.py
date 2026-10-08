@@ -59,7 +59,7 @@ from projectapp.handoff import (
 from projectapp.handoff import default_filename as handoff_filename
 from projectapp.filemanager import open_folder
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
-from projectapp.models import ActualMode, Member, Project, Section, SectionPath, Task
+from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Member, Project, Section, SectionPath, Task
 from projectapp.preview import (
     LARGE_IMAGE_MESSAGE,
     NOT_NATIVE_MESSAGE,
@@ -154,6 +154,7 @@ class MainView:
                 move_task=self.move_task,
                 shift_task=self.shift_task,
                 set_name_width=self.set_name_width,
+                add_subsection=self.add_subsection,
             ),
             name_width=load_name_width(base_dir),
         )
@@ -600,6 +601,18 @@ class MainView:
 
     def save_section(self, name: str) -> None:
         self.project.sections.append(Section(name))
+        self.gantt.set_project(self.project)
+
+    def add_subsection(self, path: SectionPath) -> None:
+        open_section_dialog(lambda name: self.save_subsection(path, name), title="サブセクションの追加")
+
+    def save_subsection(self, path: SectionPath, name: str) -> None:
+        """セクションの末尾にサブセクションを足す。親がない・root・3 階層目の親は何もしない。"""
+        parent = arrange.section_at(self.project, path)
+        if parent is None or len(path) >= MAX_SECTION_DEPTH:
+            return
+        parent.sections.append(Section(name))
+        self.gantt.expand_section(path)
         self.gantt.set_project(self.project)
 
     def link_args(self, task: Task | None) -> dict[str, Any]:

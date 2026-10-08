@@ -95,6 +95,7 @@ class Recorder:
             move_task=lambda src, dst, copy: self.events.append(("move_task", (src, dst, copy))),
             shift_task=lambda si, ti, days: self.events.append(("shift_task", (si, ti, days))),
             set_name_width=lambda width: self.events.append(("set_name_width", (width,))),
+            add_subsection=lambda path: self.events.append(("add_subsection", (path,))),
         )
 
 
@@ -2983,3 +2984,27 @@ async def test_read_only_shows_every_nested_row_ignoring_collapse(user: User) ->
     charts[0].set_options(ViewOptions(read_only=True))
     for marker in ("section-0.0.0", "task-0.0.0-0"):
         await user.should_see(marker=marker)
+
+
+async def test_subsection_buttons_appear_on_levels_one_and_two_only(user: User) -> None:
+    mount(nested_chart_project())
+    await user.open("/")
+    await user.should_see(marker="add-subsection-0")
+    await user.should_see(marker="add-subsection-0.0")
+    await user.should_see(marker="add-subsection-1")
+    await user.should_not_see(marker="add-subsection-0.0.0")  # 3 階層目には出さない
+
+
+async def test_the_subsection_button_reports_its_path(user: User) -> None:
+    recorder = mount(nested_chart_project())
+    await user.open("/")
+    user.find(marker="add-subsection-0.0").click()
+    assert recorder.events == [("add_subsection", ((0, 0),))]
+
+
+async def test_read_only_has_no_subsection_buttons(user: User) -> None:
+    charts, _ = mount_chart(nested_chart_project())
+    await user.open("/")
+    charts[0].set_options(ViewOptions(read_only=True))
+    await user.should_see(marker="section-0")
+    await user.should_not_see(marker="add-subsection-0")

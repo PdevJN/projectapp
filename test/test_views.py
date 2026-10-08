@@ -2750,3 +2750,43 @@ async def test_shift_ignores_a_path_that_does_not_exist(user: User, tmp_path: Pa
     view = await open_nested_view(user, tmp_path)
     view.shift_task((0, 5), 0, 1)  # 存在しない。落ちない
     view.shift_task((9,), 0, 1)
+
+
+async def test_adding_a_subsection_through_the_dialog(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    await user.should_see(marker="add-subsection-0")  # 描き直しを待つ
+    user.find(marker="add-subsection-0").click()
+    user.find(marker="section-name").type("新しい子")
+    user.find(marker="section-save").click()
+    assert [s.name for s in view.project.sections[0].sections] == ["子", "新しい子"]
+    await user.should_see(marker="section-0.1")
+    assert view.is_dirty()
+
+
+async def test_a_subsection_can_be_added_to_a_subsection_but_not_below_level_three(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.save_subsection((0, 0), "孫")
+    assert view.project.sections[0].sections[0].sections[0].name == "孫"
+    view.save_subsection((0, 0, 0), "ひ孫")  # 3 階層目の親には足せない
+    assert view.project.sections[0].sections[0].sections[0].sections == []
+
+
+async def test_save_subsection_ignores_a_missing_parent(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.save_subsection((7,), "どこにも")
+    view.save_subsection((), "root は別の操作")
+    assert [s.name for s in view.project.sections] == ["親"]
+
+
+async def test_adding_a_subsection_opens_the_parent_chain(user: User, tmp_path: Path) -> None:
+    view = await open_nested_view(user, tmp_path)
+    view.gantt.collapsed.update({(0,), (0, 0)})
+    view.save_subsection((0, 0), "孫")
+    assert view.gantt.collapsed == set()
+
+
+async def test_the_subsection_dialog_has_its_own_title(user: User, tmp_path: Path) -> None:
+    await open_nested_view(user, tmp_path)
+    await user.should_see(marker="add-subsection-0")  # 描き直しを待つ
+    user.find(marker="add-subsection-0").click()
+    await user.should_see("サブセクションの追加")
