@@ -16,6 +16,8 @@ from projectapp.timeline import (
     Overload,
     calc_end,
     clip_overloads,
+    assignees_rate,
+    counted_assignees,
     counted_span,
     combine_rate,
     conversion_rate,
@@ -438,6 +440,42 @@ def test_conversion_rate_uses_the_member_ratio_and_the_task_allocation() -> None
     assert conversion_rate(Task("t", assignees=[Assignee("不明", 0.5)]), project) == 1.0  # メンバーにいない
 
 
+def test_conversion_rate_adds_up_every_assignee() -> None:
+    project = member_project(Member("田中", 1.2), Member("鈴木", 1.0))
+    task = Task("t", assignees=[Assignee("田中", 1.0), Assignee("鈴木", 0.5)])
+    assert conversion_rate(task, project) == pytest.approx(1.2 + 0.5)
+
+
+def test_conversion_rate_skips_assignees_who_are_not_members() -> None:
+    project = member_project(Member("田中", 1.2))
+    task = Task("t", assignees=[Assignee("田中", 0.5), Assignee("不明", 1.0)])
+    assert conversion_rate(task, project) == pytest.approx(0.6)  # 不明は数えない
+    nobody = Task("t", assignees=[Assignee("不明", 1.0), Assignee("他", 0.5)])
+    assert conversion_rate(nobody, project) == 1.0  # 誰も数えられなければ換算しない
+
+
+def test_assignees_rate_works_on_a_member_list() -> None:
+    members = [Member("A", 1.0), Member("B", 2.0)]
+    assert assignees_rate([Assignee("A", 1.0), Assignee("B", 0.25)], members) == pytest.approx(1.5)
+    assert assignees_rate([], members) == 1.0
+
+
+def test_two_assignees_finish_earlier_than_one() -> None:
+    project = member_project(Member("田中", 1.0), Member("鈴木", 1.0))
+    alone = Task("t", planned_start=FRI_START, effort_hours=13.0, assignees=[Assignee("田中")])
+    pair = Task("t", planned_start=FRI_START, effort_hours=13.0, assignees=[Assignee("田中"), Assignee("鈴木")])
+    # 13h / 1.0 = 13h → 金6.5h + 月6.5h
+    assert effective_end(alone, project, {}) == datetime(2026, 10, 12, 15, 30)
+    # 13h / 2.0 = 6.5h → 金のうちに終わる
+    assert effective_end(pair, project, {}) == datetime(2026, 10, 9, 15, 30)
+
+
+def test_counted_assignees_keeps_only_members_in_order() -> None:
+    project = member_project(Member("田中"), Member("鈴木"))
+    task = Task("t", assignees=[Assignee("不明"), Assignee("鈴木"), Assignee("田中")])
+    assert [a.name for a in counted_assignees(task, project)] == ["鈴木", "田中"]
+
+
 def test_a_faster_member_finishes_earlier() -> None:
     project = member_project(Member("田中", 1.5))
     task = Task("t", planned_start=FRI_START, effort_hours=15.0, assignees=[Assignee("田中")])
@@ -829,3 +867,46 @@ def test_counted_span_is_the_span_that_overallocation_counts() -> None:
     unassigned = Task("c", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 7))
     for task in (done, unassigned):
         assert counted_span(task, project, {}) is None
+
+
+def test_each_assignee_counts_against_his_own_total() -> None:
+    a = Task(
+        "a", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9),
+        assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.3)],
+    )
+    b = Task("b", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9), assignees=[Assignee("田中", 0.6)])
+    project = member_project(Member("田中"), Member("鈴木"), tasks=[a, b])
+    result = overallocations(project, {})
+    assert [(o.member, round(o.total, 2)) for o in result] == [("田中", 1.2)]  # 鈴木は 30% だけ
+
+
+def test_a_task_with_two_overloaded_assignees_is_reported_for_both() -> None:
+    a = Task(
+        "a", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9),
+        assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.6)],
+    )
+    b = Task(
+        "b", planned_start=datetime(2026, 10, 7), planned_end=datetime(2026, 10, 12),
+        assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.6)],
+    )
+    project = member_project(Member("田中"), Member("鈴木"), tasks=[a, b])
+    overloads = overallocations(project, {})
+    assert sorted(o.member for o in overloads) == ["田中", "鈴木"]
+    assert sorted(o.member for o in clip_overloads(a, project, {}, overloads)) == ["田中", "鈴木"]
+
+
+def test_clip_overloads_ignores_members_who_are_not_on_the_task() -> None:
+    a = alloc_task("a", 5, 9, 0.6)
+    b = alloc_task("b", 7, 12, 0.6)
+    other = Task("o", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 12), assignees=[Assignee("鈴木", 0.5)])
+    project = member_project(Member("田中"), Member("鈴木"), tasks=[a, b, other])
+    overloads = overallocations(project, {})
+    assert clip_overloads(other, project, {}, overloads) == []
+
+
+def test_an_assignee_who_is_not_a_member_is_not_counted_for_overload() -> None:
+    a = Task("a", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9), assignees=[Assignee("不明", 0.7)])
+    b = Task("b", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9), assignees=[Assignee("不明", 0.7)])
+    project = member_project(Member("田中"), tasks=[a, b])
+    assert overallocations(project, {}) == []
+    assert counted_span(a, project, {}) is None

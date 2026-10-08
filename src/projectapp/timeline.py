@@ -9,7 +9,7 @@ from enum import StrEnum
 from itertools import groupby
 from math import ceil, isfinite
 
-from projectapp.models import Project, Status, Task, TaskKind
+from projectapp.models import Assignee, Member, Project, Status, Task, TaskKind
 
 
 class Scale(StrEnum):
@@ -170,16 +170,20 @@ class Overload:
 OVERLOAD_EPSILON = 1e-9  # 浮動小数の誤差で、ちょうど100%を超過にしない
 
 
+def counted_assignees(task: Task, project: Project) -> list[Assignee]:
+    """換算率と割り当ての合計に数える担当者(メンバーにいる人だけ。タスクの並び順)。"""
+    names = {m.name for m in project.members}
+    return [a for a in task.assignees if a.name in names]
+
+
 def counted_span(
     task: Task, project: Project, holidays: dict[date, str], schedule: Schedule | None = None
 ) -> tuple[datetime, datetime] | None:
     """割り当ての合計に数えるタスクの期間。数えない(担当者なし・終了・開始予定なしなど)ときはNone。"""
-    if not task.assignee or task.status is Status.DONE:
+    if task.status is Status.DONE or not counted_assignees(task, project):
         return None
     start = effective_start(task, project, holidays, schedule)
     if start is None:
-        return None
-    if all(m.name != task.assignee for m in project.members):
         return None
     end = effective_end(task, project, holidays, schedule)
     if end is None or end <= start:
@@ -193,8 +197,9 @@ def overallocations(project: Project, holidays: dict[date, str]) -> list[Overloa
     schedule = Schedule(project, holidays)
     for task in project.all_tasks():
         counted = counted_span(task, project, holidays, schedule)
-        if counted is not None and task.assignee is not None:
-            spans.setdefault(task.assignee, []).append((*counted, task.allocation))
+        if counted is not None:
+            for assignee in counted_assignees(task, project):
+                spans.setdefault(assignee.name, []).append((*counted, assignee.allocation))
     result: list[Overload] = []
     for name, items in spans.items():
         points = sorted({p for start, end, _ in items for p in (start, end)})
@@ -230,7 +235,7 @@ def clip_overloads(
     start, end = counted
     clipped: list[Overload] = []
     for overload in overloads:
-        if overload.member != task.assignee:
+        if overload.member not in task.assignee_names:
             continue
         left, right = max(overload.start, start), min(overload.end, end)
         if left < right:
@@ -322,11 +327,16 @@ def combine_rate(ratio: float, allocation: float) -> float:
     return rate if isfinite(rate) and rate > 0 else 1.0
 
 
+def assignees_rate(assignees: list[Assignee], members: list[Member]) -> float:
+    """担当者全員の換算率(相対比率 × 割り当て率)の合計。メンバーにいない担当者は数えない。
+    誰も数えられなければ 1.0(換算しない)。"""
+    by_name = {m.name: m for m in members}
+    rates = [combine_rate(by_name[a.name].ratio, a.allocation) for a in assignees if a.name in by_name]
+    return sum(rates) if rates else 1.0
+
+
 def conversion_rate(task: Task, project: Project) -> float:
-    member = next((m for m in project.members if m.name == task.assignee), None)
-    if member is None:
-        return 1.0
-    return combine_rate(member.ratio, task.allocation)
+    return assignees_rate(task.assignees, project.members)
 
 
 def effort_days(effort_hours: float, rate: float, daily_hours: float) -> float | None:
