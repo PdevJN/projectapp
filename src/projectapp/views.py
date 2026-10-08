@@ -24,6 +24,7 @@ from projectapp.forms import (
     open_unsaved_dialog,
 )
 from projectapp import arrange
+from projectapp.shortcuts import Screen, ctrl_keys, help_entries, resolve
 from projectapp.dashboard import PeriodKind, period_for, summarize
 from projectapp.dashboard_view import DashboardView
 from projectapp.export import (
@@ -89,7 +90,12 @@ body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55
 .app-menu .q-item { font-size: 12px; min-height: 32px; }
 """
 HANDOFF_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、書き出せます"
-HELP_KEYS: list[tuple[str, str]] = []  # (キー, 機能) 機能追加時に登録する
+# ブラウザ既定の動き(`Ctrl+S` の保存、`Ctrl+P` の印刷など)を止める JS。`ui.keyboard` では止められない
+PREVENT_DEFAULT_JS = (
+    "document.addEventListener('keydown', e => {"
+    f" if ((e.ctrlKey || e.metaKey) && {sorted(ctrl_keys())!r}.includes(e.key.toLowerCase())) e.preventDefault();"
+    " }, true);"
+)
 
 
 class MainView:
@@ -267,13 +273,56 @@ class MainView:
         """2区間以上の実績を持つタスクの数。簡易へ戻せるかの判定に使う。"""
         return sum(1 for task in self.project.all_tasks() if len(task.actuals) > 1)
 
+    SHORTCUT_METHODS = {
+        "save": "save_project_clicked",
+        "save_as": "save_as",
+        "open": "show_file_list",
+        "new": "request_new",
+        "settings": "open_settings",
+        "handoff": "open_handoff",
+        "preview": "enter_preview",
+        "dashboard": "open_dashboard",
+    }
+
+    def on_plain_key(self, event: KeyEventArguments) -> None:
+        if not (event.modifiers.ctrl or event.modifiers.meta):
+            self.on_key(event)
+
+    def on_modified_key(self, event: KeyEventArguments) -> None:
+        if event.modifiers.ctrl or event.modifiers.meta:
+            self.on_key(event)
+
+    def screen(self) -> Screen:
+        if self.preview is not None:
+            return Screen.PREVIEW
+        return Screen.DASHBOARD if self.dashboard_kind is not None else Screen.MAIN
+
+    def dialog_open(self) -> bool:
+        return any(isinstance(e, ui.dialog) and e.value for e in self.client.elements.values())
+
     def on_key(self, event: KeyEventArguments) -> None:
-        """ESC で、プレビューまたはダッシュボードから戻る。"""
-        if event.action.keydown and event.key == "Escape":
+        """キー操作を、メニューと同じ操作へ振り分ける。ESC は、プレビューまたはダッシュボードから戻る
+        (ダイアログの ESC は Quasar が閉じる。タスクの編集は、確認を挟む)。"""
+        if not event.action.keydown:
+            return
+        action = resolve(
+            event.key.name,
+            ctrl=event.modifiers.ctrl or event.modifiers.meta,
+            shift=event.modifiers.shift,
+            modal=self.dialog_open(),
+            screen=self.screen(),
+        )
+        if action == "escape":
             if self.preview is not None:
                 self.exit_preview()
             elif self.dashboard_kind is not None:
                 self.close_dashboard()
+        elif action == "search":
+            self.gantt.focus_search()
+        elif action == "help":
+            self.help_dialog.open()
+        elif action is not None:
+            getattr(self, self.SHORTCUT_METHODS[action])()
 
     def set_header_visible(self, visible: bool) -> None:
         """ヘッダーと、メイン側のタイトルを、一緒に出す・隠す(プレビューとダッシュボードの出入り)。"""
@@ -647,7 +696,10 @@ class MainView:
         self.preview_bar.build()
         self.dashboard_view.build()
         self.gantt.build()
-        ui.keyboard(on_key=self.on_key)
+        self.client = ui.context.client
+        ui.run_javascript(PREVENT_DEFAULT_JS)
+        ui.keyboard(on_key=self.on_plain_key)  # 入力欄・ボタンにフォーカスがあるときは、受けない
+        ui.keyboard(on_key=self.on_modified_key, ignore=[])  # Ctrl/Cmd 付きだけは、入力欄でも受ける
         if self.needs_first_fetch:
             ui.timer(0.1, self.first_fetch, once=True)
 
@@ -734,9 +786,7 @@ class MainView:
         """ショートカットヘルプのダイアログ(ヘルプメニューから開く)。"""
         with ui.dialog() as dialog, ui.card():
             ui.label("キー操作").classes("text-h6")
-            if not HELP_KEYS:
-                ui.label("登録されたキー操作はありません")
-            for key, desc in HELP_KEYS:
+            for key, desc in help_entries():
                 ui.label(f"{key}: {desc}")
             ui.button("閉じる", on_click=dialog.close)
         return dialog

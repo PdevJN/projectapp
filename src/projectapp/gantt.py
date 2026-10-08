@@ -353,6 +353,11 @@ class GanttChart:
     def commit_query(self, query: str | None) -> None:
         self.set_filter(replace(self.task_filter, query=(query or "").strip()))
 
+    def focus_search(self) -> None:
+        """検索欄にカーソルを置く(ショートカット)。"""
+        if self.search_input is not None:
+            self.search_input.run_method("focus")
+
     def on_search_changed(self, e: ValueChangeEventArguments) -> None:
         """入力中は反映しない(IME の変換中を避ける)。空になったときだけ、すぐ条件を外す。"""
         if not e.value:
