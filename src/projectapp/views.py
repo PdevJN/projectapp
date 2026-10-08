@@ -28,6 +28,7 @@ from projectapp.forms import (
     open_handoff_dialog,
     open_members_dialog,
     open_name_dialog,
+    open_parameters_dialog,
     open_section_dialog,
     open_settings_dialog,
     open_unsaved_dialog,
@@ -77,6 +78,7 @@ from projectapp.storage import (
 )
 from projectapp.task_dialog import open_task_dialog
 from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
+from projectapp.ratios import ParameterEdit, apply_parameter_edit, deletion_impacts
 from projectapp.timeline import Schedule, build_columns, clip_overloads, overallocations, visible_range
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
@@ -524,6 +526,20 @@ class MainView:
                         assignee.name = renames[assignee.name]
         self.gantt.set_project(self.project)
 
+    def open_parameters(self) -> None:
+        open_parameters_dialog(
+            self.project.parameters,
+            lambda edit: deletion_impacts(self.project, edit),
+            self.apply_parameters,
+        )
+
+    def apply_parameters(self, edit: ParameterEdit) -> None:
+        """パラメータの定義を更新し、メンバーの選択に改名・削除を伝える。保存はしない(編集中の判定に入る)。"""
+        if not edit.changes(self.project.parameters):
+            return
+        apply_parameter_edit(self.project, edit)
+        self.gantt.set_project(self.project)
+
     def apply_settings(self, hours: float, start: time, mode: ActualMode) -> None:
         """稼働設定と記録方式を更新して再描画する。完了予定は表示のたびに計算されるので、再計算の処理は要らない。保存はしない。"""
         if (
@@ -763,6 +779,7 @@ class MainView:
                     ("新規プロジェクト作成", self.request_new, "file-new"),
                     ("設定", self.open_settings, "open-settings"),
                     ("メンバー", self.open_members, "open-members"),
+                    ("パラメータ", self.open_parameters, "open-parameters"),
                 ],
             )
             self.header_menu(

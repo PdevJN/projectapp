@@ -16,13 +16,13 @@ from projectapp.filtering import TaskFilter
 from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.handoff import JSON_FILE_TYPES
-from projectapp.models import Assignee, Actual, ActualMode, Member, Project, Section, Task, TaskUrl, UrlTemplate
+from projectapp.models import Assignee, Actual, ActualMode, Level, Member, Parameter, Project, Section, Task, TaskUrl, UrlTemplate
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
 from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.dashboard import PeriodKind
-from projectapp.timeline import Scale
+from projectapp.timeline import Scale, effective_end
 from projectapp.gantt import ViewOptions
 from projectapp.views import HEADER_CSS, THEME_ICONS, MainView
 
@@ -1934,6 +1934,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         ("新規プロジェクト作成", "file-new"),
         ("設定", "open-settings"),
         ("メンバー", "open-members"),
+        ("パラメータ", "open-parameters"),
     ]
     assert menu_items(user, "menu-export-items") == [
         ("チャートプレビュー", "export-preview"),
@@ -2459,3 +2460,103 @@ async def test_saving_a_task_warns_for_each_overloaded_assignee(user: User, tmp_
     view.save_task(None, None, task("b", 7, 12))
     await user.should_see("田中 の割り当てが最大120%になる期間があります")
     await user.should_see("鈴木 の割り当てが最大120%になる期間があります")
+
+
+async def test_the_parameters_dialog_adds_a_parameter_with_levels(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    user.find(marker="open-parameters").click()
+    user.find(marker="parameter-add").click()
+    await user.should_see(marker="parameter-name-0")
+    user.find(marker="parameter-name-0").type("経験")
+    user.find(marker="level-add-0").click()
+    await user.should_see(marker="level-name-0-0")
+    user.find(marker="level-name-0-0").type("上級")
+    user.find(marker="level-value-0-0").clear().type("20")
+    user.find(marker="parameter-apply").click()
+    assert await wait_until(lambda: view.project.parameters == [Parameter("経験", [Level("上級", 0.2)])])
+    assert view.is_dirty()
+
+
+async def test_the_parameters_dialog_shows_the_error_and_does_not_apply(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    user.find(marker="open-parameters").click()
+    user.find(marker="parameter-add").click()
+    await user.should_see(marker="parameter-name-0")
+    user.find(marker="parameter-apply").click()  # 名前が空
+    await user.should_see("名前")
+    assert view.project.parameters == []
+
+
+async def test_applying_the_same_parameters_changes_nothing(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
+    view.mark_clean()
+    user.find(marker="open-parameters").click()
+    user.find(marker="parameter-apply").click()
+    await wait_until(lambda: True)
+    assert not view.is_dirty()
+
+
+async def test_renaming_a_parameter_renames_the_selection_of_members(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
+    view.project.members = [Member("田中", 1.0, {"経験": "上級"})]
+    view.mark_clean()
+    user.find(marker="open-parameters").click()
+    user.find(marker="parameter-name-0").clear().type("スキル")
+    user.find(marker="parameter-apply").click()
+    assert await wait_until(lambda: view.project.members[0].levels == {"スキル": "上級"})
+    assert view.project.parameters[0].name == "スキル"
+
+
+async def test_deleting_a_used_level_asks_first_and_clears_the_selection(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.parameters = [Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)])]
+    view.project.members = [Member("田中", 1.0, {"経験": "上級"}), Member("鈴木", 1.0, {"経験": "上級"})]
+    view.mark_clean()
+    user.find(marker="open-parameters").click()
+    user.find(marker="level-delete-0-1").click()
+    user.find(marker="parameter-apply").click()
+    await user.should_see("「経験」の「上級」を選んでいるメンバーが2人います")
+    assert view.project.members[0].levels == {"経験": "上級"}  # まだ変わらない
+    user.find(marker="parameter-delete-confirm").click()
+    assert await wait_until(lambda: view.project.members[0].levels == {})
+    assert [lv.name for lv in view.project.parameters[0].levels] == ["初級"]
+
+
+async def test_cancelling_the_delete_confirmation_keeps_everything(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
+    view.project.members = [Member("田中", 1.0, {"経験": "上級"})]
+    user.find(marker="open-parameters").click()
+    user.find(marker="parameter-delete-0").click()
+    user.find(marker="parameter-apply").click()
+    await user.should_see("「経験」を選んでいるメンバーが1人います")
+    user.find(marker="parameter-delete-cancel").click()
+    assert view.project.parameters != []
+    assert view.project.members[0].levels == {"経験": "上級"}
+
+
+async def test_deleting_an_unused_parameter_needs_no_confirmation(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
+    user.find(marker="open-parameters").click()
+    user.find(marker="parameter-delete-0").click()
+    user.find(marker="parameter-apply").click()
+    assert await wait_until(lambda: view.project.parameters == [])
+
+
+async def test_a_parameter_edit_changes_the_computed_end(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
+    view.project.members = [Member("田中", 1.0, {"経験": "上級"})]
+    task = Task("t", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0, assignees=[Assignee("田中")])
+    view.project.tasks = [task]
+    view.gantt.set_project(view.project)
+    # 15h / 1.2 = 12.5h → 金6.5h + 月6.0h
+    assert effective_end(task, view.project, {}) == datetime(2026, 10, 12, 15, 0)
+    user.find(marker="open-parameters").click()
+    user.find(marker="level-value-0-0").clear().type("50")
+    user.find(marker="parameter-apply").click()
+    # 15h / 1.5 = 10h → 金6.5h + 月3.5h
+    assert await wait_until(lambda: effective_end(task, view.project, {}) == datetime(2026, 10, 12, 12, 30))
