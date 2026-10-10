@@ -11,6 +11,7 @@ from typing import Any, NamedTuple
 
 from projectapp.linkgraph import validate_links
 from projectapp.models import (
+    FORMAT_VERSION,
     CHECKPOINT_STATUSES,
     ID_KEY,
     URL_KEY,
@@ -121,7 +122,7 @@ def save_project(
     name = project.name.strip()
     if error := validate_name(name, base_dir, new=False):
         raise ValueError(error)
-    data = json.dumps(asdict(project), ensure_ascii=False, indent=2, default=_encode)
+    data = json.dumps({"version": FORMAT_VERSION, **asdict(project)}, ensure_ascii=False, indent=2, default=_encode)
     base_dir.mkdir(parents=True, exist_ok=True)
     path = base_dir / f"{name}.json"
     tmp = _create_temp(base_dir)
@@ -481,8 +482,20 @@ def _actual_mode(value: Any) -> ActualMode:
         raise ValueError(f"実績の記録方式が正しくありません: {value!r}") from None
 
 
+def _check_version(raw: dict[str, Any]) -> None:
+    """形式のバージョンを確かめる。キーがない古いファイルは 1。整数でない・1 未満・このアプリより新しいものは ValueError。"""
+    if "version" not in raw:
+        return
+    version = raw["version"]
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        raise ValueError(f"version が正しくありません: {version!r}")
+    if version > FORMAT_VERSION:
+        raise ValueError(f"このアプリより新しい形式です(version {version})。アプリを更新してください")
+
+
 def load_project(path: Path) -> Project:
     raw = json.loads(path.read_text(encoding="utf-8"))
+    _check_version(raw)
     sections = [_section(s, 1) for s in raw["sections"]]
     members = _members(raw["members"])
     project = Project(

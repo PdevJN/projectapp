@@ -7,6 +7,7 @@ import re
 import secrets
 from enum import StrEnum
 
+FORMAT_VERSION = 1  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
