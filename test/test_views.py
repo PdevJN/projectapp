@@ -2790,3 +2790,24 @@ async def test_the_subsection_dialog_has_its_own_title(user: User, tmp_path: Pat
     await user.should_see(marker="add-subsection-0")  # 描き直しを待つ
     user.find(marker="add-subsection-0").click()
     await user.should_see("サブセクションの追加")
+
+
+async def test_new_sections_and_tasks_get_ids_that_are_not_used(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+
+    @ui.page("/")
+    def index() -> None:
+        view = MainView(tmp_path, make_transport(200, []))
+        views.append(view)
+        view.build()
+
+    await user.open("/")
+    view = views[0]
+    view.save_section("A")
+    view.save_subsection((0,), "A-1")
+    clash = Task("x", id=view.project.sections[0].id)  # セクションと同じ id のタスク
+    view.save_task((0,), None, clash)
+    assert clash.id != view.project.sections[0].id
+    assert len(view.project.used_ids()) == 3
+    assert len(view.project.sections[0].id) == 8 and len(view.project.sections[0].sections[0].id) == 8
