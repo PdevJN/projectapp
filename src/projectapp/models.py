@@ -1,13 +1,13 @@
 """プロジェクトのデータモデル。"""
 
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 import re
 import secrets
 from enum import StrEnum
 
-FORMAT_VERSION = 1  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む
+FORMAT_VERSION = 2  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す)
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -22,9 +22,12 @@ MAX_PROJECT_CODE_LENGTH = 20  # ProjectCode の最大文字数
 HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
 
-def new_id() -> str:
-    """タスクの id。8 桁の 16 進(プロジェクト内で重複しないことは、保存と読込が確かめる)。"""
-    return secrets.token_hex(4)
+def new_id(taken: Collection[str] = ()) -> str:
+    """id。8 桁の 16 進。`taken` にある id は返さない(プロジェクト内で重複しないように、振る側が既存の id を渡す)。"""
+    while True:
+        candidate = secrets.token_hex(4)
+        if candidate not in taken:
+            return candidate
 
 
 def is_hex_color(value: str) -> bool:
@@ -63,6 +66,7 @@ class Member:
     name: str
     ratio: float = 1.0  # 基本比率(1.0 = 100%)。相対比率 = 基本比率 + 選んだ段階の判定値の合計
     levels: dict[str, str] = field(default_factory=dict)  # パラメータ名 → 選んだ段階名
+    id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する(担当者はこの id で指す)
 
 
 @dataclass
@@ -138,6 +142,7 @@ class Section:
     name: str
     tasks: list[Task] = field(default_factory=list)
     sections: list["Section"] = field(default_factory=list)  # サブセクション(タスクの後ろに並ぶ)
+    id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する
 
     def all_tasks(self) -> list[Task]:
         """このセクションのタスク、続いてサブセクションのタスク(深さ優先)。"""
@@ -174,3 +179,11 @@ class Project:
         for section in self.sections:
             tasks += section.all_tasks()
         return tasks
+
+    def used_ids(self) -> set[str]:
+        """タスク・メンバー・セクションの id。新しい id が既存と重ならないように、振る側が渡す。"""
+        return (
+            {t.id for t in self.all_tasks()}
+            | {m.id for m in self.members}
+            | {s.id for _, s in walk_sections(self.sections)}
+        )

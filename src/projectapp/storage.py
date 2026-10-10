@@ -3,7 +3,8 @@
 import json
 import os
 import secrets
-from dataclasses import asdict, replace
+from collections.abc import Iterator
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, time
 from math import isfinite
 from pathlib import Path
@@ -42,6 +43,7 @@ from projectapp.models import (
     TaskUrl,
     UrlTemplate,
     new_id,
+    walk_sections,
 )
 from projectapp.urls import validate_templates, validate_urls
 
@@ -66,6 +68,44 @@ def _encode(value: object) -> str:
     if isinstance(value, (date, time)):  # datetimeもdateのサブクラス
         return value.isoformat()
     raise TypeError(f"{type(value).__name__}はJSONに保存できません")
+
+
+def _task_dicts(tasks: list[dict[str, Any]], sections: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    yield from tasks
+    for section in sections:
+        yield from _task_dicts(section["tasks"], section["sections"])
+
+
+def _check_unique_ids(project: Project) -> None:
+    """タスク同士・メンバー同士・セクション同士の id の重複があれば ValueError(読めないファイルを書かない)。"""
+    groups = {
+        "タスク": [t.id for t in project.all_tasks()],
+        "メンバー": [m.id for m in project.members],
+        "セクション": [s.id for _, s in walk_sections(project.sections)],
+    }
+    for label, ids in groups.items():
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"{label}の id が重複しています")
+
+
+def _dump(project: Project) -> dict[str, Any]:
+    """ファイルに書く辞書。担当者は名前ではなくメンバー id で指す。メンバーにいない名前は、メンバーを補う(実行時のプロジェクトは変えない)。"""
+    data: dict[str, Any] = {"version": FORMAT_VERSION, **asdict(project)}
+    ids: dict[str, str] = {}
+    for member in data["members"]:
+        ids.setdefault(member["name"], member["id"])  # 同名は最初の 1 件を指す(読込が残すのも最初の 1 件)
+    taken = project.used_ids()
+    for task in _task_dicts(data["tasks"], data["sections"]):
+        refs = []
+        for assignee in task["assignees"]:
+            name = assignee["name"]
+            if name not in ids:
+                ids[name] = new_id(taken)
+                taken.add(ids[name])
+                data["members"].append({"name": name, "ratio": 1.0, "levels": {}, "id": ids[name]})
+            refs.append({"member": ids[name], "allocation": assignee["allocation"]})
+        task["assignees"] = refs
+    return data
 
 
 def validate_name(name: str, base_dir: Path, *, new: bool) -> str | None:
@@ -122,7 +162,8 @@ def save_project(
     name = project.name.strip()
     if error := validate_name(name, base_dir, new=False):
         raise ValueError(error)
-    data = json.dumps({"version": FORMAT_VERSION, **asdict(project)}, ensure_ascii=False, indent=2, default=_encode)
+    _check_unique_ids(project)
+    data = json.dumps(_dump(project), ensure_ascii=False, indent=2, default=_encode)
     base_dir.mkdir(parents=True, exist_ok=True)
     path = base_dir / f"{name}.json"
     tmp = _create_temp(base_dir)
@@ -150,7 +191,7 @@ def _datetime(text: str | None) -> datetime | None:
     return moment
 
 
-def _task(raw: dict[str, Any]) -> Task:
+def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
     if "planned_end_manual" in raw:  # 新形式
         planned_start = _datetime(raw.get("planned_start"))
         planned_end = _datetime(raw.get("planned_end"))
@@ -173,14 +214,17 @@ def _task(raw: dict[str, Any]) -> Task:
         priority=Priority(raw["priority"]),
         status=_status(raw["status"]),
         color=raw["color"],
-        assignees=_assignees(raw),
+        assignees=_assignees(raw, ctx),
         predecessors=_predecessors(raw.get("predecessors")),
         actuals=_actuals(raw.get("actuals")),
         project_code=_project_code(raw.get("project_code")),
         kind=kind,
         urls=_task_urls(raw.get("urls")),
     )
-    return _checkpoint(task) if kind is TaskKind.CHECKPOINT else task
+    result = _checkpoint(task) if kind is TaskKind.CHECKPOINT else task
+    if raw.get("id") is None:
+        ctx.pending.append(result)  # 読込の最後に、ファイルの他の id と重ならない id を振る
+    return result
 
 
 def _number_in_range(value: Any, low: float, high: float, label: str) -> float:
@@ -350,8 +394,32 @@ def _assignee(value: Any) -> str | None:
     return value.strip() or None
 
 
-def _assignees(raw: dict[str, Any]) -> list[Assignee]:
-    """担当者のリスト。`assignees` を使う。なければ、古いキー(assignee・allocation)を 1 人にする。"""
+def _member_assignees(value: Any, names: dict[str, str]) -> list[Assignee]:
+    """version 2 の担当者。`member` はメンバーの id。名前の取り違えを避けるため、旧キー `name` は拒否する。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("担当者が配列ではありません")
+    assignees: list[Assignee] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict) or "name" in item:
+            raise ValueError("担当者の形式が正しくありません")
+        member = item.get("member")
+        if not isinstance(member, str) or member not in names:
+            raise ValueError(f"担当者のメンバーが見つかりません: {member!r}")
+        name = names[member]
+        if name in seen:
+            raise ValueError(f"担当者が重複しています: {name}")
+        seen.add(name)
+        assignees.append(Assignee(name, _allocation(item.get("allocation", 1.0))))
+    return assignees
+
+
+def _assignees(raw: dict[str, Any], ctx: "_Context") -> list[Assignee]:
+    """担当者のリスト。version 2 は `member`(メンバー id)。version 1 は `assignees` を使い、なければ古いキー(assignee・allocation)を 1 人にする。"""
+    if ctx.version >= 2:
+        return _member_assignees(raw.get("assignees"), ctx.member_names)
     value = raw.get("assignees")
     if value is None:
         allocation = _allocation(raw.get("allocation", 1.0))  # 古いファイルも、不正な値は拒否する
@@ -427,7 +495,7 @@ def _member_levels(value: Any) -> dict[str, str]:
     return dict(value)
 
 
-def _section(raw: Any, depth: int) -> Section:
+def _section(raw: Any, depth: int, ctx: "_Context") -> Section:
     """セクションを読む(入れ子)。depth は 1 階層目が 1。上限を超えたら ValueError。"""
     if depth > MAX_SECTION_DEPTH:
         raise ValueError(f"セクションは{MAX_SECTION_DEPTH}階層までです")
@@ -438,22 +506,60 @@ def _section(raw: Any, depth: int) -> Section:
         children = []
     if not isinstance(children, list):
         raise ValueError("サブセクションがリストではありません")
-    return Section(raw["name"], [_task(t) for t in raw["tasks"]], [_section(c, depth + 1) for c in children])
+    section_id = None
+    if ctx.version >= 2:
+        section_id = _entity_id(raw.get("id"), "セクション")
+        if section_id in ctx.section_ids:
+            raise ValueError(f"セクションの id が重複しています: {section_id}")
+        ctx.section_ids.add(section_id)
+    section = Section(
+        raw["name"], [_task(t, ctx) for t in raw["tasks"]], [_section(c, depth + 1, ctx) for c in children]
+    )
+    if section_id is not None:
+        section.id = section_id
+    return section
 
 
-def _members(raw_members: list[dict[str, Any]]) -> list[Member]:
+def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]:
     """メンバーを読む。相対比率は検証し、空の名前と重複は(最初の1件を残して)捨てる。"""
     members: list[Member] = []
     seen: set[str] = set()
+    ids: set[str] = set()
     for raw in raw_members:
         name = str(raw["name"]).strip()
         ratio = _number_in_range(raw.get("ratio", 1.0), MIN_RATIO, MAX_RATIO, "相対比率")
         levels = _member_levels(raw.get("levels"))
+        member_id = None
+        if ctx.version >= 2:
+            member_id = _entity_id(raw.get("id"), "メンバー")
+            if member_id in ids:
+                raise ValueError(f"メンバーの id が重複しています: {member_id}")
+            ids.add(member_id)
+            if name:
+                ctx.member_names[member_id] = name  # 捨てる同名のメンバーを指す担当者も、名前で残ったメンバーへ読める
         if not name or name in seen:
             continue
         seen.add(name)
-        members.append(Member(name, ratio, levels))
+        member = Member(name, ratio, levels)
+        if member_id is not None:
+            member.id = member_id
+        members.append(member)
     return members
+
+
+def _assign_ids(project: Project, ctx: "_Context") -> None:
+    """古いファイルに id を振る。version 1 のメンバー・セクションと、id のないタスク。ファイルにある他の id と重ならないようにする。"""
+    pending = {id(task) for task in ctx.pending}
+    taken = {t.id for t in project.all_tasks() if id(t) not in pending}
+    targets: list[Task | Member | Section] = list(ctx.pending)
+    sections = [s for _, s in walk_sections(project.sections)]
+    if ctx.version < 2:
+        targets += [*project.members, *sections]
+    else:
+        taken |= {m.id for m in project.members} | {s.id for s in sections}
+    for target in targets:
+        target.id = new_id(taken)
+        taken.add(target.id)
 
 
 def _daily_hours(value: Any) -> float:
@@ -482,22 +588,40 @@ def _actual_mode(value: Any) -> ActualMode:
         raise ValueError(f"実績の記録方式が正しくありません: {value!r}") from None
 
 
-def _check_version(raw: dict[str, Any]) -> None:
-    """形式のバージョンを確かめる。キーがない古いファイルは 1。整数でない・1 未満・このアプリより新しいものは ValueError。"""
+@dataclass
+class _Context:
+    """読込の途中で持ち回るもの。version 2 の担当者の解決と、id の重複・振り直しに使う。"""
+
+    version: int
+    member_names: dict[str, str] = field(default_factory=dict)  # version 2: メンバー id → 名前(名前が空のメンバーは入れない)
+    section_ids: set[str] = field(default_factory=set)
+    pending: list[Task] = field(default_factory=list)  # id のないタスク(古いファイル)。読込の最後に id を振る
+
+
+def _entity_id(value: Any, label: str) -> str:
+    """version 2 のメンバー・セクションの id。空・文字列以外は ValueError。"""
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{label}の id が正しくありません: {value!r}")
+    return value
+
+
+def _check_version(raw: dict[str, Any]) -> int:
+    """形式のバージョンを確かめて返す。キーがない古いファイルは 1。整数でない・1 未満・このアプリより新しいものは ValueError。"""
     if "version" not in raw:
-        return
+        return 1
     version = raw["version"]
     if isinstance(version, bool) or not isinstance(version, int) or version < 1:
         raise ValueError(f"version が正しくありません: {version!r}")
     if version > FORMAT_VERSION:
         raise ValueError(f"このアプリより新しい形式です(version {version})。アプリを更新してください")
+    return version
 
 
 def load_project(path: Path) -> Project:
     raw = json.loads(path.read_text(encoding="utf-8"))
-    _check_version(raw)
-    sections = [_section(s, 1) for s in raw["sections"]]
-    members = _members(raw["members"])
+    ctx = _Context(_check_version(raw))
+    members = _members(raw["members"], ctx)  # version 2 の担当者の解決に要るので、タスクより先に読む
+    sections = [_section(s, 1, ctx) for s in raw["sections"]]
     project = Project(
         name=path.stem,
         base_date=date.fromisoformat(raw["base_date"]),
@@ -505,18 +629,19 @@ def load_project(path: Path) -> Project:
         work_start=_work_start(raw.get("work_start", "09:00:00")),
         members=members,
         sections=sections,
-        tasks=[_task(t) for t in raw.get("tasks", [])],
+        tasks=[_task(t, ctx) for t in raw.get("tasks", [])],
         actual_mode=_actual_mode(raw.get("actual_mode", "simple")),
         url_templates=_url_templates(raw.get("url_templates")),
         parameters=_parameters(raw.get("parameters")),
     )
-    validate_links(project.all_tasks())
-    for task in project.all_tasks():
-        validate_urls(task.urls, project.url_templates)
     known = {m.name for m in project.members}
     for task in project.all_tasks():  # 古いファイルの自由入力の担当者を、メンバーとして補う
         for assignee in task.assignees:
             if assignee.name not in known:
                 known.add(assignee.name)
                 project.members.append(Member(assignee.name, 1.0))
+    _assign_ids(project, ctx)
+    validate_links(project.all_tasks())
+    for task in project.all_tasks():
+        validate_urls(task.urls, project.url_templates)
     return project

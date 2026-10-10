@@ -82,7 +82,7 @@ def copy_task(project: Project, src: Position, dst: Position) -> Task:
     copy = replace(
         original,
         name=f"{original.name}{COPY_SUFFIX}",
-        id=new_id(),
+        id=new_id(project.used_ids()),
         predecessors=[],
         actuals=[],
         assignees=[replace(a) for a in original.assignees],

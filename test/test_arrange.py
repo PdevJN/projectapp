@@ -388,3 +388,14 @@ def test_parse_position_accepts_keys_only() -> None:
     assert arrange.parse_position(["2", 1]) == ((2,), 1)
     for bad in (["0.", 1], ["x", 1], [[0], 1], ["0", "1"], ["0", True], "ab", None):
         assert arrange.parse_position(bad) is None
+
+
+def test_copy_gets_an_id_that_is_not_used_in_the_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    import projectapp.models as models
+
+    project = sample()
+    clash = next(iter(project.used_ids()))
+    values = iter([clash, "zzzzzzzz"])
+    monkeypatch.setattr(models.secrets, "token_hex", lambda nbytes: next(values))
+    copy = arrange.copy_task(project, ((), 0), ((), 1))
+    assert copy.id == "zzzzzzzz"

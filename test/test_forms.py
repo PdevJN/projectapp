@@ -2,6 +2,8 @@ import asyncio
 from datetime import datetime, time
 
 import pytest
+
+import projectapp.models as models
 from nicegui import ui
 from nicegui.testing import User
 
@@ -1385,3 +1387,28 @@ def test_a_renamed_member_keeps_the_levels() -> None:
 )
 def test_effective_ratio_text(percent: float | None, levels: dict[str, str], text: str) -> None:
     assert effective_ratio_text(MemberRow(None, "a", percent, levels), [EXPERIENCE]) == text
+
+
+def test_build_members_keeps_the_id_of_a_renamed_row() -> None:
+    members, renames = build_members([MemberRow("田中", "田中二郎", 100.0, id="m1")], ["田中"], lambda name: 0)
+    assert [(m.name, m.id) for m in members] == [("田中二郎", "m1")]
+    assert renames == {"田中": "田中二郎"}
+
+
+def test_build_members_keeps_each_rows_id_when_names_are_swapped() -> None:
+    rows = [MemberRow("A", "B", 100.0, id="ida"), MemberRow("B", "A", 100.0, id="idb")]
+    members, _ = build_members(rows, ["A", "B"], lambda name: 0)
+    assert [(m.name, m.id) for m in members] == [("B", "ida"), ("A", "idb")]
+
+
+def test_build_members_gives_a_new_row_an_id_that_is_not_taken(monkeypatch: pytest.MonkeyPatch) -> None:
+    values = iter(["aaaaaaaa", "bbbbbbbb", "cccccccc"])
+    monkeypatch.setattr(models.secrets, "token_hex", lambda nbytes: next(values))
+    rows = [MemberRow(None, "田中", 100.0), MemberRow(None, "鈴木", 100.0)]
+    members, _ = build_members(rows, [], lambda name: 0, taken={"aaaaaaaa"})
+    assert [m.id for m in members] == ["bbbbbbbb", "cccccccc"]
+
+
+def test_a_deleted_and_re_added_member_gets_a_new_id() -> None:
+    members, _ = build_members([MemberRow(None, "田中", 100.0)], ["田中"], lambda name: 0, taken={"old"})
+    assert members[0].id != "old"

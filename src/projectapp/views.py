@@ -59,7 +59,7 @@ from projectapp.handoff import (
 from projectapp.handoff import default_filename as handoff_filename
 from projectapp.filemanager import open_folder
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
-from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Member, Project, Section, SectionPath, Task
+from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Member, Project, Section, SectionPath, Task, new_id
 from projectapp.preview import (
     LARGE_IMAGE_MESSAGE,
     NOT_NATIVE_MESSAGE,
@@ -512,7 +512,7 @@ class MainView:
 
     def open_members(self) -> None:
         open_members_dialog(
-            self.project.members, self.assigned_count, self.apply_members, self.project.parameters
+            self.project.members, self.assigned_count, self.apply_members, self.project.parameters, self.project.used_ids()
         )
 
     def assigned_count(self, name: str) -> int:
@@ -600,7 +600,7 @@ class MainView:
         open_section_dialog(self.save_section)
 
     def save_section(self, name: str) -> None:
-        self.project.sections.append(Section(name))
+        self.project.sections.append(Section(name, id=new_id(self.project.used_ids())))
         self.gantt.set_project(self.project)
 
     def add_subsection(self, path: SectionPath) -> None:
@@ -611,7 +611,7 @@ class MainView:
         parent = arrange.section_at(self.project, path)
         if parent is None or len(path) >= MAX_SECTION_DEPTH:
             return
-        parent.sections.append(Section(name))
+        parent.sections.append(Section(name, id=new_id(self.project.used_ids())))
         self.gantt.expand_section(path)
         self.gantt.set_project(self.project)
 
@@ -714,6 +714,8 @@ class MainView:
     ) -> None:
         tasks = self.tasks_in(path)
         if task_index is None:
+            if task.id in self.project.used_ids():
+                task.id = new_id(self.project.used_ids())  # 他のタスク・メンバー・セクションと同じ id にならないように
             tasks.append(task)
         else:
             tasks[task_index] = task

@@ -1,6 +1,6 @@
 """タスク・セクションの追加・編集の入力検証と、ファイル・名前・設定のダイアログ。"""
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass, field, replace
 from datetime import datetime, time
 from decimal import Decimal
@@ -37,6 +37,7 @@ from projectapp.models import (
     TaskUrl,
     UrlTemplate,
     is_hex_color,
+    new_id,
 )
 from projectapp.ratios import ParameterEdit, ratio_detail, validate_parameters
 from projectapp.urls import TemplateEdit, resolve, validate_templates
@@ -439,6 +440,7 @@ class MemberRow:
     name: str
     ratio_percent: float | None
     levels: dict[str, str] = field(default_factory=dict)  # パラメータ名 → 選んだ段階名
+    id: str | None = None  # 開いた時点のメンバーの id。新しい行は None(適用で新しい id を振る)
 
 
 def build_members(
@@ -446,11 +448,13 @@ def build_members(
     originals: list[str],
     assigned: Callable[[str], int],
     parameters: list[Parameter] | None = None,
+    taken: Collection[str] = (),
 ) -> tuple[list[Member], dict[str, str]]:
-    """ダイアログの行を検証して、メンバー一覧と、改名の対応({旧: 新})を返す。"""
+    """ダイアログの行を検証して、メンバー一覧と、改名の対応({旧: 新})を返す。`taken` は、プロジェクトにある id(新しい行の id がこれと重ならない)。"""
     members: list[Member] = []
     renames: dict[str, str] = {}
     seen: set[str] = set()
+    used = set(taken)
     low, high = MIN_RATIO * 100, MAX_RATIO * 100
     for row in rows:
         name = (row.name or "").strip()
@@ -466,7 +470,9 @@ def build_members(
             raise ValueError(f"相対比率は小数点以下{HOURS_DECIMALS}桁までで入力してください")
         existing = {p.name: {lv.name for lv in p.levels} for p in parameters or []}
         levels = {p: lv for p, lv in row.levels.items() if lv in existing.get(p, set())}
-        members.append(Member(name, round(ratio / 100, 4), levels))
+        member_id = row.id or new_id(used)
+        used.add(member_id)
+        members.append(Member(name, round(ratio / 100, 4), levels, member_id))
         if row.original is not None and row.original != name:
             renames[row.original] = name
     kept = {row.original for row in rows if row.original is not None}
@@ -958,11 +964,12 @@ def open_members_dialog(
     assigned: Callable[[str], int],
     on_apply: Callable[[list[Member], dict[str, str]], object],
     parameters: list[Parameter] | None = None,
+    taken: Collection[str] = (),
 ) -> None:
     """メンバーの編集。1 行が 1 人の表(名前・基本比率・パラメータごとの段階・実効比率・削除)。"""
     chosen_parameters = parameters or []
     with_effective = bool(chosen_parameters)
-    rows = [MemberRow(m.name, m.name, round(m.ratio * 100, 2), dict(m.levels)) for m in members]
+    rows = [MemberRow(m.name, m.name, round(m.ratio * 100, 2), dict(m.levels), m.id) for m in members]
     originals = [m.name for m in members]
     columns = member_columns(len(chosen_parameters), with_effective)
     min_rem = member_table_min_rem(len(chosen_parameters), with_effective)
@@ -1057,7 +1064,7 @@ def open_members_dialog(
 
         def apply() -> None:
             try:
-                result = build_members(rows, originals, assigned, chosen_parameters)
+                result = build_members(rows, originals, assigned, chosen_parameters, taken)
             except ValueError as exc:
                 error.set_text(str(exc))
                 return
