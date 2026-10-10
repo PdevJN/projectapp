@@ -24,6 +24,7 @@ from projectapp.models import (
     TaskKind,
     TaskUrl,
     UrlTemplate,
+    walk_sections,
 )
 from projectapp.timeline import Scale, build_columns
 from projectapp.storage import list_project_files, load_project, save_project, validate_name
@@ -463,6 +464,7 @@ def test_assignee_whitespace_is_trimmed_and_blank_becomes_none(tmp_path: Path) -
     path = save_project(Project("old", tasks=[Task("a"), Task("b"), Task("c")]), tmp_path)
 
     def legacy(data: dict) -> None:
+        data.pop("version")  # version 1 のファイル(担当者は名前で書く)
         for task, name in zip(data["tasks"], [" 佐藤 ", "  ", ""]):
             task.pop("assignees")
             task["assignee"] = name
@@ -897,8 +899,8 @@ def test_assignees_roundtrip(tmp_path: Path) -> None:
     assert loaded.tasks[1].assignees == []
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert raw["tasks"][0]["assignees"] == [
-        {"name": "田中", "allocation": 0.6},
-        {"name": "鈴木", "allocation": 0.5},
+        {"member": project.members[0].id, "allocation": 0.6},
+        {"member": project.members[1].id, "allocation": 0.5},
     ]
     assert "assignee" not in raw["tasks"][0] and "allocation" not in raw["tasks"][0]
 
@@ -907,6 +909,7 @@ def test_old_keys_load_as_one_assignee(tmp_path: Path) -> None:
     path = save_project(Project("p", members=[Member("田中")], tasks=[Task("a"), Task("b")]), tmp_path)
 
     def legacy(data: dict) -> None:
+        data.pop("version")
         for task in data["tasks"]:
             task.pop("assignees")
         data["tasks"][0].update(assignee=" 田中 ", allocation=0.4)
@@ -923,6 +926,7 @@ def test_old_keys_with_a_bad_allocation_are_rejected_even_without_an_assignee(va
     path = save_project(Project("p", tasks=[Task("a")]), tmp_path)
 
     def legacy(data: dict) -> None:
+        data.pop("version")
         data["tasks"][0].pop("assignees")
         data["tasks"][0].update(assignee=None, allocation=value)
 
@@ -961,7 +965,7 @@ def test_bad_assignees_are_rejected(bad: object, tmp_path: Path) -> None:
 
 def test_missing_allocation_in_an_assignee_means_one(tmp_path: Path) -> None:
     path = save_project(Project("p", members=[Member("田中")], tasks=[Task("a")]), tmp_path)
-    _rewrite(path, lambda d: d["tasks"][0].update(assignees=[{"name": "田中"}]))
+    _rewrite(path, lambda d: (d.pop("version"), d["tasks"][0].update(assignees=[{"name": "田中"}])))
     assert load_project(path).tasks[0].assignees == [Assignee("田中", 1.0)]
 
 
@@ -1127,7 +1131,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 1
+    assert raw["version"] == FORMAT_VERSION == 2
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1156,3 +1160,181 @@ def test_resave_keeps_the_version(tmp_path: Path) -> None:
     loaded = load_project(path)
     raw = json.loads(save_project(loaded, tmp_path).read_text(encoding="utf-8"))
     assert raw["version"] == FORMAT_VERSION
+
+
+def _task_dicts(tasks: list[dict], sections: list[dict]):
+    yield from tasks
+    for section in sections:
+        yield from _task_dicts(section["tasks"], section["sections"])
+
+
+def _to_v1(data: dict) -> None:
+    """version 2 のファイルの辞書を、version 1 の形(id なし・担当者は名前)にする。"""
+    names = {m["id"]: m["name"] for m in data["members"]}
+    del data["version"]
+    for member in data["members"]:
+        del member["id"]
+
+    def strip(sections: list[dict]) -> None:
+        for section in sections:
+            del section["id"]
+            strip(section["sections"])
+
+    strip(data["sections"])
+    for task in _task_dicts(data["tasks"], data["sections"]):
+        task["assignees"] = [{"name": names[a["member"]], "allocation": a["allocation"]} for a in task["assignees"]]
+
+
+def ids_project() -> Project:
+    return Project(
+        "p",
+        members=[Member("田中"), Member("鈴木")],
+        tasks=[Task("r", assignees=[Assignee("鈴木", 0.5)])],
+        sections=[
+            Section("s", [Task("a", assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.4)])], [Section("sub", [Task("b")])])
+        ],
+    )
+
+
+def test_saved_file_is_version_2_and_refers_to_members_by_id(tmp_path: Path) -> None:
+    project = ids_project()
+    raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
+    assert raw["version"] == FORMAT_VERSION == 2
+    tanaka, suzuki = project.members
+    assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
+    assert raw["sections"][0]["id"] == project.sections[0].id
+    assert raw["sections"][0]["sections"][0]["id"] == project.sections[0].sections[0].id
+    assert raw["sections"][0]["tasks"][0]["assignees"] == [
+        {"member": tanaka.id, "allocation": 0.6},
+        {"member": suzuki.id, "allocation": 0.4},
+    ]
+    assert raw["tasks"][0]["assignees"] == [{"member": suzuki.id, "allocation": 0.5}]
+
+
+def test_ids_survive_save_load_save(tmp_path: Path) -> None:
+    project = ids_project()
+    loaded = load_project(save_project(project, tmp_path))
+    assert [m.id for m in loaded.members] == [m.id for m in project.members]
+    assert [s.id for _, s in walk_sections(loaded.sections)] == [s.id for _, s in walk_sections(project.sections)]
+    assert loaded.sections[0].tasks[0].assignees == [Assignee("田中", 0.6), Assignee("鈴木", 0.4)]
+    again = load_project(save_project(loaded, tmp_path))
+    assert again.used_ids() == project.used_ids()
+
+
+def test_a_renamed_member_keeps_the_id_and_the_assignment(tmp_path: Path) -> None:
+    project = ids_project()
+    path = save_project(project, tmp_path)
+    _rewrite(path, lambda d: d["members"][0].update(name="田中二郎"))
+    loaded = load_project(path)
+    assert loaded.members[0].id == project.members[0].id
+    assert loaded.sections[0].tasks[0].assignee_names == ["田中二郎", "鈴木"]
+
+
+def test_a_version_1_file_gets_unique_ids(tmp_path: Path) -> None:
+    path = save_project(ids_project(), tmp_path)
+    _rewrite(path, lambda d: (_to_v1(d), [t.pop("id") for t in _task_dicts(d["tasks"], d["sections"]) if t["name"] == "b"]))
+    loaded = load_project(path)
+    ids = [t.id for t in loaded.all_tasks()] + [m.id for m in loaded.members] + [s.id for _, s in walk_sections(loaded.sections)]
+    assert len(ids) == 3 + 2 + 2 and len(set(ids)) == len(ids)
+    assert all(len(i) == 8 for i in ids)
+    assert loaded.sections[0].tasks[0].assignees == [Assignee("田中", 0.6), Assignee("鈴木", 0.4)]
+    raw = json.loads(save_project(loaded, tmp_path, overwrite=True).read_text(encoding="utf-8"))
+    assert raw["version"] == 2
+
+
+def test_version_1_ids_avoid_the_ids_in_the_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = Project("p", members=[Member("田中")], sections=[Section("s", [Task("a", id="aaaaaaaa")])])
+    path = save_project(project, tmp_path)
+    _rewrite(path, _to_v1)
+    # 先頭の 2 つは、読込が作る Member と Section の既定の id(default_factory)で使われる
+    values = iter(["11111111", "22222222", "aaaaaaaa", "bbbbbbbb", "cccccccc"])
+    monkeypatch.setattr("projectapp.models.secrets.token_hex", lambda nbytes: next(values))
+    loaded = load_project(path)
+    assert loaded.sections[0].tasks[0].id == "aaaaaaaa"
+    assert {loaded.members[0].id, loaded.sections[0].id} == {"bbbbbbbb", "cccccccc"}
+
+
+def test_save_adds_a_member_for_an_unknown_assignee(tmp_path: Path) -> None:
+    project = Project("p", tasks=[Task("a", assignees=[Assignee("佐藤", 0.5)])])
+    path = save_project(project, tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert [m["name"] for m in raw["members"]] == ["佐藤"]
+    assert raw["tasks"][0]["assignees"] == [{"member": raw["members"][0]["id"], "allocation": 0.5}]
+    assert project.members == []  # 保存は実行時のプロジェクトを変えない
+    loaded = load_project(path)
+    assert loaded.tasks[0].assignees == [Assignee("佐藤", 0.5)]
+    assert [m.name for m in loaded.members] == ["佐藤"]
+
+
+def test_save_points_a_duplicate_named_member_at_the_first(tmp_path: Path) -> None:
+    project = Project("p", members=[Member("田中", 1.2), Member("田中", 0.5)], tasks=[Task("a", assignees=[Assignee("田中")])])
+    path = save_project(project, tmp_path)
+    assert json.loads(path.read_text(encoding="utf-8"))["tasks"][0]["assignees"][0]["member"] == project.members[0].id
+    loaded = load_project(path)
+    assert loaded.members == [Member("田中", 1.2)]
+    assert loaded.tasks[0].assignee_names == ["田中"]
+
+
+def test_an_assignee_pointing_at_a_dropped_duplicate_reads_as_the_kept_member(tmp_path: Path) -> None:
+    project = Project("p", members=[Member("田中", 1.2), Member("田中", 0.5)], tasks=[Task("a", assignees=[Assignee("田中")])])
+    path = save_project(project, tmp_path)
+    second = project.members[1].id
+    _rewrite(path, lambda d: d["tasks"][0]["assignees"][0].update(member=second))
+    assert load_project(path).tasks[0].assignee_names == ["田中"]
+
+
+def test_an_assignee_pointing_at_a_blank_named_member_is_rejected(tmp_path: Path) -> None:
+    project = Project("p", members=[Member("田中"), Member("鈴木")], tasks=[Task("a", assignees=[Assignee("鈴木")])])
+    path = save_project(project, tmp_path)
+    _rewrite(path, lambda d: d["members"][1].update(name="  "))
+    with pytest.raises(ValueError, match="メンバーが見つかりません"):
+        load_project(path)
+
+
+def _bad_id_cases() -> list[tuple[str, Callable[[dict], None]]]:
+    return [
+        ("メンバー id なし", lambda d: d["members"][0].pop("id")),
+        ("メンバー id 空", lambda d: d["members"][0].update(id="")),
+        ("メンバー id null", lambda d: d["members"][0].update(id=None)),
+        ("メンバー id 数値", lambda d: d["members"][0].update(id=5)),
+        ("メンバー id 重複", lambda d: d["members"][1].update(id=d["members"][0]["id"])),
+        ("セクション id なし", lambda d: d["sections"][0].pop("id")),
+        ("セクション id 空", lambda d: d["sections"][0].update(id="")),
+        ("セクション id 数値", lambda d: d["sections"][0].update(id=5)),
+        ("入れ子のセクション id 重複", lambda d: d["sections"][0]["sections"][0].update(id=d["sections"][0]["id"])),
+        ("担当者の member が存在しない", lambda d: d["tasks"][0]["assignees"][0].update(member="zzzzzzzz")),
+        ("担当者の member が文字列でない", lambda d: d["tasks"][0]["assignees"][0].update(member=5)),
+        ("担当者の member がない", lambda d: d["tasks"][0]["assignees"][0].pop("member")),
+        ("担当者に旧キー name", lambda d: d["tasks"][0]["assignees"][0].update(name="鈴木")),
+    ]
+
+
+@pytest.mark.parametrize(("label", "edit"), _bad_id_cases(), ids=[c[0] for c in _bad_id_cases()])
+def test_version_2_rejects_bad_ids_and_references(label: str, edit: Callable[[dict], None], tmp_path: Path) -> None:
+    path = save_project(ids_project(), tmp_path)
+    _rewrite(path, edit)
+    with pytest.raises(ValueError):
+        load_project(path)
+
+
+def test_version_2_ignores_the_old_assignee_keys(tmp_path: Path) -> None:
+    path = save_project(ids_project(), tmp_path)
+    _rewrite(path, lambda d: d["tasks"][0].update(assignee="田中", allocation=0.2))
+    assert load_project(path).tasks[0].assignees == [Assignee("鈴木", 0.5)]
+
+
+@pytest.mark.parametrize("kind", ["task", "member", "section"])
+def test_save_rejects_duplicate_ids_and_leaves_the_file(kind: str, tmp_path: Path) -> None:
+    good = save_project(Project("p"), tmp_path)
+    before = good.read_text(encoding="utf-8")
+    project = Project("p")
+    if kind == "task":
+        project.tasks = [Task("a", id="same"), Task("b", id="same")]
+    elif kind == "member":
+        project.members = [Member("田中", id="same"), Member("鈴木", id="same")]
+    else:
+        project.sections = [Section("a", id="same"), Section("b", sections=[Section("c", id="same")], id="other")]
+    with pytest.raises(ValueError, match="重複"):
+        save_project(project, tmp_path)
+    assert good.read_text(encoding="utf-8") == before
+    assert [p.name for p in tmp_path.iterdir()] == ["p.json"]  # 一時ファイルも残さない
