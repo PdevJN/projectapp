@@ -8,6 +8,7 @@ import pytest
 
 from projectapp.config import load_theme, save_theme
 from projectapp.models import (
+    FORMAT_VERSION,
     Assignee,
     Actual,
     ActualMode,
@@ -1111,3 +1112,47 @@ def test_bad_nested_sections_are_rejected(bad: object, tmp_path: Path) -> None:
     _rewrite(path, lambda d: d["sections"][0].update(sections=bad))
     with pytest.raises(ValueError):
         load_project(path)
+
+
+def _rewrite_version(path: Path, version: object, *, remove: bool = False) -> None:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if remove:
+        del raw["version"]
+    else:
+        raw["version"] = version
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+
+def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
+    path = save_project(Project("demo"), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert list(raw)[0] == "version"
+    assert raw["version"] == FORMAT_VERSION == 1
+
+
+def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
+    path = save_project(Project("old", sections=[Section("s1", [Task("t1")])]), tmp_path)
+    _rewrite_version(path, None, remove=True)
+    assert load_project(path).sections[0].tasks[0].name == "t1"
+
+
+def test_file_with_a_newer_version_is_rejected_with_a_clear_message(tmp_path: Path) -> None:
+    path = save_project(Project("future"), tmp_path)
+    _rewrite_version(path, FORMAT_VERSION + 1)
+    with pytest.raises(ValueError, match="より新しい形式.*アプリを更新"):
+        load_project(path)
+
+
+@pytest.mark.parametrize("version", [0, -1, True, False, 1.5, "1", None, [1]])
+def test_file_with_an_invalid_version_is_rejected(version: object, tmp_path: Path) -> None:
+    path = save_project(Project("bad"), tmp_path)
+    _rewrite_version(path, version)
+    with pytest.raises(ValueError, match="version"):
+        load_project(path)
+
+
+def test_resave_keeps_the_version(tmp_path: Path) -> None:
+    path = save_project(Project("demo"), tmp_path)
+    loaded = load_project(path)
+    raw = json.loads(save_project(loaded, tmp_path).read_text(encoding="utf-8"))
+    assert raw["version"] == FORMAT_VERSION

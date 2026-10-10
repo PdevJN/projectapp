@@ -85,6 +85,7 @@ uvx ty check src
 
 ## ファイル形式の注意
 
+- 形式のバージョンは先頭の `version`(整数。`models.FORMAT_VERSION`、現在 1)。キーのない古いファイルは 1 として読む(移行は要らない)。整数でない値(`true`・小数・文字列・`null`)と 1 未満は読込を拒否し、このアプリより新しい値は「アプリを更新してください」で拒否する(`storage._check_version`)。古いアプリが新しい形式の未知のキーを捨てて保存し直す事故を防ぐため。形式を変える(キーの意味を変える・消す)ときは `FORMAT_VERSION` を上げ、旧形式の読み替えはバージョンで分ける。
 - 画像の書き出し(`export.CAPTURE_JS`)は、`htmlToImage.toPng` に **`skipFonts: true`** を渡す。渡さないと、フォントの埋め込みが `@import` 先の CSS(Quasar の約 2,000 ルール)を画面のスタイルシートへ `insertRule` し、`@layer` の外に出て、書き出しのあと、見出しの行の高さ・日付のラベルの位置が変わったままになる(拡大とは無関係。2026-10-09)。画像は、フォントなしでも見た目が変わらない(システムフォントを使うため)。
 - セクションは `Section.sections`(入れ子。`[{"name", "tasks", "sections"}]`)。キーがない・`null` は空。4 階層以上と、`sections` の型の違いは読込を拒否する(`storage._section`)。セクションの位置は `SectionPath`(番号のパス。root は `()`)で、マーカーのキーは `arrange.section_key`(`top`・`0`・`0.1`)。1 階層目は入れ子の前と同じ。ブラウザ側の JS は、`data-si` のキー(文字列)をそのまま送り、サーバーが `parse_section_key` で戻す。折りたたみは `GanttChart.collapsed`(パスの集合)で、親を閉じると子孫が隠れ、親を開いても子の状態は保たれる(`row_slots` と `apply_visibility` が同じ規則)
 - パラメータは `Project.parameters`(`[{"name", "levels": [{"name", "value"}]}]`。`value` は割合で -0.9〜+2.9)、メンバーの選択は `Member.levels`(`{"パラメータ名": "段階名"}`)。キーがない・`null` は空。名前の空・重複、`value` の範囲外・非有限・型の違いは読込を拒否する。メンバーの選択が存在しないパラメータ・段階を指していても、読込は拒否せず、`ratios.ratio_detail` が判定値 0% として扱い、メンバーのダイアログの適用で捨てる。`Member.ratio` は基本比率。
