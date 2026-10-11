@@ -5,7 +5,7 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta
 
 
-from projectapp.models import MAX_SECTION_DEPTH, MAX_YEAR, MIN_YEAR, Project, Section, SectionPath, Task, new_id
+from projectapp.models import MAX_SECTION_DEPTH, MAX_TASK_NAME_LENGTH, MAX_YEAR, MIN_YEAR, Project, Section, SectionPath, Task, new_id
 
 Position = tuple[SectionPath, int]  # (セクションのパス。root は (), 番号)
 COPY_SUFFIX = "(コピー)"
@@ -81,7 +81,7 @@ def copy_task(project: Project, src: Position, dst: Position) -> Task:
     original = tasks_at(project, src[0])[src[1]]
     copy = replace(
         original,
-        name=f"{original.name}{COPY_SUFFIX}",
+        name=original.name[: MAX_TASK_NAME_LENGTH - len(COPY_SUFFIX)] + COPY_SUFFIX,  # 上限を超えないよう、元の名前を切り詰める
         id=new_id(project.used_ids()),
         predecessors=[],
         actuals=[],

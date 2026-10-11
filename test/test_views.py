@@ -1,7 +1,7 @@
 import asyncio
 import json
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import date, datetime, time
 from pathlib import Path
 
@@ -16,7 +16,8 @@ from projectapp.filtering import TaskFilter
 from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.handoff import JSON_FILE_TYPES
-from projectapp.models import Assignee, Actual, ActualMode, Level, Member, Parameter, Project, Section, Task, TaskUrl, UrlTemplate
+from projectapp.categories import CategoryEdit
+from projectapp.models import Assignee, Actual, ActualMode, Category, Level, Member, Parameter, Project, Section, Task, TaskUrl, UrlTemplate
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
@@ -1267,7 +1268,7 @@ def mount_preview(base_dir: Path, views: list[MainView], exporter: FakeExporter)
 
 
 def planned_task() -> Task:
-    return Task("設計", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12), project_code="P")
+    return Task("設計", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12))
 
 
 async def open_preview(
@@ -2811,3 +2812,19 @@ async def test_new_sections_and_tasks_get_ids_that_are_not_used(user: User, tmp_
     assert clash.id != view.project.sections[0].id
     assert len(view.project.used_ids()) == 3
     assert len(view.project.sections[0].id) == 8 and len(view.project.sections[0].sections[0].id) == 8
+
+
+async def test_apply_categories_updates_the_project_and_resets_removed_categories(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    view = views[0]
+    keep, drop = Category("keep"), Category("drop")
+    view.project.categories = [keep, drop]
+    view.save_task((), None, Task("a", category_id=keep.id))
+    view.save_task((), None, Task("b", category_id=drop.id))
+    view.snapshot = asdict(view.project)
+    view.apply_categories(CategoryEdit([keep], [drop.id]))
+    assert view.project.categories == [keep]
+    assert [t.category_id for t in view.project.all_tasks()] == [keep.id, None]
+    assert view.is_dirty()  # 保存はしない(編集中の判定に入る)

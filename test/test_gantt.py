@@ -67,6 +67,7 @@ from projectapp.gantt import (
 from projectapp.timeline import Column, build_columns
 from projectapp.models import (
     Assignee,
+    Category,
     DEFAULT_COLOR,
     Actual,
     Member,
@@ -1947,6 +1948,13 @@ def project_with(task: Task) -> Project:
     return Project("demo", base_date=BASE, sections=[Section("開発", [task])])
 
 
+def categorized(task: Task, prj_code: str = "PRJ-001", name: str = "開発A") -> Project:
+    """タスクにカテゴリを 1 つ付けたプロジェクト。"""
+    category = Category(name, prj_code=prj_code)
+    task.category_id = category.id
+    return Project("demo", base_date=BASE, sections=[Section("開発", [task])], categories=[category])
+
+
 def chip(user: User, marker: str):  # noqa: ANN202
     return user.find(marker=marker).elements.pop()
 
@@ -1971,16 +1979,52 @@ async def test_no_chips_for_a_plain_task(user: User) -> None:
         await user.should_not_see(marker=marker)
 
 
-async def test_project_code_chip(user: User) -> None:
-    mount(project_with(Task("設計", project_code="PRJ-001")))
+async def test_category_chip(user: User) -> None:
+    mount(categorized(Task("設計"), "PRJ-001", "開発A"))
     await user.open("/")
     code = chip(user, "task-code-0-0")
     assert code.text == "PRJ-001"
     assert code._style["max-width"] == "56px"
     assert "ellipsis" in code.classes
     assert "code-chip" in code.classes  # 書き出しの間だけ、省略を切るための印(export.EXPORT_CSS)
-    assert tooltips_targeting(code) == ["PRJ-001"]
+    assert tooltips_targeting(code) == ["開発A"]  # ツールチップはカテゴリ名
     assert code.parent_slot.parent is chip(user, "task-0-0")  # 名前の欄の枠の中
+
+
+async def test_category_chip_falls_back_to_the_name_when_there_is_no_prj_code(user: User) -> None:
+    mount(categorized(Task("設計"), "", "開発A"))
+    await user.open("/")
+    assert chip(user, "task-code-0-0").text == "開発A"
+
+
+async def test_no_category_chip_for_an_undecided_task(user: User) -> None:
+    category = Category("開発A", prj_code="PRJ-001")
+    task = Task("設計")  # category_id は None(未定)
+    mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])], categories=[category]))
+    await user.open("/")
+    await user.should_not_see(marker="task-code-0-0")
+
+
+async def test_no_category_chip_when_the_category_no_longer_exists(user: User) -> None:
+    mount(project_with(Task("設計", category_id="zzzzzzzz")))
+    await user.open("/")
+    await user.should_not_see(marker="task-code-0-0")
+
+
+async def test_chip_follows_a_category_rename_after_the_project_is_set_again(user: User) -> None:
+    project = categorized(Task("設計"), "", "開発A")
+    charts: list[GanttChart] = []
+
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(project, {}, Recorder().actions, now=lambda: datetime(2026, 10, 1))
+        chart.build()
+        charts.append(chart)
+
+    await user.open("/")
+    project.categories[0].name = "開発B"
+    charts[0].set_project(project)
+    await user.should_see("開発B")
 
 
 async def test_assignee_chip_shows_the_first_character_and_the_name_on_hover(user: User) -> None:
@@ -2067,7 +2111,7 @@ async def test_a_zero_progress_is_shown(user: User) -> None:
 
 
 async def test_the_strike_through_covers_the_name_only(user: User) -> None:
-    mount(project_with(Task("設計", status=Status.DONE, project_code="P", assignees=[Assignee("山")])))
+    mount(categorized(Task("設計", status=Status.DONE, assignees=[Assignee("山")]), "P"))
     await user.open("/")
     assert chip(user, "task-name-0-0")._style["text-decoration"] == "line-through"
     for marker in ("task-0-0", "task-code-0-0", "task-assignee-0-0", "task-progress-0-0"):
@@ -2076,9 +2120,7 @@ async def test_the_strike_through_covers_the_name_only(user: User) -> None:
 
 async def test_the_chips_do_not_shrink_and_the_name_does(user: User) -> None:
     mount(
-        project_with(
-            Task("とても長いタスクの名前" * 3, project_code="PRJ-LONG-CODE-0001", assignees=[Assignee("山")])
-        )
+        categorized(Task("とても長いタスクの名前" * 3, assignees=[Assignee("山")]), "PRJ-LONG-CODE-0001")
     )
     await user.open("/")
     for marker in ("task-code-0-0", "task-assignee-0-0"):
@@ -2093,7 +2135,7 @@ async def test_the_click_is_handled_once_by_the_name_cell_so_the_chips_bubble_to
     # User のシミュレーションのクリックは、親へ伝わらない(実ブラウザでは、DOM のクリックが枠へ伝わる)。
     # そのため、枠だけがクリックを処理し、名前とチップは自分では処理しないことを確かめる。
     recorder = mount(
-        project_with(Task("設計", project_code="PRJ-1", assignees=[Assignee("山")], status=Status.DONE))
+        categorized(Task("設計", assignees=[Assignee("山")], status=Status.DONE), "PRJ-1")
     )
     await user.open("/")
     assert len(click_listeners(chip(user, "task-0-0"))) == 1
@@ -2174,8 +2216,7 @@ async def test_preview_scale_is_separate_from_the_toolbar_scale(user: User) -> N
 
 
 async def test_show_chips_false_hides_the_chips_and_progress(user: User) -> None:
-    task = Task("設計", project_code="PRJ-1", assignees=[Assignee("山")], status=Status.DONE)
-    project = Project("demo", base_date=BASE, sections=[Section("開発", [task])])
+    project = categorized(Task("設計", assignees=[Assignee("山")], status=Status.DONE), "PRJ-1")
     mount_with(project, ViewOptions(show_chips=False))
     await user.open("/")
     await user.should_see(marker="task-name-0-0")

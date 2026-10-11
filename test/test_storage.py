@@ -13,6 +13,7 @@ from projectapp.models import (
     Actual,
     ActualMode,
     Assignee,
+    Category,
     Level,
     Member,
     Parameter,
@@ -663,48 +664,205 @@ def test_simple_file_with_two_actuals_still_loads(tmp_path: Path) -> None:
     assert len(loaded.tasks[0].actuals) == 2
 
 
-def _project_with_code(code: str) -> Project:
-    return Project("demo", tasks=[Task("t", project_code=code)])
+def _edit_raw(path: Path, edit: Callable[[dict], None]) -> None:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    edit(raw)
+    path.write_text(json.dumps(raw), encoding="utf-8")
 
 
-def test_project_code_roundtrip(tmp_path: Path) -> None:
-    loaded = load_project(save_project(_project_with_code("PRJ-001"), tmp_path))
-    assert loaded.tasks[0].project_code == "PRJ-001"
+def _legacy_codes_file(tmp_path: Path, codes: list[object]) -> Path:
+    """version 2 のファイル。タスクごとに project_code を持つ(カテゴリと category_id はない)。"""
+    path = save_project(Project("demo", tasks=[Task(f"t{i}") for i in range(len(codes))]), tmp_path)
+
+    def edit(raw: dict) -> None:
+        raw["version"] = 2
+        del raw["categories"]
+        for task, code in zip(raw["tasks"], codes):
+            del task["category_id"]
+            task["project_code"] = code
+
+    _edit_raw(path, edit)
+    return path
 
 
-def test_empty_project_code_is_saved_as_an_empty_string(tmp_path: Path) -> None:
-    path = save_project(_project_with_code(""), tmp_path)
-    assert json.loads(path.read_text(encoding="utf-8"))["tasks"][0]["project_code"] == ""
+def test_categories_roundtrip(tmp_path: Path) -> None:
+    dev = Category("開発", "業務", date(2026, 12, 31), "indigo", "PRJ-1")
+    ops = Category("保守", color="red")
+    project = Project(
+        "demo",
+        tasks=[Task("a", category_id=dev.id), Task("b")],
+        sections=[Section("s", [Task("c", category_id=ops.id)])],
+        categories=[dev, ops],
+    )
+    loaded = load_project(save_project(project, tmp_path))
+    assert loaded.categories == [dev, ops]
+    assert [c.id for c in loaded.categories] == [dev.id, ops.id]
+    assert [t.category_id for t in loaded.all_tasks()] == [dev.id, None, ops.id]
+
+
+def test_task_has_no_project_code_field() -> None:
+    assert not hasattr(Task("t"), "project_code")
+
+
+def test_saved_file_has_categories_and_no_project_code(tmp_path: Path) -> None:
+    category = Category("開発", expiry_date=date(2026, 12, 31))
+    path = save_project(Project("demo", tasks=[Task("a", category_id=category.id)], categories=[category]), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["categories"] == [
+        {"name": "開発", "kind": "", "expiry_date": "2026-12-31", "color": "blue", "prj_code": "", "id": category.id}
+    ]
+    assert raw["tasks"][0]["category_id"] == category.id
+    assert "project_code" not in raw["tasks"][0]
+
+
+def test_undecided_is_saved_as_null_and_is_not_a_category(tmp_path: Path) -> None:
+    raw = json.loads(save_project(Project("demo", tasks=[Task("a")]), tmp_path).read_text(encoding="utf-8"))
+    assert raw["categories"] == []
+    assert raw["tasks"][0]["category_id"] is None
+
+
+def test_checkpoint_keeps_its_category(tmp_path: Path) -> None:
+    category = Category("開発")
+    checkpoint = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17), category_id=category.id)
+    loaded = load_project(save_project(Project("demo", tasks=[checkpoint], categories=[category]), tmp_path))
+    assert loaded.tasks[0].category_id == category.id
+
+
+@pytest.mark.parametrize("missing", ["categories", "category_id"])
+def test_version_3_file_without_the_category_keys_loads_as_empty(tmp_path: Path, missing: str) -> None:
+    path = save_project(Project("demo", tasks=[Task("a")]), tmp_path)
+
+    def edit(raw: dict) -> None:
+        if missing == "categories":
+            del raw["categories"]
+        else:
+            del raw["tasks"][0]["category_id"]
+
+    _edit_raw(path, edit)
+    loaded = load_project(path)
+    assert loaded.categories == [] and loaded.tasks[0].category_id is None
+
+
+def test_version_3_ignores_a_stale_project_code_key(tmp_path: Path) -> None:
+    path = save_project(Project("demo", tasks=[Task("a")]), tmp_path)
+    _edit_raw(path, lambda raw: raw["tasks"][0].update(project_code="OLD"))
+    loaded = load_project(path)
+    assert loaded.categories == [] and loaded.tasks[0].category_id is None
+
+
+def test_legacy_project_codes_become_categories(tmp_path: Path) -> None:
+    path = _legacy_codes_file(tmp_path, ["PRJ-A", "PRJ-B", "PRJ-A", ""])
+    loaded = load_project(path)
+    assert [(c.name, c.prj_code, c.color) for c in loaded.categories] == [
+        ("PRJ-A", "PRJ-A", "blue"),
+        ("PRJ-B", "PRJ-B", "indigo"),
+    ]
+    first, second = loaded.categories
+    assert [t.category_id for t in loaded.tasks] == [first.id, second.id, first.id, None]
+    raw = json.loads(save_project(loaded, tmp_path, overwrite=True).read_text(encoding="utf-8"))
+    assert raw["version"] == 3 and len(raw["categories"]) == 2
 
 
 @pytest.mark.parametrize("missing", ["delete", "null"])
-def test_file_without_project_code_loads_as_empty(tmp_path: Path, missing: str) -> None:
-    path = save_project(_project_with_code("X"), tmp_path)
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    if missing == "delete":
-        del raw["tasks"][0]["project_code"]
-    else:
-        raw["tasks"][0]["project_code"] = None
-    path.write_text(json.dumps(raw), encoding="utf-8")
-    assert load_project(path).tasks[0].project_code == ""
+def test_legacy_codes_file_without_project_code_loads_as_undecided(tmp_path: Path, missing: str) -> None:
+    path = _legacy_codes_file(tmp_path, ["X"])
+    _edit_raw(path, lambda raw: raw["tasks"][0].pop("project_code") if missing == "delete" else raw["tasks"][0].update(project_code=None))
+    loaded = load_project(path)
+    assert loaded.categories == [] and loaded.tasks[0].category_id is None
 
 
-def test_project_code_is_trimmed_on_load(tmp_path: Path) -> None:
-    path = save_project(_project_with_code("X"), tmp_path)
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    raw["tasks"][0]["project_code"] = "  " + "A" * 20 + "  "
-    path.write_text(json.dumps(raw), encoding="utf-8")
-    assert load_project(path).tasks[0].project_code == "A" * 20
+def test_legacy_project_code_is_trimmed(tmp_path: Path) -> None:
+    loaded = load_project(_legacy_codes_file(tmp_path, ["  " + "A" * 20 + "  "]))
+    assert loaded.categories[0].prj_code == "A" * 20
+
+
+def test_legacy_code_that_is_not_a_valid_prj_code_keeps_only_the_name(tmp_path: Path) -> None:
+    loaded = load_project(_legacy_codes_file(tmp_path, ["設計 A", "A\nB"]))
+    assert [(c.name, c.prj_code) for c in loaded.categories] == [("設計 A", ""), ("A B", "")]
+    raw = json.loads(save_project(loaded, tmp_path, overwrite=True).read_text(encoding="utf-8"))
+    assert load_project(tmp_path / "demo.json").categories == loaded.categories  # 書き戻したファイルを、そのまま読める
+    assert raw["version"] == 3
+
+
+def test_legacy_reserved_code_becomes_undecided(tmp_path: Path) -> None:
+    loaded = load_project(_legacy_codes_file(tmp_path, ["未定"]))
+    assert loaded.categories == [] and loaded.tasks[0].category_id is None
 
 
 @pytest.mark.parametrize("bad", ["A" * 21, 1, ["x"], True])
-def test_invalid_project_code_is_rejected(tmp_path: Path, bad: object) -> None:
-    path = save_project(_project_with_code("X"), tmp_path)
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    raw["tasks"][0]["project_code"] = bad
-    path.write_text(json.dumps(raw), encoding="utf-8")
+def test_invalid_legacy_project_code_is_rejected(tmp_path: Path, bad: object) -> None:
     with pytest.raises(ValueError, match="ProjectCode"):
+        load_project(_legacy_codes_file(tmp_path, [bad]))
+
+
+def _categorized(tmp_path: Path) -> Path:
+    category = Category("開発")
+    return save_project(Project("demo", tasks=[Task("a", category_id=category.id)], categories=[category]), tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        (lambda raw: raw.update(categories={}), "カテゴリ"),
+        (lambda raw: raw["tasks"][0].update(category_id="zzzzzzzz"), "カテゴリ"),
+        (lambda raw: raw["tasks"][0].update(category_id=""), "カテゴリ"),
+        (lambda raw: raw["tasks"][0].update(category_id=1), "カテゴリ"),
+        (lambda raw: raw["categories"][0].update(name="未定"), "未定"),
+        (lambda raw: raw["categories"][0].update(name="  "), "名前"),
+        (lambda raw: raw["categories"][0].update(name=1), "名前"),
+        (lambda raw: raw["categories"][0].update(name="あ" * 31), "名前"),
+        (lambda raw: raw["categories"][0].update(name="開\n発"), "名前"),
+        (lambda raw: raw["categories"][0].update(name="開\u200b発"), "名前"),
+        (lambda raw: raw["categories"][0].update(kind="業\u200b務"), "種別"),
+        (lambda raw: raw["categories"][0].update(prj_code="P\nQ"), "PRJ"),
+        (lambda raw: raw["categories"][0].update(prj_code="設計"), "PRJ"),
+        (lambda raw: raw["categories"][0].update(prj_code="PRJ 1"), "PRJ"),
+        (lambda raw: raw["categories"][0].update(color="gold"), "色"),
+        (lambda raw: raw["categories"][0].update(color=1), "色"),
+        (lambda raw: raw["categories"][0].update(kind="あ" * 21), "種別"),
+        (lambda raw: raw["categories"][0].update(kind="業務\n開発"), "種別"),
+        (lambda raw: raw["categories"][0].update(kind=1), "種別"),
+        (lambda raw: raw["categories"][0].update(prj_code="A" * 21), "PRJ"),
+        (lambda raw: raw["categories"][0].update(prj_code=1), "PRJ"),
+        (lambda raw: raw["categories"][0].update(expiry_date="2026-13-01"), "有効期限"),
+        (lambda raw: raw["categories"][0].update(expiry_date="20261231"), "有効期限"),
+        (lambda raw: raw["categories"][0].update(expiry_date=5), "有効期限"),
+        (lambda raw: raw["categories"][0].pop("id"), "id"),
+        (lambda raw: raw["categories"][0].update(id=""), "id"),
+        (lambda raw: raw["categories"].append(dict(raw["categories"][0], name="別")), "id"),
+        (lambda raw: raw["categories"].append(dict(raw["categories"][0], id="bbbbbbbb")), "重複"),
+    ],
+)
+def test_invalid_categories_are_rejected(tmp_path: Path, edit: Callable[[dict], None], message: str) -> None:
+    path = _categorized(tmp_path)
+    _edit_raw(path, edit)
+    with pytest.raises(ValueError, match=message):
         load_project(path)
+
+
+def test_missing_optional_category_fields_use_defaults(tmp_path: Path) -> None:
+    path = _categorized(tmp_path)
+
+    def edit(raw: dict) -> None:
+        for key in ("kind", "expiry_date", "color", "prj_code"):
+            del raw["categories"][0][key]
+
+    _edit_raw(path, edit)
+    loaded = load_project(path).categories[0]
+    assert (loaded.kind, loaded.expiry_date, loaded.color, loaded.prj_code) == ("", None, "blue", "")
+
+
+def test_category_text_is_trimmed_on_load(tmp_path: Path) -> None:
+    path = _categorized(tmp_path)
+    _edit_raw(path, lambda raw: raw["categories"][0].update(name="  開発  ", prj_code=" P "))
+    loaded = load_project(path).categories[0]
+    assert (loaded.name, loaded.prj_code) == ("開発", "P")
+
+
+def test_saving_duplicate_category_ids_is_refused(tmp_path: Path) -> None:
+    a, b = Category("a", id="aaaaaaaa"), Category("b", id="aaaaaaaa")
+    with pytest.raises(ValueError, match="カテゴリ"):
+        save_project(Project("demo", categories=[a, b]), tmp_path)
 
 
 def write_raw(tmp_path: Path, tasks: list[dict[str, object]]) -> Path:
@@ -1131,7 +1289,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 2
+    assert raw["version"] == FORMAT_VERSION == 3
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1196,10 +1354,10 @@ def ids_project() -> Project:
     )
 
 
-def test_saved_file_is_version_2_and_refers_to_members_by_id(tmp_path: Path) -> None:
+def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 2
+    assert raw["version"] == FORMAT_VERSION == 3
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -1239,7 +1397,7 @@ def test_a_version_1_file_gets_unique_ids(tmp_path: Path) -> None:
     assert all(len(i) == 8 for i in ids)
     assert loaded.sections[0].tasks[0].assignees == [Assignee("田中", 0.6), Assignee("鈴木", 0.4)]
     raw = json.loads(save_project(loaded, tmp_path, overwrite=True).read_text(encoding="utf-8"))
-    assert raw["version"] == 2
+    assert raw["version"] == 3
 
 
 def test_version_1_ids_avoid_the_ids_in_the_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1338,3 +1496,43 @@ def test_save_rejects_duplicate_ids_and_leaves_the_file(kind: str, tmp_path: Pat
         save_project(project, tmp_path)
     assert good.read_text(encoding="utf-8") == before
     assert [p.name for p in tmp_path.iterdir()] == ["p.json"]  # 一時ファイルも残さない
+
+
+def test_loading_tidies_a_long_task_name(tmp_path: Path) -> None:
+    path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
+    _edit_raw(path, lambda raw: raw["tasks"][0].update(name="あ" * 60))
+    assert load_project(path).tasks[0].name == "あ" * 50
+
+
+def test_loading_replaces_control_characters_in_a_task_name(tmp_path: Path) -> None:
+    path = save_project(Project("demo", sections=[Section("s", [Task("t")])]), tmp_path)
+    _edit_raw(path, lambda raw: raw["sections"][0]["tasks"][0].update(name="設計\n開発\t"))
+    assert load_project(path).sections[0].tasks[0].name == "設計 開発"
+
+
+def test_a_task_name_of_only_control_characters_loads_as_empty(tmp_path: Path) -> None:
+    path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
+    _edit_raw(path, lambda raw: raw["tasks"][0].update(name="\n"))
+    assert load_project(path).tasks[0].name == ""
+
+
+@pytest.mark.parametrize("bad", [1, None, ["x"], True])
+def test_a_task_name_that_is_not_a_string_is_rejected(tmp_path: Path, bad: object) -> None:
+    path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
+    _edit_raw(path, lambda raw: raw["tasks"][0].update(name=bad))
+    with pytest.raises(ValueError, match="タスクの名前"):
+        load_project(path)
+
+
+def test_a_tidied_task_name_can_be_saved_again(tmp_path: Path) -> None:
+    path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
+    _edit_raw(path, lambda raw: raw["tasks"][0].update(name="あ" * 60))
+    loaded = load_project(path)
+    assert load_project(save_project(loaded, tmp_path, overwrite=True)).tasks[0].name == "あ" * 50
+
+
+def test_loading_replaces_zero_width_characters_in_a_task_name(tmp_path: Path) -> None:
+    path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
+    _edit_raw(path, lambda raw: raw["tasks"][0].update(name="\u200b設計\u200b開発\u2028"))
+    assert load_project(path).tasks[0].name == "設計 開発"
+

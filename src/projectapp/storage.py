@@ -10,6 +10,7 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from projectapp.categories import COLORS, migrate_legacy, parse_expiry, validate_categories
 from projectapp.linkgraph import validate_links
 from projectapp.models import (
     FORMAT_VERSION,
@@ -31,6 +32,7 @@ from projectapp.models import (
     MIN_YEAR,
     Actual,
     Assignee,
+    Category,
     Level,
     Member,
     Parameter,
@@ -43,6 +45,7 @@ from projectapp.models import (
     TaskUrl,
     UrlTemplate,
     new_id,
+    tidy_task_name,
     walk_sections,
 )
 from projectapp.urls import validate_templates, validate_urls
@@ -82,6 +85,7 @@ def _check_unique_ids(project: Project) -> None:
         "タスク": [t.id for t in project.all_tasks()],
         "メンバー": [m.id for m in project.members],
         "セクション": [s.id for _, s in walk_sections(project.sections)],
+        "カテゴリ": [c.id for c in project.categories],
     }
     for label, ids in groups.items():
         if len(set(ids)) != len(ids):
@@ -204,7 +208,7 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         deadline = _datetime(raw.get("deadline")) or legacy_end  # 明示された締切を優先
     kind = _kind(raw.get("kind"))
     task = Task(
-        name=raw["name"],
+        name=_task_name(raw.get("name")),
         id=_task_id(raw.get("id")),
         planned_start=planned_start,
         planned_end=planned_end,
@@ -217,11 +221,13 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         assignees=_assignees(raw, ctx),
         predecessors=_predecessors(raw.get("predecessors")),
         actuals=_actuals(raw.get("actuals")),
-        project_code=_project_code(raw.get("project_code")),
         kind=kind,
         urls=_task_urls(raw.get("urls")),
+        category_id=_category_id(raw.get("category_id")) if ctx.version >= 3 else None,
     )
     result = _checkpoint(task) if kind is TaskKind.CHECKPOINT else task
+    if ctx.version < 3:
+        ctx.legacy_codes[id(result)] = _project_code(raw.get("project_code"))  # 読込の最後に、カテゴリへ移す
     if raw.get("id") is None:
         ctx.pending.append(result)  # 読込の最後に、ファイルの他の id と重ならない id を振る
     return result
@@ -305,6 +311,57 @@ def _project_code(value: Any) -> str:
     return code
 
 
+def _category_id(value: Any) -> str | None:
+    """タスクのカテゴリ id。キーがない・null は未定。空・文字列以外は ValueError(存在の検証は読込の後で行う)。"""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"タスクのカテゴリの id が正しくありません: {value!r}")
+    return value
+
+
+def _optional_text(value: Any, label: str) -> str:
+    """カテゴリの文字列の項目。キーがない・null は空。文字列以外は ValueError。前後の空白を除く。"""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{label}が文字列ではありません: {value!r}")
+    return value.strip()
+
+
+def _categories(value: Any) -> list[Category]:
+    """カテゴリ(version 3)。キーがない・null は空。名前の空・重複・予約名、色・日付・長さの不正は ValueError。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("カテゴリがリストではありません")
+    categories: list[Category] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            raise ValueError("カテゴリの形式が正しくありません")
+        name = raw.get("name")
+        if not isinstance(name, str):
+            raise ValueError("カテゴリの名前が文字列ではありません")
+        expiry = raw.get("expiry_date")
+        if expiry is not None and not isinstance(expiry, str):
+            raise ValueError(f"カテゴリの有効期限が文字列ではありません: {expiry!r}")
+        color = raw.get("color", "blue")
+        if color not in COLORS:  # 文字列以外も、ここで落ちる
+            raise ValueError(f"カテゴリの色が正しくありません: {color!r}")
+        categories.append(
+            Category(
+                name.strip(),
+                _optional_text(raw.get("kind"), "カテゴリの種別"),
+                parse_expiry(expiry or ""),
+                color,
+                _optional_text(raw.get("prj_code"), "PRJコード"),
+                _entity_id(raw.get("id"), "カテゴリ"),
+            )
+        )
+    validate_categories(categories)
+    return categories
+
+
 def _kind(value: Any) -> TaskKind:
     """タスクの種別。キーがない・null は通常。不正は ValueError(開けませんでした)。"""
     if value is None:
@@ -330,6 +387,13 @@ def _checkpoint(task: Task) -> Task:
         assignees=[],
         actuals=[],
     )
+
+
+def _task_name(value: Any) -> str:
+    """タスク名。文字列以外は ValueError。制御文字・長すぎる名前は、開けるように整える(`tidy_task_name`)。"""
+    if not isinstance(value, str):
+        raise ValueError(f"タスクの名前が文字列ではありません: {value!r}")
+    return tidy_task_name(value)
 
 
 def _task_id(value: Any) -> str:
@@ -596,6 +660,7 @@ class _Context:
     member_names: dict[str, str] = field(default_factory=dict)  # version 2: メンバー id → 名前(名前が空のメンバーは入れない)
     section_ids: set[str] = field(default_factory=set)
     pending: list[Task] = field(default_factory=list)  # id のないタスク(古いファイル)。読込の最後に id を振る
+    legacy_codes: dict[int, str] = field(default_factory=dict)  # version 2 以前: タスク(id())→ 旧 ProjectCode。読込の最後にカテゴリへ移す
 
 
 def _entity_id(value: Any, label: str) -> str:
@@ -633,6 +698,7 @@ def load_project(path: Path) -> Project:
         actual_mode=_actual_mode(raw.get("actual_mode", "simple")),
         url_templates=_url_templates(raw.get("url_templates")),
         parameters=_parameters(raw.get("parameters")),
+        categories=_categories(raw.get("categories")) if ctx.version >= 3 else [],
     )
     known = {m.name for m in project.members}
     for task in project.all_tasks():  # 古いファイルの自由入力の担当者を、メンバーとして補う
@@ -641,6 +707,14 @@ def load_project(path: Path) -> Project:
                 known.add(assignee.name)
                 project.members.append(Member(assignee.name, 1.0))
     _assign_ids(project, ctx)
+    if ctx.version < 3:  # 旧 ProjectCode をカテゴリへ移す(id は、振り終えた他の id と重ならないようにする)
+        pairs = [(t, ctx.legacy_codes.get(id(t), "")) for t in project.all_tasks()]
+        project.categories = migrate_legacy(pairs, project.used_ids())
+    else:
+        known = {c.id for c in project.categories}
+        for task in project.all_tasks():
+            if task.category_id is not None and task.category_id not in known:
+                raise ValueError(f"タスクのカテゴリが見つかりません: {task.category_id!r}")
     validate_links(project.all_tasks())
     for task in project.all_tasks():
         validate_urls(task.urls, project.url_templates)

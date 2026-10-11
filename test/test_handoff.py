@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from projectapp.categories import COLORS
 from projectapp.handoff import (
-    CATEGORY_COLORS,
     JSON_FILE_TYPES,
     Handoff,
     build_todos,
@@ -14,7 +14,7 @@ from projectapp.handoff import (
     tasks_for,
     write_json,
 )
-from projectapp.models import Assignee, Actual, Level, Member, Parameter, Project, Section, Status, Task
+from projectapp.models import Assignee, Actual, Category, Level, Member, Parameter, Project, Section, Status, Task
 
 BASE = date(2026, 10, 5)  # 月曜
 
@@ -41,8 +41,8 @@ def assert_todoapp_shape(data: dict) -> None:
     item_ids = {i["id"] for i in data["items"]}
     for category in data["categories"]:
         assert set(category) == {"id", "name", "kind", "expiry_date", "color", "prj_code"}
-        assert category["color"] in CATEGORY_COLORS
-        assert category["expiry_date"] is None
+        assert category["color"] in COLORS
+        assert category["expiry_date"] is None or date.fromisoformat(category["expiry_date"])
     for item in data["items"]:
         assert set(item) == {"id", "name", "schedule_type", "anchor_date", "estimate_hours", "category_id", "done_date"}
         assert isinstance(item["id"], str) and len(item["id"]) == 32
@@ -111,24 +111,55 @@ def test_the_allocation_does_not_change_the_estimate() -> None:
     assert item["estimate_hours"] == 26.0
 
 
-def test_categories_follow_project_codes() -> None:
-    project = make_project(
-        task("A", project_code="PRJ-1"), task("B", project_code="PRJ-2"), task("C", project_code="PRJ-1"), task("D")
+def categorized_project(*tasks: Task, categories: list[Category]) -> Project:
+    project = make_project(*tasks)
+    project.categories = categories
+    return project
+
+
+def test_categories_are_the_registered_ones_in_order() -> None:
+    dev = Category("開発", "業務", date(2026, 12, 31), "indigo", "PRJ-1")
+    ops = Category("保守", color="red")
+    project = categorized_project(
+        task("A", category_id=ops.id), task("B", category_id=dev.id), task("C", category_id=ops.id), task("D"),
+        categories=[dev, ops],
     )
     data = build(project).data
-    first, second = data["categories"]
-    assert [first["name"], second["name"]] == ["PRJ-1", "PRJ-2"]
-    assert (first["prj_code"], first["kind"]) == ("PRJ-1", "")
-    assert [first["color"], second["color"]] == ["blue", "indigo"]
-    assert [i["category_id"] for i in data["items"]] == [first["id"], second["id"], first["id"], None]
+    assert data["categories"] == [
+        {"id": dev.id, "name": "開発", "kind": "業務", "expiry_date": "2026-12-31", "color": "indigo", "prj_code": "PRJ-1"},
+        {"id": ops.id, "name": "保守", "kind": "", "expiry_date": None, "color": "red", "prj_code": ""},
+    ]
+    assert [i["category_id"] for i in data["items"]] == [ops.id, dev.id, ops.id, None]
     assert_todoapp_shape(data)
 
 
-def test_category_colors_cycle_after_ten_codes() -> None:
-    project = make_project(*(task(f"t{i}", project_code=f"C{i}") for i in range(11)))
-    categories = build(project).data["categories"]
-    assert len(categories) == 11
-    assert categories[10]["color"] == categories[0]["color"] == "blue"
+def test_unused_categories_are_written_too() -> None:
+    unused = Category("未使用")
+    data = build(categorized_project(task("A"), categories=[unused])).data
+    assert [c["id"] for c in data["categories"]] == [unused.id]
+    assert data["items"][0]["category_id"] is None
+
+
+def test_a_task_with_an_unknown_category_is_written_as_undecided() -> None:
+    data = build(categorized_project(task("A", category_id="zzzzzzzz"), categories=[Category("開発")])).data
+    assert data["items"][0]["category_id"] is None
+    assert_todoapp_shape(data)
+
+
+def test_category_ids_do_not_depend_on_the_project_name() -> None:
+    category = Category("開発")
+    first = categorized_project(task("A", category_id=category.id), categories=[category])
+    second = categorized_project(task("A", category_id=category.id), categories=[category])
+    second.name = "別名"
+    assert build(first).data["categories"][0]["id"] == build(second).data["categories"][0]["id"] == category.id
+
+
+def test_a_category_survives_a_rename() -> None:
+    category = Category("開発")
+    project = categorized_project(task("A", category_id=category.id), categories=[category])
+    before = build(project).data["categories"][0]["id"]
+    category.name = "開発(改)"
+    assert build(project).data["categories"][0]["id"] == before
 
 
 def test_actuals_become_records() -> None:

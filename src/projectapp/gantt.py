@@ -11,6 +11,7 @@ from nicegui.events import ValueChangeEventArguments
 from projectapp import arrange
 from projectapp.arrange import Position, section_key
 from projectapp.calendar import DayKind, day_kind
+from projectapp.categories import by_id, chip_text
 from projectapp.config import (
     DEFAULT_NAME_WIDTH_PX,
     MAX_NAME_WIDTH_PX,
@@ -20,7 +21,7 @@ from projectapp.config import (
 from projectapp.filtering import TaskFilter, matches, section_has_match, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
-from projectapp.models import MAX_SECTION_DEPTH, Priority, Project, Section, SectionPath, Status, Task, TaskKind
+from projectapp.models import MAX_SECTION_DEPTH, Category, Priority, Project, Section, SectionPath, Status, Task, TaskKind
 from projectapp.timeline import (
     in_range,
     Band,
@@ -324,6 +325,7 @@ class GanttChart:
         self.now = now
         self.name_width = name_width  # 名前の欄の幅(px)。ドラッグで変わり、保存は呼び出し側
         self.overloads: list[Overload] = []
+        self.category_lookup: dict[str, Category] = {}
         self.schedule = Schedule(project, holidays)
         self.links_html: ui.html | None = None
         self.link_layout: tuple[list[Column], int] | None = None
@@ -670,6 +672,7 @@ class GanttChart:
         self.schedule = Schedule(self.project, self.holidays)
         columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
         self.overloads = overallocations(self.project, self.holidays)
+        self.category_lookup = by_id(self.project.categories)
         width = COLUMN_WIDTH_PX[self.view_scale]
         content = ui.element("div").style(
             f"position: relative; width: {from_name(width * len(columns))};"
@@ -952,10 +955,11 @@ class GanttChart:
         return row
 
     def task_chips(self, key: int | str, ti: int, task: Task) -> None:
-        """名前の右の、ProjectCode・担当・進捗。空のものは出さない。名前の欄の枠の中で呼ぶ。"""
-        if task.project_code:
-            ui.label(task.project_code).classes("ellipsis code-chip").style(CODE_CHIP_STYLE).tooltip(
-                task.project_code
+        """名前の右の、カテゴリ(PRJコード、なければ名前)・担当・進捗。空のものは出さない。名前の欄の枠の中で呼ぶ。"""
+        category = self.category_lookup.get(task.category_id) if task.category_id else None
+        if category is not None:
+            ui.label(chip_text(category)).classes("ellipsis code-chip").style(CODE_CHIP_STYLE).tooltip(
+                category.name
             ).mark(f"task-code-{key}-{ti}")
         for n, assignee in enumerate(task.assignees[:MAX_ASSIGNEE_CHIPS]):
             suffix = "" if n == 0 else f"-{n}"

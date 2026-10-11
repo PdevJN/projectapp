@@ -107,10 +107,10 @@ def test_copy_adds_a_suffix_clears_predecessors_and_keeps_the_rest() -> None:
     assert names(project.sections[0].tasks) == ["a0", "a1", "a2"]
 
 
-def test_copy_keeps_the_project_code() -> None:
-    project = Project("p", tasks=[Task("t", project_code="PRJ-1")])
+def test_copy_keeps_the_category() -> None:
+    project = Project("p", tasks=[Task("t", category_id="abcd1234")])
     copy = arrange.copy_task(project, ((), 0), ((), 1))
-    assert copy.project_code == "PRJ-1"
+    assert copy.category_id == "abcd1234"
 
 
 def test_copy_inserts_at_the_position_and_clamps() -> None:
@@ -399,3 +399,11 @@ def test_copy_gets_an_id_that_is_not_used_in_the_project(monkeypatch: pytest.Mon
     monkeypatch.setattr(models.secrets, "token_hex", lambda nbytes: next(values))
     copy = arrange.copy_task(project, ((), 0), ((), 1))
     assert copy.id == "zzzzzzzz"
+
+
+def test_copy_of_a_long_name_stays_within_the_limit() -> None:
+    project = Project("p", tasks=[Task("あ" * 50)])
+    copy = arrange.copy_task(project, ((), 0), ((), 1))
+    assert copy.name == "あ" * (50 - len(arrange.COPY_SUFFIX)) + arrange.COPY_SUFFIX
+    assert len(copy.name) == 50
+    assert project.tasks[0].name == "あ" * 50  # 元は変えない

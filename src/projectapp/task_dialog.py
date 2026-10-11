@@ -1,12 +1,16 @@
 """タスクの追加・編集ダイアログ。入力の検証は forms.py の build_task に任せる。"""
 
+import html
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time
 
 from nicegui import ui
+from nicegui.events import ValueChangeEventArguments
 
 from projectapp.browser import open_url as default_open_url
+from projectapp.categories import UNDECIDED, category_full_label, category_label
 from projectapp.forms import (
     ActualRow,
     UrlRow,
@@ -30,12 +34,14 @@ from projectapp.models import (
     ID_KEY,
     MAX_ALLOCATION,
     MAX_PROGRESS,
+    MAX_TASK_NAME_LENGTH,
     MIN_ALLOCATION,
     MIN_PROGRESS,
     URL_KEY,
     Actual,
     ActualMode,
     Assignee,
+    Category,
     Member,
     Parameter,
     Priority,
@@ -44,6 +50,7 @@ from projectapp.models import (
     TaskKind,
     TaskUrl,
     UrlTemplate,
+    has_control_char,
 )
 from projectapp.ratios import effective_ratio
 from projectapp.timeline import assignees_rate, combine_rate, computed_end, effort_days
@@ -684,6 +691,23 @@ class AssigneeFields:
         return [(by_name[name], (percent or 100) / 100) for name, percent in self.rows() if name in by_name]
 
 
+def _title_table(hover: list[str]) -> str:
+    """選択肢の番号 → マウスオーバーの全文(省略していないものは空)。NiceGUI の select は、選択肢の value に番号を渡す。
+    属性の中に入れるので、JSON の引用符は &quot; にする(Vue が属性の値を戻す)。"""
+    return html.escape(json.dumps(hover, ensure_ascii=False), quote=True)
+
+
+def category_option_template(hover: list[str]) -> str:
+    return (
+        f'<q-item v-bind="props.itemProps" :title="{_title_table(hover)}[props.opt.value]">'
+        "<q-item-section>{{ props.opt.label }}</q-item-section></q-item>"
+    )
+
+
+def category_selected_template(hover: list[str]) -> str:
+    return f'<span :title="{_title_table(hover)}[props.opt.value]">{{{{ props.opt.label }}}}</span>'
+
+
 def open_task_dialog(
     task: Task | None,
     on_save: Callable[[Task], object],
@@ -698,6 +722,7 @@ def open_task_dialog(
     url_templates: list[UrlTemplate] | None = None,
     open_url: Callable[[str], object] = default_open_url,
     parameters: list[Parameter] | None = None,
+    categories: list[Category] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
     # 換算には、パラメータを反映した実効比率を使う(以降は、このコピーだけを見る)
@@ -714,12 +739,38 @@ def open_task_dialog(
             .classes("text-caption text-grey")
             .mark("task-kind-hint")
         )
-        name = ui.input("名前", value=initial.name).mark("task-name")
-        project_code = (
-            ui.input("ProjectCode", value=initial.project_code)
+        # 長い名前は折り返す(textarea を 1 行から伸ばす)。名前に改行は使えないので、Enter は無効にし、貼り付けた改行は空白にする
+        name = (
+            ui.textarea("名前", value=initial.name)
+            .props("autogrow rows=1")
             .classes("w-full")
-            .mark("task-project-code")
+            .on("keydown.enter.prevent", lambda: None)
+            .mark("task-name")
         )
+
+        def replace_control_chars(event: ValueChangeEventArguments) -> None:
+            # 使えない文字は空白に替え、上限(文字数。ブラウザの maxlength は UTF-16 単位でずれる)で切る
+            text = event.value or ""
+            cleaned = "".join(" " if has_control_char(ch) else ch for ch in text)[:MAX_TASK_NAME_LENGTH]
+            if cleaned != text:
+                name.set_value(cleaned)
+
+        name.on_value_change(replace_control_chars)
+        # 先頭が未定(値は空文字。None は選択なしと区別できない)。名前が長いときだけ省略し、種別・PRJコードは残す。全文はマウスオーバーで出す
+        category_options = {"": UNDECIDED, **{c.id: category_label(c) for c in categories or []}}
+        category = (
+            ui.select(
+                category_options,
+                label="カテゴリ",
+                value=initial.category_id if initial.category_id in category_options else "",
+            )
+            .classes("w-full")
+            .mark("task-category")
+        )
+        full_labels = [UNDECIDED] + [category_full_label(c) for c in categories or []]
+        hover = [full if full != label else "" for full, label in zip(full_labels, category_options.values())]
+        category.add_slot("option", category_option_template(hover))
+        category.add_slot("selected-item", category_selected_template(hover))
         fields = DateTimeFields(initial, work_start, daily_hours, holidays or {}, initial_rate)
         with fields.second_row:
             effort = (
@@ -860,7 +911,7 @@ def open_task_dialog(
             return (
                 name.value,
                 kind.value,
-                project_code.value or "",
+                category.value or "",
                 *fields.state(),
                 effort.value,
                 priority.value,
@@ -880,7 +931,7 @@ def open_task_dialog(
                 result = build_task(
                     task,
                     name=name.value or "",
-                    project_code=project_code.value or "",
+                    category_id=category.value or None,
                     planned_start=fields.start_text(),
                     planned_end=fields.end_text(),
                     planned_end_manual=bool(fields.manual.value),
