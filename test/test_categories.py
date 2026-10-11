@@ -8,6 +8,8 @@ from projectapp.categories import (
     CategoryEdit,
     apply_edit,
     by_id,
+    category_full_label,
+    category_label,
     chip_text,
     count_usage,
     migrate_legacy,
@@ -209,3 +211,31 @@ def test_by_id() -> None:
 def test_project_used_ids_include_the_categories() -> None:
     a = cat("a")
     assert a.id in Project("p", categories=[a]).used_ids()
+
+
+@pytest.mark.parametrize(
+    ("category", "label"),
+    [
+        (cat("保守運用"), "保守運用"),
+        (cat("開発", prj_code="PRJ-001"), "開発(PRJ-001)"),
+        (cat("ドキュメント", kind="社内"), "ドキュメント(社内)"),
+        (cat("開発", kind="業務", prj_code="PRJ-001"), "開発(業務・PRJ-001)"),
+        (cat("あ" * 12, kind="業務"), "あ" * 12 + "(業務)"),  # 12 文字ちょうどは省略しない
+        (cat("あ" * 13, kind="業務", prj_code="P1"), "あ" * 12 + "…(業務・P1)"),  # 名前だけを省略し、種別と PRJコードは残す
+        (cat("あ" * 30), "あ" * 12 + "…"),
+        (cat("😀" * 13), "😀" * 12 + "…"),  # 絵文字は 1 文字と数える
+    ],
+)
+def test_category_label_shortens_only_the_name(category: Category, label: str) -> None:
+    assert category_label(category) == label
+
+
+def test_category_full_label_never_shortens() -> None:
+    category = cat("あ" * 30, kind="業務", prj_code="P1")
+    assert category_full_label(category) == "あ" * 30 + "(業務・P1)"
+    assert category_full_label(cat("開発")) == "開発"
+
+
+def test_the_undecided_label_is_plain() -> None:
+    assert UNDECIDED == "未定"  # 選択肢の「未定」は、そのまま出す(カテゴリではない)
+

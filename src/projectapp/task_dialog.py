@@ -1,5 +1,7 @@
 """タスクの追加・編集ダイアログ。入力の検証は forms.py の build_task に任せる。"""
 
+import html
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time
@@ -8,7 +10,7 @@ from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp.browser import open_url as default_open_url
-from projectapp.categories import UNDECIDED
+from projectapp.categories import UNDECIDED, category_full_label, category_label
 from projectapp.forms import (
     ActualRow,
     UrlRow,
@@ -689,6 +691,23 @@ class AssigneeFields:
         return [(by_name[name], (percent or 100) / 100) for name, percent in self.rows() if name in by_name]
 
 
+def _title_table(hover: list[str]) -> str:
+    """選択肢の番号 → マウスオーバーの全文(省略していないものは空)。NiceGUI の select は、選択肢の value に番号を渡す。
+    属性の中に入れるので、JSON の引用符は &quot; にする(Vue が属性の値を戻す)。"""
+    return html.escape(json.dumps(hover, ensure_ascii=False), quote=True)
+
+
+def category_option_template(hover: list[str]) -> str:
+    return (
+        f'<q-item v-bind="props.itemProps" :title="{_title_table(hover)}[props.opt.value]">'
+        "<q-item-section>{{ props.opt.label }}</q-item-section></q-item>"
+    )
+
+
+def category_selected_template(hover: list[str]) -> str:
+    return f'<span :title="{_title_table(hover)}[props.opt.value]">{{{{ props.opt.label }}}}</span>'
+
+
 def open_task_dialog(
     task: Task | None,
     on_save: Callable[[Task], object],
@@ -737,7 +756,8 @@ def open_task_dialog(
                 name.set_value(cleaned)
 
         name.on_value_change(replace_control_chars)
-        category_options = {"": UNDECIDED, **{c.id: c.name for c in categories or []}}  # 先頭が未定(値は空文字。None は選択なしと区別できない)
+        # 先頭が未定(値は空文字。None は選択なしと区別できない)。名前が長いときだけ省略し、種別・PRJコードは残す。全文はマウスオーバーで出す
+        category_options = {"": UNDECIDED, **{c.id: category_label(c) for c in categories or []}}
         category = (
             ui.select(
                 category_options,
@@ -747,6 +767,10 @@ def open_task_dialog(
             .classes("w-full")
             .mark("task-category")
         )
+        full_labels = [UNDECIDED] + [category_full_label(c) for c in categories or []]
+        hover = [full if full != label else "" for full, label in zip(full_labels, category_options.values())]
+        category.add_slot("option", category_option_template(hover))
+        category.add_slot("selected-item", category_selected_template(hover))
         fields = DateTimeFields(initial, work_start, daily_hours, holidays or {}, initial_rate)
         with fields.second_row:
             effort = (

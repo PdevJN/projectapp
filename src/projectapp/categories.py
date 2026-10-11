@@ -44,6 +44,7 @@ COLOR_HEX = {
     "teal": "#009688",
     "brown": "#795548",
 }
+MAX_LABEL_NAME_LENGTH = 12  # 選択肢の名前を省略する文字数(種別と PRJコードは省略しない)
 EXPIRY_FORMAT = re.compile(r"\d{4}-\d{2}-\d{2}")
 PRJ_CODE_FORMAT = re.compile(r"[A-Za-z0-9._-]*")  # PRJコードに使える文字(半角英数字と - _ .)。空は可
 
@@ -150,6 +151,24 @@ def apply_edit(project: Project, edit: CategoryEdit) -> None:
 def chip_text(category: Category) -> str:
     """名前の欄のチップの文字。PRJコード、空なら名前。"""
     return category.prj_code or category.name
+
+
+def _suffix(category: Category) -> str:
+    parts = [text for text in (category.kind.strip(), category.prj_code.strip()) if text]
+    return f"({'・'.join(parts)})" if parts else ""
+
+
+def category_full_label(category: Category) -> str:
+    """選択肢の全文。名前に、設定してある種別と PRJコードを添える(`開発(業務・PRJ-001)`)。マウスオーバーで出す。"""
+    return f"{category.name}{_suffix(category)}"
+
+
+def category_label(category: Category) -> str:
+    """選択肢の表示。名前が長いときだけ省略し(先頭 MAX_LABEL_NAME_LENGTH 文字 + …)、種別と PRJコードは残す。"""
+    name = category.name
+    if len(name) > MAX_LABEL_NAME_LENGTH:
+        name = name[:MAX_LABEL_NAME_LENGTH] + "…"
+    return f"{name}{_suffix(category)}"
 
 
 def by_id(categories: list[Category]) -> dict[str, Category]:

@@ -1335,13 +1335,53 @@ DEV = Category("開発", prj_code="PRJ-1", id="aaaaaaaa")
 OPS = Category("保守", id="bbbbbbbb")
 
 
+BIG = Category("あ" * 20, "業務", None, "blue", "PRJ-9", "cccccccc")  # 名前が長いカテゴリ
+
+
+async def test_category_options_show_the_kind_and_the_prj_code(user: User) -> None:
+    mount_dialog(None, [], categories=[DEV, OPS, Category("ドキュメント", kind="社内", id="dddddddd"), BIG])
+    await open_dialog(user)
+    select = user.find(marker="task-category").elements.pop()
+    assert list(select.options.values()) == [
+        "未定",
+        "開発(PRJ-1)",  # DEV は PRJコードだけ
+        "保守",  # OPS は名前だけ
+        "ドキュメント(社内)",
+        "あ" * 12 + "…(業務・PRJ-9)",  # 長い名前だけを省略し、種別と PRJコードは残す
+    ]
+    assert list(select.options.keys()) == ["", "aaaaaaaa", "bbbbbbbb", "dddddddd", "cccccccc"]  # 値は id のまま
+
+
+async def test_an_abbreviated_option_shows_its_full_text_on_hover(user: User) -> None:
+    mount_dialog(None, [], categories=[DEV, BIG])
+    await open_dialog(user)
+    select = user.find(marker="task-category").elements.pop()
+    full = "あ" * 20 + "(業務・PRJ-9)"
+    for slot in ("option", "selected-item"):
+        template = select.slots[slot].template
+        assert ":title=" in template and "props.opt.value" in template  # NiceGUI の value は番号。番号で全文を引く
+        assert full in template  # 全文が、マウスオーバーの文字として入っている
+    option = select.slots["option"].template
+    assert '&quot;&quot;' in option  # 省略しない選択肢(未定・開発)の全文は空で、マウスオーバーに何も出さない
+
+
+async def test_category_is_saved_by_id_even_when_the_label_is_abbreviated(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, categories=[DEV, BIG])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-category").elements.pop().set_value("cccccccc")
+    user.find(marker="task-save").click()
+    assert saved[0].category_id == "cccccccc"
+
+
 async def test_category_select_lists_undecided_first_and_defaults_to_it(user: User) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved, categories=[DEV, OPS])
     await open_dialog(user)
     select = user.find(marker="task-category").elements.pop()
     assert select.value == ""
-    assert list(select.options.values()) == ["未定", "開発", "保守"]
+    assert list(select.options.values()) == ["未定", "開発(PRJ-1)", "保守"]
     user.find(marker="task-name").type("設計")
     user.find(marker="task-save").click()
     assert saved[0].category_id is None
