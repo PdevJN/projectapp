@@ -850,9 +850,110 @@ async def open_members_view(user: User, tmp_path: Path) -> MainView:
     return views[0]
 
 
+async def open_members_parameters(user: User) -> None:
+    user.find(marker="open-members-parameters").click()
+    await user.should_see(marker="members-parameters-panels")
+
+
+async def test_the_members_parameters_dialog_opens_on_the_members_tab(user: User, tmp_path: Path) -> None:
+    await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    panels = user.find(marker="members-parameters-panels").elements.pop()
+    assert panels.value == "members"
+    await user.should_see(marker="tab-members")
+    await user.should_see(marker="tab-parameters")
+
+
+async def test_applying_the_members_tab_keeps_the_dialog_open(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-0")
+    user.find(marker="member-name-0").type("田中")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: [m.name for m in view.project.members] == ["田中"])
+    await user.should_see(marker="members-parameters-panels")  # 閉じない
+    first = user.find(marker="member-name-0").elements.pop()
+    assert await wait_until(lambda: user.find(marker="member-name-0").elements.pop() is not first)  # 行の作り直しを待つ
+    user.find(marker="member-name-0").clear().type("田中太郎")  # 続けて適用できる(改名は 1 回分)
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: [m.name for m in view.project.members] == ["田中太郎"])
+
+
+async def test_applying_parameters_rebuilds_the_member_columns_and_keeps_unapplied_member_edits(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-0")
+    user.find(marker="member-name-0").type("田中")  # 未適用
+    user.find(marker="parameter-add").click()
+    await user.should_see(marker="parameter-name-0")
+    user.find(marker="parameter-name-0").type("経験")
+    user.find(marker="level-add-0").click()
+    await user.should_see(marker="level-name-0-0")
+    user.find(marker="level-name-0-0").type("上級")
+    user.find(marker="level-value-0-0").clear().type("20")
+    user.find(marker="parameter-apply").click()
+    assert await wait_until(lambda: [p.name for p in view.project.parameters] == ["経験"])
+    await user.should_see(marker="member-level-0-0")  # メンバーの表に、パラメータの列ができる
+    await user.should_see(marker="member-effective-0")
+    assert view.project.members == []  # メンバーは、まだ適用していない
+    assert user.find(marker="member-name-0").elements.pop().value == "田中"
+
+
+async def test_a_parameter_rename_carries_over_to_unapplied_member_rows(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.parameters = [Parameter("経験", [Level("上級", 0.2), Level("初級", -0.1)])]
+    view.project.members = [Member("田中", 1.0, {"経験": "上級"}, "m1")]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="member-name-0").clear().type("田中A")  # 未適用の編集
+    user.find(marker="parameter-name-0").clear().type("経験値")
+    user.find(marker="level-delete-0-1").click()  # 「初級」を削除(選んでいるメンバーはいない)
+    await user.should_see(marker="level-add-0")
+    user.find(marker="parameter-apply").click()
+    assert await wait_until(lambda: view.project.parameters[0].name == "経験値")
+    assert view.project.members[0].levels == {"経験値": "上級"}
+    assert user.find(marker="member-level-0-0").elements.pop().value == "上級"  # 未適用の行も追従する
+    assert user.find(marker="member-name-0").elements.pop().value == "田中A"
+
+
+async def test_the_tabs_show_a_mark_while_they_have_unapplied_edits(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    members_mark = user.find(marker="members-dirty").elements.pop()
+    parameters_mark = user.find(marker="parameters-dirty").elements.pop()
+    assert members_mark.text == "" and parameters_mark.text == ""
+    user.find(marker="member-add").click()
+    assert await wait_until(lambda: members_mark.text == "●")
+    assert parameters_mark.text == ""
+    await user.should_see(marker="member-name-0")
+    user.find(marker="member-name-0").type("田中")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: members_mark.text == "")
+    assert view.project.members[0].name == "田中"
+    user.find(marker="parameter-add").click()
+    assert await wait_until(lambda: parameters_mark.text == "●")
+
+
+async def test_cancel_closes_the_dialog_and_discards_unapplied_edits(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-0")
+    user.find(marker="member-name-0").type("田中")
+    dialog = next(a for a in user.find(marker="members-parameters-panels").elements.pop().ancestors() if isinstance(a, ui.dialog))
+    user.find(marker="members-parameters-cancel").click()
+    assert not dialog.value
+    assert view.project.members == []
+    assert not view.is_dirty()
+
+
 async def test_the_members_dialog_adds_a_member(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-add").click()
     await user.should_see(marker="member-name-0")  # 再描画を待つ
     user.find(marker="member-name-0").type("田中")
@@ -866,7 +967,7 @@ async def test_the_members_dialog_rejects_a_duplicate_name(user: User, tmp_path:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-add").click()
     await user.should_see(marker="member-name-1")
     user.find(marker="member-name-1").type("田中")
@@ -879,7 +980,7 @@ async def test_applying_the_same_members_changes_nothing(user: User, tmp_path: P
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.2)]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-apply").click()
     await asyncio.sleep(0.3)
     assert not view.is_dirty()
@@ -892,7 +993,7 @@ async def test_renaming_a_member_renames_the_assignee_of_its_tasks(
     view.project.members = [Member("田中", 1.0), Member("鈴木", 1.0)]
     view.project.tasks = [Task("a", assignees=[Assignee("田中")]), Task("b", assignees=[Assignee("鈴木")]), Task("c")]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-name-0").clear().type("田中太郎")
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: view.project.tasks[0].assignee_names == ["田中太郎"])
@@ -905,7 +1006,7 @@ async def test_a_member_with_tasks_cannot_be_deleted(user: User, tmp_path: Path)
     view.project.members = [Member("田中", 1.0)]
     view.project.tasks = [Task("a", assignees=[Assignee("田中")])]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-delete-0").click()
     user.find(marker="member-apply").click()
     await user.should_see("1件")
@@ -916,7 +1017,7 @@ async def test_a_member_without_tasks_can_be_deleted(user: User, tmp_path: Path)
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-delete-0").click()
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: view.project.members == [])
@@ -924,7 +1025,7 @@ async def test_a_member_without_tasks_can_be_deleted(user: User, tmp_path: Path)
 
 async def test_the_members_dialog_leaves_no_elements_after_hide(user: User, tmp_path: Path) -> None:
     await open_members_view(user, tmp_path)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-add")
     user.find(kind=ui.dialog).trigger("hide")
     await user.should_not_see(marker="member-add")
@@ -990,7 +1091,7 @@ async def test_swapping_two_member_names_swaps_the_assignees_once(user: User, tm
     view.project.members = [Member("A", 1.0), Member("B", 1.0)]
     view.project.tasks = [Task("t1", assignees=[Assignee("A")]), Task("t2", assignees=[Assignee("B")])]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-name-0").clear().type("B")
     user.find(marker="member-name-1").clear().type("A")
     user.find(marker="member-apply").click()
@@ -2466,7 +2567,7 @@ async def test_saving_a_task_warns_for_each_overloaded_assignee(user: User, tmp_
 
 async def test_the_parameters_dialog_adds_a_parameter_with_levels(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="parameter-add").click()
     await user.should_see(marker="parameter-name-0")
     user.find(marker="parameter-name-0").type("経験")
@@ -2481,7 +2582,7 @@ async def test_the_parameters_dialog_adds_a_parameter_with_levels(user: User, tm
 
 async def test_the_parameters_dialog_shows_the_error_and_does_not_apply(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="parameter-add").click()
     await user.should_see(marker="parameter-name-0")
     user.find(marker="parameter-apply").click()  # 名前が空
@@ -2493,7 +2594,7 @@ async def test_applying_the_same_parameters_changes_nothing(user: User, tmp_path
     view = await open_members_view(user, tmp_path)
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
     view.mark_clean()
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="parameter-apply").click()
     await wait_until(lambda: True)
     assert not view.is_dirty()
@@ -2504,7 +2605,7 @@ async def test_renaming_a_parameter_renames_the_selection_of_members(user: User,
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
     view.project.members = [Member("田中", 1.0, {"経験": "上級"})]
     view.mark_clean()
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="parameter-name-0").clear().type("スキル")
     user.find(marker="parameter-apply").click()
     assert await wait_until(lambda: view.project.members[0].levels == {"スキル": "上級"})
@@ -2516,7 +2617,7 @@ async def test_deleting_a_used_level_asks_first_and_clears_the_selection(user: U
     view.project.parameters = [Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)])]
     view.project.members = [Member("田中", 1.0, {"経験": "上級"}), Member("鈴木", 1.0, {"経験": "上級"})]
     view.mark_clean()
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="level-delete-0-1").click()
     user.find(marker="parameter-apply").click()
     await user.should_see("「経験」の「上級」を選んでいるメンバーが2人います")
@@ -2530,7 +2631,7 @@ async def test_cancelling_the_delete_confirmation_keeps_everything(user: User, t
     view = await open_members_view(user, tmp_path)
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
     view.project.members = [Member("田中", 1.0, {"経験": "上級"})]
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="parameter-delete-0").click()
     user.find(marker="parameter-apply").click()
     await user.should_see("「経験」を選んでいるメンバーが1人います")
@@ -2542,7 +2643,7 @@ async def test_cancelling_the_delete_confirmation_keeps_everything(user: User, t
 async def test_deleting_an_unused_parameter_needs_no_confirmation(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="parameter-delete-0").click()
     user.find(marker="parameter-apply").click()
     assert await wait_until(lambda: view.project.parameters == [])
@@ -2557,7 +2658,7 @@ async def test_a_parameter_edit_changes_the_computed_end(user: User, tmp_path: P
     view.gantt.set_project(view.project)
     # 15h / 1.2 = 12.5h → 金6.5h + 月6.0h
     assert effective_end(task, view.project, {}) == datetime(2026, 10, 12, 15, 0)
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="level-value-0-0").clear().type("50")
     user.find(marker="parameter-apply").click()
     # 15h / 1.5 = 10h → 金6.5h + 月3.5h
@@ -2573,7 +2674,7 @@ def params_view_setup(view: MainView) -> None:
 async def test_the_members_dialog_without_parameters_looks_as_before(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-ratio-0")
     assert user.find(marker="member-header-name").elements.pop().text == "名前"
     assert user.find(marker="member-header-ratio").elements.pop().text == "相対比率(%)"
@@ -2585,7 +2686,7 @@ async def test_the_members_dialog_without_parameters_looks_as_before(user: User,
 async def test_the_members_dialog_with_parameters_shows_selects_and_the_effective_ratio(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-level-0-0")
     assert user.find(marker="member-header-ratio").elements.pop().text == "基本比率(%)"
     assert user.find(marker="member-header-level-0").elements.pop().text == "経験"
@@ -2604,7 +2705,7 @@ async def test_the_members_dialog_with_parameters_shows_selects_and_the_effectiv
 async def test_the_effective_ratio_follows_the_base_ratio_and_shows_the_rounding(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-level-0-0")
     with user.client:
         user.find(marker="member-level-0-0").elements.pop().set_value("上級")
@@ -2617,7 +2718,7 @@ async def test_applying_members_drops_selections_that_point_nowhere(user: User, 
     params_view_setup(view)
     view.project.members = [Member("田中", 1.0, {"経験": "存在しない", "消えた": "x"})]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: view.project.members[0].levels == {})
 
@@ -2625,7 +2726,7 @@ async def test_applying_members_drops_selections_that_point_nowhere(user: User, 
 async def test_a_new_member_row_has_no_selection_and_is_saved(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-add").click()
     await user.should_see(marker="member-name-1")
     user.find(marker="member-name-1").type("鈴木")
@@ -2643,7 +2744,7 @@ def grid_columns(user: User) -> list[str]:
 async def test_the_members_dialog_is_a_table_whose_columns_follow_the_parameters(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-grid")
     # 名前・相対比率・削除
     assert len(grid_columns(user)) == 3
@@ -2653,7 +2754,7 @@ async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path)
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
     view.project.parameters.append(Parameter("専門性", [Level("高", 0.1)]))
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-grid")
     # 名前・基本比率・経験・専門性・相対比率・削除
     assert len(grid_columns(user)) == 6
@@ -2664,7 +2765,7 @@ async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(user: U
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
     view.project.parameters += [Parameter(f"P{n}", [Level("高", 0.1)]) for n in range(6)]
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-grid")
     scroll = user.find(marker="member-scroll").elements.pop()
     assert scroll._style["overflow-x"] == "auto"  # パラメータが多くて広がっても、横にスクロールできる
@@ -2677,7 +2778,7 @@ async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(user: U
 async def test_the_table_inputs_have_no_floating_labels(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-name-0")
     for marker in ("member-name-0", "member-ratio-0", "member-level-0-0"):
         props = user.find(marker=marker).elements.pop().props
@@ -2688,7 +2789,7 @@ async def test_the_table_inputs_have_no_floating_labels(user: User, tmp_path: Pa
 async def test_the_name_column_is_a_narrow_fixed_width_with_or_without_parameters(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-grid")
     assert grid_columns(user) == ["7rem", "7rem", "3rem"]  # 名前・相対比率・削除
 
@@ -2704,7 +2805,7 @@ async def test_the_dialog_width_follows_the_columns_without_the_old_wide_name(us
 async def test_the_member_table_uses_14px_controls(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-level-0-0")
     assert "member-table" in user.find(marker="member-grid").elements.pop().classes
     select = user.find(marker="member-level-0-0").elements.pop()

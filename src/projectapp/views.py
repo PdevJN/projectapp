@@ -30,9 +30,8 @@ from projectapp.forms import (
     MEMBER_TABLE_CSS,
     open_file_dialog,
     open_handoff_dialog,
-    open_members_dialog,
+    open_members_parameters_dialog,
     open_name_dialog,
-    open_parameters_dialog,
     open_section_dialog,
     open_settings_dialog,
     open_unsaved_dialog,
@@ -517,9 +516,15 @@ class MainView:
         ui.notify(summary(result))
         return True
 
-    def open_members(self) -> None:
-        open_members_dialog(
-            self.project.members, self.assigned_count, self.apply_members, self.project.parameters, self.project.used_ids()
+    def open_members_parameters(self) -> None:
+        open_members_parameters_dialog(
+            get_members=lambda: self.project.members,
+            assigned=self.assigned_count,
+            on_apply_members=self.apply_members,
+            get_parameters=lambda: self.project.parameters,
+            impacts=lambda edit: deletion_impacts(self.project, edit),
+            on_apply_parameters=self.apply_parameters,
+            get_taken=self.project.used_ids,
         )
 
     def assigned_count(self, name: str) -> int:
@@ -536,13 +541,6 @@ class MainView:
                     if assignee.name in renames:
                         assignee.name = renames[assignee.name]
         self.gantt.set_project(self.project)
-
-    def open_parameters(self) -> None:
-        open_parameters_dialog(
-            self.project.parameters,
-            lambda edit: deletion_impacts(self.project, edit),
-            self.apply_parameters,
-        )
 
     def apply_parameters(self, edit: ParameterEdit) -> None:
         """パラメータの定義を更新し、メンバーの選択に改名・削除を伝える。保存はしない(編集中の判定に入る)。"""
@@ -808,8 +806,7 @@ class MainView:
                 [
                     ("新規プロジェクト作成", self.request_new, "file-new"),
                     ("設定", self.open_settings, "open-settings"),
-                    ("メンバー", self.open_members, "open-members"),
-                    ("パラメータ", self.open_parameters, "open-parameters"),
+                    ("メンバーとパラメータ", self.open_members_parameters, "open-members-parameters"),
                 ],
             )
             self.header_menu(
