@@ -22,11 +22,11 @@
 ```python
 @dataclass
 class Category:
-    name: str
-    kind: str = ""                   # 種別(自由入力)。最大 MAX_CATEGORY_KIND_LENGTH(20)文字。改行・制御文字は使えない
+    name: str                        # 最大 MAX_CATEGORY_NAME_LENGTH(30)文字。制御文字は使えない
+    kind: str = ""                   # 種別(自由入力)。最大 MAX_CATEGORY_KIND_LENGTH(20)文字。制御文字は使えない
     expiry_date: date | None = None  # 有効期限日。None は期限なし
     color: str = "blue"              # categories.COLORS のどれか
-    prj_code: str = ""               # PRJコード。最大 MAX_PROJECT_CODE_LENGTH(20)文字
+    prj_code: str = ""               # PRJコード。最大 MAX_PROJECT_CODE_LENGTH(20)文字。制御文字は使えない
     id: str = field(default_factory=new_id, compare=False)
 ```
 
@@ -60,11 +60,11 @@ version 3:
 - `categories` はキーなしなら空。配列でなければ拒否する。
 - 各カテゴリ:
   - `id` はキーなし・空・文字列以外・重複を拒否する(カテゴリ同士)。
-  - `name` は文字列で、前後の空白を除いて空でなく、「未定」でなく、ほかのカテゴリと重ならない。
-  - `kind` は文字列(キーなし・`null` は空)。20 文字以内で、改行・タブなどの制御文字(Unicode の `Cc`)を含まない。
+  - `name` は文字列で、前後の空白を除いて空でなく、`MAX_CATEGORY_NAME_LENGTH`(30)文字以内で、制御文字を含まず、「未定」でなく、ほかのカテゴリと重ならない。
+  - `kind` は文字列(キーなし・`null` は空)。20 文字以内で、制御文字を含まない。
   - `expiry_date` は `null`・キーなし、または有効な `YYYY-MM-DD`。
   - `color` は `COLORS` のどれか(キーなしは `blue`)。
-  - `prj_code` は文字列(キーなし・`null` は空)。前後の空白を除き、20 文字以内。
+  - `prj_code` は文字列(キーなし・`null` は空)。前後の空白を除き、20 文字以内で、制御文字を含まない。
 - `tasks[].category_id` は `null`・キーなし、または存在するカテゴリの `id`。存在しない `id` は拒否する。
 - タスクに旧キー `project_code` があっても、version 3 では使わない(読み捨てる)。
 - 不正な値は読込を拒否する(`ValueError`。「開けませんでした」)。このアプリより新しい `version` は、従来どおり拒否する。
@@ -118,6 +118,8 @@ version 3:
 - `_uuid(project.name, "category", ...)` と `CATEGORY_COLORS` の割り当ては廃止する。
 - todoapp の形式(`version: 1`)は変えず、独自のキーも足さない。
 - 要望 5(返送の取り込み)では、`category_id` が `null` または存在しない `id` のものを「未定」として読む。ここでは実装しない。
+
+- 制御文字は Unicode の `Cc`(改行・タブ・NUL・DEL・C1)。名前・種別・PRJコードに共通で、前後の空白(改行を含む)を除いてから検査する。設定ダイアログの入力欄には `maxlength` を付ける。
 
 ## 範囲外
 
