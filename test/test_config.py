@@ -170,3 +170,26 @@ def test_load_zoom_ignores_a_broken_value(tmp_path: Path) -> None:
 
     (tmp_path / "config.json").write_text(json.dumps({"zoom": "big"}), encoding="utf-8")
     assert load_zoom(tmp_path) == 100
+
+
+def test_the_task_layout_defaults_to_all(tmp_path: Path) -> None:
+    from projectapp.config import load_task_layout
+
+    assert load_task_layout(tmp_path) == "all"
+
+
+def test_the_task_layout_round_trips_and_keeps_other_keys(tmp_path: Path) -> None:
+    from projectapp.config import load_task_layout, load_zoom, save_task_layout, save_zoom
+
+    save_zoom(120, tmp_path)
+    save_task_layout("schedule", tmp_path)
+    assert load_task_layout(tmp_path) == "schedule"
+    assert load_zoom(tmp_path) == 120
+
+
+@pytest.mark.parametrize("value", ["x", 1, None, True, ["all"]])
+def test_an_invalid_task_layout_falls_back_to_all(tmp_path: Path, value: object) -> None:
+    from projectapp.config import load_task_layout
+
+    (tmp_path / "config.json").write_text(json.dumps({"task_layout": value}), encoding="utf-8")
+    assert load_task_layout(tmp_path) == "all"

@@ -9,6 +9,7 @@ from pathlib import Path
 from projectapp.storage import BASE_DIR
 
 THEMES = ("auto", "light", "dark")
+TASK_LAYOUTS = ("all", "schedule")  # タスクのダイアログのレイアウト(すべて・予定と実績)
 DEFAULT_NAME_WIDTH_PX = 200  # ガントチャートの名前の欄の幅
 MIN_NAME_WIDTH_PX = 120
 MAX_NAME_WIDTH_PX = 480
@@ -57,6 +58,15 @@ def load_theme(base_dir: Path = BASE_DIR) -> str:
 
 def save_theme(theme: str, base_dir: Path = BASE_DIR) -> None:
     update_config({"theme": theme}, base_dir)
+
+
+def load_task_layout(base_dir: Path = BASE_DIR) -> str:
+    layout = read_config(base_dir).get("task_layout", "all")
+    return layout if isinstance(layout, str) and layout in TASK_LAYOUTS else "all"
+
+
+def save_task_layout(layout: str, base_dir: Path = BASE_DIR) -> None:
+    update_config({"task_layout": layout}, base_dir)
 
 
 def load_name_width(base_dir: Path = BASE_DIR) -> int:
