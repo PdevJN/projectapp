@@ -18,12 +18,14 @@ from projectapp.linkgraph import drop_task_links, link_options
 from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import (
     THEMES,
+    check_project_dir,
     load_name_width,
     load_task_layout,
     load_theme,
     load_zoom,
     resolve_project_dir,
     save_name_width,
+    save_project_dir,
     save_task_layout,
     save_theme,
     save_zoom,
@@ -118,6 +120,7 @@ body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55
 .app-menu .q-item { font-size: 12px; min-height: 32px; }
 """
 HANDOFF_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、書き出せます"
+CHANGE_DIR_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、格納先を変更できます"
 KEY_GUARD_JS = key_guard_js()
 
 
@@ -276,6 +279,47 @@ class MainView:
             on_discard=self.new_project,
             purpose="作成",
         )
+
+    def request_change_project_dir(self) -> None:
+        """格納先を変える(ネイティブのみ)。編集中は、確認してからフォルダを選ばせる。"""
+        if not self.exporter.available:
+            ui.notify(CHANGE_DIR_NOT_NATIVE_MESSAGE, type="warning")
+            return
+        if not self.is_dirty():
+            self.pick_project_dir()
+            return
+        open_unsaved_dialog(
+            on_save=lambda: self.save_then(self.pick_project_dir),
+            on_discard=self.pick_project_dir,
+            purpose="変更",
+        )
+
+    def pick_project_dir(self) -> None:
+        """フォルダ選択を始める。確認ダイアログは閉じると消えるので、タイマーは画面の直下に置く。"""
+        with self.client:
+            ui.timer(0, self.choose_project_dir, once=True)
+
+    async def choose_project_dir(self) -> None:
+        path = await self.exporter.ask_directory()
+        if path is not None:
+            self.change_project_dir(path)
+
+    def change_project_dir(self, path: Path) -> None:
+        """検査に通れば、格納先を保存して、ファイル一覧を読み直し、保存前の新規プロジェクトにする。"""
+        if path.resolve() == self.project_dir.resolve():
+            return
+        if error := check_project_dir(path):
+            ui.notify(f"このフォルダは使えません: {error}", type="negative")
+            return
+        try:
+            save_project_dir(path, self.base_dir)
+        except OSError as exc:
+            ui.notify(f"保存できませんでした: {exc}", type="negative")
+            return
+        self.project_dir = path
+        self.files = {p.stem: p for p in list_project_files(path)}
+        self.file_select.set_options(sorted(self.files), value=None)
+        self.new_project()
 
     def new_project(self) -> None:
         """起動時と同じ、保存前の新規プロジェクトにする(ファイルは、保存するまで作らない)。"""
@@ -832,6 +876,7 @@ class MainView:
                     MenuItem("上書き保存", "save", self.save_project_clicked, "save-project"),
                     MenuItem("名前をつけて保存", "save_as", self.save_as, "file-save-as"),
                     None,
+                    MenuItem("格納先を変更", "drive_file_move", self.request_change_project_dir, "file-change-dir"),
                     MenuItem("祝日を更新", "event_repeat", self.refresh_holidays, "refresh-holidays"),
                 ],
             )

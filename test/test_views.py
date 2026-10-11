@@ -1429,8 +1429,16 @@ PNG_BYTES = b"\x89PNG\r\n\x1a\nbody"
 class FakeExporter:
     """画像化と保存先の選択の偽物。呼ばれた内容を記録する。"""
 
-    def __init__(self, path: Path | None = None, error: Exception | None = None, available: bool = True) -> None:
+    def __init__(
+        self,
+        path: Path | None = None,
+        error: Exception | None = None,
+        available: bool = True,
+        directory: Path | None = None,
+    ) -> None:
         self.path, self.error, self._available = path, error, available
+        self.directory = directory
+        self.asked_directory = 0
         self.captured: list[float] = []
         self.asked: list[str] = []
         self.asked_types: list[tuple[str, ...]] = []
@@ -1449,6 +1457,10 @@ class FakeExporter:
         self.asked.append(filename)
         self.asked_types.append(file_types)
         return self.path
+
+    async def ask_directory(self) -> Path | None:
+        self.asked_directory += 1
+        return self.directory
 
 
 def mount_preview(base_dir: Path, views: list[MainView], exporter: FakeExporter) -> None:
@@ -2201,6 +2213,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         ("新規プロジェクト作成", "file-new"),
         ("上書き保存", "save-project"),
         ("名前をつけて保存", "file-save-as"),
+        ("格納先を変更", "file-change-dir"),
         ("祝日を更新", "refresh-holidays"),
     ]
     assert menu_items(user, "menu-project-items") == [
@@ -2208,7 +2221,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         ("メンバーとパラメータ", "open-members-parameters"),
         ("ダッシュボード", "menu-open-dashboard"),
     ]
-    assert menu_icons(user, "menu-file-items") == ["folder_open", "note_add", "save", "save_as", "event_repeat"]
+    assert menu_icons(user, "menu-file-items") == ["folder_open", "note_add", "save", "save_as", "drive_file_move", "event_repeat"]
     assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
     assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share"]
     assert menu_icons(user, "menu-help-items") == ["keyboard"]
@@ -2225,7 +2238,7 @@ async def test_the_file_menu_separates_open_save_and_update(user: User, tmp_path
     await open_header_view(user, tmp_path)
     menu = user.find(marker="menu-file-items").elements.pop()
     kinds = ["sep" if isinstance(c, ui.separator) else "item" for c in menu.default_slot.children]
-    assert kinds == ["item", "item", "sep", "item", "item", "sep", "item"]
+    assert kinds == ["item", "item", "sep", "item", "item", "sep", "item", "item"]
 
 
 async def test_the_project_menu_dashboard_item_opens_the_dashboard(user: User, tmp_path: Path) -> None:
@@ -2381,6 +2394,126 @@ async def open_saved_view(user: User, tmp_path: Path) -> MainView:
     return views[0]
 
 
+async def open_dir_view(
+    user: User, tmp_path: Path, directory: Path | None, *, available: bool = True
+) -> tuple[MainView, FakeExporter]:
+    """設定側 tmp_path/config に「甲」を置いて開いた状態。フォルダ選択は、directory を返す。"""
+    base = tmp_path / "config"
+    save_cache({}, base)
+    save_project(Project("甲", sections=[Section("甲の中身")]), base)
+    exporter = FakeExporter(directory=directory, available=available)
+    views: list[MainView] = []
+    mount_preview(base, views, exporter)
+    await user.open("/")
+    views[0].request_open("甲")
+    assert views[0].path == base / "甲.json"
+    return views[0], exporter
+
+
+async def test_changing_the_project_dir_switches_the_list_and_starts_a_new_project(user: User, tmp_path: Path) -> None:
+    shared = tmp_path / "shared"
+    save_project(Project("乙"), shared)
+    view, _ = await open_dir_view(user, tmp_path, shared)
+    user.find(marker="file-change-dir").click()
+    assert await wait_until(lambda: view.project_dir == shared)
+    assert load_project_dir(tmp_path / "config") == shared
+    assert set(view.files) == {"乙"} and list(view.file_select.options) == ["乙"]
+    assert view.path is None and view.project.name == "新規プロジェクト" and view.file_select.value is None
+    assert (tmp_path / "config" / "甲.json").exists()  # 古い格納先のファイルは、そのまま残す
+
+
+async def test_changing_to_an_empty_folder_is_allowed(user: User, tmp_path: Path) -> None:
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    view, _ = await open_dir_view(user, tmp_path, empty)
+    user.find(marker="file-change-dir").click()
+    assert await wait_until(lambda: view.project_dir == empty)
+    assert view.files == {}
+
+
+async def test_an_unusable_folder_is_rejected_and_nothing_changes(user: User, tmp_path: Path) -> None:
+    view, _ = await open_dir_view(user, tmp_path, tmp_path / "ない")
+    user.find(marker="file-change-dir").click()
+    assert await wait_until(lambda: user.notify.contains("このフォルダは使えません"))
+    assert view.project_dir == tmp_path / "config" and view.path == tmp_path / "config" / "甲.json"
+    assert load_project_dir(tmp_path / "config") is None
+
+
+async def test_cancelling_the_folder_dialog_changes_nothing(user: User, tmp_path: Path) -> None:
+    view, exporter = await open_dir_view(user, tmp_path, None)
+    user.find(marker="file-change-dir").click()
+    assert await wait_until(lambda: exporter.asked_directory == 1)
+    assert view.project_dir == tmp_path / "config" and view.path is not None
+    assert load_project_dir(tmp_path / "config") is None
+
+
+async def test_choosing_the_current_folder_does_nothing(user: User, tmp_path: Path) -> None:
+    view, exporter = await open_dir_view(user, tmp_path, tmp_path / "config")
+    user.find(marker="file-change-dir").click()
+    assert await wait_until(lambda: exporter.asked_directory == 1)
+    assert view.path is not None  # プロジェクトを閉じない
+    assert load_project_dir(tmp_path / "config") is None  # 設定も書かない
+
+
+async def test_a_failure_to_save_the_setting_keeps_the_old_folder(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    view, _ = await open_dir_view(user, tmp_path, shared)
+
+    def fail(path: Path, base_dir: Path) -> None:
+        raise OSError("読み取り専用")
+
+    monkeypatch.setattr("projectapp.views.save_project_dir", fail)
+    user.find(marker="file-change-dir").click()
+    assert await wait_until(lambda: user.notify.contains("保存できませんでした"))
+    assert view.project_dir == tmp_path / "config" and view.path is not None
+
+
+async def test_changing_the_folder_is_native_only(user: User, tmp_path: Path) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    view, exporter = await open_dir_view(user, tmp_path, shared, available=False)
+    user.find(marker="file-change-dir").click()
+    await user.should_see("ネイティブウィンドウでのみ")
+    assert exporter.asked_directory == 0 and view.project_dir == tmp_path / "config"
+
+
+async def test_changing_the_folder_asks_before_dropping_unsaved_changes(user: User, tmp_path: Path) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    view, exporter = await open_dir_view(user, tmp_path, shared)
+    view.save_section("追加")
+    user.find(marker="file-change-dir").click()
+    await user.should_see("変更前に")
+    assert exporter.asked_directory == 0  # 確認より先に、フォルダを選ばせない
+    user.find(marker="unsaved-cancel").click()
+    assert exporter.asked_directory == 0 and view.project_dir == tmp_path / "config"
+
+
+async def test_changing_the_folder_can_discard_the_changes(user: User, tmp_path: Path) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    view, _ = await open_dir_view(user, tmp_path, shared)
+    view.save_section("追加")
+    user.find(marker="file-change-dir").click()
+    user.find(marker="unsaved-discard").click()
+    assert await wait_until(lambda: view.project_dir == shared)
+    assert [s.name for s in load_project(tmp_path / "config" / "甲.json").sections] == ["甲の中身"]
+
+
+async def test_changing_the_folder_can_save_first(user: User, tmp_path: Path) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    view, _ = await open_dir_view(user, tmp_path, shared)
+    view.save_section("追加")
+    user.find(marker="file-change-dir").click()
+    user.find(marker="unsaved-save").click()
+    assert await wait_until(lambda: view.project_dir == shared)
+    assert [s.name for s in load_project(tmp_path / "config" / "甲.json").sections] == ["甲の中身", "追加"]
+
+
 async def test_new_project_replaces_the_current_one_with_an_unsaved_empty_project(user: User, tmp_path: Path) -> None:
     view = await open_saved_view(user, tmp_path)
     user.find(marker="file-new").click()
@@ -2462,7 +2595,7 @@ async def test_the_file_menu_separators_are_marked_and_the_holiday_update_is_las
     menu = user.find(marker="menu-file-items").elements.pop()
     children = menu.default_slot.children
     assert "menu-file-separator" in children[2]._markers and "menu-file-separator" in children[5]._markers
-    assert "refresh-holidays" in children[6]._markers
+    assert "file-change-dir" in children[6]._markers and "refresh-holidays" in children[7]._markers
 
 
 async def test_templates_are_saved_with_the_project_and_mark_it_dirty(
