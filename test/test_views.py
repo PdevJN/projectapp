@@ -956,6 +956,79 @@ async def test_the_tabs_show_a_mark_while_they_have_unapplied_edits(user: User, 
     assert await wait_until(lambda: parameters_mark.text == "●")
 
 
+async def settle() -> None:
+    """未適用の印のタイマー(0.3 秒)が、少なくとも 1 回回るのを待つ。"""
+    await asyncio.sleep(0.8)
+
+
+def with_experience(view: MainView) -> None:
+    view.project.parameters = [Parameter("経験", [Level("上級", 0.2), Level("初級", -0.1)])]
+    view.project.members = [Member("田中", 1.0, {"経験": "上級"}, "m1")]
+    view.mark_clean()
+
+
+async def test_a_parameter_rename_and_delete_do_not_mark_the_members_tab_as_edited(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    with_experience(view)
+    await open_members_parameters(user)
+    members_mark = user.find(marker="members-dirty").elements.pop()
+    user.find(marker="parameter-name-0").clear().type("経験値")
+    user.find(marker="level-name-0-0").clear().type("エキスパート")  # 「上級」の改名
+    user.find(marker="level-delete-0-1").click()  # 「初級」の削除
+    await user.should_see(marker="level-add-0")
+    user.find(marker="parameter-apply").click()
+    assert await wait_until(lambda: view.project.parameters[0].name == "経験値")
+    assert view.project.members[0].levels == {"経験値": "エキスパート"}
+    await settle()
+    assert members_mark.text == ""  # メンバーの表は、プロジェクトに追従しただけで、編集ではない
+
+
+async def test_a_parameter_apply_keeps_the_mark_of_a_real_member_edit(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    with_experience(view)
+    await open_members_parameters(user)
+    members_mark = user.find(marker="members-dirty").elements.pop()
+    user.find(marker="member-name-0").clear().type("田中A")
+    user.find(marker="parameter-name-0").clear().type("経験値")
+    user.find(marker="parameter-apply").click()
+    assert await wait_until(lambda: view.project.parameters[0].name == "経験値")
+    await settle()
+    assert members_mark.text == "●"  # 名前の編集は、まだ適用していない
+
+
+async def test_applying_members_uses_the_applied_parameters_not_the_unapplied_ones(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    with_experience(view)
+    await open_members_parameters(user)
+    parameters_mark = user.find(marker="parameters-dirty").elements.pop()
+    user.find(marker="parameter-name-0").clear().type("経験値")  # 未適用
+    user.find(marker="member-name-0").clear().type("田中A")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members[0].name == "田中A")
+    assert view.project.parameters[0].name == "経験"  # パラメータは、適用していない
+    assert view.project.members[0].levels == {"経験": "上級"}  # 選択も、適用済みの定義のまま
+    await settle()
+    assert parameters_mark.text == "●"  # パラメータのタブの編集は、残る
+
+
+async def test_applying_members_twice_renames_the_assigned_tasks_once_each(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("田中", 1.0, {}, "m1")]
+    view.project.tasks = [Task("a", assignees=[Assignee("田中")])]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="member-name-0").clear().type("田中A")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.tasks[0].assignees[0].name == "田中A")
+    first = user.find(marker="member-name-0").elements.pop()
+    assert await wait_until(lambda: user.find(marker="member-name-0").elements.pop() is not first)  # 行の作り直しを待つ
+    user.find(marker="member-name-0").clear().type("田中B")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.tasks[0].assignees[0].name == "田中B")
+    assert [m.id for m in view.project.members] == ["m1"]  # id は変わらない
+    assert view.project.members[0].name == "田中B"
+
+
 async def test_cancel_closes_the_dialog_and_discards_unapplied_edits(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
