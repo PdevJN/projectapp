@@ -169,6 +169,8 @@ class PriorityChips:
             chip.update()
 
 
+LAYOUT_LABELS = {"schedule": "予定・実績", "all": "すべて"}
+
 # ESC だけをサーバーへ送る。日本語の変換中の ESC は、変換の取り消しなので送らない
 ESCAPE_KEYDOWN_JS = "(e) => { if (e.code === 'Escape' && !e.isComposing) emit(); }"
 
@@ -836,6 +838,8 @@ def open_task_dialog(
     open_url: Callable[[str], object] = default_open_url,
     parameters: list[Parameter] | None = None,
     categories: list[Category] | None = None,
+    layout: str = "all",
+    on_layout_change: Callable[[str], object] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
     # 換算には、パラメータを反映した実効比率を使う(以降は、このコピーだけを見る)
@@ -846,6 +850,9 @@ def open_task_dialog(
     initial_rate = assignees_rate(initial.assignees, member_list)
     with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[44rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
+        layout_toggle = ui.toggle(LAYOUT_LABELS, value=layout if layout in LAYOUT_LABELS else "all").mark(
+            "task-layout"
+        )
         kind = ui.toggle({k: k.value for k in TaskKind}, value=initial.kind).mark("task-kind")
         kind_hint = (
             ui.label("保存すると、開始予定・工数・担当・実績は消えます")
@@ -930,7 +937,7 @@ def open_task_dialog(
             # チェックポイントは押し出されない(締切に固定)ので、ヒントを出さない
             text = "" if kind.value == TaskKind.CHECKPOINT else push_hint(start_at, finishes)
             push.set_text(text)
-            push.set_visibility(bool(text))
+            push.set_visibility(bool(text) and layout_toggle.value == "all")
 
         predecessors.on_value_change(refresh_push)
         refresh_push()
@@ -940,7 +947,8 @@ def open_task_dialog(
             hidden = [pid for pid in initial.predecessors if pid not in options]
             return [*(predecessors.value or []), *hidden]
 
-        priority = PriorityChips(initial.priority)
+        with ui.column().classes("w-full gap-1") as priority_box:
+            priority = PriorityChips(initial.priority)
         intervals = actual_mode is ActualMode.INTERVALS
         with ui.column().classes("w-full") as actual_box:
             actual_fields: ActualFields | IntervalFields = (
@@ -1009,10 +1017,27 @@ def open_task_dialog(
         kind.on_value_change(apply_kind)
         apply_kind()
         templates = list(url_templates or [])
-        url_fields = UrlFields(initial.urls, templates, open_url)
+        with ui.column().classes("w-full gap-1") as url_box:
+            url_fields = UrlFields(initial.urls, templates, open_url)
         color = ui.color_input("色", value=initial.color, preview=True).classes("w-full").mark(
             "task-color"
         )
+
+        def apply_layout(_event: object = None) -> None:
+            """レイアウトに合わせて欄を出し入れする(値は消さない)。チェックポイントでは、どのレイアウトでも通常の欄を隠す。"""
+            full = layout_toggle.value == "all"
+            normal = kind.value != TaskKind.CHECKPOINT
+            for widget in (category, predecessors, priority_box, url_box, color):
+                widget.set_visibility(full)
+            for widget in (assignee_fields.container, conversion):
+                widget.set_visibility(full and normal)
+            refresh_push()
+
+        kind.on_value_change(apply_layout)  # apply_kind の後に走り、同じ欄の可視性をレイアウトを含めて決め直す
+        layout_toggle.on_value_change(apply_layout)
+        if on_layout_change is not None:
+            layout_toggle.on_value_change(lambda e: on_layout_change(e.value))
+        apply_layout()
         error = ui.label("").classes("text-negative").mark("form-error")
 
         def current() -> tuple[object, ...]:

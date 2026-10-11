@@ -17,6 +17,7 @@ from projectapp.models import (
     Level,
     Member,
     Parameter,
+    Priority,
     Status,
     Task,
     TaskKind,
@@ -41,6 +42,8 @@ def mount_dialog(
     opened: list[str] | None = None,
     parameters: list[Parameter] | None = None,
     categories: list[Category] | None = None,
+    layout: str = "all",
+    on_layout_change: Callable[[str], object] | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -60,6 +63,8 @@ def mount_dialog(
                 url_templates=url_templates,
                 parameters=parameters,
                 categories=categories,
+                layout=layout,
+                on_layout_change=on_layout_change,
                 open_url=(lambda url: opened.append(url)) if opened is not None else default_open_url,
             ),
         )
@@ -2146,3 +2151,100 @@ async def test_the_allocation_hides_again_when_cleared_and_keeps_its_value(user:
     with user.client:
         select.set_value("田中")
     assert user.find(marker="task-allocation").elements.pop().value == 50  # 隠しても値は残る
+
+
+def rich_task() -> Task:
+    return Task(
+        "a",
+        category_id="c1",
+        assignees=[Assignee("田中", 0.5)],
+        predecessors=["p1"],
+        priority=Priority.HIGH,
+        color="#123456",
+        urls=[TaskUrl("仕様", None, {"URL": "https://example.com/spec"})],
+    )
+
+
+HIDDEN_IN_SCHEDULE = [
+    "task-category",
+    "task-assignee",
+    "task-predecessors",
+    "priority-HIGH",
+    "task-url-add",
+    "task-color",
+]
+SHOWN_IN_SCHEDULE = [
+    "task-name",
+    "task-start-date",
+    "task-end-date",
+    "task-deadline-date",
+    "task-effort",
+    "task-actual-start-date",
+    "task-status",
+    "task-kind",
+]
+
+
+async def test_the_dialog_opens_in_the_layout_it_is_given(user: User) -> None:
+    mount_dialog(rich_task(), [], layout="schedule", link_options={"p1": "先行"}, categories=[Category("開発", id="c1")], members=[Member("田中", 1.0)])
+    await open_dialog(user)
+    for marker in SHOWN_IN_SCHEDULE:
+        await user.should_see(marker=marker)
+    for marker in HIDDEN_IN_SCHEDULE:
+        await user.should_not_see(marker=marker)
+
+
+async def test_the_toggle_switches_the_layout_and_reports_it(user: User) -> None:
+    changed: list[str] = []
+    mount_dialog(rich_task(), [], on_layout_change=changed.append, link_options={"p1": "先行"}, categories=[Category("開発", id="c1")], members=[Member("田中", 1.0)])
+    await open_dialog(user)
+    for marker in HIDDEN_IN_SCHEDULE:
+        await user.should_see(marker=marker)  # 既定は「すべて」
+    user.find(marker="task-layout").elements.pop().set_value("schedule")
+    for marker in HIDDEN_IN_SCHEDULE:
+        await user.should_not_see(marker=marker)
+    assert changed == ["schedule"]
+    user.find(marker="task-layout").elements.pop().set_value("all")
+    await user.should_see(marker="task-category")
+    assert changed == ["schedule", "all"]
+
+
+async def test_hidden_fields_keep_their_values_through_a_schedule_save(user: User) -> None:
+    saved: list[Task] = []
+    original = rich_task()
+    mount_dialog(original, saved, layout="schedule", link_options={"p1": "先行"}, categories=[Category("開発", id="c1")], members=[Member("田中", 1.0)])
+    await open_dialog(user)
+    user.find(marker="task-name").clear().type("改名")
+    user.find(marker="task-save").click()
+    result = saved[0]
+    assert result.name == "改名"
+    assert result.category_id == "c1"
+    assert [(a.name, a.allocation) for a in result.assignees] == [("田中", 0.5)]
+    assert result.predecessors == ["p1"]
+    assert result.priority is Priority.HIGH
+    assert result.color == "#123456"
+    assert result.urls == original.urls
+
+
+async def test_a_layout_switch_alone_is_not_a_change(user: User) -> None:
+    mount_dialog(rich_task(), [], link_options={"p1": "先行"}, categories=[Category("開発", id="c1")], members=[Member("田中", 1.0)])
+    await open_dialog(user)
+    user.find(marker="task-layout").elements.pop().set_value("schedule")
+    user.find(marker="task-cancel").click()
+    assert dialog_of(user).value is False  # 切り替えは、変更に数えない(確認なしで閉じる)
+    assert confirm_dialog_of(user).value is False
+
+
+async def test_a_checkpoint_hides_the_normal_fields_in_every_layout(user: User) -> None:
+    mount_dialog(None, [], layout="schedule")
+    await open_dialog(user)
+    user.find(marker="task-kind").elements.pop().set_value(TaskKind.CHECKPOINT)
+    for marker in ("task-start-date", "task-effort", "task-actual-start-date"):
+        await user.should_not_see(marker=marker)
+    await user.should_see(marker="task-deadline-date")
+    user.find(marker="task-layout").elements.pop().set_value("all")
+    for marker in ("task-start-date", "task-effort", "task-actual-start-date", "task-assignee-add"):
+        await user.should_not_see(marker=marker)
+    user.find(marker="task-kind").elements.pop().set_value(TaskKind.NORMAL)
+    await user.should_see(marker="task-effort")
+    await user.should_see(marker="task-assignee-add")

@@ -19,9 +19,11 @@ from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import (
     THEMES,
     load_name_width,
+    load_task_layout,
     load_theme,
     load_zoom,
     save_name_width,
+    save_task_layout,
     save_theme,
     save_zoom,
     step_zoom,
@@ -145,6 +147,7 @@ class MainView:
         self.open_folder: Callable[[Path], object] = open_folder  # テストで差し替える(実際にはファイラを開かない)
         self.saving = False
         self.zoom = load_zoom(base_dir)  # 画面全体の倍率(%)。全プロジェクト共通
+        self.task_layout = load_task_layout(base_dir)  # タスクのダイアログのレイアウト。全プロジェクト共通
         self.run_js: Callable[..., Any] = ui.run_javascript  # テストで差し替える
         self.project = Project(NEW_PROJECT_NAME)
         self.files: dict[str, Path] = {p.stem: p for p in list_project_files(base_dir)}
@@ -320,6 +323,14 @@ class MainView:
             save_zoom(zoom, self.base_dir)
         except OSError:
             ui.notify("倍率を保存できませんでした", type="warning")
+
+    def set_task_layout(self, layout: str) -> None:
+        """タスクのダイアログのレイアウトを覚える。保存できなくても、画面には反映する(通知だけ出す)。"""
+        self.task_layout = layout
+        try:
+            save_task_layout(layout, self.base_dir)
+        except OSError:
+            ui.notify("レイアウトを保存できませんでした", type="warning")
 
     SHORTCUT_METHODS = {
         "save": "save_project_clicked",
@@ -652,6 +663,8 @@ class MainView:
             "url_templates": self.project.url_templates,
             "parameters": self.project.parameters,
             "categories": self.project.categories,
+            "layout": self.task_layout,
+            "on_layout_change": self.set_task_layout,
         }
 
     def add_task(self, path: SectionPath) -> None:
