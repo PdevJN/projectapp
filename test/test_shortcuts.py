@@ -113,6 +113,9 @@ console.log(JSON.stringify({
   slash: press({ key: "/", code: "Slash", keyCode: 191 }),
   esc: press({ key: "Escape", code: "Escape", keyCode: 27 }),
   dInInput: press({ key: "d", code: "KeyD", keyCode: 68, target: { tagName: "INPUT" } }),
+  escInInput: press({ key: "Escape", code: "Escape", keyCode: 27, target: { tagName: "INPUT" } }),
+  escInTextarea: press({ key: "Escape", code: "Escape", keyCode: 27, target: { tagName: "TEXTAREA" } }),
+  escComposing: press({ key: "Escape", code: "Escape", keyCode: 27, isComposing: true, target: { tagName: "INPUT" } }),
   x: press({ key: "x", code: "KeyX", keyCode: 88 }),
 }));
 """
@@ -137,8 +140,10 @@ def test_the_key_guard_blocks_the_browser_default_and_the_beep(tmp_path):
     out = json.loads(run.stdout)
     for name in ("ctrlS", "cmdP", "d", "slash", "esc"):
         assert out[name]["prevented"], name  # ブラウザ既定の動き・macOS の警告音を止める
-    for name in ("ctrlX", "dInInput", "x"):
-        assert not out[name]["prevented"], name  # 割り当てのないキーと、入力欄の文字は止めない
+    for name in ("escInInput", "escInTextarea"):
+        assert out[name]["prevented"], name  # ESC は文字を入力しないので、入力欄の中でも止める(止めないと macOS の警告音が鳴る)
+    for name in ("ctrlX", "dInInput", "x", "escComposing"):
+        assert not out[name]["prevented"], name  # 割り当てのないキーと、入力欄の文字、変換の取り消しの ESC は止めない
 
 
 def test_members_parameters_shortcut_needs_ctrl_and_shift():
