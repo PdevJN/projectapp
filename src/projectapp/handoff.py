@@ -11,11 +11,10 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
-from projectapp.models import Project, Status, Task
+from projectapp.models import Category, Project, Status, Task
 from projectapp.timeline import conversion_rate, effective_end, effective_start
 
 NAMESPACE = uuid.UUID("5b0f3c1e-8a42-4d6f-9e17-3c2a7d94b0e8")  # 決定的な id の元。変えると、書き出し直しの id が変わる
-CATEGORY_COLORS = ("blue", "indigo", "purple", "pink", "red", "orange", "amber", "green", "teal", "brown")
 JSON_FILE_TYPES = ("JSON ファイル (*.json)",)
 UNSAFE_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
 
@@ -70,28 +69,27 @@ def _estimate_hours(task: Task, project: Project, member_name: str) -> float:
     return round(task.effort_hours * allocation / conversion_rate(task, project), 2)
 
 
+def _category(category: Category) -> dict[str, Any]:
+    return {
+        "id": category.id,
+        "name": category.name,
+        "kind": category.kind,
+        "expiry_date": category.expiry_date.isoformat() if category.expiry_date else None,
+        "color": category.color,
+        "prj_code": category.prj_code,
+    }
+
+
 def build_todos(project: Project, member_name: str, holidays: dict[date, str]) -> Handoff:
     tasks = tasks_for(project, member_name)
     keys = _task_keys(project)
-    categories: dict[str, dict[str, Any]] = {}
+    categories = [_category(c) for c in project.categories]
+    known = {c.id for c in project.categories}
     items: list[dict[str, Any]] = []
     pairs: list[tuple[str, Task]] = []
     for task in tasks:
         item_id = _uuid(project.name, keys[id(task)])
-        category_id = None
-        if task.project_code:
-            category = categories.get(task.project_code)
-            if category is None:
-                category = {
-                    "id": _uuid(project.name, "category", task.project_code),
-                    "name": task.project_code,
-                    "kind": "",
-                    "expiry_date": None,
-                    "color": CATEGORY_COLORS[len(categories) % len(CATEGORY_COLORS)],
-                    "prj_code": task.project_code,
-                }
-                categories[task.project_code] = category
-            category_id = category["id"]
+        category_id = task.category_id if task.category_id in known else None
         schedule_type, anchor = _schedule(task, project, holidays)
         items.append(
             {
@@ -106,7 +104,7 @@ def build_todos(project: Project, member_name: str, holidays: dict[date, str]) -
         )
         pairs.append((item_id, task))
     records, skipped = _records(pairs)
-    data = {"version": 1, "items": items, "records": records, "categories": list(categories.values())}
+    data = {"version": 1, "items": items, "records": records, "categories": categories}
     return Handoff(data, len(tasks), skipped)
 
 
