@@ -7,7 +7,7 @@ import projectapp.models as models
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.categories import CategoryEdit
+from projectapp.categories import COLOR_HEX, COLOR_LABELS, COLORS, CategoryEdit
 from projectapp.forms import (
     CategoryRow,
     build_category_edit,
@@ -1538,12 +1538,27 @@ async def test_a_new_row_gets_the_first_unused_color(user: User) -> None:
     assert user.find(marker="settings-category-1-color").elements.pop().value == "indigo"
 
 
-async def test_changing_the_color_updates_the_swatch(user: User) -> None:
+async def test_the_color_select_shows_a_colored_dot_with_the_name(user: User) -> None:
     mount_category_settings([Category("a", color="blue")], {}, [], [])
     await user.open("/")
     user.find("open").click()
+    select = user.find(marker="settings-category-0-color").elements.pop()
+    assert list(select.options.values()) == [COLOR_LABELS[c] for c in COLORS]  # 名前が選択肢の文字
+    for slot in ("option", "selected-item"):  # 選択肢も、選んだあとの表示も、丸 + 名前
+        template = select.slots[slot].template
+        assert 'name="circle"' in template and "props.opt.label" in template
+        assert all(hex_color in template for hex_color in COLOR_HEX.values())  # 10 色すべての色コード
+    await user.should_not_see(marker="settings-category-0-swatch")  # 別の色見本は置かない
+
+
+async def test_choosing_a_color_changes_the_category_color(user: User) -> None:
+    edits: list[CategoryEdit] = []
+    mount_category_settings([Category("a", color="blue")], {}, [], edits)
+    await user.open("/")
+    user.find("open").click()
     user.find(marker="settings-category-0-color").elements.pop().set_value("red")
-    assert "#f44336" in user.find(marker="settings-category-0-swatch").elements.pop()._style["color"]
+    user.find(marker="settings-apply").click()
+    assert edits[0].categories[0].color == "red"
 
 
 async def test_unchanged_categories_do_not_call_on_categories(user: User) -> None:

@@ -413,6 +413,17 @@ class CategoryRow:
     prj_code: str
 
 
+_COLOR_MAP = "{" + ",".join(f"{color}:'{code}'" for color, code in COLOR_HEX.items()) + "}"  # 色名 → 色コード(Vue の式)
+_COLOR_DOT = f'<q-icon name="circle" size="xs" :style="{{ color: ({_COLOR_MAP})[props.opt.value] }}" />'
+COLOR_OPTION_TEMPLATE = (  # 選択肢: 色付きの丸 + 色の名前
+    '<q-item v-bind="props.itemProps"><q-item-section avatar>'
+    f"{_COLOR_DOT}</q-item-section><q-item-section>{{{{ props.opt.label }}}}</q-item-section></q-item>"
+)
+COLOR_SELECTED_TEMPLATE = (  # 選んだあとの表示: 色付きの丸 + 色の名前
+    f'<span class="row items-center no-wrap">{_COLOR_DOT}<span class="q-ml-xs">{{{{ props.opt.label }}}}</span></span>'
+)
+
+
 def build_category_edit(rows: list[CategoryRow], originals: list[Category], taken: Collection[str]) -> CategoryEdit:
     """入力の行を検証して CategoryEdit にする。完全に空の新しい行(色だけ入っている行も)は無視する。新しい行には、既存の id と重ならない id を振る。"""
     used = set(taken)
@@ -810,11 +821,6 @@ def open_settings_dialog(
                         ui.label("(名前・PRJコード・色などは設定できません)").classes("text-caption text-grey")
                     for n, crow in enumerate(category_rows):
                         with ui.row().classes("w-full items-center no-wrap gap-2"):
-                            swatch = (
-                                ui.icon("circle")
-                                .style(f"color: {COLOR_HEX[crow.color]}")
-                                .mark(f"settings-category-{n}-swatch")
-                            )
                             ui.input(
                                 "名前", value=crow.name, on_change=lambda e, r=crow: setattr(r, "name", e.value or "")
                             ).props(f"maxlength={MAX_CATEGORY_NAME_LENGTH}").classes("w-28").mark(
@@ -830,15 +836,14 @@ def open_settings_dialog(
                                 value=crow.expiry,
                                 on_change=lambda e, r=crow: setattr(r, "expiry", e.value or ""),
                             ).props("type=date stack-label").classes("w-36").mark(f"settings-category-{n}-expiry")
-                            ui.select(
+                            color_select = ui.select(
                                 {color: COLOR_LABELS[color] for color in COLORS},
                                 label="色",
                                 value=crow.color,
-                                on_change=lambda e, r=crow, s=swatch: (
-                                    setattr(r, "color", e.value),
-                                    s.style(f"color: {COLOR_HEX[e.value]}"),
-                                ),
-                            ).classes("w-24").mark(f"settings-category-{n}-color")
+                                on_change=lambda e, r=crow: setattr(r, "color", e.value),
+                            ).classes("w-32").mark(f"settings-category-{n}-color")
+                            color_select.add_slot("option", COLOR_OPTION_TEMPLATE)
+                            color_select.add_slot("selected-item", COLOR_SELECTED_TEMPLATE)
                             ui.input(
                                 "PRJコード",
                                 value=crow.prj_code,
