@@ -18,7 +18,9 @@ from projectapp.dateinput import (
     parse_time_input,
     shortcut_dates,
 )
+from projectapp.effortunits import PRESET_HOURS, EffortUnit, from_hours, reference_text, to_hours
 from projectapp.forms import (
+    STANDARD_WORK_HOURS,
     ActualRow,
     UrlRow,
     bind_picker,
@@ -65,6 +67,77 @@ from projectapp.urls import resolve
 
 # 赤は「予定超過」の背景色と意味が競合するため、優先度には使わない
 PRIORITY_COLORS = {Priority.HIGH: "orange", Priority.MEDIUM: "amber", Priority.LOW: "blue"}
+
+
+class EffortField:
+    """工数の入力。数値・単位・プリセットのチップ・換算の参考。値(`value`)は、常に時間。
+    数値を編集すると時間を持ち直し、単位だけを切り替えたときは、時間を変えずに表示だけを直す。"""
+
+    def __init__(self, hours: float | None, daily_hours: float, standard_hours: float) -> None:
+        self._hours = hours
+        self._unit = EffortUnit.HOURS
+        self._daily = daily_hours
+        self._standard = standard_hours
+        self._syncing = False
+        self._callbacks: list[Callable[[float | None], object]] = []
+        with ui.column().classes("flex-1 gap-0 min-w-0") as self.container:
+            with ui.row().classes("w-full items-start no-wrap gap-2"):
+                self.number = ui.number("工数", value=hours, min=0).classes("flex-1 min-w-0").mark("task-effort")
+                self.unit = (
+                    ui.select({u: u.value for u in EffortUnit}, value=EffortUnit.HOURS)
+                    .classes("w-24")
+                    .mark("task-effort-unit")
+                )
+            with ui.row().classes("w-full items-center no-wrap gap-1"):
+                for preset in PRESET_HOURS:
+                    ui.chip(f"{preset:g}h", on_click=lambda _e, p=preset: self._set_hours(float(p))).props(
+                        "dense clickable outline size=sm"
+                    ).mark(f"task-effort-preset-{preset:g}")
+            self.reference = ui.label("").classes("text-caption text-grey").mark("task-effort-reference")
+        self.number.on_value_change(self._number_changed)
+        self.unit.on_value_change(self._unit_changed)
+
+    @property
+    def value(self) -> float | None:
+        return self._hours
+
+    def on_value_change(self, callback: Callable[[float | None], object]) -> None:
+        self._callbacks.append(callback)
+
+    def set_visibility(self, visible: bool) -> None:
+        self.container.set_visibility(visible)
+
+    def _notify(self) -> None:
+        for callback in self._callbacks:
+            callback(self._hours)
+
+    def _number_changed(self, event: ValueChangeEventArguments) -> None:
+        if self._syncing:
+            return
+        self._hours = None if event.value is None else to_hours(event.value, self._unit, self._daily)
+        self._update_reference()
+        self._notify()
+
+    def _unit_changed(self, event: ValueChangeEventArguments) -> None:
+        self._unit = event.value
+        self._show_number()
+        self._update_reference()
+
+    def _set_hours(self, hours: float) -> None:
+        self._hours = hours
+        self._show_number()
+        self._update_reference()
+        self._notify()
+
+    def _show_number(self) -> None:
+        self._syncing = True
+        try:
+            self.number.set_value(None if self._hours is None else from_hours(self._hours, self._unit, self._daily))
+        finally:
+            self._syncing = False
+
+    def _update_reference(self) -> None:
+        self.reference.set_text(reference_text(self._unit, self._daily, self._standard))
 
 
 class PriorityChips:
@@ -813,11 +886,7 @@ def open_task_dialog(
         category.add_slot("selected-item", category_selected_template(hover))
         fields = DateTimeFields(initial, work_start, daily_hours, holidays or {}, initial_rate)
         with fields.second_row:
-            effort = (
-                ui.number("工数(時間)", value=initial.effort_hours, min=0)
-                .classes("flex-1")
-                .mark("task-effort")
-            )
+            effort = EffortField(initial.effort_hours, daily_hours, STANDARD_WORK_HOURS)
         assignee_fields = AssigneeFields(initial.assignees, member_list, lambda: refresh_conversion())
         conversion = ui.label("").classes("text-caption text-grey").mark("task-conversion")
 
@@ -832,8 +901,8 @@ def open_task_dialog(
             detail = " + ".join(f"{m.name} {m.ratio * 100:g}%×{f * 100:g}%" for m, f in chosen)
             conversion.set_text(f"換算率 {rate * 100:g}%({detail})→ {effort.value:g}h は約 {days:.1f}日分")
 
-        def on_effort_change(e: object) -> None:
-            fields.set_effort(getattr(e, "value", None))
+        def on_effort_change(value: float | None) -> None:
+            fields.set_effort(value)
             refresh_conversion()
 
         effort.on_value_change(on_effort_change)

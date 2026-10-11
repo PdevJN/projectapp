@@ -8,6 +8,7 @@ from nicegui import events, ui
 from nicegui.testing import User
 
 from projectapp.browser import open_url as default_open_url
+from projectapp.effortunits import EffortUnit
 from projectapp.models import (
     Actual,
     ActualMode,
@@ -2026,3 +2027,109 @@ async def test_date_and_time_share_a_row_and_the_dialog_is_wider(user: User) -> 
     assert isinstance(day.parent_slot.parent, ui.row)
     card = next(a for a in day.ancestors() if isinstance(a, ui.card))
     assert "w-[44rem]" in card.classes
+
+
+
+def set_unit(user: User, unit: EffortUnit) -> None:
+    user.find(marker="task-effort-unit").elements.pop().set_value(unit)
+
+
+async def test_the_effort_unit_converts_to_hours_on_save(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    set_unit(user, EffortUnit.DAYS)
+    user.find(marker="task-effort").type("2")
+    user.find(marker="task-save").click()
+    assert saved[0].effort_hours == 13.0  # 2日 × 6.5h
+
+
+@pytest.mark.parametrize(
+    "unit, typed, hours",
+    [(EffortUnit.HOURS, "8", 8.0), (EffortUnit.WEEKS, "3", 97.5), (EffortUnit.MONTHS, "1", 130.0)],
+)
+async def test_each_unit_converts(user: User, unit: EffortUnit, typed: str, hours: float) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    set_unit(user, unit)
+    user.find(marker="task-effort").type(typed)
+    user.find(marker="task-save").click()
+    assert saved[0].effort_hours == hours
+
+
+async def test_the_unit_follows_the_daily_hours(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, daily_hours=8.0)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    set_unit(user, EffortUnit.DAYS)
+    user.find(marker="task-effort").type("2")
+    user.find(marker="task-save").click()
+    assert saved[0].effort_hours == 16.0
+
+
+async def test_switching_the_unit_does_not_change_the_hours(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-effort").type("10")
+    set_unit(user, EffortUnit.DAYS)
+    assert user.find(marker="task-effort").elements.pop().value == 1.54  # 表示だけ丸める
+    set_unit(user, EffortUnit.HOURS)
+    assert user.find(marker="task-effort").elements.pop().value == 10
+    set_unit(user, EffortUnit.DAYS)  # 日のまま保存しても、時間は 10h
+    user.find(marker="task-save").click()
+    assert saved[0].effort_hours == 10.0
+
+
+async def test_a_preset_chip_sets_the_hours_in_the_current_unit(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    set_unit(user, EffortUnit.DAYS)
+    user.find(marker="task-effort-preset-4").click()
+    assert user.find(marker="task-effort").elements.pop().value == 0.62  # 4h = 0.615日(表示)
+    user.find(marker="task-save").click()
+    assert saved[0].effort_hours == 4.0
+
+
+async def test_the_reference_shows_the_month_comparison(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    reference = user.find(marker="task-effort-reference").elements.pop()
+    assert reference.text == ""
+    set_unit(user, EffortUnit.MONTHS)
+    assert reference.text == "1月 = 20日 × 6.5h = 130h / 参考: 標準 8h × 20日 = 160h"
+    set_unit(user, EffortUnit.DAYS)
+    assert reference.text == "1日 = 6.5h(稼働可能時間)"
+
+
+async def test_an_existing_effort_opens_in_hours(user: User) -> None:
+    mount_dialog(Task("a", effort_hours=12.0), [])
+    await open_dialog(user)
+    assert user.find(marker="task-effort").elements.pop().value == 12.0
+    assert user.find(marker="task-effort-unit").elements.pop().value is EffortUnit.HOURS
+
+
+async def test_hours_are_saved_as_typed_without_rounding(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-effort").type("1.234")  # 時間の入力は、今までどおり丸めない
+    user.find(marker="task-save").click()
+    assert saved[0].effort_hours == 1.234
+
+
+async def test_the_effort_change_updates_the_computed_end_and_the_conversion(user: User) -> None:
+    mount_dialog(None, [], members=[Member("田中", 1.0)])
+    await open_dialog(user)
+    user.find(marker="task-start-date").type("2026-10-05")
+    set_unit(user, EffortUnit.DAYS)
+    user.find(marker="task-effort").type("2")
+    assert user.find(marker="task-end-computed").elements.pop().value != ""  # 13h から算出
