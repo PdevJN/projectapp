@@ -1321,10 +1321,12 @@ def open_members_parameters_dialog(
     with disposable(ui.dialog()) as dialog, ui.card() as card:
         ui.label("メンバーとパラメータ").classes("text-h6")
         with ui.tabs().mark("members-parameters-tabs") as tabs:
-            with ui.tab("members", label="メンバー").mark("tab-members"):
-                members_mark = ui.label("").classes("text-orange q-ml-xs").mark("members-dirty")
-            with ui.tab("parameters", label="パラメータ").mark("tab-parameters"):
-                parameters_mark = ui.label("").classes("text-orange q-ml-xs").mark("parameters-dirty")
+            with ui.tab("members", label="").mark("tab-members"), ui.row().classes("items-center no-wrap gap-1"):
+                ui.label("メンバー")
+                members_mark = ui.label("").classes("text-orange").mark("members-dirty")
+            with ui.tab("parameters", label="").mark("tab-parameters"), ui.row().classes("items-center no-wrap gap-1"):
+                ui.label("パラメータ")
+                parameters_mark = ui.label("").classes("text-orange").mark("parameters-dirty")
         with ui.tab_panels(tabs, value="members").props("keep-alive").classes("w-full").mark(
             "members-parameters-panels"
         ):
