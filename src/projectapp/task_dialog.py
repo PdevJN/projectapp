@@ -11,6 +11,13 @@ from nicegui.events import ValueChangeEventArguments
 
 from projectapp.browser import open_url as default_open_url
 from projectapp.categories import UNDECIDED, category_full_label, category_label
+from projectapp.dateinput import (
+    DATE_FORMAT,
+    SHORTCUT_LABELS,
+    parse_date_input,
+    parse_time_input,
+    shortcut_dates,
+)
 from projectapp.forms import (
     ActualRow,
     UrlRow,
@@ -93,10 +100,35 @@ class PriorityChips:
 ESCAPE_KEYDOWN_JS = "(e) => { if (e.code === 'Escape' && !e.isComposing) emit(); }"
 
 
+def today() -> date:
+    """今日。テストで差し替える。"""
+    return date.today()
+
+
+def date_normalizer(roll_forward: bool) -> Callable[[str], str | None]:
+    return lambda text: parse_date_input(text, today(), roll_forward)
+
+
+def normalize_field(field: ui.input, normalize: Callable[[str], str | None]) -> None:
+    """入力欄を離れたとき、省略形を正式な形へ直す。読めない値(入力の途中を含む)は、そのまま残す。"""
+    text = field.value or ""
+    fixed = normalize(text) if text.strip() else None
+    if fixed is not None and fixed != text:
+        field.set_value(fixed)
+
+
 def add_picker(
-    field: ui.input, picker_factory: Callable[[], ui.date | ui.time], icon: str, key: str, fmt: str
+    field: ui.input,
+    picker_factory: Callable[[], ui.date | ui.time],
+    icon: str,
+    key: str,
+    fmt: str,
+    normalize: Callable[[str], str | None] | None = None,
 ) -> None:
-    """入力欄の右端のアイコンで、選択部品のダイアログを開く。小さな画面でも切れない。"""
+    """入力欄の右端のアイコンで、選択部品のダイアログを開く。小さな画面でも切れない。
+    normalize があれば、欄を離れたときに省略形を直す。"""
+    if normalize is not None:
+        field.on("blur", lambda _e: normalize_field(field, normalize))
     with ui.dialog() as picker, ui.card():
         bind_picker(picker_factory().mark(f"{key}-picker"), field, fmt)
         ui.button("OK", on_click=picker.close).mark(f"{key}-picker-ok")
@@ -113,10 +145,10 @@ def moment_column(
     with ui.column().classes("flex-1 gap-0"):
         day = ui.input(f"{label}の日付", value=moment.strftime("%Y-%m-%d") if moment else "")
         day.classes("w-full").mark(f"{mark}-date")
-        add_picker(day, ui.date, "event", f"{picker}-date", "%Y-%m-%d")
+        add_picker(day, ui.date, "event", f"{picker}-date", "%Y-%m-%d", date_normalizer(False))
         clock = ui.input(f"{label}の時刻", value=moment.strftime("%H:%M") if moment else "")
         clock.classes("w-full").mark(f"{mark}-time")
-        add_picker(clock, ui.time, "access_time", f"{picker}-time", "%H:%M")
+        add_picker(clock, ui.time, "access_time", f"{picker}-time", "%H:%M", parse_time_input)
     return day, clock
 
 
@@ -188,24 +220,32 @@ class DateTimeFields:
         header: Callable[[], None] | None = None,
     ) -> tuple[ui.input, ui.input, ui.checkbox, ui.column]:
         default = self._defaults[key]
-        with ui.column().classes("flex-1 gap-0"):
+        with ui.column().classes("flex-1 gap-0 min-w-0"):
             ui.label(label).classes("text-caption text-grey")
             if header is not None:
                 header()
             with ui.column().classes("w-full gap-0") as editable:
-                day = ui.input("日付", value=moment.strftime("%Y-%m-%d") if moment else "")
-                day.classes("w-full").mark(f"task-{key}-date")
-                add_picker(day, ui.date, "event", f"{key}-date", "%Y-%m-%d")
-                checkbox = ui.checkbox(
-                    "時刻を指定",
-                    value=use_time,
-                    on_change=lambda e, k=key: self._show_time(k, e.value),
-                ).mark(f"task-{key}-use-time")
-                clock = ui.input(
-                    "時刻", value=(moment.time() if moment else default).strftime("%H:%M")
-                )
-                clock.classes("w-full").mark(f"task-{key}-time")
-                add_picker(clock, ui.time, "access_time", f"{key}-time", "%H:%M")
+                with ui.row().classes("w-full items-start no-wrap gap-2"):
+                    day = ui.input("日付", value=moment.strftime(DATE_FORMAT) if moment else "")
+                    day.classes("flex-1 min-w-0").mark(f"task-{key}-date")
+                    add_picker(day, ui.date, "event", f"{key}-date", "%Y-%m-%d", date_normalizer(True))
+                    clock = ui.input("時刻", value=(moment.time() if moment else default).strftime("%H:%M"))
+                    clock.classes("w-28").mark(f"task-{key}-time")
+                    add_picker(clock, ui.time, "access_time", f"{key}-time", "%H:%M", parse_time_input)
+                with ui.row().classes("w-full items-center no-wrap gap-1"):
+                    for name, text in SHORTCUT_LABELS.items():
+                        ui.chip(
+                            text,
+                            on_click=lambda _e, n=name, d=day: d.set_value(
+                                shortcut_dates(today())[n].strftime(DATE_FORMAT)
+                            ),
+                        ).props("dense clickable outline size=sm").mark(f"task-{key}-shortcut-{name}")
+                    ui.space()
+                    checkbox = (
+                        ui.checkbox("時刻を指定", value=use_time, on_change=lambda e, k=key: self._show_time(k, e.value))
+                        .props("dense")
+                        .mark(f"task-{key}-use-time")
+                    )
         return day, clock, checkbox, editable
 
     def _use(self, key: str) -> ui.checkbox:
@@ -731,7 +771,7 @@ def open_task_dialog(
         if all(m.name != assignee.name for m in member_list):
             member_list.append(Member(assignee.name, 1.0))
     initial_rate = assignees_rate(initial.assignees, member_list)
-    with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[36rem] max-w-full"):
+    with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[44rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
         kind = ui.toggle({k: k.value for k in TaskKind}, value=initial.kind).mark("task-kind")
         kind_hint = (

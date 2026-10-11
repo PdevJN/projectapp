@@ -4,7 +4,7 @@ from collections.abc import Callable
 import pytest
 from datetime import date, datetime, time
 
-from nicegui import ui
+from nicegui import events, ui
 from nicegui.testing import User
 
 from projectapp.browser import open_url as default_open_url
@@ -303,9 +303,9 @@ async def test_clearing_the_end_date_saves_an_empty_end(user: User) -> None:
 async def test_start_and_end_are_side_by_side(user: User) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
-    # 日付の入力は、側ごとの列の中の「編集用の入れ物」に入っている
-    start_column = user.find(marker="task-start-date").elements.pop().parent_slot.parent.parent_slot.parent
-    end_column = user.find(marker="task-end-date").elements.pop().parent_slot.parent.parent_slot.parent
+    # 日付の入力は、側ごとの列の中の「編集用の入れ物」の、「日付と時刻の行」に入っている
+    start_column = user.find(marker="task-start-date").elements.pop().parent_slot.parent.parent_slot.parent.parent_slot.parent
+    end_column = user.find(marker="task-end-date").elements.pop().parent_slot.parent.parent_slot.parent.parent_slot.parent
     assert start_column is not end_column
     assert start_column.parent_slot.parent is end_column.parent_slot.parent
     assert isinstance(start_column.parent_slot.parent, ui.row)
@@ -1943,3 +1943,86 @@ async def test_a_pasted_line_break_in_the_name_becomes_a_space(user: User) -> No
     assert name.value == "a b c"
     user.find(marker="task-save").click()
     assert saved[0].name == "a b c"
+
+
+TODAY = date(2026, 10, 12)  # 月曜
+
+
+def blur(user: User, marker: str) -> None:
+    """入力欄を離れたときの処理(blur)を呼ぶ。User のシミュレーションには、フォーカスの移動がないため。"""
+    element = user.find(marker=marker).elements.pop()
+    for listener in element._event_listeners.values():
+        if listener.type == "blur":
+            events.handle_event(
+                listener.handler, events.GenericEventArguments(sender=element, client=element.client, args={})
+            )
+
+
+@pytest.fixture
+def fixed_today(monkeypatch: pytest.MonkeyPatch) -> date:
+    monkeypatch.setattr("projectapp.task_dialog.today", lambda: TODAY)
+    return TODAY
+
+
+async def test_blur_completes_short_dates_and_times(user: User, fixed_today: date) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-start-use-time").click()
+    user.find(marker="task-start-date").type("10/15")
+    blur(user, "task-start-date")
+    assert user.find(marker="task-start-date").elements.pop().value == "2026-10-15"
+    user.find(marker="task-start-time").clear().type("930")
+    blur(user, "task-start-time")
+    assert user.find(marker="task-start-time").elements.pop().value == "09:30"
+
+
+async def test_planned_dates_roll_to_next_year_but_actual_dates_do_not(user: User, fixed_today: date) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-deadline-date").type("10/01")
+    blur(user, "task-deadline-date")
+    assert user.find(marker="task-deadline-date").elements.pop().value == "2027-10-01"
+    user.find(marker="task-actual-start-date").type("10/01")
+    blur(user, "task-actual-start-date")
+    assert user.find(marker="task-actual-start-date").elements.pop().value == "2026-10-01"
+
+
+async def test_blur_leaves_unreadable_text_as_typed(user: User, fixed_today: date) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-start-date").type("2026-1")  # 入力の途中
+    blur(user, "task-start-date")
+    assert user.find(marker="task-start-date").elements.pop().value == "2026-1"
+
+
+async def test_shortcut_chips_fill_the_date(user: User, fixed_today: date) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-start-shortcut-tomorrow").click()
+    user.find(marker="task-deadline-shortcut-next-monday").click()
+    assert user.find(marker="task-start-date").elements.pop().value == "2026-10-13"
+    assert user.find(marker="task-deadline-date").elements.pop().value == "2026-10-19"
+    user.find(marker="task-save").click()
+    assert saved[0].planned_start == datetime(2026, 10, 13, 9, 0)
+    assert saved[0].deadline == datetime(2026, 10, 19, 18, 0)
+
+
+async def test_the_end_chips_show_only_while_the_end_is_editable(user: User, fixed_today: date) -> None:
+    mount_dialog(Task("a", effort_hours=8.0), [])
+    await open_dialog(user)
+    await user.should_not_see(marker="task-end-shortcut-today")  # 工数があり、算出値のとき
+    user.find(marker="task-end-manual").click()
+    await user.should_see(marker="task-end-shortcut-today")
+
+
+async def test_date_and_time_share_a_row_and_the_dialog_is_wider(user: User) -> None:
+    mount_dialog(Task("a", planned_start=datetime(2026, 10, 5, 10, 0)), [])
+    await open_dialog(user)
+    day = user.find(marker="task-start-date").elements.pop()
+    clock = user.find(marker="task-start-time").elements.pop()
+    assert day.parent_slot.parent is clock.parent_slot.parent  # 日付と時刻は、同じ行の直下
+    assert isinstance(day.parent_slot.parent, ui.row)
+    card = next(a for a in day.ancestors() if isinstance(a, ui.card))
+    assert "w-[44rem]" in card.classes
