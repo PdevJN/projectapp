@@ -23,7 +23,7 @@
 @dataclass
 class Category:
     name: str
-    kind: str = ""                   # 種別(自由入力)。最大 MAX_CATEGORY_KIND_LENGTH(40)文字
+    kind: str = ""                   # 種別(自由入力)。最大 MAX_CATEGORY_KIND_LENGTH(20)文字。改行・制御文字は使えない
     expiry_date: date | None = None  # 有効期限日。None は期限なし
     color: str = "blue"              # categories.COLORS のどれか
     prj_code: str = ""               # PRJコード。最大 MAX_PROJECT_CODE_LENGTH(20)文字
@@ -61,7 +61,7 @@ version 3:
 - 各カテゴリ:
   - `id` はキーなし・空・文字列以外・重複を拒否する(カテゴリ同士)。
   - `name` は文字列で、前後の空白を除いて空でなく、「未定」でなく、ほかのカテゴリと重ならない。
-  - `kind` は文字列(キーなし・`null` は空)。40 文字以内。
+  - `kind` は文字列(キーなし・`null` は空)。20 文字以内で、改行・タブなどの制御文字(Unicode の `Cc`)を含まない。
   - `expiry_date` は `null`・キーなし、または有効な `YYYY-MM-DD`。
   - `color` は `COLORS` のどれか(キーなしは `blue`)。
   - `prj_code` は文字列(キーなし・`null` は空)。前後の空白を除き、20 文字以内。
