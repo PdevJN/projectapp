@@ -308,6 +308,8 @@ class DateTimeFields:
                     clock = ui.input("時刻", value=(moment.time() if moment else default).strftime("%H:%M"))
                     clock.classes("w-28").mark(f"task-{key}-time")
                     add_picker(clock, ui.time, "access_time", f"{key}-time", "%H:%M", parse_time_input)
+                if key == "end":  # 入力欄の hint は固定の高さで、欄が狭いと 2 行に折り返して下のチップに重なる。通常の流れのラベルにする
+                    self.end_hint = ui.label("").classes("text-caption text-grey").mark("task-end-hint")
                 with ui.row().classes("w-full items-center no-wrap gap-1"):
                     for name, text in SHORTCUT_LABELS.items():
                         ui.chip(
@@ -360,7 +362,7 @@ class DateTimeFields:
             if has_effort
             else "空なら締切(なければ開始予定の翌日)になります"
         )
-        self.end_day.props(f'hint="{hint}"')
+        self.end_hint.set_text(hint)
         self.computed.set_value(self._computed_text())
 
     def _computed_text(self) -> str:

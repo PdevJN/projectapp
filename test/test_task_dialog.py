@@ -668,8 +668,7 @@ async def test_without_effort_the_planned_end_is_editable_and_has_no_manual_chec
     await user.should_see(marker="task-end-date")
     await user.should_not_see(marker="task-end-manual")
     await user.should_not_see(marker="task-end-computed")
-    end = user.find(marker="task-end-date").elements.pop()
-    assert "翌日" in end.props["hint"]
+    assert "翌日" in user.find(marker="task-end-hint").elements.pop().text
 
 
 async def test_with_effort_the_planned_end_is_computed_and_read_only(user: User) -> None:
@@ -813,9 +812,21 @@ async def test_the_dialog_uses_the_planned_wording(user: User) -> None:
 async def test_the_end_hint_mentions_the_deadline(user: User) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
+    hint = user.find(marker="task-end-hint").elements.pop().text
+    assert "締切" in hint
+    assert "翌日" in hint
+
+
+async def test_the_end_hint_is_a_label_outside_the_input_row_so_it_cannot_overlap(user: User) -> None:
+    """入力欄の hint は固定の高さで、時刻の入力が並んで欄が狭まり 2 行に折り返すと、下のチップに重なった(実機で見つけた)。"""
+    mount_dialog(None, [])
+    await open_dialog(user)
     end = user.find(marker="task-end-date").elements.pop()
-    assert "締切" in end.props["hint"]
-    assert "翌日" in end.props["hint"]
+    assert "hint" not in end.props
+    row = end.parent_slot.parent  # 日付と時刻の行
+    hint = user.find(marker="task-end-hint").elements.pop()
+    assert hint.parent_slot.parent is row.parent_slot.parent  # 行の下に、同じ列の通常の流れで置く
+    assert hint.parent_slot.parent is not row
 
 
 async def test_the_computed_end_falls_back_to_the_deadline_when_it_cannot_compute(
