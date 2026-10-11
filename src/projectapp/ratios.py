@@ -78,20 +78,25 @@ def validate_parameters(parameters: list[Parameter]) -> None:
                 )
 
 
-def apply_parameter_edit(project: Project, edit: ParameterEdit) -> None:
-    """定義を置き換え、全メンバーの選択を更新する。削除された参照と、存在しない参照は外す。
+def remap_levels(levels: dict[str, str], edit: ParameterEdit) -> dict[str, str]:
+    """段階の選択(パラメータ名 → 段階名)を、新しい定義へ写す。削除された参照と、存在しない参照は外す。
     対応は旧い名前で引くので、入れ替えや、削除と改名の組み合わせでも、選択が取り違えられない。"""
+    updated: dict[str, str] = {}
+    for old_parameter, old_level in levels.items():
+        new_parameter = edit.parameter_map.get(old_parameter)
+        if new_parameter is None:
+            continue
+        new_level = edit.level_map.get(old_parameter, {}).get(old_level)
+        if new_level is None:
+            continue
+        updated[new_parameter] = new_level
+    return updated
+
+
+def apply_parameter_edit(project: Project, edit: ParameterEdit) -> None:
+    """定義を置き換え、全メンバーの選択を更新する。"""
     for member in project.members:
-        updated: dict[str, str] = {}
-        for old_parameter, old_level in member.levels.items():
-            new_parameter = edit.parameter_map.get(old_parameter)
-            if new_parameter is None:
-                continue
-            new_level = edit.level_map.get(old_parameter, {}).get(old_level)
-            if new_level is None:
-                continue
-            updated[new_parameter] = new_level
-        member.levels = updated
+        member.levels = remap_levels(member.levels, edit)
     project.parameters = edit.parameters
 
 
