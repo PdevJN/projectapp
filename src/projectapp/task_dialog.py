@@ -7,6 +7,7 @@ from datetime import date, datetime, time
 from nicegui import ui
 
 from projectapp.browser import open_url as default_open_url
+from projectapp.categories import UNDECIDED
 from projectapp.forms import (
     ActualRow,
     UrlRow,
@@ -36,6 +37,7 @@ from projectapp.models import (
     Actual,
     ActualMode,
     Assignee,
+    Category,
     Member,
     Parameter,
     Priority,
@@ -698,6 +700,7 @@ def open_task_dialog(
     url_templates: list[UrlTemplate] | None = None,
     open_url: Callable[[str], object] = default_open_url,
     parameters: list[Parameter] | None = None,
+    categories: list[Category] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
     # 換算には、パラメータを反映した実効比率を使う(以降は、このコピーだけを見る)
@@ -715,10 +718,15 @@ def open_task_dialog(
             .mark("task-kind-hint")
         )
         name = ui.input("名前", value=initial.name).mark("task-name")
-        project_code = (
-            ui.input("ProjectCode", value=initial.project_code)
+        category_options = {"": UNDECIDED, **{c.id: c.name for c in categories or []}}  # 先頭が未定(値は空文字。None は選択なしと区別できない)
+        category = (
+            ui.select(
+                category_options,
+                label="カテゴリ",
+                value=initial.category_id if initial.category_id in category_options else "",
+            )
             .classes("w-full")
-            .mark("task-project-code")
+            .mark("task-category")
         )
         fields = DateTimeFields(initial, work_start, daily_hours, holidays or {}, initial_rate)
         with fields.second_row:
@@ -860,7 +868,7 @@ def open_task_dialog(
             return (
                 name.value,
                 kind.value,
-                project_code.value or "",
+                category.value or "",
                 *fields.state(),
                 effort.value,
                 priority.value,
@@ -880,7 +888,7 @@ def open_task_dialog(
                 result = build_task(
                     task,
                     name=name.value or "",
-                    project_code=project_code.value or "",
+                    category_id=category.value or None,
                     planned_start=fields.start_text(),
                     planned_end=fields.end_text(),
                     planned_end_manual=bool(fields.manual.value),

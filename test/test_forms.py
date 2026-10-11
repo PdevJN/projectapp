@@ -45,6 +45,7 @@ from projectapp.models import (
     Priority,
     Status,
     Task,
+    TaskKind,
     TaskUrl,
     UrlTemplate,
 )
@@ -1069,24 +1070,18 @@ async def test_settings_dialog_has_no_lock_when_it_was_simple(user: User) -> Non
     await user.should_not_see(marker="settings-mode-locked")  # 簡易のままなら、制限はない
 
 
-def test_project_code_is_trimmed_and_saved() -> None:
-    assert make(project_code="  PRJ-001 ").project_code == "PRJ-001"
+def test_category_id_is_saved() -> None:
+    assert make(category_id="abcd1234").category_id == "abcd1234"
 
 
-def test_project_code_defaults_to_empty_and_can_be_cleared() -> None:
-    assert make().project_code == ""
-    assert make(Task("t", project_code="OLD")).project_code == ""  # 入力が空なら空にできる
+def test_category_defaults_to_undecided_and_can_be_cleared() -> None:
+    assert make().category_id is None
+    assert make(Task("t", category_id="abcd1234")).category_id is None  # 入力が未定なら未定にできる
 
 
-def test_project_code_length_is_checked_after_trimming() -> None:
-    assert make(project_code="A" * 20).project_code == "A" * 20
-    assert make(project_code=" " + "A" * 20 + " ").project_code == "A" * 20
-    with pytest.raises(ValueError, match="20文字以内"):
-        make(project_code="A" * 21)
-
-
-def test_a_blank_project_code_becomes_empty() -> None:
-    assert make(project_code="   ").project_code == ""
+def test_checkpoint_keeps_the_category() -> None:
+    task = make(kind=TaskKind.CHECKPOINT, deadline="2026-10-09T17:00", status=Status.NOT_STARTED, category_id="abcd1234")
+    assert task.category_id == "abcd1234"
 
 
 def test_build_task_sets_and_dedupes_predecessors() -> None:

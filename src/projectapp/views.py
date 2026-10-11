@@ -629,6 +629,7 @@ class MainView:
             "finish_of": finish_of,
             "url_templates": self.project.url_templates,
             "parameters": self.project.parameters,
+            "categories": self.project.categories,
         }
 
     def add_task(self, path: SectionPath) -> None:

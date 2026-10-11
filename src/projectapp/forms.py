@@ -120,7 +120,7 @@ def _links(
 def _build_checkpoint(
     base: Task,
     name: str,
-    code: str,
+    category_id: str | None,
     deadline: str,
     priority: Priority,
     status: Status,
@@ -156,7 +156,7 @@ def _build_checkpoint(
         color=color,
         assignees=[],
         actuals=[],
-        project_code=code,
+        category_id=category_id,
         predecessors=_links(base, predecessors, linkable_ids),
         urls=base.urls if urls is None else urls,
     )
@@ -223,7 +223,7 @@ def build_task(
     actual_end: str = "",
     actual_progress: float | None = None,
     actual_rows: list[ActualRow] | None = None,
-    project_code: str = "",
+    category_id: str | None = None,
     predecessors: list[str] | None = None,
     linkable_ids: frozenset[str] | None = None,
     kind: TaskKind = TaskKind.NORMAL,
@@ -234,13 +234,10 @@ def build_task(
     clean = name.strip()
     if not clean:
         raise ValueError("名前を入力してください")
-    code = project_code.strip()
-    if len(code) > MAX_PROJECT_CODE_LENGTH:
-        raise ValueError(f"ProjectCode は{MAX_PROJECT_CODE_LENGTH}文字以内で入力してください")
     base = existing or Task(clean)
     if kind is TaskKind.CHECKPOINT:
         return _build_checkpoint(
-            base, clean, code, deadline, priority, status, color, predecessors, linkable_ids, urls
+            base, clean, category_id, deadline, priority, status, color, predecessors, linkable_ids, urls
         )
     hours = effort_hours or 0.0
     manual = planned_end_manual and hours > 0
@@ -281,7 +278,7 @@ def build_task(
         color=color,
         assignees=assignee_list,
         actuals=actuals,
-        project_code=code,
+        category_id=category_id,
         predecessors=links,
         urls=base.urls if urls is None else urls,
     )

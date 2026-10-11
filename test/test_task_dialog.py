@@ -12,6 +12,7 @@ from projectapp.models import (
     Actual,
     ActualMode,
     Assignee,
+    Category,
     Level,
     Member,
     Parameter,
@@ -38,6 +39,7 @@ def mount_dialog(
     url_templates: list[UrlTemplate] | None = None,
     opened: list[str] | None = None,
     parameters: list[Parameter] | None = None,
+    categories: list[Category] | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -56,6 +58,7 @@ def mount_dialog(
                 finish_of=finish_of,
                 url_templates=url_templates,
                 parameters=parameters,
+                categories=categories,
                 open_url=(lambda url: opened.append(url)) if opened is not None else default_open_url,
             ),
         )
@@ -1328,42 +1331,74 @@ async def test_simple_mode_keeps_two_actuals_read_only_with_the_mode_argument(us
     await user.should_not_see(marker="task-interval-add")
 
 
-async def test_project_code_is_saved(user: User) -> None:
+DEV = Category("開発", prj_code="PRJ-1", id="aaaaaaaa")
+OPS = Category("保守", id="bbbbbbbb")
+
+
+async def test_category_select_lists_undecided_first_and_defaults_to_it(user: User) -> None:
     saved: list[Task] = []
-    mount_dialog(None, saved)
+    mount_dialog(None, saved, categories=[DEV, OPS])
+    await open_dialog(user)
+    select = user.find(marker="task-category").elements.pop()
+    assert select.value == ""
+    assert list(select.options.values()) == ["未定", "開発", "保守"]
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-save").click()
+    assert saved[0].category_id is None
+
+
+async def test_category_is_saved(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, categories=[DEV, OPS])
     await open_dialog(user)
     user.find(marker="task-name").type("設計")
-    user.find(marker="task-project-code").type("PRJ-001")
+    user.find(marker="task-category").elements.pop().set_value("bbbbbbbb")
     user.find(marker="task-save").click()
-    assert saved[0].project_code == "PRJ-001"
+    assert saved[0].category_id == "bbbbbbbb"
 
 
-async def test_existing_project_code_is_shown_and_kept(user: User) -> None:
+async def test_existing_category_is_shown_and_kept(user: User) -> None:
     saved: list[Task] = []
-    mount_dialog(Task("旧", project_code="PRJ-9"), saved)
+    mount_dialog(Task("旧", category_id="aaaaaaaa"), saved, categories=[DEV, OPS])
     await open_dialog(user)
-    assert value_of(user, "task-project-code") == "PRJ-9"
+    assert value_of(user, "task-category") == "aaaaaaaa"
     user.find(marker="task-save").click()
-    assert saved[0].project_code == "PRJ-9"
+    assert saved[0].category_id == "aaaaaaaa"
 
 
-async def test_a_too_long_project_code_shows_the_error_and_keeps_the_dialog(user: User) -> None:
+async def test_a_category_that_no_longer_exists_is_shown_as_undecided(user: User) -> None:
     saved: list[Task] = []
-    mount_dialog(None, saved)
+    mount_dialog(Task("旧", category_id="zzzzzzzz"), saved, categories=[DEV])
     await open_dialog(user)
-    user.find(marker="task-name").type("設計")
-    user.find(marker="task-project-code").type("A" * 21)
+    assert value_of(user, "task-category") == ""
     user.find(marker="task-save").click()
-    await user.should_see("ProjectCode は20文字以内で入力してください")
-    assert saved == []
+    assert saved[0].category_id is None
 
 
-async def test_changing_the_project_code_counts_as_a_change_when_closing(user: User) -> None:
-    mount_dialog(None, [])
+async def test_the_category_can_be_set_back_to_undecided(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧", category_id="aaaaaaaa"), saved, categories=[DEV])
     await open_dialog(user)
-    user.find(marker="task-project-code").type("X")
+    user.find(marker="task-category").elements.pop().set_value("")
+    user.find(marker="task-save").click()
+    assert saved[0].category_id is None
+
+
+async def test_changing_the_category_counts_as_a_change_when_closing(user: User) -> None:
+    mount_dialog(None, [], categories=[DEV])
+    await open_dialog(user)
+    user.find(marker="task-category").elements.pop().set_value("aaaaaaaa")
     user.find(marker="task-cancel").click()
     assert confirm_dialog_of(user).value is True
+
+
+async def test_a_checkpoint_keeps_its_category(user: User) -> None:
+    saved: list[Task] = []
+    checkpoint = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17), category_id="aaaaaaaa")
+    mount_dialog(checkpoint, saved, categories=[DEV])
+    await open_dialog(user)
+    user.find(marker="task-save").click()
+    assert saved[0].category_id == "aaaaaaaa"
 
 
 async def test_predecessors_are_saved_from_the_select(user: User) -> None:
@@ -1447,7 +1482,7 @@ async def test_the_kind_toggle_hides_and_shows_the_normal_fields(user: User) -> 
         "task-deadline-date",
         "task-predecessors",
         "task-status",
-        "task-project-code",
+        "task-category",
     ):
         await user.should_see(marker=marker)
     await set_kind(user, TaskKind.NORMAL)
