@@ -1327,9 +1327,9 @@ def open_members_parameters_dialog(
             with ui.tab("parameters", label="").mark("tab-parameters"), ui.row().classes("items-center no-wrap gap-1"):
                 ui.label("パラメータ")
                 parameters_mark = ui.label("").classes("text-orange").mark("parameters-dirty")
-        with ui.tab_panels(tabs, value="members").props("keep-alive").classes("w-full").mark(
-            "members-parameters-panels"
-        ):
+        with ui.tab_panels(tabs, value="members").props("keep-alive").classes("w-full").style(
+            "flex-shrink: 0"  # 縮むと、はみ出た分が overflow: hidden で切れる。カードのスクロールに任せる
+        ).mark("members-parameters-panels"):
             with ui.tab_panel("members"):
                 members = members_panel(get_members, assigned, on_apply_members, get_parameters, get_taken)
             with ui.tab_panel("parameters"):

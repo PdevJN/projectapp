@@ -874,6 +874,14 @@ async def test_the_members_parameters_dialog_opens_on_the_members_tab(user: User
     await user.should_see(marker="tab-parameters")
 
 
+async def test_the_tab_panels_do_not_shrink_so_the_card_scrolls_in_a_short_window(user: User, tmp_path: Path) -> None:
+    await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    panels = user.find(marker="members-parameters-panels").elements.pop()
+    # 縮むと、はみ出た分は overflow: hidden で切れて、2つ目以降のパラメータや段階に届かない(2026-10-11 に実機で見つけた)
+    assert panels._style["flex-shrink"] == "0"
+
+
 async def test_applying_the_members_tab_keeps_the_dialog_open(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
