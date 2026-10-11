@@ -40,6 +40,7 @@
 - `parse_date_input(text, today, roll_forward) -> str | None`: 次の形を`YYYY-MM-DD`に直す。読めないとき、または存在しない日付のときは None
   - `YYYY-MM-DD`・`YYYY/M/D`・`YYYYMMDD`
   - `M/D`・`MMDD`(4 桁): 年は`today`の年。`roll_forward`が真で、その日が`today`より前なら、翌年にする
+- 実在しない日付(`2/30`・`13/01`・平年の`2/29`)は、補正せず、読めない値として、そのまま残す(別の日付に黙って直さない。誤入力は保存時のエラーで知らせる)
 - `shortcut_dates(today) -> dict[str, date]`: `今日`・`明日`・`来週月`(今日が属する週の次の週の月曜。今日が月曜でも +7 日)
 - `parse_time_input(text) -> str | None`: 次の形を`HH:MM`に直す。読めないとき、または範囲外(時は 0〜23、分は 0〜59)のときは None
   - `H`・`HH`(→ `HH:00`)、`HMM`・`HHMM`(3〜4 桁。下 2 桁が分)、`H:MM`・`HH:MM`

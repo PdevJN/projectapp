@@ -798,7 +798,8 @@ class AssigneeFields:
         return [(item.member.value or "", item.allocation.value) for item in self.items]
 
     def state(self) -> tuple[AssigneeRow, ...]:
-        return tuple(self.rows())
+        """変更の判定に使う値。メンバーのない行の割り当て率は、隠れているので数えない(値は消さない)。"""
+        return tuple((name, percent if name else None) for name, percent in self.rows())
 
     def chosen(self) -> list[tuple[Member, float]]:
         """メンバーを選んだ行の、(メンバー, 割り当ての割合)。"""

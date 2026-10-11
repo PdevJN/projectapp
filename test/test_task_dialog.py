@@ -2276,3 +2276,26 @@ async def test_the_conversion_stays_visible_in_the_schedule_layout(user: User) -
     await user.should_not_see(marker="task-assignee-add")  # 担当者の欄は隠れていても
     conversion = user.find(marker="task-conversion").elements.pop()  # 算出値を動かす換算の説明は、見える
     assert "換算率" in conversion.text
+
+
+async def test_clearing_the_assignee_after_editing_the_hidden_allocation_is_not_a_change(user: User) -> None:
+    mount_dialog(None, [], members=[TANAKA])
+    await open_dialog(user)
+    select = user.find(marker="task-assignee").elements.pop()
+    with user.client:
+        select.set_value("田中")
+        user.find(marker="task-allocation").elements.pop().set_value(50)
+        select.set_value("")  # (なし)に戻す。割り当て率は隠れて、値だけが残る
+    user.find(marker="task-cancel").click()
+    assert dialog_of(user).value is False  # 実質、何も変わっていないので、確認なしで閉じる
+    assert confirm_dialog_of(user).value is False
+
+
+async def test_a_real_allocation_change_still_asks_before_closing(user: User) -> None:
+    mount_dialog(None, [], members=[TANAKA])
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("田中")
+        user.find(marker="task-allocation").elements.pop().set_value(50)
+    user.find(marker="task-cancel").click()
+    assert confirm_dialog_of(user).value is True
