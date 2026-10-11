@@ -1,7 +1,7 @@
 """メイン画面。"""
 
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any
 from pathlib import Path
@@ -86,6 +86,17 @@ from projectapp.timeline import Schedule, build_columns, clip_overloads, overall
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
+
+
+@dataclass(frozen=True)
+class MenuItem:
+    """ヘッダーのメニューの 1 項目。keyは、割り当てたショートカットのキー(右端に薄く添える。なければ空)。"""
+
+    text: str
+    icon: str
+    handler: Callable[[], object]
+    marker: str
+    key: str = ""
 NEW_PROJECT_NAME = "新規プロジェクト"
 # ヘッダーは、画面の上端・左右いっぱいの四角い帯(ui.header)。テーマカラーの背景 + 白文字(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
 # メニューのボタンは折り返さない(縮むのはプロジェクト選択のコンボだけ。中のファイル名は 10px)。プロジェクト名は、ヘッダーの外(メイン側の左上)に、12px の太字(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
@@ -793,31 +804,35 @@ class MainView:
                 "ファイル",
                 "menu-file",
                 [
-                    ("開く", self.show_file_list, "file-open"),
-                    ("上書き保存", self.save_project_clicked, "save-project"),
-                    ("名前をつけて保存", self.save_as, "file-save-as"),
-                    None,  # 水平線(ここから下は、ファイルの操作ではなく、データの更新)
-                    ("祝日を更新", self.refresh_holidays, "refresh-holidays"),
+                    MenuItem("開く", "folder_open", self.show_file_list, "file-open"),
+                    MenuItem("新規プロジェクト作成", "note_add", self.request_new, "file-new"),
+                    None,  # 水平線(開く・作る / 保存 / データの更新)
+                    MenuItem("上書き保存", "save", self.save_project_clicked, "save-project"),
+                    MenuItem("名前をつけて保存", "save_as", self.save_as, "file-save-as"),
+                    None,
+                    MenuItem("祝日を更新", "event_repeat", self.refresh_holidays, "refresh-holidays"),
                 ],
             )
             self.header_menu(
                 "プロジェクト",
                 "menu-project",
                 [
-                    ("新規プロジェクト作成", self.request_new, "file-new"),
-                    ("設定", self.open_settings, "open-settings"),
-                    ("メンバーとパラメータ", self.open_members_parameters, "open-members-parameters"),
+                    MenuItem("設定", "settings", self.open_settings, "open-settings"),
+                    MenuItem("メンバーとパラメータ", "groups", self.open_members_parameters, "open-members-parameters"),
+                    MenuItem("ダッシュボード", "dashboard", self.open_dashboard, "menu-open-dashboard", "D"),
                 ],
             )
             self.header_menu(
                 "エクスポート",
                 "menu-export",
                 [
-                    ("チャートプレビュー", self.enter_preview, "export-preview"),
-                    ("担当者へ書き出し", self.open_handoff, "export-handoff"),
+                    MenuItem("チャートプレビュー", "visibility", self.enter_preview, "export-preview"),
+                    MenuItem("担当者へ書き出し", "ios_share", self.open_handoff, "export-handoff"),
                 ],
             )
-            self.header_menu("ヘルプ", "menu-help", [("ショートカットヘルプ", self.help_dialog.open, "help-shortcuts")])
+            self.header_menu(
+                "ヘルプ", "menu-help", [MenuItem("ショートカットヘルプ", "keyboard", self.help_dialog.open, "help-shortcuts")]
+            )
             ui.space()
             self.file_select = ui.select(
                 list(self.files),
@@ -832,18 +847,26 @@ class MainView:
             ).tooltip("プロジェクトの格納フォルダを開く").mark("open-folder")
             self.theme_menu()
 
-    def header_menu(
-        self, label: str, marker: str, items: list[tuple[str, Callable[[], object], str] | None]
-    ) -> None:
-        """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(`items` は、文言・操作・マーカー。None は水平線)。"""
+    def header_menu(self, label: str, marker: str, items: list[MenuItem | None]) -> None:
+        """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(None は水平線)。"""
         with ui.button(label, color=None).props("unelevated rounded no-caps").classes("app-menu-btn").mark(marker):
             with ui.menu().props("content-class=app-menu").mark(f"{marker}-items"):
                 for item in items:
                     if item is None:
                         ui.separator().mark(f"{marker}-separator")
                         continue
-                    text, handler, item_marker = item
-                    ui.menu_item(text, on_click=handler).mark(item_marker)
+                    self.menu_entry(item.text, item.icon, item.handler, item.marker, item.key)
+
+    @staticmethod
+    def menu_entry(text: str, icon: str, handler: Callable[[], object], marker: str, key: str = "") -> ui.menu_item:
+        """メニューの 1 項目(左にアイコン、右端にキー)。文言の ItemSection は、menu_item が作る。"""
+        with ui.menu_item(text, on_click=handler).mark(marker) as entry:
+            with ui.item_section().props("avatar") as avatar:
+                ui.icon(icon)
+            avatar.move(entry, target_index=0)
+            if key:
+                ui.item_section(key).props("side").classes("text-caption text-grey")
+        return entry
 
     @ui.refreshable_method
     def title(self) -> None:
@@ -857,8 +880,8 @@ class MainView:
         ):
             with ui.menu().props("content-class=app-menu").mark("menu-theme-items"):
                 for theme in THEMES:
-                    item = ui.menu_item(THEME_LABELS[theme], on_click=lambda t=theme: self.set_theme(t)).mark(
-                        f"theme-{theme}"
+                    item = self.menu_entry(
+                        THEME_LABELS[theme], THEME_ICONS[theme], lambda t=theme: self.set_theme(t), f"theme-{theme}"
                     )
                     if theme == self.theme:
                         item.props("active")

@@ -2008,11 +2008,25 @@ async def open_header_view(user: User, tmp_path: Path) -> MainView:
     return views[0]
 
 
+def label_section(item: ui.menu_item) -> ui.item_section:
+    """項目の文言の ItemSection(アイコンでも、右端のキーでもないもの)。"""
+    return next(c for c in item.default_slot.children if c.text and "side" not in c._props)
+
+
 def menu_items(user: User, menu_marker: str) -> list[tuple[str, str]]:
     """メニューの項目(文言, マーカー)を、並んだ順に返す。"""
     menu = user.find(marker=menu_marker).elements.pop()
     return [
-        (child.default_slot.children[0].text, next(iter(child._markers)))  # 文言は、項目の中の ItemSection
+        (label_section(child).text, next(iter(child._markers)))
+        for child in menu.default_slot.children
+        if isinstance(child, ui.menu_item)
+    ]
+
+
+def menu_icons(user: User, menu_marker: str) -> list[str]:
+    menu = user.find(marker=menu_marker).elements.pop()
+    return [
+        next(c for c in child.default_slot.children if "avatar" in c._props).default_slot.children[0]._props["name"]
         for child in menu.default_slot.children
         if isinstance(child, ui.menu_item)
     ]
@@ -2029,22 +2043,47 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     await open_header_view(user, tmp_path)
     assert menu_items(user, "menu-file-items") == [
         ("開く", "file-open"),
+        ("新規プロジェクト作成", "file-new"),
         ("上書き保存", "save-project"),
         ("名前をつけて保存", "file-save-as"),
         ("祝日を更新", "refresh-holidays"),
     ]
     assert menu_items(user, "menu-project-items") == [
-        ("新規プロジェクト作成", "file-new"),
         ("設定", "open-settings"),
-        ("メンバー", "open-members"),
-        ("パラメータ", "open-parameters"),
+        ("メンバーとパラメータ", "open-members-parameters"),
+        ("ダッシュボード", "menu-open-dashboard"),
     ]
+    assert menu_icons(user, "menu-file-items") == ["folder_open", "note_add", "save", "save_as", "event_repeat"]
+    assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
+    assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share"]
+    assert menu_icons(user, "menu-help-items") == ["keyboard"]
+    assert menu_icons(user, "menu-theme-items") == ["brightness_auto", "light_mode", "dark_mode"]
     assert menu_items(user, "menu-export-items") == [
         ("チャートプレビュー", "export-preview"),
         ("担当者へ書き出し", "export-handoff"),
     ]
     assert menu_items(user, "menu-help-items") == [("ショートカットヘルプ", "help-shortcuts")]
     assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark")]
+
+
+async def test_the_file_menu_separates_open_save_and_update(user: User, tmp_path: Path) -> None:
+    await open_header_view(user, tmp_path)
+    menu = user.find(marker="menu-file-items").elements.pop()
+    kinds = ["sep" if isinstance(c, ui.separator) else "item" for c in menu.default_slot.children]
+    assert kinds == ["item", "item", "sep", "item", "item", "sep", "item"]
+
+
+async def test_the_project_menu_dashboard_item_opens_the_dashboard(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    user.find(marker="menu-open-dashboard").click()
+    assert await wait_until(lambda: view.dashboard_kind is not None)
+
+
+async def test_the_dashboard_menu_item_shows_the_key_hint(user: User, tmp_path: Path) -> None:
+    await open_header_view(user, tmp_path)
+    menu = user.find(marker="menu-project-items").elements.pop()
+    item = next(c for c in menu.default_slot.children if isinstance(c, ui.menu_item) and "menu-open-dashboard" in c._markers)
+    assert [c.text for c in item.default_slot.children if "side" in c._props] == ["D"]
 
 
 async def test_the_file_menu_opens_the_file_list(user: User, tmp_path: Path) -> None:
@@ -2263,13 +2302,12 @@ async def test_save_as_works_for_an_unsaved_project_too(user: User, tmp_path: Pa
     assert await wait_until(lambda: views[0].path == tmp_path / "丙.json")
 
 
-async def test_the_file_menu_has_a_separator_before_the_holiday_update(user: User, tmp_path: Path) -> None:
+async def test_the_file_menu_separators_are_marked_and_the_holiday_update_is_last(user: User, tmp_path: Path) -> None:
     await open_header_view(user, tmp_path)
     menu = user.find(marker="menu-file-items").elements.pop()
-    kinds = [type(child).__name__ for child in menu.default_slot.children]
-    assert kinds == ["MenuItem", "MenuItem", "MenuItem", "Separator", "MenuItem"]  # 開く・保存・名前をつけて保存 | 祝日を更新
-    assert "menu-file-separator" in menu.default_slot.children[3]._markers
-    assert "refresh-holidays" in menu.default_slot.children[4]._markers
+    children = menu.default_slot.children
+    assert "menu-file-separator" in children[2]._markers and "menu-file-separator" in children[5]._markers
+    assert "refresh-holidays" in children[6]._markers
 
 
 async def test_templates_are_saved_with_the_project_and_mark_it_dirty(
