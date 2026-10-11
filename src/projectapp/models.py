@@ -19,6 +19,8 @@ MIN_LEVEL_VALUE, MAX_LEVEL_VALUE = -0.9, 2.9  # パラメータの段階の判�
 MIN_ALLOCATION, MAX_ALLOCATION = 0.01, 1.0  # 割り当て率(1%〜100%)
 MIN_PROGRESS, MAX_PROGRESS = 0, 100  # 実績の進捗度(%)
 MAX_PROJECT_CODE_LENGTH = 20  # ProjectCode の最大文字数
+MAX_CATEGORY_NAME_LENGTH = 30  # カテゴリの名前の最大文字数
+MAX_CATEGORY_KIND_LENGTH = 20  # カテゴリの種別の最大文字数
 HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
 
@@ -67,6 +69,18 @@ class Member:
     ratio: float = 1.0  # 基本比率(1.0 = 100%)。相対比率 = 基本比率 + 選んだ段階の判定値の合計
     levels: dict[str, str] = field(default_factory=dict)  # パラメータ名 → 選んだ段階名
     id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する(担当者はこの id で指す)
+
+
+@dataclass
+class Category:
+    """プロジェクト共通のカテゴリ。todoapp のカテゴリと同じ項目を持つ。「未定」は持たない(`Task.category_id` が None)。"""
+
+    name: str
+    kind: str = ""  # 種別(自由入力)
+    expiry_date: date | None = None  # 有効期限日。None は期限なし
+    color: str = "blue"  # categories.COLORS のどれか
+    prj_code: str = ""  # PRJコード。前後の空白は除く
+    id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する
 
 
 @dataclass
@@ -129,6 +143,7 @@ class Task:
     planned_end_manual: bool = False  # 工数があるときに、完了予定を手で指定するか
     actuals: list[Actual] = field(default_factory=list)  # 実績の区間(今回の画面は0〜1件)
     project_code: str = ""  # ProjectCode。前後の空白は除く。最大 MAX_PROJECT_CODE_LENGTH 文字
+    category_id: str | None = None  # カテゴリの id。None は「未定」
     kind: TaskKind = TaskKind.NORMAL  # チェックポイントは、締切だけを持つ(他の日時・工数・担当・実績は持たない)
     urls: list[TaskUrl] = field(default_factory=list)  # 関連する URL(チケット・資料など)
 
@@ -172,6 +187,7 @@ class Project:
     actual_mode: ActualMode = ActualMode.SIMPLE  # 実績の記録方式
     url_templates: list[UrlTemplate] = field(default_factory=list)  # リンクの URL の型(プロジェクト共通)
     parameters: list[Parameter] = field(default_factory=list)  # 相対比率のパラメータ(プロジェクト共通)
+    categories: list[Category] = field(default_factory=list)  # カテゴリ(プロジェクト共通。「未定」は含まない)
 
     def all_tasks(self) -> list[Task]:
         """セクションなしのタスク、続いて各セクションを深さ優先で(そのタスク → そのサブセクション)。"""
@@ -181,9 +197,10 @@ class Project:
         return tasks
 
     def used_ids(self) -> set[str]:
-        """タスク・メンバー・セクションの id。新しい id が既存と重ならないように、振る側が渡す。"""
+        """タスク・メンバー・セクション・カテゴリの id。新しい id が既存と重ならないように、振る側が渡す。"""
         return (
             {t.id for t in self.all_tasks()}
             | {m.id for m in self.members}
             | {s.id for _, s in walk_sections(self.sections)}
+            | {c.id for c in self.categories}
         )
