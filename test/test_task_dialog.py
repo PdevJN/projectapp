@@ -1861,10 +1861,20 @@ async def test_the_computed_end_follows_the_parameters_in_the_dialog(user: User)
     assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-12 12:30"
 
 
-async def test_the_name_input_limits_the_length(user: User) -> None:
-    mount_dialog(None, [])
+async def test_the_name_input_is_cut_to_the_limit_in_characters(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
     await open_dialog(user)
-    assert user.find(marker="task-name").elements.pop()._props.get("maxlength") == "50"
+    name = user.find(marker="task-name").elements.pop()
+    assert name._props.get("maxlength") is None  # ブラウザの maxlength は UTF-16 単位で、文字数とずれる
+    name.set_value("あ" * 60)
+    assert name.value == "あ" * 50
+    name.set_value("😀" * 50)  # 絵文字は 1 文字と数える(UTF-16 では 2 単位)
+    assert name.value == "😀" * 50
+    name.set_value("a\nb" + "c" * 60)  # 改行は空白に替えてから切る
+    assert name.value == "a b" + "c" * 47
+    user.find(marker="task-save").click()
+    assert len(saved[0].name) == 50
 
 
 async def test_the_name_input_is_a_full_width_growing_textarea(user: User) -> None:

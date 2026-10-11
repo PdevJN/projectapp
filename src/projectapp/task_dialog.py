@@ -723,15 +723,16 @@ def open_task_dialog(
         # 長い名前は折り返す(textarea を 1 行から伸ばす)。名前に改行は使えないので、Enter は無効にし、貼り付けた改行は空白にする
         name = (
             ui.textarea("名前", value=initial.name)
-            .props(f"autogrow rows=1 maxlength={MAX_TASK_NAME_LENGTH}")
+            .props("autogrow rows=1")
             .classes("w-full")
             .on("keydown.enter.prevent", lambda: None)
             .mark("task-name")
         )
 
         def replace_control_chars(event: ValueChangeEventArguments) -> None:
+            # 使えない文字は空白に替え、上限(文字数。ブラウザの maxlength は UTF-16 単位でずれる)で切る
             text = event.value or ""
-            cleaned = "".join(" " if has_control_char(ch) else ch for ch in text)
+            cleaned = "".join(" " if has_control_char(ch) else ch for ch in text)[:MAX_TASK_NAME_LENGTH]
             if cleaned != text:
                 name.set_value(cleaned)
 

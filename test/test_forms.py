@@ -1732,3 +1732,28 @@ async def test_deleting_a_used_category_and_adding_an_identical_row_still_applie
     assert edit.removed_ids == [category.id]
     assert edit.categories == [category] and edit.categories[0].id != category.id
 
+
+@pytest.mark.parametrize(("part", "limit"), [("name", 30), ("kind", 20), ("prj", 20)])
+async def test_category_inputs_are_cut_to_the_limit_in_characters(user: User, part: str, limit: int) -> None:
+    mount_category_settings([Category("a")], {}, [], [])
+    await user.open("/")
+    user.find("open").click()
+    field = user.find(marker=f"settings-category-0-{part}").elements.pop()
+    assert field._props.get("maxlength") is None  # ブラウザの maxlength は UTF-16 単位で、文字数とずれる
+    field.set_value("A" * (limit + 5))
+    assert field.value == "A" * limit
+    field.set_value("😀" * limit)  # 絵文字は 1 文字と数える(UTF-16 では 2 単位)
+    assert field.value == "😀" * limit
+
+
+async def test_a_cut_category_name_is_what_gets_applied(user: User) -> None:
+    edits: list[CategoryEdit] = []
+    mount_category_settings([], {}, [], edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-category-add").click()
+    await asyncio.sleep(0.2)
+    user.find(marker="settings-category-0-name").elements.pop().set_value("あ" * 40)
+    user.find(marker="settings-apply").click()
+    assert edits[0].categories[0].name == "あ" * 30
+
