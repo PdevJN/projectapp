@@ -19,6 +19,7 @@ from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import (
     THEMES,
     check_project_dir,
+    load_project_dir,
     load_name_width,
     load_task_layout,
     load_theme,
@@ -307,6 +308,13 @@ class MainView:
     def change_project_dir(self, path: Path) -> None:
         """検査に通れば、格納先を保存して、ファイル一覧を読み直し、保存前の新規プロジェクトにする。"""
         if path.resolve() == self.project_dir.resolve():
+            # 起動時に既定の場所へ戻っていた場合、保存してある(使えない)格納先を、今の場所で直す
+            saved = load_project_dir(self.base_dir)
+            if saved is not None and saved.resolve() != path.resolve():
+                try:
+                    save_project_dir(path, self.base_dir)
+                except OSError as exc:
+                    ui.notify(f"保存できませんでした: {exc}", type="negative")
             return
         if error := check_project_dir(path):
             ui.notify(f"このフォルダは使えません: {error}", type="negative")

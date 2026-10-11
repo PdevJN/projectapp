@@ -2455,6 +2455,16 @@ async def test_choosing_the_current_folder_does_nothing(user: User, tmp_path: Pa
     assert load_project_dir(tmp_path / "config") is None  # 設定も書かない
 
 
+async def test_choosing_the_default_folder_after_a_fallback_start_fixes_the_setting(user: User, tmp_path: Path) -> None:
+    base = tmp_path / "config"
+    view, exporter = await open_dir_view(user, tmp_path, base)
+    save_project_dir(tmp_path / "ない", base)  # 保存した格納先が使えず、既定の場所で起動した状態
+    user.find(marker="file-change-dir").click()
+    assert await wait_until(lambda: exporter.asked_directory == 1)
+    assert await wait_until(lambda: load_project_dir(base) == base)  # 次の起動から警告が出ない
+    assert view.path is not None  # 今のフォルダと同じなので、プロジェクトは閉じない
+
+
 async def test_a_failure_to_save_the_setting_keeps_the_old_folder(
     user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
