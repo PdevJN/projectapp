@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -7,10 +8,15 @@ from projectapp.config import (
     DEFAULT_NAME_WIDTH_PX,
     MAX_NAME_WIDTH_PX,
     MIN_NAME_WIDTH_PX,
+    PROJECT_DIR_MISSING_MESSAGE,
+    check_project_dir,
     load_name_width,
+    load_project_dir,
     load_theme,
     parse_name_width,
+    resolve_project_dir,
     save_name_width,
+    save_project_dir,
     save_theme,
 )
 
@@ -193,3 +199,78 @@ def test_an_invalid_task_layout_falls_back_to_all(tmp_path: Path, value: object)
 
     (tmp_path / "config.json").write_text(json.dumps({"task_layout": value}), encoding="utf-8")
     assert load_task_layout(tmp_path) == "all"
+
+
+def test_project_dir_is_unset_by_default(tmp_path: Path) -> None:
+    assert load_project_dir(tmp_path) is None
+
+
+def test_project_dir_round_trips_and_keeps_the_other_keys(tmp_path: Path) -> None:
+    save_theme("dark", tmp_path)
+    folder = tmp_path / "shared"
+    save_project_dir(folder, tmp_path)
+    assert load_project_dir(tmp_path) == folder
+    assert load_theme(tmp_path) == "dark"
+    save_theme("light", tmp_path)  # ほかの設定を保存しても、格納先は消えない
+    assert load_project_dir(tmp_path) == folder
+
+
+@pytest.mark.parametrize("value", [None, "", "   ", 5, ["x"], "relative/dir"])
+def test_an_invalid_project_dir_is_read_as_unset(tmp_path: Path, value: object) -> None:
+    (tmp_path / "config.json").write_text(json.dumps({"project_dir": value}), encoding="utf-8")
+    assert load_project_dir(tmp_path) is None
+
+
+def test_project_dir_expands_the_home_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    (tmp_path / "config.json").write_text(json.dumps({"project_dir": "~/shared"}), encoding="utf-8")
+    assert load_project_dir(tmp_path) == tmp_path / "shared"
+
+
+def test_check_project_dir_accepts_an_existing_folder_even_if_empty(tmp_path: Path) -> None:
+    assert check_project_dir(tmp_path) is None
+
+
+def test_check_project_dir_rejects_a_missing_folder(tmp_path: Path) -> None:
+    assert check_project_dir(tmp_path / "ない") == "フォルダが見つかりません"
+
+
+def test_check_project_dir_rejects_a_file(tmp_path: Path) -> None:
+    target = tmp_path / "file.txt"
+    target.write_text("x", encoding="utf-8")
+    assert check_project_dir(target) == "フォルダではありません"
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="権限を外せない環境")
+def test_check_project_dir_rejects_a_folder_that_cannot_be_written(tmp_path: Path) -> None:
+    folder = tmp_path / "ro"
+    folder.mkdir()
+    folder.chmod(0o555)
+    try:
+        assert check_project_dir(folder) == "書き込めません"
+    finally:
+        folder.chmod(0o755)
+
+
+def test_check_project_dir_does_not_create_files(tmp_path: Path) -> None:
+    check_project_dir(tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_resolve_project_dir_is_the_config_folder_when_unset(tmp_path: Path) -> None:
+    assert resolve_project_dir(tmp_path) == (tmp_path, None)
+
+
+def test_resolve_project_dir_uses_a_saved_usable_folder(tmp_path: Path) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    save_project_dir(shared, tmp_path)
+    assert resolve_project_dir(tmp_path) == (shared, None)
+
+
+def test_resolve_project_dir_falls_back_without_touching_the_config(tmp_path: Path) -> None:
+    missing = tmp_path / "ない"
+    save_project_dir(missing, tmp_path)
+    assert resolve_project_dir(tmp_path) == (tmp_path, PROJECT_DIR_MISSING_MESSAGE)
+    assert load_project_dir(tmp_path) == missing  # 設定は残す(ドライブをつなぎ直せば戻る)
