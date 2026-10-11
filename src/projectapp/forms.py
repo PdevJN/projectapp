@@ -413,8 +413,9 @@ class CategoryRow:
     prj_code: str
 
 
-_COLOR_MAP = "{" + ",".join(f"{color}:'{code}'" for color, code in COLOR_HEX.items()) + "}"  # 色名 → 色コード(Vue の式)
-_COLOR_DOT = f'<q-icon name="circle" size="xs" :style="{{ color: ({_COLOR_MAP})[props.opt.value] }}" />'
+# 色の名前(ラベル)→ 色コード(Vue の式)。NiceGUI の select は、選択肢の value に番号(0〜9)を渡すので、色名では引けない。名前は一意
+_COLOR_MAP = "{" + ",".join(f"'{COLOR_LABELS[color]}':'{code}'" for color, code in COLOR_HEX.items()) + "}"
+_COLOR_DOT = f'<q-icon name="circle" size="xs" :style="{{ color: ({_COLOR_MAP})[props.opt.label] }}" />'
 COLOR_OPTION_TEMPLATE = (  # 選択肢: 色付きの丸 + 色の名前
     '<q-item v-bind="props.itemProps"><q-item-section avatar>'
     f"{_COLOR_DOT}</q-item-section><q-item-section>{{{{ props.opt.label }}}}</q-item-section></q-item>"

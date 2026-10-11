@@ -1547,7 +1547,10 @@ async def test_the_color_select_shows_a_colored_dot_with_the_name(user: User) ->
     for slot in ("option", "selected-item"):  # 選択肢も、選んだあとの表示も、丸 + 名前
         template = select.slots[slot].template
         assert 'name="circle"' in template and "props.opt.label" in template
-        assert all(hex_color in template for hex_color in COLOR_HEX.values())  # 10 色すべての色コード
+        # NiceGUI の select は、選択肢の value に色名ではなく番号(0〜9)を渡す。色は、一意なラベル(名前)で引く
+        assert "[props.opt.label]" in template and "[props.opt.value]" not in template
+        for color in COLORS:
+            assert f"'{COLOR_LABELS[color]}':'{COLOR_HEX[color]}'" in template  # 名前 → 色コード、10 色すべて
     await user.should_not_see(marker="settings-category-0-swatch")  # 別の色見本は置かない
 
 
