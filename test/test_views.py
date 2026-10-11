@@ -1267,7 +1267,7 @@ def mount_preview(base_dir: Path, views: list[MainView], exporter: FakeExporter)
 
 
 def planned_task() -> Task:
-    return Task("設計", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12), project_code="P")
+    return Task("設計", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12))
 
 
 async def open_preview(
