@@ -14,7 +14,7 @@
 | `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、セクションの折りたたみ、行のドラッグ移動・コピー、バーの横移動(日次のみ)、名前の欄の幅(CSS 変数 `--name-w`。位置は `from_name` で式にする)、ツールバーとチャートの表示・非表示(`set_visible`。スクロール位置を覚えて戻す) |
 | `forms.py` | タスク・セクションの入力検証、プロジェクト名の入力・ファイル一覧・未保存の確認ダイアログ、稼働時間の設定ダイアログと入力検証、メンバーとパラメータのタブ付きダイアログ(`members_panel`・`parameters_panel`・`open_members_parameters_dialog`。適用してもダイアログは閉じず、適用のたびにプロジェクトから行を作り直す。パラメータの適用は、メンバーの未適用の行へ `remap_levels` で伝える。未適用の印は 0.3 秒ごとに更新)と検証(`build_members`) |
 | `dateinput.py` | 日付と時刻の入力の整形。`parse_date_input`(省略形 → `YYYY-MM-DD`。`roll_forward` で、過ぎた日を翌年にする)・`parse_time_input`(→ `HH:MM`)・`shortcut_dates`(今日・明日・来週月)。純粋関数。`task_dialog.add_picker` の `normalize` が、blur で使う。テストは `task_dialog.today` を差し替えて日付を固定し、blur は `_event_listeners` のハンドラを直接呼ぶ(User のシミュレーションにフォーカスの移動がないため) |
-| `effortunits.py` | 工数の単位(時間・日・週・月)の換算 `to_hours` / `from_hours` と、参考 `reference_text`。純粋関数。時間のときは丸めない(今までの入力と同じ。工数の桁数は `build_task` でも検証しない)。`task_dialog.EffortField` が使い、時間を正本として持つ(単位の切り替えで丸めのずれを溜めない) |
+| `effortunits.py` | 工数の単位(時間・日・週・月)の換算 `to_hours` / `from_hours` と、参考 `reference_text`。純粋関数。時間のときは丸めない(桁数は `build_task` が検証する。小数点以下 2 桁まで。古いファイルの値は、変えなければ保存できる)。`task_dialog.EffortField` が使い、時間を正本として持つ(単位の切り替えで丸めのずれを溜めない) |
 | `preview.py` | エクスポートのプレビュー(`PreviewSettings`・期間の検証・`fit_scale`・`PreviewBar`) |
 | `filemanager.py` | フォルダを OS のファイラで開く(`open_command`・`open_folder`。macOS は `open`、Windows は `explorer`、それ以外は `xdg-open`。シェルを通さない)。純粋に近い関数で、起動は差し替えられる |
 | `export.py` | 画像化(html-to-image)・倍率・PNG の書き出し・保存ダイアログ(`ImageExporter`。`ask_path` はファイルの種類を引数に取り、担当者向けファイルでも使う) |

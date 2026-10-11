@@ -34,7 +34,7 @@ def _factor(unit: EffortUnit, daily_hours: float) -> float:
 
 
 def to_hours(value: float, unit: EffortUnit, daily_hours: float) -> float:
-    """入力の数値を時間にする。時間のときは、今までの入力と同じく丸めない。"""
+    """入力の数値を時間にする。時間のときは丸めない(桁数は、保存時のフォームが検証する)。"""
     if unit is EffortUnit.HOURS:
         return value
     return round(value * _factor(unit, daily_hours), DECIMALS)

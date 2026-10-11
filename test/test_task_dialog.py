@@ -2120,12 +2120,22 @@ async def test_an_existing_effort_opens_in_hours(user: User) -> None:
     assert user.find(marker="task-effort-unit").elements.pop().value is EffortUnit.HOURS
 
 
-async def test_hours_are_saved_as_typed_without_rounding(user: User) -> None:
+async def test_hours_with_three_decimals_are_rejected_with_a_message(user: User) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved)
     await open_dialog(user)
     user.find(marker="task-name").type("設計")
-    user.find(marker="task-effort").type("1.234")  # 時間の入力は、今までどおり丸めない
+    user.find(marker="task-effort").type("1.234")
+    user.find(marker="task-save").click()
+    assert saved == []
+    await user.should_see("工数は小数点以下2桁")
+
+
+async def test_an_existing_three_decimal_effort_can_be_saved_untouched(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("a", effort_hours=1.234), saved)
+    await open_dialog(user)
+    user.find(marker="task-name").clear().type("改名")
     user.find(marker="task-save").click()
     assert saved[0].effort_hours == 1.234
 

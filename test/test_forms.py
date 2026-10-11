@@ -591,6 +591,28 @@ def test_non_finite_effort_is_rejected(hours: float) -> None:
         make(effort_hours=hours)
 
 
+@pytest.mark.parametrize("hours", [0.0, 1.0, 1.5, 1.25, 0.01, 130.0])
+def test_effort_up_to_two_decimals_is_accepted(hours: float) -> None:
+    assert make(effort_hours=hours).effort_hours == hours
+
+
+@pytest.mark.parametrize("hours", [1.234, 0.001, 2.505])
+def test_effort_with_more_than_two_decimals_is_rejected(hours: float) -> None:
+    with pytest.raises(ValueError, match="工数は小数点以下2桁"):
+        make(effort_hours=hours)
+
+
+def test_an_existing_effort_with_three_decimals_is_kept_when_unchanged() -> None:
+    existing = Task("旧", effort_hours=1.234)  # 古いファイルの値は、触らなければ保存できる
+    assert make(existing, effort_hours=1.234).effort_hours == 1.234
+
+
+def test_changing_an_existing_effort_to_three_decimals_is_rejected() -> None:
+    existing = Task("旧", effort_hours=1.234)
+    with pytest.raises(ValueError, match="工数は小数点以下2桁"):
+        make(existing, effort_hours=1.2345)
+
+
 @pytest.mark.parametrize("color", ["#abc", "#AABBCC", "#aabbccdd"])
 def test_hex_colors_are_accepted(color: str) -> None:
     assert make(color=color).color == color
