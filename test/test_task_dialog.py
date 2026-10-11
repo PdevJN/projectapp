@@ -817,26 +817,25 @@ async def test_the_assignee_is_chosen_from_the_members(user: User) -> None:
     assert saved[0].assignees == [Assignee("田中", 1.0)]
 
 
-async def test_without_an_assignee_the_allocation_is_disabled_and_nobody_is_saved(user: User) -> None:
+async def test_without_an_assignee_the_allocation_is_hidden_and_nobody_is_saved(user: User) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved, members=[TANAKA])
     await open_dialog(user)
     user.find(marker="task-name").type("設計")
-    allocation = user.find(marker="task-allocation").elements.pop()
-    assert allocation.enabled is False
+    await user.should_not_see(marker="task-allocation")
     user.find(marker="task-save").click()
     assert saved[0].assignees == []
 
 
-async def test_the_allocation_is_enabled_with_an_assignee_and_saved(user: User) -> None:
+async def test_the_allocation_shows_with_an_assignee_and_is_saved(user: User) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved, members=[TANAKA])
     await open_dialog(user)
     user.find(marker="task-name").type("設計")
     with user.client:
         user.find(marker="task-assignee").elements.pop().set_value("田中")
+    await user.should_see(marker="task-allocation")
     allocation = user.find(marker="task-allocation").elements.pop()
-    assert allocation.enabled is True
     with user.client:
         allocation.set_value(60)
     user.find(marker="task-save").click()
@@ -2133,3 +2132,17 @@ async def test_the_effort_change_updates_the_computed_end_and_the_conversion(use
     set_unit(user, EffortUnit.DAYS)
     user.find(marker="task-effort").type("2")
     assert user.find(marker="task-end-computed").elements.pop().value != ""  # 13h から算出
+
+
+async def test_the_allocation_hides_again_when_cleared_and_keeps_its_value(user: User) -> None:
+    mount_dialog(None, [], members=[TANAKA])
+    await open_dialog(user)
+    select = user.find(marker="task-assignee").elements.pop()
+    with user.client:
+        select.set_value("田中")
+        user.find(marker="task-allocation").elements.pop().set_value(50)
+        select.set_value("")  # (なし)
+    await user.should_not_see(marker="task-allocation")
+    with user.client:
+        select.set_value("田中")
+    assert user.find(marker="task-allocation").elements.pop().value == 50  # 隠しても値は残る

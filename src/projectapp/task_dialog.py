@@ -790,7 +790,7 @@ class AssigneeFields:
     def _sync(self) -> None:
         for item in self.items:
             item.member.set_options(self._options(item), value=item.member.value)
-            item.allocation.set_enabled(bool(item.member.value))
+            item.allocation.set_visibility(bool(item.member.value))
 
     def rows(self) -> list[AssigneeRow]:
         return [(item.member.value or "", item.allocation.value) for item in self.items]
