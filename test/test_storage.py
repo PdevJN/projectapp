@@ -812,6 +812,8 @@ def _categorized(tmp_path: Path) -> Path:
         (lambda raw: raw["categories"][0].update(name=1), "名前"),
         (lambda raw: raw["categories"][0].update(name="あ" * 31), "名前"),
         (lambda raw: raw["categories"][0].update(name="開\n発"), "名前"),
+        (lambda raw: raw["categories"][0].update(name="開\u200b発"), "名前"),
+        (lambda raw: raw["categories"][0].update(kind="業\u200b務"), "種別"),
         (lambda raw: raw["categories"][0].update(prj_code="P\nQ"), "PRJ"),
         (lambda raw: raw["categories"][0].update(prj_code="設計"), "PRJ"),
         (lambda raw: raw["categories"][0].update(prj_code="PRJ 1"), "PRJ"),
@@ -1527,3 +1529,10 @@ def test_a_tidied_task_name_can_be_saved_again(tmp_path: Path) -> None:
     _edit_raw(path, lambda raw: raw["tasks"][0].update(name="あ" * 60))
     loaded = load_project(path)
     assert load_project(save_project(loaded, tmp_path, overwrite=True)).tasks[0].name == "あ" * 50
+
+
+def test_loading_replaces_zero_width_characters_in_a_task_name(tmp_path: Path) -> None:
+    path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
+    _edit_raw(path, lambda raw: raw["tasks"][0].update(name="\u200b設計\u200b開発\u2028"))
+    assert load_project(path).tasks[0].name == "設計 開発"
+

@@ -1691,7 +1691,7 @@ def test_task_name_length_is_checked_after_trimming() -> None:
     assert make(name=" " + "あ" * 50 + " ").name == "あ" * 50
 
 
-@pytest.mark.parametrize("name", ["a\nb", "a\tb", "a\x00b", "a\x7fb"])
+@pytest.mark.parametrize("name", ["a\nb", "a\tb", "a\x00b", "a\x7fb", "a\u200bb", "a\ufeffb", "a\u2028b"])
 def test_task_name_with_control_characters_is_rejected(name: str) -> None:
     with pytest.raises(ValueError, match="制御文字"):
         make(name=name)

@@ -39,9 +39,12 @@ def is_hex_color(value: str) -> bool:
     return HEX_COLOR.fullmatch(value) is not None
 
 
+FORBIDDEN_CATEGORIES = ("Cc", "Cf", "Zl", "Zp")  # todoapp の `has_control_chars` と同じ。受け取る側が拒否する文字を、こちらから渡さない
+
+
 def has_control_char(text: str) -> bool:
-    """改行・タブなどの制御文字(Unicode の Cc。C0・DEL・C1)を含むか。"""
-    return any(unicodedata.category(ch) == "Cc" for ch in text)
+    """名前に使えない文字を含むか。制御文字(Cc: 改行・タブなど)・書式制御文字(Cf: ゼロ幅文字・BOM など)・行/段落区切り(Zl・Zp)。"""
+    return any(unicodedata.category(ch) in FORBIDDEN_CATEGORIES for ch in text)
 
 
 def tidy_task_name(name: str) -> str:
