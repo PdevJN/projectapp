@@ -9,6 +9,7 @@ from projectapp.ratios import (
     deletion_impacts,
     effective_ratio,
     ratio_detail,
+    remap_levels,
     validate_parameters,
 )
 
@@ -181,3 +182,21 @@ def test_validate_parameters_rejects_bad_definitions(bad: list[Parameter]) -> No
 def test_validate_parameters_accepts_boundaries_and_empty_levels() -> None:
     validate_parameters([Parameter("A", [Level("lo", -0.9), Level("hi", 2.9)]), Parameter("B", [])])
     validate_parameters([])
+
+
+def test_remap_levels_follows_renames_and_drops_deleted() -> None:
+    edit = ParameterEdit(
+        [Parameter("経験値", [Level("上", 0.2)])],
+        {"経験": "経験値", "言語": None},
+        {"経験": {"上級": "上", "初級": None}, "言語": {"日本語": None}},
+    )
+    levels = {"経験": "上級", "言語": "日本語", "不明": "x"}
+    assert remap_levels(levels, edit) == {"経験値": "上"}
+    assert remap_levels({"経験": "初級"}, edit) == {}
+
+
+def test_remap_levels_does_not_change_its_argument() -> None:
+    edit = ParameterEdit([Parameter("a", [])], {"a": "a"}, {"a": {}})
+    levels = {"a": "x"}
+    remap_levels(levels, edit)
+    assert levels == {"a": "x"}

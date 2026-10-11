@@ -36,6 +36,7 @@ SHORTCUTS: tuple[Shortcut, ...] = (
     Shortcut("o", "open", "開く(ファイル一覧)", ctrl=True),
     Shortcut("n", "new", "新規プロジェクト作成", ctrl=True),
     Shortcut(",", "settings", "設定", ctrl=True),
+    Shortcut("m", "members_parameters", "メンバーとパラメータ", ctrl=True, shift=True),
     Shortcut("e", "handoff", "担当者へ書き出し", ctrl=True),
     Shortcut("p", "preview", "チャートプレビュー", ctrl=True),
     Shortcut("d", "dashboard", "ダッシュボード"),

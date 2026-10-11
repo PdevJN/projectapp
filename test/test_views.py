@@ -850,9 +850,201 @@ async def open_members_view(user: User, tmp_path: Path) -> MainView:
     return views[0]
 
 
+async def open_members_parameters(user: User) -> None:
+    user.find(marker="open-members-parameters").click()
+    await user.should_see(marker="members-parameters-panels")
+
+
+async def test_the_shortcut_opens_the_members_parameters_dialog_once(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
+        view.on_key(key_event("m", ctrl=True, shift=True))
+    await user.should_see(marker="members-parameters-panels")
+    with view.client:
+        view.on_key(key_event("m", ctrl=True, shift=True))  # 開いているあいだは、二重に開かない
+    assert len(user.find(marker="members-parameters-panels").elements) == 1
+
+
+async def test_the_members_parameters_dialog_opens_on_the_members_tab(user: User, tmp_path: Path) -> None:
+    await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    panels = user.find(marker="members-parameters-panels").elements.pop()
+    assert panels.value == "members"
+    await user.should_see(marker="tab-members")
+    await user.should_see(marker="tab-parameters")
+
+
+async def test_the_tab_panels_do_not_shrink_so_the_card_scrolls_in_a_short_window(user: User, tmp_path: Path) -> None:
+    await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    panels = user.find(marker="members-parameters-panels").elements.pop()
+    # 縮むと、はみ出た分は overflow: hidden で切れて、2つ目以降のパラメータや段階に届かない(2026-10-11 に実機で見つけた)
+    assert panels._style["flex-shrink"] == "0"
+
+
+async def test_applying_the_members_tab_keeps_the_dialog_open(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-0")
+    user.find(marker="member-name-0").type("田中")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: [m.name for m in view.project.members] == ["田中"])
+    await user.should_see(marker="members-parameters-panels")  # 閉じない
+    first = user.find(marker="member-name-0").elements.pop()
+    assert await wait_until(lambda: user.find(marker="member-name-0").elements.pop() is not first)  # 行の作り直しを待つ
+    user.find(marker="member-name-0").clear().type("田中太郎")  # 続けて適用できる(改名は 1 回分)
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: [m.name for m in view.project.members] == ["田中太郎"])
+
+
+async def test_applying_parameters_rebuilds_the_member_columns_and_keeps_unapplied_member_edits(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-0")
+    user.find(marker="member-name-0").type("田中")  # 未適用
+    user.find(marker="parameter-add").click()
+    await user.should_see(marker="parameter-name-0")
+    user.find(marker="parameter-name-0").type("経験")
+    user.find(marker="level-add-0").click()
+    await user.should_see(marker="level-name-0-0")
+    user.find(marker="level-name-0-0").type("上級")
+    user.find(marker="level-value-0-0").clear().type("20")
+    user.find(marker="parameter-apply").click()
+    assert await wait_until(lambda: [p.name for p in view.project.parameters] == ["経験"])
+    await user.should_see(marker="member-level-0-0")  # メンバーの表に、パラメータの列ができる
+    await user.should_see(marker="member-effective-0")
+    assert view.project.members == []  # メンバーは、まだ適用していない
+    assert user.find(marker="member-name-0").elements.pop().value == "田中"
+
+
+async def test_a_parameter_rename_carries_over_to_unapplied_member_rows(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.parameters = [Parameter("経験", [Level("上級", 0.2), Level("初級", -0.1)])]
+    view.project.members = [Member("田中", 1.0, {"経験": "上級"}, "m1")]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="member-name-0").clear().type("田中A")  # 未適用の編集
+    user.find(marker="parameter-name-0").clear().type("経験値")
+    user.find(marker="level-delete-0-1").click()  # 「初級」を削除(選んでいるメンバーはいない)
+    await user.should_see(marker="level-add-0")
+    user.find(marker="parameter-apply").click()
+    assert await wait_until(lambda: view.project.parameters[0].name == "経験値")
+    assert view.project.members[0].levels == {"経験値": "上級"}
+    assert user.find(marker="member-level-0-0").elements.pop().value == "上級"  # 未適用の行も追従する
+    assert user.find(marker="member-name-0").elements.pop().value == "田中A"
+
+
+async def test_the_tabs_show_a_mark_while_they_have_unapplied_edits(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    members_mark = user.find(marker="members-dirty").elements.pop()
+    parameters_mark = user.find(marker="parameters-dirty").elements.pop()
+    assert members_mark.text == "" and parameters_mark.text == ""
+    user.find(marker="member-add").click()
+    assert await wait_until(lambda: members_mark.text == "●")
+    assert parameters_mark.text == ""
+    await user.should_see(marker="member-name-0")
+    user.find(marker="member-name-0").type("田中")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: members_mark.text == "")
+    assert view.project.members[0].name == "田中"
+    user.find(marker="parameter-add").click()
+    assert await wait_until(lambda: parameters_mark.text == "●")
+
+
+async def settle() -> None:
+    """未適用の印のタイマー(0.3 秒)が、少なくとも 1 回回るのを待つ。"""
+    await asyncio.sleep(0.8)
+
+
+def with_experience(view: MainView) -> None:
+    view.project.parameters = [Parameter("経験", [Level("上級", 0.2), Level("初級", -0.1)])]
+    view.project.members = [Member("田中", 1.0, {"経験": "上級"}, "m1")]
+    view.mark_clean()
+
+
+async def test_a_parameter_rename_and_delete_do_not_mark_the_members_tab_as_edited(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    with_experience(view)
+    await open_members_parameters(user)
+    members_mark = user.find(marker="members-dirty").elements.pop()
+    user.find(marker="parameter-name-0").clear().type("経験値")
+    user.find(marker="level-name-0-0").clear().type("エキスパート")  # 「上級」の改名
+    user.find(marker="level-delete-0-1").click()  # 「初級」の削除
+    await user.should_see(marker="level-add-0")
+    user.find(marker="parameter-apply").click()
+    assert await wait_until(lambda: view.project.parameters[0].name == "経験値")
+    assert view.project.members[0].levels == {"経験値": "エキスパート"}
+    await settle()
+    assert members_mark.text == ""  # メンバーの表は、プロジェクトに追従しただけで、編集ではない
+
+
+async def test_a_parameter_apply_keeps_the_mark_of_a_real_member_edit(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    with_experience(view)
+    await open_members_parameters(user)
+    members_mark = user.find(marker="members-dirty").elements.pop()
+    user.find(marker="member-name-0").clear().type("田中A")
+    user.find(marker="parameter-name-0").clear().type("経験値")
+    user.find(marker="parameter-apply").click()
+    assert await wait_until(lambda: view.project.parameters[0].name == "経験値")
+    await settle()
+    assert members_mark.text == "●"  # 名前の編集は、まだ適用していない
+
+
+async def test_applying_members_uses_the_applied_parameters_not_the_unapplied_ones(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    with_experience(view)
+    await open_members_parameters(user)
+    parameters_mark = user.find(marker="parameters-dirty").elements.pop()
+    user.find(marker="parameter-name-0").clear().type("経験値")  # 未適用
+    user.find(marker="member-name-0").clear().type("田中A")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members[0].name == "田中A")
+    assert view.project.parameters[0].name == "経験"  # パラメータは、適用していない
+    assert view.project.members[0].levels == {"経験": "上級"}  # 選択も、適用済みの定義のまま
+    await settle()
+    assert parameters_mark.text == "●"  # パラメータのタブの編集は、残る
+
+
+async def test_applying_members_twice_renames_the_assigned_tasks_once_each(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("田中", 1.0, {}, "m1")]
+    view.project.tasks = [Task("a", assignees=[Assignee("田中")])]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="member-name-0").clear().type("田中A")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.tasks[0].assignees[0].name == "田中A")
+    first = user.find(marker="member-name-0").elements.pop()
+    assert await wait_until(lambda: user.find(marker="member-name-0").elements.pop() is not first)  # 行の作り直しを待つ
+    user.find(marker="member-name-0").clear().type("田中B")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.tasks[0].assignees[0].name == "田中B")
+    assert [m.id for m in view.project.members] == ["m1"]  # id は変わらない
+    assert view.project.members[0].name == "田中B"
+
+
+async def test_cancel_closes_the_dialog_and_discards_unapplied_edits(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-0")
+    user.find(marker="member-name-0").type("田中")
+    dialog = next(a for a in user.find(marker="members-parameters-panels").elements.pop().ancestors() if isinstance(a, ui.dialog))
+    user.find(marker="members-parameters-cancel").click()
+    assert not dialog.value
+    assert view.project.members == []
+    assert not view.is_dirty()
+
+
 async def test_the_members_dialog_adds_a_member(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-add").click()
     await user.should_see(marker="member-name-0")  # 再描画を待つ
     user.find(marker="member-name-0").type("田中")
@@ -866,7 +1058,7 @@ async def test_the_members_dialog_rejects_a_duplicate_name(user: User, tmp_path:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-add").click()
     await user.should_see(marker="member-name-1")
     user.find(marker="member-name-1").type("田中")
@@ -879,7 +1071,7 @@ async def test_applying_the_same_members_changes_nothing(user: User, tmp_path: P
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.2)]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-apply").click()
     await asyncio.sleep(0.3)
     assert not view.is_dirty()
@@ -892,7 +1084,7 @@ async def test_renaming_a_member_renames_the_assignee_of_its_tasks(
     view.project.members = [Member("田中", 1.0), Member("鈴木", 1.0)]
     view.project.tasks = [Task("a", assignees=[Assignee("田中")]), Task("b", assignees=[Assignee("鈴木")]), Task("c")]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-name-0").clear().type("田中太郎")
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: view.project.tasks[0].assignee_names == ["田中太郎"])
@@ -905,7 +1097,7 @@ async def test_a_member_with_tasks_cannot_be_deleted(user: User, tmp_path: Path)
     view.project.members = [Member("田中", 1.0)]
     view.project.tasks = [Task("a", assignees=[Assignee("田中")])]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-delete-0").click()
     user.find(marker="member-apply").click()
     await user.should_see("1件")
@@ -916,7 +1108,7 @@ async def test_a_member_without_tasks_can_be_deleted(user: User, tmp_path: Path)
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-delete-0").click()
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: view.project.members == [])
@@ -924,7 +1116,7 @@ async def test_a_member_without_tasks_can_be_deleted(user: User, tmp_path: Path)
 
 async def test_the_members_dialog_leaves_no_elements_after_hide(user: User, tmp_path: Path) -> None:
     await open_members_view(user, tmp_path)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-add")
     user.find(kind=ui.dialog).trigger("hide")
     await user.should_not_see(marker="member-add")
@@ -990,7 +1182,7 @@ async def test_swapping_two_member_names_swaps_the_assignees_once(user: User, tm
     view.project.members = [Member("A", 1.0), Member("B", 1.0)]
     view.project.tasks = [Task("t1", assignees=[Assignee("A")]), Task("t2", assignees=[Assignee("B")])]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-name-0").clear().type("B")
     user.find(marker="member-name-1").clear().type("A")
     user.find(marker="member-apply").click()
@@ -1907,11 +2099,25 @@ async def open_header_view(user: User, tmp_path: Path) -> MainView:
     return views[0]
 
 
+def label_section(item: ui.menu_item) -> ui.item_section:
+    """項目の文言の ItemSection(アイコンでも、右端のキーでもないもの)。"""
+    return next(c for c in item.default_slot.children if c.text and "side" not in c._props)
+
+
 def menu_items(user: User, menu_marker: str) -> list[tuple[str, str]]:
     """メニューの項目(文言, マーカー)を、並んだ順に返す。"""
     menu = user.find(marker=menu_marker).elements.pop()
     return [
-        (child.default_slot.children[0].text, next(iter(child._markers)))  # 文言は、項目の中の ItemSection
+        (label_section(child).text, next(iter(child._markers)))
+        for child in menu.default_slot.children
+        if isinstance(child, ui.menu_item)
+    ]
+
+
+def menu_icons(user: User, menu_marker: str) -> list[str]:
+    menu = user.find(marker=menu_marker).elements.pop()
+    return [
+        next(c for c in child.default_slot.children if "avatar" in c._props).default_slot.children[0]._props["name"]
         for child in menu.default_slot.children
         if isinstance(child, ui.menu_item)
     ]
@@ -1928,22 +2134,47 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     await open_header_view(user, tmp_path)
     assert menu_items(user, "menu-file-items") == [
         ("開く", "file-open"),
+        ("新規プロジェクト作成", "file-new"),
         ("上書き保存", "save-project"),
         ("名前をつけて保存", "file-save-as"),
         ("祝日を更新", "refresh-holidays"),
     ]
     assert menu_items(user, "menu-project-items") == [
-        ("新規プロジェクト作成", "file-new"),
         ("設定", "open-settings"),
-        ("メンバー", "open-members"),
-        ("パラメータ", "open-parameters"),
+        ("メンバーとパラメータ", "open-members-parameters"),
+        ("ダッシュボード", "menu-open-dashboard"),
     ]
+    assert menu_icons(user, "menu-file-items") == ["folder_open", "note_add", "save", "save_as", "event_repeat"]
+    assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
+    assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share"]
+    assert menu_icons(user, "menu-help-items") == ["keyboard"]
+    assert menu_icons(user, "menu-theme-items") == ["brightness_auto", "light_mode", "dark_mode"]
     assert menu_items(user, "menu-export-items") == [
         ("チャートプレビュー", "export-preview"),
         ("担当者へ書き出し", "export-handoff"),
     ]
     assert menu_items(user, "menu-help-items") == [("ショートカットヘルプ", "help-shortcuts")]
     assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark")]
+
+
+async def test_the_file_menu_separates_open_save_and_update(user: User, tmp_path: Path) -> None:
+    await open_header_view(user, tmp_path)
+    menu = user.find(marker="menu-file-items").elements.pop()
+    kinds = ["sep" if isinstance(c, ui.separator) else "item" for c in menu.default_slot.children]
+    assert kinds == ["item", "item", "sep", "item", "item", "sep", "item"]
+
+
+async def test_the_project_menu_dashboard_item_opens_the_dashboard(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    user.find(marker="menu-open-dashboard").click()
+    assert await wait_until(lambda: view.dashboard_kind is not None)
+
+
+async def test_the_dashboard_menu_item_shows_the_key_hint(user: User, tmp_path: Path) -> None:
+    await open_header_view(user, tmp_path)
+    menu = user.find(marker="menu-project-items").elements.pop()
+    item = next(c for c in menu.default_slot.children if isinstance(c, ui.menu_item) and "menu-open-dashboard" in c._markers)
+    assert [c.text for c in item.default_slot.children if "side" in c._props] == ["D"]
 
 
 async def test_the_file_menu_opens_the_file_list(user: User, tmp_path: Path) -> None:
@@ -2162,13 +2393,12 @@ async def test_save_as_works_for_an_unsaved_project_too(user: User, tmp_path: Pa
     assert await wait_until(lambda: views[0].path == tmp_path / "丙.json")
 
 
-async def test_the_file_menu_has_a_separator_before_the_holiday_update(user: User, tmp_path: Path) -> None:
+async def test_the_file_menu_separators_are_marked_and_the_holiday_update_is_last(user: User, tmp_path: Path) -> None:
     await open_header_view(user, tmp_path)
     menu = user.find(marker="menu-file-items").elements.pop()
-    kinds = [type(child).__name__ for child in menu.default_slot.children]
-    assert kinds == ["MenuItem", "MenuItem", "MenuItem", "Separator", "MenuItem"]  # 開く・保存・名前をつけて保存 | 祝日を更新
-    assert "menu-file-separator" in menu.default_slot.children[3]._markers
-    assert "refresh-holidays" in menu.default_slot.children[4]._markers
+    children = menu.default_slot.children
+    assert "menu-file-separator" in children[2]._markers and "menu-file-separator" in children[5]._markers
+    assert "refresh-holidays" in children[6]._markers
 
 
 async def test_templates_are_saved_with_the_project_and_mark_it_dirty(
@@ -2466,7 +2696,7 @@ async def test_saving_a_task_warns_for_each_overloaded_assignee(user: User, tmp_
 
 async def test_the_parameters_dialog_adds_a_parameter_with_levels(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="parameter-add").click()
     await user.should_see(marker="parameter-name-0")
     user.find(marker="parameter-name-0").type("経験")
@@ -2481,7 +2711,7 @@ async def test_the_parameters_dialog_adds_a_parameter_with_levels(user: User, tm
 
 async def test_the_parameters_dialog_shows_the_error_and_does_not_apply(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="parameter-add").click()
     await user.should_see(marker="parameter-name-0")
     user.find(marker="parameter-apply").click()  # 名前が空
@@ -2493,7 +2723,7 @@ async def test_applying_the_same_parameters_changes_nothing(user: User, tmp_path
     view = await open_members_view(user, tmp_path)
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
     view.mark_clean()
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="parameter-apply").click()
     await wait_until(lambda: True)
     assert not view.is_dirty()
@@ -2504,7 +2734,7 @@ async def test_renaming_a_parameter_renames_the_selection_of_members(user: User,
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
     view.project.members = [Member("田中", 1.0, {"経験": "上級"})]
     view.mark_clean()
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="parameter-name-0").clear().type("スキル")
     user.find(marker="parameter-apply").click()
     assert await wait_until(lambda: view.project.members[0].levels == {"スキル": "上級"})
@@ -2516,7 +2746,7 @@ async def test_deleting_a_used_level_asks_first_and_clears_the_selection(user: U
     view.project.parameters = [Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)])]
     view.project.members = [Member("田中", 1.0, {"経験": "上級"}), Member("鈴木", 1.0, {"経験": "上級"})]
     view.mark_clean()
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="level-delete-0-1").click()
     user.find(marker="parameter-apply").click()
     await user.should_see("「経験」の「上級」を選んでいるメンバーが2人います")
@@ -2530,7 +2760,7 @@ async def test_cancelling_the_delete_confirmation_keeps_everything(user: User, t
     view = await open_members_view(user, tmp_path)
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
     view.project.members = [Member("田中", 1.0, {"経験": "上級"})]
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="parameter-delete-0").click()
     user.find(marker="parameter-apply").click()
     await user.should_see("「経験」を選んでいるメンバーが1人います")
@@ -2542,7 +2772,7 @@ async def test_cancelling_the_delete_confirmation_keeps_everything(user: User, t
 async def test_deleting_an_unused_parameter_needs_no_confirmation(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="parameter-delete-0").click()
     user.find(marker="parameter-apply").click()
     assert await wait_until(lambda: view.project.parameters == [])
@@ -2557,7 +2787,7 @@ async def test_a_parameter_edit_changes_the_computed_end(user: User, tmp_path: P
     view.gantt.set_project(view.project)
     # 15h / 1.2 = 12.5h → 金6.5h + 月6.0h
     assert effective_end(task, view.project, {}) == datetime(2026, 10, 12, 15, 0)
-    user.find(marker="open-parameters").click()
+    await open_members_parameters(user)
     user.find(marker="level-value-0-0").clear().type("50")
     user.find(marker="parameter-apply").click()
     # 15h / 1.5 = 10h → 金6.5h + 月3.5h
@@ -2573,7 +2803,7 @@ def params_view_setup(view: MainView) -> None:
 async def test_the_members_dialog_without_parameters_looks_as_before(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-ratio-0")
     assert user.find(marker="member-header-name").elements.pop().text == "名前"
     assert user.find(marker="member-header-ratio").elements.pop().text == "相対比率(%)"
@@ -2585,7 +2815,7 @@ async def test_the_members_dialog_without_parameters_looks_as_before(user: User,
 async def test_the_members_dialog_with_parameters_shows_selects_and_the_effective_ratio(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-level-0-0")
     assert user.find(marker="member-header-ratio").elements.pop().text == "基本比率(%)"
     assert user.find(marker="member-header-level-0").elements.pop().text == "経験"
@@ -2604,7 +2834,7 @@ async def test_the_members_dialog_with_parameters_shows_selects_and_the_effectiv
 async def test_the_effective_ratio_follows_the_base_ratio_and_shows_the_rounding(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-level-0-0")
     with user.client:
         user.find(marker="member-level-0-0").elements.pop().set_value("上級")
@@ -2617,7 +2847,7 @@ async def test_applying_members_drops_selections_that_point_nowhere(user: User, 
     params_view_setup(view)
     view.project.members = [Member("田中", 1.0, {"経験": "存在しない", "消えた": "x"})]
     view.mark_clean()
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: view.project.members[0].levels == {})
 
@@ -2625,7 +2855,7 @@ async def test_applying_members_drops_selections_that_point_nowhere(user: User, 
 async def test_a_new_member_row_has_no_selection_and_is_saved(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     user.find(marker="member-add").click()
     await user.should_see(marker="member-name-1")
     user.find(marker="member-name-1").type("鈴木")
@@ -2643,7 +2873,7 @@ def grid_columns(user: User) -> list[str]:
 async def test_the_members_dialog_is_a_table_whose_columns_follow_the_parameters(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-grid")
     # 名前・相対比率・削除
     assert len(grid_columns(user)) == 3
@@ -2653,7 +2883,7 @@ async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path)
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
     view.project.parameters.append(Parameter("専門性", [Level("高", 0.1)]))
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-grid")
     # 名前・基本比率・経験・専門性・相対比率・削除
     assert len(grid_columns(user)) == 6
@@ -2664,7 +2894,7 @@ async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(user: U
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
     view.project.parameters += [Parameter(f"P{n}", [Level("高", 0.1)]) for n in range(6)]
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-grid")
     scroll = user.find(marker="member-scroll").elements.pop()
     assert scroll._style["overflow-x"] == "auto"  # パラメータが多くて広がっても、横にスクロールできる
@@ -2677,7 +2907,7 @@ async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(user: U
 async def test_the_table_inputs_have_no_floating_labels(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-name-0")
     for marker in ("member-name-0", "member-ratio-0", "member-level-0-0"):
         props = user.find(marker=marker).elements.pop().props
@@ -2688,7 +2918,7 @@ async def test_the_table_inputs_have_no_floating_labels(user: User, tmp_path: Pa
 async def test_the_name_column_is_a_narrow_fixed_width_with_or_without_parameters(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-grid")
     assert grid_columns(user) == ["7rem", "7rem", "3rem"]  # 名前・相対比率・削除
 
@@ -2704,7 +2934,7 @@ async def test_the_dialog_width_follows_the_columns_without_the_old_wide_name(us
 async def test_the_member_table_uses_14px_controls(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
-    user.find(marker="open-members").click()
+    await open_members_parameters(user)
     await user.should_see(marker="member-level-0-0")
     assert "member-table" in user.find(marker="member-grid").elements.pop().classes
     select = user.find(marker="member-level-0-0").elements.pop()
