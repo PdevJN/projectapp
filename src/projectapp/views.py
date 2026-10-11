@@ -327,6 +327,7 @@ class MainView:
         "open": "show_file_list",
         "new": "request_new",
         "settings": "open_settings",
+        "members_parameters": "open_members_parameters",
         "handoff": "open_handoff",
         "preview": "enter_preview",
         "dashboard": "open_dashboard",

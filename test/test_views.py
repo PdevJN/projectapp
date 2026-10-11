@@ -855,6 +855,16 @@ async def open_members_parameters(user: User) -> None:
     await user.should_see(marker="members-parameters-panels")
 
 
+async def test_the_shortcut_opens_the_members_parameters_dialog_once(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
+        view.on_key(key_event("m", ctrl=True, shift=True))
+    await user.should_see(marker="members-parameters-panels")
+    with view.client:
+        view.on_key(key_event("m", ctrl=True, shift=True))  # 開いているあいだは、二重に開かない
+    assert len(user.find(marker="members-parameters-panels").elements) == 1
+
+
 async def test_the_members_parameters_dialog_opens_on_the_members_tab(user: User, tmp_path: Path) -> None:
     await open_members_view(user, tmp_path)
     await open_members_parameters(user)

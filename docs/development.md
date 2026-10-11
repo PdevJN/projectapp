@@ -5,20 +5,20 @@
 | モジュール | 役割 |
 |---|---|
 | `main.py` | エントリポイント(NiceGUI + pywebview。静的ファイルの登録) |
-| `views.py` | メイン画面(ヘッダー〔メニュー 4 つ・プロジェクトの切り替え・ダッシュボード・テーマのメニュー。プロジェクト名はヘッダーの外の `title_box`。`header` / `header_menu` / `theme_menu`。配色とフォントは `HEADER_CSS`〕・チャート領域・ヘルプのダイアログ・プレビューとダッシュボードの出入り・画像の保存・担当者向けファイルの書き出し) |
+| `views.py` | メイン画面(ヘッダー〔メニュー 4 つ・プロジェクトの切り替え・ダッシュボード・テーマのメニュー。プロジェクト名はヘッダーの外の `title_box`。`header` / `header_menu`(項目は `MenuItem`: 文言・アイコン・操作・マーカー・キー。`menu_entry` が左のアイコンと右端のキーを足す)/ `theme_menu`。配色とフォントは `HEADER_CSS`〕・チャート領域・ヘルプのダイアログ・プレビューとダッシュボードの出入り・画像の保存・担当者向けファイルの書き出し) |
 | `calendar.py` | 祝日の取得・キャッシュ(`holidays.json`)と日付種別の判定 |
 | `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`・`assignees_rate`・`counted_assignees`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |
 | `filtering.py` | 絞り込み条件(`TaskFilter`)とタスクの判定(`matches`)、セクションで描くタスクの決定(`visible_task_indexes`)(純粋関数) |
 | `arrange.py` | タスクの移動(`move_task`)・コピー(`copy_task`)・日程のずらし(`shift_task`、左へずらせる限度 `min_shift_days`)と、画面から届く値の検証(`parse_move`・`parse_shift`)(純粋関数) |
 | `gantt_drag.py` | ガントチャートのドラッグ操作用の JS と CSS(定数のみ。行は HTML5 の drag、バーと名前の欄の右端は pointer イベント) |
 | `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、セクションの折りたたみ、行のドラッグ移動・コピー、バーの横移動(日次のみ)、名前の欄の幅(CSS 変数 `--name-w`。位置は `from_name` で式にする)、ツールバーとチャートの表示・非表示(`set_visible`。スクロール位置を覚えて戻す) |
-| `forms.py` | タスク・セクションの入力検証、プロジェクト名の入力・ファイル一覧・未保存の確認ダイアログ、稼働時間の設定ダイアログと入力検証、メンバーのダイアログと検証(`build_members`) |
+| `forms.py` | タスク・セクションの入力検証、プロジェクト名の入力・ファイル一覧・未保存の確認ダイアログ、稼働時間の設定ダイアログと入力検証、メンバーとパラメータのタブ付きダイアログ(`members_panel`・`parameters_panel`・`open_members_parameters_dialog`。適用してもダイアログは閉じず、適用のたびにプロジェクトから行を作り直す。パラメータの適用は、メンバーの未適用の行へ `remap_levels` で伝える。未適用の印は 0.3 秒ごとに更新)と検証(`build_members`) |
 | `preview.py` | エクスポートのプレビュー(`PreviewSettings`・期間の検証・`fit_scale`・`PreviewBar`) |
 | `filemanager.py` | フォルダを OS のファイラで開く(`open_command`・`open_folder`。macOS は `open`、Windows は `explorer`、それ以外は `xdg-open`。シェルを通さない)。純粋に近い関数で、起動は差し替えられる |
 | `export.py` | 画像化(html-to-image)・倍率・PNG の書き出し・保存ダイアログ(`ImageExporter`。`ask_path` はファイルの種類を引数に取り、担当者向けファイルでも使う) |
 | `urls.py` | タスクのリンク(URL)の規則。`resolve`(`{ID}` の置き換えと、`http`・`https` の検証)、`validate_templates`、`validate_urls`、`count_usage`、`expand_template`(削除時にリンクを URL へ展開)、`rename_templates`、`apply_template_edit`(`TemplateEdit`)。純粋関数(NiceGUI に依存しない) |
 | `categories.py` | カテゴリ(プロジェクト共通)の規則。`validate_categories`(名前 30 文字以内・種別 20 文字以内・制御文字なし・PRJコードは半角英数字と `-` `_` `.` だけ 20 文字以内・色・重複・予約名「未定」)、`parse_expiry`、`migrate_legacy`(version 2 以前の `project_code` を、同じコードごとのカテゴリへ)、`next_color`、`count_usage`、`CategoryEdit`・`apply_edit`、`chip_text`、`by_id` |
-| `ratios.py` | 相対比率のパラメータ。`ratio_detail`・`effective_ratio`(基本比率 + 選んだ段階の判定値の合計。10〜300% に丸める。合計は 4 桁に丸めて、境界を誤差で外さない)、`ParameterEdit`(旧い名前からの対応。削除は None)、`validate_parameters`、`apply_parameter_edit`(入れ替えや、削除と改名の組み合わせでも取り違えない)、`deletion_impacts`。純粋関数(NiceGUI に依存しない)。換算は `timeline.assignees_rate` が、編集ダイアログは実効比率のコピーを通して使う |
+| `ratios.py` | 相対比率のパラメータ。`ratio_detail`・`effective_ratio`(基本比率 + 選んだ段階の判定値の合計。10〜300% に丸める。合計は 4 桁に丸めて、境界を誤差で外さない)、`ParameterEdit`(旧い名前からの対応。削除は None)、`remap_levels`(段階の選択を新しい定義へ写す。`apply_parameter_edit` とメンバーのダイアログが使う)、`validate_parameters`、`apply_parameter_edit`(入れ替えや、削除と改名の組み合わせでも取り違えない)、`deletion_impacts`。純粋関数(NiceGUI に依存しない)。換算は `timeline.assignees_rate` が、編集ダイアログは実効比率のコピーを通して使う |
 | `browser.py` | URL を既定のブラウザで開く(`open_url`)。`http`・`https` 以外と、開けなかったときは `OSError`。開く処理は差し替えられる |
 | `shortcuts.py` | キーボードショートカットの割り当て表 `SHORTCUTS` と、判定 `resolve`(キー・修飾キー・ダイアログの有無・画面から操作名を返す。`always` の操作(倍率)は、ダイアログ・プレビュー・ダッシュボードでも効く。`aliases` は同じ操作の別のキー、`any_shift` は Shift を見ない)、`help_entries`、`ctrl_keys`。純粋関数(NiceGUI に依存しない)。`views.MainView.on_key` が操作名をメニューと同じメソッドへ振り分ける。`ui.keyboard` は 2 つ(文字キー用は入力欄で無効、`Ctrl/Cmd` 用は `ignore=[]`)。ブラウザ側は `key_guard_js`(`views.KEY_GUARD_JS`)で、割り当てたキーの既定の動き(`Ctrl+S`・`Ctrl+P` など)と macOS の警告音を止める。タスク編集ダイアログの ESC は、`persistent` の Quasar が `escapeKey` を送らない(ゆらすだけ)ので、`task_dialog.ESCAPE_KEYDOWN_JS` の keydown で受ける。ヘルプにラベルが増えるので、テストで部分一致の文字列を探すときは注意 |
 | `dashboard.py` | ダッシュボードの集計(期間 `period_for`、進捗・負荷・工数・期限、`summarize`)。純粋関数(NiceGUI に依存しない)。負荷は `timeline.counted_span` を使い、割り当て超過の縞と同じ前提 |
@@ -65,7 +65,7 @@ git-flow に従う(`.claude/BRANCH.md`)。作業は `develop` から `feature/*`
 uv sync
 uv run pytest --cov=projectapp
 uv run pytest -n auto          # 並列(pytest-xdist)。--cov とも併用できる
-uvx ty check src
+uv run ty check src
 ```
 
 並列は、直列の約 3.5 倍速い(1,075 件: 直列 33〜40 秒、`-n 2` 17.5 秒、`-n 4` 10.8 秒、`-n auto`(論理 8 CPU)約 9.4 秒。繰り返しても失敗なし)。分散は、既定の `load` が速い(`--dist loadfile` は、大きなファイル(`test_gantt.py`・`test_views.py`)が 1 つのワーカーに偏って、`-n auto` で約 14 秒)。既定の `addopts` には入れていない(1 件だけ走らせるときも、ワーカーの起動で遅くなるため)。各ワーカーは別のプロセスなので、`conftest.py` の解放と凍結も、ワーカーごとに働く。実際のホームの `~/.projectapp` を読み書きするテストはない(`tmp_path` を使う)ので、競合しない。

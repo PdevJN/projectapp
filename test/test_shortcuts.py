@@ -90,7 +90,7 @@ def test_help_lists_every_shortcut_once_with_its_description():
 def test_the_key_lists_for_the_browser_guard_come_from_the_table():
     from projectapp.shortcuts import ctrl_keys, plain_keys
 
-    assert ctrl_keys() == {"s", "o", "n", ",", "e", "p", "+", "=", ";", "-", "0"}
+    assert ctrl_keys() == {"s", "o", "n", ",", "m", "e", "p", "+", "=", ";", "-", "0"}
     assert plain_keys() == {"escape", "d", "/", "?"}
 
 
@@ -139,3 +139,14 @@ def test_the_key_guard_blocks_the_browser_default_and_the_beep(tmp_path):
         assert out[name]["prevented"], name  # ブラウザ既定の動き・macOS の警告音を止める
     for name in ("ctrlX", "dInInput", "x"):
         assert not out[name]["prevented"], name  # 割り当てのないキーと、入力欄の文字は止めない
+
+
+def test_members_parameters_shortcut_needs_ctrl_and_shift():
+    assert resolve("m", ctrl=True, shift=True, modal=False, screen=Screen.MAIN) == "members_parameters"
+    assert resolve("m", ctrl=True, shift=False, modal=False, screen=Screen.MAIN) is None  # Ctrl/Cmd+M は割り当てない
+    assert resolve("m", ctrl=True, shift=True, modal=True, screen=Screen.MAIN) is None  # ダイアログが開いているあいだは効かない
+    assert resolve("m", ctrl=True, shift=True, modal=False, screen=Screen.DASHBOARD) is None
+
+
+def test_help_lists_the_members_parameters_shortcut():
+    assert ("Ctrl/Cmd+Shift+M", "メンバーとパラメータ") in help_entries()
