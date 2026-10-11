@@ -273,6 +273,8 @@ def build_task(
             raise ValueError(f"年は{MIN_YEAR}〜{MAX_YEAR}の範囲で入力してください")
     if not isfinite(hours) or hours < 0:
         raise ValueError("工数は0以上の数値で入力してください")
+    if exceeds_decimals(hours) and hours != base.effort_hours:  # 古いファイルの値は、触らなければ保存できる
+        raise ValueError(f"工数は小数点以下{HOURS_DECIMALS}桁までで入力してください")
     if not is_hex_color(color):
         raise ValueError("色は#RRGGBBの形式で入力してください")
     if uses_planned_end and start_at and end_at and end_at < start_at:

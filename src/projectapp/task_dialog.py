@@ -11,7 +11,16 @@ from nicegui.events import ValueChangeEventArguments
 
 from projectapp.browser import open_url as default_open_url
 from projectapp.categories import UNDECIDED, category_full_label, category_label
+from projectapp.dateinput import (
+    DATE_FORMAT,
+    SHORTCUT_LABELS,
+    parse_date_input,
+    parse_time_input,
+    shortcut_dates,
+)
+from projectapp.effortunits import PRESET_HOURS, EffortUnit, from_hours, reference_text, to_hours
 from projectapp.forms import (
+    STANDARD_WORK_HOURS,
     ActualRow,
     UrlRow,
     bind_picker,
@@ -60,6 +69,77 @@ from projectapp.urls import resolve
 PRIORITY_COLORS = {Priority.HIGH: "orange", Priority.MEDIUM: "amber", Priority.LOW: "blue"}
 
 
+class EffortField:
+    """工数の入力。数値・単位・プリセットのチップ・換算の参考。値(`value`)は、常に時間。
+    数値を編集すると時間を持ち直し、単位だけを切り替えたときは、時間を変えずに表示だけを直す。"""
+
+    def __init__(self, hours: float | None, daily_hours: float, standard_hours: float) -> None:
+        self._hours = hours
+        self._unit = EffortUnit.HOURS
+        self._daily = daily_hours
+        self._standard = standard_hours
+        self._syncing = False
+        self._callbacks: list[Callable[[float | None], object]] = []
+        with ui.column().classes("flex-1 gap-0 min-w-0") as self.container:
+            with ui.row().classes("w-full items-start no-wrap gap-2"):
+                self.number = ui.number("工数", value=hours, min=0).classes("flex-1 min-w-0").mark("task-effort")
+                self.unit = (
+                    ui.select({u: u.value for u in EffortUnit}, value=EffortUnit.HOURS)
+                    .classes("w-24")
+                    .mark("task-effort-unit")
+                )
+            with ui.row().classes("w-full items-center no-wrap gap-1"):
+                for preset in PRESET_HOURS:
+                    ui.chip(f"{preset:g}h", on_click=lambda _e, p=preset: self._set_hours(float(p))).props(
+                        "dense clickable outline size=sm"
+                    ).mark(f"task-effort-preset-{preset:g}")
+            self.reference = ui.label("").classes("text-caption text-grey").mark("task-effort-reference")
+        self.number.on_value_change(self._number_changed)
+        self.unit.on_value_change(self._unit_changed)
+
+    @property
+    def value(self) -> float | None:
+        return self._hours
+
+    def on_value_change(self, callback: Callable[[float | None], object]) -> None:
+        self._callbacks.append(callback)
+
+    def set_visibility(self, visible: bool) -> None:
+        self.container.set_visibility(visible)
+
+    def _notify(self) -> None:
+        for callback in self._callbacks:
+            callback(self._hours)
+
+    def _number_changed(self, event: ValueChangeEventArguments) -> None:
+        if self._syncing:
+            return
+        self._hours = None if event.value is None else to_hours(event.value, self._unit, self._daily)
+        self._update_reference()
+        self._notify()
+
+    def _unit_changed(self, event: ValueChangeEventArguments) -> None:
+        self._unit = event.value
+        self._show_number()
+        self._update_reference()
+
+    def _set_hours(self, hours: float) -> None:
+        self._hours = hours
+        self._show_number()
+        self._update_reference()
+        self._notify()
+
+    def _show_number(self) -> None:
+        self._syncing = True
+        try:
+            self.number.set_value(None if self._hours is None else from_hours(self._hours, self._unit, self._daily))
+        finally:
+            self._syncing = False
+
+    def _update_reference(self) -> None:
+        self.reference.set_text(reference_text(self._unit, self._daily, self._standard))
+
+
 class PriorityChips:
     """優先度を色付きチップで選ぶ。選択は常に1つで、選択中は塗りつぶし、未選択は枠線のみ。"""
 
@@ -89,14 +169,41 @@ class PriorityChips:
             chip.update()
 
 
+LAYOUT_LABELS = {"schedule": "予定・実績", "all": "すべて"}
+
 # ESC だけをサーバーへ送る。日本語の変換中の ESC は、変換の取り消しなので送らない
 ESCAPE_KEYDOWN_JS = "(e) => { if (e.code === 'Escape' && !e.isComposing) emit(); }"
 
 
+def today() -> date:
+    """今日。テストで差し替える。"""
+    return date.today()
+
+
+def date_normalizer(roll_forward: bool) -> Callable[[str], str | None]:
+    return lambda text: parse_date_input(text, today(), roll_forward)
+
+
+def normalize_field(field: ui.input, normalize: Callable[[str], str | None]) -> None:
+    """入力欄を離れたとき、省略形を正式な形へ直す。読めない値(入力の途中を含む)は、そのまま残す。"""
+    text = field.value or ""
+    fixed = normalize(text) if text.strip() else None
+    if fixed is not None and fixed != text:
+        field.set_value(fixed)
+
+
 def add_picker(
-    field: ui.input, picker_factory: Callable[[], ui.date | ui.time], icon: str, key: str, fmt: str
+    field: ui.input,
+    picker_factory: Callable[[], ui.date | ui.time],
+    icon: str,
+    key: str,
+    fmt: str,
+    normalize: Callable[[str], str | None] | None = None,
 ) -> None:
-    """入力欄の右端のアイコンで、選択部品のダイアログを開く。小さな画面でも切れない。"""
+    """入力欄の右端のアイコンで、選択部品のダイアログを開く。小さな画面でも切れない。
+    normalize があれば、欄を離れたときに省略形を直す。"""
+    if normalize is not None:
+        field.on("blur", lambda _e: normalize_field(field, normalize))
     with ui.dialog() as picker, ui.card():
         bind_picker(picker_factory().mark(f"{key}-picker"), field, fmt)
         ui.button("OK", on_click=picker.close).mark(f"{key}-picker-ok")
@@ -113,10 +220,10 @@ def moment_column(
     with ui.column().classes("flex-1 gap-0"):
         day = ui.input(f"{label}の日付", value=moment.strftime("%Y-%m-%d") if moment else "")
         day.classes("w-full").mark(f"{mark}-date")
-        add_picker(day, ui.date, "event", f"{picker}-date", "%Y-%m-%d")
+        add_picker(day, ui.date, "event", f"{picker}-date", "%Y-%m-%d", date_normalizer(False))
         clock = ui.input(f"{label}の時刻", value=moment.strftime("%H:%M") if moment else "")
         clock.classes("w-full").mark(f"{mark}-time")
-        add_picker(clock, ui.time, "access_time", f"{picker}-time", "%H:%M")
+        add_picker(clock, ui.time, "access_time", f"{picker}-time", "%H:%M", parse_time_input)
     return day, clock
 
 
@@ -188,24 +295,32 @@ class DateTimeFields:
         header: Callable[[], None] | None = None,
     ) -> tuple[ui.input, ui.input, ui.checkbox, ui.column]:
         default = self._defaults[key]
-        with ui.column().classes("flex-1 gap-0"):
+        with ui.column().classes("flex-1 gap-0 min-w-0"):
             ui.label(label).classes("text-caption text-grey")
             if header is not None:
                 header()
             with ui.column().classes("w-full gap-0") as editable:
-                day = ui.input("日付", value=moment.strftime("%Y-%m-%d") if moment else "")
-                day.classes("w-full").mark(f"task-{key}-date")
-                add_picker(day, ui.date, "event", f"{key}-date", "%Y-%m-%d")
-                checkbox = ui.checkbox(
-                    "時刻を指定",
-                    value=use_time,
-                    on_change=lambda e, k=key: self._show_time(k, e.value),
-                ).mark(f"task-{key}-use-time")
-                clock = ui.input(
-                    "時刻", value=(moment.time() if moment else default).strftime("%H:%M")
-                )
-                clock.classes("w-full").mark(f"task-{key}-time")
-                add_picker(clock, ui.time, "access_time", f"{key}-time", "%H:%M")
+                with ui.row().classes("w-full items-start no-wrap gap-2"):
+                    day = ui.input("日付", value=moment.strftime(DATE_FORMAT) if moment else "")
+                    day.classes("flex-1 min-w-0").mark(f"task-{key}-date")
+                    add_picker(day, ui.date, "event", f"{key}-date", "%Y-%m-%d", date_normalizer(True))
+                    clock = ui.input("時刻", value=(moment.time() if moment else default).strftime("%H:%M"))
+                    clock.classes("w-28").mark(f"task-{key}-time")
+                    add_picker(clock, ui.time, "access_time", f"{key}-time", "%H:%M", parse_time_input)
+                with ui.row().classes("w-full items-center no-wrap gap-1"):
+                    for name, text in SHORTCUT_LABELS.items():
+                        ui.chip(
+                            text,
+                            on_click=lambda _e, n=name, d=day: d.set_value(
+                                shortcut_dates(today())[n].strftime(DATE_FORMAT)
+                            ),
+                        ).props("dense clickable outline size=sm").mark(f"task-{key}-shortcut-{name}")
+                    ui.space()
+                    checkbox = (
+                        ui.checkbox("時刻を指定", value=use_time, on_change=lambda e, k=key: self._show_time(k, e.value))
+                        .props("dense")
+                        .mark(f"task-{key}-use-time")
+                    )
         return day, clock, checkbox, editable
 
     def _use(self, key: str) -> ui.checkbox:
@@ -677,13 +792,14 @@ class AssigneeFields:
     def _sync(self) -> None:
         for item in self.items:
             item.member.set_options(self._options(item), value=item.member.value)
-            item.allocation.set_enabled(bool(item.member.value))
+            item.allocation.set_visibility(bool(item.member.value))
 
     def rows(self) -> list[AssigneeRow]:
         return [(item.member.value or "", item.allocation.value) for item in self.items]
 
     def state(self) -> tuple[AssigneeRow, ...]:
-        return tuple(self.rows())
+        """変更の判定に使う値。メンバーのない行の割り当て率は、隠れているので数えない(値は消さない)。"""
+        return tuple((name, percent if name else None) for name, percent in self.rows())
 
     def chosen(self) -> list[tuple[Member, float]]:
         """メンバーを選んだ行の、(メンバー, 割り当ての割合)。"""
@@ -723,6 +839,8 @@ def open_task_dialog(
     open_url: Callable[[str], object] = default_open_url,
     parameters: list[Parameter] | None = None,
     categories: list[Category] | None = None,
+    layout: str = "all",
+    on_layout_change: Callable[[str], object] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
     # 換算には、パラメータを反映した実効比率を使う(以降は、このコピーだけを見る)
@@ -731,8 +849,11 @@ def open_task_dialog(
         if all(m.name != assignee.name for m in member_list):
             member_list.append(Member(assignee.name, 1.0))
     initial_rate = assignees_rate(initial.assignees, member_list)
-    with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[36rem] max-w-full"):
+    with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[44rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
+        layout_toggle = ui.toggle(LAYOUT_LABELS, value=layout if layout in LAYOUT_LABELS else "all").mark(
+            "task-layout"
+        )
         kind = ui.toggle({k: k.value for k in TaskKind}, value=initial.kind).mark("task-kind")
         kind_hint = (
             ui.label("保存すると、開始予定・工数・担当・実績は消えます")
@@ -773,11 +894,7 @@ def open_task_dialog(
         category.add_slot("selected-item", category_selected_template(hover))
         fields = DateTimeFields(initial, work_start, daily_hours, holidays or {}, initial_rate)
         with fields.second_row:
-            effort = (
-                ui.number("工数(時間)", value=initial.effort_hours, min=0)
-                .classes("flex-1")
-                .mark("task-effort")
-            )
+            effort = EffortField(initial.effort_hours, daily_hours, STANDARD_WORK_HOURS)
         assignee_fields = AssigneeFields(initial.assignees, member_list, lambda: refresh_conversion())
         conversion = ui.label("").classes("text-caption text-grey").mark("task-conversion")
 
@@ -792,8 +909,8 @@ def open_task_dialog(
             detail = " + ".join(f"{m.name} {m.ratio * 100:g}%×{f * 100:g}%" for m, f in chosen)
             conversion.set_text(f"換算率 {rate * 100:g}%({detail})→ {effort.value:g}h は約 {days:.1f}日分")
 
-        def on_effort_change(e: object) -> None:
-            fields.set_effort(getattr(e, "value", None))
+        def on_effort_change(value: float | None) -> None:
+            fields.set_effort(value)
             refresh_conversion()
 
         effort.on_value_change(on_effort_change)
@@ -821,7 +938,7 @@ def open_task_dialog(
             # チェックポイントは押し出されない(締切に固定)ので、ヒントを出さない
             text = "" if kind.value == TaskKind.CHECKPOINT else push_hint(start_at, finishes)
             push.set_text(text)
-            push.set_visibility(bool(text))
+            push.set_visibility(bool(text) and layout_toggle.value == "all")
 
         predecessors.on_value_change(refresh_push)
         refresh_push()
@@ -831,7 +948,8 @@ def open_task_dialog(
             hidden = [pid for pid in initial.predecessors if pid not in options]
             return [*(predecessors.value or []), *hidden]
 
-        priority = PriorityChips(initial.priority)
+        with ui.column().classes("w-full gap-1") as priority_box:
+            priority = PriorityChips(initial.priority)
         intervals = actual_mode is ActualMode.INTERVALS
         with ui.column().classes("w-full") as actual_box:
             actual_fields: ActualFields | IntervalFields = (
@@ -881,8 +999,6 @@ def open_task_dialog(
         def apply_kind(_event: object = None) -> None:
             """チェックポイントでは、開始予定・完了予定・工数・担当・実績の欄を隠し、状態を 2 つにする。"""
             checkpoint = kind.value == TaskKind.CHECKPOINT
-            for widget in (fields.first_row, effort, assignee_fields.container, conversion, actual_box):
-                widget.set_visibility(not checkpoint)
             allowed = CHECKPOINT_STATUSES if checkpoint else tuple(Status)
             suggest["setting"] = True
             try:
@@ -900,10 +1016,29 @@ def open_task_dialog(
         kind.on_value_change(apply_kind)
         apply_kind()
         templates = list(url_templates or [])
-        url_fields = UrlFields(initial.urls, templates, open_url)
+        with ui.column().classes("w-full gap-1") as url_box:
+            url_fields = UrlFields(initial.urls, templates, open_url)
         color = ui.color_input("色", value=initial.color, preview=True).classes("w-full").mark(
             "task-color"
         )
+
+        def refresh_visibility(_event: object = None) -> None:
+            """欄の出し入れを 1 か所で決める(値は消さない)。チェックポイントでは通常の欄を隠し、レイアウトは付加的な欄を隠す。
+            換算の説明は、完了予定の算出値を動かすので、レイアウトに関わらず出す。"""
+            full = layout_toggle.value == "all"
+            normal = kind.value != TaskKind.CHECKPOINT
+            for widget in (fields.first_row, effort, conversion, actual_box):
+                widget.set_visibility(normal)
+            assignee_fields.container.set_visibility(full and normal)
+            for widget in (category, predecessors, priority_box, url_box, color):
+                widget.set_visibility(full)
+            refresh_push()
+
+        kind.on_value_change(refresh_visibility)
+        layout_toggle.on_value_change(refresh_visibility)
+        if on_layout_change is not None:
+            layout_toggle.on_value_change(lambda e: on_layout_change(e.value))
+        refresh_visibility()
         error = ui.label("").classes("text-negative").mark("form-error")
 
         def current() -> tuple[object, ...]:

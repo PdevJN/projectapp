@@ -3058,3 +3058,22 @@ async def test_apply_categories_updates_the_project_and_resets_removed_categorie
     assert view.project.categories == [keep]
     assert [t.category_id for t in view.project.all_tasks()] == [keep.id, None]
     assert view.is_dirty()  # 保存はしない(編集中の判定に入る)
+
+
+async def test_the_task_layout_is_loaded_and_saved(user: User, tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text('{"task_layout": "schedule"}', encoding="utf-8")
+    view = await open_members_view(user, tmp_path)
+    assert view.task_layout == "schedule"
+    view.set_task_layout("all")
+    assert view.task_layout == "all"
+    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["task_layout"] == "all"
+
+
+async def test_the_task_dialogs_get_the_saved_layout(user: User, tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text('{"task_layout": "schedule"}', encoding="utf-8")
+    view = await open_members_view(user, tmp_path)
+    with view.client:
+        view.add_top_task()
+    await user.should_see(marker="task-layout")
+    assert user.find(marker="task-layout").elements.pop().value == "schedule"
+    await user.should_not_see(marker="task-color")
