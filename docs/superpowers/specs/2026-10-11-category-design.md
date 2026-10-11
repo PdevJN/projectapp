@@ -26,7 +26,7 @@ class Category:
     kind: str = ""                   # 種別(自由入力)。最大 MAX_CATEGORY_KIND_LENGTH(20)文字。制御文字は使えない
     expiry_date: date | None = None  # 有効期限日。None は期限なし
     color: str = "blue"              # categories.COLORS のどれか
-    prj_code: str = ""               # PRJコード。最大 MAX_PROJECT_CODE_LENGTH(20)文字。制御文字は使えない
+    prj_code: str = ""               # PRJコード。最大 MAX_PROJECT_CODE_LENGTH(20)文字。半角英数字と - _ . だけ(空は可)
     id: str = field(default_factory=new_id, compare=False)
 ```
 
@@ -50,8 +50,8 @@ tasks[].category_id: "<カテゴリid>" | null
 
 version 2 以前(キーなしを含む):
 
-- `tasks[].project_code`(空でないもの)を、`categories.migrate_legacy` で、同じコードごとにカテゴリへ移す。出現順(セクションとタスクの並び順)に、`name = prj_code = コード`、`kind = ""`、`expiry_date = None`、`color = COLORS[出現順 % 10]`(書き出しの色の割り当てと同じ)、新しい `id` を振る。タスクはその `id` を `category_id` に持つ。
-- `project_code` が空・キーなし・`null` のタスクは「未定」(`category_id = None`)。
+- `tasks[].project_code`(空でないもの)を、`categories.migrate_legacy` で、同じコードごとにカテゴリへ移す。出現順(セクションとタスクの並び順)に、`name = コード`(制御文字は空白に替える。整えた名前が同じものは 1 つにまとめる)、`prj_code = name`(ただし、半角英数字と `-` `_` `.` 以外を含むときは空。チップは名前を出すので、見た目は変わらない)、`kind = ""`、`expiry_date = None`、`color = COLORS[出現順 % 10]`(書き出しの色の割り当てと同じ)、新しい `id` を振る。タスクはその `id` を `category_id` に持つ。
+- `project_code` が空・キーなし・`null`、制御文字だけ、または「未定」のタスクは「未定」(`category_id = None`)。
 - 移行で作ったカテゴリは、次に保存したときから version 3 のファイルに残る。
 - 旧 `project_code` の検証(文字列・20 文字以内)は、今までどおり拒否する。
 
@@ -64,7 +64,7 @@ version 3:
   - `kind` は文字列(キーなし・`null` は空)。20 文字以内で、制御文字を含まない。
   - `expiry_date` は `null`・キーなし、または有効な `YYYY-MM-DD`。
   - `color` は `COLORS` のどれか(キーなしは `blue`)。
-  - `prj_code` は文字列(キーなし・`null` は空)。前後の空白を除き、20 文字以内で、制御文字を含まない。
+  - `prj_code` は文字列(キーなし・`null` は空)。前後の空白を除き、20 文字以内で、半角英数字と `-` `_` `.` だけ(`PRJ_CODE_FORMAT`。空は可)。
 - `tasks[].category_id` は `null`・キーなし、または存在するカテゴリの `id`。存在しない `id` は拒否する。
 - タスクに旧キー `project_code` があっても、version 3 では使わない(読み捨てる)。
 - 不正な値は読込を拒否する(`ValueError`。「開けませんでした」)。このアプリより新しい `version` は、従来どおり拒否する。
@@ -119,7 +119,7 @@ version 3:
 - todoapp の形式(`version: 1`)は変えず、独自のキーも足さない。
 - 要望 5(返送の取り込み)では、`category_id` が `null` または存在しない `id` のものを「未定」として読む。ここでは実装しない。
 
-- 制御文字は Unicode の `Cc`(改行・タブ・NUL・DEL・C1)。名前・種別・PRJコードに共通で、前後の空白(改行を含む)を除いてから検査する。設定ダイアログの入力欄には `maxlength` を付ける。
+- 制御文字は Unicode の `Cc`(改行・タブ・NUL・DEL・C1)。名前と種別に共通で、前後の空白(改行を含む)を除いてから検査する。PRJコードは制御文字を含む半角英数字と `-` `_` `.` 以外すべてを拒否する(日本語・全角・空白・記号も不可)。設定ダイアログの入力欄には `maxlength` を付ける。
 
 ## 範囲外
 
