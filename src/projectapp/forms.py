@@ -834,53 +834,58 @@ def open_settings_dialog(
                         ui.label(UNDECIDED).classes("text-grey")
                         ui.label("(名前・PRJコード・色などは設定できません)").classes("text-caption text-grey")
                     for n, crow in enumerate(category_rows):
-                        with ui.row().classes("w-full items-center no-wrap gap-2"):
-                            limit_length(
-                                ui.input(
-                                    "名前",
-                                    value=crow.name,
-                                    on_change=lambda e, r=crow: setattr(r, "name", e.value or ""),
+                        # 1 つのカテゴリは 2 段のブロック。1 段目に名前(残りの幅いっぱい)・色・削除、2 段目に種別(残りの幅)・有効期限・PRJコード
+                        with ui.column().classes("w-full gap-1").style(
+                            "border: 1px solid rgba(128, 128, 128, 0.35); border-radius: 4px; padding: 6px 8px"
+                        ):
+                            with ui.row().classes("w-full items-center no-wrap gap-2"):
+                                limit_length(
+                                    ui.input(
+                                        "名前",
+                                        value=crow.name,
+                                        on_change=lambda e, r=crow: setattr(r, "name", e.value or ""),
+                                    )
+                                    .classes("grow")
+                                    .mark(f"settings-category-{n}-name"),
+                                    MAX_CATEGORY_NAME_LENGTH,
                                 )
-                                .classes("w-28")
-                                .mark(f"settings-category-{n}-name"),
-                                MAX_CATEGORY_NAME_LENGTH,
-                            )
-                            limit_length(
-                                ui.input(
-                                    "種別",
-                                    value=crow.kind,
-                                    on_change=lambda e, r=crow: setattr(r, "kind", e.value or ""),
+                                color_select = ui.select(
+                                    {color: COLOR_LABELS[color] for color in COLORS},
+                                    label="色",
+                                    value=crow.color,
+                                    on_change=lambda e, r=crow: setattr(r, "color", e.value),
+                                ).classes("w-32").mark(f"settings-category-{n}-color")
+                                color_select.add_slot("option", COLOR_OPTION_TEMPLATE)
+                                color_select.add_slot("selected-item", COLOR_SELECTED_TEMPLATE)
+                                ui.button(icon="delete", on_click=lambda _e, r=crow: remove_category(r)).props(
+                                    "flat dense color=negative"
+                                ).mark(f"settings-category-{n}-remove")
+                            with ui.row().classes("w-full items-center no-wrap gap-2"):
+                                limit_length(
+                                    ui.input(
+                                        "種別",
+                                        value=crow.kind,
+                                        on_change=lambda e, r=crow: setattr(r, "kind", e.value or ""),
+                                    )
+                                    .classes("grow")
+                                    .mark(f"settings-category-{n}-kind"),
+                                    MAX_CATEGORY_KIND_LENGTH,
                                 )
-                                .classes("w-24")
-                                .mark(f"settings-category-{n}-kind"),
-                                MAX_CATEGORY_KIND_LENGTH,
-                            )
-                            ui.input(
-                                "有効期限",
-                                value=crow.expiry,
-                                on_change=lambda e, r=crow: setattr(r, "expiry", e.value or ""),
-                            ).props("type=date stack-label").classes("w-36").mark(f"settings-category-{n}-expiry")
-                            color_select = ui.select(
-                                {color: COLOR_LABELS[color] for color in COLORS},
-                                label="色",
-                                value=crow.color,
-                                on_change=lambda e, r=crow: setattr(r, "color", e.value),
-                            ).classes("w-32").mark(f"settings-category-{n}-color")
-                            color_select.add_slot("option", COLOR_OPTION_TEMPLATE)
-                            color_select.add_slot("selected-item", COLOR_SELECTED_TEMPLATE)
-                            limit_length(
                                 ui.input(
-                                    "PRJコード",
-                                    value=crow.prj_code,
-                                    on_change=lambda e, r=crow: setattr(r, "prj_code", e.value or ""),
+                                    "有効期限",
+                                    value=crow.expiry,
+                                    on_change=lambda e, r=crow: setattr(r, "expiry", e.value or ""),
+                                ).props("type=date stack-label").classes("w-36").mark(f"settings-category-{n}-expiry")
+                                limit_length(
+                                    ui.input(
+                                        "PRJコード",
+                                        value=crow.prj_code,
+                                        on_change=lambda e, r=crow: setattr(r, "prj_code", e.value or ""),
+                                    )
+                                    .classes("w-48")
+                                    .mark(f"settings-category-{n}-prj"),
+                                    MAX_PROJECT_CODE_LENGTH,
                                 )
-                                .classes("w-24")
-                                .mark(f"settings-category-{n}-prj"),
-                                MAX_PROJECT_CODE_LENGTH,
-                            )
-                            ui.button(icon="delete", on_click=lambda _e, r=crow: remove_category(r)).props(
-                                "flat dense color=negative"
-                            ).mark(f"settings-category-{n}-remove")
 
             def add_category() -> None:
                 color = next_color(built_categories())

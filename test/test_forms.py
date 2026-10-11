@@ -1757,3 +1757,21 @@ async def test_a_cut_category_name_is_what_gets_applied(user: User) -> None:
     user.find(marker="settings-apply").click()
     assert edits[0].categories[0].name == "あ" * 30
 
+
+async def test_a_category_is_laid_out_in_two_rows_so_long_text_fits(user: User) -> None:
+    mount_category_settings([Category("a")], {}, [], [])
+    await user.open("/")
+    user.find("open").click()
+
+    def element(part: str):  # noqa: ANN202
+        return user.find(marker=f"settings-category-0-{part}").elements.pop()
+
+    first, second = element("name").parent_slot.parent, element("kind").parent_slot.parent
+    assert first is not second
+    assert element("color").parent_slot.parent is first and element("remove").parent_slot.parent is first
+    assert element("expiry").parent_slot.parent is second and element("prj").parent_slot.parent is second
+    assert first.parent_slot.parent is second.parent_slot.parent  # 1 つのカテゴリは、1 つのブロックにまとまる
+    assert "grow" in element("name").classes  # 名前は、1 段目の残りの幅を使う(全角 30 文字)
+    assert "grow" in element("kind").classes  # 種別は、2 段目の残りの幅を使う(全角 20 文字)
+    assert "w-48" in element("prj").classes  # PRJコードは、半角 20 文字が収まる幅
+
