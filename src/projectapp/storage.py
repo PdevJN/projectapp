@@ -99,7 +99,6 @@ def _dump(project: Project) -> dict[str, Any]:
         ids.setdefault(member["name"], member["id"])  # 同名は最初の 1 件を指す(読込が残すのも最初の 1 件)
     taken = project.used_ids()
     for task in _task_dicts(data["tasks"], data["sections"]):
-        task.pop("project_code", None)  # 旧フィールド。version 3 では書かない
         refs = []
         for assignee in task["assignees"]:
             name = assignee["name"]

@@ -18,7 +18,7 @@ SectionPath = tuple[int, ...]  # セクションの位置。root は ()、1 番�
 MIN_LEVEL_VALUE, MAX_LEVEL_VALUE = -0.9, 2.9  # パラメータの段階の判定値(-90%〜+290%)
 MIN_ALLOCATION, MAX_ALLOCATION = 0.01, 1.0  # 割り当て率(1%〜100%)
 MIN_PROGRESS, MAX_PROGRESS = 0, 100  # 実績の進捗度(%)
-MAX_PROJECT_CODE_LENGTH = 20  # ProjectCode の最大文字数
+MAX_PROJECT_CODE_LENGTH = 20  # PRJコードの最大文字数
 MAX_CATEGORY_NAME_LENGTH = 30  # カテゴリの名前の最大文字数
 MAX_CATEGORY_KIND_LENGTH = 20  # カテゴリの種別の最大文字数
 HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
@@ -142,7 +142,6 @@ class Task:
     planned_end: datetime | None = None  # 完了予定の手入力値
     planned_end_manual: bool = False  # 工数があるときに、完了予定を手で指定するか
     actuals: list[Actual] = field(default_factory=list)  # 実績の区間(今回の画面は0〜1件)
-    project_code: str = ""  # ProjectCode。前後の空白は除く。最大 MAX_PROJECT_CODE_LENGTH 文字
     category_id: str | None = None  # カテゴリの id。None は「未定」
     kind: TaskKind = TaskKind.NORMAL  # チェックポイントは、締切だけを持つ(他の日時・工数・担当・実績は持たない)
     urls: list[TaskUrl] = field(default_factory=list)  # 関連する URL(チケット・資料など)

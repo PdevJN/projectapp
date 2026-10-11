@@ -700,6 +700,10 @@ def test_categories_roundtrip(tmp_path: Path) -> None:
     assert [t.category_id for t in loaded.all_tasks()] == [dev.id, None, ops.id]
 
 
+def test_task_has_no_project_code_field() -> None:
+    assert not hasattr(Task("t"), "project_code")
+
+
 def test_saved_file_has_categories_and_no_project_code(tmp_path: Path) -> None:
     category = Category("開発", expiry_date=date(2026, 12, 31))
     path = save_project(Project("demo", tasks=[Task("a", category_id=category.id)], categories=[category]), tmp_path)
