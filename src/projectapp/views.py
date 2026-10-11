@@ -22,6 +22,7 @@ from projectapp.config import (
     load_task_layout,
     load_theme,
     load_zoom,
+    resolve_project_dir,
     save_name_width,
     save_task_layout,
     save_theme,
@@ -136,8 +137,13 @@ class MainView:
         base_dir: Path = BASE_DIR,
         transport: httpx.AsyncBaseTransport | None = None,
         exporter: ImageExporter | None = None,
+        project_dir: Path | None = None,
     ) -> None:
-        self.base_dir = base_dir
+        self.base_dir = base_dir  # 設定(config.json)と祝日のキャッシュの置き場所。固定
+        self.startup_notice: str | None = None
+        if project_dir is None:
+            project_dir, self.startup_notice = resolve_project_dir(base_dir)
+        self.project_dir = project_dir  # プロジェクトファイルの格納先
         self.transport = transport
         self.exporter: ImageExporter = exporter or NativeImageExporter()
         self.preview: PreviewSettings | None = None
@@ -150,7 +156,7 @@ class MainView:
         self.task_layout = load_task_layout(base_dir)  # タスクのダイアログのレイアウト。全プロジェクト共通
         self.run_js: Callable[..., Any] = ui.run_javascript  # テストで差し替える
         self.project = Project(NEW_PROJECT_NAME)
-        self.files: dict[str, Path] = {p.stem: p for p in list_project_files(base_dir)}
+        self.files: dict[str, Path] = {p.stem: p for p in list_project_files(self.project_dir)}
         self.path: Path | None = None
         self.mark_clean()
         self.theme = load_theme(base_dir)
@@ -228,7 +234,7 @@ class MainView:
                     after()
                 return saved
 
-            open_name_dialog(submit, lambda name: validate_name(name, self.base_dir, new=True))
+            open_name_dialog(submit, lambda name: validate_name(name, self.project_dir, new=True))
         elif self.write(overwrite=True):
             after()
 
@@ -256,7 +262,7 @@ class MainView:
     def open_project_folder(self) -> None:
         """プロジェクトの格納フォルダを、ファイラで開く。開けなければ通知する。"""
         try:
-            self.open_folder(self.base_dir)
+            self.open_folder(self.project_dir)
         except OSError as exc:
             ui.notify(f"フォルダを開けませんでした: {exc}", type="negative")
 
@@ -279,14 +285,14 @@ class MainView:
         """名前をつけて保存する。成功したら、新しいファイルが現在のプロジェクトになる(元のファイルは残る)。"""
         open_name_dialog(
             self.save_as_new,
-            lambda name: validate_name(name, self.base_dir, new=True),
+            lambda name: validate_name(name, self.project_dir, new=True),
             title="名前をつけて保存",
             initial=self.project.name,
         )
 
     def show_file_list(self) -> None:
         """ファイルを走査し直して、一覧ダイアログを出す。"""
-        self.files = {p.stem: p for p in list_project_files(self.base_dir)}
+        self.files = {p.stem: p for p in list_project_files(self.project_dir)}
         names = sorted(self.files)
         self.file_select.set_options(names, value=self.current_name())
         open_file_dialog(names, self.request_open)
@@ -598,7 +604,7 @@ class MainView:
         if self.path is None:
             open_name_dialog(
                 self.save_as_new,
-                lambda name: validate_name(name, self.base_dir, new=True),
+                lambda name: validate_name(name, self.project_dir, new=True),
             )
             return
         self.write(overwrite=True)
@@ -614,7 +620,7 @@ class MainView:
     def write(self, *, overwrite: bool) -> bool:
         """保存して画面を更新する。失敗したら通知だけ出し、状態は変えない。"""
         try:
-            path = save_project(self.project, self.base_dir, overwrite=overwrite)
+            path = save_project(self.project, self.project_dir, overwrite=overwrite)
         except FileExistsError:
             ui.notify("同じ名前のファイルがすでにあります", type="negative")
             return False
@@ -806,6 +812,8 @@ class MainView:
         self.run_js(zoom_js(self.zoom))
         ui.keyboard(on_key=self.on_plain_key)  # 入力欄・ボタンにフォーカスがあるときは、受けない
         ui.keyboard(on_key=self.on_modified_key, ignore=[])  # Ctrl/Cmd 付きだけは、入力欄でも受ける
+        if self.startup_notice:
+            ui.notify(self.startup_notice, type="warning")
         if self.needs_first_fetch:
             ui.timer(0.1, self.first_fetch, once=True)
 

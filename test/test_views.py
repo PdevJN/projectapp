@@ -10,7 +10,7 @@ import pytest
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.config import load_zoom, save_zoom
+from projectapp.config import load_project_dir, load_zoom, save_project_dir, save_zoom
 from projectapp.calendar import DayKind, save_cache
 from projectapp.filtering import TaskFilter
 from projectapp.gantt import KIND_COLORS
@@ -2089,6 +2089,70 @@ async def test_the_dashboard_and_the_preview_do_not_open_together(user: User, tm
     user.find(marker="open-dashboard").click()
     view.enter_preview()
     assert view.preview is None
+
+
+def mount_with_project_dir(base_dir: Path, project_dir: Path | None, views: list[MainView]) -> None:
+    @ui.page("/")
+    def index() -> None:
+        view = MainView(base_dir, make_transport(200, []), FakeExporter(), project_dir=project_dir)
+        views.append(view)
+        view.build()
+
+
+async def test_projects_live_in_the_project_dir_and_settings_stay_in_the_config_dir(
+    user: User, tmp_path: Path
+) -> None:
+    base, shared = tmp_path / "config", tmp_path / "shared"
+    save_cache({}, base)
+    save_project(Project("共有"), shared)
+    views: list[MainView] = []
+    mount_with_project_dir(base, shared, views)
+    await user.open("/")
+    view = views[0]
+    assert set(view.files) == {"共有"}  # 設定側にあるファイルは見ない
+    view.set_theme("dark")
+    assert view.save_as_new("デモ")
+    assert (shared / "デモ.json").exists() and not (base / "デモ.json").exists()
+    assert (base / "config.json").exists() and not (shared / "config.json").exists()
+    assert (base / "holidays.json").exists() and not (shared / "holidays.json").exists()
+
+
+async def test_a_saved_project_dir_is_used_when_none_is_given(user: User, tmp_path: Path) -> None:
+    base, shared = tmp_path / "config", tmp_path / "shared"
+    save_cache({}, base)
+    shared.mkdir()
+    save_project_dir(shared, base)
+    views: list[MainView] = []
+    mount_with_project_dir(base, None, views)
+    await user.open("/")
+    assert views[0].project_dir == shared
+
+
+async def test_an_unusable_saved_project_dir_falls_back_with_a_notice_and_keeps_the_setting(
+    user: User, tmp_path: Path
+) -> None:
+    base, missing = tmp_path / "config", tmp_path / "ない"
+    save_cache({}, base)
+    save_project_dir(missing, base)
+    views: list[MainView] = []
+    mount_with_project_dir(base, None, views)
+    await user.open("/")
+    assert views[0].project_dir == base
+    await user.should_see("既定の場所を使っています")
+    assert load_project_dir(base) == missing
+
+
+async def test_the_folder_button_opens_the_project_dir(user: User, tmp_path: Path) -> None:
+    base, shared = tmp_path / "config", tmp_path / "shared"
+    save_cache({}, base)
+    shared.mkdir()
+    views: list[MainView] = []
+    mount_with_project_dir(base, shared, views)
+    await user.open("/")
+    opened: list[Path] = []
+    views[0].open_folder = opened.append  # type: ignore[method-assign]
+    user.find(marker="open-folder").click()
+    assert opened == [shared]
 
 
 async def open_header_view(user: User, tmp_path: Path) -> MainView:
