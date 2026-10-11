@@ -998,8 +998,6 @@ def open_task_dialog(
         def apply_kind(_event: object = None) -> None:
             """チェックポイントでは、開始予定・完了予定・工数・担当・実績の欄を隠し、状態を 2 つにする。"""
             checkpoint = kind.value == TaskKind.CHECKPOINT
-            for widget in (fields.first_row, effort, assignee_fields.container, conversion, actual_box):
-                widget.set_visibility(not checkpoint)
             allowed = CHECKPOINT_STATUSES if checkpoint else tuple(Status)
             suggest["setting"] = True
             try:
@@ -1023,21 +1021,23 @@ def open_task_dialog(
             "task-color"
         )
 
-        def apply_layout(_event: object = None) -> None:
-            """レイアウトに合わせて欄を出し入れする(値は消さない)。チェックポイントでは、どのレイアウトでも通常の欄を隠す。"""
+        def refresh_visibility(_event: object = None) -> None:
+            """欄の出し入れを 1 か所で決める(値は消さない)。チェックポイントでは通常の欄を隠し、レイアウトは付加的な欄を隠す。
+            換算の説明は、完了予定の算出値を動かすので、レイアウトに関わらず出す。"""
             full = layout_toggle.value == "all"
             normal = kind.value != TaskKind.CHECKPOINT
+            for widget in (fields.first_row, effort, conversion, actual_box):
+                widget.set_visibility(normal)
+            assignee_fields.container.set_visibility(full and normal)
             for widget in (category, predecessors, priority_box, url_box, color):
                 widget.set_visibility(full)
-            for widget in (assignee_fields.container, conversion):
-                widget.set_visibility(full and normal)
             refresh_push()
 
-        kind.on_value_change(apply_layout)  # apply_kind の後に走り、同じ欄の可視性をレイアウトを含めて決め直す
-        layout_toggle.on_value_change(apply_layout)
+        kind.on_value_change(refresh_visibility)
+        layout_toggle.on_value_change(refresh_visibility)
         if on_layout_change is not None:
             layout_toggle.on_value_change(lambda e: on_layout_change(e.value))
-        apply_layout()
+        refresh_visibility()
         error = ui.label("").classes("text-negative").mark("form-error")
 
         def current() -> tuple[object, ...]:

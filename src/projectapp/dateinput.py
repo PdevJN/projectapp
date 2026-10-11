@@ -1,6 +1,7 @@
 """日付と時刻の入力の整形(省略形の読み取りと、ショートカットの日付)。NiceGUI に依存しない。"""
 
 import re
+import unicodedata
 from datetime import date, timedelta
 
 DATE_FORMAT = "%Y-%m-%d"
@@ -23,8 +24,8 @@ def _month_day(today: date, month: int, day: int, roll_forward: bool) -> date | 
 
 
 def parse_date_input(text: str, today: date, roll_forward: bool) -> str | None:
-    """日付の省略形を `YYYY-MM-DD` にする。読めないとき、存在しない日付のときは None。"""
-    value = text.strip()
+    """日付の省略形を `YYYY-MM-DD` にする。全角の数字・記号も読む。読めないとき、存在しない日付のときは None。"""
+    value = unicodedata.normalize("NFKC", text).strip()
     found: date | None
     if m := re.fullmatch(r"([0-9]{4})[-/]([0-9]{1,2})[-/]([0-9]{1,2})", value):
         found = _make(int(m[1]), int(m[2]), int(m[3]))
@@ -49,8 +50,8 @@ def shortcut_dates(today: date) -> dict[str, date]:
 
 
 def parse_time_input(text: str) -> str | None:
-    """時刻の省略形(`9`・`930`・`0930`・`9:30`)を `HH:MM` にする。読めないとき、範囲外のときは None。"""
-    value = text.strip()
+    """時刻の省略形(`9`・`930`・`0930`・`9:30`)を `HH:MM` にする。全角も読む。読めないとき、範囲外のときは None。"""
+    value = unicodedata.normalize("NFKC", text).strip()
     if m := re.fullmatch(r"([0-9]{1,2}):([0-9]{2})", value):
         hour, minute = int(m[1]), int(m[2])
     elif m := re.fullmatch(r"[0-9]{1,2}", value):

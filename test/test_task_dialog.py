@@ -2258,3 +2258,21 @@ async def test_a_checkpoint_hides_the_normal_fields_in_every_layout(user: User) 
     user.find(marker="task-kind").elements.pop().set_value(TaskKind.NORMAL)
     await user.should_see(marker="task-effort")
     await user.should_see(marker="task-assignee-add")
+
+
+async def test_back_to_normal_in_the_schedule_layout_keeps_the_assignees_hidden(user: User) -> None:
+    mount_dialog(None, [], layout="schedule")
+    await open_dialog(user)
+    user.find(marker="task-kind").elements.pop().set_value(TaskKind.CHECKPOINT)
+    user.find(marker="task-kind").elements.pop().set_value(TaskKind.NORMAL)
+    await user.should_see(marker="task-effort")  # 通常の欄は戻る
+    await user.should_not_see(marker="task-assignee-add")  # レイアウトが隠す欄は、隠れたまま
+
+
+async def test_the_conversion_stays_visible_in_the_schedule_layout(user: User) -> None:
+    task = Task("a", effort_hours=13.0, assignees=[Assignee("田中", 0.5)])
+    mount_dialog(task, [], layout="schedule", members=[Member("田中", 0.5)])
+    await open_dialog(user)
+    await user.should_not_see(marker="task-assignee-add")  # 担当者の欄は隠れていても
+    conversion = user.find(marker="task-conversion").elements.pop()  # 算出値を動かす換算の説明は、見える
+    assert "換算率" in conversion.text

@@ -33,7 +33,7 @@ def test_a_full_date_never_rolls() -> None:
     assert parse_date_input("2026-10-01", TODAY, roll_forward=True) == "2026-10-01"
 
 
-@pytest.mark.parametrize("text", ["", "abc", "2026-1", "10/", "13/01", "1032", "2026-02-30", "10-15", "１０/１５"])
+@pytest.mark.parametrize("text", ["", "abc", "2026-1", "10/", "13/01", "1032", "2026-02-30", "10-15"])
 def test_unreadable_dates_are_none(text: str) -> None:
     assert parse_date_input(text, TODAY, roll_forward=True) is None
 
@@ -72,6 +72,15 @@ def test_parse_time_input_reads_the_short_forms(text: str, expected: str) -> Non
     assert parse_time_input(text) == expected
 
 
-@pytest.mark.parametrize("text", ["", "abc", "24", "24:00", "9:60", "975", "9:5", "12345", "9:3:0", "９"])
+@pytest.mark.parametrize("text", ["", "abc", "24", "24:00", "9:60", "975", "9:5", "12345", "9:3:0"])
 def test_unreadable_times_are_none(text: str) -> None:
     assert parse_time_input(text) is None
+
+
+def test_full_width_digits_and_symbols_are_read_like_half_width() -> None:
+    assert parse_date_input("１０/１５", TODAY, roll_forward=True) == "2026-10-15"
+    assert parse_date_input("１０１５", TODAY, roll_forward=True) == "2026-10-15"
+    assert parse_date_input("２０２６－１０－１５", TODAY, roll_forward=True) == "2026-10-15"
+    assert parse_time_input("９３０") == "09:30"
+    assert parse_time_input("１０：３０") == "10:30"
+    assert parse_time_input("２４：００") is None
