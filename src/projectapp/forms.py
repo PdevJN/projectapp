@@ -29,6 +29,7 @@ from projectapp.models import (
     MAX_PROGRESS,
     MAX_PROJECT_CODE_LENGTH,
     MAX_RATIO,
+    MAX_TASK_NAME_LENGTH,
     MAX_YEAR,
     MIN_ALLOCATION,
     MIN_LEVEL_VALUE,
@@ -49,6 +50,7 @@ from projectapp.models import (
     TaskKind,
     TaskUrl,
     UrlTemplate,
+    has_control_char,
     is_hex_color,
     new_id,
 )
@@ -247,6 +249,10 @@ def build_task(
     clean = name.strip()
     if not clean:
         raise ValueError("名前を入力してください")
+    if len(clean) > MAX_TASK_NAME_LENGTH:
+        raise ValueError(f"名前は{MAX_TASK_NAME_LENGTH}文字以内で入力してください")
+    if has_control_char(clean):
+        raise ValueError("名前に改行・制御文字は使えません")
     base = existing or Task(clean)
     if kind is TaskKind.CHECKPOINT:
         return _build_checkpoint(

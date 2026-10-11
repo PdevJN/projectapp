@@ -1494,3 +1494,36 @@ def test_save_rejects_duplicate_ids_and_leaves_the_file(kind: str, tmp_path: Pat
         save_project(project, tmp_path)
     assert good.read_text(encoding="utf-8") == before
     assert [p.name for p in tmp_path.iterdir()] == ["p.json"]  # 一時ファイルも残さない
+
+
+def test_loading_tidies_a_long_task_name(tmp_path: Path) -> None:
+    path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
+    _edit_raw(path, lambda raw: raw["tasks"][0].update(name="あ" * 60))
+    assert load_project(path).tasks[0].name == "あ" * 50
+
+
+def test_loading_replaces_control_characters_in_a_task_name(tmp_path: Path) -> None:
+    path = save_project(Project("demo", sections=[Section("s", [Task("t")])]), tmp_path)
+    _edit_raw(path, lambda raw: raw["sections"][0]["tasks"][0].update(name="設計\n開発\t"))
+    assert load_project(path).sections[0].tasks[0].name == "設計 開発"
+
+
+def test_a_task_name_of_only_control_characters_loads_as_empty(tmp_path: Path) -> None:
+    path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
+    _edit_raw(path, lambda raw: raw["tasks"][0].update(name="\n"))
+    assert load_project(path).tasks[0].name == ""
+
+
+@pytest.mark.parametrize("bad", [1, None, ["x"], True])
+def test_a_task_name_that_is_not_a_string_is_rejected(tmp_path: Path, bad: object) -> None:
+    path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
+    _edit_raw(path, lambda raw: raw["tasks"][0].update(name=bad))
+    with pytest.raises(ValueError, match="タスクの名前"):
+        load_project(path)
+
+
+def test_a_tidied_task_name_can_be_saved_again(tmp_path: Path) -> None:
+    path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
+    _edit_raw(path, lambda raw: raw["tasks"][0].update(name="あ" * 60))
+    loaded = load_project(path)
+    assert load_project(save_project(loaded, tmp_path, overwrite=True)).tasks[0].name == "あ" * 50

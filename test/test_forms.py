@@ -1658,3 +1658,34 @@ async def test_template_and_category_deletions_are_confirmed_together(user: User
     await user.should_see("削除するカテゴリを使っているタスクが2件あります。未定に戻ります。")
     user.find(marker="settings-confirm-delete").click()
     assert applied == [1] and len(edits) == 1
+
+
+def test_task_name_may_be_fifty_characters() -> None:
+    assert make(name="あ" * 50).name == "あ" * 50
+
+
+def test_task_name_over_fifty_characters_is_rejected() -> None:
+    with pytest.raises(ValueError, match="50文字"):
+        make(name="あ" * 51)
+
+
+def test_task_name_length_is_checked_after_trimming() -> None:
+    assert make(name=" " + "あ" * 50 + " ").name == "あ" * 50
+
+
+@pytest.mark.parametrize("name", ["a\nb", "a\tb", "a\x00b", "a\x7fb"])
+def test_task_name_with_control_characters_is_rejected(name: str) -> None:
+    with pytest.raises(ValueError, match="制御文字"):
+        make(name=name)
+
+
+def test_a_trailing_newline_is_trimmed_not_rejected() -> None:
+    assert make(name="設計\n").name == "設計"
+
+
+def test_the_name_rules_apply_to_a_checkpoint_too() -> None:
+    kwargs = {"kind": TaskKind.CHECKPOINT, "deadline": "2026-10-09T17:00", "status": Status.NOT_STARTED}
+    with pytest.raises(ValueError, match="50文字"):
+        make(name="あ" * 51, **kwargs)
+    with pytest.raises(ValueError, match="制御文字"):
+        make(name="a\nb", **kwargs)

@@ -399,3 +399,11 @@ def test_copy_gets_an_id_that_is_not_used_in_the_project(monkeypatch: pytest.Mon
     monkeypatch.setattr(models.secrets, "token_hex", lambda nbytes: next(values))
     copy = arrange.copy_task(project, ((), 0), ((), 1))
     assert copy.id == "zzzzzzzz"
+
+
+def test_copy_of_a_long_name_stays_within_the_limit() -> None:
+    project = Project("p", tasks=[Task("あ" * 50)])
+    copy = arrange.copy_task(project, ((), 0), ((), 1))
+    assert copy.name == "あ" * (50 - len(arrange.COPY_SUFFIX)) + arrange.COPY_SUFFIX
+    assert len(copy.name) == 50
+    assert project.tasks[0].name == "あ" * 50  # 元は変えない

@@ -45,6 +45,7 @@ from projectapp.models import (
     TaskUrl,
     UrlTemplate,
     new_id,
+    tidy_task_name,
     walk_sections,
 )
 from projectapp.urls import validate_templates, validate_urls
@@ -207,7 +208,7 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         deadline = _datetime(raw.get("deadline")) or legacy_end  # 明示された締切を優先
     kind = _kind(raw.get("kind"))
     task = Task(
-        name=raw["name"],
+        name=_task_name(raw.get("name")),
         id=_task_id(raw.get("id")),
         planned_start=planned_start,
         planned_end=planned_end,
@@ -386,6 +387,13 @@ def _checkpoint(task: Task) -> Task:
         assignees=[],
         actuals=[],
     )
+
+
+def _task_name(value: Any) -> str:
+    """タスク名。文字列以外は ValueError。制御文字・長すぎる名前は、開けるように整える(`tidy_task_name`)。"""
+    if not isinstance(value, str):
+        raise ValueError(f"タスクの名前が文字列ではありません: {value!r}")
+    return tidy_task_name(value)
 
 
 def _task_id(value: Any) -> str:

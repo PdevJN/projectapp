@@ -1,7 +1,6 @@
 """カテゴリ(プロジェクト共通)の検証・移行・編集。NiceGUI から切り離した純粋関数。"""
 
 import re
-import unicodedata
 from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date
@@ -15,6 +14,7 @@ from projectapp.models import (
     Category,
     Project,
     Task,
+    has_control_char,
     new_id,
 )
 
@@ -48,11 +48,6 @@ EXPIRY_FORMAT = re.compile(r"\d{4}-\d{2}-\d{2}")
 PRJ_CODE_FORMAT = re.compile(r"[A-Za-z0-9._-]*")  # PRJコードに使える文字(半角英数字と - _ .)。空は可
 
 
-def _has_control_char(text: str) -> bool:
-    """改行・タブなどの制御文字(Unicode の Cc。C0・DEL・C1)を含むか。"""
-    return any(unicodedata.category(ch) == "Cc" for ch in text)
-
-
 def validate_categories(categories: list[Category]) -> None:
     """カテゴリの一覧を検証する。名前は前後の空白を除いて、空・長すぎ・「未定」・重複を拒否する。名前・種別は制御文字を含むものを、PRJコードは半角英数字と - _ . 以外を含むものを拒否する。"""
     ids: set[str] = set()
@@ -68,7 +63,7 @@ def validate_categories(categories: list[Category]) -> None:
             raise ValueError(f"「{UNDECIDED}」はカテゴリの名前に使えません")
         if len(name) > MAX_CATEGORY_NAME_LENGTH:
             raise ValueError(f"カテゴリの名前は{MAX_CATEGORY_NAME_LENGTH}文字以内で入力してください")
-        if _has_control_char(name):
+        if has_control_char(name):
             raise ValueError("カテゴリの名前に改行・制御文字は使えません")
         if name in names:
             raise ValueError(f"カテゴリの名前が重複しています: {name}")
@@ -77,7 +72,7 @@ def validate_categories(categories: list[Category]) -> None:
             raise ValueError(f"カテゴリの色が正しくありません: {category.color!r}")
         if len(category.kind) > MAX_CATEGORY_KIND_LENGTH:
             raise ValueError(f"カテゴリの種別は{MAX_CATEGORY_KIND_LENGTH}文字以内で入力してください")
-        if _has_control_char(category.kind):
+        if has_control_char(category.kind):
             raise ValueError("カテゴリの種別に改行・制御文字は使えません")
         if len(category.prj_code) > MAX_PROJECT_CODE_LENGTH:
             raise ValueError(f"PRJコードは{MAX_PROJECT_CODE_LENGTH}文字以内で入力してください")
@@ -108,7 +103,7 @@ def migrate_legacy(pairs: list[tuple[Task, str]], taken: Collection[str] = ()) -
     used = set(taken)
     by_name: dict[str, Category] = {}
     for task, code in pairs:
-        name = "".join(" " if _has_control_char(ch) else ch for ch in code).strip()
+        name = "".join(" " if has_control_char(ch) else ch for ch in code).strip()
         if not name or name == UNDECIDED:
             continue
         category = by_name.get(name)

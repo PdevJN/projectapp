@@ -1859,3 +1859,19 @@ async def test_the_computed_end_follows_the_parameters_in_the_dialog(user: User)
     user.find(marker="task-effort").clear().type("15")
     # 15h / 1.5 = 10h → 金6.5h + 月3.5h
     assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-12 12:30"
+
+
+async def test_the_name_input_limits_the_length(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    assert user.find(marker="task-name").elements.pop()._props.get("maxlength") == "50"
+
+
+async def test_a_name_with_a_control_character_shows_the_error_and_keeps_the_dialog(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("a\nb")
+    user.find(marker="task-save").click()
+    await user.should_see("制御文字")
+    assert saved == []

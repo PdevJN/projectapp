@@ -31,6 +31,7 @@ from projectapp.models import (
     ID_KEY,
     MAX_ALLOCATION,
     MAX_PROGRESS,
+    MAX_TASK_NAME_LENGTH,
     MIN_ALLOCATION,
     MIN_PROGRESS,
     URL_KEY,
@@ -717,7 +718,9 @@ def open_task_dialog(
             .classes("text-caption text-grey")
             .mark("task-kind-hint")
         )
-        name = ui.input("名前", value=initial.name).mark("task-name")
+        name = (
+            ui.input("名前", value=initial.name).props(f"maxlength={MAX_TASK_NAME_LENGTH}").mark("task-name")
+        )
         category_options = {"": UNDECIDED, **{c.id: c.name for c in categories or []}}  # 先頭が未定(値は空文字。None は選択なしと区別できない)
         category = (
             ui.select(

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time
 import re
 import secrets
+import unicodedata
 from enum import StrEnum
 
 FORMAT_VERSION = 3  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す)
@@ -19,6 +20,7 @@ MIN_LEVEL_VALUE, MAX_LEVEL_VALUE = -0.9, 2.9  # パラメータの段階の判�
 MIN_ALLOCATION, MAX_ALLOCATION = 0.01, 1.0  # 割り当て率(1%〜100%)
 MIN_PROGRESS, MAX_PROGRESS = 0, 100  # 実績の進捗度(%)
 MAX_PROJECT_CODE_LENGTH = 20  # PRJコードの最大文字数
+MAX_TASK_NAME_LENGTH = 50  # タスク名の最大文字数
 MAX_CATEGORY_NAME_LENGTH = 30  # カテゴリの名前の最大文字数
 MAX_CATEGORY_KIND_LENGTH = 20  # カテゴリの種別の最大文字数
 HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
@@ -35,6 +37,17 @@ def new_id(taken: Collection[str] = ()) -> str:
 def is_hex_color(value: str) -> bool:
     """#RGB / #RRGGBB / #RRGGBBAA。CSSにそのまま入れても安全な形式だけを通す。"""
     return HEX_COLOR.fullmatch(value) is not None
+
+
+def has_control_char(text: str) -> bool:
+    """改行・タブなどの制御文字(Unicode の Cc。C0・DEL・C1)を含むか。"""
+    return any(unicodedata.category(ch) == "Cc" for ch in text)
+
+
+def tidy_task_name(name: str) -> str:
+    """読込で使う、タスク名の整形。制御文字は空白に替え、前後の空白を除き、上限を超える分は切り詰める(古いファイルを開けなくしない)。"""
+    text = "".join(" " if has_control_char(ch) else ch for ch in name).strip()
+    return text[:MAX_TASK_NAME_LENGTH].rstrip()
 
 
 class Priority(StrEnum):
