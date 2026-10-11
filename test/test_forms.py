@@ -1707,3 +1707,28 @@ def test_the_name_rules_apply_to_a_checkpoint_too() -> None:
         make(name="あ" * 51, **kwargs)
     with pytest.raises(ValueError, match="制御文字"):
         make(name="a\nb", **kwargs)
+
+
+async def test_deleting_a_used_category_and_adding_an_identical_row_still_applies(user: User) -> None:
+    category = Category("開発", "業務", date(2026, 12, 31), "indigo", "P1")
+    applied: list[int] = []
+    edits: list[CategoryEdit] = []
+    mount_category_settings([category], {category.id: 3}, applied, edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-category-0-remove").click()
+    user.find(marker="settings-category-add").click()
+    await asyncio.sleep(0.2)  # 行の描き直しを待つ
+    user.find(marker="settings-category-0-name").type("開発")
+    user.find(marker="settings-category-0-kind").type("業務")
+    user.find(marker="settings-category-0-expiry").type("2026-12-31")
+    user.find(marker="settings-category-0-color").elements.pop().set_value("indigo")
+    user.find(marker="settings-category-0-prj").type("P1")
+    user.find(marker="settings-apply").click()
+    await user.should_see("削除するカテゴリを使っているタスクが3件あります。未定に戻ります。")
+    user.find(marker="settings-confirm-delete").click()
+    assert applied == [1]
+    (edit,) = edits  # 確認の文言どおり、削除が適用される(内容が同じでも、別の id の新しいカテゴリ)
+    assert edit.removed_ids == [category.id]
+    assert edit.categories == [category] and edit.categories[0].id != category.id
+

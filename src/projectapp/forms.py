@@ -909,7 +909,7 @@ def open_settings_dialog(
             on_apply(*result, ActualMode(mode.value))
             if edit is not None and on_templates is not None and edit.templates != templates:
                 on_templates(edit)
-            if cedit is not None and on_categories is not None and cedit.categories != categories:
+            if cedit is not None and on_categories is not None and (cedit.categories != categories or cedit.removed_ids):  # Category の比較は id を見ないので、内容が同じ行の入れ直しも、削除として適用する
                 on_categories(cedit)
             dialog.close()
 
