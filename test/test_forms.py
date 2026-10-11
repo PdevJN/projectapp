@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, time
+from datetime import date, datetime, time
 
 import pytest
 
@@ -7,7 +7,10 @@ import projectapp.models as models
 from nicegui import ui
 from nicegui.testing import User
 
+from projectapp.categories import CategoryEdit
 from projectapp.forms import (
+    CategoryRow,
+    build_category_edit,
     LevelRow,
     MemberRow,
     ParameterRow,
@@ -39,6 +42,7 @@ from projectapp.models import (
     Actual,
     ActualMode,
     Assignee,
+    Category,
     Level,
     Member,
     Parameter,
@@ -1407,3 +1411,250 @@ def test_build_members_gives_a_new_row_an_id_that_is_not_taken(monkeypatch: pyte
 def test_a_deleted_and_re_added_member_gets_a_new_id() -> None:
     members, _ = build_members([MemberRow(None, "田中", 100.0)], ["田中"], lambda name: 0, taken={"old"})
     assert members[0].id != "old"
+
+
+def row(name: str = "開発", **kwargs: object) -> CategoryRow:
+    values: dict[str, object] = {"original": None, "name": name, "kind": "", "expiry": "", "color": "blue", "prj_code": ""}
+    values.update(kwargs)
+    return CategoryRow(**values)  # type: ignore[arg-type]
+
+
+def test_build_category_edit_makes_categories_with_new_ids() -> None:
+    edit = build_category_edit(
+        [row(" 開発 ", kind=" 業務 ", expiry="2026-12-31", color="red", prj_code=" P ")], [], {"aaaaaaaa"}
+    )
+    (category,) = edit.categories
+    assert (category.name, category.kind, category.expiry_date, category.color, category.prj_code) == (
+        "開発", "業務", date(2026, 12, 31), "red", "P",
+    )
+    assert category.id != "aaaaaaaa" and len(category.id) == 8
+    assert edit.removed_ids == []
+
+
+def test_build_category_edit_keeps_ids_and_reports_removals() -> None:
+    keep, drop = Category("keep"), Category("drop")
+    edit = build_category_edit([row("keep2", original=keep.id)], [keep, drop], set())
+    assert [c.id for c in edit.categories] == [keep.id]
+    assert edit.categories[0].name == "keep2"
+    assert edit.removed_ids == [drop.id]
+
+
+def test_build_category_edit_ignores_a_blank_new_row() -> None:
+    assert build_category_edit([row("")], [], set()) == CategoryEdit([], [])
+
+
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        ([row("")], None),
+        ([row("", kind="x")], "名前"),
+        ([row("未定")], "未定"),
+        ([row("a"), row("a")], "重複"),
+        ([row("a", expiry="2026-13-40")], "有効期限"),
+        ([row("a", color="gold")], "色"),
+        ([row("a", prj_code="A" * 21)], "PRJ"),
+        ([row("あ" * 31)], "名前"),
+        ([row("a\nb")], "名前"),
+        ([row("a", prj_code="P\nQ")], "PRJ"),
+        ([row("a", prj_code="日本語")], "PRJ"),
+        ([row("a", prj_code="PRJ 1")], "PRJ"),
+        ([row("a", kind="あ" * 21)], "種別"),
+        ([row("a", kind="業務\n開発")], "種別"),
+    ],
+)
+def test_build_category_edit_rejects_bad_input(rows: list[CategoryRow], message: str | None) -> None:
+    if message is None:  # 完全に空の新しい行は無視する
+        assert build_category_edit(rows, [], set()).categories == []
+        return
+    with pytest.raises(ValueError, match=message):
+        build_category_edit(rows, [], set())
+
+
+def mount_category_settings(
+    categories: list[Category],
+    usage: dict[str, int],
+    applied: list[int],
+    edits: list[CategoryEdit],
+    templates: list[UrlTemplate] | None = None,
+    template_usage: dict[str, int] | None = None,
+) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5,
+                time(9, 0),
+                lambda h, s, m: applied.append(1),
+                templates=templates,
+                template_usage=lambda name: (template_usage or {}).get(name, 0),
+                on_templates=lambda e: None,
+                categories=categories,
+                category_usage=lambda cid: usage.get(cid, 0),
+                on_categories=edits.append,
+                used_ids={c.id for c in categories},
+            ),
+        )
+
+
+async def test_undecided_row_is_shown_and_cannot_be_edited(user: User) -> None:
+    mount_category_settings([], {}, [], [])
+    await user.open("/")
+    user.find("open").click()
+    await user.should_see(marker="settings-category-undecided")
+    for part in ("name", "remove"):
+        await user.should_not_see(marker=f"settings-category-undecided-{part}")
+
+
+async def test_adding_a_category_applies_it(user: User) -> None:
+    applied: list[int] = []
+    edits: list[CategoryEdit] = []
+    mount_category_settings([], {}, applied, edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-category-add").click()
+    await asyncio.sleep(0.2)  # 行の描き直しを待つ
+    user.find(marker="settings-category-0-name").type("開発")
+    user.find(marker="settings-category-0-kind").type("業務")
+    user.find(marker="settings-category-0-expiry").type("2026-12-31")
+    user.find(marker="settings-category-0-prj").type("PRJ-1")
+    user.find(marker="settings-category-0-color").elements.pop().set_value("red")
+    user.find(marker="settings-apply").click()
+    assert applied == [1]
+    (edit,) = edits
+    (category,) = edit.categories
+    assert (category.name, category.kind, category.expiry_date, category.color, category.prj_code) == (
+        "開発", "業務", date(2026, 12, 31), "red", "PRJ-1",
+    )
+    assert edit.removed_ids == []
+
+
+async def test_a_new_row_gets_the_first_unused_color(user: User) -> None:
+    mount_category_settings([Category("a", color="blue")], {}, [], [])
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-category-add").click()
+    await asyncio.sleep(0.2)
+    assert user.find(marker="settings-category-1-color").elements.pop().value == "indigo"
+
+
+async def test_changing_the_color_updates_the_swatch(user: User) -> None:
+    mount_category_settings([Category("a", color="blue")], {}, [], [])
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-category-0-color").elements.pop().set_value("red")
+    assert "#f44336" in user.find(marker="settings-category-0-swatch").elements.pop()._style["color"]
+
+
+async def test_unchanged_categories_do_not_call_on_categories(user: User) -> None:
+    applied: list[int] = []
+    edits: list[CategoryEdit] = []
+    mount_category_settings([Category("開発")], {}, applied, edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-apply").click()
+    assert applied == [1] and edits == []
+
+
+async def test_a_blank_added_category_row_is_ignored(user: User) -> None:
+    applied: list[int] = []
+    edits: list[CategoryEdit] = []
+    mount_category_settings([], {}, applied, edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-category-add").click()
+    await asyncio.sleep(0.2)
+    user.find(marker="settings-apply").click()
+    assert applied == [1] and edits == []
+
+
+@pytest.mark.parametrize(
+    ("name", "message"),
+    [("", "名前"), ("未定", "未定"), ("開発", "重複")],
+)
+async def test_invalid_categories_keep_the_dialog_and_call_nothing(user: User, name: str, message: str) -> None:
+    applied: list[int] = []
+    edits: list[CategoryEdit] = []
+    mount_category_settings([Category("開発")], {}, applied, edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-category-add").click()
+    await asyncio.sleep(0.2)
+    user.find(marker="settings-category-1-name").type(name)
+    user.find(marker="settings-category-1-prj").type("X")  # 名前が空でも、行を無視しない
+    user.find(marker="settings-apply").click()
+    await user.should_see(message)
+    assert applied == [] and edits == []
+
+
+async def test_renaming_a_category_keeps_its_id(user: User) -> None:
+    category = Category("開発")
+    edits: list[CategoryEdit] = []
+    mount_category_settings([category], {}, [], edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-category-0-name").clear().type("開発(改)")
+    user.find(marker="settings-apply").click()
+    assert [(c.name, c.id) for c in edits[0].categories] == [("開発(改)", category.id)]
+    assert edits[0].removed_ids == []
+
+
+async def test_deleting_an_unused_category_needs_no_confirmation(user: User) -> None:
+    category = Category("開発")
+    applied: list[int] = []
+    edits: list[CategoryEdit] = []
+    mount_category_settings([category], {}, applied, edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-category-0-remove").click()
+    user.find(marker="settings-apply").click()
+    assert applied == [1]
+    assert edits == [CategoryEdit([], [category.id])]
+
+
+async def test_deleting_a_used_category_asks_first(user: User) -> None:
+    category = Category("開発")
+    applied: list[int] = []
+    edits: list[CategoryEdit] = []
+    mount_category_settings([category], {category.id: 3}, applied, edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-category-0-remove").click()
+    user.find(marker="settings-apply").click()
+    await user.should_see("削除するカテゴリを使っているタスクが3件あります。未定に戻ります。")
+    assert applied == [] and edits == []
+    user.find(marker="settings-confirm-delete").click()
+    assert applied == [1]
+    assert edits == [CategoryEdit([], [category.id])]
+
+
+async def test_cancelling_the_confirmation_changes_nothing(user: User) -> None:
+    category = Category("開発")
+    applied: list[int] = []
+    edits: list[CategoryEdit] = []
+    mount_category_settings([category], {category.id: 3}, applied, edits)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-category-0-remove").click()
+    user.find(marker="settings-apply").click()
+    user.find(marker="settings-confirm-cancel").click()
+    assert applied == [] and edits == []
+
+
+async def test_template_and_category_deletions_are_confirmed_together(user: User) -> None:
+    category = Category("開発")
+    template = UrlTemplate("チケット", "https://example.com/{ID}")
+    applied: list[int] = []
+    edits: list[CategoryEdit] = []
+    mount_category_settings(
+        [category], {category.id: 2}, applied, edits, templates=[template], template_usage={"チケット": 4}
+    )
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-category-0-remove").click()
+    user.find(marker="settings-template-0-remove").click()
+    user.find(marker="settings-apply").click()
+    await user.should_see("削除するテンプレートを使っているリンクが4件あります。URL としてそのまま残ります。")
+    await user.should_see("削除するカテゴリを使っているタスクが2件あります。未定に戻ります。")
+    user.find(marker="settings-confirm-delete").click()
+    assert applied == [1] and len(edits) == 1

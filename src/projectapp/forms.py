@@ -9,10 +9,22 @@ from typing import Any
 
 from nicegui import ui
 
+from projectapp.categories import (
+    COLOR_HEX,
+    COLOR_LABELS,
+    COLORS,
+    UNDECIDED,
+    CategoryEdit,
+    next_color,
+    parse_expiry,
+    validate_categories,
+)
 from projectapp.models import (
     CHECKPOINT_STATUSES,
     ID_KEY,
     MAX_ALLOCATION,
+    MAX_CATEGORY_KIND_LENGTH,
+    MAX_CATEGORY_NAME_LENGTH,
     MAX_LEVEL_VALUE,
     MAX_PROGRESS,
     MAX_PROJECT_CODE_LENGTH,
@@ -27,6 +39,7 @@ from projectapp.models import (
     Actual,
     Assignee,
     ActualMode,
+    Category,
     Level,
     Member,
     Parameter,
@@ -383,6 +396,43 @@ class TemplateRow:
 
 
 @dataclass
+class CategoryRow:
+    """設定ダイアログのカテゴリの 1 行。originalは、開いた時点のカテゴリの id(新しい行はNone)。"""
+
+    original: str | None
+    name: str
+    kind: str
+    expiry: str  # YYYY-MM-DD か空
+    color: str
+    prj_code: str
+
+
+def build_category_edit(rows: list[CategoryRow], originals: list[Category], taken: Collection[str]) -> CategoryEdit:
+    """入力の行を検証して CategoryEdit にする。完全に空の新しい行(色だけ入っている行も)は無視する。新しい行には、既存の id と重ならない id を振る。"""
+    used = set(taken)
+    built: list[Category] = []
+    for row in rows:
+        texts = (row.name, row.kind, row.expiry, row.prj_code)
+        if row.original is None and not any(t.strip() for t in texts):
+            continue
+        category_id = row.original or new_id(used)
+        used.add(category_id)
+        built.append(
+            Category(
+                row.name.strip(),
+                row.kind.strip(),
+                parse_expiry(row.expiry),
+                row.color,
+                row.prj_code.strip(),
+                category_id,
+            )
+        )
+    validate_categories(built)
+    kept = {c.id for c in built}
+    return CategoryEdit(built, [c.id for c in originals if c.id not in kept])
+
+
+@dataclass
 class LevelRow:
     """パラメータのダイアログの段階の 1 行。originalは、開いた時点の名前(新しい行はNone)。"""
 
@@ -650,8 +700,13 @@ def open_settings_dialog(
     templates: list[UrlTemplate] | None = None,
     template_usage: Callable[[str], int] | None = None,
     on_templates: Callable[[TemplateEdit], object] | None = None,
+    categories: list[Category] | None = None,
+    category_usage: Callable[[str], int] | None = None,
+    on_categories: Callable[[CategoryEdit], object] | None = None,
+    used_ids: Collection[str] = (),
 ) -> None:
-    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[30rem] max-w-full"):
+    card_width = "w-[30rem] max-w-full" if categories is None else "w-[46rem] max-w-full"
+    with disposable(ui.dialog()) as dialog, ui.card().classes(card_width):
         ui.label("稼働時間の設定").classes("text-h6")
         hours = ui.number(
             "1日の稼働可能時間(h)",
@@ -732,10 +787,84 @@ def open_settings_dialog(
             ui.button("テンプレートを追加", icon="add", on_click=add_template).props(
                 "flat dense"
             ).mark("settings-template-add")
+        category_rows = [
+            CategoryRow(c.id, c.name, c.kind, c.expiry_date.isoformat() if c.expiry_date else "", c.color, c.prj_code)
+            for c in categories or []
+        ]
+        if categories is not None:
+            ui.label("カテゴリ").classes("text-caption text-grey")
+            ui.label("担当者へ書き出すとき、タスクのカテゴリとして渡します").classes("text-caption text-grey")
+
+            @ui.refreshable
+            def category_table() -> None:
+                with ui.column().classes("w-full gap-1"):
+                    with ui.row().classes("w-full items-center no-wrap gap-2").mark("settings-category-undecided"):
+                        ui.icon("circle").classes("text-grey")
+                        ui.label(UNDECIDED).classes("text-grey")
+                        ui.label("(名前・PRJコード・色などは設定できません)").classes("text-caption text-grey")
+                    for n, crow in enumerate(category_rows):
+                        with ui.row().classes("w-full items-center no-wrap gap-2"):
+                            swatch = (
+                                ui.icon("circle")
+                                .style(f"color: {COLOR_HEX[crow.color]}")
+                                .mark(f"settings-category-{n}-swatch")
+                            )
+                            ui.input(
+                                "名前", value=crow.name, on_change=lambda e, r=crow: setattr(r, "name", e.value or "")
+                            ).props(f"maxlength={MAX_CATEGORY_NAME_LENGTH}").classes("w-28").mark(
+                                f"settings-category-{n}-name"
+                            )
+                            ui.input(
+                                "種別", value=crow.kind, on_change=lambda e, r=crow: setattr(r, "kind", e.value or "")
+                            ).props(f"maxlength={MAX_CATEGORY_KIND_LENGTH}").classes("w-24").mark(
+                                f"settings-category-{n}-kind"
+                            )
+                            ui.input(
+                                "有効期限",
+                                value=crow.expiry,
+                                on_change=lambda e, r=crow: setattr(r, "expiry", e.value or ""),
+                            ).props("type=date stack-label").classes("w-36").mark(f"settings-category-{n}-expiry")
+                            ui.select(
+                                {color: COLOR_LABELS[color] for color in COLORS},
+                                label="色",
+                                value=crow.color,
+                                on_change=lambda e, r=crow, s=swatch: (
+                                    setattr(r, "color", e.value),
+                                    s.style(f"color: {COLOR_HEX[e.value]}"),
+                                ),
+                            ).classes("w-24").mark(f"settings-category-{n}-color")
+                            ui.input(
+                                "PRJコード",
+                                value=crow.prj_code,
+                                on_change=lambda e, r=crow: setattr(r, "prj_code", e.value or ""),
+                            ).props(f"maxlength={MAX_PROJECT_CODE_LENGTH}").classes("w-24").mark(
+                                f"settings-category-{n}-prj"
+                            )
+                            ui.button(icon="delete", on_click=lambda _e, r=crow: remove_category(r)).props(
+                                "flat dense color=negative"
+                            ).mark(f"settings-category-{n}-remove")
+
+            def add_category() -> None:
+                color = next_color(built_categories())
+                category_rows.append(CategoryRow(None, "", "", "", color, ""))
+                category_table.refresh()
+
+            def remove_category(crow: CategoryRow) -> None:
+                category_rows.remove(crow)
+                category_table.refresh()
+
+            def built_categories() -> list[Category]:
+                """色の選び方のために、いまの行をカテゴリとして見る(検証はしない)。"""
+                return [Category(r.name, color=r.color) for r in category_rows]
+
+            category_table()
+            ui.button("カテゴリを追加", icon="add", on_click=add_category).props("flat dense").mark(
+                "settings-category-add"
+            )
         error = ui.label("").classes("text-negative").mark("settings-error")
         pending: dict[str, Any] = {}
         with ui.dialog() as confirm, ui.card():
-            confirm_text = ui.label("")
+            confirm_text = ui.label("").classes("whitespace-pre-line")
             with ui.row():
                 ui.button("キャンセル", on_click=confirm.close).props("flat").mark(
                     "settings-confirm-cancel"
@@ -759,32 +888,46 @@ def open_settings_dialog(
             removed = [t.name for t in templates if t.name not in kept]
             return TemplateEdit(built, renames, removed)
 
-        def commit(result: tuple[float, time], edit: TemplateEdit | None) -> None:
+        def build_categories() -> CategoryEdit | None:
+            if categories is None:
+                return None
+            return build_category_edit(category_rows, categories, used_ids)
+
+        def commit(result: tuple[float, time], edit: TemplateEdit | None, cedit: CategoryEdit | None) -> None:
             on_apply(*result, ActualMode(mode.value))
             if edit is not None and on_templates is not None and edit.templates != templates:
                 on_templates(edit)
+            if cedit is not None and on_categories is not None and cedit.categories != categories:
+                on_categories(cedit)
             dialog.close()
 
         def confirm_delete() -> None:
             confirm.close()
-            commit(pending["result"], pending["edit"])
+            commit(pending["result"], pending["edit"], pending["cedit"])
 
         def apply() -> None:
             try:
                 result = build_work_settings(hours.value, start.value or "")
                 edit = build_edit()
+                cedit = build_categories()
             except ValueError as exc:
                 error.set_text(str(exc))
                 return
+            messages = []
             used = sum(template_usage(n) for n in edit.removed) if edit and template_usage else 0
             if used:
-                pending.update(result=result, edit=edit)
-                confirm_text.set_text(
+                messages.append(
                     f"削除するテンプレートを使っているリンクが{used}件あります。URL としてそのまま残ります。"
                 )
+            tasks = sum(category_usage(i) for i in cedit.removed_ids) if cedit and category_usage else 0
+            if tasks:
+                messages.append(f"削除するカテゴリを使っているタスクが{tasks}件あります。未定に戻ります。")
+            if messages:
+                pending.update(result=result, edit=edit, cedit=cedit)
+                confirm_text.set_text("\n".join(messages))
                 confirm.open()
                 return
-            commit(result, edit)
+            commit(result, edit, cedit)
 
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")

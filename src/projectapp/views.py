@@ -11,6 +11,9 @@ from nicegui import ui
 from nicegui.events import KeyEventArguments
 
 from projectapp.calendar import load_cache
+from projectapp.categories import CategoryEdit
+from projectapp.categories import apply_edit as apply_category_edit
+from projectapp.categories import count_usage as count_category_usage
 from projectapp.linkgraph import drop_task_links, link_options
 from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import (
@@ -285,6 +288,10 @@ class MainView:
             templates=self.project.url_templates,
             template_usage=lambda name: count_usage(self.project, name),
             on_templates=self.apply_templates,
+            categories=self.project.categories,
+            category_usage=lambda category_id: count_category_usage(self.project, category_id),
+            on_categories=self.apply_categories,
+            used_ids=self.project.used_ids(),
         )
 
     def multi_interval_count(self) -> int:
@@ -559,6 +566,11 @@ class MainView:
     def apply_templates(self, edit: TemplateEdit) -> None:
         """URL テンプレートの編集を反映する(削除分のリンクは URL に展開される)。保存はしない。"""
         apply_template_edit(self.project, edit)
+        self.gantt.set_project(self.project)
+
+    def apply_categories(self, edit: CategoryEdit) -> None:
+        """カテゴリの編集を反映する(削除したカテゴリのタスクは未定に戻る)。保存はしない。"""
+        apply_category_edit(self.project, edit)
         self.gantt.set_project(self.project)
 
     def save_project_clicked(self) -> None:
