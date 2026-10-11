@@ -413,7 +413,7 @@ def test_the_escape_handler_ignores_other_keys_and_composition():
     script = (
         "let emitted = 0; const emit = () => { emitted += 1; };"
         f"const handler = {ESCAPE_KEYDOWN_JS};"
-        "const run = (e) => { emitted = 0; handler(e); return emitted; };"
+        "const run = (e) => { emitted = 0; handler({ ...e, stopPropagation() {} }); return emitted; };"
         "console.log(JSON.stringify({"
         " esc: run({ code: 'Escape', isComposing: false }),"
         " ime: run({ code: 'Escape', key: 'Process', keyCode: 229, isComposing: false }),"
@@ -426,6 +426,42 @@ def test_the_escape_handler_ignores_other_keys_and_composition():
         run = subprocess.run([node, str(path)], capture_output=True, text=True)
     assert run.returncode == 0, run.stderr
     assert json.loads(run.stdout) == {"esc": 1, "ime": 1, "composing": 0, "other": 0}  # 変換中の ESC は、変換の取り消し
+
+
+def test_the_escape_handler_stops_the_keydown_so_quasar_does_not_close_the_confirm_on_keyup():
+    """ESC の keydown で確認ダイアログを開くと、同じ ESC の keyup を Quasar が受けて、開いたばかりの確認ダイアログを閉じる
+    (Quasar は window の keydown で ESC の印を付け、keyup で一番上のダイアログへ伝える)。印を付けさせないため、伝播を止める。"""
+    import json
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    from projectapp.task_dialog import ESCAPE_KEYDOWN_JS
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node がないので JS の動作を確かめない")
+    script = (
+        "let emitted = 0; const emit = () => { emitted += 1; };"
+        f"const handler = {ESCAPE_KEYDOWN_JS};"
+        "const run = (init) => { emitted = 0; let stopped = 0;"
+        " handler({ ...init, stopPropagation() { stopped += 1; } }); return { emitted, stopped }; };"
+        "console.log(JSON.stringify({"
+        " esc: run({ code: 'Escape', isComposing: false }),"
+        " composing: run({ code: 'Escape', isComposing: true }),"
+        " other: run({ code: 'KeyA', isComposing: false }) }));"
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "escape.js"
+        path.write_text(script)
+        run = subprocess.run([node, str(path)], capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    assert json.loads(run.stdout) == {
+        "esc": {"emitted": 1, "stopped": 1},
+        "composing": {"emitted": 0, "stopped": 0},  # 変換の取り消しの ESC は、Quasar に任せる
+        "other": {"emitted": 0, "stopped": 0},
+    }
 
 
 async def test_cancel_without_changes_closes_without_asking(user: User) -> None:

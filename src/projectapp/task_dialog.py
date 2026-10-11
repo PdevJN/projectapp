@@ -171,8 +171,9 @@ class PriorityChips:
 
 LAYOUT_LABELS = {"schedule": "予定・実績", "all": "すべて"}
 
-# ESC だけをサーバーへ送る。日本語の変換中の ESC は、変換の取り消しなので送らない
-ESCAPE_KEYDOWN_JS = "(e) => { if (e.code === 'Escape' && !e.isComposing) emit(); }"
+# ESC だけをサーバーへ送る。日本語の変換中の ESC は、変換の取り消しなので送らない。
+# 伝播を止めて、Quasar に ESC の印を付けさせない(付くと、同じ ESC の keyup で、開いたばかりの確認ダイアログが閉じる)
+ESCAPE_KEYDOWN_JS = "(e) => { if (e.code === 'Escape' && !e.isComposing) { e.stopPropagation(); emit(); } }"
 
 
 def today() -> date:

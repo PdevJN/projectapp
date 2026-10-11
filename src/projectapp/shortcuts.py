@@ -86,12 +86,13 @@ def plain_keys() -> set[str]:
 
 def key_guard_js() -> str:
     """割り当てたキーの既定の動き(`Ctrl+S` の保存・`Ctrl+P` の印刷、macOS の警告音)を止める JS。
-    文字キーは、入力欄の中では止めない。"""
+    文字キーは、入力欄の中では止めない。ESC は文字でないので、入力欄でも止める(変換中の ESC は、変換の取り消しなので止めない)。"""
     return (
         "document.addEventListener('keydown', e => {"
         f" const ctrl = {sorted(ctrl_keys())!r}, plain = {sorted(plain_keys())!r};"
         " const key = e.key.toLowerCase(), t = e.target || {}, tag = (t.tagName || '').toLowerCase();"
         " const editable = ['input', 'textarea', 'select'].includes(tag) || t.isContentEditable === true;"
-        " if (e.ctrlKey || e.metaKey ? ctrl.includes(key) : plain.includes(key) && !editable) e.preventDefault();"
+        " const typing = editable && !(key === 'escape' && !e.isComposing);"
+        " if (e.ctrlKey || e.metaKey ? ctrl.includes(key) : plain.includes(key) && !typing) e.preventDefault();"
         " }, true);"
     )
