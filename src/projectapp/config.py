@@ -106,3 +106,40 @@ def load_zoom(base_dir: Path = BASE_DIR) -> int:
 
 def save_zoom(zoom: int, base_dir: Path = BASE_DIR) -> None:
     update_config({"zoom": zoom}, base_dir)
+
+
+PROJECT_DIR_MISSING_MESSAGE = "格納先が見つからないため、既定の場所を使っています"
+
+
+def load_project_dir(base_dir: Path = BASE_DIR) -> Path | None:
+    """プロジェクトの格納先。未設定・文字列でない・空・相対パスは None(`~` は展開する)。"""
+    value = read_config(base_dir).get("project_dir")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    path = Path(value.strip()).expanduser()
+    return path if path.is_absolute() else None
+
+
+def save_project_dir(path: Path, base_dir: Path = BASE_DIR) -> None:
+    update_config({"project_dir": str(path)}, base_dir)
+
+
+def check_project_dir(path: Path) -> str | None:
+    """格納先として使えるか。使えなければ理由を返す(ファイルは作らない。空のフォルダは使える)。"""
+    if not path.exists():
+        return "フォルダが見つかりません"
+    if not path.is_dir():
+        return "フォルダではありません"
+    if not os.access(path, os.W_OK | os.X_OK):
+        return "書き込めません"
+    return None
+
+
+def resolve_project_dir(base_dir: Path = BASE_DIR) -> tuple[Path, str | None]:
+    """起動時に使う格納先と、通知する文言。保存した格納先が使えなければ、`base_dir` を使う(設定は書き換えない)。"""
+    saved = load_project_dir(base_dir)
+    if saved is None:
+        return base_dir, None
+    if check_project_dir(saved) is not None:
+        return base_dir, PROJECT_DIR_MISSING_MESSAGE
+    return saved, None

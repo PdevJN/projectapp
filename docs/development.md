@@ -30,7 +30,7 @@
 | `task_dialog.py` | タスクの追加・編集ダイアログ(優先度チップ、日付・時刻の入力、閉じる確認、削除) |
 | `models.py` | Project / Section / Task / Member / Actual と列挙型(Priority・Status・ActualMode)のデータモデル(`Task.planned_start` / `planned_end` / `planned_end_manual` / `deadline`) |
 | `storage.py` | `~/.projectapp/<名前>.json` の走査・名前の検証・保存(一時ファイル経由)・読込 |
-| `config.py` | テーマと名前の欄の幅の設定(`config.json`。読んで更新して書く) |
+| `config.py` | テーマ・名前の欄の幅・倍率・レイアウト・格納先(`project_dir`)の設定(`config.json`。読んで更新して書く)。格納先の検査(`check_project_dir`)と起動時の解決(`resolve_project_dir`) |
 
 ## 設計書と実装計画
 
@@ -129,5 +129,6 @@ uv run ty check src
 - ダイアログは、区間のとき `IntervalFields`(行を足す)、簡易のとき `ActualFields`。どちらも `bind` / `filled` / `progress_value` / `state` の口をそろえてある(状態の提案は最後の区間で判定)。
 - ガントチャートの区間の間の点線は、`gantt.actual_bars` が、隣り合う区間の隙間(前の終了 < 次の開始)にだけ引く(`ACTUAL_GAP_BACKGROUND`。マーカー `actual-gap-<key>-<ti>-<n>`)。進行中の区間の後ろ、隙間なし、重なり・逆順は引かない。
 
+- 格納先(要望 8): 設定(`config.json`・`holidays.json`)の置き場所 `MainView.base_dir`(固定の `~/.projectapp`)と、プロジェクトファイルの格納先 `MainView.project_dir` は別。`project_dir` は `config.json` の `project_dir`(絶対パス。相対・空・不正は未設定)で、起動時に `resolve_project_dir` が決める(使えなければ通知して `base_dir`。設定は書き換えない)。コンストラクタの `base_dir` は設定側のまま、`project_dir` 引数で上書きできる(テスト用)。ファイルメニューの「格納先を変更」(`file-change-dir`)は、`ImageExporter.ask_directory`(ネイティブのみ)で選び、`change_project_dir` が検査 → 保存 → 一覧の読み直し → 新規プロジェクトの順に行う。確認ダイアログは閉じると消えるので、フォルダ選択の `ui.timer` は `self.client` の直下に置く。`storage.py` の関数は、引数のディレクトリを格納先として扱う(設定側のことは知らない)。
 - 画面の倍率(要望 27): `config.py` の `parse_zoom`・`step_zoom`・`load_zoom`・`save_zoom`(70〜200%、10% 刻み、`config.json` の `zoom`)。`views.MainView.zoom` / `change_zoom` が、`zoom_js` で `document.body.style.zoom` をかける(`run_js` はテストで差し替える)。**CSS の `zoom` なので、クライアントの座標(`clientX`)と CSS の px がずれる**: `gantt_drag.py` の `cssScale`(`document.body.style.zoom`。**WebKit は zoom 中も `getBoundingClientRect` と `offsetWidth` を拡大前の値で返すので、要素の幅の比では求めない**)で、バーの移動と名前の欄の幅の調整の移動量を割り戻す。名前の欄の右端の判定も、位置の計算ではなく、`elementFromPoint` で右へ掴み場所の幅(×倍率)進んだ点が欄の外かで決める(2026-10-09。110% 以上で、幅の調整もバーの移動量も、WebKit で外れていた)。画像の書き出し(`save_image`)の間は 100% に戻し、終わったら戻す。
 - タスクのダイアログのレイアウト: `config.py` の `load_task_layout`・`save_task_layout`(`config.json` の `task_layout`。`"all"`(既定。不正な値も)か `"schedule"`)。`MainView.task_layout`・`set_task_layout`(保存できなくても画面には反映し、通知だけ出す)が、`link_args` 経由で `open_task_dialog(layout=, on_layout_change=)` へ渡す。ダイアログは、同じ部品の表示・非表示で切り替える(`refresh_visibility` が、種別とレイアウトから、欄の出し入れを 1 か所で決める。`kind`・レイアウトのどちらの変更でも走るので、登録順に依存しない。換算の説明は、完了予定の算出値を動かすので、レイアウトに関わらず出す)。`current()`(変更の判定)・保存は、レイアウトを含めず、隠した値も今までどおり扱う。割り当て率(`AssigneeFields._sync`)は、メンバーを選んだ行だけ表示する(`enabled` ではなく `visible`。テストは `should_not_see`)

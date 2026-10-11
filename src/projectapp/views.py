@@ -18,11 +18,15 @@ from projectapp.linkgraph import drop_task_links, link_options
 from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import (
     THEMES,
+    check_project_dir,
+    load_project_dir,
     load_name_width,
     load_task_layout,
     load_theme,
     load_zoom,
+    resolve_project_dir,
     save_name_width,
+    save_project_dir,
     save_task_layout,
     save_theme,
     save_zoom,
@@ -117,6 +121,7 @@ body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55
 .app-menu .q-item { font-size: 12px; min-height: 32px; }
 """
 HANDOFF_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、書き出せます"
+CHANGE_DIR_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、格納先を変更できます"
 KEY_GUARD_JS = key_guard_js()
 
 
@@ -136,8 +141,13 @@ class MainView:
         base_dir: Path = BASE_DIR,
         transport: httpx.AsyncBaseTransport | None = None,
         exporter: ImageExporter | None = None,
+        project_dir: Path | None = None,
     ) -> None:
-        self.base_dir = base_dir
+        self.base_dir = base_dir  # 設定(config.json)と祝日のキャッシュの置き場所。固定
+        self.startup_notice: str | None = None
+        if project_dir is None:
+            project_dir, self.startup_notice = resolve_project_dir(base_dir)
+        self.project_dir = project_dir  # プロジェクトファイルの格納先
         self.transport = transport
         self.exporter: ImageExporter = exporter or NativeImageExporter()
         self.preview: PreviewSettings | None = None
@@ -150,7 +160,7 @@ class MainView:
         self.task_layout = load_task_layout(base_dir)  # タスクのダイアログのレイアウト。全プロジェクト共通
         self.run_js: Callable[..., Any] = ui.run_javascript  # テストで差し替える
         self.project = Project(NEW_PROJECT_NAME)
-        self.files: dict[str, Path] = {p.stem: p for p in list_project_files(base_dir)}
+        self.files: dict[str, Path] = {p.stem: p for p in list_project_files(self.project_dir)}
         self.path: Path | None = None
         self.mark_clean()
         self.theme = load_theme(base_dir)
@@ -228,7 +238,7 @@ class MainView:
                     after()
                 return saved
 
-            open_name_dialog(submit, lambda name: validate_name(name, self.base_dir, new=True))
+            open_name_dialog(submit, lambda name: validate_name(name, self.project_dir, new=True))
         elif self.write(overwrite=True):
             after()
 
@@ -256,7 +266,7 @@ class MainView:
     def open_project_folder(self) -> None:
         """プロジェクトの格納フォルダを、ファイラで開く。開けなければ通知する。"""
         try:
-            self.open_folder(self.base_dir)
+            self.open_folder(self.project_dir)
         except OSError as exc:
             ui.notify(f"フォルダを開けませんでした: {exc}", type="negative")
 
@@ -271,6 +281,54 @@ class MainView:
             purpose="作成",
         )
 
+    def request_change_project_dir(self) -> None:
+        """格納先を変える(ネイティブのみ)。編集中は、確認してからフォルダを選ばせる。"""
+        if not self.exporter.available:
+            ui.notify(CHANGE_DIR_NOT_NATIVE_MESSAGE, type="warning")
+            return
+        if not self.is_dirty():
+            self.pick_project_dir()
+            return
+        open_unsaved_dialog(
+            on_save=lambda: self.save_then(self.pick_project_dir),
+            on_discard=self.pick_project_dir,
+            purpose="変更",
+        )
+
+    def pick_project_dir(self) -> None:
+        """フォルダ選択を始める。確認ダイアログは閉じると消えるので、タイマーは画面の直下に置く。"""
+        with self.client:
+            ui.timer(0, self.choose_project_dir, once=True)
+
+    async def choose_project_dir(self) -> None:
+        path = await self.exporter.ask_directory()
+        if path is not None:
+            self.change_project_dir(path)
+
+    def change_project_dir(self, path: Path) -> None:
+        """検査に通れば、格納先を保存して、ファイル一覧を読み直し、保存前の新規プロジェクトにする。"""
+        if path.resolve() == self.project_dir.resolve():
+            # 起動時に既定の場所へ戻っていた場合、保存してある(使えない)格納先を、今の場所で直す
+            saved = load_project_dir(self.base_dir)
+            if saved is not None and saved.resolve() != path.resolve():
+                try:
+                    save_project_dir(path, self.base_dir)
+                except OSError as exc:
+                    ui.notify(f"保存できませんでした: {exc}", type="negative")
+            return
+        if error := check_project_dir(path):
+            ui.notify(f"このフォルダは使えません: {error}", type="negative")
+            return
+        try:
+            save_project_dir(path, self.base_dir)
+        except OSError as exc:
+            ui.notify(f"保存できませんでした: {exc}", type="negative")
+            return
+        self.project_dir = path
+        self.files = {p.stem: p for p in list_project_files(path)}
+        self.file_select.set_options(sorted(self.files), value=None)
+        self.new_project()
+
     def new_project(self) -> None:
         """起動時と同じ、保存前の新規プロジェクトにする(ファイルは、保存するまで作らない)。"""
         self.show_project(Project(NEW_PROJECT_NAME), None)
@@ -279,14 +337,14 @@ class MainView:
         """名前をつけて保存する。成功したら、新しいファイルが現在のプロジェクトになる(元のファイルは残る)。"""
         open_name_dialog(
             self.save_as_new,
-            lambda name: validate_name(name, self.base_dir, new=True),
+            lambda name: validate_name(name, self.project_dir, new=True),
             title="名前をつけて保存",
             initial=self.project.name,
         )
 
     def show_file_list(self) -> None:
         """ファイルを走査し直して、一覧ダイアログを出す。"""
-        self.files = {p.stem: p for p in list_project_files(self.base_dir)}
+        self.files = {p.stem: p for p in list_project_files(self.project_dir)}
         names = sorted(self.files)
         self.file_select.set_options(names, value=self.current_name())
         open_file_dialog(names, self.request_open)
@@ -598,7 +656,7 @@ class MainView:
         if self.path is None:
             open_name_dialog(
                 self.save_as_new,
-                lambda name: validate_name(name, self.base_dir, new=True),
+                lambda name: validate_name(name, self.project_dir, new=True),
             )
             return
         self.write(overwrite=True)
@@ -614,7 +672,7 @@ class MainView:
     def write(self, *, overwrite: bool) -> bool:
         """保存して画面を更新する。失敗したら通知だけ出し、状態は変えない。"""
         try:
-            path = save_project(self.project, self.base_dir, overwrite=overwrite)
+            path = save_project(self.project, self.project_dir, overwrite=overwrite)
         except FileExistsError:
             ui.notify("同じ名前のファイルがすでにあります", type="negative")
             return False
@@ -806,6 +864,8 @@ class MainView:
         self.run_js(zoom_js(self.zoom))
         ui.keyboard(on_key=self.on_plain_key)  # 入力欄・ボタンにフォーカスがあるときは、受けない
         ui.keyboard(on_key=self.on_modified_key, ignore=[])  # Ctrl/Cmd 付きだけは、入力欄でも受ける
+        if self.startup_notice:
+            ui.notify(self.startup_notice, type="warning")
         if self.needs_first_fetch:
             ui.timer(0.1, self.first_fetch, once=True)
 
@@ -824,6 +884,7 @@ class MainView:
                     MenuItem("上書き保存", "save", self.save_project_clicked, "save-project"),
                     MenuItem("名前をつけて保存", "save_as", self.save_as, "file-save-as"),
                     None,
+                    MenuItem("格納先を変更", "drive_file_move", self.request_change_project_dir, "file-change-dir"),
                     MenuItem("祝日を更新", "event_repeat", self.refresh_holidays, "refresh-holidays"),
                 ],
             )

@@ -133,6 +133,8 @@ class ImageExporter(Protocol):
 
     async def ask_path(self, filename: str, file_types: tuple[str, ...]) -> Path | None: ...
 
+    async def ask_directory(self) -> Path | None: ...
+
 
 RunJs = Callable[..., Awaitable[Any]]
 
@@ -185,6 +187,19 @@ class NativeImageExporter:
             dialog_type=webview.FileDialog.SAVE,
             save_filename=filename,
             file_types=file_types,
+        )
+        if not result:
+            return None
+        return Path(result if isinstance(result, str) else result[0])
+
+    async def ask_directory(self) -> Path | None:
+        import webview  # ネイティブのときだけ使う
+
+        window = app.native.main_window
+        if window is None:
+            return None
+        result = await window.create_file_dialog(  # ty: ignore[unresolved-attribute]
+            dialog_type=webview.FileDialog.FOLDER,
         )
         if not result:
             return None
