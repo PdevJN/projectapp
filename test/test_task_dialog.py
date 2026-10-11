@@ -1867,11 +1867,29 @@ async def test_the_name_input_limits_the_length(user: User) -> None:
     assert user.find(marker="task-name").elements.pop()._props.get("maxlength") == "50"
 
 
-async def test_a_name_with_a_control_character_shows_the_error_and_keeps_the_dialog(user: User) -> None:
+async def test_the_name_input_is_a_full_width_growing_textarea(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    name = user.find(marker="task-name").elements.pop()
+    assert isinstance(name, ui.textarea)  # 長い名前は折り返す
+    assert "w-full" in name.classes  # 他の入力欄と同じ幅
+    assert name._props.get("autogrow") is True
+    assert str(name._props.get("rows")) == "1"  # 短いうちは 1 行の高さ
+
+
+async def test_enter_in_the_name_does_not_add_a_line_break(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    name = user.find(marker="task-name").elements.pop()
+    assert any(l.type == "keydown.enter.prevent" for l in name._event_listeners.values())
+
+
+async def test_a_pasted_line_break_in_the_name_becomes_a_space(user: User) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved)
     await open_dialog(user)
-    user.find(marker="task-name").type("a\nb")
+    name = user.find(marker="task-name").elements.pop()
+    name.set_value("a\nb\tc")
+    assert name.value == "a b c"
     user.find(marker="task-save").click()
-    await user.should_see("制御文字")
-    assert saved == []
+    assert saved[0].name == "a b c"
