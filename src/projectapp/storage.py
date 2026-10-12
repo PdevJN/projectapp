@@ -1,11 +1,14 @@
 """プロジェクトファイル(~/.projectapp/<名前>.json)の読み書き。"""
 
+import hashlib
 import json
 import os
 import secrets
+import shutil
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, time
+from enum import Enum
 from math import isfinite
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -157,6 +160,37 @@ def _publish_new(tmp: Path, path: Path) -> None:
         if path.exists():
             raise FileExistsError(path) from None
         os.replace(tmp, path)
+
+
+class ExternalChange(Enum):
+    UNCHANGED = "unchanged"
+    CHANGED = "changed"
+    MISSING = "missing"
+
+
+def file_digest(path: Path) -> str | None:
+    """ファイルの内容の SHA-256(16 進)。なければ None。更新時刻は使わない(git や同期は内容が同じでも変える)。"""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except FileNotFoundError:
+        return None
+
+
+def check_external_change(path: Path, digest: str | None) -> ExternalChange:
+    """読み込んだときのハッシュ `digest` と、いまのファイルを比べる。覚えていなければ判定できないので UNCHANGED。"""
+    current = file_digest(path)
+    if current is None:
+        return ExternalChange.MISSING
+    if digest is None or current == digest:
+        return ExternalChange.UNCHANGED
+    return ExternalChange.CHANGED
+
+
+def backup_file(path: Path) -> Path:
+    """同じ場所の `<名前>.json.bak` に退避する(1 世代。既存は置き換える)。失敗は OSError のまま通す。"""
+    backup = path.with_name(path.name + ".bak")
+    shutil.copy2(path, backup)
+    return backup
 
 
 def save_project(

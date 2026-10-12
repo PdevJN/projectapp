@@ -28,7 +28,16 @@ from projectapp.models import (
     walk_sections,
 )
 from projectapp.timeline import Scale, build_columns
-from projectapp.storage import list_project_files, load_project, save_project, validate_name
+from projectapp.storage import (
+    ExternalChange,
+    backup_file,
+    check_external_change,
+    file_digest,
+    list_project_files,
+    load_project,
+    save_project,
+    validate_name,
+)
 
 
 def test_save_and_load_roundtrip(tmp_path: Path) -> None:
@@ -1536,3 +1545,60 @@ def test_loading_replaces_zero_width_characters_in_a_task_name(tmp_path: Path) -
     _edit_raw(path, lambda raw: raw["tasks"][0].update(name="\u200b設計\u200b開発\u2028"))
     assert load_project(path).tasks[0].name == "設計 開発"
 
+
+
+def test_file_digest_is_the_same_for_the_same_content_and_none_when_missing(tmp_path: Path) -> None:
+    a, b, c = tmp_path / "a.json", tmp_path / "b.json", tmp_path / "c.json"
+    a.write_text("同じ", encoding="utf-8")
+    b.write_text("同じ", encoding="utf-8")
+    c.write_text("違う", encoding="utf-8")
+    assert file_digest(a) == file_digest(b)
+    assert file_digest(a) != file_digest(c)
+    assert file_digest(tmp_path / "ない.json") is None
+
+
+def test_check_external_change_unchanged_changed_and_missing(tmp_path: Path) -> None:
+    path = tmp_path / "p.json"
+    path.write_text("元", encoding="utf-8")
+    digest = file_digest(path)
+    assert check_external_change(path, digest) is ExternalChange.UNCHANGED
+    path.write_text("変更", encoding="utf-8")
+    assert check_external_change(path, digest) is ExternalChange.CHANGED
+    path.unlink()
+    assert check_external_change(path, digest) is ExternalChange.MISSING
+
+
+def test_check_external_change_ignores_a_modification_time_change_alone(tmp_path: Path) -> None:
+    path = tmp_path / "p.json"
+    path.write_text("元", encoding="utf-8")
+    digest = file_digest(path)
+    os.utime(path, (1_000_000_000, 1_000_000_000))
+    assert check_external_change(path, digest) is ExternalChange.UNCHANGED
+
+
+def test_check_external_change_without_a_remembered_digest_is_unchanged(tmp_path: Path) -> None:
+    path = tmp_path / "p.json"
+    path.write_text("元", encoding="utf-8")
+    assert check_external_change(path, None) is ExternalChange.UNCHANGED
+
+
+def test_backup_file_copies_next_to_the_file_and_replaces_the_old_backup(tmp_path: Path) -> None:
+    path = tmp_path / "p.json"
+    path.write_text("一つ目", encoding="utf-8")
+    backup = backup_file(path)
+    assert backup == tmp_path / "p.json.bak"
+    assert backup.read_text(encoding="utf-8") == "一つ目"
+    path.write_text("二つ目", encoding="utf-8")
+    backup_file(path)
+    assert backup.read_text(encoding="utf-8") == "二つ目"
+
+
+def test_backup_file_is_not_listed_as_a_project(tmp_path: Path) -> None:
+    save_project(Project("p"), tmp_path)
+    backup_file(tmp_path / "p.json")
+    assert [f.name for f in list_project_files(tmp_path)] == ["p.json"]
+
+
+def test_backup_file_raises_oserror_when_the_file_is_missing(tmp_path: Path) -> None:
+    with pytest.raises(OSError):
+        backup_file(tmp_path / "ない.json")
