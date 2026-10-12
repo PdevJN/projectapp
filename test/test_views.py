@@ -3439,3 +3439,17 @@ async def test_save_and_open_with_save_as_continues_after_the_new_file_is_saved(
     user.find(marker="name-save").click()
     assert await wait_until(lambda: view.path == tmp_path / "乙.json")
     assert section_names(tmp_path / "別名.json") == ["元", "自分"]
+
+
+async def test_save_when_the_file_became_unreadable_notifies_instead_of_crashing(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_with_external_change(user, tmp_path)
+    path = tmp_path / "既存.json"
+    path.chmod(0o000)
+    try:
+        user.find(marker="save-project").click()
+        assert await wait_until(lambda: user.notify.contains("保存できませんでした"))
+    finally:
+        path.chmod(0o644)
+    assert view.is_dirty()

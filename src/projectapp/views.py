@@ -246,8 +246,8 @@ class MainView:
 
     def open_project(self, name: str) -> None:
         path = self.files[name]
-        digest = file_digest(path)  # 読み込みの前に取る。間にファイルが変わっても、保存時に CHANGED になる側へ倒れる
         try:
+            digest = file_digest(path)  # 読み込みの前に取る。間にファイルが変わっても、保存時に CHANGED になる側へ倒れる
             project = load_project(path)
         except (OSError, ValueError, KeyError) as exc:
             ui.notify(f"開けませんでした: {exc}", type="negative")
@@ -682,7 +682,11 @@ class MainView:
         続きの `after` は、確認の結果の保存に引き継ぐ。
         """
         if overwrite and self.path is not None:
-            change = check_external_change(self.path, self.digest)
+            try:
+                change = check_external_change(self.path, self.digest)
+            except OSError as exc:
+                ui.notify(f"保存できませんでした: {exc}", type="negative")
+                return False
             if change is ExternalChange.CHANGED:
                 open_conflict_dialog(
                     on_overwrite=lambda: self.overwrite_external(after),
@@ -716,7 +720,10 @@ class MainView:
             ui.notify(f"保存できませんでした: {exc}", type="negative")
             return False
         self.path = path
-        self.digest = file_digest(path)  # 書いたファイルを読み直して覚える
+        try:
+            self.digest = file_digest(path)  # 書いたファイルを読み直して覚える
+        except OSError:
+            self.digest = None  # 読めなくても保存は成功している。次の保存では判定しない
         self.mark_clean()
         self.files[path.stem] = path
         self.file_select.set_options(sorted(self.files), value=path.stem)
