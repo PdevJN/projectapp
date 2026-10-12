@@ -3284,3 +3284,158 @@ async def test_the_task_dialogs_get_the_saved_layout(user: User, tmp_path: Path)
     await user.should_see(marker="task-layout")
     assert user.find(marker="task-layout").elements.pop().value == "schedule"
     await user.should_not_see(marker="task-color")
+
+
+async def open_with_external_change(user: User, tmp_path: Path) -> MainView:
+    """「既存」を開き、自分の編集のあとで、相手がファイルを書き換えた状態にする。"""
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("元")]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path == tmp_path / "既存.json")
+    view.save_section("自分")
+    save_project(Project("既存", sections=[Section("相手")]), tmp_path)
+    return view
+
+
+def section_names(path: Path) -> list[str]:
+    return [s.name for s in load_project(path).sections]
+
+
+async def test_save_after_an_external_change_asks_and_overwrite_keeps_the_other_version_as_bak(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_with_external_change(user, tmp_path)
+    user.find(marker="save-project").click()
+    await user.should_see(marker="conflict-overwrite")
+    assert section_names(tmp_path / "既存.json") == ["相手"]  # まだ書いていない
+    user.find(marker="conflict-overwrite").click()
+    assert await wait_until(lambda: user.notify.contains("保存しました"))
+    assert section_names(tmp_path / "既存.json") == ["元", "自分"]
+    assert section_names(tmp_path / "既存.json.bak") == ["相手"]
+    assert not view.is_dirty()
+
+
+async def test_save_after_overwriting_does_not_ask_again(user: User, tmp_path: Path) -> None:
+    view = await open_with_external_change(user, tmp_path)
+    user.find(marker="save-project").click()
+    user.find(marker="conflict-overwrite").click()
+    assert await wait_until(lambda: not view.is_dirty())
+    view.save_section("さらに")
+    user.find(marker="save-project").click()
+    assert await wait_until(lambda: section_names(tmp_path / "既存.json") == ["元", "自分", "さらに"])
+
+
+async def test_external_change_cancel_changes_nothing(user: User, tmp_path: Path) -> None:
+    view = await open_with_external_change(user, tmp_path)
+    user.find(marker="save-project").click()
+    user.find(marker="conflict-cancel").click()
+    assert section_names(tmp_path / "既存.json") == ["相手"]
+    assert not (tmp_path / "既存.json.bak").exists()
+    assert view.is_dirty()
+
+
+async def test_external_change_save_as_leaves_the_other_version_and_switches(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_with_external_change(user, tmp_path)
+    user.find(marker="save-project").click()
+    user.find(marker="conflict-save-as").click()
+    user.find(marker="project-name").clear().type("別名")
+    user.find(marker="name-save").click()
+    assert await wait_until(lambda: view.path == tmp_path / "別名.json")
+    assert section_names(tmp_path / "既存.json") == ["相手"]
+    assert section_names(tmp_path / "別名.json") == ["元", "自分"]
+    assert not (tmp_path / "既存.json.bak").exists()
+
+
+async def test_external_change_save_as_with_an_existing_name_keeps_the_dialog_open(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_with_external_change(user, tmp_path)
+    user.find(marker="save-project").click()
+    user.find(marker="conflict-save-as").click()
+    user.find(marker="project-name").clear().type("既存")
+    user.find(marker="name-save").click()
+    await user.should_see(marker="project-name")
+    assert section_names(tmp_path / "既存.json") == ["相手"]
+    assert view.path == tmp_path / "既存.json"
+
+
+async def test_external_change_with_a_failing_backup_does_not_overwrite(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(path: Path) -> Path:
+        raise OSError("読み取り専用")
+
+    monkeypatch.setattr("projectapp.views.backup_file", fail)
+    view = await open_with_external_change(user, tmp_path)
+    user.find(marker="save-project").click()
+    user.find(marker="conflict-overwrite").click()
+    assert await wait_until(lambda: user.notify.contains("バックアップを作れなかったため、保存しませんでした"))
+    assert section_names(tmp_path / "既存.json") == ["相手"]
+    assert view.is_dirty()
+
+
+async def test_overwrite_after_the_file_vanished_in_the_dialog_still_saves(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_with_external_change(user, tmp_path)
+    user.find(marker="save-project").click()
+    await user.should_see(marker="conflict-overwrite")
+    (tmp_path / "既存.json").unlink()
+    user.find(marker="conflict-overwrite").click()
+    assert await wait_until(lambda: not view.is_dirty())
+    assert section_names(tmp_path / "既存.json") == ["元", "自分"]
+
+
+async def test_save_when_the_file_vanished_notifies_and_creates_it(user: User, tmp_path: Path) -> None:
+    view = await open_with_external_change(user, tmp_path)
+    (tmp_path / "既存.json").unlink()
+    user.find(marker="save-project").click()
+    assert await wait_until(lambda: user.notify.contains("ファイルが見つかりませんでした。新しく作成します"))
+    assert await wait_until(lambda: not view.is_dirty())
+    assert section_names(tmp_path / "既存.json") == ["元", "自分"]
+
+
+async def test_save_and_open_continues_only_after_the_external_change_is_overwritten(
+    user: User, tmp_path: Path
+) -> None:
+    save_project(Project("乙", sections=[Section("乙の中身")]), tmp_path)
+    view = await open_with_external_change(user, tmp_path)
+    await choose_in_combo(user, "乙")
+    user.find(marker="unsaved-save").click()
+    await user.should_see(marker="conflict-overwrite")
+    assert view.path == tmp_path / "既存.json"
+    user.find(marker="conflict-overwrite").click()
+    assert await wait_until(lambda: view.path == tmp_path / "乙.json")
+    assert section_names(tmp_path / "既存.json") == ["元", "自分"]
+
+
+async def test_save_and_open_stays_when_the_external_change_dialog_is_cancelled(
+    user: User, tmp_path: Path
+) -> None:
+    save_project(Project("乙"), tmp_path)
+    view = await open_with_external_change(user, tmp_path)
+    await choose_in_combo(user, "乙")
+    user.find(marker="unsaved-save").click()
+    user.find(marker="conflict-cancel").click()
+    assert view.path == tmp_path / "既存.json"
+    assert view.is_dirty()
+
+
+async def test_save_and_open_with_save_as_continues_after_the_new_file_is_saved(
+    user: User, tmp_path: Path
+) -> None:
+    save_project(Project("乙"), tmp_path)
+    view = await open_with_external_change(user, tmp_path)
+    await choose_in_combo(user, "乙")
+    user.find(marker="unsaved-save").click()
+    user.find(marker="conflict-save-as").click()
+    user.find(marker="project-name").clear().type("別名")
+    user.find(marker="name-save").click()
+    assert await wait_until(lambda: view.path == tmp_path / "乙.json")
+    assert section_names(tmp_path / "別名.json") == ["元", "自分"]

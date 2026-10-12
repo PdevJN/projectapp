@@ -725,6 +725,32 @@ def open_unsaved_dialog(
     dialog.open()
 
 
+def open_conflict_dialog(
+    on_overwrite: Callable[[], object], on_save_as: Callable[[], object]
+) -> None:
+    """保存の直前に、ファイルが外部で変わっていたときの 3 択の確認(キャンセルは何もしない)。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
+        ui.label("ファイルが外部で変更されています").classes("text-h6")
+        ui.label(
+            "読み込んだあとに、別のプロセスや git、同期などでファイルが変わりました。"
+            "上書きすると、その変更は失われます。"
+        )
+
+        def run(action: Callable[[], object]) -> None:
+            dialog.close()
+            action()
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark("conflict-cancel")
+            ui.button("名前をつけて保存", on_click=lambda: run(on_save_as)).props("flat").mark(
+                "conflict-save-as"
+            )
+            ui.button("上書き", on_click=lambda: run(on_overwrite)).props("color=negative").mark(
+                "conflict-overwrite"
+            )
+    dialog.open()
+
+
 def open_settings_dialog(
     daily_hours: float,
     work_start: time,
