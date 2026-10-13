@@ -14,6 +14,7 @@ DEFAULT_TIMEOUT = 5.0
 NOT_REPO_MESSAGE = "not a git repository"
 CHANGE_PREFIXES = ("1 ", "2 ", "u ", "? ")  # 変更行(通常・改名・衝突・未追跡)
 PATHSPEC = [":(glob)*.json", *(f":(exclude){name}.json" for name in sorted(RESERVED))]
+REDIRECTING_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")  # `-C`で指した格納先とは別のリポジトリを指させる
 AHEAD_BEHIND = re.compile(r"\+(\d+) -(\d+)")
 
 Runner = Callable[[list[str], float], subprocess.CompletedProcess[str]]
@@ -38,9 +39,12 @@ class GitState:
 
 
 def _run(args: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C"}  # 他の git のロックを取らない。出力の言語を固定
+    env = {k: v for k, v in os.environ.items() if k not in REDIRECTING_ENV}
+    env |= {"GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C"}  # 他の git のロックを取らない。出力の言語を固定
     return subprocess.run(
         ["git", *args],
+        stdin=subprocess.DEVNULL,  # GUI には標準入力がなく、継承すると失敗することがある
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # Windows でコンソール窓を出さない
         capture_output=True,
         text=True,
         encoding="utf-8",

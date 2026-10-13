@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from projectapp.gitstate import DEFAULT_TIMEOUT, GitKind, GitState, Runner, describe, read_git_state, tooltip
+from projectapp.gitstate import DEFAULT_TIMEOUT, GitKind, GitState, Runner, _run, describe, read_git_state, tooltip
 
 
 def git(cwd: Path, *args: str) -> None:
@@ -308,3 +308,29 @@ def test_tooltip_of_an_error_shows_the_reason() -> None:
 
 def test_tooltip_is_empty_without_a_work_tree() -> None:
     assert tooltip(GitState(GitKind.NOT_REPO)) == "" and tooltip(GitState(GitKind.NO_GIT)) == ""
+
+
+def test_git_env_variables_do_not_redirect_to_another_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    other = init_repo(tmp_path / "other")
+    (other / "x.json").write_text("{}")
+    mine = init_repo(tmp_path / "mine")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(other))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(other / ".git" / "index"))
+    (mine / "y.json").write_text("{}")
+    state = read_git_state(mine)
+    assert state.kind is GitKind.OK and state.error is None
+    assert state.dirty == 1  # 自分の y.json だけ。別のリポジトリの x.json を数えない
+
+
+def test_git_runs_without_stdin_and_without_a_console_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    _run(["status"], 1.0)
+    assert seen["stdin"] == subprocess.DEVNULL
+    assert seen["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0)  # Windows だけ窓を出さない
