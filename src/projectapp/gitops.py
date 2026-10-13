@@ -112,7 +112,7 @@ def default_message(names: list[str]) -> str:
 
 COMMIT_TIMEOUT = 30.0
 PUSH_TIMEOUT = 60.0
-PULL_HINT = "先にプルが必要です(プルは後続機能)"
+PULL_HINT = "先にプルが必要です"
 REJECTION_MARKERS = ("rejected", "non-fast-forward", "fetch first")
 
 

@@ -41,9 +41,9 @@
 
 ### `merge.py`(NiceGUI にも git にも依存しない)
 
-- `merge_projects(base, ours, theirs) -> MergeResult`。`MergeResult(project: Project, conflicts: list[Conflict], notes: list[str])`。
+- `merge_projects(base, ours, theirs, choices=None) -> MergeResult`。選択は`choices`(`Conflict.id`〔`(kind, key, field)`〕→ `ours`/`theirs`)で渡して、もう一度マージする。選択のない衝突は「自分」になる。`MergeResult(project: Project, conflicts: list[Conflict], notes: list[str])`。
 - `Conflict`(`frozen`): 対象(`kind`=`task`・`section`・`member`・`category`・`setting`・`parameter`・`url_template`)・`key`(`id`か名前)・`label`(画面に出す名前)・`field`(項目名)・`ours`・`theirs`(画面に出す値)・`choices`(`ours`・`theirs`。削除と変更の衝突では「削除する」・「残す」)。
-- `apply_choices(result, choices) -> Project`: 衝突ごとの選択を反映した`Project`を返す。衝突がなければ`result.project`をそのまま返す。
+- `merge_files(name, base, ours, theirs, choices=None) -> FileMerge`: 本文(文字列)からの入口。読めない・統合結果が検証を通らないときは`ValueError`。衝突は、ファイルごとに順に出して選ばせる。
 - **突き合わせの鍵**: タスク・メンバー・セクション・カテゴリは`id`。パラメータ・段階・URL テンプレートは名前。
 - **項目ごとの規則**(base と比べて、どちらが変えたか):
   - 片側だけが変えた → その値
@@ -56,7 +56,7 @@
   - 両側が追加した同じ`id`は、起きない前提(`id`は新規に振る)
 - **配置**:
   - タスクの所属(どのセクションか)は、1 項目として扱う
-  - 並び順は自分の順を土台にし、相手が追加した分は、base での直前の兄弟のあとに入れる(直前がなければ先頭)
+  - 並び順は自分の順を土台にし(相手だけが並べ替えたときは相手の順)、相手が追加・移動した分は、相手の並びでの直前の兄弟(結果にすでにあるもの)のあとに入れる(なければ先頭)
 - **プロジェクトの設定**(`base_date`・`daily_hours`・`work_start`・`actual_mode`)は、項目ごとに同じ規則で比べる。
 - **マージ後の整合**:
   - 削除されたタスクを指す先行は外す
@@ -72,7 +72,7 @@
   - 自分に独自のコミットがなく、相手だけが進んでいる → `PullPlan(kind=FAST_FORWARD)`
   - 両側が進んでいる → `PullPlan(kind=MERGE)`
 - `pull_fast_forward(project_dir, run) -> GitResult`: `git merge --ff-only`。
-- `pull_start_merge(project_dir, run) -> MergeSession | GitResult`: `git merge --no-commit --no-ff <上流>`を実行し、プロジェクトファイル以外に衝突があれば`merge --abort`して失敗を返す。両側が変えたプロジェクトファイルの一覧と、それぞれの base・ours・theirs の本文(`git show <rev>:<名前>`)を`MergeSession`に入れる。
+- `pull_start_merge(project_dir, upstream, run) -> MergeSession | GitResult`: `git merge --no-commit --no-ff <上流>`を実行し、プロジェクトファイル以外に衝突があるとき、ファイル単位の衝突(片側がファイルを削除・両側が新規作成)のときは、`merge --abort`して失敗を返す。両側が変えたプロジェクトファイルの一覧と、それぞれの base・ours・theirs の本文(`git show <rev>:<名前>`)を`MergeSession`に入れる。
 - `pull_finish_merge(project_dir, session, merged: dict[str, str], message, run) -> GitResult`: 結果をファイルへ書き(一時ファイル経由)、`git add`して、マージコミットを作る。メッセージの既定は`マージ: <上流>`。
 - `pull_abort(project_dir, run) -> GitResult`: `git merge --abort`。
 - 共通: `gitstate`の環境の関数を共有する。例外は外へ出さず、`GitResult`の`message`に理由を入れる。途中のどこで失敗しても、マージ中の状態は`merge --abort`で戻す(戻せなければ、手順を通知に添える)。
@@ -88,13 +88,13 @@
   5. 衝突があれば、衝突ダイアログで選ばせる(キャンセルなら`pull_abort`)
   6. `pull_finish_merge`で確定し、開いているプロジェクトを読み直して、git の状態を更新する
 - **衝突ダイアログ**: タスク(など)ごとにまとめ、項目ごとに「自分 / 相手」のラジオを置く。既定は「相手」だが、利用者が必ず見て「取り込む」を押す。ファイルが複数あれば、ファイルごとに順に出す。
-- **結果の通知**: 「取り込みました(自動 N 件、選択 M 件)」。`notes`(外した担当者など)があれば、添える。
+- **結果の通知**: 「取り込みました」。選んだ衝突があれば「(衝突 M 件を選択)」を添える。`notes`(外した担当者など)があれば、添える。
 - **`git_busy`**: プルの全体を通して立てる(`finally`で下ろす)。ダイアログを開いている間は、他の git 操作を押せない。
 - 開いているプロジェクトの読み直しでは、`digest`(読み込み時のハッシュ)を更新し、外部変更の検知(PR #12)と整合させる。
 
 ## テスト
 
-- `merge.py`(表形式): 片側のみの変更、両側同値、両側異値(衝突)、追加(片側・両側)、削除(片側のみ・削除と変更)、タスクの移動(セクション間)、並び順、設定の項目、リストの項目、削除されたタスクを指す先行の整理、削除されたメンバーを指す担当者の整理、`apply_choices`、結果が保存の検証を通ること。
+- `merge.py`(表形式): 片側のみの変更、両側同値、両側異値(衝突)、追加(片側・両側)、削除(片側のみ・削除と変更)、タスクの移動(セクション間)、並び順、設定の項目、リストの項目、削除されたタスクを指す先行の整理、削除されたメンバーを指す担当者の整理、選択の反映(`choices`)、結果が保存の検証を通ること。
 - `gitops`(`tmp_path`に、実際の bare リモートと 2 つのクローン): 最新・fast-forward・両側が進んだマージ(マージコミットの親が 2 つ)・プロジェクトファイル以外の衝突で中止して元に戻る・未コミットの変更で拒否・上流がなくて拒否・`pull_abort`。差し替えた`run`で、`git`がない・タイムアウトでも例外を出さない。
 - 画面(`gitops`を差し替え): メニューの押せる・押せない、手順の分岐、衝突ダイアログの選択と取り込み・キャンセル、読み直し、`git_busy`。
 

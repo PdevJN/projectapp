@@ -220,7 +220,7 @@ async def test_a_failed_commit_skips_the_push(user: User, tmp_path: Path) -> Non
 
 async def test_a_failed_push_after_a_commit_is_a_warning(user: User, tmp_path: Path) -> None:
     fakes = Fakes()
-    fakes.push_result = GitResult(False, "! [rejected] main -> main\n先にプルが必要です(プルは後続機能)")
+    fakes.push_result = GitResult(False, "! [rejected] main -> main\n先にプルが必要です")
     view = await open_with(user, tmp_path, fakes)
     await view.run_commit(["乙.json"], "m", True)
     assert user.notify.contains("コミットしました。プッシュに失敗しました")
