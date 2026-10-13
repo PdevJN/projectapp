@@ -34,6 +34,7 @@ from projectapp.config import (
 )
 from projectapp.forms import (
     MEMBER_TABLE_CSS,
+    open_conflict_dialog,
     open_file_dialog,
     open_handoff_dialog,
     open_members_parameters_dialog,
@@ -80,6 +81,10 @@ from projectapp.preview import (
 )
 from projectapp.storage import (
     BASE_DIR,
+    ExternalChange,
+    backup_file,
+    check_external_change,
+    file_digest,
     list_project_files,
     load_project,
     save_project,
@@ -162,6 +167,7 @@ class MainView:
         self.project = Project(NEW_PROJECT_NAME)
         self.files: dict[str, Path] = {p.stem: p for p in list_project_files(self.project_dir)}
         self.path: Path | None = None
+        self.digest: str | None = None  # 読み込み(保存)時のファイルの内容のハッシュ。外部変更の検知用
         self.mark_clean()
         self.theme = load_theme(base_dir)
         self.dark = ui.dark_mode()
@@ -229,32 +235,29 @@ class MainView:
         )
 
     def save_then(self, after: Callable[[], object]) -> None:
-        """保存に成功したときだけ、続きの処理を行う。"""
+        """保存に成功したときだけ、続きの処理を行う(外部変更の確認を挟んだときも、続きは引き継ぐ)。"""
         if self.path is None:
-
-            def submit(name: str) -> bool:
-                saved = self.save_as_new(name)
-                if saved:
-                    after()
-                return saved
-
-            open_name_dialog(submit, lambda name: validate_name(name, self.project_dir, new=True))
-        elif self.write(overwrite=True):
-            after()
+            open_name_dialog(
+                lambda name: self.save_as_new(name, after),
+                lambda name: validate_name(name, self.project_dir, new=True),
+            )
+        else:
+            self.write(overwrite=True, after=after)
 
     def open_project(self, name: str) -> None:
         path = self.files[name]
         try:
+            digest = file_digest(path)  # 読み込みの前に取る。間にファイルが変わっても、保存時に CHANGED になる側へ倒れる
             project = load_project(path)
         except (OSError, ValueError, KeyError) as exc:
             ui.notify(f"開けませんでした: {exc}", type="negative")
             self.file_select.set_value(self.current_name())
             return
-        self.show_project(project, path)
+        self.show_project(project, path, digest)
 
-    def show_project(self, project: Project, path: Path | None) -> None:
+    def show_project(self, project: Project, path: Path | None, digest: str | None = None) -> None:
         """別のプロジェクトに切り替える(開いたとき・新規作成のとき)。保存済みの状態から始める。"""
-        self.path, self.project = path, project
+        self.path, self.project, self.digest = path, project, digest
         self.mark_clean()
         self.file_select.set_value(path.stem if path else None)
         self.title.refresh()
@@ -335,8 +338,11 @@ class MainView:
 
     def save_as(self) -> None:
         """名前をつけて保存する。成功したら、新しいファイルが現在のプロジェクトになる(元のファイルは残る)。"""
+        self.save_as_then(None)
+
+    def save_as_then(self, after: Callable[[], object] | None) -> None:
         open_name_dialog(
-            self.save_as_new,
+            lambda name: self.save_as_new(name, after),
             lambda name: validate_name(name, self.project_dir, new=True),
             title="名前をつけて保存",
             initial=self.project.name,
@@ -661,16 +667,50 @@ class MainView:
             return
         self.write(overwrite=True)
 
-    def save_as_new(self, name: str) -> bool:
+    def save_as_new(self, name: str, after: Callable[[], object] | None = None) -> bool:
         previous = self.project.name
         self.project.name = name
-        if self.write(overwrite=False):
+        if self.write(overwrite=False, after=after):
             return True
         self.project.name = previous
         return False
 
-    def write(self, *, overwrite: bool) -> bool:
-        """保存して画面を更新する。失敗したら通知だけ出し、状態は変えない。"""
+    def write(self, *, overwrite: bool, after: Callable[[], object] | None = None) -> bool:
+        """保存して画面を更新する。成功したら `after` を呼ぶ。失敗したら通知だけ出し、状態は変えない。
+
+        上書き保存の直前に、読み込んだあとの外部変更を調べる。変更があれば確認を出して False を返し、
+        続きの `after` は、確認の結果の保存に引き継ぐ。
+        """
+        if overwrite and self.path is not None:
+            try:
+                change = check_external_change(self.path, self.digest)
+            except OSError as exc:
+                ui.notify(f"保存できませんでした: {exc}", type="negative")
+                return False
+            if change is ExternalChange.CHANGED:
+                open_conflict_dialog(
+                    on_overwrite=lambda: self.overwrite_external(after),
+                    on_save_as=lambda: self.save_as_then(after),
+                )
+                return False
+            if change is ExternalChange.MISSING:
+                ui.notify("ファイルが見つかりませんでした。新しく作成します", type="warning")
+        return self.commit(overwrite=overwrite, after=after)
+
+    def overwrite_external(self, after: Callable[[], object] | None) -> None:
+        """外部変更を承知で上書きする。相手の版は `.bak` に退避し、退避できなければ保存しない。"""
+        if self.path is not None:
+            try:
+                backup_file(self.path)
+            except FileNotFoundError:
+                pass  # 確認の間に消えた。退避するものがない
+            except OSError:
+                ui.notify("バックアップを作れなかったため、保存しませんでした", type="negative")
+                return
+        self.commit(overwrite=True, after=after)
+
+    def commit(self, *, overwrite: bool, after: Callable[[], object] | None) -> bool:
+        """検査なしで保存する(`write` の本体)。"""
         try:
             path = save_project(self.project, self.project_dir, overwrite=overwrite)
         except FileExistsError:
@@ -680,11 +720,17 @@ class MainView:
             ui.notify(f"保存できませんでした: {exc}", type="negative")
             return False
         self.path = path
+        try:
+            self.digest = file_digest(path)  # 書いたファイルを読み直して覚える
+        except OSError:
+            self.digest = None  # 読めなくても保存は成功している。次の保存では判定しない
         self.mark_clean()
         self.files[path.stem] = path
         self.file_select.set_options(sorted(self.files), value=path.stem)
         self.title.refresh()
         ui.notify("保存しました")
+        if after is not None:
+            after()
         return True
 
     def add_section(self) -> None:
