@@ -193,6 +193,12 @@ def backup_file(path: Path) -> Path:
     return backup
 
 
+def dumps_project(project: Project) -> str:
+    """ファイルに書く JSON 文字列。id が重複していれば`ValueError`(読めないファイルを作らない)。"""
+    _check_unique_ids(project)
+    return json.dumps(_dump(project), ensure_ascii=False, indent=2, default=_encode)
+
+
 def save_project(
     project: Project, base_dir: Path = BASE_DIR, *, overwrite: bool = True
 ) -> Path:
@@ -200,8 +206,7 @@ def save_project(
     name = project.name.strip()
     if error := validate_name(name, base_dir, new=False):
         raise ValueError(error)
-    _check_unique_ids(project)
-    data = json.dumps(_dump(project), ensure_ascii=False, indent=2, default=_encode)
+    data = dumps_project(project)
     base_dir.mkdir(parents=True, exist_ok=True)
     path = base_dir / f"{name}.json"
     tmp = _create_temp(base_dir)
@@ -717,12 +722,16 @@ def _check_version(raw: dict[str, Any]) -> int:
 
 
 def load_project(path: Path) -> Project:
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    return parse_project(path.read_text(encoding="utf-8"), path.stem)
+
+
+def parse_project(text: str, name: str) -> Project:
+    raw = json.loads(text)
     ctx = _Context(_check_version(raw))
     members = _members(raw["members"], ctx)  # version 2 の担当者の解決に要るので、タスクより先に読む
     sections = [_section(s, 1, ctx) for s in raw["sections"]]
     project = Project(
-        name=path.stem,
+        name=name,
         base_date=date.fromisoformat(raw["base_date"]),
         daily_hours=_daily_hours(raw["daily_hours"]),
         work_start=_work_start(raw.get("work_start", "09:00:00")),
