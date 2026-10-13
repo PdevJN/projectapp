@@ -7,7 +7,7 @@ from typing import Any
 from pathlib import Path
 
 import httpx
-from nicegui import ui
+from nicegui import run, ui
 from nicegui.events import KeyEventArguments
 
 from projectapp.calendar import load_cache
@@ -67,6 +67,7 @@ from projectapp.handoff import (
 )
 from projectapp.handoff import default_filename as handoff_filename
 from projectapp.filemanager import open_folder
+from projectapp.gitstate import GitKind, GitState, describe, read_git_state, tooltip
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
 from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Member, Project, Section, SectionPath, Task, new_id
 from projectapp.preview import (
@@ -124,6 +125,12 @@ body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55
 .app-header .app-menu-btn { background: rgba(255, 255, 255, 0.18); padding: 0 14px; }
 .app-header .app-menu-btn:hover { background: rgba(255, 255, 255, 0.3); }
 .app-menu .q-item { font-size: 12px; min-height: 32px; }
+.app-git-chip { flex: none; font-size: 10px; line-height: 1; padding: 4px 8px; border-radius: 9999px; background: rgba(255, 255, 255, 0.18); white-space: nowrap; cursor: pointer; }
+.app-git-chip:hover { background: rgba(255, 255, 255, 0.3); }
+.app-git-chip.app-git-dirty { background: #ffd54f; color: #3e2723; }
+.app-git-chip.app-git-behind { background: #ffb74d; color: #3e2723; }
+.app-git-chip.app-git-error { background: #ef9a9a; color: #3e2723; }
+.q-tooltip { white-space: pre-line; }
 """
 HANDOFF_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、書き出せます"
 CHANGE_DIR_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、格納先を変更できます"
@@ -168,6 +175,9 @@ class MainView:
         self.files: dict[str, Path] = {p.stem: p for p in list_project_files(self.project_dir)}
         self.path: Path | None = None
         self.digest: str | None = None  # 読み込み(保存)時のファイルの内容のハッシュ。外部変更の検知用
+        self.read_git: Callable[[Path], GitState] = read_git_state  # テストで差し替える(本物の git を呼ばない)
+        self.git_state: GitState = GitState(GitKind.NOT_REPO)  # 最後に読んだ結果。読むまでは出さない
+        self.git_generation = 0  # 読み込みのたびに進める。古い結果を捨てる印
         self.mark_clean()
         self.theme = load_theme(base_dir)
         self.dark = ui.dark_mode()
@@ -254,6 +264,7 @@ class MainView:
             self.file_select.set_value(self.current_name())
             return
         self.show_project(project, path, digest)
+        self.request_git_refresh()
 
     def show_project(self, project: Project, path: Path | None, digest: str | None = None) -> None:
         """別のプロジェクトに切り替える(開いたとき・新規作成のとき)。保存済みの状態から始める。"""
@@ -331,6 +342,7 @@ class MainView:
         self.files = {p.stem: p for p in list_project_files(path)}
         self.file_select.set_options(sorted(self.files), value=None)
         self.new_project()
+        self.request_git_refresh()
 
     def new_project(self) -> None:
         """起動時と同じ、保存前の新規プロジェクトにする(ファイルは、保存するまで作らない)。"""
@@ -729,6 +741,7 @@ class MainView:
         self.file_select.set_options(sorted(self.files), value=path.stem)
         self.title.refresh()
         ui.notify("保存しました")
+        self.request_git_refresh()
         if after is not None:
             after()
         return True
@@ -906,6 +919,7 @@ class MainView:
         self.dashboard_view.build()
         self.gantt.build()
         self.client = ui.context.client
+        self.request_git_refresh()
         self.run_js(KEY_GUARD_JS)
         self.run_js(zoom_js(self.zoom))
         ui.keyboard(on_key=self.on_plain_key)  # 入力欄・ボタンにフォーカスがあるときは、受けない
@@ -955,6 +969,7 @@ class MainView:
                 "ヘルプ", "menu-help", [MenuItem("ショートカットヘルプ", "keyboard", self.help_dialog.open, "help-shortcuts")]
             )
             ui.space()
+            self.git_chip()
             self.file_select = ui.select(
                 list(self.files),
                 label="プロジェクトファイル",
@@ -988,6 +1003,36 @@ class MainView:
             if key:
                 ui.item_section(key).props("side").classes("text-caption text-grey")
         return entry
+
+    def request_git_refresh(self) -> None:
+        """git の状態の読み直しを予約する(ダイアログが閉じても残るよう、タイマーは画面の直下に置く)。"""
+        with self.client:
+            ui.timer(0, self.refresh_git, once=True)
+
+    async def refresh_git(self) -> None:
+        """git の状態を読んでチップを更新する。画面は止めない。あとから始めた読み込みがあれば、この結果は捨てる。"""
+        self.git_generation += 1
+        generation = self.git_generation
+        state = await run.io_bound(self.read_git, self.project_dir)
+        if state is None or generation != self.git_generation:  # None はアプリの終了中
+            return
+        self.git_state = state
+        self.git_chip.refresh()
+
+    @ui.refreshable_method
+    def git_chip(self) -> None:
+        """ヘッダーの git の状態のチップ(読み取り専用。押すと読み直す)。作業ツリーでなければ出さない。"""
+        text = describe(self.git_state)
+        if not text:
+            return
+        chip = ui.label(text).classes("app-git-chip").tooltip(tooltip(self.git_state)).mark("git-state")
+        chip.on("click", self.request_git_refresh)
+        if self.git_state.error is not None:
+            chip.classes("app-git-error")
+        elif self.git_state.behind:
+            chip.classes("app-git-behind")
+        elif self.git_state.dirty:
+            chip.classes("app-git-dirty")
 
     @ui.refreshable_method
     def title(self) -> None:

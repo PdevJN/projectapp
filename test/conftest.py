@@ -5,6 +5,8 @@ import weakref
 import pytest
 from nicegui import ui
 
+from projectapp.gitstate import GitKind, GitState
+
 
 def class_refreshables() -> list[ui.refreshable]:
     """`projectapp` のクラスに付いた `@ui.refreshable` / `@ui.refreshable_method`(例: `GanttChart.render`)。"""
@@ -67,3 +69,9 @@ def freeze_baseline_heap():
     gc.freeze()
     yield
     gc.unfreeze()
+
+
+@pytest.fixture(autouse=True)
+def no_real_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    """画面のテストは、本物の`git`を呼ばない(既定は、作業ツリーではない格納先)。`gitstate`の単体テストには影響しない。"""
+    monkeypatch.setattr("projectapp.views.read_git_state", lambda project_dir: GitState(GitKind.NOT_REPO))
