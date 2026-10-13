@@ -1,5 +1,7 @@
 # git の状態表示 設計書
 
+**状態: 確定(2026-10-13)**。確定時に、実機で`git status`の挙動を確かめ、「パス指定」「`Runner`」「`describe`の`error`」の 3 点を直した(下の該当箇所)。
+
 要望 10(git / GitHub 連携)の 3 番目の子の作業。分割は`docs/request-history.md`の「要望 10 の分割」。
 
 ## 目的
@@ -24,7 +26,7 @@
 
 - **表示場所は、ヘッダーの小さなチップ**。プロジェクトを切り替えるコンボの近くに置く。操作のボタン(4・5 番目の子)も、あとでここに足せる。
 - **更新のタイミングは、操作のあとと手動**。起動時・格納先の変更後・プロジェクトを開いたとき・保存の成功後に自動で読み、それ以外はチップのクリックで読み直す。定期実行はしない(外部変更の検知が「保存の直前だけ」調べる方針と揃える)。
-- **「変更あり」は、格納先のプロジェクトファイルだけを数える**。格納先直下の`*.json`で、`list_project_files`と同じ判定の名前(予約名の`config`・`holidays`を除く)。リポジトリにほかのファイルがあっても無関係。4 番目の子の「プロジェクトファイルだけをコミット」と範囲が揃う。
+- **「変更あり」は、格納先のプロジェクトファイルだけを数える**。格納先直下の`*.json`で、予約名の`config`・`holidays`を除く。`git`のパス指定(`:(glob)*.json`・`:(exclude)config.json`・`:(exclude)holidays.json`。固定の文字列で、ファイル名を渡さない)で絞る。`list_project_files`との違いは、名前の検証(先頭が`.`など)を`git`側ではしないこと。削除済み(追跡中でファイルがない)のファイルも数えられる。リポジトリにほかのファイルがあっても無関係。4 番目の子の「プロジェクトファイルだけをコミット」と範囲が揃う。
 - **git の呼び出しは`git`コマンドの直呼び**(ライブラリは足さない)。認証・設定は各自の環境に任せる。
 
 ## 設計
@@ -33,19 +35,19 @@
 
 - `GitKind`(列挙): `NO_GIT`(`git`コマンドがない)・`NOT_REPO`(作業ツリーの中ではない)・`OK`。
 - `GitState`(`frozen` の値): `kind: GitKind`・`branch: str | None`(detached は`None`)・`head: str`(短いハッシュ。コミットがまだない場合は空)・`upstream: str | None`・`ahead: int | None`・`behind: int | None`(上流がなければ`None`)・`dirty: int`(プロジェクトファイルの未コミットの変更数)・`error: str | None`(読めなかった理由)。
-- `read_git_state(project_dir: Path, run: Runner = _run, timeout: float = 5.0) -> GitState`:
+- `read_git_state(project_dir: Path, run: Runner = _run, timeout: float = 5.0) -> GitState`(`git`は`-C <project_dir>`で呼ぶ):
   1. `git -C <dir> rev-parse --is-inside-work-tree`。`FileNotFoundError` なら`NO_GIT`。終了コードが 0 以外で、出力が「リポジトリではない」なら`NOT_REPO`。それ以外の失敗は`OK`の形で`error`に理由を入れる。
-  2. `git -C <dir> status --porcelain=v2 --branch --untracked-files=all -- <プロジェクトファイル...>` の 1 回で、ブランチ(`# branch.head`)・コミット(`# branch.oid`)・上流(`# branch.upstream`)・ahead/behind(`# branch.ab`)・変更行を解析する。変更行の数が`dirty`(未追跡も数える)。プロジェクトファイルが 1 つもないときは、パス指定を付けずに`dirty = 0`とする(パス指定なしの`status`は、リポジトリ全体を見てしまうため呼ばない)。
+  2. `git -C <dir> status --porcelain=v2 --branch --untracked-files=all -- ':(glob)*.json' ':(exclude)config.json' ':(exclude)holidays.json'` の 1 回で、ブランチ(`# branch.head`)・コミット(`# branch.oid`)・上流(`# branch.upstream`)・ahead/behind(`# branch.ab`)・変更行を解析する。変更行の数が`dirty`(未追跡も数える)。プロジェクトファイルが 1 つもなくても同じ呼び出しで、`dirty`は 0 になる(パス指定が固定なので、リポジトリ全体を見ることはない)。
   3. 環境変数に`GIT_OPTIONAL_LOCKS=0`(他の`git`のロックを取らない)と、`LC_ALL=C`(出力の言語を固定)を足す。シェルは通さず、パスは引数のまま渡す。
   4. タイムアウト(既定 5 秒)は、`error`に「git が応答しません」を入れる。
-- `Runner`: `(args: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]` の呼び出し可能。既定の`_run`は`subprocess.run`(`capture_output`・`text`・`encoding="utf-8"`・`errors="replace"`)。テストで差し替える。
-- `describe(state) -> str`: チップの文言。`main`、`main ↑1`、`main ↓2`、`main ↑1 ↓2`、`main ●3`(複数は半角スペース区切り。0 は省く)。detached は`(abc1234)`、コミットがまだないブランチは`main`。`NO_GIT`・`NOT_REPO`は空文字。
+- `Runner`: `(args: list[str], timeout: float) -> CompletedProcess[str]` の呼び出し可能(作業フォルダは、`args`の`-C`で渡すので、`cwd`は持たない。格納先が消えていても、`FileNotFoundError`は`git`がないときだけ起きる)。既定の`_run`は`subprocess.run`(`capture_output`・`text`・`encoding="utf-8"`・`errors="replace"`)。テストで差し替える。
+- `describe(state) -> str`: チップの文言。`main`、`main ↑1`、`main ↓2`、`main ↑1 ↓2`、`main ●3`(複数は半角スペース区切り。0 は省く)。detached は`(abc1234)`、コミットがまだないブランチは`main`。`NO_GIT`・`NOT_REPO`は空文字。`error`があるときは`git`。
 - `tooltip(state) -> str`: マウスオーバーの文言。ブランチ・上流・ahead/behind の意味・変更数・`error`。
 
 ### 画面(`views.py`)
 
 - ヘッダーのプロジェクト切り替えコンボの左に、チップ 1 つ(マーカー`git-state`)。`kind` が`OK`で`error`がないときだけ、`describe`の文言を出す。`NO_GIT`・`NOT_REPO`は非表示。
-- `error`があるときは、警告色で、文言は`git`だけ、マウスオーバーに`error`を出す(通知は出さない。保存のたびにうるさいため)。
+- `error`があるときは、警告色で、文言は`git`だけ(`describe`が返す)、マウスオーバーに`error`を出す(通知は出さない。保存のたびにうるさいため)。
 - `dirty > 0` は強調色、`behind > 0` は注意の色(プルが要ることを、4・5 番目の子の前に目立たせる)。ダークテーマでも読める色にする。
 - 更新: `refresh_git()`。起動時(`build`)・`change_project_dir` のあと・`open_project` のあと・`commit`(保存の本体。git のコミットではない)の成功後・チップのクリックで呼ぶ。`read_git_state` は`nicegui.run.io_bound`で待ち、画面を止めない。連続して呼ばれたときに古い結果が新しい結果を上書きしないよう、呼び出しごとに世代番号を進め、結果が返ったときに世代が違えば捨てる。`MainView.git_state` に最後の結果を持つ。
 - 画面を持たないテストのために、`refresh_git` は`self.read_git: Callable[[Path], GitState]`を通して読む(既定は`read_git_state`。テストで差し替える)。
@@ -66,7 +68,7 @@
   - 格納先がリポジトリのサブフォルダ → そのフォルダの`*.json`だけを数える。
   - detached HEAD → `branch is None`。
   - 上流あり(ローカルの bare リモートを`clone`して作る)で、ahead・behind・両方・なし。上流なし → `ahead`・`behind`・`upstream`は`None`。
-  - プロジェクトファイルが 1 つもない → `dirty == 0`で、リポジトリ全体の変更を数えない。
+  - プロジェクトファイルが 1 つもない → `dirty == 0`で、リポジトリ全体の変更を数えない。`config.json`は数えない(予約名)。
 - 差し替えた`run`で: `FileNotFoundError` → `NO_GIT`、`TimeoutExpired` → `error`、想定外の出力・終了コード → `error`(例外を外へ出さない)。日本語を含むファイル名(`甲.json`)が、引用符付きの出力でも数えられること。
 - `describe`・`tooltip`: 各組み合わせ。
 - 画面: チップは`OK`のときだけ出る。`dirty`・ahead/behind の文言。クリックで読み直す。保存の成功後・プロジェクトを開いたあと・格納先の変更後に更新される。古い結果は捨てられる(後から返った古い結果が表示を変えない)。`error`のときは警告色で、通知は出ない。
