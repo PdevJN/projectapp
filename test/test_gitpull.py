@@ -203,3 +203,42 @@ def test_a_missing_git_does_not_raise(tmp_path: Path) -> None:
     assert isinstance(result, GitResult) and not result.ok
     assert not pull_fast_forward(tmp_path, missing).ok
     assert not pull_abort(tmp_path, missing).ok
+
+
+def test_end_to_end_two_people_edit_different_tasks(pair: tuple[Path, Path]) -> None:
+    from datetime import date
+
+    from projectapp.gitops import pull_finish_merge, pull_prepare, pull_start_merge
+    from projectapp.merge import merge_files
+    from projectapp.models import Project, Task
+    from projectapp.storage import load_project, save_project
+
+    a, b = pair
+    base = Project("共有", date(2026, 10, 1), tasks=[Task(f"t{i}", id=f"id{i}", effort_hours=1.0) for i in range(1, 7)])
+    save_project(base, a)
+    commit_all(a, "共有を追加")
+    git(a, "push")
+    git(b, "pull")
+    mine = load_project(a / "共有.json")
+    mine.tasks[0].effort_hours = 5.0  # a は先頭を変える
+    save_project(mine, a)
+    commit_all(a, "a の変更")
+    theirs = load_project(b / "共有.json")
+    theirs.tasks[5].effort_hours = 7.0  # b は末尾を変える
+    save_project(theirs, b)
+    commit_all(b, "b の変更")
+    git(b, "push")
+
+    plan = pull_prepare(a)
+    assert isinstance(plan, PullPlan) and plan.kind is PullKind.MERGE
+    session = pull_start_merge(a, plan.upstream)
+    assert isinstance(session, MergeSession)
+    merged: dict[str, str] = {}
+    for file in session.files:
+        outcome = merge_files(file.name, file.base, file.ours, file.theirs)
+        assert outcome.conflicts == []
+        merged[file.name] = outcome.text
+    assert pull_finish_merge(a, session, merged).ok
+    result = load_project(a / "共有.json")
+    assert [t.effort_hours for t in result.tasks] == [5.0, 1.0, 1.0, 1.0, 1.0, 7.0]
+    assert len(parents(a)) == 2
