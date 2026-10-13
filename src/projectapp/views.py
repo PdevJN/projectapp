@@ -1,5 +1,6 @@
 """メイン画面。"""
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta
@@ -36,6 +37,7 @@ from projectapp.forms import (
     MEMBER_TABLE_CSS,
     open_commit_dialog,
     open_conflict_dialog,
+    open_merge_conflict_dialog,
     open_file_dialog,
     open_handoff_dialog,
     open_members_parameters_dialog,
@@ -68,10 +70,11 @@ from projectapp.handoff import (
 )
 from projectapp.handoff import default_filename as handoff_filename
 from projectapp.filemanager import open_folder
-from projectapp.gitops import FileChange, GitResult, default_message, list_changes
+from projectapp.gitops import FileChange, GitResult, PullKind, PullOps, default_message, list_changes
 from projectapp.gitops import commit as commit_files_in_git
 from projectapp.gitops import push as push_to_remote
 from projectapp.gitstate import GitKind, GitState, describe, read_git_state, tooltip
+from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
 from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Member, Project, Section, SectionPath, Task, new_id
 from projectapp.preview import (
@@ -186,6 +189,7 @@ class MainView:
         self.commit_files: Callable[[Path, list[str], str], GitResult] = commit_files_in_git
         self.push_remote: Callable[[Path], GitResult] = push_to_remote
         self.git_busy = False  # コミット・プッシュの実行中。二重に始めない
+        self.pull_ops = PullOps()  # プルの各段階。テストで差し替える
         self.menu_entries: dict[str, ui.menu_item] = {}  # メニューの項目(マーカー → 項目)
         self.git_menu_tips: dict[str, ui.tooltip] = {}  # 押せない理由を出すツールチップ
         self.mark_clean()
@@ -430,6 +434,7 @@ class MainView:
         "dashboard": "open_dashboard",
         "git_commit": "open_git_commit",
         "git_push": "start_git_push",
+        "git_pull": "start_git_pull",
     }
 
     def on_plain_key(self, event: KeyEventArguments) -> None:
@@ -983,6 +988,7 @@ class MainView:
                 [
                     MenuItem("コミット…", "commit", self.open_git_commit, "git-commit", label_for("git_commit")),
                     MenuItem("プッシュ", "cloud_upload", self.start_git_push, "git-push", label_for("git_push")),
+                    MenuItem("プル", "cloud_download", self.start_git_pull, "git-pull", label_for("git_pull")),
                     MenuItem("状態を読み直す", "refresh", self.request_git_refresh, "git-refresh"),
                 ],
             )
@@ -1027,10 +1033,10 @@ class MainView:
         return entry
 
     NOT_WORK_TREE = "git の作業ツリーではありません"
-    GIT_MENU = (("commit", "git-commit"), ("push", "git-push"), ("refresh", "git-refresh"))
+    GIT_MENU = (("commit", "git-commit"), ("push", "git-push"), ("pull", "git-pull"), ("refresh", "git-refresh"))
 
     def git_reason(self, action: str) -> str | None:
-        """Git メニューの操作が、今できない理由(できるときは None)。`action`は commit・push・push_after_commit・refresh。
+        """Git メニューの操作が、今できない理由(できるときは None)。`action`は commit・push・pull・push_after_commit・refresh。
         `push_after_commit`は、コミットのあとにプッシュするとき(今は未プッシュが 0 でもよい)。"""
         state = self.git_state
         if action == "refresh":
@@ -1048,6 +1054,17 @@ class MainView:
                 return "上流が見つかりません"
             if action == "push" and state.ahead == 0:
                 return "未プッシュのコミットがありません"
+        if action == "pull":
+            if state.error is not None:
+                return "git の状態を読めていません"
+            if state.upstream is None:
+                return "上流がありません"
+            if state.ahead is None:
+                return "上流が見つかりません"
+            if state.dirty:
+                return "未コミットの変更があります。先にコミットしてください"
+            if self.is_dirty():
+                return "保存されていない編集があります。先に保存・コミットしてください"
         return None
 
     def update_git_menu(self) -> None:
@@ -1144,6 +1161,105 @@ class MainView:
         finally:
             self.set_git_busy(False)
             self.request_git_refresh()
+
+    def start_git_pull(self) -> None:
+        """プルを始める(メニューとショートカットの入口)。できないときは、理由を通知する。"""
+        reason = self.git_reason("pull")
+        if reason is not None:
+            ui.notify(reason, type="warning")
+            return
+        self.later(self.run_pull)
+
+    async def run_pull(self) -> None:
+        """fetch して、最新・早送り・マージのどれかを行う。終わったら、開いているプロジェクトを読み直す。"""
+        if self.git_busy:
+            return
+        self.set_git_busy(True)
+        reload_needed = False
+        try:
+            ops = self.pull_ops
+            plan = await run.io_bound(ops.prepare, self.project_dir)
+            if plan is None:  # アプリの終了中
+                return
+            if isinstance(plan, GitResult):
+                ui.notify(plan.message, type="negative")
+                return
+            if plan.kind is PullKind.UP_TO_DATE:
+                ui.notify("最新です")
+                return
+            if plan.kind is PullKind.FAST_FORWARD:
+                done = await run.io_bound(ops.fast_forward, self.project_dir)
+                if done is None:
+                    return
+                ui.notify(done.message, type="positive" if done.ok else "negative")
+                reload_needed = done.ok
+                return
+            reload_needed = await self.pull_merge(plan.upstream)
+        finally:
+            self.set_git_busy(False)
+            if reload_needed:
+                self.reload_after_pull()
+            self.request_git_refresh()
+
+    async def pull_merge(self, upstream: str) -> bool:
+        """マージを始め、ファイルごとに統合する(衝突は選ばせる)。取り込めたら True。失敗・中止は元に戻す。"""
+        ops = self.pull_ops
+        session = await run.io_bound(ops.start_merge, self.project_dir, upstream)
+        if session is None:
+            return False
+        if isinstance(session, GitResult):
+            ui.notify(session.message, type="negative")
+            return False
+        merged: dict[str, str] = {}
+        notes: list[str] = []
+        picked = 0
+        try:
+            for file in session.files:
+                outcome = merge_files(file.name, file.base, file.ours, file.theirs)
+                if outcome.conflicts:
+                    choices = await self.ask_conflicts(file.name, outcome.conflicts)
+                    if choices is None:
+                        await run.io_bound(ops.abort, self.project_dir)
+                        ui.notify("取り込みを中止しました")
+                        return False
+                    picked += len(outcome.conflicts)
+                    outcome = merge_files(file.name, file.base, file.ours, file.theirs, choices)
+                merged[file.name] = outcome.text
+                notes += outcome.notes
+        except ValueError as exc:
+            await run.io_bound(ops.abort, self.project_dir)
+            ui.notify(f"統合できませんでした: {exc}", type="negative")
+            return False
+        done = await run.io_bound(ops.finish_merge, self.project_dir, session, merged)
+        if done is None:
+            return False
+        if not done.ok:
+            ui.notify(f"取り込めませんでした: {done.message}", type="negative")
+            return False
+        message = "取り込みました" + (f"(衝突 {picked} 件を選択)" if picked else "")
+        ui.notify(message, type="positive")
+        for note in notes:
+            ui.notify(note, type="warning")
+        return True
+
+    async def ask_conflicts(self, name: str, conflicts):
+        """衝突ダイアログを開き、選択(中止なら None)を待つ。"""
+        future = asyncio.get_running_loop().create_future()
+        open_merge_conflict_dialog(
+            name,
+            conflicts,
+            lambda choices: future.done() or future.set_result(choices),
+            lambda: future.done() or future.set_result(None),
+        )
+        return await future
+
+    def reload_after_pull(self) -> None:
+        """プルで書き換わったかもしれないので、開いているプロジェクトを読み直す(未保存の編集はなかった)。"""
+        self.files = {p.stem: p for p in list_project_files(self.project_dir)}
+        self.file_select.set_options(sorted(self.files), value=self.current_name())
+        name = self.current_name()
+        if name is not None and name in self.files:
+            self.open_project(name)
 
     def request_git_refresh(self) -> None:
         """git の状態の読み直しを予約する(ダイアログが閉じても残るよう、タイマーは画面の直下に置く)。"""

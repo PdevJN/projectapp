@@ -41,6 +41,7 @@ SHORTCUTS: tuple[Shortcut, ...] = (
     Shortcut("p", "preview", "チャートプレビュー", ctrl=True),
     Shortcut("k", "git_commit", "コミット", ctrl=True),
     Shortcut("k", "git_push", "プッシュ", ctrl=True, shift=True),
+    Shortcut("l", "git_pull", "プル", ctrl=True, shift=True),
     Shortcut("d", "dashboard", "ダッシュボード"),
     Shortcut("/", "search", "タスク名の検索欄へ移る"),
     Shortcut("?", "help", "ショートカットヘルプ"),
