@@ -38,9 +38,9 @@ class GitState:
     error: str | None = None  # 読めなかった理由
 
 
-def _run(args: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
+def run_git(args: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if k not in REDIRECTING_ENV}
-    env |= {"GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C"}  # 他の git のロックを取らない。出力の言語を固定
+    env |= {"GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C", "GIT_TERMINAL_PROMPT": "0"}  # ロックを取らない。出力の言語を固定。認証の入力待ちで止めない
     return subprocess.run(
         ["git", *args],
         stdin=subprocess.DEVNULL,  # GUI には標準入力がなく、継承すると失敗することがある
@@ -59,7 +59,7 @@ def _failed(reason: str) -> GitState:
     return GitState(GitKind.OK, error=reason)
 
 
-def _reason(result: subprocess.CompletedProcess[str]) -> str:
+def failure_reason(result: subprocess.CompletedProcess[str]) -> str:
     for text in (result.stderr, result.stdout):
         for line in text.splitlines():
             if line.strip():
@@ -96,7 +96,7 @@ def parse_status(text: str) -> GitState:
     return GitState(GitKind.OK, branch, head, upstream, ahead, behind, dirty)
 
 
-def read_git_state(project_dir: Path, run: Runner = _run, timeout: float = DEFAULT_TIMEOUT) -> GitState:
+def read_git_state(project_dir: Path, run: Runner = run_git, timeout: float = DEFAULT_TIMEOUT) -> GitState:
     """格納先の git の状態を読む。例外は外へ出さない(読めないときは`error`に理由を入れる)。"""
     where = ["-C", str(project_dir)]
     try:
@@ -104,7 +104,7 @@ def read_git_state(project_dir: Path, run: Runner = _run, timeout: float = DEFAU
         if inside.returncode != 0:
             if NOT_REPO_MESSAGE in inside.stderr:
                 return GitState(GitKind.NOT_REPO)
-            return _failed(_reason(inside))
+            return _failed(failure_reason(inside))
         if inside.stdout.strip() != "true":
             return GitState(GitKind.NOT_REPO)  # .git の中など
         status = run(
@@ -117,7 +117,7 @@ def read_git_state(project_dir: Path, run: Runner = _run, timeout: float = DEFAU
     except OSError as exc:
         return _failed(str(exc))
     if status.returncode != 0:
-        return _failed(_reason(status))
+        return _failed(failure_reason(status))
     try:
         return parse_status(status.stdout)
     except ValueError as exc:
