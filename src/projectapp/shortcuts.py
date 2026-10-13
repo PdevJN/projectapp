@@ -39,6 +39,8 @@ SHORTCUTS: tuple[Shortcut, ...] = (
     Shortcut("m", "members_parameters", "メンバーとパラメータ", ctrl=True, shift=True),
     Shortcut("e", "handoff", "担当者へ書き出し", ctrl=True),
     Shortcut("p", "preview", "チャートプレビュー", ctrl=True),
+    Shortcut("k", "git_commit", "コミット", ctrl=True),
+    Shortcut("k", "git_push", "プッシュ", ctrl=True, shift=True),
     Shortcut("d", "dashboard", "ダッシュボード"),
     Shortcut("/", "search", "タスク名の検索欄へ移る"),
     Shortcut("?", "help", "ショートカットヘルプ"),
@@ -72,6 +74,11 @@ def resolve(key: str, *, ctrl: bool, shift: bool, modal: bool, screen: Screen) -
 def help_entries() -> list[tuple[str, str]]:
     """ショートカットヘルプの一覧(キー, 機能)。"""
     return [(s.label(), s.desc) for s in SHORTCUTS]
+
+
+def label_for(action: str) -> str:
+    """操作に割り当てたキーの表記(メニューの右端に添える)。"""
+    return next(s.label() for s in SHORTCUTS if s.action == action)
 
 
 def ctrl_keys() -> set[str]:

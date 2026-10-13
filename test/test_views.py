@@ -2311,15 +2311,15 @@ async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path
     assert not any(node is view.header_box for node in ancestors(title))  # タイトルは、ヘッダーの外(メイン側の左上)
     title_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-title {"))
     assert "font-size: 12px" in title_rule and "font-weight: 700" in title_rule  # 他の文字と同じ大きさ。太さで区別する
-    for marker in ("menu-file", "menu-project", "menu-export", "menu-help"):  # メニューは楕円型のボタン
+    for marker in ("menu-file", "menu-project", "menu-export", "menu-git", "menu-help"):  # メニューは楕円型のボタン
         button = user.find(marker=marker).elements.pop()
         assert "rounded" in button._props and "unelevated" in button._props and "app-menu-btn" in button.classes
     assert "rgba(255, 255, 255, 0.18)" in HEADER_CSS and ".app-menu-btn:hover" in HEADER_CSS
     # 帯の上のボタンは、色を持たない(NiceGUI の既定は primary で、flat の文字が帯と同じ色になって見えなくなる)。
     # 色を持たなければ、文字は帯の白を引き継ぐ
-    for marker in ("menu-file", "menu-project", "menu-export", "menu-help", "open-dashboard", "open-folder", "menu-theme"):
+    for marker in ("menu-file", "menu-project", "menu-export", "menu-git", "menu-help", "open-dashboard", "open-folder", "menu-theme"):
         assert not user.find(marker=marker).elements.pop()._props.get("color"), marker
-    for marker in ("menu-file", "menu-project", "menu-export", "menu-help"):
+    for marker in ("menu-file", "menu-project", "menu-export", "menu-git", "menu-help"):
         assert "icon-right" not in user.find(marker=marker).elements.pop()._props  # ▼ は出さない
     menu = user.find(marker="menu-file-items").elements.pop()
     assert "app-menu" in str(menu._props.get("content-class"))  # 開いたメニューも同じ大きさ
@@ -2341,7 +2341,7 @@ def ancestors(element: ui.element) -> list[ui.element]:
 
 async def test_the_menus_start_at_the_left_of_the_header_and_the_title_is_in_the_main_area(user: User, tmp_path: Path) -> None:
     view = await open_header_view(user, tmp_path)
-    order = ["menu-file", "menu-project", "menu-export", "menu-help", "project-select", "open-dashboard", "open-folder", "menu-theme"]
+    order = ["menu-file", "menu-project", "menu-export", "menu-git", "menu-help", "project-select", "open-dashboard", "open-folder", "menu-theme"]
     ids = [user.find(marker=marker).elements.pop().id for marker in order]
     assert ids == sorted(ids)  # 左から、メニュー 4 つ。右側に、コンボ・ダッシュボード・テーマ
     header_children = view.header_box.default_slot.children
@@ -2672,6 +2672,8 @@ SHORTCUT_METHODS = [
         ((",", True, False), "open_settings"),
         (("e", True, False), "open_handoff"),
         (("p", True, False), "enter_preview"),
+        (("k", True, False), "open_git_commit"),
+        (("K", True, True), "start_git_push"),
         (("d", False, False), "open_dashboard"),
     ]
 ]
