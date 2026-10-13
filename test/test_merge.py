@@ -3,7 +3,19 @@ from datetime import date, time
 import pytest
 
 from projectapp.merge import DELETED, OURS, THEIRS, Conflict, merge_projects
-from projectapp.models import ActualMode, Category, Level, Member, Parameter, Project, UrlTemplate
+from projectapp.models import (
+    ActualMode,
+    Assignee,
+    Category,
+    Level,
+    Member,
+    Parameter,
+    Priority,
+    Project,
+    Section,
+    Task,
+    UrlTemplate,
+)
 
 
 def proj(**kw) -> Project:
@@ -119,3 +131,143 @@ def test_format_value(value: object, text: str) -> None:
     from projectapp.merge import format_value
 
     assert format_value(value) == text
+
+
+def task(name: str, id: str, **kw) -> Task:
+    return Task(name, id=id, **kw)
+
+
+def names_of(project: Project) -> list[str]:
+    return [t.name for t in project.all_tasks()]
+
+
+def test_tasks_merge_field_by_field() -> None:
+    base = proj(tasks=[task("調査", "t1", effort_hours=4.0)])
+    ours = proj(tasks=[task("調査", "t1", effort_hours=8.0)])
+    theirs = proj(tasks=[task("調査(改)", "t1", effort_hours=4.0)])
+    merged = merge_projects(base, ours, theirs)
+    assert merged.conflicts == []
+    assert (merged.project.tasks[0].name, merged.project.tasks[0].effort_hours) == ("調査(改)", 8.0)
+    assert merged.project.tasks[0].id == "t1"
+
+
+def test_same_field_changed_differently_is_a_conflict() -> None:
+    base = proj(tasks=[task("a", "t1", effort_hours=4.0)])
+    ours = proj(tasks=[task("a", "t1", effort_hours=8.0)])
+    theirs = proj(tasks=[task("a", "t1", effort_hours=2.0)])
+    result = merge_projects(base, ours, theirs)
+    (conflict,) = result.conflicts
+    assert (conflict.kind, conflict.key, conflict.field, conflict.ours, conflict.theirs) == ("task", "t1", "工数", 8.0, 2.0)
+    assert result.project.tasks[0].effort_hours == 8.0
+    assert merge_projects(base, ours, theirs, {conflict.id: THEIRS}).project.tasks[0].effort_hours == 2.0
+
+
+def test_added_task_goes_after_its_predecessor_sibling() -> None:
+    base = proj(tasks=[task("a", "t1"), task("b", "t2")])
+    theirs = proj(tasks=[task("a", "t1"), task("new", "t3"), task("b", "t2")])
+    ours = proj(tasks=[task("a", "t1", effort_hours=1.0), task("b", "t2")])
+    assert names_of(merge_projects(base, ours, theirs).project) == ["a", "new", "b"]
+
+
+def test_task_deleted_by_one_side_and_unchanged_by_the_other() -> None:
+    base = proj(tasks=[task("a", "t1"), task("b", "t2")])
+    theirs = proj(tasks=[task("b", "t2")])
+    merged = merge_projects(base, base, theirs)
+    assert names_of(merged.project) == ["b"] and merged.conflicts == []
+
+
+def test_task_deleted_by_theirs_and_changed_by_ours_is_a_conflict() -> None:
+    base = proj(tasks=[task("a", "t1")])
+    ours = proj(tasks=[task("a", "t1", effort_hours=3.0)])
+    result = merge_projects(base, ours, proj())
+    (conflict,) = result.conflicts
+    assert conflict.field == DELETED and conflict.theirs is None
+    assert names_of(result.project) == ["a"]  # 既定は自分
+    assert names_of(merge_projects(base, ours, proj(), {conflict.id: THEIRS}).project) == []
+
+
+def test_task_moved_into_a_section_by_theirs() -> None:
+    base = proj(sections=[Section("S", id="s1")], tasks=[task("a", "t1")])
+    ours = proj(sections=[Section("S", id="s1")], tasks=[task("a", "t1", effort_hours=2.0)])
+    theirs = proj(sections=[Section("S", tasks=[task("a", "t1")], id="s1")])
+    merged = merge_projects(base, ours, theirs).project
+    assert merged.tasks == [] and [t.name for t in merged.sections[0].tasks] == ["a"]
+    assert merged.sections[0].tasks[0].effort_hours == 2.0
+
+
+def test_sections_merge_and_keep_subsections() -> None:
+    sub = Section("子", tasks=[task("x", "t9")], id="s2")
+    base = proj(sections=[Section("親", sections=[sub], id="s1")])
+    theirs = proj(sections=[Section("親改", sections=[sub], id="s1")])
+    ours = proj(sections=[Section("親", sections=[Section("子", tasks=[task("x", "t9"), task("y", "t10")], id="s2")], id="s1")])
+    merged = merge_projects(base, ours, theirs).project
+    assert merged.sections[0].name == "親改"
+    assert [t.name for t in merged.sections[0].sections[0].tasks] == ["x", "y"]
+
+
+def test_predecessors_pointing_to_deleted_tasks_are_dropped() -> None:
+    base = proj(tasks=[task("a", "t1"), task("b", "t2", predecessors=["t1"])])
+    theirs = proj(tasks=[task("b", "t2", predecessors=["t1"])])
+    merged = merge_projects(base, base, theirs).project
+    assert merged.tasks[0].predecessors == []
+
+
+def test_member_renamed_by_theirs_renames_the_assignees_of_ours_tasks() -> None:
+    base = proj(members=[Member("甲", 1.0, id="m1")], tasks=[task("a", "t1", assignees=[Assignee("甲", 0.5)])])
+    ours = proj(
+        members=[Member("甲", 1.0, id="m1")],
+        tasks=[task("a", "t1", assignees=[Assignee("甲", 0.5)]), task("b", "t2", assignees=[Assignee("甲", 1.0)])],
+    )
+    theirs = proj(members=[Member("甲改", 1.0, id="m1")], tasks=[task("a", "t1", assignees=[Assignee("甲改", 0.5)])])
+    merged = merge_projects(base, ours, theirs)
+    assert merged.conflicts == []
+    assert [(t.name, [a.name for a in t.assignees]) for t in merged.project.tasks] == [("a", ["甲改"]), ("b", ["甲改"])]
+
+
+def test_assignee_of_a_deleted_member_is_dropped_with_a_note() -> None:
+    base = proj(members=[Member("甲", 1.0, id="m1")], tasks=[task("a", "t1")])
+    ours = proj(members=[Member("甲", 1.0, id="m1")], tasks=[task("a", "t1", assignees=[Assignee("甲", 1.0)])])
+    theirs = proj(members=[], tasks=[task("a", "t1")])  # メンバーの記録は自分が変えていないので、衝突なしで削除される
+    merged = merge_projects(base, ours, theirs)
+    assert merged.conflicts == [] and merged.project.members == []
+    assert merged.project.tasks[0].assignees == []
+    assert any("担当者を外しました" in n and "a" in n for n in merged.notes)
+
+
+def test_tasks_of_a_deleted_section_move_to_the_root_with_a_note() -> None:
+    base = proj(sections=[Section("S", id="s1")])
+    ours = proj(sections=[])  # 自分が(変更のない)セクションを削除
+    theirs = proj(sections=[Section("S", tasks=[task("new", "t1")], id="s1")])
+    merged = merge_projects(base, ours, theirs)
+    assert [t.name for t in merged.project.tasks] == ["new"] and merged.project.sections == []
+    assert any("ルートへ移しました" in n for n in merged.notes)
+
+
+def test_category_removed_by_theirs_unsets_ours_tasks() -> None:
+    base = proj(categories=[Category("開発", id="c1")], tasks=[task("a", "t1")])
+    ours = proj(categories=[Category("開発", id="c1")], tasks=[task("a", "t1", category_id="c1")])
+    theirs = proj(categories=[], tasks=[task("a", "t1")])
+    merged = merge_projects(base, ours, theirs)
+    assert merged.conflicts == [] and merged.project.categories == []
+    assert merged.project.tasks[0].category_id is None
+    assert any("カテゴリを外しました" in n for n in merged.notes)
+
+
+def test_merge_files_round_trips_through_text() -> None:
+    from projectapp.merge import merge_files
+    from projectapp.storage import dumps_project, parse_project
+
+    base = proj(members=[Member("甲", 1.0, id="m1")], tasks=[task("a", "t1", assignees=[Assignee("甲", 1.0)], effort_hours=4.0)])
+    ours = proj(members=[Member("甲", 1.0, id="m1")], tasks=[task("a", "t1", assignees=[Assignee("甲", 1.0)], effort_hours=8.0)])
+    theirs = proj(members=[Member("甲", 1.0, id="m1")], tasks=[task("a", "t1", assignees=[Assignee("甲", 1.0)], effort_hours=4.0, priority=Priority.HIGH)])
+    result = merge_files("p.json", dumps_project(base), dumps_project(ours), dumps_project(theirs))
+    assert result.conflicts == []
+    merged = parse_project(result.text, "p")
+    assert merged.tasks[0].effort_hours == 8.0 and merged.tasks[0].priority.value == "高"
+
+
+def test_merge_files_rejects_unreadable_text() -> None:
+    from projectapp.merge import merge_files
+
+    with pytest.raises(ValueError):
+        merge_files("p.json", "{", "{", "{")
