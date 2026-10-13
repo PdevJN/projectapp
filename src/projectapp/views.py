@@ -1033,10 +1033,10 @@ class MainView:
         """Git メニューの操作が、今できない理由(できるときは None)。`action`は commit・push・push_after_commit・refresh。
         `push_after_commit`は、コミットのあとにプッシュするとき(今は未プッシュが 0 でもよい)。"""
         state = self.git_state
+        if action == "refresh":
+            return None  # 作業ツリーでなくても読み直せる(外で git init したあとの手段)
         if state.kind is not GitKind.OK:
             return self.NOT_WORK_TREE
-        if action == "refresh":
-            return None
         if self.git_busy:
             return "実行中です"
         if action in ("push", "push_after_commit"):

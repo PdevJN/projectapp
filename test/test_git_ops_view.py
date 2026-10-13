@@ -117,8 +117,8 @@ async def test_the_git_menu_items(user: User, tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("state", "commit", "push", "refresh"),
     [
-        (GitState(GitKind.NOT_REPO), "git の作業ツリーではありません", "git の作業ツリーではありません", "git の作業ツリーではありません"),
-        (GitState(GitKind.NO_GIT), "git の作業ツリーではありません", "git の作業ツリーではありません", "git の作業ツリーではありません"),
+        (GitState(GitKind.NOT_REPO), "git の作業ツリーではありません", "git の作業ツリーではありません", None),  # 読み直しは、いつでもできる
+        (GitState(GitKind.NO_GIT), "git の作業ツリーではありません", "git の作業ツリーではありません", None),
         (SYNCED, None, "未プッシュのコミットがありません", None),
         (AHEAD, None, None, None),
         (GitState(GitKind.OK, branch="main"), None, "上流がありません", None),
