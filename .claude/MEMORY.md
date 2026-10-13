@@ -4,6 +4,10 @@
 
 ## 現在の状況
 
+**2026-10-13 の作業(ブランチ`feature/git-status`。テスト 2,335 件と`ty check`が通る。マージ待ち)**
+
+- PR #12(外部変更の検知)を`develop`へマージ済み。要望 10 の 3 番目の子(git の状態表示)を、`feature/git-status`で実装した。設計書`2026-10-12-git-status-design.md`(2026-10-13 確定)、実装計画`2026-10-13-git-status.md`。`gitstate.py`(`read_git_state`・`describe`・`tooltip`)と、ヘッダーのチップ(`MainView.git_chip`・`refresh_git`・`request_git_refresh`)。確定時に直したこと: パス指定を固定(`:(glob)*.json`と予約名の除外)にした・`Runner`は`-C`・`describe`が`error`を扱う。実装中の判断: ツールチップは兄弟要素・`run.io_bound`の`None`を捨てる。ネイティブでの実機確認は未(チップの色・ヘッダーの折り返し・ダークテーマ)。次は、マージ後に 4 番目(コミットとプッシュ)の設計。
+
 **2026-10-12 の作業(`develop` は 210766f。テスト 2,256 件と `ty check` が通る)**
 
 - PR #11 要望 8(格納先の指定)をマージ(210766f)。ネイティブで実機確認済み。全体レビューの Important 1 件(起動時に既定の場所へ戻ったあと、既定の場所を選び直しても設定が直らない)は修正済み。
