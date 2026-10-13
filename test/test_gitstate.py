@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from projectapp.gitstate import DEFAULT_TIMEOUT, GitKind, GitState, Runner, read_git_state
+from projectapp.gitstate import DEFAULT_TIMEOUT, GitKind, GitState, Runner, describe, read_git_state, tooltip
 
 
 def git(cwd: Path, *args: str) -> None:
@@ -246,3 +246,65 @@ def test_the_runner_receives_a_fixed_pathspec_and_the_project_dir(tmp_path: Path
     assert seen[0][:2] == ["-C", str(tmp_path)]
     assert seen[1][:2] == ["-C", str(tmp_path)]
     assert seen[1][-4:] == ["--", ":(glob)*.json", ":(exclude)config.json", ":(exclude)holidays.json"]
+
+
+def ok(**kwargs: object) -> GitState:
+    return GitState(GitKind.OK, **kwargs)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("state", "text"),
+    [
+        (ok(branch="main", head="abc1234"), "main"),
+        (ok(branch="main", head="abc1234", upstream="origin/main", ahead=0, behind=0), "main"),
+        (ok(branch="main", ahead=1, behind=0), "main ↑1"),
+        (ok(branch="main", ahead=0, behind=2), "main ↓2"),
+        (ok(branch="main", ahead=1, behind=2), "main ↑1 ↓2"),
+        (ok(branch="main", dirty=3), "main ●3"),
+        (ok(branch="main", ahead=1, behind=2, dirty=3), "main ↑1 ↓2 ●3"),
+        (ok(branch=None, head="abc1234"), "(abc1234)"),
+        (ok(branch=None, head="abc1234", dirty=1), "(abc1234) ●1"),
+        (ok(branch="main", head=""), "main"),  # コミットがまだない
+        (ok(branch="main", upstream="origin/gone"), "main"),  # 上流が消えた
+        (ok(error="boom"), "git"),
+        (GitState(GitKind.NO_GIT), ""),
+        (GitState(GitKind.NOT_REPO), ""),
+    ],
+)
+def test_describe(state: GitState, text: str) -> None:
+    assert describe(state) == text
+
+
+def test_tooltip_of_a_synced_branch() -> None:
+    state = ok(branch="main", head="abc1234", upstream="origin/main", ahead=0, behind=0)
+    assert tooltip(state).splitlines() == [
+        "ブランチ: main",
+        "上流: origin/main(最後に取得した時点)",
+        "↑ 未プッシュ 0 件 / ↓ 未取得 0 件",
+        "未コミットの変更: 0 件(プロジェクトファイルのみ)",
+        "クリックで読み直す",
+    ]
+
+
+def test_tooltip_with_changes_and_counts() -> None:
+    state = ok(branch="main", upstream="origin/main", ahead=1, behind=2, dirty=3)
+    lines = tooltip(state).splitlines()
+    assert "↑ 未プッシュ 1 件 / ↓ 未取得 2 件" in lines
+    assert "未コミットの変更: 3 件(プロジェクトファイルのみ)" in lines
+
+
+def test_tooltip_without_an_upstream_or_with_a_vanished_one() -> None:
+    assert "上流: なし" in tooltip(ok(branch="main")).splitlines()
+    assert "上流: origin/gone(見つかりません)" in tooltip(ok(branch="main", upstream="origin/gone")).splitlines()
+
+
+def test_tooltip_of_a_detached_head() -> None:
+    assert tooltip(ok(branch=None, head="abc1234")).splitlines()[0] == "ブランチ: なし(detached HEAD abc1234)"
+
+
+def test_tooltip_of_an_error_shows_the_reason() -> None:
+    assert tooltip(ok(error="git が応答しません")) == "git の状態を読めませんでした: git が応答しません\nクリックで読み直す"
+
+
+def test_tooltip_is_empty_without_a_work_tree() -> None:
+    assert tooltip(GitState(GitKind.NOT_REPO)) == "" and tooltip(GitState(GitKind.NO_GIT)) == ""

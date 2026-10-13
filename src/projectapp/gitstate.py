@@ -118,3 +118,41 @@ def read_git_state(project_dir: Path, run: Runner = _run, timeout: float = DEFAU
         return parse_status(status.stdout)
     except ValueError as exc:
         return _failed(f"想定外の出力です: {exc}")
+
+
+def describe(state: GitState) -> str:
+    """チップの文言(`main ↑1 ↓2 ●3`。0 は省く)。作業ツリーでなければ空、読めなければ`git`。"""
+    if state.kind is not GitKind.OK:
+        return ""
+    if state.error is not None:
+        return "git"
+    parts = [state.branch if state.branch is not None else f"({state.head})"]
+    if state.ahead:
+        parts.append(f"↑{state.ahead}")
+    if state.behind:
+        parts.append(f"↓{state.behind}")
+    if state.dirty:
+        parts.append(f"●{state.dirty}")
+    return " ".join(parts)
+
+
+def tooltip(state: GitState) -> str:
+    """マウスオーバーの文言(複数行)。ahead/behind は、最後に取得した時点との比較であることを示す。"""
+    if state.kind is not GitKind.OK:
+        return ""
+    if state.error is not None:
+        return f"git の状態を読めませんでした: {state.error}\nクリックで読み直す"
+    if state.branch is not None:
+        lines = [f"ブランチ: {state.branch}"]
+    else:
+        lines = [f"ブランチ: なし(detached HEAD {state.head})"]
+    if state.upstream is None:
+        lines.append("上流: なし")
+    elif state.ahead is None or state.behind is None:
+        lines.append(f"上流: {state.upstream}(見つかりません)")
+    else:
+        lines.append(f"上流: {state.upstream}(最後に取得した時点)")
+        lines.append(f"↑ 未プッシュ {state.ahead} 件 / ↓ 未取得 {state.behind} 件")
+    lines.append(f"未コミットの変更: {state.dirty} 件(プロジェクトファイルのみ)")
+    lines.append("クリックで読み直す")
+    return "\n".join(lines)
