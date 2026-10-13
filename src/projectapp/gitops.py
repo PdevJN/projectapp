@@ -1,6 +1,8 @@
 """git の書き込み操作(コミット・プッシュ)と、コミットする変更の一覧。NiceGUI に依存しない。"""
 
+import os
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -190,3 +192,196 @@ def push(project_dir: Path, run: Runner = run_git) -> GitResult:
     if any(marker in done.stderr for marker in REJECTION_MARKERS):
         reason = f"{reason}\n{PULL_HINT}"
     return _failed(reason)
+
+
+class PullKind(Enum):
+    UP_TO_DATE = "最新"
+    FAST_FORWARD = "早送り"
+    MERGE = "マージ"
+
+
+@dataclass(frozen=True)
+class PullPlan:
+    kind: PullKind
+    upstream: str  # 例: origin/main
+
+
+@dataclass(frozen=True)
+class MergeFile:
+    """両側が変えたプロジェクトファイル 1 つの、共通祖先・自分・相手の本文。"""
+
+    name: str
+    base: str
+    ours: str
+    theirs: str
+
+
+@dataclass(frozen=True)
+class MergeSession:
+    upstream: str
+    files: list[MergeFile]
+
+
+def _git(run: Runner, project_dir: Path, args: list[str], timeout: float = COMMIT_TIMEOUT):
+    return _call(run, ["-C", str(project_dir), *args], timeout)
+
+
+def _out(done: subprocess.CompletedProcess[str] | GitResult) -> str | GitResult:
+    """成功した出力の本文(前後の空白を除く)。失敗は`GitResult`。"""
+    if isinstance(done, GitResult):
+        return done
+    if done.returncode != 0:
+        return _failed(failure_reason(done))
+    return done.stdout.strip()
+
+
+def pull_prepare(project_dir: Path, run: Runner = run_git) -> PullPlan | GitResult:
+    """プルの前提を確かめて`fetch`し、何をするか(最新・早送り・マージ)を決める。"""
+    upstream = _git(run, project_dir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+    if isinstance(upstream, GitResult):
+        return upstream
+    if upstream.returncode != 0:
+        return _failed("上流がありません")
+    changes = list_changes(project_dir, run)
+    if isinstance(changes, GitResult):
+        return changes
+    if changes:
+        return _failed("先に保存・コミットしてください: " + ", ".join(change.name for change in changes))
+    fetched = _out(_git(run, project_dir, ["fetch"], PUSH_TIMEOUT))
+    if isinstance(fetched, GitResult):
+        return fetched
+    counts = _out(_git(run, project_dir, ["rev-list", "--left-right", "--count", "HEAD...@{u}"]))
+    if isinstance(counts, GitResult):
+        return counts
+    try:
+        ahead, behind = (int(part) for part in counts.split())
+    except ValueError:
+        return _failed(f"想定外の出力です: {counts}")
+    name = upstream.stdout.strip()
+    if behind == 0:
+        return PullPlan(PullKind.UP_TO_DATE, name)
+    return PullPlan(PullKind.FAST_FORWARD if ahead == 0 else PullKind.MERGE, name)
+
+
+def pull_fast_forward(project_dir: Path, run: Runner = run_git) -> GitResult:
+    out = _out(_git(run, project_dir, ["merge", "--ff-only", "@{u}"]))
+    return out if isinstance(out, GitResult) else GitResult(True, "取り込みました")
+
+
+def pull_abort(project_dir: Path, run: Runner = run_git) -> GitResult:
+    out = _out(_git(run, project_dir, ["merge", "--abort"]))
+    return out if isinstance(out, GitResult) else GitResult(True, "取り込みを中止しました")
+
+
+def _abort_with(project_dir: Path, run: Runner, message: str) -> GitResult:
+    pull_abort(project_dir, run)  # 戻せなくても、元の失敗の理由を返す
+    return _failed(message)
+
+
+def _paths(run: Runner, project_dir: Path, args: list[str]) -> list[str] | GitResult:
+    out = _git(run, project_dir, args)
+    if isinstance(out, GitResult):
+        return out
+    if out.returncode != 0:
+        return _failed(failure_reason(out))
+    return [path for path in out.stdout.split("\0") if path]
+
+
+def _show(run: Runner, project_dir: Path, rev: str, name: str) -> str | None:
+    done = _git(run, project_dir, ["show", f"{rev}:./{name}"])
+    if isinstance(done, GitResult) or done.returncode != 0:
+        return None
+    return done.stdout
+
+
+def pull_start_merge(project_dir: Path, upstream: str, run: Runner = run_git) -> MergeSession | GitResult:
+    """`git merge --no-commit --no-ff`を始め、両側が変えたプロジェクトファイルの 3 版を取り出す。
+    アプリが統合できないとき(プロジェクトファイル以外の衝突・ファイル単位の衝突)は、中止して元に戻す。"""
+    merged = _git(run, project_dir, ["merge", "--no-commit", "--no-ff", "@{u}"])
+    if isinstance(merged, GitResult):
+        return merged
+    unmerged = _paths(run, project_dir, ["diff", "--name-only", "--diff-filter=U", "-z"])
+    if isinstance(unmerged, GitResult):
+        return _abort_with(project_dir, run, unmerged.message)
+    if merged.returncode != 0 and not unmerged:
+        return _abort_with(project_dir, run, failure_reason(merged))  # 衝突ではない失敗(未コミットの変更など)
+    prefix = _out(_git(run, project_dir, ["rev-parse", "--show-prefix"]))
+    base = _out(_git(run, project_dir, ["merge-base", "HEAD", "@{u}"]))
+    for item in (prefix, base):
+        if isinstance(item, GitResult):
+            return _abort_with(project_dir, run, item.message)
+    assert isinstance(prefix, str) and isinstance(base, str)
+    tail = ["--name-only", "--relative", "--no-renames", "-z"]
+    ours_changed = _paths(run, project_dir, ["diff", *tail, base, "HEAD", "--", *PATHSPEC])
+    theirs_changed = _paths(run, project_dir, ["diff", *tail, base, "@{u}", "--", *PATHSPEC])
+    for item in (ours_changed, theirs_changed):
+        if isinstance(item, GitResult):
+            return _abort_with(project_dir, run, item.message)
+    assert isinstance(ours_changed, list) and isinstance(theirs_changed, list)
+    both = sorted(name for name in set(ours_changed) & set(theirs_changed) if valid_name(name))
+    stray = sorted(set(unmerged) - {prefix + name for name in both})
+    if stray:
+        return _abort_with(project_dir, run, "プロジェクトファイル以外に衝突があります: " + ", ".join(stray))
+    files = []
+    for name in both:
+        base_text, ours_text, theirs_text = (_show(run, project_dir, rev, name) for rev in (base, "HEAD", "@{u}"))
+        if base_text is None or ours_text is None or theirs_text is None:
+            return _abort_with(project_dir, run, f"ファイル単位の衝突(追加・削除)のため、自動で取り込めません: {name}")
+        files.append(MergeFile(name, base_text, ours_text, theirs_text))
+    return MergeSession(upstream, files)
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".pull-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            file.write(text)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(tmp, path)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+
+def pull_finish_merge(
+    project_dir: Path, session: MergeSession, merged: dict[str, str], run: Runner = run_git
+) -> GitResult:
+    """統合したファイルを書いて stage し、マージコミットを作る。どこで失敗しても、中止して元に戻す。"""
+    names = sorted(merged)
+    for name in names:
+        if not valid_name(name):
+            return _abort_with(project_dir, run, f"書けないファイル名です: {name}")
+    try:
+        for name in names:
+            _write_atomic(project_dir / name, merged[name])
+    except OSError as exc:
+        return _abort_with(project_dir, run, str(exc))
+    steps = []
+    if names:
+        steps.append(["--literal-pathspecs", "add", "--", *names])
+    steps.append(["commit", "-m", f"マージ: {session.upstream}"])
+    for args in steps:
+        out = _out(_git(run, project_dir, args))
+        if isinstance(out, GitResult):
+            return _abort_with(project_dir, run, out.message)
+    head = _out(_git(run, project_dir, ["rev-parse", "--short", "HEAD"]))
+    return GitResult(True, "取り込みました", head if isinstance(head, str) else "")
+
+
+class PullOps:
+    """プルの各段階(`MainView`が持ち、テストで差し替える)。"""
+
+    def prepare(self, project_dir: Path) -> PullPlan | GitResult:
+        return pull_prepare(project_dir)
+
+    def fast_forward(self, project_dir: Path) -> GitResult:
+        return pull_fast_forward(project_dir)
+
+    def start_merge(self, project_dir: Path, upstream: str) -> MergeSession | GitResult:
+        return pull_start_merge(project_dir, upstream)
+
+    def finish_merge(self, project_dir: Path, session: MergeSession, merged: dict[str, str]) -> GitResult:
+        return pull_finish_merge(project_dir, session, merged)
+
+    def abort(self, project_dir: Path) -> GitResult:
+        return pull_abort(project_dir)
