@@ -4,7 +4,7 @@
 
 ## 現在の状況
 
-**2026-10-13 の作業(ブランチ`feature/git-status`。テスト 2,337 件と`ty check`が通る。マージ待ち)**
+**2026-10-13 の作業(`feature/git-status`を PR #13 で`develop`へマージ済み。テスト 2,337 件と`ty check`が通る)**
 
 - PR #12(外部変更の検知)を`develop`へマージ済み。要望 10 の 3 番目の子(git の状態表示)を、`feature/git-status`で実装した。設計書`2026-10-12-git-status-design.md`(2026-10-13 確定)、実装計画`2026-10-13-git-status.md`。`gitstate.py`(`read_git_state`・`describe`・`tooltip`)と、ヘッダーのチップ(`MainView.git_chip`・`refresh_git`・`request_git_refresh`)。確定時に直したこと: パス指定を固定(`:(glob)*.json`と予約名の除外)にした・`Runner`は`-C`・`describe`が`error`を扱う。実装中の判断: ツールチップは兄弟要素・`run.io_bound`の`None`を捨てる。ネイティブで実機確認済み(2026-10-13。Windows のコンソール窓だけ未確認)。レビューの Minor 1・2 は修正済み(b449203)、Minor 3(巨大リポジトリで遅い)は承知のうえ保留。次は、マージ後に 4 番目(コミットとプッシュ)の設計。
 
