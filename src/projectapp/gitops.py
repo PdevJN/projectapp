@@ -6,6 +6,7 @@ from enum import Enum
 from pathlib import Path
 
 from projectapp.gitstate import DEFAULT_TIMEOUT, PATHSPEC, Runner, failure_reason, run_git
+from projectapp.storage import INVALID_NAME_CHARS, RESERVED
 
 
 class ChangeStatus(Enum):
@@ -105,3 +106,87 @@ def default_message(names: list[str]) -> str:
     if len(stems) <= 3:
         return "プロジェクトを更新: " + ", ".join(stems)
     return "プロジェクトを更新: " + ", ".join(stems[:3]) + f" ほか {len(stems) - 3} 件"
+
+
+COMMIT_TIMEOUT = 30.0
+PUSH_TIMEOUT = 60.0
+PULL_HINT = "先にプルが必要です(プルは後続機能)"
+REJECTION_MARKERS = ("rejected", "non-fast-forward", "fetch first")
+
+
+def valid_name(name: str) -> bool:
+    """コミットできるファイル名か(プロジェクト名の規則に合う、予約名でない`*.json`)。`git`に渡す前の検査。
+    `[`などは名前に使えるので許し、`--literal-pathspecs`で、パターンとして解釈されないようにする。"""
+    stem = name.removesuffix(".json")
+    return (
+        name.endswith(".json")
+        and bool(stem)
+        and not any(c in INVALID_NAME_CHARS or ord(c) < 32 or ord(c) == 127 for c in name)
+        and stem not in RESERVED
+    )
+
+
+def _call(run: Runner, args: list[str], timeout: float) -> subprocess.CompletedProcess[str] | GitResult:
+    try:
+        return run(args, timeout)
+    except FileNotFoundError:
+        return _failed("git が見つかりません")
+    except subprocess.TimeoutExpired:
+        return _failed("git が応答しません")
+    except OSError as exc:
+        return _failed(str(exc))
+
+
+def commit(project_dir: Path, names: list[str], message: str, run: Runner = run_git) -> GitResult:
+    """選んだプロジェクトファイルだけをコミットする。別に stage されたファイルは入れず、その stage も変えない。"""
+    message = message.strip()
+    if not message:
+        return _failed("メッセージを入力してください")
+    if not names:
+        return _failed("コミットするファイルを選んでください")
+    for name in names:
+        if not valid_name(name):
+            return _failed(f"コミットできないファイル名です: {name}")
+    changes = list_changes(project_dir, run)
+    if isinstance(changes, GitResult):
+        return changes
+    changed = {change.name for change in changes}
+    for name in names:
+        if name not in changed:
+            return _failed(f"変更がありません: {name}")  # 空のコミットは実行しない
+    where = ["--literal-pathspecs", "-C", str(project_dir)]
+    steps = [
+        [*where, "add", "-A", "--", *names],
+        [*where, "commit", "--only", "-m", message, "--", *names],
+    ]
+    for args in steps:
+        done = _call(run, args, COMMIT_TIMEOUT)
+        if isinstance(done, GitResult):
+            return done
+        if done.returncode != 0:
+            return _failed(failure_reason(done))
+    head = _call(run, ["-C", str(project_dir), "rev-parse", "--short", "HEAD"], COMMIT_TIMEOUT)
+    short = head.stdout.strip() if not isinstance(head, GitResult) and head.returncode == 0 else ""
+    return GitResult(True, "コミットしました", short)
+
+
+def _push_reason(result: subprocess.CompletedProcess[str]) -> str:
+    """プッシュの失敗の理由(`!`・`error:`・`fatal:`の最初の行。なければ最初の行)。"""
+    for line in result.stderr.splitlines():
+        text = line.strip()
+        if text.startswith(("fatal:", "error:", "!")):
+            return text
+    return failure_reason(result)
+
+
+def push(project_dir: Path, run: Runner = run_git) -> GitResult:
+    """上流へプッシュする。拒否(リモートが先に進んでいる)には、プルが要ることを添える。"""
+    done = _call(run, ["-C", str(project_dir), "push"], PUSH_TIMEOUT)
+    if isinstance(done, GitResult):
+        return done
+    if done.returncode == 0:
+        return GitResult(True, "プッシュしました")
+    reason = _push_reason(done)
+    if any(marker in done.stderr for marker in REJECTION_MARKERS):
+        reason = f"{reason}\n{PULL_HINT}"
+    return _failed(reason)
