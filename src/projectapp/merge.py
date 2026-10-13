@@ -1,0 +1,222 @@
+"""プロジェクトの 3 者マージ(共通祖先・自分・相手)。NiceGUI にも git にも依存しない。
+
+タスク・メンバー・セクション・カテゴリは`id`で、パラメータ・URL テンプレートは名前で突き合わせる。
+項目ごとに、片側だけが変えた値を採り、両側が違う値に変えた項目だけを衝突にする。
+"""
+
+import copy
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import date, datetime, time
+from enum import Enum
+from typing import Any
+
+from projectapp.models import (
+    Category,
+    Level,
+    Member,
+    Parameter,
+    Project,
+    UrlTemplate,
+)
+
+OURS = "ours"
+THEIRS = "theirs"
+DELETED = "(削除)"  # 削除と変更の衝突の項目名
+Choices = dict[tuple[str, str, str], str]
+Record = dict[str, Any]
+_MISSING = object()
+
+
+@dataclass(frozen=True, eq=False)
+class Conflict:
+    kind: str  # task・section・member・category・parameter・url_template・setting
+    key: str  # id(パラメータ・テンプレートは名前)
+    label: str  # 画面に出す名前
+    field: str  # 画面に出す項目名。削除と変更の衝突は`DELETED`
+    ours: Any  # 自分の値。自分が削除したときは None
+    theirs: Any  # 相手の値。相手が削除したときは None
+
+    @property
+    def id(self) -> tuple[str, str, str]:
+        return (self.kind, self.key, self.field)
+
+
+@dataclass
+class MergeResult:
+    project: Project
+    conflicts: list[Conflict]  # 選択がなかった衝突も含む(結果は「自分」になっている)
+    notes: list[str]  # 利用者に知らせる整理(外した担当者など)
+
+
+def format_value(value: object) -> str:
+    """衝突ダイアログに出す値の文言。"""
+    if value is None:
+        return DELETED
+    if isinstance(value, bool):
+        return "はい" if value else "いいえ"
+    if isinstance(value, Enum):
+        return str(value.value)
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M")
+    if isinstance(value, (date, time)):
+        return value.isoformat()
+    if isinstance(value, (list, tuple)):
+        return ", ".join(format_value(v) for v in value) or "(なし)"
+    if isinstance(value, dict):
+        return ", ".join(f"{k}={format_value(v)}" for k, v in value.items()) or "(なし)"
+    if value == "":
+        return "(空)"
+    return str(value)
+
+
+def _order(base: list[str], ours: list[str], theirs: list[str]) -> list[str]:
+    """3 者の並びを合わせる。自分の並びが土台。相手だけが並べ替えたときは相手の並びが土台。
+    土台にないもの(相手の追加・移動)は、相手の並びでの直前の兄弟(結果にすでにあるもの)のあとに入れる。"""
+    members = set(ours) | set(theirs)
+    common = set(base) & set(ours) & set(theirs)
+
+    def restrict(seq: list[str]) -> list[str]:
+        return [x for x in seq if x in common]
+
+    primary, secondary = ours, theirs
+    if restrict(ours) == restrict(base) and restrict(theirs) != restrict(base):
+        primary, secondary = theirs, ours
+    result = [x for x in primary if x in members]
+    for index, item in enumerate(secondary):
+        if item in result:
+            continue
+        position = 0
+        for earlier in reversed(secondary[:index]):
+            if earlier in result:
+                position = result.index(earlier) + 1
+                break
+        result.insert(position, item)
+    return result
+
+
+class _Merger:
+    def __init__(self, choices: Choices | None) -> None:
+        self.choices = choices or {}
+        self.conflicts: list[Conflict] = []
+
+    def pick(self, conflict: Conflict) -> str:
+        self.conflicts.append(conflict)
+        return self.choices.get(conflict.id, OURS)
+
+    def record(
+        self,
+        kind: str,
+        key: str,
+        labels: dict[str, str],
+        base: Record | None,
+        ours: Record | None,
+        theirs: Record | None,
+        display: Callable[[str, Any], Any] = lambda name, value: value,
+    ) -> Record | None:
+        """1 件の記録を 3 者マージする。`None`は存在しないこと。結果が`None`なら削除。"""
+        if ours is None and theirs is None:
+            return None
+        label = str((ours or theirs or base or {}).get("name", key))
+        if base is None:
+            if ours is None:
+                return theirs
+            if theirs is None:
+                return ours
+            base = {}  # 両側が追加した: 値の違う項目だけが衝突になる
+        elif ours is None or theirs is None:
+            kept = theirs if ours is None else ours
+            if kept == base:
+                return None  # 片側が削除し、もう片側は変えていない
+            conflict = Conflict(kind, key, label, DELETED, ours, theirs)
+            return ours if self.pick(conflict) == OURS else theirs
+        assert ours is not None and theirs is not None
+        merged: Record = {}
+        for name in ours:
+            b, o, t = base.get(name, _MISSING), ours[name], theirs[name]
+            if o == t:
+                merged[name] = o
+            elif b == o:
+                merged[name] = t
+            elif b == t:
+                merged[name] = o
+            else:
+                conflict = Conflict(kind, key, label, labels.get(name, name), display(name, o), display(name, t))
+                merged[name] = o if self.pick(conflict) == OURS else t
+        return merged
+
+    def collection(
+        self,
+        kind: str,
+        labels: dict[str, str],
+        base: dict[str, Record],
+        ours: dict[str, Record],
+        theirs: dict[str, Record],
+        display: Callable[[str, Any], Any] = lambda name, value: value,
+    ) -> dict[str, Record]:
+        """キーごとに記録をマージする。並びは`_order`。"""
+        result: dict[str, Record] = {}
+        for key in _order(list(base), list(ours), list(theirs)):
+            merged = self.record(kind, key, labels, base.get(key), ours.get(key), theirs.get(key), display)
+            if merged is not None:
+                result[key] = merged
+        return result
+
+
+MEMBER_LABELS = {"name": "名前", "ratio": "基本比率", "levels": "段階の選択"}
+CATEGORY_LABELS = {"name": "名前", "kind": "種別", "expiry_date": "有効期限", "color": "色", "prj_code": "PRJコード"}
+PARAMETER_LABELS = {"levels": "段階"}
+TEMPLATE_LABELS = {"pattern": "URLの型"}
+SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間", "work_start": "始業時刻", "actual_mode": "実績の記録方式"}
+
+
+def _members(project: Project) -> dict[str, Record]:
+    return {m.id: {"name": m.name, "ratio": m.ratio, "levels": dict(m.levels)} for m in project.members}
+
+
+def _categories(project: Project) -> dict[str, Record]:
+    return {
+        c.id: {"name": c.name, "kind": c.kind, "expiry_date": c.expiry_date, "color": c.color, "prj_code": c.prj_code}
+        for c in project.categories
+    }
+
+
+def _parameters(project: Project) -> dict[str, Record]:
+    return {p.name: {"levels": [(lv.name, lv.value) for lv in p.levels]} for p in project.parameters}
+
+
+def _templates(project: Project) -> dict[str, Record]:
+    return {t.name: {"pattern": t.pattern} for t in project.url_templates}
+
+
+def _settings(project: Project) -> Record:
+    return {name: getattr(project, name) for name in SETTING_LABELS}
+
+
+def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choices | None = None) -> MergeResult:
+    """共通祖先`base`・自分`ours`・相手`theirs`を統合する。選択のない衝突は「自分」になり、`conflicts`に残る。"""
+    merger = _Merger(choices)
+    notes: list[str] = []
+    settings = merger.record(
+        "setting", "設定", SETTING_LABELS, _settings(base), _settings(ours), _settings(theirs)
+    )
+    assert settings is not None
+    members = merger.collection("member", MEMBER_LABELS, _members(base), _members(ours), _members(theirs))
+    categories = merger.collection("category", CATEGORY_LABELS, _categories(base), _categories(ours), _categories(theirs))
+    parameters = merger.collection("parameter", PARAMETER_LABELS, _parameters(base), _parameters(ours), _parameters(theirs))
+    templates = merger.collection("url_template", TEMPLATE_LABELS, _templates(base), _templates(ours), _templates(theirs))
+    project = Project(
+        name=ours.name,
+        base_date=settings["base_date"],
+        daily_hours=settings["daily_hours"],
+        work_start=settings["work_start"],
+        actual_mode=settings["actual_mode"],
+        members=[Member(r["name"], r["ratio"], dict(r["levels"]), id=key) for key, r in members.items()],
+        categories=[
+            Category(r["name"], r["kind"], r["expiry_date"], r["color"], r["prj_code"], id=key)
+            for key, r in categories.items()
+        ],
+        parameters=[Parameter(key, [Level(n, v) for n, v in r["levels"]]) for key, r in parameters.items()],
+        url_templates=[UrlTemplate(key, r["pattern"]) for key, r in templates.items()],
+    )
+    return MergeResult(copy.deepcopy(project), merger.conflicts, notes)
