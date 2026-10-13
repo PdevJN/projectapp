@@ -16,6 +16,9 @@ from projectapp.shortcuts import SHORTCUTS, Screen, help_entries, resolve
         (",", True, False, "settings"),
         ("e", True, False, "handoff"),
         ("p", True, False, "preview"),
+        ("k", True, False, "git_commit"),
+        ("K", True, True, "git_push"),
+        ("k", True, True, "git_push"),
         ("d", False, False, "dashboard"),
         ("/", False, False, "search"),
         ("?", False, True, "help"),
@@ -28,7 +31,7 @@ def test_main_screen_keys_resolve_to_actions(key, ctrl, shift, action):
 
 @pytest.mark.parametrize(
     ("key", "ctrl", "shift"),
-    [("s", False, False), ("d", True, False), ("x", True, False), ("x", False, False), ("e", True, True)],
+    [("s", False, False), ("d", True, False), ("x", True, False), ("x", False, False), ("e", True, True), ("k", False, False)],
 )
 def test_unassigned_combinations_resolve_to_nothing(key, ctrl, shift):
     assert resolve(key, ctrl=ctrl, shift=shift, modal=False, screen=Screen.MAIN) is None
@@ -90,7 +93,7 @@ def test_help_lists_every_shortcut_once_with_its_description():
 def test_the_key_lists_for_the_browser_guard_come_from_the_table():
     from projectapp.shortcuts import ctrl_keys, plain_keys
 
-    assert ctrl_keys() == {"s", "o", "n", ",", "m", "e", "p", "+", "=", ";", "-", "0"}
+    assert ctrl_keys() == {"s", "o", "n", ",", "m", "e", "p", "k", "+", "=", ";", "-", "0"}
     assert plain_keys() == {"escape", "d", "/", "?"}
 
 
@@ -155,3 +158,16 @@ def test_members_parameters_shortcut_needs_ctrl_and_shift():
 
 def test_help_lists_the_members_parameters_shortcut():
     assert ("Ctrl/Cmd+Shift+M", "メンバーとパラメータ") in help_entries()
+
+
+def test_label_for_gives_the_key_label_of_an_action() -> None:
+    from projectapp.shortcuts import label_for
+
+    assert label_for("git_commit") == "Ctrl/Cmd+K"
+    assert label_for("git_push") == "Ctrl/Cmd+Shift+K"
+
+
+def test_help_lists_the_git_shortcuts() -> None:
+    entries = help_entries()
+    assert ("Ctrl/Cmd+K", "コミット") in entries
+    assert ("Ctrl/Cmd+Shift+K", "プッシュ") in entries

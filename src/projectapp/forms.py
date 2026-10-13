@@ -21,6 +21,7 @@ from projectapp.categories import (
     parse_expiry,
     validate_categories,
 )
+from projectapp.gitops import FileChange
 from projectapp.models import (
     CHECKPOINT_STATUSES,
     ID_KEY,
@@ -748,6 +749,61 @@ def open_conflict_dialog(
             ui.button("上書き", on_click=lambda: run(on_overwrite)).props("color=negative").mark(
                 "conflict-overwrite"
             )
+    dialog.open()
+
+
+def open_commit_dialog(
+    changes: list[FileChange],
+    make_message: Callable[[list[str]], str],
+    push_blocked: str | None,
+    unsaved: bool,
+    on_commit: Callable[[list[str], str, bool], object],
+) -> None:
+    """コミットのダイアログ。変更のあるファイルを選び(既定はすべて)、メッセージ(自動の案つき)を確かめて確定する。
+
+    `push_blocked`は、「コミットしてプッシュ」を押せない理由(押せるときは None)。`unsaved`は、
+    開いているプロジェクトに未保存の編集があるとき(コミットされないことを知らせる)。
+    """
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[32rem]"):
+        ui.label("コミット").classes("text-h6")
+        if unsaved:
+            ui.label("保存されていない編集は、コミットされません").classes("text-warning").mark("commit-unsaved")
+        boxes: dict[str, ui.checkbox] = {}
+        for change in changes:
+            with ui.row().classes("items-center no-wrap"):
+                boxes[change.name] = ui.checkbox(change.name, value=True).mark(f"commit-file-{change.name}")
+                ui.label(change.status.value).classes("text-caption text-grey")
+        message = ui.input("メッセージ").props("outlined dense").classes("w-full").mark("commit-message")
+        auto = {"text": ""}  # 最後に入れた自動の案。利用者が直していなければ、選択の変更に合わせて更新する
+
+        def chosen() -> list[str]:
+            return [name for name, box in boxes.items() if box.value]
+
+        def sync() -> None:
+            names = chosen()
+            suggestion = make_message(names)
+            if (message.value or "") == auto["text"]:  # 最初(空 = 空)と、案のままのとき
+                message.value = suggestion
+            auto["text"] = suggestion
+            ready = bool(names) and bool((message.value or "").strip())
+            submit.set_enabled(ready)
+            submit_push.set_enabled(ready and push_blocked is None)
+
+        def submit_with(push: bool) -> None:
+            names, text = chosen(), (message.value or "").strip()
+            dialog.close()
+            on_commit(names, text, push)
+
+        with ui.row().classes("justify-end w-full"):
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark("commit-cancel")
+            submit = ui.button("コミット", on_click=lambda: submit_with(False)).mark("commit-submit")
+            submit_push = ui.button("コミットしてプッシュ", on_click=lambda: submit_with(True)).mark("commit-submit-push")
+            if push_blocked is not None:
+                submit_push.tooltip(push_blocked)
+        for box in boxes.values():
+            box.on_value_change(sync)
+        message.on_value_change(sync)
+        sync()
     dialog.open()
 
 

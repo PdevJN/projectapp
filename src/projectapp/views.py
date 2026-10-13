@@ -34,6 +34,7 @@ from projectapp.config import (
 )
 from projectapp.forms import (
     MEMBER_TABLE_CSS,
+    open_commit_dialog,
     open_conflict_dialog,
     open_file_dialog,
     open_handoff_dialog,
@@ -44,7 +45,7 @@ from projectapp.forms import (
     open_unsaved_dialog,
 )
 from projectapp import arrange
-from projectapp.shortcuts import Screen, help_entries, key_guard_js, resolve
+from projectapp.shortcuts import Screen, help_entries, key_guard_js, label_for, resolve
 from projectapp.dashboard import PeriodKind, period_for, summarize
 from projectapp.dashboard_view import DashboardView
 from projectapp.export import (
@@ -67,6 +68,9 @@ from projectapp.handoff import (
 )
 from projectapp.handoff import default_filename as handoff_filename
 from projectapp.filemanager import open_folder
+from projectapp.gitops import FileChange, GitResult, default_message, list_changes
+from projectapp.gitops import commit as commit_files_in_git
+from projectapp.gitops import push as push_to_remote
 from projectapp.gitstate import GitKind, GitState, describe, read_git_state, tooltip
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
 from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Member, Project, Section, SectionPath, Task, new_id
@@ -178,6 +182,12 @@ class MainView:
         self.read_git: Callable[[Path], GitState] = read_git_state  # テストで差し替える(本物の git を呼ばない)
         self.git_state: GitState = GitState(GitKind.NOT_REPO)  # 最後に読んだ結果。読むまでは出さない
         self.git_generation = 0  # 読み込みのたびに進める。古い結果を捨てる印
+        self.read_changes: Callable[[Path], list[FileChange] | GitResult] = list_changes  # テストで差し替える
+        self.commit_files: Callable[[Path, list[str], str], GitResult] = commit_files_in_git
+        self.push_remote: Callable[[Path], GitResult] = push_to_remote
+        self.git_busy = False  # コミット・プッシュの実行中。二重に始めない
+        self.menu_entries: dict[str, ui.menu_item] = {}  # メニューの項目(マーカー → 項目)
+        self.git_menu_tips: dict[str, ui.tooltip] = {}  # 押せない理由を出すツールチップ
         self.mark_clean()
         self.theme = load_theme(base_dir)
         self.dark = ui.dark_mode()
@@ -418,6 +428,8 @@ class MainView:
         "handoff": "open_handoff",
         "preview": "enter_preview",
         "dashboard": "open_dashboard",
+        "git_commit": "open_git_commit",
+        "git_push": "start_git_push",
     }
 
     def on_plain_key(self, event: KeyEventArguments) -> None:
@@ -966,6 +978,15 @@ class MainView:
                 ],
             )
             self.header_menu(
+                "Git",
+                "menu-git",
+                [
+                    MenuItem("コミット…", "commit", self.open_git_commit, "git-commit", label_for("git_commit")),
+                    MenuItem("プッシュ", "cloud_upload", self.start_git_push, "git-push", label_for("git_push")),
+                    MenuItem("状態を読み直す", "refresh", self.request_git_refresh, "git-refresh"),
+                ],
+            )
+            self.header_menu(
                 "ヘルプ", "menu-help", [MenuItem("ショートカットヘルプ", "keyboard", self.help_dialog.open, "help-shortcuts")]
             )
             ui.space()
@@ -982,6 +1003,7 @@ class MainView:
                 "flat round dense"
             ).tooltip("プロジェクトの格納フォルダを開く").mark("open-folder")
             self.theme_menu()
+            self.update_git_menu()
 
     def header_menu(self, label: str, marker: str, items: list[MenuItem | None]) -> None:
         """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(None は水平線)。"""
@@ -991,7 +1013,7 @@ class MainView:
                     if item is None:
                         ui.separator().mark(f"{marker}-separator")
                         continue
-                    self.menu_entry(item.text, item.icon, item.handler, item.marker, item.key)
+                    self.menu_entries[item.marker] = self.menu_entry(item.text, item.icon, item.handler, item.marker, item.key)
 
     @staticmethod
     def menu_entry(text: str, icon: str, handler: Callable[[], object], marker: str, key: str = "") -> ui.menu_item:
@@ -1003,6 +1025,125 @@ class MainView:
             if key:
                 ui.item_section(key).props("side").classes("text-caption text-grey")
         return entry
+
+    NOT_WORK_TREE = "git の作業ツリーではありません"
+    GIT_MENU = (("commit", "git-commit"), ("push", "git-push"), ("refresh", "git-refresh"))
+
+    def git_reason(self, action: str) -> str | None:
+        """Git メニューの操作が、今できない理由(できるときは None)。`action`は commit・push・push_after_commit・refresh。
+        `push_after_commit`は、コミットのあとにプッシュするとき(今は未プッシュが 0 でもよい)。"""
+        state = self.git_state
+        if action == "refresh":
+            return None  # 作業ツリーでなくても読み直せる(外で git init したあとの手段)
+        if state.kind is not GitKind.OK:
+            return self.NOT_WORK_TREE
+        if self.git_busy:
+            return "実行中です"
+        if action in ("push", "push_after_commit"):
+            if state.error is not None:
+                return "git の状態を読めていません"
+            if state.upstream is None:
+                return "上流がありません"
+            if state.ahead is None:
+                return "上流が見つかりません"
+            if action == "push" and state.ahead == 0:
+                return "未プッシュのコミットがありません"
+        return None
+
+    def update_git_menu(self) -> None:
+        """Git メニューの項目を、押せるかどうかと、押せない理由のツールチップに合わせる。"""
+        for action, marker in self.GIT_MENU:
+            entry = self.menu_entries[marker]
+            reason = self.git_reason(action)
+            entry.set_enabled(reason is None)
+            tip = self.git_menu_tips.get(marker)
+            if tip is None:
+                with entry:
+                    tip = ui.tooltip("")
+                self.git_menu_tips[marker] = tip
+            tip.set_text(reason or "")
+            tip.set_visibility(reason is not None)
+
+    def set_git_busy(self, busy: bool) -> None:
+        self.git_busy = busy
+        self.update_git_menu()
+
+    def later(self, handler: Callable[[], object]) -> None:
+        """処理を画面の直下のタイマーで始める(ダイアログが閉じても残る。同期の入口から、非同期の処理を始める)。"""
+        with self.client:
+            ui.timer(0, handler, once=True)
+
+    def open_git_commit(self) -> None:
+        """コミットのダイアログを開く(メニューとショートカットの入口)。できないときは、理由を通知する。"""
+        reason = self.git_reason("commit")
+        if reason is not None:
+            ui.notify(reason, type="warning")
+            return
+        self.later(self.show_commit_dialog)
+
+    async def show_commit_dialog(self) -> None:
+        changes = await run.io_bound(self.read_changes, self.project_dir)
+        if changes is None:  # アプリの終了中
+            return
+        if isinstance(changes, GitResult):
+            ui.notify(changes.message, type="negative")
+            return
+        if not changes:
+            ui.notify("コミットする変更がありません")
+            return
+        open_commit_dialog(
+            changes,
+            default_message,
+            self.git_reason("push_after_commit"),
+            self.is_dirty(),
+            lambda names, message, push: self.later(lambda: self.run_commit(names, message, push)),
+        )
+
+    async def run_commit(self, names: list[str], message: str, push: bool) -> None:
+        """選んだファイルをコミットし、`push`ならプッシュする。終わったらチップを読み直す。"""
+        if self.git_busy:
+            return
+        self.set_git_busy(True)
+        try:
+            result = await run.io_bound(self.commit_files, self.project_dir, names, message)
+            if result is None:  # アプリの終了中
+                return
+            if not result.ok:
+                ui.notify(result.message, type="negative")
+                return
+            ui.notify(f"コミットしました({result.detail})")
+            if push:
+                pushed = await run.io_bound(self.push_remote, self.project_dir)
+                if pushed is None:
+                    return
+                if pushed.ok:
+                    ui.notify(pushed.message)
+                else:
+                    ui.notify(f"コミットしました。プッシュに失敗しました: {pushed.message}", type="warning")
+        finally:
+            self.set_git_busy(False)
+            self.request_git_refresh()
+
+    def start_git_push(self) -> None:
+        """プッシュを始める(メニューとショートカットの入口)。できないときは、理由を通知する。"""
+        reason = self.git_reason("push")
+        if reason is not None:
+            ui.notify(reason, type="warning")
+            return
+        self.later(self.run_push)
+
+    async def run_push(self) -> None:
+        if self.git_busy:
+            return
+        self.set_git_busy(True)
+        try:
+            result = await run.io_bound(self.push_remote, self.project_dir)
+            if result is None:
+                return
+            ui.notify(result.message, type="positive" if result.ok else "negative")
+        finally:
+            self.set_git_busy(False)
+            self.request_git_refresh()
 
     def request_git_refresh(self) -> None:
         """git の状態の読み直しを予約する(ダイアログが閉じても残るよう、タイマーは画面の直下に置く)。"""
@@ -1018,6 +1159,7 @@ class MainView:
             return
         self.git_state = state
         self.git_chip.refresh()
+        self.update_git_menu()
 
     @ui.refreshable_method
     def git_chip(self) -> None:

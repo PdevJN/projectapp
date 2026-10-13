@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from projectapp.gitstate import DEFAULT_TIMEOUT, GitKind, GitState, Runner, _run, describe, read_git_state, tooltip
+from projectapp.gitstate import DEFAULT_TIMEOUT, GitKind, GitState, Runner, describe, read_git_state, run_git, tooltip
 
 
 def git(cwd: Path, *args: str) -> None:
@@ -331,6 +331,19 @@ def test_git_runs_without_stdin_and_without_a_console_window(monkeypatch: pytest
         return subprocess.CompletedProcess(args, 0, "", "")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    _run(["status"], 1.0)
+    run_git(["status"], 1.0)
     assert seen["stdin"] == subprocess.DEVNULL
     assert seen["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0)  # Windows だけ窓を出さない
+
+
+def test_git_never_waits_for_a_credential_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    run_git(["status"], 1.0)
+    env = seen["env"]
+    assert isinstance(env, dict) and env["GIT_TERMINAL_PROMPT"] == "0"  # 認証の入力待ちで止まらず、失敗にする

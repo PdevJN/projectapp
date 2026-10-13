@@ -1,12 +1,22 @@
 # 作業記録
 
-最終更新: 2026-10-11(要望 32〜36 の登録、プロジェクトメニューの見直し・タスクのダイアログの入力の見直し・ESC の不具合 2 件・完了予定のヒントの重なりを `develop` へマージ。`develop` は 03cd469) / 2026-10-11(カテゴリ機能(要望 29)をマージ) / 2026-10-10(データの持ち方の見直し: 提案 1 `version` と提案 2 メンバー・セクションの安定 id を `develop` へマージ・プッシュ)
+最終更新: 2026-10-13(要望 10 の 3 番目〔git の状態表示。PR #13・#14〕を`develop`へマージ。4 番目〔コミットとプッシュ〕を`feature/git-commit-push`で実装・レビュー済み、push と PR は未) / 2026-10-11(要望 32〜36 の登録、プロジェクトメニューの見直し・タスクのダイアログの入力の見直し・ESC の不具合 2 件・完了予定のヒントの重なりを `develop` へマージ。`develop` は 03cd469) / 2026-10-11(カテゴリ機能(要望 29)をマージ) / 2026-10-10(データの持ち方の見直し: 提案 1 `version` と提案 2 メンバー・セクションの安定 id を `develop` へマージ・プッシュ)
 
 ## 現在の状況
 
-**2026-10-13 の作業(`feature/git-status`を PR #13 で`develop`へマージ済み。テスト 2,337 件と`ty check`が通る)**
+**2026-10-13 の作業(ブランチ`feature/git-commit-push`〔`develop`の41f3091から。d19b549まで〕。テスト 2,418 件と`ty check`が通る。push と PR は未)**
 
-- PR #12(外部変更の検知)を`develop`へマージ済み。要望 10 の 3 番目の子(git の状態表示)を、`feature/git-status`で実装した。設計書`2026-10-12-git-status-design.md`(2026-10-13 確定)、実装計画`2026-10-13-git-status.md`。`gitstate.py`(`read_git_state`・`describe`・`tooltip`)と、ヘッダーのチップ(`MainView.git_chip`・`refresh_git`・`request_git_refresh`)。確定時に直したこと: パス指定を固定(`:(glob)*.json`と予約名の除外)にした・`Runner`は`-C`・`describe`が`error`を扱う。実装中の判断: ツールチップは兄弟要素・`run.io_bound`の`None`を捨てる。ネイティブで実機確認済み(2026-10-13。Windows のコンソール窓だけ未確認)。レビューの Minor 1・2 は修正済み(b449203)、Minor 3(巨大リポジトリで遅い)は承知のうえ保留。次は、マージ後に 4 番目(コミットとプッシュ)の設計。
+- 要望 10 の 4 番目の子(コミットとプッシュ)を、ネイティブ方式(`executing-plans`)で実装した。設計書`2026-10-13-git-commit-push-design.md`(承認済み)、実装計画`2026-10-13-git-commit-push.md`(6 タスク)。
+  - `gitops.py`(`list_changes`・`commit`・`push`・`default_message`・`valid_name`)、`gitstate.run_git`・`failure_reason`の公開(`GIT_TERMINAL_PROMPT=0`)、`forms.open_commit_dialog`、`MainView`の`Git`メニュー(左から 4 つ目)・`git_reason`・`update_git_menu`・`run_commit`・`run_push`・`git_busy`・`later`、`Ctrl/Cmd+K`(コミット)・`Ctrl/Cmd+Shift+K`(プッシュ)。
+  - 決めたこと: コミットは一覧から選ぶ(既定は全選択)・メッセージは自動の案つきで編集可(前回の案と同じときだけ更新)・ボタンは「コミット」と「コミットしてプッシュ」・ブランチ切り替えは入れない・上流なしはプッシュ不可。`commit --only`で選んだファイルだけ(別に stage したファイルは入れず、その stage も残る)。
+  - 実機で分かったこと: `status -z`のパスはルート基準(名前は最後の`/`以降)・改名は追加と削除の 2 件・`git show`は同内容の削除+追加を改名にまとめる(テストは`--no-renames`)・BSD の`sed`は`\b`非対応。
+- 全体レビュー(fable): Critical なし。Important 1 件(作業ツリーでないと「状態を読み直す」まで押せない)は修正済み(d19b549。`refresh`は常に可)。
+- **保留した Minor**(`.superpowers/sdd/2026-10-13-git-commit-push/progress.md`にも記録): (1) 確認の間に格納先を変えると名前と`project_dir`がずれる〔`commit`が再検査するので誤コミットなし〕 (2) `list_changes`がプロジェクト名として不正な名前(`a*b.json`等)も返し、チェックしたままだとコミット全体が失敗する (3) `add`成功後に`commit`が失敗すると stage が残る (4) ssh のパスフレーズ・ホスト鍵確認は止まらない〔`ssh -o BatchMode=yes`の検討。Windows のタイムアウト後の復帰も要確認〕 (5) ダイアログの二重起動・閉じた画面での`request_git_refresh`の例外・`commit_files`の予期しない例外が通知されない (6) 開いている間は`push_blocked`が更新されない。
+- 未了: 実機確認(押せない項目のツールチップが出るか・ヘッダーの幅〔メニューが 5 つ〕・実際のコミットとプッシュ・拒否の通知・ダークテーマ)、Minor 4・3 を今回含めるかの判断、push と`develop`向け PR(指示待ち)。マージ後は 5 番目(プルとマージ)の設計。
+
+**2026-10-13 の作業(要望 10 の 3 番目の子。PR #13・#14 で`develop`へマージ済み、`develop`は 41f3091)**
+
+- git の状態表示(`gitstate.py`・ヘッダーのチップ)。設計書`2026-10-12-git-status-design.md`(2026-10-13 確定)、実装計画`2026-10-13-git-status.md`。実機確認済み(Windows のコンソール窓のみ未)。レビューの Minor 1・2 は修正済み(b449203)、Minor 3(巨大リポジトリで遅い)は保留。ローカルのマージ済みブランチは削除済み。
 
 **2026-10-12 の作業(`develop` は 210766f。テスト 2,256 件と `ty check` が通る)**
 
