@@ -11,9 +11,11 @@ from datetime import date, datetime, time
 from enum import Enum
 from typing import Any
 
+from projectapp.events import sort_events
 from projectapp.models import (
     Assignee,
     Category,
+    Event,
     Level,
     Member,
     Parameter,
@@ -34,7 +36,7 @@ _MISSING = object()
 
 @dataclass(frozen=True, eq=False)
 class Conflict:
-    kind: str  # task・section・member・category・parameter・url_template・setting
+    kind: str  # task・section・member・category・event・parameter・url_template・setting
     key: str  # id(パラメータ・テンプレートは名前)
     label: str  # 画面に出す名前
     field: str  # 画面に出す項目名。削除と変更の衝突は`DELETED`
@@ -121,7 +123,8 @@ class _Merger:
         """1 件の記録を 3 者マージする。`None`は存在しないこと。結果が`None`なら削除。"""
         if ours is None and theirs is None:
             return None
-        label = str((ours or theirs or base or {}).get("name", key))
+        shown = ours or theirs or base or {}
+        label = str(shown.get("name") or shown.get("text") or key)
         if base is None:
             if ours is None:
                 return theirs
@@ -171,6 +174,7 @@ MEMBER_LABELS = {"name": "名前", "ratio": "基本比率", "levels": "段階の
 CATEGORY_LABELS = {"name": "名前", "kind": "種別", "expiry_date": "有効期限", "color": "色", "prj_code": "PRJコード"}
 PARAMETER_LABELS = {"levels": "段階"}
 TEMPLATE_LABELS = {"pattern": "URLの型"}
+EVENT_LABELS = {"start": "開始日", "end": "終了日", "text": "文字列", "color": "色"}
 SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間", "work_start": "始業時刻", "actual_mode": "実績の記録方式"}
 
 
@@ -183,6 +187,10 @@ def _categories(project: Project) -> dict[str, Record]:
         c.id: {"name": c.name, "kind": c.kind, "expiry_date": c.expiry_date, "color": c.color, "prj_code": c.prj_code}
         for c in project.categories
     }
+
+
+def _events(project: Project) -> dict[str, Record]:
+    return {e.id: {"start": e.start, "end": e.end, "text": e.text, "color": e.color} for e in project.events}
 
 
 def _parameters(project: Project) -> dict[str, Record]:
@@ -256,6 +264,7 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
     assert settings is not None
     members = merger.collection("member", MEMBER_LABELS, _members(base), _members(ours), _members(theirs))
     categories = merger.collection("category", CATEGORY_LABELS, _categories(base), _categories(ours), _categories(theirs))
+    events = merger.collection("event", EVENT_LABELS, _events(base), _events(ours), _events(theirs))
     parameters = merger.collection("parameter", PARAMETER_LABELS, _parameters(base), _parameters(ours), _parameters(theirs))
     templates = merger.collection("url_template", TEMPLATE_LABELS, _templates(base), _templates(ours), _templates(theirs))
     seen: set[str] = set()  # 同名で id の違うメンバーは、読み直すと片方が捨てられるので、名前を変えて両方残す
@@ -340,6 +349,7 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
             Category(r["name"], r["kind"], r["expiry_date"], r["color"], r["prj_code"], id=key)
             for key, r in categories.items()
         ],
+        events=sort_events([Event(r["start"], r["end"], r["text"], r["color"], id=key) for key, r in events.items()]),
         parameters=[Parameter(key, [Level(n, v) for n, v in r["levels"]]) for key, r in parameters.items()],
         url_templates=[UrlTemplate(key, r["pattern"]) for key, r in templates.items()],
     )

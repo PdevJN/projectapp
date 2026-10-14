@@ -11,6 +11,7 @@ from nicegui.events import ValueChangeEventArguments
 from projectapp import arrange
 from projectapp.arrange import Position, section_key
 from projectapp.calendar import DayKind, day_kind
+from projectapp.events import assign_lanes, cell_colors, color_hex, column_span
 from projectapp.categories import by_id, chip_text
 from projectapp.config import (
     DEFAULT_NAME_WIDTH_PX,
@@ -21,7 +22,7 @@ from projectapp.config import (
 from projectapp.filtering import TaskFilter, matches, section_has_match, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
-from projectapp.models import MAX_SECTION_DEPTH, Category, Priority, Project, Section, SectionPath, Status, Task, TaskKind
+from projectapp.models import MAX_SECTION_DEPTH, Category, Event, Priority, Project, Section, SectionPath, Status, Task, TaskKind
 from projectapp.timeline import (
     in_range,
     Band,
@@ -122,6 +123,15 @@ PRIORITY_CSS = "\n".join(
     f"body.body--dark .{cls} {{ --pbg: {PRIORITY_DARK_BACKGROUNDS[priority]}; }}"
     for priority, cls in PRIORITY_CLASSES.items()
 )
+EVENT_ROW_HEIGHT_PX = 16
+EVENT_CSS = (
+    ".event-fill { position: absolute; inset: 0; background: var(--ev); opacity: 0.45 }\n"
+    ".event-tint { background: var(--ev); opacity: 0.18 }\n"
+    "body.body--dark .event-fill { opacity: 0.35 }\n"
+    "body.body--dark .event-tint { opacity: 0.14 }"
+)
+
+
 @dataclass(frozen=True)
 class ViewOptions:
     """ガントチャートの表示の設定。既定値が、通常の画面と同じ描画になる。"""
@@ -130,6 +140,7 @@ class ViewOptions:
     scale: Scale | None = None  # None は、ツールバーのスケール
     show_chips: bool = True  # 名前欄のチップと進捗
     show_alerts: bool = True  # 予定超過の赤みと、割り当て超過の縞
+    show_events: bool = True  # イベントの帯とセルの色
     read_only: bool = False  # 編集の部品・クリック・ドラッグをなくす
 
 
@@ -614,6 +625,7 @@ class GanttChart:
         ui.add_css(STATUS_CSS)
         ui.add_css(PRIORITY_CSS)
         ui.add_css(LINK_CSS)
+        ui.add_css(EVENT_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
@@ -683,6 +695,7 @@ class GanttChart:
             self.gridlines(columns, width, top)
             if self.view_scale is Scale.DAY:
                 self.stripes(columns, width, top)
+            self.event_tints(columns, width, top)
             self.header(columns, width)
             self.no_match_message()
             self.links(columns, width)
@@ -759,6 +772,60 @@ class GanttChart:
             " pointer-events: none"
         ).mark("stripes")
 
+    def shown_events(self) -> list[Event]:
+        return self.project.events if self.options.show_events else []
+
+    def event_tints(self, columns: list[Column], width: int, top: int) -> None:
+        """イベントの期間のセルの色。内容は定数と検証済みの色だけで、利用者の文字列を含まない。"""
+        colors = cell_colors(self.shown_events(), columns)
+        if not any(colors):
+            return
+        cells = "".join(
+            f'<div class="event-tint" style="width:{width}px;--ev:{color_hex(color)}"></div>'
+            if color
+            else f'<div style="width:{width}px"></div>'
+            for color in colors
+        )
+        ui.html(f'<div style="display:flex;height:100%">{cells}</div>', sanitize=False).style(
+            f"position: absolute; top: {top}px; bottom: 0; left: var(--name-w); pointer-events: none"
+        ).mark("event-tints")
+
+    def event_rows(self, columns: list[Column], width: int) -> None:
+        """日付の下の帯。重なるイベントは段を重ねる。見出しの中なので、縦にも横にも固定される。"""
+        events = self.shown_events()
+        lanes = assign_lanes(events, columns)
+        drawn: list[tuple[int, int, int]] = []  # (イベントの添字, 先頭の列, 列数)
+        for i, event in enumerate(events):
+            span = column_span(event, columns)
+            if span is not None:
+                drawn.append((i, span[0], span[1]))
+        used_lanes = sorted({lanes[i] for i, _, _ in drawn})  # 描くイベントだけで、段を詰める
+        for n, lane in enumerate(used_lanes):
+            style = f"height: {EVENT_ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
+            with ui.row().classes("items-center no-wrap gap-0").style(style).mark(f"event-row-{n}"):
+                self.header_spacer(f"event-row-{n}-spacer")
+                track = ui.element("div").style(
+                    f"position: relative; flex: none; height: 100%; width: {width * len(columns)}px"
+                )
+                with track:
+                    for i, first, count in drawn:
+                        if lanes[i] == lane:
+                            self.event_bar(events[i], first * width, count * width)
+
+    def event_bar(self, event: Event, left: int, bar_width: int) -> None:
+        bar = ui.element("div").style(
+            f"position: absolute; left: {left}px; width: {bar_width}px; top: 0;"
+            f" height: {EVENT_ROW_HEIGHT_PX}px; overflow: clip; --ev: {color_hex(event.color)}"
+        )
+        bar._props["title"] = event.text  # 属性の値として渡る(HTML にはならない)。全文はマウスオーバーで出す
+        with bar.mark(f"event-bar-{event.id}"):
+            ui.element("div").classes("event-fill")
+            # 帯が画面より広くても、名前の列の右端に文字が残るよう、帯の中で固定する(年・月の帯と同じ)
+            ui.label(event.text).style(
+                "position: sticky; left: var(--name-w); display: inline-block; padding: 0 4px;"
+                " font-size: 10px; line-height: 16px; white-space: nowrap"
+            )
+
     def header(self, columns: list[Column], width: int) -> None:
         """年・月の帯(結合セル)と、日・曜日の見出し。月次スケールに月の帯はない。"""
         header_style = f"position: sticky; top: 0px; z-index: {STICKY_Z_HEADER}"
@@ -767,6 +834,7 @@ class GanttChart:
             if self.view_scale is not Scale.MONTH:
                 self.band_row(month_bands(columns), width, "month-band")
             self.label_row(columns, width)
+            self.event_rows(columns, width)
 
     def header_spacer(self, marker: str) -> None:
         """見出しの左端の空白。縦にも横にも固定された見出しの中で、横スクロールでも左に残る。"""

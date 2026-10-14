@@ -14,6 +14,7 @@ from projectapp.models import (
     ActualMode,
     Assignee,
     Category,
+    Event,
     Level,
     Member,
     Parameter,
@@ -769,7 +770,7 @@ def test_legacy_project_codes_become_categories(tmp_path: Path) -> None:
     first, second = loaded.categories
     assert [t.category_id for t in loaded.tasks] == [first.id, second.id, first.id, None]
     raw = json.loads(save_project(loaded, tmp_path, overwrite=True).read_text(encoding="utf-8"))
-    assert raw["version"] == 3 and len(raw["categories"]) == 2
+    assert raw["version"] == 4 and len(raw["categories"]) == 2
 
 
 @pytest.mark.parametrize("missing", ["delete", "null"])
@@ -790,7 +791,7 @@ def test_legacy_code_that_is_not_a_valid_prj_code_keeps_only_the_name(tmp_path: 
     assert [(c.name, c.prj_code) for c in loaded.categories] == [("設計 A", ""), ("A B", "")]
     raw = json.loads(save_project(loaded, tmp_path, overwrite=True).read_text(encoding="utf-8"))
     assert load_project(tmp_path / "demo.json").categories == loaded.categories  # 書き戻したファイルを、そのまま読める
-    assert raw["version"] == 3
+    assert raw["version"] == 4
 
 
 def test_legacy_reserved_code_becomes_undecided(tmp_path: Path) -> None:
@@ -1298,7 +1299,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 3
+    assert raw["version"] == FORMAT_VERSION == 4
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1366,7 +1367,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 3
+    assert raw["version"] == FORMAT_VERSION == 4
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -1406,7 +1407,7 @@ def test_a_version_1_file_gets_unique_ids(tmp_path: Path) -> None:
     assert all(len(i) == 8 for i in ids)
     assert loaded.sections[0].tasks[0].assignees == [Assignee("田中", 0.6), Assignee("鈴木", 0.4)]
     raw = json.loads(save_project(loaded, tmp_path, overwrite=True).read_text(encoding="utf-8"))
-    assert raw["version"] == 3
+    assert raw["version"] == 4
 
 
 def test_version_1_ids_avoid_the_ids_in_the_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1625,3 +1626,98 @@ def test_dumps_rejects_duplicate_ids() -> None:
     two = Task("b", id="same")
     with pytest.raises(ValueError):
         dumps_project(Project("p", date(2026, 10, 1), tasks=[one, two]))
+
+
+def test_events_roundtrip_and_are_ordered_as_saved(tmp_path: Path) -> None:
+    a = Event(date(2026, 10, 20), date(2026, 10, 24), "リリース", "red", id="e1")
+    b = Event(date(2026, 10, 1), date(2026, 10, 1), "休み", "gray", id="e2")
+    project = Project("p", events=[a, b])
+    path = save_project(project, tmp_path)
+    loaded = load_project(path)
+    assert loaded.events == [a, b]
+    assert [e.id for e in loaded.events] == ["e1", "e2"]
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["version"] == 4
+    assert raw["events"][0] == {"start": "2026-10-20", "end": "2026-10-24", "text": "リリース", "color": "red", "id": "e1"}
+
+
+def test_version_3_file_loads_without_events(tmp_path: Path) -> None:
+    path = save_project(Project("p"), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["version"] = 3
+    del raw["events"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).events == []
+
+
+def test_version_3_file_ignores_an_events_key(tmp_path: Path) -> None:
+    path = save_project(Project("p", events=[Event(date(2026, 10, 1), date(2026, 10, 1), "x", "red", id="e1")]), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["version"] = 3
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).events == []
+
+
+def test_version_4_file_without_events_key_is_empty(tmp_path: Path) -> None:
+    path = save_project(Project("p"), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["events"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).events == []
+
+
+def test_event_color_is_lowercased_on_load(tmp_path: Path) -> None:
+    path = save_project(Project("p", events=[Event(date(2026, 10, 1), date(2026, 10, 1), "x", "red", id="e1")]), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["events"][0]["color"] = " Red "
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).events[0].color == "red"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"start": "2026-10-02", "end": "2026-10-01"},
+        {"start": "20261001"},
+        {"start": 20261001},
+        {"end": None},
+        {"text": ""},
+        {"text": "あ" * 31},
+        {"text": 5},
+        {"color": "#ff0000"},
+        {"color": "transparent"},
+        {"color": None},
+        {"id": ""},
+        {"id": 3},
+    ],
+)
+def test_invalid_event_is_rejected(tmp_path: Path, change: dict) -> None:
+    path = save_project(Project("p", events=[Event(date(2026, 10, 1), date(2026, 10, 1), "x", "red", id="e1")]), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["events"][0].update(change)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_project(path)
+
+
+@pytest.mark.parametrize("value", ["x", 1, [1], [{"start": "2026-10-01"}]])
+def test_malformed_events_are_rejected(tmp_path: Path, value: object) -> None:
+    path = save_project(Project("p"), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["events"] = value
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_project(path)
+
+
+def test_duplicate_event_ids_are_rejected_on_save_and_load(tmp_path: Path) -> None:
+    from projectapp.storage import dumps_project
+
+    same = [Event(date(2026, 10, 1), date(2026, 10, 1), "a", "red", id="e1"), Event(date(2026, 10, 2), date(2026, 10, 2), "b", "red", id="e1")]
+    with pytest.raises(ValueError, match="イベント"):
+        dumps_project(Project("p", events=same))
+
+
+def test_new_ids_do_not_collide_with_event_ids() -> None:
+    project = Project("p", events=[Event(date(2026, 10, 1), date(2026, 10, 1), "a", id="e1")])
+    assert "e1" in project.used_ids()

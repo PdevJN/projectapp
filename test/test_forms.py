@@ -7,9 +7,11 @@ import projectapp.models as models
 from nicegui import ui
 from nicegui.testing import User
 
+from projectapp.models import Event
 from projectapp.categories import COLOR_HEX, COLOR_LABELS, COLORS, CategoryEdit
 from projectapp.forms import (
     CategoryRow,
+    EventRow,
     build_category_edit,
     LevelRow,
     MemberRow,
@@ -32,6 +34,7 @@ from projectapp.forms import (
     open_file_dialog,
     open_name_dialog,
     open_section_dialog,
+    build_event_list,
     open_settings_dialog,
     open_unsaved_dialog,
     parse_datetime,
@@ -1797,3 +1800,130 @@ async def test_a_category_is_laid_out_in_two_rows_so_long_text_fits(user: User) 
     assert "grow" in element("kind").classes  # 種別は、2 段目の残りの幅を使う(全角 20 文字)
     assert "w-48" in element("prj").classes  # PRJコードは、半角 20 文字が収まる幅
 
+
+TODAY = date(2026, 10, 15)
+
+
+def test_build_event_list_normalizes_dates_and_color_and_sorts() -> None:
+    rows = [
+        EventRow(None, "10/20", "10/24", " リリース ", " Red "),
+        EventRow("e1", "2026-10-01", "20261003", "休み", "gray"),
+    ]
+    built = build_event_list(rows, {"e1"}, TODAY)
+    assert [(e.start, e.end, e.text, e.color) for e in built] == [
+        (date(2026, 10, 1), date(2026, 10, 3), "休み", "gray"),
+        (date(2026, 10, 20), date(2026, 10, 24), "リリース", "red"),
+    ]
+    assert built[0].id == "e1" and built[1].id not in {"e1", ""}
+
+
+def test_build_event_list_does_not_roll_dates_into_next_year() -> None:
+    (built,) = build_event_list([EventRow(None, "10/1", "10/2", "x", "red")], set(), TODAY)  # 10/1 は過ぎた日
+    assert built.start == date(2026, 10, 1)
+
+
+def test_build_event_list_ignores_a_blank_new_row_but_not_a_blank_existing_one() -> None:
+    assert build_event_list([EventRow(None, "", "", "", "gray")], set(), TODAY) == []
+    with pytest.raises(ValueError):
+        build_event_list([EventRow("e1", "", "", "", "gray")], {"e1"}, TODAY)
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        (EventRow(None, "", "10/2", "x", "red"), "開始日"),
+        (EventRow(None, "10/1", "", "x", "red"), "終了日"),
+        (EventRow(None, "あした", "10/2", "x", "red"), "開始日"),
+        (EventRow(None, "10/3", "10/2", "x", "red"), "終了日は開始日以降"),
+        (EventRow(None, "10/1", "10/2", "", "red"), "文字列"),
+        (EventRow(None, "10/1", "10/2", "あ" * 31, "red"), "30"),
+        (EventRow(None, "10/1", "10/2", "x", "#ff0000"), "色"),
+        (EventRow(None, "10/1", "10/2", "x", "transparent"), "色"),
+        (EventRow(None, "10/1", "10/2", "x", ""), "色"),
+    ],
+)
+def test_build_event_list_rejects_invalid_rows(row: EventRow, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        build_event_list([row], set(), TODAY)
+
+
+def mount_event_settings(events: list[Event], applied: list[int], received: list[list[Event]]) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5,
+                time(9, 0),
+                lambda h, s, m: applied.append(1),
+                events=events,
+                on_events=received.append,
+                used_ids={e.id for e in events},
+            ),
+        )
+
+
+async def test_adding_an_event_applies_it(user: User) -> None:
+    applied: list[int] = []
+    received: list[list[Event]] = []
+    mount_event_settings([], applied, received)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-event-add").click()
+    await asyncio.sleep(0.2)
+    user.find(marker="settings-event-0-start").type("2026-10-20")
+    user.find(marker="settings-event-0-end").type("2026-10-24")
+    user.find(marker="settings-event-0-text").type("リリース")
+    user.find(marker="settings-event-0-color").elements.pop().set_value("Orange")
+    user.find(marker="settings-apply").click()
+    assert applied == [1]
+    ((event,),) = received
+    assert (event.start, event.end, event.text, event.color) == (date(2026, 10, 20), date(2026, 10, 24), "リリース", "orange")
+
+
+async def test_event_swatch_follows_the_color_text(user: User) -> None:
+    mount_event_settings([Event(date(2026, 10, 1), date(2026, 10, 2), "x", "red", id="e1")], [], [])
+    await user.open("/")
+    user.find("open").click()
+    swatch = user.find(marker="settings-event-0-swatch").elements.pop()
+    assert "#ff0000" in swatch._style["color"]
+    user.find(marker="settings-event-0-color").elements.pop().set_value("nonsense")
+    assert swatch._style["color"] != "#ff0000"  # 不正な名前では、色を出さない(灰色)
+
+
+async def test_removing_an_event_applies_the_rest(user: User) -> None:
+    a = Event(date(2026, 10, 1), date(2026, 10, 2), "a", "red", id="e1")
+    b = Event(date(2026, 10, 5), date(2026, 10, 6), "b", "blue", id="e2")
+    received: list[list[Event]] = []
+    mount_event_settings([a, b], [], received)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-event-0-remove").click()
+    await asyncio.sleep(0.2)
+    user.find(marker="settings-apply").click()
+    assert [e.id for e in received[0]] == ["e2"]
+
+
+async def test_invalid_event_keeps_the_dialog_and_calls_nothing(user: User) -> None:
+    applied: list[int] = []
+    received: list[list[Event]] = []
+    mount_event_settings([], applied, received)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-event-add").click()
+    await asyncio.sleep(0.2)
+    user.find(marker="settings-event-0-start").type("10/20")
+    user.find(marker="settings-event-0-end").type("10/10")
+    user.find(marker="settings-event-0-text").type("x")
+    user.find(marker="settings-apply").click()
+    await user.should_see("終了日は開始日以降")
+    assert applied == [] and received == []
+
+
+async def test_unchanged_events_are_not_reapplied(user: User) -> None:
+    received: list[list[Event]] = []
+    mount_event_settings([Event(date(2026, 10, 1), date(2026, 10, 2), "a", "red", id="e1")], [], received)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-apply").click()
+    assert received == []

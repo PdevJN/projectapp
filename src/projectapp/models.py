@@ -8,7 +8,7 @@ import secrets
 import unicodedata
 from enum import StrEnum
 
-FORMAT_VERSION = 3  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す)
+FORMAT_VERSION = 4  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント)
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -23,6 +23,7 @@ MAX_PROJECT_CODE_LENGTH = 20  # PRJコードの最大文字数
 MAX_TASK_NAME_LENGTH = 50  # タスク名の最大文字数
 MAX_CATEGORY_NAME_LENGTH = 30  # カテゴリの名前の最大文字数
 MAX_CATEGORY_KIND_LENGTH = 20  # カテゴリの種別の最大文字数
+MAX_EVENT_TEXT_LENGTH = 30  # イベントの文字列の最大文字数
 HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
 
@@ -109,6 +110,17 @@ class Level:
 class Parameter:
     name: str
     levels: list[Level] = field(default_factory=list)
+
+
+@dataclass
+class Event:
+    """ガントチャートに出すイベント(プロジェクト共通)。日付の下の帯と、期間のセルの色になる。"""
+
+    start: date
+    end: date  # 終了日(含む)。start 以降
+    text: str
+    color: str = "gray"  # events.CSS_COLORS のどれか(小文字)
+    id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する
 
 
 @dataclass
@@ -203,6 +215,7 @@ class Project:
     url_templates: list[UrlTemplate] = field(default_factory=list)  # リンクの URL の型(プロジェクト共通)
     parameters: list[Parameter] = field(default_factory=list)  # 相対比率のパラメータ(プロジェクト共通)
     categories: list[Category] = field(default_factory=list)  # カテゴリ(プロジェクト共通。「未定」は含まない)
+    events: list[Event] = field(default_factory=list)  # イベント(プロジェクト共通。並びが色の優先順で、後ろが勝つ)
 
     def all_tasks(self) -> list[Task]:
         """セクションなしのタスク、続いて各セクションを深さ優先で(そのタスク → そのサブセクション)。"""
@@ -212,10 +225,11 @@ class Project:
         return tasks
 
     def used_ids(self) -> set[str]:
-        """タスク・メンバー・セクション・カテゴリの id。新しい id が既存と重ならないように、振る側が渡す。"""
+        """タスク・メンバー・セクション・カテゴリ・イベントの id。新しい id が既存と重ならないように、振る側が渡す。"""
         return (
             {t.id for t in self.all_tasks()}
             | {m.id for m in self.members}
             | {s.id for _, s in walk_sections(self.sections)}
             | {c.id for c in self.categories}
+            | {e.id for e in self.events}
         )

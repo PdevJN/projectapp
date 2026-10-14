@@ -3,7 +3,7 @@
 from collections.abc import Awaitable, Callable, Collection
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from datetime import datetime, time
+from datetime import date, datetime, time
 from decimal import Decimal
 from math import isfinite
 from typing import Any
@@ -11,6 +11,8 @@ from typing import Any
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
+from projectapp.dateinput import parse_date_input
+from projectapp.events import color_hex, normalize_color, sort_events, validate_events
 from projectapp.categories import (
     COLOR_HEX,
     COLOR_LABELS,
@@ -29,6 +31,8 @@ from projectapp.models import (
     MAX_ALLOCATION,
     MAX_CATEGORY_KIND_LENGTH,
     MAX_CATEGORY_NAME_LENGTH,
+    MAX_EVENT_TEXT_LENGTH,
+    Event,
     MAX_LEVEL_VALUE,
     MAX_PROGRESS,
     MAX_PROJECT_CODE_LENGTH,
@@ -417,6 +421,44 @@ class CategoryRow:
     expiry: str  # YYYY-MM-DD か空
     color: str
     prj_code: str
+
+
+@dataclass
+class EventRow:
+    """設定ダイアログのイベントの 1 行。originalは、開いた時点のイベントの id(新しい行はNone)。"""
+
+    original: str | None
+    start: str  # YYYY-MM-DD か、省略形(10/20・1020・20261020)
+    end: str
+    text: str
+    color: str  # 色名
+
+
+def build_event_list(rows: list[EventRow], taken: Collection[str], today: date) -> list[Event]:
+    """入力の行を検証して、並べ替えたイベントの一覧にする。完全に空の新しい行は無視する。新しい行には、既存の id と重ならない id を振る。"""
+    used = set(taken)
+    built: list[Event] = []
+    for row in rows:
+        if row.original is None and not any(t.strip() for t in (row.start, row.end, row.text)):
+            continue
+        days = []
+        for text, label in ((row.start, "開始日"), (row.end, "終了日")):
+            parsed = parse_date_input(text, today, roll_forward=False)
+            if parsed is None:
+                raise ValueError(f"イベントの{label}を日付で入力してください(例: 2026-10-20、10/20)")
+            days.append(date.fromisoformat(parsed))
+        color = normalize_color(row.color)
+        if color is None:
+            raise ValueError(f"イベントの色が正しくありません: {row.color.strip()!r}(red・orange・gray などの色名)")
+        event_id = row.original or new_id(used)
+        used.add(event_id)
+        built.append(Event(days[0], days[1], row.text.strip(), color, event_id))
+    validate_events(built)
+    return sort_events(built)
+
+
+def event_key(e: Event) -> tuple:
+    return (e.id, e.start, e.end, e.text, e.color)
 
 
 # 色の名前(ラベル)→ 色コード(Vue の式)。NiceGUI の select は、選択肢の value に番号(0〜9)を渡すので、色名では引けない。名前は一意
@@ -876,9 +918,11 @@ def open_settings_dialog(
     categories: list[Category] | None = None,
     category_usage: Callable[[str], int] | None = None,
     on_categories: Callable[[CategoryEdit], object] | None = None,
+    events: list[Event] | None = None,
+    on_events: Callable[[list[Event]], object] | None = None,
     used_ids: Collection[str] = (),
 ) -> None:
-    card_width = "w-[30rem] max-w-full" if categories is None else "w-[46rem] max-w-full"
+    card_width = "w-[30rem] max-w-full" if categories is None and events is None else "w-[46rem] max-w-full"
     with disposable(ui.dialog()) as dialog, ui.card().classes(card_width):
         ui.label("稼働時間の設定").classes("text-h6")
         hours = ui.number(
@@ -1046,6 +1090,71 @@ def open_settings_dialog(
             ui.button("カテゴリを追加", icon="add", on_click=add_category).props("flat dense").mark(
                 "settings-category-add"
             )
+        event_rows = [EventRow(e.id, e.start.isoformat(), e.end.isoformat(), e.text, e.color) for e in events or []]
+        if events is not None:
+            ui.label("イベント").classes("text-caption text-grey")
+            ui.label("開始日〜終了日に、文字列をガントチャートの日付の下に出し、期間のセルを色で塗ります").classes(
+                "text-caption text-grey"
+            )
+
+            @ui.refreshable
+            def event_table() -> None:
+                with ui.column().classes("w-full gap-1"):
+                    for n, erow in enumerate(event_rows):
+                        with ui.column().classes("w-full gap-1").style(
+                            "border: 1px solid rgba(128, 128, 128, 0.35); border-radius: 4px; padding: 6px 8px"
+                        ):
+                            with ui.row().classes("w-full items-center no-wrap gap-2"):
+                                limit_length(
+                                    ui.input(
+                                        "文字列",
+                                        value=erow.text,
+                                        on_change=lambda e, r=erow: setattr(r, "text", e.value or ""),
+                                    )
+                                    .classes("grow")
+                                    .mark(f"settings-event-{n}-text"),
+                                    MAX_EVENT_TEXT_LENGTH,
+                                )
+                                ui.button(icon="delete", on_click=lambda _e, r=erow: remove_event(r)).props(
+                                    "flat dense color=negative"
+                                ).mark(f"settings-event-{n}-remove")
+                            with ui.row().classes("w-full items-center no-wrap gap-2"):
+                                ui.input(
+                                    "開始日",
+                                    value=erow.start,
+                                    on_change=lambda e, r=erow: setattr(r, "start", e.value or ""),
+                                ).classes("w-36").mark(f"settings-event-{n}-start")
+                                ui.input(
+                                    "終了日",
+                                    value=erow.end,
+                                    on_change=lambda e, r=erow: setattr(r, "end", e.value or ""),
+                                ).classes("w-36").mark(f"settings-event-{n}-end")
+                                swatch = ui.icon("circle").style(f"color: {swatch_color(erow.color)}")
+                                swatch.mark(f"settings-event-{n}-swatch")
+                                ui.input(
+                                    "色(red, orange, gray…)",
+                                    value=erow.color,
+                                    on_change=lambda e, r=erow, s=swatch: change_event_color(r, s, e.value or ""),
+                                ).classes("grow").mark(f"settings-event-{n}-color")
+
+            def swatch_color(text: str) -> str:
+                name = normalize_color(text)
+                return color_hex(name) if name else "#bdbdbd"
+
+            def change_event_color(erow: EventRow, swatch: ui.icon, text: str) -> None:
+                erow.color = text
+                swatch.style(f"color: {swatch_color(text)}")
+
+            def add_event() -> None:
+                event_rows.append(EventRow(None, "", "", "", "gray"))
+                event_table.refresh()
+
+            def remove_event(erow: EventRow) -> None:
+                event_rows.remove(erow)
+                event_table.refresh()
+
+            event_table()
+            ui.button("イベントを追加", icon="add", on_click=add_event).props("flat dense").mark("settings-event-add")
         error = ui.label("").classes("text-negative").mark("settings-error")
         pending: dict[str, Any] = {}
         with ui.dialog() as confirm, ui.card():
@@ -1078,23 +1187,36 @@ def open_settings_dialog(
                 return None
             return build_category_edit(category_rows, categories, used_ids)
 
-        def commit(result: tuple[float, time], edit: TemplateEdit | None, cedit: CategoryEdit | None) -> None:
+        def build_events() -> list[Event] | None:
+            if events is None:
+                return None
+            return build_event_list(event_rows, used_ids, date.today())
+
+        def commit(
+            result: tuple[float, time],
+            edit: TemplateEdit | None,
+            cedit: CategoryEdit | None,
+            elist: list[Event] | None,
+        ) -> None:
             on_apply(*result, ActualMode(mode.value))
             if edit is not None and on_templates is not None and edit.templates != templates:
                 on_templates(edit)
             if cedit is not None and on_categories is not None and (cedit.categories != categories or cedit.removed_ids):  # Category の比較は id を見ないので、内容が同じ行の入れ直しも、削除として適用する
                 on_categories(cedit)
+            if elist is not None and on_events is not None and [event_key(e) for e in elist] != [event_key(e) for e in events or []]:
+                on_events(elist)
             dialog.close()
 
         def confirm_delete() -> None:
             confirm.close()
-            commit(pending["result"], pending["edit"], pending["cedit"])
+            commit(pending["result"], pending["edit"], pending["cedit"], pending["elist"])
 
         def apply() -> None:
             try:
                 result = build_work_settings(hours.value, start.value or "")
                 edit = build_edit()
                 cedit = build_categories()
+                elist = build_events()
             except ValueError as exc:
                 error.set_text(str(exc))
                 return
@@ -1108,11 +1230,11 @@ def open_settings_dialog(
             if tasks:
                 messages.append(f"削除するカテゴリを使っているタスクが{tasks}件あります。未定に戻ります。")
             if messages:
-                pending.update(result=result, edit=edit, cedit=cedit)
+                pending.update(result=result, edit=edit, cedit=cedit, elist=elist)
                 confirm_text.set_text("\n".join(messages))
                 confirm.open()
                 return
-            commit(result, edit, cedit)
+            commit(result, edit, cedit, elist)
 
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")

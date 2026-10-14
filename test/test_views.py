@@ -17,7 +17,7 @@ from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.handoff import JSON_FILE_TYPES
 from projectapp.categories import CategoryEdit
-from projectapp.models import Assignee, Actual, ActualMode, Category, Level, Member, Parameter, Project, Section, Task, TaskUrl, UrlTemplate
+from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, Section, Task, TaskUrl, UrlTemplate
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
@@ -1571,6 +1571,14 @@ async def test_changing_the_settings_updates_the_chart(user: User, tmp_path: Pat
     user.find(marker="preview-scale").elements.pop().set_value("週次")
     assert view.gantt.options.scale.value == "週次"
     assert view.gantt.scale.value == "日次"  # ツールバーのスケールは変わらない
+
+
+async def test_unchecking_preview_events_turns_off_the_event_options(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    assert view.gantt.options.show_events is True
+    user.find(marker="preview-events").elements.pop().set_value(False)
+    assert view.gantt.options.show_events is False
+    assert view.preview is not None and view.preview.show_events is False
 
 
 async def test_a_bad_period_disables_saving_and_shows_the_reason(user: User, tmp_path: Path) -> None:
@@ -3267,6 +3275,20 @@ async def test_apply_categories_updates_the_project_and_resets_removed_categorie
     assert view.project.categories == [keep]
     assert [t.category_id for t in view.project.all_tasks()] == [keep.id, None]
     assert view.is_dirty()  # 保存はしない(編集中の判定に入る)
+
+
+async def test_apply_events_marks_the_project_dirty_and_redraws(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    view = views[0]
+    view.snapshot = asdict(view.project)
+    day = view.project.base_date
+    event = Event(day, day, "x", "red", id="e1")
+    view.apply_events([event])
+    assert view.project.events == [event]
+    assert view.is_dirty()
+    await user.should_see(marker="event-bar-e1")
 
 
 async def test_the_task_layout_is_loaded_and_saved(user: User, tmp_path: Path) -> None:

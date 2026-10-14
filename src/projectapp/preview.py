@@ -30,6 +30,7 @@ class PreviewSettings:
     scale: Scale
     show_chips: bool = True
     show_alerts: bool = True
+    show_events: bool = True
 
     def to_options(self) -> ViewOptions:
         return ViewOptions(
@@ -37,6 +38,7 @@ class PreviewSettings:
             scale=self.scale,
             show_chips=self.show_chips,
             show_alerts=self.show_alerts,
+            show_events=self.show_events,
             read_only=True,
         )
 
@@ -106,6 +108,7 @@ class PreviewBar:
                 self.alerts = ui.checkbox("予定超過の赤みと割り当て超過の縞", value=True).mark(
                     "preview-alerts"
                 )
+                self.events = ui.checkbox("イベント", value=True).mark("preview-events")
                 ui.button("戻る", icon="arrow_back", on_click=lambda: self.on_back()).props(
                     "flat"
                 ).mark("preview-back")
@@ -116,7 +119,7 @@ class PreviewBar:
             self.warning = ui.label("").classes("text-caption text-grey").mark("preview-warning")
         box.set_visibility(False)
         self.box = box
-        for widget in (self.start, self.end, self.scale, self.chips, self.alerts):
+        for widget in (self.start, self.end, self.scale, self.chips, self.alerts, self.events):
             widget.on_value_change(lambda _event: self.on_change())
 
     def show(self, settings: PreviewSettings) -> None:
@@ -128,6 +131,7 @@ class PreviewBar:
             self.scale.set_value(settings.scale.value)
             self.chips.set_value(settings.show_chips)
             self.alerts.set_value(settings.show_alerts)
+            self.events.set_value(settings.show_events)
         finally:
             self.on_change = callback
         self.set_error(None)
@@ -139,13 +143,14 @@ class PreviewBar:
         if self.box is not None:
             self.box.set_visibility(False)
 
-    def read(self) -> tuple[str, str, Scale, bool, bool]:
+    def read(self) -> tuple[str, str, Scale, bool, bool, bool]:
         return (
             self.start.value or "",
             self.end.value or "",
             Scale(self.scale.value),
             bool(self.chips.value),
             bool(self.alerts.value),
+            bool(self.events.value),
         )
 
     def set_error(self, text: str | None) -> None:
