@@ -149,3 +149,21 @@ uv run ty check src
 - ダイアログの`hide`リスナーは、`disposable`(`hide`で`dialog.delete`)より前に登録する。NiceGUI はリスナーごとに別のイベントを送り、削除済みの要素へのイベントは捨てるので、後から登録した中止の処理が呼ばれず、プルが固まる(`open_merge_conflict_dialog`。回帰テストは`test_hide_cancels_even_though_disposable_deletes_the_dialog`)。`merge --abort`の前には、アプリが書き換えたファイルを`checkout --`で index の内容に戻す(未 stage のままだと「not uptodate」で通らない)。
 - イベント(version 4)は `Project.events`(`Event`)。保存は `"events"`: `id`・`start`・`end`(`YYYY-MM-DD`)・`text`・`color`。version 3 以下の `events` キーは読まない。読込(`storage._events`)は、日付の形式・色名の小文字化・`validate_events` を通し、不正は拒否する。
 - イベントの色の層は `opacity` で薄め、ライトとダークで値を変える(`EVENT_CSS`)。`ui.html` に入れるのは検証済みの色と数値だけで、利用者の文字列は `ui.label` と `title` 属性で出す。帯の `overflow: clip` は `sticky` の文字を保つため(`hidden` だと、帯がスクロールの枠になって `sticky` が効かない)。日次の列は最低 42 列あるので、表示期間が短くても列は 42 に満たない分が足される。
+
+## 既知の見送り事項
+
+最終レビューで見つかり、直さずに見送った軽微な指摘。該当箇所を触るときに見直す。
+
+### イベントカレンダー(PR #18)
+
+- 並びが開始日順でない古いファイルは、変更しなくても「編集中」になる(保存時に開始日順へ並べ替えるため)
+- git マージで開始日と終了日を別々に変えると `start > end` になり、取り込みを拒否する(安全側の挙動)
+- セルの色が、ラベル行とイベントの帯の背後にも広がる
+- `color_hex` は、検証を通っていない色名だと `KeyError` になる
+
+### PlantUML の出力(PR #19)
+
+- 空白だけのプロジェクト名では `title` の行が構文エラーになる(アプリは空白だけの名前を許さないので実害はない)
+- `write_text` が作る `.puml` の権限が 0600 になる(`write_png` と同じ作り)
+- テストにない入力: 別名と同じ名前のタスク(`T2` など)、平日の祝日と同じ日に始まるタスク、構文を壊す文字を `render` に通すケース
+- プレビューの保存ボタンを有効にする経路が 3 つある(`on_preview_change`・`apply_preview`・`save_*` の `finally`)。`saving` 中に `on_preview_change` を許すと壊れうる
