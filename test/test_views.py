@@ -3277,6 +3277,20 @@ async def test_apply_categories_updates_the_project_and_resets_removed_categorie
     assert view.is_dirty()  # 保存はしない(編集中の判定に入る)
 
 
+async def test_apply_events_marks_the_project_dirty_and_redraws(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    view = views[0]
+    view.snapshot = asdict(view.project)
+    day = view.project.base_date
+    event = Event(day, day, "x", "red", id="e1")
+    view.apply_events([event])
+    assert view.project.events == [event]
+    assert view.is_dirty()
+    await user.should_see(marker="event-bar-e1")
+
+
 async def test_the_task_layout_is_loaded_and_saved(user: User, tmp_path: Path) -> None:
     (tmp_path / "config.json").write_text('{"task_layout": "schedule"}', encoding="utf-8")
     view = await open_members_view(user, tmp_path)

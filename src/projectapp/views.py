@@ -76,7 +76,7 @@ from projectapp.gitops import push as push_to_remote
 from projectapp.gitstate import GitKind, GitState, describe, read_git_state, tooltip
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
-from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Member, Project, Section, SectionPath, Task, new_id
+from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Event, Member, Project, Section, SectionPath, Task, new_id
 from projectapp.preview import (
     LARGE_IMAGE_MESSAGE,
     NOT_NATIVE_MESSAGE,
@@ -394,6 +394,8 @@ class MainView:
             categories=self.project.categories,
             category_usage=lambda category_id: count_category_usage(self.project, category_id),
             on_categories=self.apply_categories,
+            events=self.project.events,
+            on_events=self.apply_events,
             used_ids=self.project.used_ids(),
         )
 
@@ -685,6 +687,11 @@ class MainView:
     def apply_categories(self, edit: CategoryEdit) -> None:
         """カテゴリの編集を反映する(削除したカテゴリのタスクは未定に戻る)。保存はしない。"""
         apply_category_edit(self.project, edit)
+        self.gantt.set_project(self.project)
+
+    def apply_events(self, events: list[Event]) -> None:
+        """イベントの編集を反映する。保存はしない(編集中の判定に入る)。"""
+        self.project.events = events
         self.gantt.set_project(self.project)
 
     def save_project_clicked(self) -> None:
