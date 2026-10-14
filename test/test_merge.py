@@ -7,6 +7,7 @@ from projectapp.models import (
     ActualMode,
     Assignee,
     Category,
+    Event,
     Level,
     Member,
     Parameter,
@@ -99,6 +100,46 @@ def test_categories_merge_by_id() -> None:
     theirs = proj(categories=[Category("開発", prj_code="PRJ-1", id="c1"), Category("保守", id="c2")])
     merged = merge_projects(base, ours, theirs).project
     assert [(c.id, c.color, c.prj_code) for c in merged.categories] == [("c1", "red", "PRJ-1"), ("c2", "blue", "")]
+
+
+def ev(id: str, start: str = "2026-10-01", end: str = "2026-10-03", text: str = "休み", color: str = "gray") -> Event:
+    return Event(date.fromisoformat(start), date.fromisoformat(end), text, color, id=id)
+
+
+def test_events_merge_by_id_field_by_field_and_stay_sorted() -> None:
+    base = proj(events=[ev("e1")])
+    ours = proj(events=[ev("e1", color="red")])
+    theirs = proj(events=[ev("e1", end="2026-10-05"), ev("e2", "2026-09-20", "2026-09-21", "研修")])
+    result = merge_projects(base, ours, theirs)
+    assert result.conflicts == []
+    assert [(e.id, e.end.isoformat(), e.color) for e in result.project.events] == [("e2", "2026-09-21", "gray"), ("e1", "2026-10-05", "red")]
+
+
+def test_event_changed_differently_is_a_conflict_with_a_readable_label() -> None:
+    base = proj(events=[ev("e1")])
+    ours = proj(events=[ev("e1", text="休暇")])
+    theirs = proj(events=[ev("e1", text="研修")])
+    result = merge_projects(base, ours, theirs, {("event", "e1", "文字列"): THEIRS})
+    (conflict,) = result.conflicts
+    assert (conflict.kind, conflict.label, conflict.field) == ("event", "休暇", "文字列")
+    assert result.project.events[0].text == "研修"
+    assert merge_projects(base, ours, theirs).project.events[0].text == "休暇"
+
+
+def test_event_deleted_by_one_side_and_changed_by_the_other_is_a_conflict() -> None:
+    base = proj(events=[ev("e1")])
+    ours = proj(events=[])
+    theirs = proj(events=[ev("e1", color="red")])
+    result = merge_projects(base, ours, theirs, {("event", "e1", DELETED): THEIRS})
+    assert [e.id for e in result.project.events] == ["e1"]
+    assert merge_projects(base, ours, theirs).project.events == []
+
+
+def test_event_deleted_by_one_side_and_unchanged_by_the_other_is_deleted() -> None:
+    base = proj(events=[ev("e1"), ev("e2", "2026-10-10", "2026-10-11")])
+    ours = proj(events=[ev("e2", "2026-10-10", "2026-10-11")])
+    theirs = base
+    assert [e.id for e in merge_projects(base, ours, theirs).project.events] == ["e2"]
 
 
 def test_parameters_and_url_templates_merge_by_name() -> None:
