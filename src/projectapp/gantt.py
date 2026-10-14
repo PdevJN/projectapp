@@ -793,7 +793,7 @@ class GanttChart:
     def event_rows(self, columns: list[Column], width: int) -> None:
         """日付の下の帯。重なるイベントは段を重ねる。見出しの中なので、縦にも横にも固定される。"""
         events = self.shown_events()
-        lanes = assign_lanes(events)
+        lanes = assign_lanes(events, columns)
         drawn: list[tuple[int, int, int]] = []  # (イベントの添字, 先頭の列, 列数)
         for i, event in enumerate(events):
             span = column_span(event, columns)

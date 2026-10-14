@@ -148,3 +148,25 @@ def test_cell_colors_later_event_wins() -> None:
 
 def test_cell_colors_no_events() -> None:
     assert cell_colors([], day_columns(date(2026, 10, 1), 3)) == [None, None, None]
+
+
+def test_lanes_by_columns_stack_events_that_share_a_week_column() -> None:
+    columns = week_columns(date(2026, 10, 5), 4)
+    a = event("2026-10-05", "2026-10-05", id="a")
+    b = event("2026-10-07", "2026-10-07", id="b")  # 日付は重ならないが、同じ週の列に入る
+    assert assign_lanes([a, b]) == [0, 0]  # 列を渡さなければ、日付で割り当てる(日次)
+    assert assign_lanes([a, b], columns) == [0, 1]
+
+
+def test_lanes_by_columns_share_a_lane_when_columns_do_not_touch() -> None:
+    columns = week_columns(date(2026, 10, 5), 4)
+    a = event("2026-10-05", "2026-10-11")  # 1 列目
+    b = event("2026-10-12", "2026-10-12")  # 2 列目
+    assert assign_lanes([a, b], columns) == [0, 0]
+
+
+def test_lanes_by_columns_ignore_events_outside_the_columns() -> None:
+    columns = week_columns(date(2026, 10, 5), 2)
+    outside = event("2026-12-01", "2026-12-02", id="o")
+    inside = event("2026-10-05", "2026-10-05", id="i")
+    assert assign_lanes([outside, inside], columns)[1] == 0  # 描かないイベントは、段を取らない

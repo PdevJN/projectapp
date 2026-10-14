@@ -1,7 +1,6 @@
 """イベントカレンダーの規則(検証・段の割り当て・列との重なり・セルの色)。NiceGUI に依存しない。"""
 
 from collections.abc import Sequence
-from datetime import date
 
 from projectapp.models import MAX_EVENT_TEXT_LENGTH, Event, has_control_char
 from projectapp.timeline import Column
@@ -83,20 +82,31 @@ def sort_events(events: Sequence[Event]) -> list[Event]:
     return sorted(events, key=lambda e: (e.start, e.end))
 
 
-def assign_lanes(events: Sequence[Event]) -> list[int]:
-    """イベントごとの段(0 から)。開始の早い順に、空いた最小の段へ詰める。前の終了日の翌日に始まるなら同じ段。入力と同じ順で返す。"""
-    order = sorted(range(len(events)), key=lambda i: (events[i].start, events[i].end, i))
-    lane_ends: list[date] = []  # 各段の最後のイベントの終了日
+def assign_lanes(events: Sequence[Event], columns: Sequence[Column] | None = None) -> list[int]:
+    """イベントごとの段(0 から)。開始の早い順に、空いた最小の段へ詰める。入力と同じ順で返す。
+
+    `columns` がなければ日付で比べる(前の終了日の翌日に始まるなら同じ段)。あれば、描く列の範囲で比べる
+    (週次・月次で、日付は重ならなくても同じ列に入るイベントは、別の段にする)。列の外のイベントは段を取らない(0)。
+    """
+    keys: dict[int, tuple[int, int]] = {}  # 日付の序数、または列の添字
+    for i, e in enumerate(events):
+        if columns is None:
+            keys[i] = (e.start.toordinal(), e.end.toordinal())
+        elif (span := column_span(e, columns)) is not None:
+            keys[i] = (span[0], span[0] + span[1] - 1)
+    order = sorted(keys, key=lambda i: (keys[i], i))
+    lane_ends: list[int] = []  # 各段の最後のイベントの終わり
     lanes = [0] * len(events)
     for i in order:
+        start, end = keys[i]
         for lane, last in enumerate(lane_ends):
-            if last < events[i].start:
-                lane_ends[lane] = events[i].end
+            if last < start:
+                lane_ends[lane] = end
                 lanes[i] = lane
                 break
         else:
             lanes[i] = len(lane_ends)
-            lane_ends.append(events[i].end)
+            lane_ends.append(end)
     return lanes
 
 

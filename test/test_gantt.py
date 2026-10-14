@@ -3201,3 +3201,14 @@ async def test_user_text_is_not_injected_as_html(user: User) -> None:
     await user.open("/")
     assert "<b>" not in user.find(marker="event-tints").elements.pop().content
     await user.should_see("<b>x</b>")  # 文字としてそのまま出る
+
+
+async def test_week_scale_stacks_events_that_fall_in_the_same_week(user: User) -> None:
+    a = make_event("2026-10-05", "2026-10-05", "月曜", "red", "e1")
+    b = make_event("2026-10-07", "2026-10-07", "水曜", "blue", "e2")
+    mount_with(event_project(a, b), ViewOptions(period=(date(2026, 10, 5), date(2026, 11, 29)), scale=Scale.WEEK))
+    await user.open("/")
+    await user.should_see(marker="event-row-1")  # 同じ列に入るので、2 段になる
+    row0 = {e.id for e in user.find(marker="event-row-0").elements.pop().descendants()}
+    assert user.find(marker="event-bar-e1").elements.pop().id in row0
+    assert user.find(marker="event-bar-e2").elements.pop().id not in row0
