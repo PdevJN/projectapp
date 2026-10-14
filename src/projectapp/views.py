@@ -543,7 +543,7 @@ class MainView:
         if self.preview is None or self.saving:
             return  # 保存中は、撮っている画面を変えない
         self.preview_notice = None  # 利用者が設定を変えたので、お知らせは消す
-        start_text, end_text, scale, chips, alerts = self.preview_bar.read()
+        start_text, end_text, scale, chips, alerts, events = self.preview_bar.read()
         try:
             start, end = validate_period(start_text, end_text)
         except ValueError as exc:
@@ -557,7 +557,7 @@ class MainView:
             self.preview_bar.set_warning(None)
             self.preview_bar.set_save_enabled(False)
             return
-        self.preview = PreviewSettings(start, end, scale, chips, alerts)
+        self.preview = PreviewSettings(start, end, scale, chips, alerts, events)
         self.apply_preview(self.preview)
 
     def apply_preview(self, settings: PreviewSettings) -> None:
