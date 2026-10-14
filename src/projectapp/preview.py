@@ -92,8 +92,10 @@ class PreviewBar:
         on_change: Callable[[], object],
         on_back: Callable[[], object],
         on_save: Callable[[], object],
+        on_save_plantuml: Callable[[], object],
     ) -> None:
         self.on_change, self.on_back, self.on_save = on_change, on_back, on_save
+        self.on_save_plantuml = on_save_plantuml
         self.box: ui.column | None = None
 
     def build(self) -> None:
@@ -115,6 +117,9 @@ class PreviewBar:
                 self.save_button = ui.button(
                     "画像として保存", icon="image", on_click=lambda: self.on_save()
                 ).mark("preview-save")
+                self.plantuml_button = ui.button(
+                    "PlantUML として保存", icon="code", on_click=lambda: self.on_save_plantuml()
+                ).mark("preview-plantuml")
             self.error = ui.label("").classes("text-negative text-caption").mark("preview-error")
             self.warning = ui.label("").classes("text-caption text-grey").mark("preview-warning")
         box.set_visibility(False)
@@ -161,3 +166,4 @@ class PreviewBar:
 
     def set_save_enabled(self, enabled: bool) -> None:
         self.save_button.set_enabled(enabled)
+        self.plantuml_button.set_enabled(enabled)

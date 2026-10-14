@@ -69,6 +69,8 @@ from projectapp.handoff import (
     write_json,
 )
 from projectapp.handoff import default_filename as handoff_filename
+from projectapp.plantuml import PLANTUML_FILE_TYPES, build_plantuml, write_text
+from projectapp.plantuml import default_filename as plantuml_filename
 from projectapp.filemanager import open_folder
 from projectapp.gitops import FileChange, GitResult, PullKind, PullOps, default_message, list_changes
 from projectapp.gitops import commit as commit_files_in_git
@@ -214,7 +216,7 @@ class MainView:
             ),
             name_width=load_name_width(base_dir),
         )
-        self.preview_bar = PreviewBar(self.on_preview_change, self.exit_preview, self.save_image)
+        self.preview_bar = PreviewBar(self.on_preview_change, self.exit_preview, self.save_image, self.save_plantuml)
         self.dashboard_view = DashboardView(self.close_dashboard, self.change_dashboard_period)
 
     def apply_theme(self, theme: str) -> None:
@@ -602,6 +604,43 @@ class MainView:
             self.saving = False
             if self.zoom != 100:
                 self.run_js(zoom_js(self.zoom))
+            if self.preview is not None:
+                self.preview_bar.set_save_enabled(self.exporter.available)
+
+    async def save_plantuml(self) -> None:
+        """プレビューの設定で、ガントチャートを PlantUML のテキストにして、選んだ場所へ保存する。失敗しても、プレビューに留まる。"""
+        if self.preview is None or self.saving or not self.exporter.available:
+            return
+        settings = self.preview
+        result = build_plantuml(
+            self.project,
+            self.holidays,
+            (settings.start, settings.end),
+            settings.scale,
+            self.gantt.task_filter,
+            datetime.now(),
+            show_chips=settings.show_chips,
+            show_alerts=settings.show_alerts,
+            show_events=settings.show_events,
+        )
+        if result.task_count == 0:
+            ui.notify("出力できるタスクがありません", type="warning")
+            return
+        self.saving = True
+        self.preview_bar.set_save_enabled(False)
+        try:
+            path = await self.exporter.ask_path(plantuml_filename(self.project.name, date.today()), PLANTUML_FILE_TYPES)
+            if path is None:
+                return
+            try:
+                write_text(path, result.text)
+            except OSError as exc:
+                ui.notify(f"保存できませんでした: {exc}", type="negative")
+                return
+            note = f"(期間の外などで {result.skipped} 件を省きました)" if result.skipped else ""
+            ui.notify(f"保存しました{note}")
+        finally:
+            self.saving = False
             if self.preview is not None:
                 self.preview_bar.set_save_enabled(self.exporter.available)
 

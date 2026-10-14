@@ -22,6 +22,7 @@ from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
 from projectapp.export import PNG_FILE_TYPES, ExportError
+from projectapp.plantuml import PLANTUML_FILE_TYPES
 from projectapp.dashboard import PeriodKind
 from projectapp.timeline import Scale, effective_end
 from projectapp.gantt import ViewOptions
@@ -1614,6 +1615,91 @@ async def test_save_writes_the_png_and_notifies(user: User, tmp_path: Path) -> N
     assert exporter.asked_types == [PNG_FILE_TYPES]
     assert 0 < exporter.captured[0] <= 2.0
     await user.should_see("保存しました")
+
+
+async def test_save_plantuml_writes_the_text_and_notifies(user: User, tmp_path: Path) -> None:
+    target = tmp_path / "out" / "chart"
+    target.parent.mkdir()
+    exporter = FakeExporter(path=target)
+    view = await open_preview(user, tmp_path, exporter)
+    view.snapshot = asdict(view.project)  # open_preview がタスクを足すので、保存の直前を基準にする
+    user.find(marker="preview-plantuml").click()
+    assert await wait_until(lambda: (tmp_path / "out" / "chart.puml").exists())
+    text = (tmp_path / "out" / "chart.puml").read_text(encoding="utf-8")
+    assert text.startswith("@startgantt") and "[設計] as [T1] starts 2026-10-05 and ends 2026-10-07" in text
+    assert "title 新規プロジェクト" in text
+    assert exporter.asked == [f"新規プロジェクト_{date.today():%Y%m%d}.puml"]
+    assert exporter.asked_types == [PLANTUML_FILE_TYPES]
+    assert exporter.captured == []  # 画像化はしない
+    await user.should_see("保存しました")
+    assert view.preview is not None and not view.is_dirty()  # プロジェクトは変更扱いにならない
+
+
+async def test_save_plantuml_uses_the_preview_settings(user: User, tmp_path: Path) -> None:
+    target = tmp_path / "chart.puml"
+    exporter = FakeExporter(path=target)
+    await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-scale").elements.pop().set_value("週次")
+    user.find(marker="preview-chips").elements.pop().set_value(False)
+    user.find(marker="preview-plantuml").click()
+    assert await wait_until(lambda: target.exists())
+    text = target.read_text(encoding="utf-8")
+    assert "printscale weekly" in text and "completed" not in text
+
+
+async def test_save_plantuml_with_no_tasks_notifies_and_writes_nothing(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=tmp_path / "chart.puml")
+    view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-start").clear().type("2030-01-01")
+    user.find(marker="preview-end").clear().type("2030-01-31")  # 期間の外
+    user.find(marker="preview-plantuml").click()
+    await user.should_see("出力できるタスクがありません")
+    assert exporter.asked == [] and not list(tmp_path.glob("*.puml"))
+    assert view.preview is not None
+
+
+async def test_save_plantuml_notes_skipped_tasks(user: User, tmp_path: Path) -> None:
+    target = tmp_path / "chart.puml"
+    far = Task("遠い", planned_start=datetime(2027, 6, 1, 9), planned_end=datetime(2027, 6, 2, 18))
+    exporter = FakeExporter(path=target)
+    await open_preview(user, tmp_path, exporter, extra=far)
+    user.find(marker="preview-end").clear().type("2026-12-31")
+    user.find(marker="preview-plantuml").click()
+    assert await wait_until(lambda: target.exists())
+    await user.should_see("1 件を省きました")
+
+
+async def test_cancelling_the_plantuml_dialog_writes_nothing(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=None)
+    view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-plantuml").click()
+    assert await wait_until(lambda: exporter.asked != [])
+    assert not list(tmp_path.glob("*.puml")) and view.preview is not None
+
+
+async def test_a_plantuml_write_failure_is_reported_and_leaves_nothing(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=tmp_path / "missing" / "chart.puml")
+    view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-plantuml").click()
+    await user.should_see("保存できませんでした")
+    assert view.preview is not None and not list(tmp_path.rglob("*.tmp"))
+    assert user.find(marker="preview-plantuml").elements.pop().enabled  # もう一度押せる
+
+
+async def test_the_plantuml_button_is_disabled_when_not_native(user: User, tmp_path: Path) -> None:
+    await open_preview(user, tmp_path, FakeExporter(available=False))
+    assert not user.find(marker="preview-plantuml").elements.pop().enabled
+
+
+async def test_the_plantuml_button_is_disabled_for_a_bad_period_and_back_on_when_fixed(user: User, tmp_path: Path) -> None:
+    await open_preview(user, tmp_path, FakeExporter())
+    assert user.find(marker="preview-plantuml").elements.pop().enabled
+    user.find(marker="preview-start").clear().type("2026-12-31")
+    user.find(marker="preview-end").clear().type("2026-10-01")
+    await user.should_see("開始日が終了日以前")
+    assert not user.find(marker="preview-plantuml").elements.pop().enabled
+    user.find(marker="preview-end").clear().type("2027-01-31")
+    assert user.find(marker="preview-plantuml").elements.pop().enabled
 
 
 async def test_cancelling_the_save_dialog_writes_nothing(user: User, tmp_path: Path) -> None:
