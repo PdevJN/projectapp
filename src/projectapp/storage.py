@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 from collections.abc import Iterator
@@ -14,6 +15,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from projectapp.categories import COLORS, migrate_legacy, parse_expiry, validate_categories
+from projectapp.events import normalize_color, validate_events
 from projectapp.linkgraph import validate_links
 from projectapp.models import (
     FORMAT_VERSION,
@@ -36,6 +38,7 @@ from projectapp.models import (
     Actual,
     Assignee,
     Category,
+    Event,
     Level,
     Member,
     Parameter,
@@ -89,6 +92,7 @@ def _check_unique_ids(project: Project) -> None:
         "メンバー": [m.id for m in project.members],
         "セクション": [s.id for _, s in walk_sections(project.sections)],
         "カテゴリ": [c.id for c in project.categories],
+        "イベント": [e.id for e in project.events],
     }
     for label, ids in groups.items():
         if len(set(ids)) != len(ids):
@@ -399,6 +403,38 @@ def _categories(value: Any) -> list[Category]:
         )
     validate_categories(categories)
     return categories
+
+
+_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
+def _iso_date(text: Any, label: str) -> date:
+    if not isinstance(text, str) or _ISO_DATE.fullmatch(text) is None:
+        raise ValueError(f"イベントの{label}が YYYY-MM-DD ではありません: {text!r}")
+    return date.fromisoformat(text)
+
+
+def _events(value: Any) -> list[Event]:
+    """イベント(version 4)。キーがない・null は空。日付・文字列・色・id の不正は ValueError。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("イベントがリストではありません")
+    events: list[Event] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            raise ValueError("イベントの形式が正しくありません")
+        dates = [_iso_date(raw.get("start"), "開始日"), _iso_date(raw.get("end"), "終了日")]
+        text = raw.get("text")
+        if not isinstance(text, str):
+            raise ValueError(f"イベントの文字列が文字列ではありません: {text!r}")
+        color = raw.get("color", "gray")
+        normalized = normalize_color(color) if isinstance(color, str) else None
+        if normalized is None:
+            raise ValueError(f"イベントの色が正しくありません: {color!r}")
+        events.append(Event(dates[0], dates[1], text.strip(), normalized, _entity_id(raw.get("id"), "イベント")))
+    validate_events(events)
+    return events
 
 
 def _kind(value: Any) -> TaskKind:
@@ -742,6 +778,7 @@ def parse_project(text: str, name: str) -> Project:
         url_templates=_url_templates(raw.get("url_templates")),
         parameters=_parameters(raw.get("parameters")),
         categories=_categories(raw.get("categories")) if ctx.version >= 3 else [],
+        events=_events(raw.get("events")) if ctx.version >= 4 else [],
     )
     known = {m.name for m in project.members}
     for task in project.all_tasks():  # 古いファイルの自由入力の担当者を、メンバーとして補う
