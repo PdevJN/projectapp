@@ -11,17 +11,18 @@
 | `filtering.py` | 絞り込み条件(`TaskFilter`)とタスクの判定(`matches`)、セクションで描くタスクの決定(`visible_task_indexes`)(純粋関数) |
 | `arrange.py` | タスクの移動(`move_task`)・コピー(`copy_task`)・日程のずらし(`shift_task`、左へずらせる限度 `min_shift_days`)と、画面から届く値の検証(`parse_move`・`parse_shift`)(純粋関数) |
 | `gantt_drag.py` | ガントチャートのドラッグ操作用の JS と CSS(定数のみ。行は HTML5 の drag、バーと名前の欄の右端は pointer イベント) |
-| `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、セクションの折りたたみ、行のドラッグ移動・コピー、バーの横移動(日次のみ)、名前の欄の幅(CSS 変数 `--name-w`。位置は `from_name` で式にする)、ツールバーとチャートの表示・非表示(`set_visible`。スクロール位置を覚えて戻す) |
+| `gantt.py` | ガントチャートの描画とスケール切替、検索・担当者の絞り込み、セクションの折りたたみ、行のドラッグ移動・コピー、バーの横移動(日次のみ)、イベントの帯(`event_rows`。見出しの中の段の行)とセルの色(`event_tints`。`stripes` と同じ全体を覆う 1 つの `ui.html`)、名前の欄の幅(CSS 変数 `--name-w`。位置は `from_name` で式にする)、ツールバーとチャートの表示・非表示(`set_visible`。スクロール位置を覚えて戻す) |
 | `forms.py` | タスク・セクションの入力検証、プロジェクト名の入力・ファイル一覧・未保存の確認ダイアログ、稼働時間の設定ダイアログと入力検証、メンバーとパラメータのタブ付きダイアログ(`members_panel`・`parameters_panel`・`open_members_parameters_dialog`。適用してもダイアログは閉じず、適用のたびにプロジェクトから行を作り直す。パラメータの適用は、メンバーの未適用の行へ `remap_levels` で伝える。未適用の印は 0.3 秒ごとに更新)と検証(`build_members`) |
 | `dateinput.py` | 日付と時刻の入力の整形。`parse_date_input`(省略形 → `YYYY-MM-DD`。`roll_forward` で、過ぎた日を翌年にする)・`parse_time_input`(→ `HH:MM`。どちらも、先に NFKC で全角を半角にする)・`shortcut_dates`(今日・明日・来週月)。純粋関数。`task_dialog.add_picker` の `normalize` が、blur で使う。テストは `task_dialog.today` を差し替えて日付を固定し、blur は `_event_listeners` のハンドラを直接呼ぶ(User のシミュレーションにフォーカスの移動がないため) |
 | `effortunits.py` | 工数の単位(時間・日・週・月)の換算 `to_hours` / `from_hours` と、参考 `reference_text`。純粋関数。時間のときは丸めない(桁数は `build_task` が検証する。小数点以下 2 桁まで。古いファイルの値は、変えなければ保存できる)。`task_dialog.EffortField` が使い、時間を正本として持つ(単位の切り替えで丸めのずれを溜めない) |
 | `preview.py` | エクスポートのプレビュー(`PreviewSettings`・期間の検証・`fit_scale`・`PreviewBar`) |
 | `gitstate.py` | 格納先の git の状態を読む(読み取りだけ。`read_git_state`・`GitState`・`describe`・`tooltip`)。`git`は直呼びで、`status --porcelain=v2 --branch`の 1 回で、ブランチ・上流・ahead/behind・変更数を読む。NiceGUI に依存しない。`run`は差し替えられる |
 | `gitops.py` | git の書き込み操作(`list_changes`・`commit`・`push`・`default_message`)。NiceGUI に依存しない。`gitstate.run_git`を共有し、`run`は差し替えられる。名前の検査(`valid_name`)と、`--literal-pathspecs`・`commit --only`で、選んだファイルだけをコミットする |
-| `merge.py` | プロジェクトの 3 者マージ(`merge_projects`・`merge_files`・`Conflict`・`format_value`)。NiceGUI にも git にも依存しない。鍵は、タスク・メンバー・セクション・カテゴリが`id`、パラメータ・URL テンプレートが名前。項目ごとに、片側だけが変えた値を採り、両側が違う値の項目だけを衝突にする(選択は`Conflict.id = (kind, key, field)`を鍵に`choices`で渡して、もう一度マージする) |
+| `merge.py` | プロジェクトの 3 者マージ(`merge_projects`・`merge_files`・`Conflict`・`format_value`)。NiceGUI にも git にも依存しない。鍵は、タスク・メンバー・セクション・カテゴリ・イベントが`id`、パラメータ・URL テンプレートが名前。項目ごとに、片側だけが変えた値を採り、両側が違う値の項目だけを衝突にする(選択は`Conflict.id = (kind, key, field)`を鍵に`choices`で渡して、もう一度マージする) |
 | `filemanager.py` | フォルダを OS のファイラで開く(`open_command`・`open_folder`。macOS は `open`、Windows は `explorer`、それ以外は `xdg-open`。シェルを通さない)。純粋に近い関数で、起動は差し替えられる |
 | `export.py` | 画像化(html-to-image)・倍率・PNG の書き出し・保存ダイアログ(`ImageExporter`。`ask_path` はファイルの種類を引数に取り、担当者向けファイルでも使う) |
 | `urls.py` | タスクのリンク(URL)の規則。`resolve`(`{ID}` の置き換えと、`http`・`https` の検証)、`validate_templates`、`validate_urls`、`count_usage`、`expand_template`(削除時にリンクを URL へ展開)、`rename_templates`、`apply_template_edit`(`TemplateEdit`)。純粋関数(NiceGUI に依存しない) |
+| `events.py` | イベント(プロジェクト共通)の規則。`CSS_COLORS`(CSS の色名 → `#rrggbb`)、`normalize_color`、`validate_events`(文字列 30 文字以内・制御文字なし・`start ≤ end`・色名・id の重複)、`sort_events`、`assign_lanes`(開始の早い順に、空いた最小の段へ詰める。前の終了日の翌日に始まるなら同じ段)、`column_span`(列は `[start, end)` なので、終了日は翌日と比べる)、`cell_colors`(後ろが勝つ)。純粋関数(NiceGUI に依存しない) |
 | `categories.py` | カテゴリ(プロジェクト共通)の規則。`validate_categories`(名前 30 文字以内・種別 20 文字以内・制御文字なし・PRJコードは半角英数字と `-` `_` `.` だけ 20 文字以内・色・重複・予約名「未定」)、`parse_expiry`、`migrate_legacy`(version 2 以前の `project_code` を、同じコードごとのカテゴリへ)、`next_color`、`count_usage`、`CategoryEdit`・`apply_edit`、`chip_text`、`by_id` |
 | `ratios.py` | 相対比率のパラメータ。`ratio_detail`・`effective_ratio`(基本比率 + 選んだ段階の判定値の合計。10〜300% に丸める。合計は 4 桁に丸めて、境界を誤差で外さない)、`ParameterEdit`(旧い名前からの対応。削除は None)、`remap_levels`(段階の選択を新しい定義へ写す。`apply_parameter_edit` とメンバーのダイアログが使う)、`validate_parameters`、`apply_parameter_edit`(入れ替えや、削除と改名の組み合わせでも取り違えない)、`deletion_impacts`。純粋関数(NiceGUI に依存しない)。換算は `timeline.assignees_rate` が、編集ダイアログは実効比率のコピーを通して使う |
 | `browser.py` | URL を既定のブラウザで開く(`open_url`)。`http`・`https` 以外と、開けなかったときは `OSError`。開く処理は差し替えられる |
@@ -57,6 +58,7 @@
 | 複数の担当者 | `2026-10-08-multi-assignee-design.md` |
 | メンバーの相対比率のパラメータ化 | `2026-10-09-ratio-parameters-design.md` |
 | セクションの入れ子 | `2026-10-09-nested-sections-design.md` |
+| イベントカレンダー | `2026-10-15-events-design.md` |
 
 実装計画は `docs/superpowers/plans/` に、同じ日付・名前(`-design` なし)である。
 
@@ -143,3 +145,5 @@ uv run ty check src
 - `merge.py`は、担当者を各プロジェクトのメンバーの`id`に直して比べ、結果のメンバーの名前に戻す(片側がメンバーを改名しても、もう片側のタスクの担当者がそろう)。並びは`_order`: 自分の並びが土台で、相手だけが並べ替えたときは相手の並びが土台。土台にないもの(相手の追加・移動)は、相手の並びでの直前の兄弟(結果にすでにあるもの)のあとに入れる。既知の制限: パラメータ・段階・URL テンプレートは`id`を持たないので、名前の変更は削除と追加に見える。
 - プルの画面(`MainView.run_pull`・`pull_merge`)は、`pull_ops`(`PullOps`。テストで差し替える)の各段階を`run.io_bound`で呼ぶ。衝突は、ファイルごとに`open_merge_conflict_dialog`で選ばせる(`open_conflict_dialog`は、外部変更の検知のダイアログで別物)。実機(ネイティブウィンドウ)で、別のタスクの取り込み・同じ項目の衝突の選択・ESC での中止・メニューの押せない理由・取り込み後の読み直しを確認済み(2026-10-14)。
 - ダイアログの`hide`リスナーは、`disposable`(`hide`で`dialog.delete`)より前に登録する。NiceGUI はリスナーごとに別のイベントを送り、削除済みの要素へのイベントは捨てるので、後から登録した中止の処理が呼ばれず、プルが固まる(`open_merge_conflict_dialog`。回帰テストは`test_hide_cancels_even_though_disposable_deletes_the_dialog`)。`merge --abort`の前には、アプリが書き換えたファイルを`checkout --`で index の内容に戻す(未 stage のままだと「not uptodate」で通らない)。
+- イベント(version 4)は `Project.events`(`Event`)。保存は `"events"`: `id`・`start`・`end`(`YYYY-MM-DD`)・`text`・`color`。version 3 以下の `events` キーは読まない。読込(`storage._events`)は、日付の形式・色名の小文字化・`validate_events` を通し、不正は拒否する。
+- イベントの色の層は `opacity` で薄め、ライトとダークで値を変える(`EVENT_CSS`)。`ui.html` に入れるのは検証済みの色と数値だけで、利用者の文字列は `ui.label` と `title` 属性で出す。帯の `overflow: clip` は `sticky` の文字を保つため(`hidden` だと、帯がスクロールの枠になって `sticky` が効かない)。日次の列は最低 42 列あるので、表示期間が短くても列は 42 に満たない分が足される。
