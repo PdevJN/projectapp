@@ -242,3 +242,20 @@ def test_end_to_end_two_people_edit_different_tasks(pair: tuple[Path, Path]) -> 
     result = load_project(a / "共有.json")
     assert [t.effort_hours for t in result.tasks] == [5.0, 1.0, 1.0, 1.0, 1.0, 7.0]
     assert len(parents(a)) == 2
+
+
+def test_abort_after_a_partial_write_restores_the_auto_merged_file(pair: tuple[Path, Path]) -> None:
+    """git が自動で統合したファイルを書き換えたあと、次の書き込みが失敗しても、元に戻る(`merge --abort`が通る)。"""
+    a, b = pair
+    push_change(b, "甲.json", BASE_TEXT.replace("9", "B"))  # 末尾の行
+    write(a, "甲.json", BASE_TEXT.replace("1", "A"))  # 先頭の行: git が自動で統合できる
+    commit_all(a, "mine")
+    git(a, "fetch")
+    session = pull_start_merge(a, "origin/main")
+    assert isinstance(session, MergeSession)
+    (a / "鈴.json").mkdir()  # 書き込みが失敗する名前(甲.json のあとに書かれる)
+    done = pull_finish_merge(a, session, {"甲.json": "app merged\n", "鈴.json": "x\n"})
+    assert not done.ok
+    assert not (a / ".git" / "MERGE_HEAD").exists()
+    assert (a / "甲.json").read_text(encoding="utf-8") == BASE_TEXT.replace("1", "A")
+    assert git(a, "status", "--porcelain", "--", "甲.json") == ""

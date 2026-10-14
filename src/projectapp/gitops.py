@@ -273,8 +273,14 @@ def pull_abort(project_dir: Path, run: Runner = run_git) -> GitResult:
     return out if isinstance(out, GitResult) else GitResult(True, "取り込みを中止しました")
 
 
-def _abort_with(project_dir: Path, run: Runner, message: str) -> GitResult:
-    pull_abort(project_dir, run)  # 戻せなくても、元の失敗の理由を返す
+def _abort_with(project_dir: Path, run: Runner, message: str, restore: list[str] | None = None) -> GitResult:
+    """マージを中止して元に戻す。`restore`は、アプリが書き換えたファイル(index の内容に戻してから中止する。
+    書き換えたまま未 stage だと、`merge --abort`が「not uptodate」で通らない)。戻せなかったときは、そう伝える。"""
+    if restore:
+        _git(run, project_dir, ["--literal-pathspecs", "checkout", "--", *restore])  # 未統合のパスは戻せないが、中止が戻す
+    aborted = pull_abort(project_dir, run)
+    if not aborted.ok:
+        message += f"\n中止できませんでした(`git merge --abort`を手で実行してください): {aborted.message}"
     return _failed(message)
 
 
@@ -351,11 +357,13 @@ def pull_finish_merge(
     for name in names:
         if not valid_name(name):
             return _abort_with(project_dir, run, f"書けないファイル名です: {name}")
+    written: list[str] = []  # 実際に書き換えたもの(戻すのはこれだけ。書けなかった名前を含めると、`checkout`が全体で失敗する)
     try:
         for name in names:
             _write_atomic(project_dir / name, merged[name])
+            written.append(name)
     except OSError as exc:
-        return _abort_with(project_dir, run, str(exc))
+        return _abort_with(project_dir, run, str(exc), written)
     steps = []
     if names:
         steps.append(["--literal-pathspecs", "add", "--", *names])
@@ -363,7 +371,7 @@ def pull_finish_merge(
     for args in steps:
         out = _out(_git(run, project_dir, args))
         if isinstance(out, GitResult):
-            return _abort_with(project_dir, run, out.message)
+            return _abort_with(project_dir, run, out.message, names)
     head = _out(_git(run, project_dir, ["rev-parse", "--short", "HEAD"]))
     return GitResult(True, "取り込みました", head if isinstance(head, str) else "")
 

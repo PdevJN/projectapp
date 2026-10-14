@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -26,9 +27,14 @@ class FakePullOps:
         self.finish_result = GitResult(True, "取り込みました", "abc1234")
         self.calls: list[str] = []
         self.merged: dict[str, str] | None = None
+        self.abort_result = GitResult(True, "中止")
+        self.on_prepare: Callable[[], None] | None = None
+        self.on_finish: Callable[[], None] | None = None
 
     def prepare(self, d: Path):
         self.calls.append("prepare")
+        if self.on_prepare is not None:
+            self.on_prepare()
         return self.plan
 
     def fast_forward(self, d: Path):
@@ -42,11 +48,13 @@ class FakePullOps:
     def finish_merge(self, d: Path, session: MergeSession, merged: dict[str, str]):
         self.calls.append("finish")
         self.merged = merged
+        if self.on_finish is not None:
+            self.on_finish()
         return self.finish_result
 
     def abort(self, d: Path):
         self.calls.append("abort")
-        return GitResult(True, "中止")
+        return self.abort_result
 
 
 async def open_pull(user: User, tmp_path: Path, state: GitState = BEHIND) -> tuple[MainView, FakePullOps]:
@@ -175,3 +183,55 @@ async def test_pull_reloads_the_open_project_and_refreshes_git(user: User, tmp_p
     view.start_git_pull()
     assert await wait_until(lambda: view.project.tasks[0].effort_hours == 9.0)
     assert not view.is_dirty()
+
+
+async def test_an_unexpected_error_while_merging_aborts(user: User, tmp_path: Path, monkeypatch) -> None:
+    view, ops = await open_pull(user, tmp_path)
+    ops.plan = PullPlan(PullKind.MERGE, "origin/main")
+    ops.session = MergeSession("origin/main", [MergeFile("甲.json", project_text(4.0), project_text(8.0), project_text(4.0))])
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("想定外")
+
+    monkeypatch.setattr("projectapp.views.merge_files", boom)
+    view.start_git_pull()
+    assert await wait_until(lambda: "abort" in ops.calls)
+    assert "finish" not in ops.calls and not view.git_busy
+    assert await wait_until(lambda: user.notify.contains("想定外"))
+
+
+async def test_a_failed_abort_is_reported_not_hidden(user: User, tmp_path: Path) -> None:
+    view, ops = await open_pull(user, tmp_path)
+    ops.plan = PullPlan(PullKind.MERGE, "origin/main")
+    ops.session = MergeSession("origin/main", [MergeFile("甲.json", project_text(4.0), project_text(8.0), project_text(2.0))])
+    ops.abort_result = GitResult(False, "index.lock が残っています")
+    view.start_git_pull()
+    await user.should_see(marker="conflict-abort")
+    user.find(marker="conflict-abort").click()
+    assert await wait_until(lambda: user.notify.contains("index.lock が残っています"))
+    assert not user.notify.contains("取り込みを中止しました")
+
+
+async def test_an_edit_made_while_fetching_stops_the_pull(user: User, tmp_path: Path) -> None:
+    view, ops = await open_pull(user, tmp_path)
+    ops.plan = PullPlan(PullKind.FAST_FORWARD, "origin/main")
+    ops.on_prepare = lambda: view.save_section("取得中の編集")
+    view.start_git_pull()
+    assert await wait_until(lambda: user.notify.contains("保存されていない編集"))
+    assert ops.calls == ["prepare"] and not view.git_busy
+
+
+async def test_an_edit_made_while_merging_is_not_discarded_by_the_reload(user: User, tmp_path: Path) -> None:
+    from projectapp.storage import save_project
+
+    save_project(Project("甲", date(2026, 10, 1), tasks=[Task("a", id="t1", effort_hours=4.0)]), tmp_path)
+    view, ops = await open_pull(user, tmp_path)
+    view.files = {"甲": tmp_path / "甲.json"}
+    view.open_project("甲")
+    ops.plan = PullPlan(PullKind.MERGE, "origin/main")
+    ops.session = MergeSession("origin/main", [MergeFile("甲.json", project_text(4.0), project_text(4.0), project_text(4.0))])
+    ops.on_finish = lambda: view.save_section("取り込み中の編集")
+    view.start_git_pull()
+    assert await wait_until(lambda: "finish" in ops.calls and not view.git_busy)
+    assert any(s.name == "取り込み中の編集" for s in view.project.sections)  # 読み直しで捨てない
+    assert await wait_until(lambda: user.notify.contains("読み直していません"))

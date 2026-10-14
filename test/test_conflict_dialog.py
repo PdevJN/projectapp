@@ -48,3 +48,16 @@ async def test_abort_cancels_once(user: User) -> None:
     await user.open("/")
     user.find(marker="conflict-abort").click()
     assert cancelled == [True] and applied == []
+
+
+async def test_hide_cancels_even_though_disposable_deletes_the_dialog(user: User) -> None:
+    """ESC・外側のクリックは`hide`で届く。`disposable`の削除より前に、中止が呼ばれること。"""
+    applied: list[dict] = []
+    cancelled: list[bool] = []
+    mount(applied, cancelled)
+    await user.open("/")
+    dialog = next(e for e in user.client.elements.values() if isinstance(e, ui.dialog))
+    for listener in list(dialog._event_listeners.values()):
+        if listener.type == "hide":
+            user.client.handle_event({"id": dialog.id, "listener_id": listener.id, "args": []})
+    assert cancelled == [True] and applied == []

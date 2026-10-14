@@ -1187,6 +1187,9 @@ class MainView:
             if plan.kind is PullKind.UP_TO_DATE:
                 ui.notify("最新です")
                 return
+            if self.is_dirty():  # 取得している間に編集された。読み直しで捨てないよう、始めない
+                ui.notify("保存されていない編集があるため、取り込みを中止しました。先に保存・コミットしてください", type="warning")
+                return
             if plan.kind is PullKind.FAST_FORWARD:
                 done = await run.io_bound(ops.fast_forward, self.project_dir)
                 if done is None:
@@ -1219,16 +1222,14 @@ class MainView:
                 if outcome.conflicts:
                     choices = await self.ask_conflicts(file.name, outcome.conflicts)
                     if choices is None:
-                        await run.io_bound(ops.abort, self.project_dir)
-                        ui.notify("取り込みを中止しました")
+                        await self.abort_pull()
                         return False
                     picked += len(outcome.conflicts)
                     outcome = merge_files(file.name, file.base, file.ours, file.theirs, choices)
                 merged[file.name] = outcome.text
                 notes += outcome.notes
-        except ValueError as exc:
-            await run.io_bound(ops.abort, self.project_dir)
-            ui.notify(f"統合できませんでした: {exc}", type="negative")
+        except Exception as exc:  # ValueError(読めない・検証を通らない)以外でも、マージを途中のまま残さない
+            await self.abort_pull(f"統合できませんでした: {exc}")
             return False
         done = await run.io_bound(ops.finish_merge, self.project_dir, session, merged)
         if done is None:
@@ -1241,6 +1242,18 @@ class MainView:
         for note in notes:
             ui.notify(note, type="warning")
         return True
+
+    async def abort_pull(self, reason: str | None = None) -> None:
+        """マージを中止して元に戻す。戻せなかったときは、そう通知する(`reason`があれば、中止の理由として出す)。"""
+        done = await run.io_bound(self.pull_ops.abort, self.project_dir)
+        if done is None:  # アプリの終了中
+            return
+        if not done.ok:
+            ui.notify(f"取り込みを中止できませんでした: {done.message}", type="negative")
+        elif reason is None:
+            ui.notify("取り込みを中止しました")
+        else:
+            ui.notify(reason, type="negative")
 
     async def ask_conflicts(self, name: str, conflicts):
         """衝突ダイアログを開き、選択(中止なら None)を待つ。"""
@@ -1258,7 +1271,9 @@ class MainView:
         self.files = {p.stem: p for p in list_project_files(self.project_dir)}
         self.file_select.set_options(sorted(self.files), value=self.current_name())
         name = self.current_name()
-        if name is not None and name in self.files:
+        if self.is_dirty():  # 取り込み中に編集された。読み直すと捨ててしまう
+            ui.notify("取り込み中に編集があったため、画面は読み直していません。保存すると取り込んだ内容を上書きします", type="warning")
+        elif name is not None and name in self.files:
             self.open_project(name)
 
     def request_git_refresh(self) -> None:

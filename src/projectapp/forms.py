@@ -824,7 +824,9 @@ def open_merge_conflict_dialog(
         decided["done"] = True
         action()
 
-    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[40rem] max-w-full"):
+    dialog = ui.dialog()
+    dialog.on("hide", lambda: finish(on_cancel))  # ESC・外側のクリックも中止。`disposable`の削除より前に登録する(削除後のイベントは捨てられる)
+    with disposable(dialog), ui.card().classes("w-[40rem] max-w-full"):
         ui.label(f"{file_name} の衝突").classes("text-h6")
         ui.label("自分と相手が、同じ項目を違う値に変えています。採る値を選んでください。").classes("text-caption text-grey")
         radios: list[ui.radio] = []
@@ -859,7 +861,6 @@ def open_merge_conflict_dialog(
         with ui.row().classes("justify-end w-full"):
             ui.button("中止", on_click=cancel).props("flat").mark("conflict-abort")
             ui.button("取り込む", on_click=apply).mark("conflict-apply")
-        dialog.on("hide", lambda: finish(on_cancel))  # ESC・外側のクリックも中止
     dialog.open()
 
 

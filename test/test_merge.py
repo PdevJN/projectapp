@@ -271,3 +271,21 @@ def test_merge_files_rejects_unreadable_text() -> None:
 
     with pytest.raises(ValueError):
         merge_files("p.json", "{", "{", "{")
+
+
+def test_same_name_members_added_on_both_sides_keep_both_after_a_round_trip() -> None:
+    """同名で id の違うメンバーは、読み直すと片方が捨てられる。名前を変えて両方残し、通知する。"""
+    from projectapp.merge import merge_files
+    from projectapp.storage import dumps_project, parse_project
+
+    base = proj()
+    ours = proj(members=[Member("丁", 1.0, id="a1")], tasks=[task("x", "t1", assignees=[Assignee("丁", 1.0)])])
+    theirs = proj(members=[Member("丁", 1.5, id="b1")], tasks=[task("y", "t2", assignees=[Assignee("丁", 1.0)])])
+    result = merge_files("p.json", dumps_project(base), dumps_project(ours), dumps_project(theirs))
+    merged = parse_project(result.text, "p")
+    assert {m.id: m.ratio for m in merged.members} == {"a1": 1.0, "b1": 1.5}  # 両方残る
+    assert len({m.name for m in merged.members}) == 2 and {m.name for m in merged.members} == {"丁", "丁 (2)"}
+    ratio_of = {m.name: m.ratio for m in merged.members}
+    by_task = {t.name: [ratio_of[a.name] for a in t.assignees] for t in merged.tasks}
+    assert by_task == {"x": [1.0], "y": [1.5]}  # 担当者は、それぞれ元のメンバーを指したまま
+    assert any("丁 (2)" in n for n in result.notes)

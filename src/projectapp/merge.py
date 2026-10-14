@@ -258,6 +258,18 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
     categories = merger.collection("category", CATEGORY_LABELS, _categories(base), _categories(ours), _categories(theirs))
     parameters = merger.collection("parameter", PARAMETER_LABELS, _parameters(base), _parameters(ours), _parameters(theirs))
     templates = merger.collection("url_template", TEMPLATE_LABELS, _templates(base), _templates(ours), _templates(theirs))
+    seen: set[str] = set()  # 同名で id の違うメンバーは、読み直すと片方が捨てられるので、名前を変えて両方残す
+    taken = {record["name"] for record in members.values()}
+    for record in members.values():
+        name = record["name"]
+        if name in seen:
+            number = 2
+            while f"{name} ({number})" in taken | seen:
+                number += 1
+            renamed = f"{name} ({number})"
+            notes.append(f"同名のメンバーがいたため、名前を変えました: {name} → {renamed}")
+            record["name"] = name = renamed
+        seen.add(name)
     flats = [_flatten(p) for p in (base, ours, theirs)]
     shown = _member_names(ours, theirs, base)
 
