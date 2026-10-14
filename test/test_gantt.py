@@ -70,6 +70,7 @@ from projectapp.models import (
     Category,
     DEFAULT_COLOR,
     Actual,
+    Event,
     Member,
     Priority,
     Project,
@@ -3099,3 +3100,104 @@ async def test_read_only_has_no_subsection_buttons(user: User) -> None:
     charts[0].set_options(ViewOptions(read_only=True))
     await user.should_see(marker="section-0")
     await user.should_not_see(marker="add-subsection-0")
+
+
+def event_project(*events: Event) -> Project:
+    return Project("demo", base_date=BASE, events=list(events))
+
+
+def make_event(start: str, end: str, text: str, color: str, id: str) -> Event:
+    return Event(date.fromisoformat(start), date.fromisoformat(end), text, color, id=id)
+
+
+EVENT_PERIOD = (date(2026, 10, 6), date(2026, 10, 12))  # 7 日。日次の列幅は 40px
+
+
+async def test_event_bar_is_placed_under_the_dates_with_its_text(user: User) -> None:
+    release = make_event("2026-10-08", "2026-10-09", "リリース", "red", "e1")
+    mount_with(event_project(release), ViewOptions(period=EVENT_PERIOD))
+    await user.open("/")
+    bar = user.find(marker="event-bar-e1").elements.pop()
+    assert bar._style["left"] == "80px" and bar._style["width"] == "80px"  # 10/8 は 3 列目から 2 日
+    await user.should_see("リリース")
+    assert bar._props.get("title") == "リリース"
+
+
+async def test_overlapping_events_stack_in_separate_rows(user: User) -> None:
+    a = make_event("2026-10-06", "2026-10-09", "A", "red", "e1")
+    b = make_event("2026-10-08", "2026-10-10", "B", "blue", "e2")
+    c = make_event("2026-10-11", "2026-10-12", "C", "green", "e3")
+    mount_with(event_project(a, b, c), ViewOptions(period=EVENT_PERIOD))
+    await user.open("/")
+    await user.should_see(marker="event-row-0")
+    await user.should_see(marker="event-row-1")
+    await user.should_not_see(marker="event-row-2")
+    row0 = {e.id for e in user.find(marker="event-row-0").elements.pop().descendants()}
+    assert user.find(marker="event-bar-e1").elements.pop().id in row0
+    assert user.find(marker="event-bar-e3").elements.pop().id in row0  # 重ならないイベントは同じ段
+    assert user.find(marker="event-bar-e2").elements.pop().id not in row0
+
+
+async def test_event_cells_are_tinted_and_later_event_wins(user: User) -> None:
+    a = make_event("2026-10-06", "2026-10-08", "A", "red", "e1")
+    b = make_event("2026-10-08", "2026-10-09", "B", "blue", "e2")
+    mount_with(event_project(a, b), ViewOptions(period=EVENT_PERIOD))
+    await user.open("/")
+    html = user.find(marker="event-tints").elements.pop().content
+    assert html.count("--ev:#ff0000") == 2 and html.count("--ev:#0000ff") == 2  # 10/6・10/7 が赤、10/8・10/9 が青
+    assert html.index("--ev:#ff0000") < html.index("--ev:#0000ff")
+    assert html.count('class="event-tint"') == 4  # 色のある列だけ。日次の列は最低 42 列あるので、色のない列の数は見ない
+
+
+async def test_no_events_means_no_event_rows_or_tints(user: User) -> None:
+    mount_with(event_project(), ViewOptions(period=EVENT_PERIOD))
+    await user.open("/")
+    await user.should_not_see(marker="event-row-0")
+    await user.should_not_see(marker="event-tints")
+
+
+async def test_event_outside_the_period_is_not_drawn(user: User) -> None:
+    far = make_event("2026-12-01", "2026-12-05", "遠い", "red", "e1")
+    before = make_event("2026-09-01", "2026-10-05", "前", "red", "e2")
+    mount_with(event_project(far, before), ViewOptions(period=EVENT_PERIOD))
+    await user.open("/")
+    await user.should_not_see(marker="event-bar-e1")
+    await user.should_not_see(marker="event-bar-e2")
+    await user.should_not_see(marker="event-tints")
+
+
+async def test_event_is_clipped_to_the_period_edge(user: User) -> None:
+    long = make_event("2026-10-01", "2026-10-07", "長い", "red", "e1")
+    mount_with(event_project(long), ViewOptions(period=EVENT_PERIOD))
+    await user.open("/")
+    bar = user.find(marker="event-bar-e1").elements.pop()
+    assert bar._style["left"] == "0px" and bar._style["width"] == "80px"  # 10/6・10/7 の 2 列
+
+
+async def test_event_is_drawn_on_week_and_month_scales(user: User) -> None:
+    one_day = make_event("2026-10-14", "2026-10-14", "水曜", "orange", "e1")
+    mount_with(event_project(one_day), ViewOptions(period=(date(2026, 10, 5), date(2026, 11, 29)), scale=Scale.WEEK))
+    await user.open("/")
+    bar = user.find(marker="event-bar-e1").elements.pop()
+    week_width = COLUMN_WIDTH_PX[Scale.WEEK]
+    assert bar._style["left"] == f"{week_width}px" and bar._style["width"] == f"{week_width}px"
+
+
+async def test_show_events_false_hides_them(user: User) -> None:
+    release = make_event("2026-10-08", "2026-10-09", "リリース", "red", "e1")
+    mount_with(event_project(release), ViewOptions(period=EVENT_PERIOD, show_events=False))
+    await user.open("/")
+    await user.should_not_see(marker="event-bar-e1")
+    await user.should_not_see(marker="event-tints")
+
+
+def test_view_options_show_events_defaults_to_true() -> None:
+    assert ViewOptions().show_events is True
+
+
+async def test_user_text_is_not_injected_as_html(user: User) -> None:
+    evil = make_event("2026-10-08", "2026-10-09", "<b>x</b>", "red", "e1")
+    mount_with(event_project(evil), ViewOptions(period=EVENT_PERIOD))
+    await user.open("/")
+    assert "<b>" not in user.find(marker="event-tints").elements.pop().content
+    await user.should_see("<b>x</b>")  # 文字としてそのまま出る
