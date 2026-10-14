@@ -30,6 +30,7 @@
 | `dashboard.py` | ダッシュボードの集計(期間 `period_for`、進捗・負荷・工数・期限、`summarize`)。純粋関数(NiceGUI に依存しない)。負荷は `timeline.counted_span` を使い、割り当て超過の縞と同じ前提 |
 | `dashboard_view.py` | ダッシュボードの表示(カードと横棒。`DashboardView`) |
 | `handoff.py` | 担当者向けファイルの書き出し。タスクを todoapp 形式(`items`・`records`・`categories`)へ変える(`build_todos`)、書き込み(`write_json`)。純粋関数(NiceGUI に依存しない)。id は`uuid5`で決まる(同名のタスクは`名前#2`)。todoapp の形式は`file-format.md`(git 管理外) |
+| `plantuml.py` | プレビューのガントチャートを PlantUML のテキストにする。`build_plantuml`(`PlantUml`: `text`・`task_count`・`skipped`)、`default_filename`、`write_text`(一時ファイル経由)。純粋関数(NiceGUI に依存しない)。状態の色は `gantt.STATUS_COLORS` の写し(テストで一致を確かめる)。表示名は、イベント・タスク・チェックポイントを通した 1 つの集合で重複を避ける(PlantUML は、別名を付けても、同じ表示名を 1 件にまとめるため)。描画のテストは、`java` と `plantuml.jar`(`PLANTUML_JAR` か `/usr/local/lib/plantuml.jar`)があるときだけ走る |
 | `static/` | 同梱の html-to-image(MIT) |
 | `task_dialog.py` | タスクの追加・編集ダイアログ(優先度チップ、日付・時刻の入力、閉じる確認、削除) |
 | `models.py` | Project / Section / Task / Member / Actual と列挙型(Priority・Status・ActualMode)のデータモデル(`Task.planned_start` / `planned_end` / `planned_end_manual` / `deadline`) |
@@ -55,6 +56,7 @@
 | 名前の欄の幅 | `2026-10-06-name-width-design.md` |
 | ダッシュボード | `2026-10-07-dashboard-design.md` |
 | 担当者向けファイルの書き出し | `2026-10-07-assignee-handoff-design.md` |
+| PlantUML 出力 | `2026-10-15-plantuml-export-design.md` |
 | 複数の担当者 | `2026-10-08-multi-assignee-design.md` |
 | メンバーの相対比率のパラメータ化 | `2026-10-09-ratio-parameters-design.md` |
 | セクションの入れ子 | `2026-10-09-nested-sections-design.md` |
