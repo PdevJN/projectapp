@@ -19,6 +19,8 @@ from projectapp.shortcuts import SHORTCUTS, Screen, help_entries, resolve
         ("k", True, False, "git_commit"),
         ("K", True, True, "git_push"),
         ("k", True, True, "git_push"),
+        ("l", True, True, "git_pull"),
+        ("L", True, True, "git_pull"),
         ("d", False, False, "dashboard"),
         ("/", False, False, "search"),
         ("?", False, True, "help"),
@@ -93,7 +95,7 @@ def test_help_lists_every_shortcut_once_with_its_description():
 def test_the_key_lists_for_the_browser_guard_come_from_the_table():
     from projectapp.shortcuts import ctrl_keys, plain_keys
 
-    assert ctrl_keys() == {"s", "o", "n", ",", "m", "e", "p", "k", "+", "=", ";", "-", "0"}
+    assert ctrl_keys() == {"s", "o", "n", ",", "m", "e", "p", "k", "l", "+", "=", ";", "-", "0"}
     assert plain_keys() == {"escape", "d", "/", "?"}
 
 
@@ -165,6 +167,7 @@ def test_label_for_gives_the_key_label_of_an_action() -> None:
 
     assert label_for("git_commit") == "Ctrl/Cmd+K"
     assert label_for("git_push") == "Ctrl/Cmd+Shift+K"
+    assert label_for("git_pull") == "Ctrl/Cmd+Shift+L"
 
 
 def test_help_lists_the_git_shortcuts() -> None:

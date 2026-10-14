@@ -22,6 +22,7 @@ from projectapp.categories import (
     validate_categories,
 )
 from projectapp.gitops import FileChange
+from projectapp.merge import DELETED, OURS, THEIRS, Choices, Conflict, format_value
 from projectapp.models import (
     CHECKPOINT_STATUSES,
     ID_KEY,
@@ -804,6 +805,62 @@ def open_commit_dialog(
             box.on_value_change(sync)
         message.on_value_change(sync)
         sync()
+    dialog.open()
+
+
+def open_merge_conflict_dialog(
+    file_name: str,
+    conflicts: list[Conflict],
+    on_apply: Callable[[Choices], object],
+    on_cancel: Callable[[], object],
+) -> None:
+    """両側が違う値に変えた項目を、1 つずつ「自分」か「相手」で選ぶ(既定は相手)。
+    「取り込む」で`on_apply`、「中止」・ESC・閉じるで`on_cancel`を、どちらか一度だけ呼ぶ。"""
+    decided = {"done": False}
+
+    def finish(action: Callable[[], object]) -> None:
+        if decided["done"]:
+            return
+        decided["done"] = True
+        action()
+
+    dialog = ui.dialog()
+    dialog.on("hide", lambda: finish(on_cancel))  # ESC・外側のクリックも中止。`disposable`の削除より前に登録する(削除後のイベントは捨てられる)
+    with disposable(dialog), ui.card().classes("w-[40rem] max-w-full"):
+        ui.label(f"{file_name} の衝突").classes("text-h6")
+        ui.label("自分と相手が、同じ項目を違う値に変えています。採る値を選んでください。").classes("text-caption text-grey")
+        radios: list[ui.radio] = []
+        shown_label = None
+        with ui.scroll_area().classes("w-full max-h-[60vh]"):
+            for index, conflict in enumerate(conflicts):
+                if (conflict.kind, conflict.key) != shown_label:
+                    shown_label = (conflict.kind, conflict.key)
+                    ui.label(conflict.label).classes("text-subtitle2 q-mt-sm")
+                ui.label(conflict.field).classes("text-caption text-grey")
+                if conflict.field == DELETED:
+                    options = {
+                        OURS: "自分: " + ("削除する" if conflict.ours is None else "残す"),
+                        THEIRS: "相手: " + ("削除する" if conflict.theirs is None else "残す"),
+                    }
+                else:
+                    options = {
+                        OURS: f"自分: {format_value(conflict.ours)}",
+                        THEIRS: f"相手: {format_value(conflict.theirs)}",
+                    }
+                radios.append(ui.radio(options, value=THEIRS).props("dense").mark(f"conflict-choice-{index}"))
+
+        def apply() -> None:
+            choices = {conflict.id: str(radio.value) for conflict, radio in zip(conflicts, radios, strict=True)}
+            finish(lambda: on_apply(choices))
+            dialog.close()
+
+        def cancel() -> None:
+            finish(on_cancel)
+            dialog.close()
+
+        with ui.row().classes("justify-end w-full"):
+            ui.button("中止", on_click=cancel).props("flat").mark("conflict-abort")
+            ui.button("取り込む", on_click=apply).mark("conflict-apply")
     dialog.open()
 
 

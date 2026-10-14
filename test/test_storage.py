@@ -1602,3 +1602,26 @@ def test_backup_file_is_not_listed_as_a_project(tmp_path: Path) -> None:
 def test_backup_file_raises_oserror_when_the_file_is_missing(tmp_path: Path) -> None:
     with pytest.raises(OSError):
         backup_file(tmp_path / "ない.json")
+
+
+def test_dumps_and_parse_round_trip(tmp_path: Path) -> None:
+    from projectapp.storage import dumps_project, parse_project
+
+    alice = Member("甲", 1.0)
+    task = Task("調査", assignees=[Assignee("甲", 0.5)])
+    project = Project("文字列", date(2026, 10, 1), members=[alice], sections=[Section("A", tasks=[task])])
+    text = dumps_project(project)
+    loaded = parse_project(text, "文字列")
+    assert loaded == project
+    assert loaded.sections[0].tasks[0].id == task.id
+    save_project(project, tmp_path)
+    assert (tmp_path / "文字列.json").read_text(encoding="utf-8") == text
+
+
+def test_dumps_rejects_duplicate_ids() -> None:
+    from projectapp.storage import dumps_project
+
+    one = Task("a", id="same")
+    two = Task("b", id="same")
+    with pytest.raises(ValueError):
+        dumps_project(Project("p", date(2026, 10, 1), tasks=[one, two]))
