@@ -150,6 +150,7 @@ uv run ty check src
 - プルの画面(`MainView.run_pull`・`pull_merge`)は、`pull_ops`(`PullOps`。テストで差し替える)の各段階を`run.io_bound`で呼ぶ。衝突は、ファイルごとに`open_merge_conflict_dialog`で選ばせる(`open_conflict_dialog`は、外部変更の検知のダイアログで別物)。実機(ネイティブウィンドウ)で、別のタスクの取り込み・同じ項目の衝突の選択・ESC での中止・メニューの押せない理由・取り込み後の読み直しを確認済み(2026-10-14)。
 - ダイアログの`hide`リスナーは、`disposable`(`hide`で`dialog.delete`)より前に登録する。NiceGUI はリスナーごとに別のイベントを送り、削除済みの要素へのイベントは捨てるので、後から登録した中止の処理が呼ばれず、プルが固まる(`open_merge_conflict_dialog`。回帰テストは`test_hide_cancels_even_though_disposable_deletes_the_dialog`)。`merge --abort`の前には、アプリが書き換えたファイルを`checkout --`で index の内容に戻す(未 stage のままだと「not uptodate」で通らない)。
 - イベント(version 4)は `Project.events`(`Event`)。保存は `"events"`: `id`・`start`・`end`(`YYYY-MM-DD`)・`text`・`color`。version 3 以下の `events` キーは読まない。読込(`storage._events`)は、日付の形式・色名の小文字化・`validate_events` を通し、不正は拒否する。
+- タスクの進捗度(version 5)は `Task.progress: int | None`(0〜100)。保存は `"progress"`。version 4 以下の同名のキーは読まない(`events` と同じ)。読込(`storage._progress`)は、整数でない・範囲外・bool を拒否し、チェックポイントは `None` にする。現在の値は `timeline.current_progress`(最後に進捗度の入っている区間 → なければ `Task.progress`)だけを通す。編集ダイアログは `TaskProgressField`(区間に進捗度があるときは読み取り専用で、`own`〔タスクの値〕は変えない)。`IntervalFields.bind` は最後のコールバックを保持するので、変更時の処理は `on_actual_change` に 1 つにまとめる。`merge.py` は `fields(Task)` で項目をほどくので、`TASK_LABELS` に表示名を足すだけ
 - イベントの色の層は `opacity` で薄め、ライトとダークで値を変える(`EVENT_CSS`)。`ui.html` に入れるのは検証済みの色と数値だけで、利用者の文字列は `ui.label` と `title` 属性で出す。帯の `overflow: clip` は `sticky` の文字を保つため(`hidden` だと、帯がスクロールの枠になって `sticky` が効かない)。日次の列は最低 42 列あるので、表示期間が短くても列は 42 に満たない分が足される。
 
 ## 既知の見送り事項
@@ -172,5 +173,4 @@ uv run ty check src
 
 ### PlantUML の取り込み(`feature/plantuml-import`)
 
-- 進捗度は取り込まない(`Task.progress` の新設を要する別機能。要望 38)
 - `then`・`separator` などの構文は対象外。公式文法の全面的な網羅はしない

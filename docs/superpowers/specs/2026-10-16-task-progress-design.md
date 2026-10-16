@@ -26,7 +26,7 @@
 - ファイル形式は version 5。保存は `"progress"`(整数か `null`)。キーのない古いファイル(version 4 以下)は `None` として読む。
 - 読込(`storage`)は、整数で 0〜100 のみ受け付ける。範囲外・整数以外・真偽値は `ValueError` で拒否する(区間の進捗度の検証と同じ規則)。`progress` のキーは version 5 以上でだけ読む(`events` と同じ。version 4 以下の同名のキーは無視する)。チェックポイントは、使わない項目を空にする既存の規則(`_checkpoint`)に合わせて、`progress` を `None` にして読む(拒否はしない)。
 - `FORMAT_VERSION` を 5 にする。このアプリより新しい version を拒否する既存の規則は変えない。
-- `file-format.md` と、`CLAUDE.md` の「実装上の注意」(現在 4)を 5 に直す。
+- `CLAUDE.md` の「実装上の注意」(現在 4)を 5 に直す。
 
 ## 現在の進捗度
 
@@ -77,6 +77,6 @@
 ## 文書の更新
 
 - `CLAUDE.md`: 「PlantUML の取り込み」の進捗の記述(進捗度は取り込まない)を直す。「ガントチャート」に、進捗度の持ち方(区間を優先、なければタスクの値。編集ダイアログの欄)を足す。「実装上の注意」の version を 5 にする。
-- `file-format.md`・`docs/development.md`: version 5 と `progress` の説明。「既知の見送り事項」から、進捗度の取り込みを外す。
+- `docs/development.md`: version 5 と `progress` の説明。「既知の見送り事項」から、進捗度の取り込みを外す。
 - `docs/superpowers/specs/2026-10-16-plantuml-import-design.md`: 進捗度の記述に「要望 38 で取り込むようになった」と追記する。
 - `docs/request-history.md`・`docs/requests.md`・`.claude/MEMORY.md`: 要望 38 の状態を更新する。
