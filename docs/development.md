@@ -31,6 +31,7 @@
 | `dashboard_view.py` | ダッシュボードの表示(カードと横棒。`DashboardView`) |
 | `handoff.py` | 担当者向けファイルの書き出し。タスクを todoapp 形式(`items`・`records`・`categories`)へ変える(`build_todos`)、書き込み(`write_json`)。純粋関数(NiceGUI に依存しない)。id は`uuid5`で決まる(同名のタスクは`名前#2`)。todoapp の形式は`file-format.md`(git 管理外) |
 | `plantuml.py` | プレビューのガントチャートを PlantUML のテキストにする。`build_plantuml`(`PlantUml`: `text`・`task_count`・`skipped`)、`default_filename`、`write_text`(一時ファイル経由)。純粋関数(NiceGUI に依存しない)。状態の色は `gantt.STATUS_COLORS` の写し(テストで一致を確かめる)。表示名は、イベント・タスク・チェックポイントを通した 1 つの集合で重複を避ける(PlantUML は、別名を付けても、同じ表示名を 1 件にまとめるため)。描画のテストは、`java` と `plantuml.jar`(`PLANTUML_JAR` か `/usr/local/lib/plantuml.jar`)があるときだけ走る |
+| `puml_import.py` | PlantUML のガントのテキストから、新規プロジェクトを作る。`parse_plantuml`(`PlantUmlImport`)、`summary`(通知文)、`read_plantuml`(UTF-8・BOM 除去)、`PLANTUML_OPEN_FILE_TYPES`。構成は `_Scanner`(行)→ `_Resolver`(日付)→ `_Builder`(`Project`)。純粋関数(NiceGUI に依存しない)。結果は `dumps_project` → `parse_project` で検証する。先行は循環になる連結を入れない。描画のテストは、`java` と `plantuml.jar` があるときだけ走る |
 | `static/` | 同梱の html-to-image(MIT) |
 | `task_dialog.py` | タスクの追加・編集ダイアログ(優先度チップ、日付・時刻の入力、閉じる確認、削除) |
 | `models.py` | Project / Section / Task / Member / Actual と列挙型(Priority・Status・ActualMode)のデータモデル(`Task.planned_start` / `planned_end` / `planned_end_manual` / `deadline`) |
@@ -57,6 +58,7 @@
 | ダッシュボード | `2026-10-07-dashboard-design.md` |
 | 担当者向けファイルの書き出し | `2026-10-07-assignee-handoff-design.md` |
 | PlantUML 出力 | `2026-10-15-plantuml-export-design.md` |
+| PlantUML 取り込み | `2026-10-16-plantuml-import-design.md` |
 | 複数の担当者 | `2026-10-08-multi-assignee-design.md` |
 | メンバーの相対比率のパラメータ化 | `2026-10-09-ratio-parameters-design.md` |
 | セクションの入れ子 | `2026-10-09-nested-sections-design.md` |
@@ -167,3 +169,8 @@ uv run ty check src
 - `write_text` が作る `.puml` の権限が 0600 になる(`write_png` と同じ作り)
 - テストにない入力: 別名と同じ名前のタスク(`T2` など)、平日の祝日と同じ日に始まるタスク、構文を壊す文字を `render` に通すケース
 - プレビューの保存ボタンを有効にする経路が 3 つある(`on_preview_change`・`apply_preview`・`save_*` の `finally`)。`saving` 中に `on_preview_change` を許すと壊れうる
+
+### PlantUML の取り込み(`feature/plantuml-import`)
+
+- 進捗度は取り込まない(`Task.progress` の新設を要する別機能。要望 38)
+- `then`・`separator` などの構文は対象外。公式文法の全面的な網羅はしない
