@@ -1,9 +1,23 @@
+import os
+import shutil
+import subprocess
 from datetime import date, datetime
+from pathlib import Path
 
 import pytest
 
-from projectapp.models import Status, Task, TaskKind
-from projectapp.puml_import import PlantUmlImport, PlantUmlImportError, parse_plantuml
+from projectapp.filtering import TaskFilter
+from projectapp.models import Assignee, Project, Section, Status, Task, TaskKind
+from projectapp.plantuml import build_plantuml
+from projectapp.puml_import import (
+    PLANTUML_OPEN_FILE_TYPES,
+    PlantUmlImport,
+    PlantUmlImportError,
+    parse_plantuml,
+    read_plantuml,
+    summary,
+)
+from projectapp.timeline import Scale
 
 
 def parse(*lines: str, name: str = "取込") -> PlantUmlImport:
@@ -246,3 +260,156 @@ def test_a_reference_to_an_unknown_task_is_unresolved_and_creates_nothing() -> N
 def test_a_task_after_an_unresolved_task_is_unresolved() -> None:
     result = parse("[A]", "[B] lasts 1 day", "[A] -> [B]")
     assert span(result, "B") == (None, None)
+
+
+def test_assignees_create_members_and_allocations() -> None:
+    result = parse(
+        "[A] on {田中:50%} {鈴木} starts 2026-10-13 and ends 2026-10-13",
+        "[B] on {田中} starts 2026-10-14 and ends 2026-10-14",
+    )
+    assert [m.name for m in result.project.members] == ["田中", "鈴木"]
+    assert all(m.ratio == 1.0 for m in result.project.members) and result.created_members == 2
+    assert [(a.name, a.allocation) for a in task_named(result, "A").assignees] == [("田中", 0.5), ("鈴木", 1.0)]
+    assert [(a.name, a.allocation) for a in task_named(result, "B").assignees] == [("田中", 1.0)]
+
+
+@pytest.mark.parametrize("percent", ["0%", "101%", "150%"])
+def test_an_allocation_out_of_range_becomes_100_percent_and_is_counted(percent: str) -> None:
+    result = parse(f"[A] on {{田中:{percent}}} starts 2026-10-13")
+    assert task_named(result, "A").assignees[0].allocation == 1.0 and result.clamped_allocations == 1
+
+
+def test_empty_and_duplicate_assignees_are_ignored() -> None:
+    result = parse("[A] on {} {田中:30%} {田中:80%} starts 2026-10-13")
+    assert [(a.name, a.allocation) for a in task_named(result, "A").assignees] == [("田中", 0.3)]
+    assert [m.name for m in result.project.members] == ["田中"]
+
+
+def test_a_checkpoint_has_no_assignees() -> None:
+    result = parse("[M] on {田中} happens on 2026-10-23")
+    assert task_named(result, "M").assignees == [] and result.project.members == []
+
+
+@pytest.mark.parametrize(
+    ("line", "status"),
+    [
+        ("[A] starts 2026-10-13", Status.NOT_STARTED),
+        ("[A] starts 2026-10-13 and is 0% completed", Status.NOT_STARTED),
+        ("[A] starts 2026-10-13 and is 1% completed", Status.RUNNING),
+        ("[A] starts 2026-10-13 and is 99% completed", Status.RUNNING),
+        ("[A] starts 2026-10-13 and is 100% completed", Status.DONE),
+    ],
+)
+def test_progress_decides_only_the_status(line: str, status: Status) -> None:
+    result = parse(line)
+    task = task_named(result, "A")
+    assert task.status is status and task.actuals == []
+
+
+def test_progress_on_a_separate_line_and_the_dropped_count() -> None:
+    result = parse("[A] as [T1] starts 2026-10-13", "[T1] is 40% completed", "[B] starts 2026-10-13", "[C] is 0% completed")
+    assert task_named(result, "A").status is Status.RUNNING
+    assert result.dropped_progress == 1  # 0% と、進捗のないものは数えない
+
+
+def test_progress_over_100_skips_the_line() -> None:
+    result = parse("[A] starts 2026-10-13", "[A] is 150% completed")
+    assert task_named(result, "A").status is Status.NOT_STARTED and result.skipped_lines == 1
+
+
+def test_a_checkpoint_is_done_only_at_100_percent() -> None:
+    assert task_named(parse("[M] happens on 2026-10-23 and is 100% completed"), "M").status is Status.DONE
+    assert task_named(parse("[M] happens on 2026-10-23 and is 50% completed"), "M").status is Status.NOT_STARTED
+
+
+def test_a_milestone_without_a_date_is_a_plain_unscheduled_task() -> None:
+    result = parse("[M] happens at [Z]'s end")
+    task = task_named(result, "M")
+    assert task.kind is TaskKind.NORMAL and task.deadline is None and result.unresolved == 1
+
+
+def test_the_summary_lists_counts_and_notes() -> None:
+    result = parse(
+        "[A] on {田中:0%} starts 2026-10-13 and is 50% completed", "[B] starts at [Z]'s end", "foo bar baz"
+    )
+    text = summary(result)
+    assert text.startswith("取り込みました(タスク 2 件、メンバー 1 人を作成)")
+    for note in ("読み飛ばした行 1 行", "日程が求まらないタスク 1 件", "割り当て率を 100% にした担当 1 件", "進捗度を取り込まなかったタスク 1 件"):
+        assert note in text
+    assert summary(parse("[A] starts 2026-10-13")) == "取り込みました(タスク 1 件)"
+
+
+def test_read_plantuml_reads_utf8_with_or_without_a_bom(tmp_path: Path) -> None:
+    plain, bom = tmp_path / "a.puml", tmp_path / "b.puml"
+    plain.write_text("@startgantt\n[設計] starts 2026-10-13\n@endgantt\n", encoding="utf-8")
+    bom.write_text("@startgantt\n[設計] starts 2026-10-13\n@endgantt\n", encoding="utf-8-sig")
+    assert read_plantuml(plain) == read_plantuml(bom)
+    assert "設計" in parse_plantuml(read_plantuml(bom), "x").project.all_tasks()[0].name
+
+
+def test_read_plantuml_refuses_unreadable_files(tmp_path: Path) -> None:
+    binary = tmp_path / "bin.puml"
+    binary.write_bytes(b"\xff\xfe\x00\x81\x82")
+    with pytest.raises(PlantUmlImportError):
+        read_plantuml(binary)
+    with pytest.raises(PlantUmlImportError):
+        read_plantuml(tmp_path / "missing.puml")
+
+
+def test_the_open_file_types_name_the_extensions() -> None:
+    assert PLANTUML_OPEN_FILE_TYPES == ("PlantUML ファイル (*.puml *.plantuml *.txt)",)
+
+
+def test_the_output_of_build_plantuml_comes_back() -> None:
+    first = Task("設計", id="t1", planned_start=datetime(2026, 10, 13, 9), planned_end=datetime(2026, 10, 14, 15, 30),
+                 assignees=[Assignee("田中", 1.0)])
+    second = Task("実装", id="t2", planned_start=datetime(2026, 10, 15, 9), planned_end=datetime(2026, 10, 20, 15, 30),
+                  predecessors=["t1"])
+    release = Task("リリース", id="t3", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 23, 15, 30))
+    project = Project("検証", tasks=[first], sections=[Section("開発", [second], [Section("運用", [release])])])
+    text = build_plantuml(
+        project, {}, (date(2026, 10, 12), date(2026, 10, 30)), Scale.DAY, TaskFilter(), datetime(2026, 10, 1)
+    ).text
+    result = parse_plantuml(text, "代わり")
+    back = result.project
+    assert back.name == "検証" and result.created_members == 0 and result.skipped_lines == 0
+    by_name = {t.name: t for t in back.all_tasks()}
+    assert set(by_name) == {"設計 (田中)", "実装", "リリース"}  # 担当者名は表示名に残る
+    assert (by_name["設計 (田中)"].planned_start, by_name["設計 (田中)"].planned_end) == (at(13), at(14, *END))
+    assert (by_name["実装"].planned_start, by_name["実装"].planned_end) == (at(15), at(20, *END))
+    assert by_name["実装"].predecessors == [by_name["設計 (田中)"].id]
+    assert by_name["リリース"].kind is TaskKind.CHECKPOINT and by_name["リリース"].deadline == at(23, *END)
+    assert [t.name for t in back.tasks] == ["設計 (田中)"]
+    assert [s.name for s in back.sections] == ["開発"] and [s.name for s in back.sections[0].sections] == ["運用"]
+
+
+PLANTUML_JAR = Path(os.environ.get("PLANTUML_JAR", "/usr/local/lib/plantuml.jar"))
+
+SUPPORTED_SYNTAX = """@startgantt
+Project starts 2026-10-12
+saturday are closed
+sunday are closed
+2026-10-16 is closed
+-- 開発 --
+[設計] as [T1] starts 2026-10-13 and lasts 3 days
+[T1] is 40% completed
+[実装] as [T2] starts at [T1]'s end and lasts 5 days
+[テスト] as [T3] starts 3 days after [T2]'s end and lasts 2 days
+[準備] as [T4] starts at [T1]'s start and lasts 1 day
+[T1] -> [T2]
+[リリース] happens on 2026-10-30
+[節目] happens at [T2]'s end
+@endgantt
+"""
+
+
+@pytest.mark.skipif(shutil.which("java") is None or not PLANTUML_JAR.exists(), reason="java と plantuml.jar が要る")
+def test_the_supported_syntax_is_accepted_by_plantuml_and_imported() -> None:
+    done = subprocess.run(
+        ["java", "-jar", str(PLANTUML_JAR), "-pipe", "-tsvg"], input=SUPPORTED_SYNTAX.encode(), capture_output=True, timeout=60
+    )
+    svg = done.stdout.decode(errors="replace")
+    assert done.returncode == 0 and "<svg" in svg and "Syntax Error" not in svg
+    result = parse_plantuml(SUPPORTED_SYNTAX, "検証")
+    assert result.skipped_lines == 0 and result.unresolved == 0
+    assert result.task_count == 6

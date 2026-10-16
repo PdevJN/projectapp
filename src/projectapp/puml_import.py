@@ -3,13 +3,17 @@
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from projectapp.models import (
     MAX_SECTION_DEPTH,
     MAX_YEAR,
     MIN_YEAR,
+    Assignee,
+    Member,
     Project,
     Section,
+    Status,
     Task,
     TaskKind,
     new_id,
@@ -17,6 +21,7 @@ from projectapp.models import (
 )
 from projectapp.storage import dumps_project, parse_project
 
+PLANTUML_OPEN_FILE_TYPES = ("PlantUML ファイル (*.puml *.plantuml *.txt)",)
 WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6}
 MAX_LASTS_DAYS = 3660  # 期間の上限(稼働日)。これを超える指定は読み飛ばす
 MAX_SEARCH_DAYS = 3660  # 稼働日を探す日数の上限(全日が休みでも止まる)
@@ -39,6 +44,9 @@ _HAPPENS_ON = re.compile(rf"\bhappens\s+on\s+{_D}", re.I)
 _STARTS_DATE = re.compile(rf"\bstarts?\s+(?:on\s+)?{_D}", re.I)
 _ENDS_DATE = re.compile(rf"\bends?\s+(?:on\s+)?{_D}", re.I)
 _LASTS = re.compile(r"\blasts?\s+(\d+)\s+(day|week)s?\b", re.I)
+_ON = re.compile(r"\bon\s+((?:\{[^}]*\}\s*)+)", re.I)
+_RESOURCE = re.compile(r"\{\s*([^}:]*?)\s*(?::\s*(\d+(?:\.\d+)?)\s*%)?\s*\}")
+_PROGRESS = re.compile(r"\bis\s+(\d{1,3})%\s+completed\b", re.I)
 _REF = r"\[([^\]]+)\]'s\s+(end|start)"
 _DEPENDENCY = re.compile(r"\[([^\]]+)\]\s*->\s*\[([^\]]+)\]$")
 _HAPPENS_AT = re.compile(rf"\bhappens\s+at\s+{_REF}", re.I)
@@ -91,6 +99,8 @@ class _Raw:
     lasts: int | None = None  # 稼働日数
     after: tuple[str, str, int] | None = None  # (参照するタスク, "end" か "start", 日数)
     preds: list[str] = field(default_factory=list)  # `->` の先行(名前または別名)
+    assignees: list[tuple[str, float | None]] = field(default_factory=list)  # (名前, `:N%` の N。省略は None)
+    progress: int | None = None
 
 
 class _Scanner:
@@ -199,7 +209,14 @@ class _Scanner:
     def _clauses(self, raw: _Raw, rest: str) -> bool:
         """タスクの行の続き。ひとつでも解釈できれば True。"""
         rest, colored = _COLORED.subn(" ", rest)
-        return self._when(raw, rest) or colored > 0
+        matched = colored > 0
+        if m := _ON.search(rest):
+            raw.assignees += [(n, float(p) if p else None) for n, p in _RESOURCE.findall(m.group(1))]
+            rest = f"{rest[: m.start()]} {rest[m.end() :]}"
+            matched = True
+        if (m := _PROGRESS.search(rest)) and int(m.group(1)) <= 100:
+            raw.progress, matched = int(m.group(1)), True
+        return self._when(raw, rest) or matched
 
     def _note(self, text: str) -> date | None:
         day = _parse_date(text)
@@ -347,6 +364,7 @@ class _Builder:
         self.counts = _Counts()
         self._taken: set[str] = set()
         self._sections: dict[tuple[str, ...], Section] = {}
+        self._members: dict[str, Member] = {}
 
     def build(self) -> Project:
         for path in self.scanner.sections:
@@ -404,15 +422,45 @@ class _Builder:
     def _task(self, index: int, raw: _Raw) -> Task:
         start, end = self.resolver.span(index)
         task = Task(tidy_task_name(raw.name) or UNNAMED, id=self._fresh())
+        task.status = _status(raw.progress)
+        if raw.progress:
+            self.counts.dropped_progress += 1
         if start is None or end is None:
             self.counts.unresolved += 1
         elif raw.milestone:
             task.kind = TaskKind.CHECKPOINT
             task.deadline = self._end_of_day(start)
+            task.status = Status.DONE if task.status is Status.DONE else Status.NOT_STARTED
+            return task
         else:
             task.planned_start = datetime.combine(start, self.project.work_start)
             task.planned_end = self._end_of_day(end)
+        task.assignees = self._assignees(raw)
         return task
+
+    def _assignees(self, raw: _Raw) -> list[Assignee]:
+        found: list[Assignee] = []
+        for raw_name, percent in raw.assignees:
+            name = tidy_task_name(raw_name)
+            if not name or any(a.name == name for a in found):
+                continue
+            if name not in self._members:
+                member = Member(name, id=self._fresh())
+                self._members[name] = member
+                self.project.members.append(member)
+                self.counts.created_members += 1
+            allocation = 1.0 if percent is None else percent / 100
+            if percent is not None and not 1 <= percent <= 100:
+                allocation = 1.0
+                self.counts.clamped += 1
+            found.append(Assignee(name, allocation))
+        return found
+
+
+def _status(progress: int | None) -> Status:
+    if not progress:
+        return Status.NOT_STARTED
+    return Status.DONE if progress == 100 else Status.RUNNING
 
 
 def parse_plantuml(text: str, name: str) -> PlantUmlImport:
@@ -439,3 +487,26 @@ def parse_plantuml(text: str, name: str) -> PlantUmlImport:
         counts.clamped,
         counts.dropped_progress,
     )
+
+
+def summary(result: PlantUmlImport) -> str:
+    """取り込み後の通知。件数と、取り込めなかったものの内訳。"""
+    head = f"タスク {result.task_count} 件"
+    if result.created_members:
+        head += f"、メンバー {result.created_members} 人を作成"
+    notes = [
+        f"読み飛ばした行 {result.skipped_lines} 行" if result.skipped_lines else "",
+        f"日程が求まらないタスク {result.unresolved} 件" if result.unresolved else "",
+        f"割り当て率を 100% にした担当 {result.clamped_allocations} 件" if result.clamped_allocations else "",
+        f"進捗度を取り込まなかったタスク {result.dropped_progress} 件" if result.dropped_progress else "",
+    ]
+    detail = "、".join(note for note in notes if note)
+    return f"取り込みました({head})" + (f"。{detail}" if detail else "")
+
+
+def read_plantuml(path: Path) -> str:
+    """UTF-8 のテキストを読む(BOM は除く)。読めなければ `PlantUmlImportError`。"""
+    try:
+        return path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise PlantUmlImportError(f"ファイルを読めません: {exc}") from exc
