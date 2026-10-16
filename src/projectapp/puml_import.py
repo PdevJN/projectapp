@@ -66,7 +66,6 @@ class PlantUmlImport:
     skipped_lines: int  # 解釈できず読み飛ばした行の数
     unresolved: int  # 日程が求まらなかったタスクの数
     clamped_allocations: int  # 範囲外で 100% にした割り当て率の数
-    dropped_progress: int  # 進捗度(1〜100%)を取り込まなかったタスクの数
 
 
 def _parse_date(text: str) -> date | None:
@@ -350,7 +349,6 @@ class _Resolver:
 class _Counts:
     unresolved: int = 0
     clamped: int = 0
-    dropped_progress: int = 0
     created_members: int = 0
 
 
@@ -423,14 +421,14 @@ class _Builder:
         start, end = self.resolver.span(index)
         task = Task(tidy_task_name(raw.name) or UNNAMED, id=self._fresh())
         task.status = _status(raw.progress)
-        if raw.progress:
-            self.counts.dropped_progress += 1
+        task.progress = raw.progress or None  # 0 は入れない(未着手と区別しない)
         if start is None or end is None:
             self.counts.unresolved += 1
         elif raw.milestone:
             task.kind = TaskKind.CHECKPOINT
             task.deadline = self._end_of_day(start)
             task.status = Status.DONE if task.status is Status.DONE else Status.NOT_STARTED
+            task.progress = None  # チェックポイントは進捗度を持たない
             return task
         else:
             task.planned_start = datetime.combine(start, self.project.work_start)
@@ -485,7 +483,6 @@ def parse_plantuml(text: str, name: str) -> PlantUmlImport:
         scanner.skipped,
         counts.unresolved,
         counts.clamped,
-        counts.dropped_progress,
     )
 
 
@@ -498,7 +495,6 @@ def summary(result: PlantUmlImport) -> str:
         f"読み飛ばした行 {result.skipped_lines} 行" if result.skipped_lines else "",
         f"日程が求まらないタスク {result.unresolved} 件" if result.unresolved else "",
         f"割り当て率を 100% にした担当 {result.clamped_allocations} 件" if result.clamped_allocations else "",
-        f"進捗度を取り込まなかったタスク {result.dropped_progress} 件" if result.dropped_progress else "",
     ]
     detail = "、".join(note for note in notes if note)
     return f"取り込みました({head})" + (f"。{detail}" if detail else "")

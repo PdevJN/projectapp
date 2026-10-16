@@ -291,25 +291,27 @@ def test_a_checkpoint_has_no_assignees() -> None:
 
 
 @pytest.mark.parametrize(
-    ("line", "status"),
+    ("line", "status", "progress"),
     [
-        ("[A] starts 2026-10-13", Status.NOT_STARTED),
-        ("[A] starts 2026-10-13 and is 0% completed", Status.NOT_STARTED),
-        ("[A] starts 2026-10-13 and is 1% completed", Status.RUNNING),
-        ("[A] starts 2026-10-13 and is 99% completed", Status.RUNNING),
-        ("[A] starts 2026-10-13 and is 100% completed", Status.DONE),
+        ("[A] starts 2026-10-13", Status.NOT_STARTED, None),
+        ("[A] starts 2026-10-13 and is 0% completed", Status.NOT_STARTED, None),
+        ("[A] starts 2026-10-13 and is 1% completed", Status.RUNNING, 1),
+        ("[A] starts 2026-10-13 and is 99% completed", Status.RUNNING, 99),
+        ("[A] starts 2026-10-13 and is 100% completed", Status.DONE, 100),
     ],
 )
-def test_progress_decides_only_the_status(line: str, status: Status) -> None:
+def test_progress_decides_the_status_and_is_kept_as_the_task_value(
+    line: str, status: Status, progress: int | None
+) -> None:
     result = parse(line)
     task = task_named(result, "A")
-    assert task.status is status and task.actuals == []
+    assert task.status is status and task.progress == progress and task.actuals == []
 
 
-def test_progress_on_a_separate_line_and_the_dropped_count() -> None:
+def test_progress_on_a_separate_line_is_kept() -> None:
     result = parse("[A] as [T1] starts 2026-10-13", "[T1] is 40% completed", "[B] starts 2026-10-13", "[C] is 0% completed")
-    assert task_named(result, "A").status is Status.RUNNING
-    assert result.dropped_progress == 1  # 0% と、進捗のないものは数えない
+    assert (task_named(result, "A").status, task_named(result, "A").progress) == (Status.RUNNING, 40)
+    assert task_named(result, "B").progress is None and task_named(result, "C").progress is None
 
 
 def test_progress_over_100_skips_the_line() -> None:
@@ -320,6 +322,12 @@ def test_progress_over_100_skips_the_line() -> None:
 def test_a_checkpoint_is_done_only_at_100_percent() -> None:
     assert task_named(parse("[M] happens on 2026-10-23 and is 100% completed"), "M").status is Status.DONE
     assert task_named(parse("[M] happens on 2026-10-23 and is 50% completed"), "M").status is Status.NOT_STARTED
+    assert task_named(parse("[M] happens on 2026-10-23 and is 100% completed"), "M").progress is None
+
+
+def test_a_milestone_without_a_date_keeps_its_progress_as_a_plain_task() -> None:
+    task = task_named(parse("[M] happens at [Z]'s end and is 30% completed"), "M")
+    assert task.kind is TaskKind.NORMAL and task.progress == 30
 
 
 def test_a_milestone_without_a_date_is_a_plain_unscheduled_task() -> None:
@@ -334,8 +342,9 @@ def test_the_summary_lists_counts_and_notes() -> None:
     )
     text = summary(result)
     assert text.startswith("取り込みました(タスク 2 件、メンバー 1 人を作成)")
-    for note in ("読み飛ばした行 1 行", "日程が求まらないタスク 1 件", "割り当て率を 100% にした担当 1 件", "進捗度を取り込まなかったタスク 1 件"):
+    for note in ("読み飛ばした行 1 行", "日程が求まらないタスク 1 件", "割り当て率を 100% にした担当 1 件"):
         assert note in text
+    assert "進捗度" not in text
     assert summary(parse("[A] starts 2026-10-13")) == "取り込みました(タスク 1 件)"
 
 
@@ -364,7 +373,7 @@ def test_the_open_file_types_are_valid_for_the_native_dialog() -> None:
 
 def test_the_output_of_build_plantuml_comes_back() -> None:
     first = Task("設計", id="t1", planned_start=datetime(2026, 10, 13, 9), planned_end=datetime(2026, 10, 14, 15, 30),
-                 assignees=[Assignee("田中", 1.0)])
+                 assignees=[Assignee("田中", 1.0)], progress=40, status=Status.RUNNING)
     second = Task("実装", id="t2", planned_start=datetime(2026, 10, 15, 9), planned_end=datetime(2026, 10, 20, 15, 30),
                   predecessors=["t1"])
     release = Task("リリース", id="t3", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 23, 15, 30))
@@ -383,6 +392,7 @@ def test_the_output_of_build_plantuml_comes_back() -> None:
     assert by_name["リリース"].kind is TaskKind.CHECKPOINT and by_name["リリース"].deadline == at(23, *END)
     assert [t.name for t in back.tasks] == ["設計 (田中)"]
     assert [s.name for s in back.sections] == ["開発"] and [s.name for s in back.sections[0].sections] == ["運用"]
+    assert by_name["設計 (田中)"].progress == 40 and by_name["設計 (田中)"].status is Status.RUNNING
 
 
 PLANTUML_JAR = Path(os.environ.get("PLANTUML_JAR", "/usr/local/lib/plantuml.jar"))
