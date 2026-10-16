@@ -3472,6 +3472,25 @@ async def test_external_change_save_as_leaves_the_other_version_and_switches(
     assert not (tmp_path / "既存.json.bak").exists()
 
 
+async def test_external_change_save_as_name_dialog_survives_the_conflict_dialog_being_deleted(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_with_external_change(user, tmp_path)
+    user.find(marker="save-project").click()
+    conflict = user.find(marker="conflict-save-as").elements.pop()
+    while not isinstance(conflict, ui.dialog):
+        conflict = conflict.parent_slot.parent
+    user.find(marker="conflict-save-as").click()
+    await user.should_see(marker="name-save")
+    conflict.delete()  # 確認ダイアログは、閉じたあとの hide で自分を削除する
+    gc.collect()
+    await asyncio.sleep(0.2)
+    await user.should_see(marker="name-save")
+    user.find(marker="project-name").clear().type("別名")
+    user.find(marker="name-save").click()
+    assert await wait_until(lambda: view.path == tmp_path / "別名.json")
+
+
 async def test_external_change_save_as_with_an_existing_name_keeps_the_dialog_open(
     user: User, tmp_path: Path
 ) -> None:

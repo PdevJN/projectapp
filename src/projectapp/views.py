@@ -411,12 +411,13 @@ class MainView:
         self.save_as_then(None)
 
     def save_as_then(self, after: Callable[[], object] | None) -> None:
-        open_name_dialog(
-            lambda name: self.save_as_new(name, after),
-            lambda name: validate_name(name, self.project_dir, new=True),
-            title="名前をつけて保存",
-            initial=self.project.name,
-        )
+        with self.client:  # 確認ダイアログの中で作ると、確認が閉じて削除されるときに一緒に消える
+            open_name_dialog(
+                lambda name: self.save_as_new(name, after),
+                lambda name: validate_name(name, self.project_dir, new=True),
+                title="名前をつけて保存",
+                initial=self.project.name,
+            )
 
     def show_file_list(self) -> None:
         """ファイルを走査し直して、一覧ダイアログを出す。"""
