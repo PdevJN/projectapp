@@ -271,10 +271,11 @@ class MainView:
     def save_then(self, after: Callable[[], object]) -> None:
         """保存に成功したときだけ、続きの処理を行う(外部変更の確認を挟んだときも、続きは引き継ぐ)。"""
         if self.path is None:
-            open_name_dialog(
-                lambda name: self.save_as_new(name, after),
-                lambda name: validate_name(name, self.project_dir, new=True),
-            )
+            with self.client:  # 確認ダイアログの中で作ると、確認が閉じて削除されるときに一緒に消える
+                open_name_dialog(
+                    lambda name: self.save_as_new(name, after),
+                    lambda name: validate_name(name, self.project_dir, new=True),
+                )
         else:
             self.write(overwrite=True, after=after)
 

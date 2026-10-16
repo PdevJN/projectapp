@@ -1,4 +1,5 @@
 import asyncio
+import gc
 import json
 from collections.abc import Callable
 from dataclasses import asdict, replace
@@ -3666,3 +3667,23 @@ async def test_an_imported_project_asks_before_another_project_is_opened(user: U
     assert await wait_until(lambda: view.project.name == "取込元")
     await choose_in_combo(user, "既存")
     await user.should_see(marker="unsaved-save")
+
+
+async def test_the_name_dialog_survives_the_unsaved_dialog_being_deleted(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=write_puml(tmp_path))
+    view = await open_for_import(user, tmp_path, exporter)
+    view.save_section("追加")  # 保存前の新規プロジェクトを編集中
+    user.find(marker="file-new").click()
+    confirm = next(e for e in user.find(marker="unsaved-save").elements)
+    unsaved = confirm
+    while not isinstance(unsaved, ui.dialog):
+        unsaved = unsaved.parent_slot.parent
+    user.find(marker="unsaved-save").click()
+    await user.should_see(marker="name-save")
+    unsaved.delete()  # 確認ダイアログは、閉じたあとの hide で自分を削除する
+    gc.collect()  # ダイアログは、作られた場所の要素が消えると、自分も消える
+    await asyncio.sleep(0.2)
+    await user.should_see(marker="name-save")
+    user.find(marker="project-name").type("保存名")
+    user.find(marker="name-save").click()
+    assert await wait_until(lambda: (tmp_path / "保存名.json").exists())
