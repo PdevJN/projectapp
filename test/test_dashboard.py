@@ -81,6 +81,11 @@ def test_progress_is_the_effort_weighted_average() -> None:
     assert progress.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 1}
 
 
+def test_progress_uses_the_task_value_without_actuals() -> None:
+    task = Task("A", effort_hours=10, status=Status.RUNNING, progress=50)
+    assert summarize_progress(project_of(task), {}, NOW).percent == pytest.approx(50)
+
+
 def test_progress_is_none_without_tasks() -> None:
     progress = summarize_progress(project_of(), {}, NOW)
     assert progress.percent is None

@@ -266,6 +266,7 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         actuals=_actuals(raw.get("actuals")),
         kind=kind,
         urls=_task_urls(raw.get("urls")),
+        progress=_progress(raw.get("progress"), "進捗度") if ctx.version >= 5 else None,
         category_id=_category_id(raw.get("category_id")) if ctx.version >= 3 else None,
     )
     result = _checkpoint(task) if kind is TaskKind.CHECKPOINT else task
@@ -307,14 +308,14 @@ def _status(value: Any) -> Status:
     return Status(value)
 
 
-def _progress(value: Any) -> int | None:
-    """実績の進捗度を読む。null・キーなしは未入力。整数(boolは不可)で0〜100。"""
+def _progress(value: Any, label: str = "実績の進捗度") -> int | None:
+    """進捗度を読む。null・キーなしは未入力。整数(boolは不可)で0〜100。"""
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError("実績の進捗度が整数ではありません")
+        raise ValueError(f"{label}が整数ではありません")
     if not MIN_PROGRESS <= value <= MAX_PROGRESS:
-        raise ValueError(f"実績の進捗度は{MIN_PROGRESS}〜{MAX_PROGRESS}で指定してください")
+        raise ValueError(f"{label}は{MIN_PROGRESS}〜{MAX_PROGRESS}で指定してください")
     return value
 
 
@@ -448,7 +449,7 @@ def _kind(value: Any) -> TaskKind:
 
 
 def _checkpoint(task: Task) -> Task:
-    """チェックポイントを検証し、使わない項目(開始予定・工数・担当・実績など)を空にして返す。"""
+    """チェックポイントを検証し、使わない項目(開始予定・工数・担当・実績・進捗度など)を空にして返す。"""
     if task.deadline is None:
         raise ValueError(f"チェックポイントに締切がありません: {task.name}")
     if task.status not in CHECKPOINT_STATUSES:
@@ -461,6 +462,7 @@ def _checkpoint(task: Task) -> Task:
         effort_hours=0.0,
         assignees=[],
         actuals=[],
+        progress=None,
     )
 
 

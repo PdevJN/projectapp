@@ -1288,6 +1288,10 @@ def test_fill_percent() -> None:
     assert fill_percent(done) == 80
 
 
+def test_fill_percent_uses_the_task_progress() -> None:
+    assert fill_percent(Task("t", progress=40)) == 40
+
+
 async def test_planned_bar_is_filled_by_the_progress(user: User) -> None:
     mount(progress_project(40))
     await user.open("/")

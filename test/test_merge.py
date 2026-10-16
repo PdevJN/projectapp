@@ -203,6 +203,23 @@ def test_same_field_changed_differently_is_a_conflict() -> None:
     assert merge_projects(base, ours, theirs, {conflict.id: THEIRS}).project.tasks[0].effort_hours == 2.0
 
 
+def test_task_progress_merges_field_by_field() -> None:
+    base = proj(tasks=[task("a", "t1")])
+    ours = proj(tasks=[task("a", "t1", progress=40)])
+    theirs = proj(tasks=[task("a", "t1", effort_hours=2.0)])
+    merged = merge_projects(base, ours, theirs)
+    assert merged.conflicts == []
+    assert (merged.project.tasks[0].progress, merged.project.tasks[0].effort_hours) == (40, 2.0)
+
+
+def test_task_progress_changed_differently_is_a_conflict_with_a_readable_label() -> None:
+    base = proj(tasks=[task("a", "t1", progress=10)])
+    ours = proj(tasks=[task("a", "t1", progress=40)])
+    theirs = proj(tasks=[task("a", "t1", progress=70)])
+    (conflict,) = merge_projects(base, ours, theirs).conflicts
+    assert (conflict.field, conflict.ours, conflict.theirs) == ("進捗度", 40, 70)
+
+
 def test_added_task_goes_after_its_predecessor_sibling() -> None:
     base = proj(tasks=[task("a", "t1"), task("b", "t2")])
     theirs = proj(tasks=[task("a", "t1"), task("new", "t3"), task("b", "t2")])
