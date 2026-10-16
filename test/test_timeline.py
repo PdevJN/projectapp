@@ -719,6 +719,19 @@ def test_current_progress_is_the_last_entered_value() -> None:
     assert current_progress(task) == 60
 
 
+def test_current_progress_falls_back_to_the_task_value() -> None:
+    assert current_progress(Task("t", progress=40)) == 40
+    assert current_progress(Task("t", progress=0)) == 0
+    assert current_progress(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9))], progress=30)) == 30
+
+
+def test_current_progress_prefers_the_actual_intervals() -> None:
+    task = Task("t", progress=10, actuals=[Actual(datetime(2026, 10, 5, 9), None, 60)])
+    assert current_progress(task) == 60
+    task.actuals[0].progress = None
+    assert current_progress(task) == 10
+
+
 P_START = datetime(2026, 10, 5, 12)
 P_END = datetime(2026, 10, 7, 12)  # 48時間
 P_MID = datetime(2026, 10, 6, 12)  # ちょうど50%

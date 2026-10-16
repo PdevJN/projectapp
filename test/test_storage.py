@@ -770,7 +770,7 @@ def test_legacy_project_codes_become_categories(tmp_path: Path) -> None:
     first, second = loaded.categories
     assert [t.category_id for t in loaded.tasks] == [first.id, second.id, first.id, None]
     raw = json.loads(save_project(loaded, tmp_path, overwrite=True).read_text(encoding="utf-8"))
-    assert raw["version"] == 4 and len(raw["categories"]) == 2
+    assert raw["version"] == 5 and len(raw["categories"]) == 2
 
 
 @pytest.mark.parametrize("missing", ["delete", "null"])
@@ -791,7 +791,7 @@ def test_legacy_code_that_is_not_a_valid_prj_code_keeps_only_the_name(tmp_path: 
     assert [(c.name, c.prj_code) for c in loaded.categories] == [("設計 A", ""), ("A B", "")]
     raw = json.loads(save_project(loaded, tmp_path, overwrite=True).read_text(encoding="utf-8"))
     assert load_project(tmp_path / "demo.json").categories == loaded.categories  # 書き戻したファイルを、そのまま読める
-    assert raw["version"] == 4
+    assert raw["version"] == 5
 
 
 def test_legacy_reserved_code_becomes_undecided(tmp_path: Path) -> None:
@@ -1299,7 +1299,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 4
+    assert raw["version"] == FORMAT_VERSION == 5
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1367,7 +1367,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 4
+    assert raw["version"] == FORMAT_VERSION == 5
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -1407,7 +1407,7 @@ def test_a_version_1_file_gets_unique_ids(tmp_path: Path) -> None:
     assert all(len(i) == 8 for i in ids)
     assert loaded.sections[0].tasks[0].assignees == [Assignee("田中", 0.6), Assignee("鈴木", 0.4)]
     raw = json.loads(save_project(loaded, tmp_path, overwrite=True).read_text(encoding="utf-8"))
-    assert raw["version"] == 4
+    assert raw["version"] == 5
 
 
 def test_version_1_ids_avoid_the_ids_in_the_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1637,7 +1637,7 @@ def test_events_roundtrip_and_are_ordered_as_saved(tmp_path: Path) -> None:
     assert loaded.events == [a, b]
     assert [e.id for e in loaded.events] == ["e1", "e2"]
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["version"] == 4
+    assert raw["version"] == 5
     assert raw["events"][0] == {"start": "2026-10-20", "end": "2026-10-24", "text": "リリース", "color": "red", "id": "e1"}
 
 
@@ -1721,3 +1721,47 @@ def test_duplicate_event_ids_are_rejected_on_save_and_load(tmp_path: Path) -> No
 def test_new_ids_do_not_collide_with_event_ids() -> None:
     project = Project("p", events=[Event(date(2026, 10, 1), date(2026, 10, 1), "a", id="e1")])
     assert "e1" in project.used_ids()
+
+
+@pytest.mark.parametrize("value", [None, 0, 40, 100])
+def test_task_progress_roundtrip(tmp_path: Path, value: int | None) -> None:
+    loaded = load_project(save_project(Project("p", tasks=[Task("t", progress=value)]), tmp_path))
+    assert loaded.tasks[0].progress == value
+
+
+def _rewrite_task(path: Path, **changes: object) -> None:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["tasks"][0].update(changes)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+
+def test_file_without_task_progress_loads_as_none(tmp_path: Path) -> None:
+    path = save_project(Project("p", tasks=[Task("t", progress=40)]), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["tasks"][0]["progress"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).tasks[0].progress is None
+
+
+@pytest.mark.parametrize("bad", [True, False, 40.5, 40.0, "40", -1, 101, [40]])
+def test_invalid_task_progress_is_rejected(tmp_path: Path, bad: object) -> None:
+    path = save_project(Project("p", tasks=[Task("t")]), tmp_path)
+    _rewrite_task(path, progress=bad)
+    with pytest.raises(ValueError, match="進捗度"):
+        load_project(path)
+
+
+def test_progress_key_in_a_version_4_file_is_ignored(tmp_path: Path) -> None:
+    path = save_project(Project("p", tasks=[Task("t")]), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["version"] = 4
+    raw["tasks"][0]["progress"] = 40
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).tasks[0].progress is None
+
+
+def test_a_checkpoint_loads_without_progress(tmp_path: Path) -> None:
+    checkpoint = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 20, 17, 0))
+    path = save_project(Project("p", tasks=[checkpoint]), tmp_path)
+    _rewrite_task(path, progress=50)
+    assert load_project(path).tasks[0].progress is None

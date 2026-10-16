@@ -152,7 +152,7 @@ def _build_checkpoint(
     linkable_ids: frozenset[str] | None,
     urls: list[TaskUrl] | None,
 ) -> Task:
-    """チェックポイント。締切だけを検証し、開始予定・工数・担当・実績は空にする(隠した欄の入力は見ない)。"""
+    """チェックポイント。締切だけを検証し、開始予定・工数・担当・実績・進捗度は空にする(隠した欄の入力は見ない)。"""
     try:
         deadline_at = parse_datetime(deadline)
     except ValueError:
@@ -179,6 +179,7 @@ def _build_checkpoint(
         color=color,
         assignees=[],
         actuals=[],
+        progress=None,
         category_id=category_id,
         predecessors=_links(base, predecessors, linkable_ids),
         urls=base.urls if urls is None else urls,
@@ -246,6 +247,7 @@ def build_task(
     actual_end: str = "",
     actual_progress: float | None = None,
     actual_rows: list[ActualRow] | None = None,
+    progress: float | None = None,
     category_id: str | None = None,
     predecessors: list[str] | None = None,
     linkable_ids: frozenset[str] | None = None,
@@ -253,7 +255,7 @@ def build_task(
     urls: list[TaskUrl] | None = None,
     assignees: list[tuple[str, float | None]] | None = None,
 ) -> Task:
-    """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。"""
+    """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。`progress` はタスクの進捗度(区間の進捗度とは別)。"""
     clean = name.strip()
     if not clean:
         raise ValueError("名前を入力してください")
@@ -293,6 +295,7 @@ def build_task(
     else:
         actuals = build_actuals(actual_start, actual_end, actual_progress)
     links = _links(base, predecessors, linkable_ids)
+    task_progress = _check_progress(progress)
     return replace(
         base,
         kind=TaskKind.NORMAL,
@@ -307,6 +310,7 @@ def build_task(
         color=color,
         assignees=assignee_list,
         actuals=actuals,
+        progress=task_progress,
         category_id=category_id,
         predecessors=links,
         urls=base.urls if urls is None else urls,

@@ -867,6 +867,39 @@ def test_bad_progress_is_rejected(bad: float) -> None:
         make(actual_start="2026-10-05T09:00", actual_progress=bad)
 
 
+def test_the_task_progress_is_saved_apart_from_the_actuals() -> None:
+    task = make(progress=40)
+    assert task.progress == 40 and task.actuals == []
+
+
+def test_the_task_progress_accepts_zero_hundred_and_empty() -> None:
+    assert make(progress=0).progress == 0
+    assert make(progress=100.0).progress == 100
+    assert make(Task("t", progress=40), progress=None).progress is None
+
+
+@pytest.mark.parametrize("bad", [-1, 101, 40.5, float("nan"), float("inf")])
+def test_a_bad_task_progress_is_rejected(bad: float) -> None:
+    with pytest.raises(ValueError, match="進捗度"):
+        make(progress=bad)
+
+
+def test_the_task_progress_does_not_touch_the_actual_progress() -> None:
+    task = make(progress=10, actual_start="2026-10-05T09:00", actual_progress=60)
+    assert (task.progress, task.actuals[0].progress) == (10, 60)
+
+
+def test_a_checkpoint_drops_the_task_progress() -> None:
+    task = make(
+        Task("t", progress=40),
+        kind=TaskKind.CHECKPOINT,
+        deadline="2026-10-09T17:00",
+        status=Status.NOT_STARTED,
+        progress=40,
+    )
+    assert task.progress is None
+
+
 def test_progress_without_a_start_is_rejected() -> None:
     with pytest.raises(ValueError, match="実績の開始"):
         make(actual_progress=40)
