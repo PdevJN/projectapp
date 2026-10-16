@@ -71,6 +71,13 @@ from projectapp.handoff import (
 from projectapp.handoff import default_filename as handoff_filename
 from projectapp.plantuml import PLANTUML_FILE_TYPES, build_plantuml, write_text
 from projectapp.plantuml import default_filename as plantuml_filename
+from projectapp.puml_import import (
+    PLANTUML_OPEN_FILE_TYPES,
+    PlantUmlImportError,
+    parse_plantuml,
+    read_plantuml,
+)
+from projectapp.puml_import import summary as import_summary
 from projectapp.filemanager import open_folder
 from projectapp.gitops import FileChange, GitResult, PullKind, PullOps, default_message, list_changes
 from projectapp.gitops import commit as commit_files_in_git
@@ -143,6 +150,7 @@ body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55
 """
 HANDOFF_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、書き出せます"
 CHANGE_DIR_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、格納先を変更できます"
+IMPORT_NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、取り込めます"
 KEY_GUARD_JS = key_guard_js()
 
 
@@ -263,10 +271,11 @@ class MainView:
     def save_then(self, after: Callable[[], object]) -> None:
         """保存に成功したときだけ、続きの処理を行う(外部変更の確認を挟んだときも、続きは引き継ぐ)。"""
         if self.path is None:
-            open_name_dialog(
-                lambda name: self.save_as_new(name, after),
-                lambda name: validate_name(name, self.project_dir, new=True),
-            )
+            with self.client:  # 確認ダイアログの中で作ると、確認が閉じて削除されるときに一緒に消える
+                open_name_dialog(
+                    lambda name: self.save_as_new(name, after),
+                    lambda name: validate_name(name, self.project_dir, new=True),
+                )
         else:
             self.write(overwrite=True, after=after)
 
@@ -310,6 +319,39 @@ class MainView:
             on_discard=self.new_project,
             purpose="作成",
         )
+
+    def request_import_plantuml(self) -> None:
+        """PlantUML の取り込みを始める(ネイティブのみ)。編集中は、確認してからファイルを選ばせる。"""
+        if not self.exporter.available:
+            ui.notify(IMPORT_NOT_NATIVE_MESSAGE, type="warning")
+            return
+        if not self.is_dirty():
+            self.pick_plantuml()
+            return
+        open_unsaved_dialog(
+            on_save=lambda: self.save_then(self.pick_plantuml),
+            on_discard=self.pick_plantuml,
+            purpose="取り込み",
+        )
+
+    def pick_plantuml(self) -> None:
+        """ファイル選択を始める。確認ダイアログは閉じると消えるので、タイマーは画面の直下に置く。"""
+        with self.client:
+            ui.timer(0, self.import_plantuml, once=True)
+
+    async def import_plantuml(self) -> None:
+        """選んだ PlantUML から、保存前の新規プロジェクトを作る。失敗したら、通知だけして何も変えない。"""
+        path = await self.exporter.ask_open_path(PLANTUML_OPEN_FILE_TYPES)
+        if path is None:
+            return
+        try:
+            result = parse_plantuml(read_plantuml(path), path.stem)
+        except PlantUmlImportError as exc:
+            ui.notify(f"取り込めませんでした: {exc}", type="negative")
+            return
+        self.show_project(result.project, None)
+        self.snapshot = asdict(Project(NEW_PROJECT_NAME))  # 空の新規とは別物なので、未保存の扱いにする
+        ui.notify(import_summary(result))
 
     def request_change_project_dir(self) -> None:
         """格納先を変える(ネイティブのみ)。編集中は、確認してからフォルダを選ばせる。"""
@@ -369,12 +411,13 @@ class MainView:
         self.save_as_then(None)
 
     def save_as_then(self, after: Callable[[], object] | None) -> None:
-        open_name_dialog(
-            lambda name: self.save_as_new(name, after),
-            lambda name: validate_name(name, self.project_dir, new=True),
-            title="名前をつけて保存",
-            initial=self.project.name,
-        )
+        with self.client:  # 確認ダイアログの中で作ると、確認が閉じて削除されるときに一緒に消える
+            open_name_dialog(
+                lambda name: self.save_as_new(name, after),
+                lambda name: validate_name(name, self.project_dir, new=True),
+                title="名前をつけて保存",
+                initial=self.project.name,
+            )
 
     def show_file_list(self) -> None:
         """ファイルを走査し直して、一覧ダイアログを出す。"""
@@ -1002,6 +1045,7 @@ class MainView:
                 "menu-file",
                 [
                     MenuItem("開く", "folder_open", self.show_file_list, "file-open"),
+                    MenuItem("PlantUML を取り込む", "upload_file", self.request_import_plantuml, "file-import-plantuml"),
                     MenuItem("新規プロジェクト作成", "note_add", self.request_new, "file-new"),
                     None,  # 水平線(開く・作る / 保存 / データの更新)
                     MenuItem("上書き保存", "save", self.save_project_clicked, "save-project"),
