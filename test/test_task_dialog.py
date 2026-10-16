@@ -1198,6 +1198,118 @@ async def test_two_actuals_keep_their_progress_and_hide_the_input(user: User) ->
     assert saved[0].actuals == kept
 
 
+def task_progress_input(user: User):  # noqa: ANN202
+    return user.find(marker="task-progress").elements.pop()
+
+
+async def test_the_task_progress_is_entered_and_saved(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    task_progress_input(user).set_value(40)
+    user.find(marker="task-save").click()
+    assert saved[0].progress == 40 and saved[0].actuals == []
+
+
+async def test_the_existing_task_progress_is_shown_and_can_be_cleared(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧", progress=70), saved)
+    await open_dialog(user)
+    assert task_progress_input(user).value == 70
+    task_progress_input(user).set_value(None)
+    user.find(marker="task-save").click()
+    assert saved[0].progress is None
+
+
+async def test_an_interval_progress_is_shown_read_only_and_the_task_value_is_kept(user: User) -> None:
+    saved: list[Task] = []
+    task = Task("旧", progress=10, actuals=[Actual(datetime(2026, 10, 5, 9, 0), None, 60)])
+    mount_dialog(task, saved)
+    await open_dialog(user)
+    field = task_progress_input(user)
+    assert field.value == 60 and not field.enabled
+    await user.should_see(marker="task-progress-hint")
+    user.find(marker="task-save").click()
+    assert saved[0].progress == 10 and saved[0].actuals[0].progress == 60
+
+
+async def test_the_field_returns_to_the_task_value_when_the_interval_progress_is_cleared(user: User) -> None:
+    saved: list[Task] = []
+    task = Task("旧", progress=10, actuals=[Actual(datetime(2026, 10, 5, 9, 0), None, 60)])
+    mount_dialog(task, saved)
+    await open_dialog(user)
+    progress_input(user).set_value(None)
+    field = task_progress_input(user)
+    assert field.value == 10 and field.enabled
+    await user.should_not_see(marker="task-progress-hint")
+    field.set_value(20)
+    user.find(marker="task-save").click()
+    assert saved[0].progress == 20
+
+
+async def test_the_interval_mode_reads_the_last_entered_interval(user: User) -> None:
+    task = Task(
+        "旧",
+        progress=10,
+        actuals=[
+            Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 30),
+            Actual(datetime(2026, 10, 6, 9, 0), None, None),
+        ],
+    )
+    mount_dialog(task, [], actual_mode=ActualMode.INTERVALS)
+    await open_dialog(user)
+    assert task_progress_input(user).value == 30
+
+
+async def test_two_actuals_in_the_simple_mode_lock_the_field_to_their_last_value(user: User) -> None:
+    saved: list[Task] = []
+    kept = [
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 30),
+        Actual(datetime(2026, 10, 6, 9, 0), None, 60),
+    ]
+    mount_dialog(Task("旧", progress=10, actuals=list(kept)), saved)
+    await open_dialog(user)
+    field = task_progress_input(user)
+    assert field.value == 60 and not field.enabled
+    user.find(marker="task-save").click()
+    assert saved[0].progress == 10 and saved[0].actuals == kept
+
+
+async def test_the_task_progress_is_hidden_for_a_checkpoint_and_cleared_on_save(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧", progress=40, deadline=datetime(2026, 10, 9, 17, 0)), saved)
+    await open_dialog(user)
+    await set_kind(user, TaskKind.CHECKPOINT)
+    await user.should_not_see(marker="task-progress")
+    user.find(marker="task-save").click()
+    assert saved[0].kind is TaskKind.CHECKPOINT and saved[0].progress is None
+
+
+async def test_the_task_progress_stays_in_the_schedule_layout(user: User) -> None:
+    mount_dialog(Task("旧", progress=40), [], layout="schedule")
+    await open_dialog(user)
+    await user.should_see(marker="task-progress")
+
+
+async def test_changing_the_task_progress_counts_as_a_change_when_closing(user: User) -> None:
+    mount_dialog(Task("旧"), [])
+    await open_dialog(user)
+    task_progress_input(user).set_value(40)
+    user.find(marker="task-cancel").click()
+    await user.should_see(marker="close-save")
+
+
+async def test_an_out_of_range_task_progress_is_an_error(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧"), saved)
+    await open_dialog(user)
+    task_progress_input(user).set_value(101)
+    user.find(marker="task-save").click()
+    assert saved == []
+    await user.should_see("進捗度")
+
+
 INTERVALS = ActualMode.INTERVALS
 
 
