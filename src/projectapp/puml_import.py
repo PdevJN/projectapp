@@ -1,7 +1,7 @@
 """PlantUML のガント(`@startgantt`)のテキストから、新規プロジェクトを作る。NiceGUI には依存しない。"""
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 from projectapp.models import (
@@ -39,6 +39,11 @@ _HAPPENS_ON = re.compile(rf"\bhappens\s+on\s+{_D}", re.I)
 _STARTS_DATE = re.compile(rf"\bstarts?\s+(?:on\s+)?{_D}", re.I)
 _ENDS_DATE = re.compile(rf"\bends?\s+(?:on\s+)?{_D}", re.I)
 _LASTS = re.compile(r"\blasts?\s+(\d+)\s+(day|week)s?\b", re.I)
+_REF = r"\[([^\]]+)\]'s\s+(end|start)"
+_DEPENDENCY = re.compile(r"\[([^\]]+)\]\s*->\s*\[([^\]]+)\]$")
+_HAPPENS_AT = re.compile(rf"\bhappens\s+at\s+{_REF}", re.I)
+_STARTS_AT = re.compile(rf"\bstarts?\s+at\s+{_REF}", re.I)
+_STARTS_AFTER = re.compile(r"\bstarts?\s+(\d+)\s+days?\s+after\s+\[([^\]]+)\]'s\s+end", re.I)
 
 
 class PlantUmlImportError(ValueError):
@@ -84,6 +89,8 @@ class _Raw:
     day: date | None = None  # starts / happens on
     end_day: date | None = None
     lasts: int | None = None  # 稼働日数
+    after: tuple[str, str, int] | None = None  # (参照するタスク, "end" か "start", 日数)
+    preds: list[str] = field(default_factory=list)  # `->` の先行(名前または別名)
 
 
 class _Scanner:
@@ -147,6 +154,10 @@ class _Scanner:
         if m := _SECTION.match(line):
             self._enter_section(_section_path(m.group(1)))
             return True
+        if m := _DEPENDENCY.match(line):
+            self._declare(m.group(1), None)
+            self.tasks[self._declare(m.group(2), None)].preds.append(m.group(1).strip())
+            return True
         if line.startswith("["):
             return self._task_line(line)
         return _IGNORED.match(line) is not None
@@ -201,6 +212,12 @@ class _Scanner:
         if m := _HAPPENS_ON.search(rest):
             if (day := self._note(m.group(1))) is not None:
                 raw.milestone, raw.day, matched = True, day, True
+        elif m := _HAPPENS_AT.search(rest):
+            raw.milestone, raw.after, matched = True, (m.group(1).strip(), m.group(2).lower(), 0), True
+        elif m := _STARTS_AT.search(rest):
+            raw.after, matched = (m.group(1).strip(), m.group(2).lower(), 0), True
+        elif m := _STARTS_AFTER.search(rest):
+            raw.after, matched = (m.group(2).strip(), "end", int(m.group(1))), True
         elif m := _STARTS_DATE.search(rest):
             if (day := self._note(m.group(1))) is not None:
                 raw.day, matched = day, True
@@ -263,15 +280,39 @@ class _Resolver:
 
     def _compute(self, raw: _Raw) -> Span:
         if raw.milestone:
-            result: Span = (raw.day, raw.day)
+            day = raw.day if raw.day is not None else self._anchor(raw.after)
+            result: Span = (day, day)
         else:
             start = self._start(raw)
             result = (None, None) if start is None else (start, self._end(raw, start))
         return result if _in_range(result) else (None, None)
 
+    def _anchor(self, after: tuple[str, str, int] | None) -> date | None:
+        """参照するタスクの終了日(`end`)か開始日(`start`)。求まらなければ None。"""
+        if after is None:
+            return None
+        index = self.scanner.lookup(after[0])
+        if index is None:
+            return None
+        start, end = self.span(index)
+        return start if after[1] == "start" else end
+
     def _start(self, raw: _Raw) -> date | None:
         if raw.day is not None:
             return raw.day
+        if raw.after is not None:
+            base = self._anchor(raw.after)
+            if base is None:
+                return None
+            if raw.after[1] == "start":
+                return base
+            return self.calendar.next_open(base + timedelta(days=1 + raw.after[2]))
+        if raw.preds:
+            ends = [self._anchor((key, "end", 0)) for key in raw.preds]
+            known = [end for end in ends if end is not None]
+            if len(known) != len(ends):
+                return None
+            return self.calendar.next_open(max(known) + timedelta(days=1))
         return self.scanner.project_start or self.scanner.first_date
 
     def _end(self, raw: _Raw, start: date) -> date:
@@ -313,7 +354,36 @@ class _Builder:
         tasks = [self._task(index, raw) for index, raw in enumerate(self.scanner.tasks)]
         for raw, task in zip(self.scanner.tasks, tasks):
             (self._section(raw.section).tasks if raw.section else self.project.tasks).append(task)
+        self._link(tasks)
         return self.project
+
+    def _link(self, tasks: list[Task]) -> None:
+        """`->` と、終わりからの指定(`'s end`)の参照先を、先行タスクにする(`'s start` は入れない)。"""
+        for index, (raw, task) in enumerate(zip(self.scanner.tasks, tasks)):
+            keys = list(raw.preds)
+            if raw.after is not None and raw.after[1] == "end":
+                keys.append(raw.after[0])
+            for key in keys:
+                found = self.scanner.lookup(key)
+                if found is None or found == index or tasks[found].id in task.predecessors:
+                    continue
+                if not self._reaches(tasks, tasks[found], task.id):  # 循環になる連結は入れない
+                    task.predecessors.append(tasks[found].id)
+
+    @staticmethod
+    def _reaches(tasks: list[Task], start: Task, target: str) -> bool:
+        """`start` から先行をたどって、`target` の id に着くか。"""
+        by_id = {task.id: task for task in tasks}
+        seen: set[str] = set()
+        stack = [start.id]
+        while stack:
+            current = stack.pop()
+            if current == target:
+                return True
+            if current not in seen:
+                seen.add(current)
+                stack.extend(by_id[current].predecessors)
+        return False
 
     def _fresh(self) -> str:
         value = new_id(self._taken)

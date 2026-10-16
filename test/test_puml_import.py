@@ -179,3 +179,70 @@ def test_a_repeated_name_is_the_same_task() -> None:
 def test_text_without_a_diagram_or_tasks_is_refused(text: str) -> None:
     with pytest.raises(PlantUmlImportError):
         parse_plantuml(text, "x")
+
+
+def test_starts_at_the_end_of_another_task_begins_on_the_next_working_day() -> None:
+    result = parse("[A] starts 2026-10-15 and ends 2026-10-16", "[B] starts at [A]'s end and lasts 2 days")
+    assert span(result, "B") == (at(19), at(20, *END))
+    assert task_named(result, "B").predecessors == [task_named(result, "A").id]
+
+
+def test_starts_at_the_start_of_another_task_does_not_become_a_predecessor() -> None:
+    result = parse("[A] starts 2026-10-15 and ends 2026-10-16", "[B] starts at [A]'s start and lasts 1 day")
+    assert span(result, "B")[0] == at(15) and task_named(result, "B").predecessors == []
+
+
+def test_days_after_the_end_counts_calendar_days_from_the_next_day() -> None:
+    result = parse("[A] starts 2026-10-12", "[B] starts 3 days after [A]'s end")
+    assert span(result, "B")[0] == at(16)  # 12 の終わりの 1 日後が 13、さらに 3 日後
+    assert task_named(result, "B").predecessors == [task_named(result, "A").id]
+
+
+def test_an_arrow_makes_a_predecessor_and_starts_after_it() -> None:
+    result = parse("[A] starts 2026-10-12 and ends 2026-10-13", "[B] lasts 2 days", "[A] -> [B]")
+    assert span(result, "B") == (at(14), at(15, *END))
+    assert task_named(result, "B").predecessors == [task_named(result, "A").id]
+
+
+def test_an_explicit_start_wins_over_an_arrow_but_the_link_is_kept() -> None:
+    result = parse("[A] starts 2026-10-12", "[B] starts 2026-10-20", "[A] -> [B]")
+    assert span(result, "B")[0] == at(20) and task_named(result, "B").predecessors == [task_named(result, "A").id]
+
+
+def test_references_by_alias_and_forward_references_resolve() -> None:
+    result = parse(
+        "[B] as [T2] starts at [T1]'s end and lasts 1 day",
+        "[A] as [T1] starts 2026-10-12 and ends 2026-10-12",
+    )
+    assert span(result, "B")[0] == at(13)
+
+
+def test_chains_resolve_through_several_tasks() -> None:
+    result = parse(
+        "[A] starts 2026-10-12", "[B] starts at [A]'s end and lasts 1 day", "[C] starts at [B]'s end and lasts 1 day"
+    )
+    assert span(result, "C")[0] == at(14)
+
+
+def test_a_milestone_can_follow_the_end_of_a_task() -> None:
+    result = parse("[A] starts 2026-10-12 and ends 2026-10-14", "[M] happens at [A]'s end")
+    task = task_named(result, "M")
+    assert task.kind is TaskKind.CHECKPOINT and task.deadline == at(14, *END)
+    assert task.predecessors == [task_named(result, "A").id]
+
+
+def test_a_cycle_leaves_both_tasks_without_a_schedule() -> None:
+    result = parse("[A] starts at [B]'s end", "[B] starts at [A]'s end")
+    assert span(result, "A") == (None, None) and span(result, "B") == (None, None)
+    assert result.unresolved == 2
+
+
+def test_a_reference_to_an_unknown_task_is_unresolved_and_creates_nothing() -> None:
+    result = parse("[A] starts at [Z]'s end")
+    assert span(result, "A") == (None, None) and task_named(result, "A").predecessors == []
+    assert [t.name for t in result.project.all_tasks()] == ["A"]
+
+
+def test_a_task_after_an_unresolved_task_is_unresolved() -> None:
+    result = parse("[A]", "[B] lasts 1 day", "[A] -> [B]")
+    assert span(result, "B") == (None, None)
