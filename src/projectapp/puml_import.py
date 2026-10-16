@@ -21,7 +21,7 @@ from projectapp.models import (
 )
 from projectapp.storage import dumps_project, parse_project
 
-PLANTUML_OPEN_FILE_TYPES = ("PlantUML ファイル (*.puml *.plantuml *.txt)",)
+PLANTUML_OPEN_FILE_TYPES = ("PlantUML ファイル (*.puml;*.plantuml;*.txt)",)
 WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6}
 MAX_LASTS_DAYS = 3660  # 期間の上限(稼働日)。これを超える指定は読み飛ばす
 MAX_SEARCH_DAYS = 3660  # 稼働日を探す日数の上限(全日が休みでも止まる)

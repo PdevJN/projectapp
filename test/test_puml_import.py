@@ -356,8 +356,10 @@ def test_read_plantuml_refuses_unreadable_files(tmp_path: Path) -> None:
         read_plantuml(tmp_path / "missing.puml")
 
 
-def test_the_open_file_types_name_the_extensions() -> None:
-    assert PLANTUML_OPEN_FILE_TYPES == ("PlantUML ファイル (*.puml *.plantuml *.txt)",)
+def test_the_open_file_types_are_valid_for_the_native_dialog() -> None:
+    from webview.util import parse_file_type  # ネイティブのダイアログが受け付ける書式
+
+    assert [parse_file_type(f)[1] for f in PLANTUML_OPEN_FILE_TYPES] == ["*.puml;*.plantuml;*.txt"]
 
 
 def test_the_output_of_build_plantuml_comes_back() -> None:

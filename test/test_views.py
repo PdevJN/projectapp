@@ -23,6 +23,7 @@ from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEv
 
 from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.plantuml import PLANTUML_FILE_TYPES
+from projectapp.puml_import import PLANTUML_OPEN_FILE_TYPES
 from projectapp.dashboard import PeriodKind
 from projectapp.timeline import Scale, effective_end
 from projectapp.gantt import ViewOptions
@@ -1436,10 +1437,13 @@ class FakeExporter:
         error: Exception | None = None,
         available: bool = True,
         directory: Path | None = None,
+        open_path: Path | None = None,
     ) -> None:
         self.path, self.error, self._available = path, error, available
         self.directory = directory
         self.asked_directory = 0
+        self.open_path = open_path
+        self.asked_open: list[tuple[str, ...]] = []
         self.captured: list[float] = []
         self.asked: list[str] = []
         self.asked_types: list[tuple[str, ...]] = []
@@ -1458,6 +1462,10 @@ class FakeExporter:
         self.asked.append(filename)
         self.asked_types.append(file_types)
         return self.path
+
+    async def ask_open_path(self, file_types: tuple[str, ...] = ()) -> Path | None:
+        self.asked_open.append(file_types)
+        return self.open_path
 
     async def ask_directory(self) -> Path | None:
         self.asked_directory += 1
@@ -2304,6 +2312,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     await open_header_view(user, tmp_path)
     assert menu_items(user, "menu-file-items") == [
         ("開く", "file-open"),
+        ("PlantUML を取り込む", "file-import-plantuml"),
         ("新規プロジェクト作成", "file-new"),
         ("上書き保存", "save-project"),
         ("名前をつけて保存", "file-save-as"),
@@ -2315,7 +2324,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         ("メンバーとパラメータ", "open-members-parameters"),
         ("ダッシュボード", "menu-open-dashboard"),
     ]
-    assert menu_icons(user, "menu-file-items") == ["folder_open", "note_add", "save", "save_as", "drive_file_move", "event_repeat"]
+    assert menu_icons(user, "menu-file-items") == ["folder_open", "upload_file", "note_add", "save", "save_as", "drive_file_move", "event_repeat"]
     assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
     assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share"]
     assert menu_icons(user, "menu-help-items") == ["keyboard"]
@@ -2332,7 +2341,7 @@ async def test_the_file_menu_separates_open_save_and_update(user: User, tmp_path
     await open_header_view(user, tmp_path)
     menu = user.find(marker="menu-file-items").elements.pop()
     kinds = ["sep" if isinstance(c, ui.separator) else "item" for c in menu.default_slot.children]
-    assert kinds == ["item", "item", "sep", "item", "item", "sep", "item", "item"]
+    assert kinds == ["item", "item", "item", "sep", "item", "item", "sep", "item", "item"]
 
 
 async def test_the_project_menu_dashboard_item_opens_the_dashboard(user: User, tmp_path: Path) -> None:
@@ -2698,8 +2707,8 @@ async def test_the_file_menu_separators_are_marked_and_the_holiday_update_is_las
     await open_header_view(user, tmp_path)
     menu = user.find(marker="menu-file-items").elements.pop()
     children = menu.default_slot.children
-    assert "menu-file-separator" in children[2]._markers and "menu-file-separator" in children[5]._markers
-    assert "file-change-dir" in children[6]._markers and "refresh-holidays" in children[7]._markers
+    assert "menu-file-separator" in children[3]._markers and "menu-file-separator" in children[6]._markers
+    assert "file-change-dir" in children[7]._markers and "refresh-holidays" in children[8]._markers
 
 
 async def test_templates_are_saved_with_the_project_and_mark_it_dirty(
@@ -3563,3 +3572,97 @@ async def test_save_when_the_file_became_unreadable_notifies_instead_of_crashing
     finally:
         path.chmod(0o644)
     assert view.is_dirty()
+
+
+IMPORT_SAMPLE = """@startgantt
+title 取込元
+Project starts 2026-10-12
+-- 開発 --
+[設計] on {田中} starts 2026-10-13 and ends 2026-10-14
+@endgantt
+"""
+
+
+def write_puml(tmp_path: Path, text: str = IMPORT_SAMPLE) -> Path:
+    folder = tmp_path / "other"
+    folder.mkdir(exist_ok=True)
+    source = folder / "in.puml"
+    source.write_text(text, encoding="utf-8")
+    return source
+
+
+async def open_for_import(user: User, tmp_path: Path, exporter: FakeExporter) -> MainView:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, exporter)
+    await user.open("/")
+    return views[0]
+
+
+async def test_import_plantuml_opens_an_unsaved_project(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=write_puml(tmp_path))
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-plantuml").click()
+    assert await wait_until(lambda: view.project.name == "取込元")
+    assert view.path is None and view.is_dirty()  # 保存前の新規。ファイルは作らない
+    assert [t.name for t in view.project.sections[0].tasks] == ["設計"]
+    assert [m.name for m in view.project.members] == ["田中"]
+    assert exporter.asked_open == [PLANTUML_OPEN_FILE_TYPES]
+    await user.should_see("取り込みました(タスク 1 件、メンバー 1 人を作成)")
+    assert not [f for f in tmp_path.glob("*.json") if f.name != "holidays.json"]
+
+
+async def test_cancelling_the_import_dialog_changes_nothing(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=None)
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-plantuml").click()
+    assert await wait_until(lambda: exporter.asked_open != [])
+    assert view.project.name == "新規プロジェクト" and not view.is_dirty()
+
+
+async def test_import_plantuml_refuses_a_text_without_a_diagram(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=write_puml(tmp_path, "hello"))
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-plantuml").click()
+    await user.should_see("取り込めませんでした")
+    assert view.project.name == "新規プロジェクト" and not view.is_dirty()
+
+
+async def test_import_plantuml_needs_the_native_window(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=write_puml(tmp_path), available=False)
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-plantuml").click()
+    await user.should_see("ネイティブウィンドウでのみ、取り込めます")
+    assert exporter.asked_open == [] and view.project.name == "新規プロジェクト"
+
+
+async def test_import_plantuml_asks_before_dropping_unsaved_edits(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=write_puml(tmp_path))
+    view = await open_for_import(user, tmp_path, exporter)
+    view.save_section("追加")
+    user.find(marker="file-import-plantuml").click()
+    await user.should_see(marker="unsaved-discard")
+    assert exporter.asked_open == []
+    user.find(marker="unsaved-discard").click()
+    assert await wait_until(lambda: view.project.name == "取込元")
+    assert [s.name for s in view.project.sections] == ["開発"]
+
+
+async def test_cancelling_the_unsaved_dialog_does_not_start_the_import(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=write_puml(tmp_path))
+    view = await open_for_import(user, tmp_path, exporter)
+    view.save_section("追加")
+    user.find(marker="file-import-plantuml").click()
+    await user.should_see(marker="unsaved-cancel")
+    user.find(marker="unsaved-cancel").click()
+    assert exporter.asked_open == [] and [s.name for s in view.project.sections] == ["追加"]
+
+
+async def test_an_imported_project_asks_before_another_project_is_opened(user: User, tmp_path: Path) -> None:
+    save_project(Project("既存"), tmp_path)
+    exporter = FakeExporter(open_path=write_puml(tmp_path))
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-plantuml").click()
+    assert await wait_until(lambda: view.project.name == "取込元")
+    await choose_in_combo(user, "既存")
+    await user.should_see(marker="unsaved-save")
