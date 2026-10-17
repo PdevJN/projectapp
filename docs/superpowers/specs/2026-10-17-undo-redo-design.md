@@ -60,7 +60,10 @@ class History:
 - `Shortcut("z", "undo", "元に戻す", ctrl=True)` と `Shortcut("z", "redo", "やり直す", ctrl=True, shift=True)` を足す。`ショートカットヘルプ`に自動で載る。
 - ダイアログ・プレビュー・ダッシュボードの表示中は効かない(既存の `resolve` の規則のまま)。
 - `SHORTCUT_METHODS` に `undo` / `redo` を足す。
-- `on_modified_key` は入力欄でも受けるため、入力欄にフォーカスがあるときの `Ctrl/Cmd+Z` は、ブラウザ標準の文字の取り消しに任せる(`key_guard_js` の対象にしない、または入力欄では `undo`/`redo` を無視する)。実装時に、検索欄での挙動を実機で確かめる。
+- `on_modified_key` は入力欄でも受け、`key_guard_js` は `Ctrl/Cmd` 付きの割り当てキーの標準動作を入力欄でも止める。このままだと、入力欄の `Ctrl/Cmd+Z` が文字の取り消しにならず、プロジェクトの Undo が誤爆する。
+  - 入力欄(`input`・`textarea`・`select`・`contenteditable`)にフォーカスがあるときは、`undo`/`redo` をサーバーへ送らず、標準動作も止めない(標準の文字の取り消しに任せる)。入力欄を抜ければ、プロジェクトの Undo が効く。
+  - フォーカスの判定は、サーバー側の `KeyEventArguments` ではできないので、JS 側で行う。`ui.keyboard` の `ignore` を `z` にだけ効く形にできるかは、NiceGUI の API を実装時に確かめる。できなければ、`keydown` を JS でフィルターしてからサーバーへ送る。
+  - 実機(macOS のネイティブウィンドウ)で、検索欄の `Cmd+Z` が文字の取り消しになることと、入力欄の外で Undo が効くことを確かめる(実装計画の独立したタスク)。
 
 ### 通知
 
