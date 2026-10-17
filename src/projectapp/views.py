@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -47,7 +48,7 @@ from projectapp.forms import (
     open_unsaved_dialog,
 )
 from projectapp import arrange
-from projectapp.shortcuts import Screen, help_entries, key_guard_js, label_for, resolve
+from projectapp.shortcuts import Screen, defers_to_inputs, help_entries, key_guard_js, label_for, resolve
 from projectapp.dashboard import PeriodKind, period_for, summarize
 from projectapp.dashboard_view import DashboardView
 from projectapp.export import (
@@ -83,6 +84,7 @@ from projectapp.gitops import FileChange, GitResult, PullKind, PullOps, default_
 from projectapp.gitops import commit as commit_files_in_git
 from projectapp.gitops import push as push_to_remote
 from projectapp.gitstate import GitKind, GitState, describe, read_git_state, tooltip
+from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
 from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Event, Member, Project, Section, SectionPath, Task, new_id
@@ -203,6 +205,8 @@ class MainView:
         self.menu_entries: dict[str, ui.menu_item] = {}  # メニューの項目(マーカー → 項目)
         self.git_menu_tips: dict[str, ui.tooltip] = {}  # 押せない理由を出すツールチップ
         self.mark_clean()
+        self.history = History()  # 元に戻す・やり直しの履歴。保存しても残し、別のプロジェクトに切り替えると捨てる
+        self.committed = deepcopy(self.project)  # 最後に確定した状態。これと違えば、編集があったとみなして履歴に積む
         self.theme = load_theme(base_dir)
         self.dark = ui.dark_mode()
         self.apply_theme(self.theme)
@@ -252,6 +256,40 @@ class MainView:
     def is_dirty(self) -> bool:
         return asdict(self.project) != self.snapshot
 
+    def after_edit(self) -> None:
+        """編集のあとの共通の処理。直前の確定した状態と違えば履歴に積み、画面を描き直す(Undo の入口はここだけ)。"""
+        if self.project != self.committed:
+            self.history.record(self.committed)
+            self.committed = deepcopy(self.project)
+        self.gantt.set_project(self.project)
+
+    def reset_history(self) -> None:
+        """履歴を捨て、いまの内容を確定した状態にする(別のプロジェクトに切り替えたとき・名前をつけて保存したとき)。"""
+        self.history.clear()
+        self.committed = deepcopy(self.project)
+
+    def restore(self, project: Project) -> None:
+        """Undo・Redo で取り出した状態に差し替えて描き直す。折りたたみ・絞り込み・スクロールは、プロジェクトの外なので変えない。"""
+        self.project = project
+        self.committed = deepcopy(project)
+        self.gantt.set_project(self.project)
+
+    def undo(self) -> None:
+        restored = self.history.undo(self.project)
+        if restored is None:
+            ui.notify("これ以上戻せません")
+            return
+        self.restore(restored)
+        ui.notify("元に戻しました")
+
+    def redo(self) -> None:
+        restored = self.history.redo(self.project)
+        if restored is None:
+            ui.notify("やり直す操作がありません")
+            return
+        self.restore(restored)
+        ui.notify("やり直しました")
+
     def current_name(self) -> str | None:
         return self.path.stem if self.path else None
 
@@ -298,6 +336,7 @@ class MainView:
         self.file_select.set_value(path.stem if path else None)
         self.title.refresh()
         self.gantt.reset_collapsed()  # 折りたたみは保存しない。別のプロジェクトは全展開から始める
+        self.reset_history()
         self.gantt.set_project(self.project)
         self.gantt.reset_filter()
         self.gantt.reset_scroll()  # 別のプロジェクトは、先頭から見せる(編集後の再描画では動かさない)
@@ -482,14 +521,20 @@ class MainView:
         "git_commit": "open_git_commit",
         "git_push": "start_git_push",
         "git_pull": "start_git_pull",
+        "undo": "undo",
+        "redo": "redo",
     }
 
     def on_plain_key(self, event: KeyEventArguments) -> None:
-        if not (event.modifiers.ctrl or event.modifiers.meta):
+        """入力欄・ボタンにフォーカスがあるときは、NiceGUI が送らない側。Ctrl 付きは、入力欄に任せるキー(Ctrl/Cmd+Z)だけ受ける。"""
+        ctrl = event.modifiers.ctrl or event.modifiers.meta
+        if not ctrl or defers_to_inputs(event.key.name, ctrl):
             self.on_key(event)
 
     def on_modified_key(self, event: KeyEventArguments) -> None:
-        if event.modifiers.ctrl or event.modifiers.meta:
+        """Ctrl/Cmd 付きは入力欄でも受ける側。ただし、入力欄に任せるキー(Ctrl/Cmd+Z)は受けない。"""
+        ctrl = event.modifiers.ctrl or event.modifiers.meta
+        if ctrl and not defers_to_inputs(event.key.name, ctrl):
             self.on_key(event)
 
     def screen(self) -> Screen:
@@ -740,14 +785,14 @@ class MainView:
                 for assignee in task.assignees:
                     if assignee.name in renames:
                         assignee.name = renames[assignee.name]
-        self.gantt.set_project(self.project)
+        self.after_edit()
 
     def apply_parameters(self, edit: ParameterEdit) -> None:
         """パラメータの定義を更新し、メンバーの選択に改名・削除を伝える。保存はしない(編集中の判定に入る)。"""
         if not edit.changes(self.project.parameters):
             return
         apply_parameter_edit(self.project, edit)
-        self.gantt.set_project(self.project)
+        self.after_edit()
 
     def apply_settings(self, hours: float, start: time, mode: ActualMode) -> None:
         """稼働設定と記録方式を更新して再描画する。完了予定は表示のたびに計算されるので、再計算の処理は要らない。保存はしない。"""
@@ -759,22 +804,22 @@ class MainView:
             return
         self.project.daily_hours, self.project.work_start = hours, start
         self.project.actual_mode = mode
-        self.gantt.set_project(self.project)
+        self.after_edit()
 
     def apply_templates(self, edit: TemplateEdit) -> None:
         """URL テンプレートの編集を反映する(削除分のリンクは URL に展開される)。保存はしない。"""
         apply_template_edit(self.project, edit)
-        self.gantt.set_project(self.project)
+        self.after_edit()
 
     def apply_categories(self, edit: CategoryEdit) -> None:
         """カテゴリの編集を反映する(削除したカテゴリのタスクは未定に戻る)。保存はしない。"""
         apply_category_edit(self.project, edit)
-        self.gantt.set_project(self.project)
+        self.after_edit()
 
     def apply_events(self, events: list[Event]) -> None:
         """イベントの編集を反映する。保存はしない(編集中の判定に入る)。"""
         self.project.events = events
-        self.gantt.set_project(self.project)
+        self.after_edit()
 
     def save_project_clicked(self) -> None:
         if self.path is None:
@@ -789,6 +834,7 @@ class MainView:
         previous = self.project.name
         self.project.name = name
         if self.write(overwrite=False, after=after):
+            self.reset_history()  # 別のファイルになる。名前の変更を、次の編集の 1 ステップにしない
             return True
         self.project.name = previous
         return False
@@ -857,7 +903,7 @@ class MainView:
 
     def save_section(self, name: str) -> None:
         self.project.sections.append(Section(name, id=new_id(self.project.used_ids())))
-        self.gantt.set_project(self.project)
+        self.after_edit()
 
     def add_subsection(self, path: SectionPath) -> None:
         open_section_dialog(lambda name: self.save_subsection(path, name), title="サブセクションの追加")
@@ -869,7 +915,7 @@ class MainView:
             return
         parent.sections.append(Section(name, id=new_id(self.project.used_ids())))
         self.gantt.expand_section(path)
-        self.gantt.set_project(self.project)
+        self.after_edit()
 
     def link_args(self, task: Task | None) -> dict[str, Any]:
         """編集ダイアログに渡す、先行タスクとリンクの引数。"""
@@ -932,7 +978,7 @@ class MainView:
         """タスクを取り除いて再描画する。保存は自動では行わない(編集中の判定に入る)。"""
         removed = self.tasks_in(path).pop(task_index)
         drop_task_links(self.project, removed.id)
-        self.gantt.set_project(self.project)
+        self.after_edit()
 
     def move_task(self, src: arrange.Position, dst: arrange.Position, copy: bool) -> None:
         """行を動かす(copy が真なら複製を置く)。位置が不正・変化なしなら何もしない。"""
@@ -944,7 +990,7 @@ class MainView:
             ui.notify(f"「{name}」をコピーしました")
         elif not arrange.move_task(self.project, src, dst):
             return
-        self.gantt.set_project(self.project)
+        self.after_edit()
 
     def shift_task(self, path: SectionPath, task_index: int, days: int) -> None:
         """開始予定(と入っていれば完了予定)を days 日ずらす。締切は動かさず、基準日より前へは動かさない。"""
@@ -961,7 +1007,7 @@ class MainView:
             if task.planned_start is not None:
                 ui.notify("日付の範囲を超えるため動かせません", type="warning")
             return
-        self.gantt.set_project(self.project)
+        self.after_edit()
         self.warn_overallocation(task)
 
     def tasks_in(self, path: SectionPath) -> list[Task]:
@@ -980,7 +1026,7 @@ class MainView:
             tasks[task_index] = task
         if task_index is None and path:
             self.gantt.expand_section(path)  # 追加したタスクが、親も含めて見えるように
-        self.gantt.set_project(self.project)
+        self.after_edit()
         self.warn_overallocation(task)
 
     def warn_overallocation(self, task: Task) -> None:

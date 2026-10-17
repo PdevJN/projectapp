@@ -3706,3 +3706,209 @@ async def test_the_name_dialog_survives_the_unsaved_dialog_being_deleted(user: U
     user.find(marker="project-name").type("保存名")
     user.find(marker="name-save").click()
     assert await wait_until(lambda: (tmp_path / "保存名.json").exists())
+
+
+def task_names(view: MainView) -> list[str]:
+    return [t.name for t in view.project.tasks]
+
+
+async def test_undo_and_redo_walk_through_task_edits(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task((), None, Task("a"))
+    view.save_task((), 0, Task("b"))
+    view.undo()
+    assert task_names(view) == ["a"]
+    view.undo()
+    assert task_names(view) == []
+    view.undo()  # もう戻せない。何も変わらない
+    assert task_names(view) == []
+    view.redo()
+    view.redo()
+    assert task_names(view) == ["b"]
+    view.redo()  # もうやり直せない
+    assert task_names(view) == ["b"]
+
+
+async def test_undo_redraws_the_chart(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    views[0].save_task((), None, Task("a"))
+    await user.should_see(marker="task-top-0")
+    views[0].undo()
+    await user.should_not_see(marker="task-top-0")
+
+
+async def test_undo_covers_delete_settings_and_sections(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_section("開発")
+    view.save_task((0,), None, Task("x"))
+    view.apply_settings(5.0, view.project.work_start, view.project.actual_mode)
+    view.delete_task((0,), 0)
+    assert view.project.sections[0].tasks == []
+    view.undo()
+    assert [t.name for t in view.project.sections[0].tasks] == ["x"]
+    view.undo()
+    assert view.project.daily_hours != 5.0
+    view.undo()
+    assert view.project.sections[0].tasks == []
+    view.undo()
+    assert view.project.sections == []
+
+
+async def test_an_edit_that_changes_nothing_adds_no_step(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task((), None, Task("a"))
+    view.apply_settings(view.project.daily_hours, view.project.work_start, view.project.actual_mode)
+    view.apply_events(list(view.project.events))
+    view.undo()  # 無変更の適用は積まれないので、1 回で「a」を足す前に戻る
+    assert task_names(view) == []
+    assert not view.history.can_undo()
+
+
+async def test_a_new_edit_after_undo_drops_the_redo(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task((), None, Task("a"))
+    view.undo()
+    view.save_task((), None, Task("b"))
+    view.redo()  # やり直す操作はない
+    assert task_names(view) == ["b"]
+
+
+async def test_undoing_to_the_saved_state_clears_dirty_and_going_further_sets_it(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await save_new_as(user, "p")  # 最初の保存は名前を付けるので、履歴は空から始まる
+    assert not view.is_dirty()
+    view.save_task((), None, Task("a"))
+    assert view.is_dirty()
+    view.undo()
+    assert not view.is_dirty()  # 保存済みの内容に戻った
+    view.redo()
+    view.save_project_clicked()
+    assert not view.is_dirty()
+    view.undo()  # 保存をまたいで戻る
+    assert task_names(view) == []
+    assert view.is_dirty()  # 保存した内容とは違うので、未保存に戻る
+    view.redo()
+    assert not view.is_dirty()
+
+
+async def test_history_is_dropped_when_another_project_is_opened(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("other"), tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task((), None, Task("a"))
+    view.open_project("other")
+    assert view.project.name == "other"
+    assert not view.history.can_undo()
+    assert not view.history.can_redo()
+    view.undo()
+    assert view.project.name == "other"
+
+
+async def test_history_is_dropped_on_a_new_project(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task((), None, Task("a"))
+    view.new_project()
+    assert not view.history.can_undo()
+
+
+async def test_save_as_drops_the_history_and_the_rename_is_not_a_step(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task((), None, Task("a"))
+    assert view.save_as_new("copy")
+    assert not view.history.can_undo()
+    view.save_task((), None, Task("b"))
+    view.undo()
+    assert view.project.name == "copy"  # 名前の変更は戻らない
+    assert task_names(view) == ["a"]
+    assert not view.history.can_undo()  # 名前の変更が 1 ステップとして積まれていない
+
+
+async def test_ctrl_z_undoes_and_ctrl_shift_z_redoes(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task((), None, Task("a"))
+    view.on_plain_key(key_event("z", ctrl=True))
+    assert task_names(view) == []
+    view.on_plain_key(key_event("z", ctrl=True, shift=True))
+    assert task_names(view) == ["a"]
+
+
+async def test_ctrl_z_is_ignored_in_inputs(user: User, tmp_path: Path) -> None:
+    """入力欄にフォーカスがあるときは、NiceGUI が `on_plain_key` に送らない。Ctrl 付きを全部受ける側では、受けない。"""
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task((), None, Task("a"))
+    view.on_modified_key(key_event("z", ctrl=True))  # 入力欄でも受ける側
+    view.on_modified_key(key_event("z", ctrl=True, shift=True))
+    assert task_names(view) == ["a"]
+    assert view.history.can_undo()  # 履歴も動いていない
+
+
+async def test_other_ctrl_keys_still_go_through_the_modified_handler(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    calls: list[str] = []
+    view.open_settings = lambda: calls.append("settings")  # type: ignore[method-assign]
+    view.on_plain_key(key_event(",", ctrl=True))  # 入力欄を除く側は、Ctrl+Z 以外の Ctrl 付きを受けない
+    assert calls == []
+    view.on_modified_key(key_event(",", ctrl=True))
+    assert calls == ["settings"]
+
+
+async def test_ctrl_z_does_nothing_while_a_dialog_is_open(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task((), None, Task("a"))
+    with view.client:
+        view.add_section()  # ダイアログを開く
+    assert view.dialog_open()
+    view.on_plain_key(key_event("z", ctrl=True))
+    assert task_names(view) == ["a"]
