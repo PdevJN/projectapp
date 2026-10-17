@@ -21,6 +21,9 @@ from projectapp.shortcuts import SHORTCUTS, Screen, help_entries, resolve
         ("k", True, True, "git_push"),
         ("l", True, True, "git_pull"),
         ("L", True, True, "git_pull"),
+        ("z", True, False, "undo"),
+        ("Z", True, True, "redo"),
+        ("z", True, True, "redo"),
         ("d", False, False, "dashboard"),
         ("/", False, False, "search"),
         ("?", False, True, "help"),
@@ -95,7 +98,7 @@ def test_help_lists_every_shortcut_once_with_its_description():
 def test_the_key_lists_for_the_browser_guard_come_from_the_table():
     from projectapp.shortcuts import ctrl_keys, plain_keys
 
-    assert ctrl_keys() == {"s", "o", "n", ",", "m", "e", "p", "k", "l", "+", "=", ";", "-", "0"}
+    assert ctrl_keys() == {"s", "o", "n", ",", "m", "e", "p", "k", "l", "z", "+", "=", ";", "-", "0"}
     assert plain_keys() == {"escape", "d", "/", "?"}
 
 
@@ -121,6 +124,10 @@ console.log(JSON.stringify({
   escInInput: press({ key: "Escape", code: "Escape", keyCode: 27, target: { tagName: "INPUT" } }),
   escInTextarea: press({ key: "Escape", code: "Escape", keyCode: 27, target: { tagName: "TEXTAREA" } }),
   escComposing: press({ key: "Escape", code: "Escape", keyCode: 27, isComposing: true, target: { tagName: "INPUT" } }),
+  ctrlZ: press({ ctrlKey: true, key: "z", code: "KeyZ", keyCode: 90 }),
+  ctrlZInInput: press({ ctrlKey: true, key: "z", code: "KeyZ", keyCode: 90, target: { tagName: "INPUT" } }),
+  cmdZInTextarea: press({ metaKey: true, key: "z", code: "KeyZ", keyCode: 90, target: { tagName: "TEXTAREA" } }),
+  ctrlSInInput: press({ ctrlKey: true, key: "s", code: "KeyS", keyCode: 83, target: { tagName: "INPUT" } }),
   x: press({ key: "x", code: "KeyX", keyCode: 88 }),
 }));
 """
@@ -149,6 +156,10 @@ def test_the_key_guard_blocks_the_browser_default_and_the_beep(tmp_path):
         assert out[name]["prevented"], name  # ESC は文字を入力しないので、入力欄の中でも止める(止めないと macOS の警告音が鳴る)
     for name in ("ctrlX", "dInInput", "x", "escComposing"):
         assert not out[name]["prevented"], name  # 割り当てのないキーと、入力欄の文字、変換の取り消しの ESC は止めない
+    assert out["ctrlZ"]["prevented"]  # 入力欄の外では、ブラウザ既定の動きを止める
+    assert out["ctrlSInInput"]["prevented"]  # ほかの Ctrl 付きのキーは、入力欄の中でも止める
+    for name in ("ctrlZInInput", "cmdZInTextarea"):
+        assert not out[name]["prevented"], name  # 入力欄の中の Ctrl/Cmd+Z は、標準の文字の取り消しに任せる
 
 
 def test_members_parameters_shortcut_needs_ctrl_and_shift():
@@ -174,3 +185,28 @@ def test_help_lists_the_git_shortcuts() -> None:
     entries = help_entries()
     assert ("Ctrl/Cmd+K", "コミット") in entries
     assert ("Ctrl/Cmd+Shift+K", "プッシュ") in entries
+
+def test_undo_and_redo_do_not_work_while_a_dialog_is_open():
+    assert resolve("z", ctrl=True, shift=False, modal=True, screen=Screen.MAIN) is None
+    assert resolve("z", ctrl=True, shift=True, modal=True, screen=Screen.MAIN) is None
+
+
+@pytest.mark.parametrize("screen", [Screen.PREVIEW, Screen.DASHBOARD])
+def test_undo_and_redo_do_not_work_in_the_preview_or_dashboard(screen):
+    assert resolve("z", ctrl=True, shift=False, modal=False, screen=screen) is None
+    assert resolve("z", ctrl=True, shift=True, modal=False, screen=screen) is None
+
+
+def test_only_undo_and_redo_defer_to_inputs():
+    from projectapp.shortcuts import defers_to_inputs
+
+    assert defers_to_inputs("z", ctrl=True)
+    assert defers_to_inputs("Z", ctrl=True)
+    assert not defers_to_inputs("s", ctrl=True)
+    assert not defers_to_inputs("z", ctrl=False)  # Ctrl なしの z は割り当てがない
+
+
+def test_undo_and_redo_are_in_the_help():
+    entries = help_entries()
+    assert ("Ctrl/Cmd+Z", "元に戻す") in entries
+    assert ("Ctrl/Cmd+Shift+Z", "やり直す") in entries
