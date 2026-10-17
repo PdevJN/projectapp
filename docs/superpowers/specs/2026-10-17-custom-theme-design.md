@@ -46,7 +46,7 @@
 - `primary`・`background`・`foreground`: `#RRGGBB`のみ(大文字小文字は区別せず、保存は小文字)。不正な値は、そのキーだけ既定に戻す。
 - `header`: `null`(primary に追従)か`#RRGGBB`。追従で基調がダークなら、今と同じく primary を 55% 暗くする。色を指定したときはそのまま使う。
 - 既定値は、基調ごとに今の見た目にそろえる。キーのない古いファイルは既定値で読む。ほかのキーは壊さない(`name_width`と同じ扱い)。
-- 既定値: ライトは primary `#1976d2`・背景 `#ffffff`・文字 `#000000`、ダークは primary `#1976d2`・背景 `#121212`・文字 `#ffffff`。primary とダークの値は Quasar のスタイルシートで確認済み。ライトの文字色は未確認なので、実装の最初のテストで、ライトの`body`の実際の文字色(計算済みの値)と一致することを確かめ、違えばこの表を直す。
+- 既定値: ライトは primary `#5898d4`・背景 `#ffffff`・文字 `#000000`、ダークは primary `#5898d4`・背景 `#121212`・文字 `#ffffff`。primary は NiceGUI の既定(`app.config.quasar_config['brand']['primary']`)で、テストで一致を固定する。ダークの背景は Quasar の`--q-dark-page`(`#121212`)、ダークの文字は`#ffffff`で、スタイルシートで確認済み。ライトの文字色は未確認なので、ネイティブの実機確認で、ライトの`body`の実際の文字色(計算済みの値)と一致することを確かめ、違えばこの値を直す。
 
 ## 構成
 
@@ -67,8 +67,9 @@ def normalize_hex(text: str) -> str | None             # "#RRGGBB" の検証と�
 def contrast_ratio(fg: str, bg: str) -> float          # WCAG の相対輝度から求める
 def on_color(bg: str) -> str                           # 背景に対して、白か黒のうち比の高いほう
 def header_color(theme: CustomTheme) -> str            # 実際のヘッダーの背景(追従・暗くする規則を含む)
-def css_variables(theme: CustomTheme) -> dict[str, str]  # body に設定する変数
-def warnings(theme: CustomTheme) -> list[str]          # 4.5:1 を下回る組み合わせの説明
+def css_variables(theme: CustomTheme) -> dict[str, str]  # body に設定する変数(--q-primary を含む)
+def theme_js(theme: CustomTheme | None) -> str         # 変数とクラスを設定する JS。None は全部外す
+def warnings(theme: CustomTheme) -> list[str]          # 警告の文言(4.5:1 を下回る組み合わせ、基調と背景の明るさの不一致)
 ```
 
 ### `config.py`
@@ -100,8 +101,8 @@ def warnings(theme: CustomTheme) -> list[str]          # 4.5:1 を下回る組�
 ## 適用の仕組み
 
 - `カスタム`のときだけ、`body`にクラス`app-custom`と、変数`--app-bg`・`--app-fg`・`--app-header`・`--app-header-fg`を設定する。
-- primary は`ui.colors(primary=…)`で変える(Quasar の`--q-primary`を書き換えるので、ボタンなどの部品が追従する)。カスタム以外へ切り替えるときは、既定の primary に戻す。
-- ヘッダーの文字色は`on_color(header_color(theme))`。ヘッダーが明るいとき、メニューのボタンとチップの半透明の白は、半透明の黒に替える(`app-header-light`クラス)。
+- primary は`body`の`--q-primary`を直接設定して変える(`ui.colors()`が内部でしていることと同じ。`ui.colors()`はイベントの中で呼ぶと、呼び出し時のスロット〔ダイアログ〕に要素ができて、閉じると消えるので使わない)。ボタンなどの部品が追従する。カスタム以外へ切り替えるときは、`removeProperty`で外して NiceGUI の既定に戻す。
+- ヘッダーの文字色は`on_color(header_color(theme))`(`--app-header-fg`)。メニューのボタンとチップの半透明の背景は`--app-header-chip`・`--app-header-chip-hover`で持ち、既定は今の半透明の白。ヘッダーの文字が黒のときは、半透明の黒に替える。
 - 背景は`body.app-custom { background: var(--app-bg); color: var(--app-fg); }`で当てる。
 - 変数の設定と解除は`ui.run_javascript`の 1 回の呼び出しで行い、再描画はしない。
 - WebKit は`body--dark`が実行中に変わるとスクロールバーを描き直さないので、切り替えのたびに既存の`refresh_scrollbars()`を呼ぶ。
@@ -116,6 +117,7 @@ def warnings(theme: CustomTheme) -> list[str]          # 4.5:1 を下回る組�
 - ボタンは`適用`と`キャンセル`。`適用`は保存して閉じ、`theme`を`custom`にする。`キャンセル`・ESC・外側クリックは、覚えておいた状態に戻す。
 - `既定に戻す`ボタンは、選んでいる基調の既定値を入れる(プレビューまで。保存は`適用`)。
 - コントラスト: 文字の色 ↔ 画面の背景、ヘッダーの文字(白か黒を自動で選んだもの) ↔ ヘッダーの背景の 2 組の比を表示し、4.5:1 を下回ったら橙の警告と文言を出す(例: `コントラスト比 3.2:1。読みにくい可能性があります`)。適用はできる。
+- 基調と背景の明るさが合っていない場合(基調がライトで背景が暗い、基調がダークで背景が明るい)も、橙の警告を出す(文言: `基調と背景の明るさが合っていません。ダイアログの文字が読みにくくなることがあります`)。Quasar のダイアログなどは基調に従い、背景だけが替わるため。明暗の境は、白と黒に対するコントラスト比が等しくなる相対輝度 0.179。
 - 不正な`#RRGGBB`は、入力欄にエラーを出し、`適用`を押せなくする。プレビューは最後の有効な色のまま。
 
 ## エラー処理
@@ -134,7 +136,7 @@ def warnings(theme: CustomTheme) -> list[str]          # 4.5:1 を下回る組�
 - `config.py`: 読み書き、不正値、ほかのキーを消さないこと、古いファイル。
 - 画面: メニューの項目とマーカー、ダイアログの適用・キャンセル(ESC を含む)・既定に戻す・追従のチェック・警告の表示・不正入力、変数の設定と解除、`カスタム`以外へ切り替えたときの primary の復元。
 - 回帰: ライト・ダーク・自動で、CSS の既定値が変わらないこと(固定していた値と変数の既定値が一致すること)。
-- 実機(ネイティブ): ダーク基調でスクロールバーが描き直されること、PNG の背景、ヘッダーが明るい色のときの見え方、ダイアログのプレビューとキャンセルでの復元。
+- 実機(ネイティブ): ライトの`body`の実際の文字色が既定の`#000000`と一致すること、ダーク基調でスクロールバーが描き直されること、PNG の背景、ヘッダーが明るい色のときの見え方、ダイアログのプレビューとキャンセルでの復元。
 
 ## 文書への反映
 
