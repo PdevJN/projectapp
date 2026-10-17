@@ -22,6 +22,7 @@ class Shortcut:
     aliases: tuple[str, ...] = ()  # 同じ操作にする別のキー(配列によって `+` を打つキーが違う)
     any_shift: bool = False  # Shift の有無を見ない(`+` は、配列によって Shift が要る・要らない)
     always: bool = False  # ダイアログが開いていても、プレビュー・ダッシュボードでも効く
+    in_inputs: bool = True  # False のキーは、入力欄にフォーカスがあるとき、アプリが受けず、ブラウザの標準動作も止めない(Ctrl/Cmd+Z の文字の取り消し)
 
     def label(self) -> str:
         if self.key == "escape":
@@ -42,6 +43,8 @@ SHORTCUTS: tuple[Shortcut, ...] = (
     Shortcut("k", "git_commit", "コミット", ctrl=True),
     Shortcut("k", "git_push", "プッシュ", ctrl=True, shift=True),
     Shortcut("l", "git_pull", "プル", ctrl=True, shift=True),
+    Shortcut("z", "undo", "元に戻す", ctrl=True, in_inputs=False),
+    Shortcut("z", "redo", "やり直す", ctrl=True, shift=True, in_inputs=False),
     Shortcut("d", "dashboard", "ダッシュボード"),
     Shortcut("/", "search", "タスク名の検索欄へ移る"),
     Shortcut("?", "help", "ショートカットヘルプ"),
@@ -87,6 +90,17 @@ def ctrl_keys() -> set[str]:
     return {k for s in SHORTCUTS if s.ctrl for k in (s.key, *s.aliases)}
 
 
+def defers_to_inputs(key: str, ctrl: bool) -> bool:
+    """押されたキーが、入力欄のあいだは入力欄に任せる割り当て(`in_inputs=False`)か。"""
+    key = key.lower()
+    return any(not s.in_inputs and s.ctrl == ctrl and key in (s.key, *s.aliases) for s in SHORTCUTS)
+
+
+def input_owned_keys() -> set[str]:
+    """入力欄のあいだは入力欄に任せる、Ctrl/Cmd と組み合わせるキー。"""
+    return {k for s in SHORTCUTS if s.ctrl and not s.in_inputs for k in (s.key, *s.aliases)}
+
+
 def plain_keys() -> set[str]:
     """修飾キーなしで割り当てたキー(ESC を含む)。"""
     return {s.key for s in SHORTCUTS if not s.ctrl}
@@ -94,13 +108,15 @@ def plain_keys() -> set[str]:
 
 def key_guard_js() -> str:
     """割り当てたキーの既定の動き(`Ctrl+S` の保存・`Ctrl+P` の印刷、macOS の警告音)を止める JS。
-    文字キーは、入力欄の中では止めない。ESC は文字でないので、入力欄でも止める(変換中の ESC は、変換の取り消しなので止めない)。"""
+    文字キーは、入力欄の中では止めない。ESC は文字でないので、入力欄でも止める(変換中の ESC は、変換の取り消しなので止めない)。
+    `Ctrl/Cmd+Z` は入力欄では文字の取り消しなので、入力欄の中では止めない。"""
     return (
         "document.addEventListener('keydown', e => {"
-        f" const ctrl = {sorted(ctrl_keys())!r}, plain = {sorted(plain_keys())!r};"
+        f" const ctrl = {sorted(ctrl_keys())!r}, plain = {sorted(plain_keys())!r}, owned = {sorted(input_owned_keys())!r};"
         " const key = e.key.toLowerCase(), t = e.target || {}, tag = (t.tagName || '').toLowerCase();"
         " const editable = ['input', 'textarea', 'select'].includes(tag) || t.isContentEditable === true;"
         " const typing = editable && !(key === 'escape' && !e.isComposing);"
-        " if (e.ctrlKey || e.metaKey ? ctrl.includes(key) : plain.includes(key) && !typing) e.preventDefault();"
+        " const held = e.ctrlKey || e.metaKey;"
+        " if (held ? ctrl.includes(key) && !(editable && owned.includes(key)) : plain.includes(key) && !typing) e.preventDefault();"
         " }, true);"
     )
