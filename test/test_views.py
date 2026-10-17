@@ -3866,9 +3866,9 @@ async def test_ctrl_z_undoes_and_ctrl_shift_z_redoes(user: User, tmp_path: Path)
     await user.open("/")
     view = views[0]
     view.save_task((), None, Task("a"))
-    view.on_plain_key(key_event("z", ctrl=True))
+    view.on_undo_key(key_event("z", ctrl=True))
     assert task_names(view) == []
-    view.on_plain_key(key_event("z", ctrl=True, shift=True))
+    view.on_undo_key(key_event("z", ctrl=True, shift=True))
     assert task_names(view) == ["a"]
 
 
@@ -3882,6 +3882,7 @@ async def test_ctrl_z_is_ignored_in_inputs(user: User, tmp_path: Path) -> None:
     view.save_task((), None, Task("a"))
     view.on_modified_key(key_event("z", ctrl=True))  # 入力欄でも受ける側
     view.on_modified_key(key_event("z", ctrl=True, shift=True))
+    view.on_plain_key(key_event("z", ctrl=True))  # 文字キー用の側も、Ctrl+Z は受けない(二重に Undo しない)
     assert task_names(view) == ["a"]
     assert view.history.can_undo()  # 履歴も動いていない
 
@@ -3910,5 +3911,35 @@ async def test_ctrl_z_does_nothing_while_a_dialog_is_open(user: User, tmp_path: 
     with view.client:
         view.add_section()  # ダイアログを開く
     assert view.dialog_open()
-    view.on_plain_key(key_event("z", ctrl=True))
+    view.on_undo_key(key_event("z", ctrl=True))
     assert task_names(view) == ["a"]
+
+
+async def test_the_three_keyboards_ignore_the_right_elements(user: User, tmp_path: Path) -> None:
+    """入力欄で Undo が誤爆しない(文字キー用と Undo 用が入力欄を無視する)ことと、ボタンにフォーカスがあっても
+    Undo が届く(Undo 用は button を無視しない)ことは、NiceGUI の `ignore` の構成で決まるので、構成そのものを確かめる。"""
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    ignores = sorted(
+        sorted(e._props["ignore"]) for e in views[0].client.elements.values() if isinstance(e, ui.keyboard)
+    )
+    assert ignores == [
+        [],  # Ctrl/Cmd 付き(Undo・Redo 以外)は、入力欄でも受ける
+        ["button", "input", "select", "textarea"],  # 文字キー用: 入力欄・ボタンでは受けない
+        ["input", "select", "textarea"],  # Undo・Redo 用: 入力欄では受けず、ボタンにフォーカスがあっても受ける
+    ]
+
+
+async def test_undo_works_when_a_button_has_the_focus(user: User, tmp_path: Path) -> None:
+    """ボタンにフォーカスがあると、文字キー用は NiceGUI が送らない。Undo 用の側だけで、1 回だけ戻ること。"""
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.save_task((), None, Task("a"))
+    view.save_task((), None, Task("b"))
+    view.on_undo_key(key_event("z", ctrl=True))
+    assert task_names(view) == ["a"]  # 1 回で 1 ステップ

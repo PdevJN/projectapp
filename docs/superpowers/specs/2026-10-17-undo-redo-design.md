@@ -62,7 +62,7 @@ class History:
 - `SHORTCUT_METHODS` に `undo` / `redo` を足す。
 - `on_modified_key` は入力欄でも受け、`key_guard_js` は `Ctrl/Cmd` 付きの割り当てキーの標準動作を入力欄でも止める。このままだと、入力欄の `Ctrl/Cmd+Z` が文字の取り消しにならず、プロジェクトの Undo が誤爆する。
   - 入力欄(`input`・`textarea`・`select`・`contenteditable`)にフォーカスがあるときは、`undo`/`redo` をサーバーへ送らず、標準動作も止めない(標準の文字の取り消しに任せる)。入力欄を抜ければ、プロジェクトの Undo が効く。
-  - 実装は、NiceGUI の `ui.keyboard` が初期設定で入力欄・ボタンのイベントを送らないことを使う。`Ctrl/Cmd+Z` だけは、入力欄を無視する側のハンドラー(`on_plain_key`)で受け、入力欄でも受ける側(`on_modified_key`)では受けない。`key_guard_js` も、入力欄の中の `Ctrl/Cmd+Z` では `preventDefault` しない。
+  - 実装は、NiceGUI の `ui.keyboard` が初期設定で入力欄・ボタンのイベントを送らないことを使う。`Ctrl/Cmd+Z` は専用の 3 つ目の `ui.keyboard`(`on_undo_key`。`ignore` は `input`・`select`・`textarea`。`button` は無視しない)で受け、文字キー用(`on_plain_key`)と、入力欄でも受ける側(`on_modified_key`)では受けない。文字キー用は `button` を無視するので、ダイアログを閉じてフォーカスがボタンに戻ったあとに Undo が届かなくなるため。`key_guard_js` も、入力欄の中の `Ctrl/Cmd+Z` では `preventDefault` しない。
   - 実機(macOS のネイティブウィンドウ)で、検索欄の `Cmd+Z` が文字の取り消しになることと、入力欄の外で Undo が効くことを確かめる(実装計画の独立したタスク)。
 
 ### 通知

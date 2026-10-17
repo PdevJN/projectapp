@@ -526,15 +526,20 @@ class MainView:
     }
 
     def on_plain_key(self, event: KeyEventArguments) -> None:
-        """入力欄・ボタンにフォーカスがあるときは、NiceGUI が送らない側。Ctrl 付きは、入力欄に任せるキー(Ctrl/Cmd+Z)だけ受ける。"""
-        ctrl = event.modifiers.ctrl or event.modifiers.meta
-        if not ctrl or defers_to_inputs(event.key.name, ctrl):
+        if not (event.modifiers.ctrl or event.modifiers.meta):
             self.on_key(event)
 
     def on_modified_key(self, event: KeyEventArguments) -> None:
-        """Ctrl/Cmd 付きは入力欄でも受ける側。ただし、入力欄に任せるキー(Ctrl/Cmd+Z)は受けない。"""
+        """Ctrl/Cmd 付きは入力欄でも受ける側。ただし、入力欄に任せるキー(Ctrl/Cmd+Z)は、`on_undo_key` が受ける。"""
         ctrl = event.modifiers.ctrl or event.modifiers.meta
         if ctrl and not defers_to_inputs(event.key.name, ctrl):
+            self.on_key(event)
+
+    def on_undo_key(self, event: KeyEventArguments) -> None:
+        """入力欄に任せるキー(Ctrl/Cmd+Z)を受ける側。入力欄では NiceGUI が送らない。ボタンにフォーカスがあるときは受ける
+        (文字キー用は button を無視するので、ダイアログを閉じてフォーカスがボタンに戻ったあとも、Undo が届くように)。"""
+        ctrl = event.modifiers.ctrl or event.modifiers.meta
+        if ctrl and defers_to_inputs(event.key.name, ctrl):
             self.on_key(event)
 
     def screen(self) -> Screen:
@@ -1075,7 +1080,8 @@ class MainView:
         self.run_js(KEY_GUARD_JS)
         self.run_js(zoom_js(self.zoom))
         ui.keyboard(on_key=self.on_plain_key)  # 入力欄・ボタンにフォーカスがあるときは、受けない
-        ui.keyboard(on_key=self.on_modified_key, ignore=[])  # Ctrl/Cmd 付きだけは、入力欄でも受ける
+        ui.keyboard(on_key=self.on_modified_key, ignore=[])  # Ctrl/Cmd 付きだけは、入力欄でも受ける(Ctrl/Cmd+Z を除く)
+        ui.keyboard(on_key=self.on_undo_key, ignore=["input", "select", "textarea"])  # Ctrl/Cmd+Z: 入力欄では文字の取り消し
         if self.startup_notice:
             ui.notify(self.startup_notice, type="warning")
         if self.needs_first_fetch:
