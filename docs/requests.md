@@ -173,6 +173,7 @@
 - ドラッグ・一括操作は、1 回の編集の入口(`after_edit()`)で 1 ステップになる。
 - 入力欄の `Ctrl/Cmd+Z` は文字の取り消しに任せる(`ui.keyboard` の入力欄を無視する側で受ける)。
 - 設計は `docs/superpowers/specs/2026-10-17-undo-redo-design.md`、計画は `docs/superpowers/plans/2026-10-17-undo-redo.md`。
+- 実機で確認した(2026-10-17、macOS。入力欄の `Cmd+Z` は文字の取り消し、入力欄の外では Undo/Redo、ドラッグは 1 ステップ、保存をまたぐ Undo、履歴の破棄)。
 
 
 ## 要望 38: 進捗度の持ち方を見直す(`Task.progress` の新設)(2026-10-16 に受領。実装済み)
