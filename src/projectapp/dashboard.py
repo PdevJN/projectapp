@@ -1,7 +1,7 @@
 """ダッシュボードの集計。NiceGUI に依存しない純粋関数。"""
 
 from calendar import monthrange
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from math import isfinite
@@ -89,6 +89,68 @@ def _weight(effort_hours: float) -> float:
     return effort_hours if isfinite(effort_hours) and effort_hours > 0 else 1.0
 
 
+def _progress_weight(task: Task) -> tuple[float, float] | None:
+    """進捗率の重みと、その進み具合(0〜100)。節目は工数がないので None。"""
+    if task.kind is TaskKind.CHECKPOINT:
+        return None
+    return _weight(task.effort_hours), 100 if task.status is Status.DONE else (current_progress(task) or 0)
+
+
+@dataclass
+class TeamProgress:
+    percent: float | None = None  # 工数で重みづけした進捗率(0〜100)。タスクがなければ None
+    hours: dict[Status, float] = field(default_factory=lambda: {status: 0.0 for status in Status})
+    period: Period | None = None  # 絞り込んだ期間。None は全期間(すべてのタスク)
+    counts: dict[Status, int] = field(default_factory=lambda: {status: 0 for status in Status})  # 円に数えたタスクの件数
+    tasks: dict[Status, list[str]] = field(default_factory=lambda: {status: [] for status in Status})  # その名前(並び順)
+
+    @property
+    def total(self) -> float:
+        return sum(self.hours.values())
+
+    def slices(self) -> list[tuple[Status, float, float]]:
+        """円の切片(状態, 工数, 全体に対する割合)。工数のない状態は出さない。"""
+        total = self.total
+        return [(status, hours, hours / total) for status, hours in self.hours.items() if hours > 0]
+
+
+def _touches(task: Task, schedule: Schedule, period: Period, now: datetime) -> bool:
+    """予定の期間・締切・実績のどれかが、期間にかかる。"""
+    low, high = period.bounds()
+    start, end = schedule.start(task), schedule.end(task)
+    if start is not None and end is not None and start < high and (end > low or start >= low):
+        return True
+    if task.deadline is not None and low <= task.deadline < high:
+        return True
+    return any(a.start < high and (a.end or now) > low for a in task.actuals)
+
+
+def summarize_team_progress(
+    project: Project,
+    period: Period | None = None,
+    now: datetime | None = None,
+    holidays: dict[date, str] | None = None,
+) -> TeamProgress:
+    """チーム全体の進捗。担当者に関わらず、1 タスクを 1 回だけ数える。`period` があれば、期間にかかるタスクだけ。"""
+    hours = {status: 0.0 for status in Status}
+    counts = {status: 0 for status in Status}
+    names: dict[Status, list[str]] = {status: [] for status in Status}
+    weighted = total = 0.0
+    schedule = Schedule(project, holidays or {})
+    moment = now or datetime.now()
+    for task in _tasks(project):
+        weight_and_percent = _progress_weight(task)
+        if weight_and_percent is None or (period is not None and not _touches(task, schedule, period, moment)):
+            continue
+        weight, percent = weight_and_percent
+        hours[task.status] += weight
+        counts[task.status] += 1
+        names[task.status].append(task.name)
+        weighted += weight * percent
+        total += weight
+    return TeamProgress(weighted / total if total else None, hours, period, counts, names)
+
+
 def summarize_progress(project: Project, holidays: dict[date, str], now: datetime) -> Progress:
     counts = {status: 0 for status in Status}
     weighted = total = 0.0
@@ -96,9 +158,8 @@ def summarize_progress(project: Project, holidays: dict[date, str], now: datetim
     schedule = Schedule(project, holidays)
     for task in _tasks(project):
         counts[task.status] += 1
-        if task.kind is not TaskKind.CHECKPOINT:  # 節目は、工数がないので進捗率の重みに入れない
-            weight = _weight(task.effort_hours)
-            percent = 100 if task.status is Status.DONE else (current_progress(task) or 0)
+        if (weight_and_percent := _progress_weight(task)) is not None:  # 節目は進捗率の重みに入れない
+            weight, percent = weight_and_percent
             weighted += weight * percent
             total += weight
         if task.status is not Status.DONE and is_overdue(task, project, holidays, now, schedule):
@@ -255,6 +316,7 @@ class Dashboard:
     loads: dict[str, LoadStats]
     workload: list[WorkloadRow]
     due: list[DueRow]
+    team: TeamProgress = field(default_factory=TeamProgress)
 
     @property
     def planned_total(self) -> float:
@@ -265,11 +327,18 @@ class Dashboard:
         return sum(row.actual_hours for row in self.workload)
 
 
-def summarize(project: Project, period: Period, now: datetime, holidays: dict[date, str]) -> Dashboard:
+def summarize(
+    project: Project,
+    period: Period,
+    now: datetime,
+    holidays: dict[date, str],
+    kind: PeriodKind = PeriodKind.ALL,
+) -> Dashboard:
     return Dashboard(
         period,
         summarize_progress(project, holidays, now),
         summarize_loads(project, period, holidays),
         summarize_workload(project, period, now, holidays),
         summarize_due(project, period, now, holidays),
+        summarize_team_progress(project, None if kind is PeriodKind.ALL else period, now, holidays),
     )

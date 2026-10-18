@@ -12,9 +12,10 @@ from projectapp.dashboard import (
     Period,
     PeriodKind,
     Progress,
+    TeamProgress,
     WorkloadRow,
 )
-from projectapp.dashboard_view import DashboardView, percent_width
+from projectapp.dashboard_view import MAX_TIP_CHIPS, DashboardView, percent_width
 from projectapp.models import Status
 
 
@@ -32,6 +33,12 @@ def sample() -> Dashboard:
             DueRow(datetime(2026, 10, 8, 17), "締切", "設計", "田中", False),
             DueRow(datetime(2026, 10, 9, 12), "完了予定", "遅れ", None, True),
         ],
+        TeamProgress(
+            42.4,
+            {Status.NOT_STARTED: 0.0, Status.RUNNING: 3.0, Status.PAUSED: 0.0, Status.DONE: 1.0},
+            counts={Status.NOT_STARTED: 0, Status.RUNNING: 2, Status.PAUSED: 0, Status.DONE: 1},
+            tasks={Status.NOT_STARTED: [], Status.RUNNING: ["設計", "実装"], Status.PAUSED: [], Status.DONE: ["調査"]},
+        ),
     )
 
 
@@ -160,3 +167,73 @@ async def test_the_load_card_shows_no_icon_when_none_are_given(user: User) -> No
     views[0].show(sample(), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-load-田中")
     await user.should_not_see(marker="dashboard-load-icon-田中")
+
+
+async def test_the_team_card_draws_the_pie_and_lists_status_hours(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-team-percent")
+    assert text(user, "dashboard-team-percent") == "42%"
+    assert text(user, "dashboard-team-legend-RUNNING") == "実行中 2件 3.0h (75%)"
+    assert text(user, "dashboard-team-legend-DONE") == "終了 1件 1.0h (25%)"
+    await user.should_not_see(marker="dashboard-team-legend-PAUSED")  # 工数のない状態は出さない
+    style = user.find(marker="dashboard-team-pie").elements.pop()._style
+    assert "conic-gradient" in style["background"]
+
+
+async def test_the_team_card_is_empty_without_tasks(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(empty(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-empty-team")
+    await user.should_not_see(marker="dashboard-team-pie")
+
+
+def test_pie_background_covers_the_circle_in_status_order() -> None:
+    from projectapp.dashboard_view import pie_background
+
+    team = TeamProgress(0, {Status.NOT_STARTED: 1.0, Status.RUNNING: 3.0, Status.PAUSED: 0.0, Status.DONE: 0.0})
+    background = pie_background(team)
+    assert background.startswith("conic-gradient(")
+    assert "var(--pie-not-started) 0.0% 25.0%" in background
+    assert "var(--pie-running) 25.0% 100.0%" in background
+
+
+async def test_the_team_card_says_which_tasks_it_counts(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    views[0].show(data, PeriodKind.ALL)
+    await user.should_see(marker="dashboard-team-scope")
+    assert text(user, "dashboard-team-scope") == "すべてのタスク"
+    data.team.period = data.period
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see("10/05〜10/11 にかかるタスク")  # refresh は遅延実行なので、文言が変わるのを待つ
+    assert text(user, "dashboard-team-scope") == "10/05〜10/11 にかかるタスク"
+
+
+async def test_the_team_legend_tooltip_lists_task_chips(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-team-percent")
+    assert {e.text for e in user.find(marker="dashboard-team-chip-RUNNING").elements} == {"設計", "実装"}  # elements は集合で順序を持たない
+    assert {e.text for e in user.find(marker="dashboard-team-chip-DONE").elements} == {"調査"}
+    await user.should_not_see(marker="dashboard-team-more-RUNNING")
+    chip = user.find(marker="dashboard-team-chip-RUNNING").elements.pop()
+    assert chip._style["color"] == "var(--pie-running)"  # 凡例の色。primary にはしない
+    assert chip.props.get("color") is None
+
+
+async def test_the_team_legend_tooltip_folds_the_overflow(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    names = [f"タスク{i}" for i in range(MAX_TIP_CHIPS + 3)]
+    data.team.tasks[Status.RUNNING] = names
+    data.team.counts[Status.RUNNING] = len(names)
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-team-more-RUNNING")
+    assert text(user, "dashboard-team-more-RUNNING") == "+3件"
+    assert len(user.find(marker="dashboard-team-chip-RUNNING").elements) == MAX_TIP_CHIPS
