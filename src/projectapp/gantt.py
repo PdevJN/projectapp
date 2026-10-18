@@ -404,7 +404,19 @@ class GanttChart:
             return
         parsed = arrange.parse_move(args)
         if parsed is not None:
-            self.actions.move_task(*parsed)
+            src, dst, copy = parsed
+            self.actions.move_task(src, self.after_folded_children(dst), copy)
+
+    def after_folded_children(self, dst: arrange.Position) -> arrange.Position:
+        """折りたたんだまとめの隠れた子のあいだには置けないので、その後ろへ送る。"""
+        if not self.collapsed_summaries or self.options.read_only or not arrange.has_list(self.project, dst):
+            return dst
+        path, index = dst
+        tasks = arrange.tasks_at(self.project, path)
+        folded = hidden_by_summary(self.project, self.collapsed_summaries)
+        while 0 <= index < len(tasks) and tasks[index].id in folded:
+            index += 1
+        return path, index
 
     def handle_shift(self, args: object) -> None:
         """バーの横移動を受ける。日次スケール以外と、不正な値は無視する。"""
@@ -629,17 +641,30 @@ class GanttChart:
         centers = row_centers(slots, 0)
         bars = self.link_bars(columns, width)
         paths: list[str] = []
+        parents = parent_map(self.project) if self.collapsed_summaries else {}
+        folding = not self.task_filter.active and not self.options.read_only
+
+        def shown(task_id: str) -> str:
+            """折りたたんだまとめに隠れた子は、そのまとめの帯から引く。"""
+            parent = parents.get(task_id)
+            if folding and task_id not in centers and parent in self.collapsed_summaries and parent in centers:
+                return parent
+            return task_id
+
+        drawn: set[tuple[str, str]] = set()
         for task in self.project.all_tasks():
-            for pid in task.predecessors:
-                if pid not in bars or task.id not in bars:
+            for pred in task.predecessors:
+                pid, tid = shown(pred), shown(task.id)
+                if pid == tid or (pid, tid) in drawn:
                     continue
-                if pid not in centers or task.id not in centers:
+                if pid not in bars or tid not in bars:
                     continue
-                points = link_points(
-                    bars[pid], centers[pid], bars[task.id], centers[task.id], ROW_HEIGHT_PX
-                )
+                if pid not in centers or tid not in centers:
+                    continue
+                drawn.add((pid, tid))
+                points = link_points(bars[pid], centers[pid], bars[tid], centers[tid], ROW_HEIGHT_PX)
                 paths.append(
-                    f'<path data-link="{html.escape(pid)}-{html.escape(task.id)}"'
+                    f'<path data-link="{html.escape(pid)}-{html.escape(tid)}"'
                     f' d="{path_data(points)}" style="{LINK_STYLE}" marker-end="url(#link-head)"/>'
                 )
         size = f'width="{width * len(columns):g}" height="{total_height(slots, 0):g}"'
@@ -960,7 +985,7 @@ class GanttChart:
                 label.tooltip(section.name).mark(f"section-label-{key}")
                 if not self.options.read_only:
                     label.classes("cursor-pointer").on("click", lambda path=path: self.toggle_section(path))
-                ui.label(f"({len(section.all_tasks())})").classes("text-caption shrink-0").mark(
+                ui.label(f"({sum(1 for t in section.all_tasks() if t.kind is not TaskKind.SUMMARY)})").classes("text-caption shrink-0").mark(
                     f"section-count-{key}"
                 )
                 if not self.options.read_only and len(path) < MAX_SECTION_DEPTH:
@@ -997,6 +1022,8 @@ class GanttChart:
         overdue = is_overdue(task, self.project, self.holidays, now, self.schedule) and self.options.show_alerts
         state = progress_state(task, self.project, self.holidays, now, self.schedule)
         finished = state in (ProgressState.DONE, ProgressState.LATE_DONE)
+        if task.kind is TaskKind.SUMMARY:  # 状態は子から算出する
+            finished = summary_status(children_of(task, self.tasks_by_id)) is Status.DONE
         if overdue:
             style += f"; background: {OVERDUE_COLOR}"
         row = ui.row().classes("items-center no-wrap gap-0").style(style)

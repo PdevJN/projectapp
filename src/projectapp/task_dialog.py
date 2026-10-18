@@ -1128,6 +1128,8 @@ def open_task_dialog(
             handler = on_delete
             with ui.dialog() as delete_confirm, ui.card():
                 ui.label(f"「{task.name}」を削除しますか?")
+                if task.kind is TaskKind.SUMMARY:
+                    ui.label(f"子のタスク {len(task.children)} 件は、通常のタスクとして残ります")
 
                 def delete() -> None:
                     delete_confirm.close()

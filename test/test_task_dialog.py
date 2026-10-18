@@ -2438,3 +2438,11 @@ async def test_decompose_button_is_not_shown_for_a_task_with_status_or_progress(
     mount_dialog(Task("r", **fields), [], on_decompose=lambda close: None)  # type: ignore[arg-type]
     await open_dialog(user)
     await user.should_not_see(marker="task-decompose")
+
+
+async def test_deleting_a_summary_says_the_children_stay(user: User) -> None:
+    summary = Task("まとめ", id="m", kind=TaskKind.SUMMARY, children=["a", "b"])
+    mount_dialog(summary, [], deleted=[])
+    await open_dialog(user)
+    user.find(marker="task-delete").click()
+    await user.should_see("子のタスク 2 件は、通常のタスクとして残ります")

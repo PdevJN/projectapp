@@ -219,3 +219,43 @@ async def test_the_arrow_stops_the_click_from_reaching_the_row_editor(user: User
     arrow = user.find(marker="summary-toggle-0-0").elements.pop()
     clicks = [l for l in arrow._event_listeners.values() if l.type == "click"]
     assert clicks and all("stopPropagation" in (l.js_handler or "") for l in clicks)
+
+
+async def test_a_summary_of_done_children_is_struck_through(user: User) -> None:
+    project = summary_project()
+    for task in project.sections[0].tasks[1:3]:
+        task.status = Status.DONE
+    mount_chart(project)
+    await user.open("/")
+    assert user.find(marker="task-name-0-0").elements.pop()._style.get("text-decoration") == "line-through"
+
+
+async def test_the_section_count_does_not_count_summaries(user: User) -> None:
+    mount_chart(summary_project())  # まとめ 1 + 子 2 + 後続 1
+    await user.open("/")
+    assert user.find(marker="section-count-0").elements.pop().text == "(3)"
+
+
+async def test_a_link_from_a_hidden_child_is_redrawn_from_the_collapsed_summary(user: User) -> None:
+    project = summary_project()
+    project.sections[0].tasks[3].predecessors = ["a"]  # 子 a → 後続 z
+    mount_chart(project)
+    await user.open("/")
+    assert 'data-link="a-z"' in user.find(marker="links").elements.pop().content
+    user.find(marker="summary-toggle-0-0").click()
+    html = user.find(marker="links").elements.pop().content
+    assert 'data-link="a-z"' not in html and 'data-link="m-z"' in html
+    user.find(marker="summary-toggle-0-0").click()
+    assert 'data-link="a-z"' in user.find(marker="links").elements.pop().content
+
+
+async def test_dropping_below_a_collapsed_summary_lands_after_its_hidden_children(user: User) -> None:
+    charts, recorder = mount_chart(summary_project())
+    await user.open("/")
+    user.find(marker="summary-toggle-0-0").click()
+    charts[0].handle_move({"src": ["top", 0], "dst": ["0", 1], "copy": False})  # まとめの直後 = 隠れた子の手前
+    assert recorder.events == [("move_task", (((), 0), ((0,), 3), False))]
+    recorder.events.clear()
+    user.find(marker="summary-toggle-0-0").click()  # 開いていれば、そのまま
+    charts[0].handle_move({"src": ["top", 0], "dst": ["0", 1], "copy": False})
+    assert recorder.events == [("move_task", (((), 0), ((0,), 1), False))]
