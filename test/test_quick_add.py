@@ -1,0 +1,143 @@
+"""名前欄・見出し・末尾の追加行のダブルクリックで、名前だけのタスクを作る入力行。"""
+
+from datetime import date
+
+from nicegui import ui
+from nicegui.testing import User
+
+from projectapp.gantt import TaskFilter, ViewOptions
+from projectapp.models import Project, Section, Task, TaskKind
+from test_gantt import mount_chart, mount_with
+
+INPUT = "quick-add-input"
+
+
+async def double_click(user: User, marker: str) -> None:
+    """ダブルクリックして、入力行が出るのを待つ。"""
+    user.find(marker=marker).trigger("dblclick")
+    await user.should_see(marker=INPUT)
+
+
+def quick_project() -> Project:
+    kids = [Task("子0", id="c0"), Task("子1", id="c1")]
+    summary = Task("まとめ", id="s", kind=TaskKind.SUMMARY, children=["c0", "c1"])
+    return Project(
+        "demo",
+        base_date=date(2026, 10, 5),
+        sections=[Section("開発", [Task("設計", id="a"), Task("実装", id="b")]), Section("空", []), Section("束", [summary, *kids, Task("末", id="z")])],
+        tasks=[Task("直下", id="t")],
+    )
+
+
+async def test_double_clicking_a_task_name_opens_the_input_right_below_it(user: User) -> None:
+    mount_chart(quick_project())
+    await user.open("/")
+    await user.should_not_see(marker=INPUT)
+    user.find(marker="task-0-0").trigger("dblclick")
+    await user.should_see(marker=INPUT)
+
+
+async def test_enter_creates_the_task_below_the_clicked_one_and_closes_the_input(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "task-0-0")
+    user.find(marker=INPUT).trigger("keydown.enter", args="新規")
+    assert recorder.events == [("add_named_task", ((0,), 1, "新規"))]
+    await user.should_not_see(marker=INPUT)
+
+
+async def test_a_root_task_adds_below_it_in_the_root(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "task-top-0")
+    user.find(marker=INPUT).trigger("keydown.enter", args="新規")
+    assert recorder.events == [("add_named_task", ((), 1, "新規"))]
+
+
+async def test_a_summary_row_adds_behind_its_children(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "task-2-0")
+    user.find(marker=INPUT).trigger("keydown.enter", args="新規")
+    assert recorder.events == [("add_named_task", ((2,), 3, "新規"))]
+
+
+async def test_the_section_header_adds_at_the_end_of_its_tasks_even_when_empty(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "section-1")  # 空のセクション
+    user.find(marker=INPUT).trigger("keydown.enter", args="最初")
+    await user.should_not_see(marker=INPUT)
+    await double_click(user, "section-0")
+    user.find(marker=INPUT).trigger("keydown.enter", args="末尾")
+    assert recorder.events == [("add_named_task", ((1,), 0, "最初")), ("add_named_task", ((0,), 2, "末尾"))]
+
+
+async def test_double_clicking_the_header_of_a_collapsed_section_opens_it_and_shows_the_input(user: User) -> None:
+    charts, _ = mount_chart(quick_project())
+    await user.open("/")
+    charts[0].toggle_section((0,))
+    user.find(marker="section-0").trigger("dblclick")
+    assert (0,) not in charts[0].collapsed
+    await user.should_see(marker=INPUT)
+
+
+async def test_the_end_row_of_the_root_adds_at_the_end_of_the_root(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "top-end")
+    user.find(marker=INPUT).trigger("keydown.enter", args="末")
+    assert recorder.events == [("add_named_task", ((), 1, "末"))]
+
+
+async def test_an_invalid_name_shows_the_error_and_keeps_the_input(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "task-0-0")
+    user.find(marker=INPUT).trigger("keydown.enter", args="   ")
+    user.find(marker=INPUT).trigger("keydown.enter", args="あ" * 51)
+    assert recorder.events == []
+    await user.should_see(marker=INPUT)
+    await user.should_see(marker="quick-add-error")
+
+
+async def test_escape_and_blur_cancel_without_creating(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "task-0-0")
+    user.find(marker=INPUT).trigger("keydown.escape")
+    await user.should_not_see(marker=INPUT)
+    await double_click(user, "task-0-0")
+    user.find(marker=INPUT).trigger("blur")
+    await user.should_not_see(marker=INPUT)
+    assert recorder.events == []
+
+
+async def test_only_one_input_is_open_at_a_time(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "task-0-0")
+    user.find(marker="task-0-1").trigger("dblclick")
+    await user.should_see(marker=INPUT)
+    assert len(user.find(marker=INPUT).elements) == 1
+    user.find(marker=INPUT).trigger("keydown.enter", args="新規")
+    assert recorder.events == [("add_named_task", ((0,), 2, "新規"))]
+
+
+async def test_an_active_filter_refuses_with_a_notice(user: User) -> None:
+    charts, recorder = mount_chart(quick_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="設"))
+    user.find(marker="task-0-0").trigger("dblclick")
+    await user.should_see("絞り込みを解除してください")
+    await user.should_not_see(marker=INPUT)
+    assert recorder.events == []
+
+
+async def test_the_read_only_chart_has_no_double_click(user: User) -> None:
+    mount_with(quick_project(), ViewOptions(read_only=True))
+    await user.open("/")
+    for marker in ("task-0-0", "task-top-0", "section-0"):
+        element = user.find(marker=marker).elements.pop()
+        assert not any(listener.type == "dblclick" for listener in element._event_listeners.values())
+    await user.should_not_see(marker="top-end")

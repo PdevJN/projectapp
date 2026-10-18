@@ -182,3 +182,37 @@ def test_row_centers_skip_hidden_nested_rows() -> None:
     centers = row_centers(result, 0)
     assert "p" not in centers and "c" not in centers and "g" not in centers
     assert "r" in centers and "o" in centers
+
+
+def quick_slots(position: tuple[tuple[int, ...], int]) -> list[RowSlot]:
+    return row_slots(project(), TaskFilter(), set(), False, ROW, ADD, quick_add=position)
+
+
+def test_the_quick_add_row_takes_a_slot_after_the_task_above_it() -> None:
+    kinds = [(s.kind, s.task_id) for s in quick_slots(((0,), 1))]
+    assert kinds[4:7] == [("task", "a0"), ("quick-add", None), ("task", "a1")]
+    assert len(kinds) == len(slots()) + 1
+
+
+def test_the_quick_add_row_shifts_everything_below_it() -> None:
+    before = row_centers(slots(), top=100)
+    after = row_centers(quick_slots(((0,), 1)), top=100)
+    assert after["a0"] == before["a0"]
+    assert after["a1"] == before["a1"] + ROW
+    assert after["b0"] == before["b0"] + ROW
+
+
+def test_the_quick_add_row_in_the_root_and_in_an_empty_position() -> None:
+    root = [(s.kind, s.task_id) for s in quick_slots(((), 2))]
+    assert root[2:4] == [("quick-add", None), ("top-add", None)]  # ルートの末尾は、追加行の手前
+    end = [(s.kind, s.task_id) for s in quick_slots(((1,), 1))]
+    assert end[-2:] == [("task", "b0"), ("quick-add", None)]
+    empty = row_slots(
+        Project("p", sections=[Section("空", [])]), TaskFilter(), set(), False, ROW, ADD, quick_add=((0,), 0)
+    )
+    assert [s.kind for s in empty] == ["top-add", "section", "quick-add"]
+
+
+def test_no_quick_add_row_when_filtering_or_read_only() -> None:
+    assert all(s.kind != "quick-add" for s in row_slots(project(), TaskFilter(query="a"), set(), False, ROW, ADD, quick_add=((0,), 1)))
+    assert all(s.kind != "quick-add" for s in row_slots(project(), TaskFilter(), set(), True, ROW, ADD, quick_add=((0,), 1)))

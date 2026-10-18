@@ -114,6 +114,14 @@ def after_task(project: Project, src: Position) -> Position:
     return path, after
 
 
+def insert_named_task(project: Project, dst: Position, name: str) -> Task:
+    """名前だけの通常タスクを dst に挿入して返す(名前の検証は呼び出し側)。番号は末尾に丸める。"""
+    path, index = dst
+    task = Task(name, id=new_id(project.used_ids()))
+    tasks_at(project, path).insert(index, task)
+    return task
+
+
 def copy_task(project: Project, src: Position, dst: Position) -> Task:
     """タスクを dst に複製する。まとめは、子も複製して直後に並べる(子同士の先行は複製へ付け替え、外への先行は外す)。"""
     original = tasks_at(project, src[0])[src[1]]

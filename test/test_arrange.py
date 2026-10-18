@@ -3,7 +3,7 @@ from dataclasses import replace
 from datetime import date, datetime
 
 from projectapp import arrange
-from projectapp.models import Actual, Assignee, Priority, Project, Section, Status, Task, TaskUrl
+from projectapp.models import Actual, Assignee, Priority, Project, Section, Status, Task, TaskKind, TaskUrl
 
 
 def names(tasks: list[Task]) -> list[str]:
@@ -407,3 +407,30 @@ def test_copy_of_a_long_name_stays_within_the_limit() -> None:
     assert copy.name == "あ" * (50 - len(arrange.COPY_SUFFIX)) + arrange.COPY_SUFFIX
     assert len(copy.name) == 50
     assert project.tasks[0].name == "あ" * 50  # 元は変えない
+
+
+def test_insert_named_task_puts_a_plain_task_at_the_position() -> None:
+    project = sample()
+    task = arrange.insert_named_task(project, ((0,), 1), "新規")
+    assert names(project.sections[0].tasks) == ["a0", "新規", "a1", "a2"]
+    assert task is project.sections[0].tasks[1]
+    assert task.name == "新規"
+    assert task.id not in {t.id for t in project.all_tasks() if t is not task}
+
+
+def test_insert_named_task_into_an_empty_section_and_the_root() -> None:
+    project = sample()
+    arrange.insert_named_task(project, ((1,), 0), "空の中")
+    arrange.insert_named_task(project, ((), 2), "直下の末尾")
+    assert names(project.sections[1].tasks) == ["空の中"]
+    assert names(project.tasks) == ["t0", "t1", "直下の末尾"]
+
+
+def test_insert_named_task_after_a_summary_goes_behind_its_children() -> None:
+    kids = [Task("c0"), Task("c1")]
+    parent = Task("まとめ", kind=TaskKind.SUMMARY, children=[k.id for k in kids])
+    project = Project("p", sections=[Section("A", [parent, *kids, Task("z")])])
+    position = arrange.after_task(project, ((0,), 0))
+    arrange.insert_named_task(project, position, "新規")
+    assert names(project.sections[0].tasks) == ["まとめ", "c0", "c1", "新規", "z"]
+    assert parent.children == [k.id for k in kids]  # 新しいタスクは子にならない

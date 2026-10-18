@@ -4550,3 +4550,18 @@ async def test_section_menu_delete_can_be_cancelled(user: User, tmp_path: Path) 
     user.find(marker="section-context-delete").click()
     user.find(marker="confirm-cancel").click()
     assert [s.name for s in view.project.sections] == ["開発", "企画"]
+
+
+async def test_double_click_and_enter_adds_a_named_task_below_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    user.find(marker="task-0-0").trigger("dblclick")
+    await user.should_see(marker="quick-add-input")
+    user.find(marker="quick-add-input").trigger("keydown.enter", args="追加した")
+    assert [t.name for t in view.project.sections[0].tasks] == ["実装", "追加した"]
+    added = view.project.sections[0].tasks[1]
+    assert (added.effort_hours, added.planned_start, added.assignees) == (0.0, None, [])
+    assert view.is_dirty()
+    await user.should_see("追加した")
+    await user.should_not_see(marker="quick-add-input")
+    view.undo()
+    assert [t.name for t in view.project.sections[0].tasks] == ["実装"]
