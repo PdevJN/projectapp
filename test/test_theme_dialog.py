@@ -159,15 +159,38 @@ async def test_reset_puts_the_defaults_of_the_selected_base(user: User) -> None:
     assert rec.applied == [DEFAULTS["dark"]]
 
 
-async def test_switching_the_base_changes_only_the_base_and_warns_on_mismatch(user: User) -> None:
+async def test_switching_the_base_replaces_background_and_text_with_that_bases_defaults(user: User) -> None:
+    rec = Recorder()
+    rec.mount(CustomTheme("light", "#7e57c2", "#ffeb3b", "#fafafa", "#222222"))
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="theme-base").elements.pop().set_value("dark")
+    assert rec.previews[-1] == CustomTheme("dark", "#7e57c2", "#ffeb3b", "#121212", "#ffffff")  # primary とヘッダーは残す
+    assert field(user, "theme-background").value == "#121212" and field(user, "theme-foreground").value == "#ffffff"
+    assert warnings_text(user) == []
+    user.find(marker="theme-base").elements.pop().set_value("light")
+    assert rec.previews[-1] == CustomTheme("light", "#7e57c2", "#ffeb3b", "#ffffff", "#000000")
+
+
+async def test_switching_the_base_clears_an_invalid_background(user: User) -> None:
     rec = Recorder()
     rec.mount(DEFAULTS["light"])
     await user.open("/")
     user.find("open").click()
-    assert warnings_text(user) == []
+    field(user, "theme-background").set_value("zzz")
+    assert not user.find(marker="theme-apply").elements.pop().enabled
     user.find(marker="theme-base").elements.pop().set_value("dark")
-    assert rec.previews[-1] == CustomTheme("dark", "#5898d4", None, "#ffffff", "#000000")
-    assert warnings_text(user) == [MISMATCH_MESSAGE]
+    assert user.find(marker="theme-apply").elements.pop().enabled
+
+
+async def test_a_mismatch_still_warns_when_the_background_is_edited_after_switching(user: User) -> None:
+    rec = Recorder()
+    rec.mount(DEFAULTS["light"])
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="theme-base").elements.pop().set_value("dark")
+    field(user, "theme-background").set_value("#ffffff")
+    assert MISMATCH_MESSAGE in warnings_text(user)
 
 
 async def test_low_contrast_shows_an_orange_warning_but_apply_stays_enabled(user: User) -> None:

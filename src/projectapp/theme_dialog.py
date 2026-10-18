@@ -92,7 +92,6 @@ def open_theme_dialog(
             apply_button.set_enabled(not invalid)
 
         follow.on_value_change(toggle_follow)
-        base.on_value_change(lambda e: update(base=e.value))
 
         warning_box = ui.column().classes("w-full gap-0").mark("theme-warnings")
 
@@ -101,6 +100,18 @@ def open_theme_dialog(
             with warning_box:
                 for text in warnings(current):
                     ui.label(text).classes("text-caption text-orange").mark("theme-warning")
+
+        def switch_base(new_base: str) -> None:
+            """基調を替え、背景と文字を、その基調の既定値に入れ替える(primary とヘッダーは残す)。"""
+            defaults = DEFAULTS[new_base]
+            invalid.discard("background")
+            invalid.discard("foreground")
+            update(base=new_base, background=defaults.background, foreground=defaults.foreground)
+            inputs["background"].set_value(defaults.background)
+            inputs["foreground"].set_value(defaults.foreground)
+            apply_button.set_enabled(not invalid)
+
+        base.on_value_change(lambda e: switch_base(e.value))
 
         def reset() -> None:
             nonlocal current

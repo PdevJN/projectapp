@@ -38,7 +38,7 @@
 | `models.py` | Project / Section / Task / Member / Actual と列挙型(Priority・Status・ActualMode)のデータモデル(`Task.planned_start` / `planned_end` / `planned_end_manual` / `deadline`) |
 | `storage.py` | `~/.projectapp/<名前>.json` の走査・名前の検証・保存(一時ファイル経由)・読込・外部変更の検知(`file_digest`・`check_external_change`)・`.bak` の退避(`backup_file`) |
 | `theme.py` | カスタムテーマ。`CustomTheme`・`DEFAULTS`(基調ごとの既定。今の見た目と一致)・`parse_custom_theme`(不正なキーだけ既定に戻す)・`normalize_hex`・`contrast_ratio`・`on_color`・`header_color`(追従・ダークは primary を 55% に)・`css_variables`・`theme_js`(`body`の変数とクラス`app-custom`。None で全部外す)・`warnings`・`BODY_CSS`・`BRAND_PRIMARY`。`theme_js(None)`は`--q-primary`を外さず、NiceGUI の既定へ明示的に戻す(外すと Quasar の既定 `#1976D2` になる)。純粋関数(NiceGUI に依存しない)。CSS 側は`var(--app-bg, <今の値>)`の形で変数を先に見るので、`カスタム`以外では見た目が変わらない |
-| `theme_dialog.py` | カスタムの色のダイアログ(`open_theme_dialog`)。色を変えるたびに`on_preview`、`適用`は`on_apply`が真のときだけ閉じる、適用せずに閉じたら`on_cancel`(`dialog.on_value_change`で検知。ESC・外側クリックも含む)。色の入力は`ui.input`(検証付き)+`ui.color_picker`のボタン(`ui.color_input`は検証を持たない)。`MainView.open_theme_dialog`が、`preview_custom`・`apply_custom`・`restore_theme`につなぐ。`apply_theme`は、カスタムへ入る・出るときだけ`run_js`を流す |
+| `theme_dialog.py` | カスタムの色のダイアログ(`open_theme_dialog`)。色を変えるたびに`on_preview`、`適用`は`on_apply`が真のときだけ閉じる、適用せずに閉じたら`on_cancel`(`dialog.on_value_change`で検知。ESC・外側クリックも含む)。基調の切り替えは、背景と文字を新しい基調の既定値に入れ替える(`switch_base`。primary とヘッダーは残す)。色の入力は`ui.input`(検証付き)+`ui.color_picker`のボタン(`ui.color_input`は検証を持たない)。`MainView.open_theme_dialog`が、`preview_custom`・`apply_custom`・`restore_theme`につなぐ。`apply_theme`は、カスタムへ入る・出るときだけ`run_js`を流す |
 | `config.py` | カスタムテーマの色(`custom_theme`)・テーマ・名前の欄の幅・倍率・レイアウト・格納先(`project_dir`)の設定(`config.json`。読んで更新して書く)。格納先の検査(`check_project_dir`)と起動時の解決(`resolve_project_dir`) |
 
 ## 設計書と実装計画
