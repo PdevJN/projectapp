@@ -47,6 +47,7 @@ from projectapp.forms import (
     open_members_parameters_dialog,
     open_confirm_dialog,
     open_name_dialog,
+    section_name_error,
     task_name_error,
     open_section_dialog,
     open_settings_dialog,
@@ -243,6 +244,9 @@ class MainView:
                 copy_task=self.copy_task_below,
                 rename_task=self.rename_task,
                 delete_task=self.confirm_delete_task,
+                copy_section=self.copy_section,
+                rename_section=self.rename_section,
+                delete_section=self.confirm_delete_section,
             ),
             name_width=load_name_width(base_dir),
         )
@@ -1100,6 +1104,45 @@ class MainView:
         task = self.tasks_in(path)[index]
         detail = f"子のタスク {len(task.children)} 件は、通常のタスクとして残ります" if task.kind is TaskKind.SUMMARY else None
         open_confirm_dialog(f"「{task.name}」を削除しますか?", lambda: self.delete_task(path, index), detail=detail)
+
+    def copy_section(self, path: SectionPath) -> None:
+        """セクションを、中のタスク・サブセクションごと複製して、直後に置く。"""
+        section = arrange.section_at(self.project, path)
+        assert section is not None
+        name = section.name
+        arrange.copy_section(self.project, path)
+        self.gantt.remap_collapsed(path[:-1], path[-1] + 1, 1)  # 後ろの兄弟の番号が 1 つずれる
+        self.after_edit()
+        ui.notify(f"セクション「{name}」をコピーしました")
+
+    def rename_section(self, path: SectionPath) -> None:
+        """セクション名だけを変える(名前の入力ダイアログ)。"""
+        section = arrange.section_at(self.project, path)
+        assert section is not None
+
+        def apply(name: str) -> None:
+            section.name = name
+            self.after_edit()
+
+        open_name_dialog(apply, section_name_error, title="セクション名の変更", initial=section.name, label="セクション名")
+
+    def confirm_delete_section(self, path: SectionPath) -> None:
+        """確認してから、セクションを削除する。中のタスクは、セクションなしへ移す。"""
+        section = arrange.section_at(self.project, path)
+        assert section is not None
+        count = len(section.all_tasks())
+        detail = f"中のタスク {count} 件(サブセクションのも含む)は、セクションなしへ移します" if count else None
+        open_confirm_dialog(f"セクション「{section.name}」を削除しますか?", lambda: self.delete_section(path), detail=detail)
+
+    def delete_section(self, path: SectionPath) -> None:
+        section = arrange.section_at(self.project, path)
+        assert section is not None
+        name = section.name
+        moved = arrange.delete_section(self.project, path)
+        self.gantt.remap_collapsed(path[:-1], path[-1], -1)
+        self.after_edit()
+        tail = f"(タスク {len(moved)} 件は、セクションなしへ移しました)" if moved else ""
+        ui.notify(f"セクション「{name}」を削除しました{tail}")
 
     def apply_decompose(
         self, path: SectionPath, index: int, parts: list[Part], chain: bool, new_section: bool

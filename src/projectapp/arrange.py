@@ -141,6 +141,83 @@ def copy_task(project: Project, src: Position, dst: Position) -> Task:
     return copy
 
 
+def _sections_list(project: Project, path: SectionPath) -> list[Section]:
+    """そのセクションが入っている一覧(root か、親のサブセクション)。"""
+    if len(path) == 1:
+        return project.sections
+    parent = section_at(project, path[:-1])
+    if parent is None:
+        raise IndexError(path)
+    return parent.sections
+
+
+def _copy_sections(section: Section, task_ids: dict[str, str], taken: set[str]) -> Section:
+    """セクションの木を、新しい id で複製する(タスクの連結・まとめの子は、あとで付け替える)。"""
+    tasks = []
+    for task in section.tasks:
+        copy = _plain_copy(task, task_ids[task.id], task.name)
+        tasks.append(copy)
+    children = [_copy_sections(child, task_ids, taken) for child in section.sections]
+    section_id = new_id(taken)
+    taken.add(section_id)
+    return Section(section.name, tasks, children, id=section_id)
+
+
+def copy_section(project: Project, path: SectionPath) -> Section:
+    """セクションを、中のタスク・サブセクションごと複製して、直後に置く(名前に`(コピー)`を付ける)。
+
+    中のタスク同士の先行・まとめの子は複製へ付け替え、外への先行と実績は引き継がない。
+    外のタスクを子に持つまとめは、その子を外し、0 件になれば通常タスクに戻す。
+    """
+    siblings = _sections_list(project, path)
+    original = siblings[path[-1]]
+    taken = project.used_ids()
+    task_ids: dict[str, str] = {}
+    for task in original.all_tasks():
+        task_ids[task.id] = new_id(taken)
+        taken.add(task_ids[task.id])
+    copy = _copy_sections(original, task_ids, taken)
+    copy.name = original.name + COPY_SUFFIX
+    old_by_new = {new: old for old, new in task_ids.items()}
+    old_tasks = {task.id: task for task in original.all_tasks()}
+    for task in copy.all_tasks():
+        source = old_tasks[old_by_new[task.id]]
+        task.predecessors = [task_ids[pid] for pid in source.predecessors if pid in task_ids]
+        task.children = [task_ids[cid] for cid in source.children if cid in task_ids]
+        if task.kind is TaskKind.SUMMARY and not task.children:
+            task.kind = TaskKind.NORMAL
+    siblings.insert(path[-1] + 1, copy)
+    return copy
+
+
+def delete_section(project: Project, path: SectionPath) -> list[Task]:
+    """セクションを取り除く。中のタスク(サブセクションのも含む)は、root の末尾へ順に移し、移したタスクを返す。"""
+    removed = _sections_list(project, path).pop(path[-1])
+    moved = removed.all_tasks()
+    project.tasks.extend(moved)
+    return moved
+
+
+def remap_collapsed(
+    collapsed: set[SectionPath], parent: SectionPath, index: int, delta: int
+) -> set[SectionPath]:
+    """セクションの挿入(delta=1)・削除(delta=-1)で番号がずれたぶん、折りたたみのパスを付け替える。
+    削除のときは、そのセクションと子孫のパスを消す。"""
+    result: set[SectionPath] = set()
+    depth = len(parent)
+    for path in collapsed:
+        if len(path) <= depth or path[:depth] != parent:
+            result.add(path)
+            continue
+        number = path[depth]
+        if delta < 0 and number == index:
+            continue
+        if number >= index:
+            number += delta if delta > 0 or number > index else 0
+        result.add((*parent, number, *path[depth + 1 :]))
+    return result
+
+
 def shift_task(task: Task, days: int, shown_start: datetime | None = None) -> bool:
     """開始予定と、入っていれば完了予定を同じ日数ずらす(締切は動かさない)。範囲外なら何も書き換えない。
 

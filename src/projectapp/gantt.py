@@ -342,6 +342,10 @@ class GanttActions:
     copy_task: Callable[[SectionPath, int], object] = lambda path, ti: None
     rename_task: Callable[[SectionPath, int], object] = lambda path, ti: None
     delete_task: Callable[[SectionPath, int], object] = lambda path, ti: None
+    # セクションの見出しの右クリックのメニューの操作(セクションのパス)
+    copy_section: Callable[[SectionPath], object] = lambda path: None
+    rename_section: Callable[[SectionPath], object] = lambda path: None
+    delete_section: Callable[[SectionPath], object] = lambda path: None
 
 
 class GanttChart:
@@ -374,6 +378,8 @@ class GanttChart:
         self.menu: ui.context_menu | None = None  # 右クリックの共有メニュー(1 つだけ。行ごとには作らない)
         self.menu_target: tuple[SectionPath, int] | None = None  # メニューを開いた行
         self.decompose_item: ui.menu_item | None = None
+        self.section_menu: ui.context_menu | None = None  # セクションの見出しの右クリックの共有メニュー
+        self.section_menu_target: SectionPath | None = None
         self.summary_views: dict[str, SummaryView] = {}  # 描画中のまとめの部品
         self.task_rows: dict[str, ui.element] = {}  # 描画中のタスクの行(折りたたみで表示を切り替える)
         self.tasks_by_id: dict[str, Task] = {}
@@ -460,6 +466,10 @@ class GanttChart:
     def hidden_by_ancestor(self, path: SectionPath) -> bool:
         """親のどれかが折りたたまれているか。"""
         return any(path[:n] in self.collapsed for n in range(1, len(path)))
+
+    def remap_collapsed(self, parent: SectionPath, index: int, delta: int) -> None:
+        """セクションの挿入・削除で番号がずれたぶん、折りたたみの状態を付け替える(再描画は呼び出し側)。"""
+        self.collapsed = arrange.remap_collapsed(self.collapsed, parent, index, delta)
 
     def toggle_section(self, path: SectionPath) -> None:
         """セクションの折りたたみを切り替える。描き直さず、行の表示と矢印だけを変える。"""
@@ -783,17 +793,44 @@ class GanttChart:
             ui.menu_item("削除", on_click=act(lambda p, t: self.actions.delete_task(p, t))).props(
                 "class=text-negative"
             ).mark("context-delete")
+        with ui.context_menu().props("no-parent-event").classes("app-context-menu") as self.section_menu:
+            for label, marker, action in (
+                ("コピー", "section-context-copy", lambda p: self.actions.copy_section(p)),
+                ("名前の変更", "section-context-rename", lambda p: self.actions.rename_section(p)),
+            ):
+                ui.menu_item(label, on_click=lambda action=action: self.act_on_section(action)).mark(marker)
+            ui.separator()
+            ui.menu_item("削除", on_click=lambda: self.act_on_section(lambda p: self.actions.delete_section(p))).props(
+                "class=text-negative"
+            ).mark("section-context-delete")
         ui.run_javascript(self.menu_close_js())
 
+    def act_on_section(self, action: Callable[[SectionPath], object]) -> None:
+        if self.section_menu_target is not None:
+            action(self.section_menu_target)
+
+    def open_section_menu(self, path: SectionPath) -> None:
+        """右クリックした見出しのセクションを覚える(メニュー自体はブラウザ側で開く)。"""
+        self.section_menu_target = path
+
+    def section_menu_on_right_click(self, header: ui.element, path: SectionPath) -> None:
+        """セクションの見出しの右クリックで、セクションのメニューを、クリックした位置に開く。"""
+        if self.options.read_only or self.section_menu is None:
+            return
+        js = f"(e) => {{ e.preventDefault(); getElement({self.section_menu.id}).show(e); emit(); }}"
+        header.on("contextmenu", lambda path=path: self.open_section_menu(path), js_handler=js)
+
     def menu_close_js(self) -> str:
-        """メニューの外を押したら閉じる JS。Quasar の外側クリックだけに任せると、ドラッグできる行などで閉じないことがある。
-        メニューの中の押下は除く(項目のクリックを妨げない)。"""
-        assert self.menu is not None
-        menu = f"getElement({self.menu.id})"
+        """メニューの外を押したら閉じる JS(タスクとセクションの両方)。Quasar の外側クリックだけに任せると、
+        ドラッグできる行などで閉じないことがある。メニューの中の押下は除く(項目のクリックを妨げない)。"""
+        assert self.menu is not None and self.section_menu is not None
+        hide = "".join(
+            f" if (getElement({menu.id})) getElement({menu.id}).hide();" for menu in (self.menu, self.section_menu)
+        )
         return (
             "document.addEventListener('pointerdown', (e) => {"
             " if (e.target.closest && e.target.closest('.q-menu')) return;"
-            f" if ({menu}) {menu}.hide();"
+            f"{hide}"
             " }, true);"
         )
 
@@ -1028,6 +1065,7 @@ class GanttChart:
         header = ui.row().classes("items-center no-wrap gap-2").style(ROW_STYLE)
         header.props(self.drag_props("section", key, count=len(section.tasks)))
         header.mark(f"section-{key}")
+        self.section_menu_on_right_click(header, path)
         header.set_visibility(not hidden)
         view.header = header
         with header:

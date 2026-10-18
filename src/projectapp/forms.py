@@ -649,6 +649,15 @@ def build_section_name(text: str) -> str:
     return clean
 
 
+def section_name_error(text: str) -> str | None:
+    """セクション名の不正な理由。問題なければ None。"""
+    try:
+        build_section_name(text)
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
 def format_datetime(moment: datetime | None) -> str:
     return moment.strftime(DATETIME_FORMAT) if moment else ""
 
