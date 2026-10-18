@@ -717,7 +717,12 @@ async def test_manual_check_makes_the_planned_end_editable_and_keeps_the_typed_v
     user.find(marker="task-end-manual").click()
     await user.should_see(marker="task-end-date")
     assert user.find(marker="task-end-date").elements.pop().value == "2026-10-20"  # 値は保たれている
-    await user.should_not_see(marker="task-end-computed")
+    await user.should_see(marker="task-end-computed")  # 手で指定でも、算出値を参考値として出す
+    computed = user.find(marker="task-end-computed").elements.pop()
+    assert computed.value == "2026-10-13 11:00"
+    assert computed.props["label"] == "算出値(参考)"
+    assert "遅い" in user.find(marker="task-end-hint").elements.pop().text  # 10/20 は算出値の 10/13 より 7 日遅い
+    assert "7 日" in user.find(marker="task-end-hint").elements.pop().text
     user.find(marker="task-save").click()
     assert saved[0].planned_end_manual is True
     assert saved[0].planned_end == datetime(2026, 10, 20, 18, 0)
@@ -732,6 +737,7 @@ async def test_unchecking_manual_returns_to_the_computed_value(user: User) -> No
     user.find(marker="task-end-manual").click()
     await user.should_see(marker="task-end-computed")
     await user.should_not_see(marker="task-end-date")
+    assert user.find(marker="task-end-computed").elements.pop().props["label"] == "算出値"
 
 
 async def test_clearing_the_effort_while_manual_is_on_makes_the_end_editable_and_not_manual(

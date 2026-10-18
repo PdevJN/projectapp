@@ -104,6 +104,18 @@ def parse_datetime(text: str) -> datetime | None:
     return value
 
 
+def end_gap_hint(manual: datetime | None, computed: datetime | None) -> str:
+    """手で指定した完了予定が、工数からの算出値と何日ずれているかの 1 行のヒント(暦日の差。どちらかがなければ空)。"""
+    if manual is None or computed is None:
+        return ""
+    days = (manual.date() - computed.date()).days
+    if days > 0:
+        return f"算出値より {days} 日遅い"
+    if days < 0:
+        return f"算出値より {-days} 日前倒し"
+    return "算出値と同じ日"
+
+
 def _parse_planned_end(text: str, *, strict: bool, fallback: datetime | None) -> datetime | None:
     """完了予定の入力を解析する。使われない値(工数ありで手指定なし)は、不正でも保存を妨げず、
     形式や年が不正なら前の値を保つ。"""

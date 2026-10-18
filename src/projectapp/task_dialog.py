@@ -33,6 +33,7 @@ from projectapp.forms import (
     parse_datetime,
     needs_end_time,
     needs_start_time,
+    end_gap_hint,
     push_hint,
     suggest_status,
 )
@@ -232,7 +233,8 @@ class DateTimeFields:
     """開始予定・完了予定・締切を、日付の入力と、側ごとのチェックで出す時刻の入力で受け取る。
 
     完了予定は、工数があって「手で指定」がオフのときは、算出値を読み取り専用で出す
-    (入力欄は隠すだけで、入力済みの値は保つ)。
+    (入力欄は隠すだけで、入力済みの値は保つ)。手で指定のときは、入力欄の上に算出値を参考値として出し、
+    ヒントに算出値との日数差を出す。
     """
 
     def __init__(
@@ -273,7 +275,7 @@ class DateTimeFields:
             )
         for key in ("start", "end", "deadline"):
             self._show_time(key, self._use(key).value)
-        for widget in (self.start_day, self.start_time, self.deadline_day, self.deadline_time):
+        for widget in (self.start_day, self.start_time, self.deadline_day, self.deadline_time, self.end_day):
             widget.on_value_change(self._refresh_end)
         self.use_start_time.on_value_change(self._refresh_end)
         self.use_deadline_time.on_value_change(self._refresh_end)
@@ -355,23 +357,30 @@ class DateTimeFields:
         has_effort = (self.effort or 0.0) > 0
         computed_mode = has_effort and not self.manual.value
         self.manual.set_visibility(has_effort)
-        self.computed.set_visibility(computed_mode)
+        self.computed.set_visibility(has_effort)
+        self.computed.set_label("算出値" if computed_mode else "算出値(参考)")
         self.end_editable.set_visibility(not computed_mode)
+        computed = self._computed_end()
         hint = (
             "空なら工数から算出します"
             if has_effort
             else "空なら締切(なければ開始予定の翌日)になります"
         )
+        if has_effort and not computed_mode:
+            try:
+                hint = end_gap_hint(parse_datetime(self.end_text()), computed) or hint
+            except ValueError:
+                pass
         self.end_hint.set_text(hint)
-        self.computed.set_value(self._computed_text())
+        self.computed.set_value(computed.strftime("%Y-%m-%d %H:%M") if computed else "")
 
-    def _computed_text(self) -> str:
+    def _computed_end(self) -> datetime | None:
         try:
             start = parse_datetime(self.start_text())
             deadline = parse_datetime(self.deadline_text())
         except ValueError:
-            return ""
-        end = computed_end(
+            return None
+        return computed_end(
             start,
             self.effort or 0.0,
             self._daily_hours,
@@ -380,7 +389,6 @@ class DateTimeFields:
             deadline,
             self._rate,
         )
-        return end.strftime("%Y-%m-%d %H:%M") if end else ""
 
     def start_text(self) -> str:
         return compose_datetime(self.start_day.value or "", self._clock("start"))

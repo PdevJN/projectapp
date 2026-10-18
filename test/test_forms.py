@@ -38,6 +38,7 @@ from projectapp.forms import (
     open_settings_dialog,
     open_unsaved_dialog,
     parse_datetime,
+    end_gap_hint,
     push_hint,
     suggest_status,
 )
@@ -1960,3 +1961,12 @@ async def test_unchanged_events_are_not_reapplied(user: User) -> None:
     user.find("open").click()
     user.find(marker="settings-apply").click()
     assert received == []
+
+
+def test_end_gap_hint_compares_calendar_days() -> None:
+    computed = datetime(2026, 10, 13, 11, 0)
+    assert end_gap_hint(datetime(2026, 10, 20, 9, 0), computed) == "算出値より 7 日遅い"
+    assert end_gap_hint(datetime(2026, 10, 12, 18, 0), computed) == "算出値より 1 日前倒し"
+    assert end_gap_hint(datetime(2026, 10, 13, 18, 0), computed) == "算出値と同じ日"
+    assert end_gap_hint(None, computed) == ""
+    assert end_gap_hint(computed, None) == ""
