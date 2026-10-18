@@ -43,10 +43,12 @@ _COLORED = re.compile(r"(?:\band\s+)?\b(?:is|are)\s+colored\s+in\s+\S+", re.I)
 _HAPPENS_ON = re.compile(rf"\bhappens\s+on\s+{_D}", re.I)
 _STARTS_DATE = re.compile(rf"\bstarts?\s+(?:on\s+)?{_D}", re.I)
 _ENDS_DATE = re.compile(rf"\bends?\s+(?:on\s+)?{_D}", re.I)
-_LASTS = re.compile(r"\blasts?\s+(\d+)\s+(day|week)s?\b", re.I)
+_LASTS = re.compile(r"\b(?:lasts?|requires?)\s+(\d+)\s+(day|week)s?\b", re.I)
 _ON = re.compile(r"\bon\s+((?:\{[^}]*\}\s*)+)", re.I)
 _RESOURCE = re.compile(r"\{\s*([^}:]*?)\s*(?::\s*(\d+(?:\.\d+)?)\s*%)?\s*\}")
-_PROGRESS = re.compile(r"\bis\s+(\d{1,3})%\s+completed\b", re.I)
+_PROGRESS = re.compile(r"\bis\s+(\d{1,3})%\s+complete[d]?\b", re.I)
+_STYLE_OPEN = re.compile(r"<style>", re.I)
+_STYLE_CLOSE = re.compile(r"</style>", re.I)
 _REF = r"\[([^\]]+)\]'s\s+(end|start)"
 _DEPENDENCY = re.compile(r"\[([^\]]+)\]\s*->\s*\[([^\]]+)\]$")
 _HAPPENS_AT = re.compile(rf"\bhappens\s+at\s+{_REF}", re.I)
@@ -117,6 +119,7 @@ class _Scanner:
         self.skipped = 0
         self.complete = False
         self._started = False
+        self._in_style = False  # `<style>` 〜 `</style>` の中
         self._section: tuple[str, ...] = ()
         self._alias: dict[str, int] = {}
         self._names: dict[str, int] = {}
@@ -134,6 +137,12 @@ class _Scanner:
             if _END.match(line):
                 self.complete = True
                 return
+            if self._in_style:  # `<style>` の中は、色などの装飾。読み飛ばしの行には数えない
+                self._in_style = _STYLE_CLOSE.search(line) is None
+                continue
+            if _STYLE_OPEN.match(line):
+                self._in_style = _STYLE_CLOSE.search(line) is None
+                continue
             if line and not line.startswith("'") and not self._line(line):
                 self.skipped += 1
 

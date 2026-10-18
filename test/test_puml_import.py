@@ -461,3 +461,76 @@ def test_the_supported_syntax_is_accepted_by_plantuml_and_imported() -> None:
     result = parse_plantuml(SUPPORTED_SYNTAX, "検証")
     assert result.skipped_lines == 0 and result.unresolved == 0
     assert result.task_count == 6
+
+
+STYLE_AND_REQUIRES = """\
+@startgantt
+
+<style>
+ganttDiagram {
+  task {
+    BackGroundColor GreenYellow
+    LineColor Green
+    unstarted {
+      BackGroundColor Fuchsia
+      LineColor FireBrick
+    }
+  }
+}
+</style>
+
+[Prototype design] requires 7 days
+[Test prototype 0] requires 4 days
+[Test prototype 50] requires 4 days
+[Test prototype 100] requires 4 days
+
+[Test prototype 0] starts at [Prototype design]'s end
+[Test prototype 50] starts at [Prototype design]'s end
+[Test prototype 100] starts at [Prototype design]'s end
+
+[Test prototype 0] is 0% complete
+[Test prototype 50] is 50% complete
+[Test prototype 100] is 100% complete
+@endgantt
+"""
+
+
+def test_a_style_block_requires_and_complete_are_read() -> None:
+    """PlantUML の公式の書き方(`requires N days`・`is N% complete`・`<style>`)の図を、そのまま取り込める。"""
+    result = parse_plantuml(STYLE_AND_REQUIRES, "x", date(2026, 10, 12))  # 月曜
+    assert result.skipped_lines == 0 and result.unresolved == 0
+    assert span(result, "Prototype design") == (at(12), at(20, *END))  # 稼働日 7 日(土日をはさむ)
+    after = {n: span(result, n) for n in ("Test prototype 0", "Test prototype 50", "Test prototype 100")}
+    assert all(start == at(21) and end == at(26, *END) for start, end in after.values())  # 7 日目の翌稼働日から 4 日
+    assert task_named(result, "Test prototype 0").predecessors == [task_named(result, "Prototype design").id]
+    done = task_named(result, "Test prototype 100")
+    assert (done.status, done.progress) == (Status.DONE, 100)
+    half = task_named(result, "Test prototype 50")
+    assert (half.status, half.progress) == (Status.RUNNING, 50)
+    zero = task_named(result, "Test prototype 0")
+    assert (zero.status, zero.progress) == (Status.NOT_STARTED, None)
+
+
+def test_requires_means_the_same_as_lasts_including_weeks() -> None:
+    assert span(parse_on_today("[A] requires 2 weeks"), "A") == span(parse_on_today("[A] lasts 2 weeks"), "A")
+    assert span(parse_on_today("[A] requires 1 day"), "A") == span(parse_on_today("[A] lasts 1 day"), "A")
+
+
+def test_complete_and_completed_are_the_same() -> None:
+    a = task_named(parse("[A] is 40% complete"), "A")
+    b = task_named(parse("[A] is 40% completed"), "A")
+    assert (a.status, a.progress) == (b.status, b.progress) == (Status.RUNNING, 40)
+
+
+def test_style_lines_are_not_counted_as_skipped() -> None:
+    assert parse("<style>", "ganttDiagram {", "task {", "}", "}", "</style>", "[A] lasts 1 day").skipped_lines == 0
+    assert parse("<style>ganttDiagram { }</style>", "[A] lasts 1 day").skipped_lines == 0
+    assert parse("<STYLE>", "x", "</STYLE>", "[A] lasts 1 day").skipped_lines == 0
+
+
+def test_an_unclosed_style_block_still_ends_at_endgantt() -> None:
+    """`</style>` がなくても、@endgantt で図は終わる(その手前のタスクは取り込める)。"""
+    result = parse("[A] lasts 1 day", "<style>", "ganttDiagram {")
+    assert [t.name for t in result.project.all_tasks()] == ["A"] and result.skipped_lines == 0
+    with pytest.raises(PlantUmlImportError):
+        parse("<style>", "[A] lasts 1 day")  # 装飾の中なので、タスクはなし
