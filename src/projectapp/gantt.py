@@ -216,13 +216,13 @@ CHART_MAX_HEIGHT = f"calc(100vh - {CHART_TOP_OFFSET_PX}px)"
 STICKY_Z_SPACER, STICKY_Z_NAME, STICKY_Z_HEADER = 1, 2, 3
 # 固定した要素の下を棒や縞が通るので、不透明な背景が要る(ページの背景色に合わせる)
 STICKY_CSS = """
-.gantt-sticky { background-color: #fff; }
-body.body--dark .gantt-sticky { background-color: var(--q-dark-page, #121212); }
-body.body--dark [data-chart-scroll] { color-scheme: dark; background-color: var(--q-dark-page, #121212); }
+.gantt-sticky { background-color: var(--app-bg, #fff); }
+body.body--dark .gantt-sticky { background-color: var(--app-bg, var(--q-dark-page, #121212)); }
+body.body--dark [data-chart-scroll] { color-scheme: dark; background-color: var(--app-bg, var(--q-dark-page, #121212)); }
 body.body--dark [data-chart-scroll]::-webkit-scrollbar { width: 12px; height: 12px; }
-body.body--dark [data-chart-scroll]::-webkit-scrollbar-track { background: var(--q-dark-page, #121212); }
+body.body--dark [data-chart-scroll]::-webkit-scrollbar-track { background: var(--app-bg, var(--q-dark-page, #121212)); }
 body.body--dark [data-chart-scroll]::-webkit-scrollbar-thumb { background: #555; border-radius: 6px; }
-body.body--dark [data-chart-scroll]::-webkit-scrollbar-corner { background: var(--q-dark-page, #121212); }
+body.body--dark [data-chart-scroll]::-webkit-scrollbar-corner { background: var(--app-bg, var(--q-dark-page, #121212)); }
 """
 # 絞り込みの変更時に、チャートの枠とページの両方を先頭へ戻す
 SCROLL_TO_LEFT_JS = "document.querySelector('[data-chart-scroll]')?.scrollTo({left: 0})"

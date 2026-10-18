@@ -42,7 +42,8 @@ async () => {
   if (!root) return JSON.stringify({error: '描画の対象が見つかりません'});
   if (typeof htmlToImage === 'undefined') return JSON.stringify({error: '画像化の部品を読み込めていません'});
   const dark = document.body.classList.contains('body--dark');
-  const bg = dark ? getComputedStyle(document.body).backgroundColor : '#ffffff';
+  const custom = document.body.classList.contains('app-custom');
+  const bg = (dark || custom) ? getComputedStyle(document.body).backgroundColor : '#ffffff';
   const style = document.createElement('style');
   style.textContent = __CSS__;
   document.head.appendChild(style);

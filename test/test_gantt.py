@@ -17,6 +17,7 @@ from projectapp.gantt import (
     CHECKPOINT_MARKER_PX,
     COLUMN_WIDTH_PX,
     SHOW_CHART_JS,
+    STICKY_CSS,
     TRACK_SCROLL_JS,
     ViewOptions,
     ADD_ROW_HEIGHT_PX,
@@ -1697,7 +1698,7 @@ def test_scroll_to_top_resets_the_chart_box_and_the_page() -> None:
 
 def test_pinned_cells_have_an_opaque_background_for_both_themes() -> None:
     assert ".gantt-sticky" in STICKY_CSS
-    assert "background-color: #fff" in STICKY_CSS
+    assert "background-color: var(--app-bg, #fff)" in STICKY_CSS
     assert "body.body--dark .gantt-sticky" in STICKY_CSS
     assert "--q-dark-page" in STICKY_CSS
 
@@ -3216,3 +3217,9 @@ async def test_week_scale_stacks_events_that_fall_in_the_same_week(user: User) -
     row0 = {e.id for e in user.find(marker="event-row-0").elements.pop().descendants()}
     assert user.find(marker="event-bar-e1").elements.pop().id in row0
     assert user.find(marker="event-bar-e2").elements.pop().id not in row0
+
+
+def test_sticky_css_reads_the_app_variables_and_keeps_the_current_defaults() -> None:
+    assert ".gantt-sticky { background-color: var(--app-bg, #fff); }" in STICKY_CSS
+    assert "body.body--dark .gantt-sticky { background-color: var(--app-bg, var(--q-dark-page, #121212)); }" in STICKY_CSS
+    assert "var(--q-dark-page, #121212)" not in STICKY_CSS.replace("var(--app-bg, var(--q-dark-page, #121212))", "")

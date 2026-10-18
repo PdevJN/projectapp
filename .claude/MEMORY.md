@@ -4,6 +4,12 @@
 
 ## 現在の状況
 
+**2026-10-17 の作業(要望 28: カスタムテーマ。ブランチ`feature/custom-theme`。実装済み・未マージ。テスト 2,831 件と`ty check`が通る。実機確認はこれから)**
+
+- 設計書`2026-10-17-custom-theme-design.md`、実装計画`2026-10-17-custom-theme.md`(6 タスク。native 方式で実行)。`theme.py`(純粋関数)・`theme_dialog.py`(ダイアログ)・`config.py`(`custom_theme`)・`views.py`(`apply_theme`・メニュー)・CSS を`var(--app-*, 今の値)`に。
+- 設計からの変更: 基調を切り替えると背景と文字を新しい基調の既定値に入れ替える(2026-10-18。実機確認のあとの要望)。`ui.color_input`は検証がないため`ui.input`+`ui.color_picker`にした。キャンセルは`on_value_change`で検知。`save_custom_theme(select=True)`で色と`theme: custom`を 1 回で保存。
+- 実機(ネイティブ)で確かめる項目: ①ライトの`body`の文字色が`#000000`と一致する(違えば`DEFAULTS["light"].foreground`を直す) ②ダーク基調でスクロールバーが描き直される ③PNG の背景がカスタムの背景になる ④明るいヘッダー(例`#ffeb3b`)で文字が黒になり、ボタン・チップが見える ⑤プレビューとキャンセル・ESC・外側クリックでの復元、適用後の再起動で色が復元される ⑥自動・ライト・ダークの見た目が変わっていない。
+
 **2026-10-16 の作業(要望 38: PR #22 で`develop`へマージ済み〔マージコミット 3fe89a3。ブランチ`feature/task-progress`は削除済み〕。実機確認済み。テスト 2,730 件と`ty check`が通る)**
 
 - `Task.progress: int | None`(0〜100。ファイル形式 version 5。version 4 以下のキーは読まない。チェックポイントは`None`)。現在値は`timeline.current_progress`(区間を優先、なければタスクの値)。編集ダイアログに`TaskProgressField`(区間に進捗度があれば読み取り専用で区間の値を示し、タスクの値は変えない)。PlantUML の取り込みは、1〜100% を`Task.progress`に入れる(0 は入れない。通知の「進捗度を取り込まなかった」は廃止)。状態と進捗度は連動させない。

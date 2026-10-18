@@ -237,3 +237,8 @@ def test_the_capture_skips_web_font_embedding_so_it_leaves_the_live_stylesheets_
     # html-to-image は、フォントの埋め込みで @import 先の CSS(Quasar)を、画面のスタイルシートへ insertRule する。
     # @layer の外に出るので、画像化のあと、見出しの高さや余白が変わってしまう
     assert "skipFonts: true" in CAPTURE_JS
+
+
+def test_capture_uses_the_body_background_for_the_custom_theme() -> None:
+    assert "document.body.classList.contains('app-custom')" in CAPTURE_JS
+    assert "(dark || custom) ? getComputedStyle(document.body).backgroundColor : '#ffffff'" in CAPTURE_JS

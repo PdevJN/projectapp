@@ -29,6 +29,8 @@ from projectapp.dashboard import PeriodKind
 from projectapp.timeline import Scale, effective_end
 from projectapp.gantt import ViewOptions
 from projectapp.forms import MEMBER_TABLE_CSS
+from projectapp.config import load_custom_theme, load_theme, save_custom_theme
+from projectapp.theme import DEFAULTS, CustomTheme
 from projectapp.views import HEADER_CSS, THEME_ICONS, MainView
 
 
@@ -2329,13 +2331,13 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
     assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share"]
     assert menu_icons(user, "menu-help-items") == ["keyboard"]
-    assert menu_icons(user, "menu-theme-items") == ["brightness_auto", "light_mode", "dark_mode"]
+    assert menu_icons(user, "menu-theme-items") == ["brightness_auto", "light_mode", "dark_mode", "palette", "tune"]
     assert menu_items(user, "menu-export-items") == [
         ("チャートプレビュー", "export-preview"),
         ("担当者へ書き出し", "export-handoff"),
     ]
     assert menu_items(user, "menu-help-items") == [("ショートカットヘルプ", "help-shortcuts")]
-    assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark")]
+    assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark"), ("カスタム", "theme-custom"), ("カスタムの色…", "theme-custom-settings")]
 
 
 async def test_the_file_menu_separates_open_save_and_update(user: User, tmp_path: Path) -> None:
@@ -2375,7 +2377,7 @@ async def test_the_theme_menu_marks_the_selected_theme_and_switches_it(user: Use
     view = await open_header_view(user, tmp_path)
 
     def selected() -> list[str]:
-        return [t for t in ("auto", "light", "dark") if user.find(marker=f"theme-{t}").elements.pop()._props.get("active")]
+        return [t for t in ("auto", "light", "dark", "custom") if user.find(marker=f"theme-{t}").elements.pop()._props.get("active")]
 
     def icon() -> str:
         return user.find(marker="menu-theme").elements.pop()._props["icon"]
@@ -2408,7 +2410,7 @@ async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path
     popup_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-select-popup"))
     assert "font-size: 10px" in popup_rule
     assert "font-size: 12px" in HEADER_CSS  # 14px から -2
-    assert "var(--q-primary)" in HEADER_CSS and "color: #fff" in HEADER_CSS  # テーマカラーの背景 + 白文字
+    assert "var(--q-primary)" in HEADER_CSS and "var(--app-header-fg, #fff)" in HEADER_CSS  # テーマカラーの背景 + 白文字
     assert "body.body--dark .app-header" in HEADER_CSS and "color-mix" in HEADER_CSS  # ダークは暗めのテーマカラー
     title = next(e for e in user.find(kind=ui.label, content="新規プロジェクト").elements if e.text == "新規プロジェクト")  # ヘルプの「新規プロジェクト作成」と区別する
     assert "app-title" in title.classes
@@ -3943,3 +3945,125 @@ async def test_undo_works_when_a_button_has_the_focus(user: User, tmp_path: Path
     view.save_task((), None, Task("b"))
     view.on_undo_key(key_event("z", ctrl=True))
     assert task_names(view) == ["a"]  # 1 回で 1 ステップ
+
+
+def test_header_css_reads_the_custom_variables_and_keeps_the_current_defaults() -> None:
+    assert "background: var(--app-header, var(--q-primary)); color: var(--app-header-fg, #fff)" in HEADER_CSS
+    assert "body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, var(--q-primary) 55%, #000)); }" in HEADER_CSS
+    assert ".app-header .app-menu-btn { background: var(--app-header-chip, rgba(255, 255, 255, 0.18));" in HEADER_CSS
+    assert ".app-header .app-menu-btn:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }" in HEADER_CSS
+    assert "border-radius: 9999px; background: var(--app-header-chip, rgba(255, 255, 255, 0.18))" in HEADER_CSS
+    assert ".app-git-chip:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }" in HEADER_CSS
+
+
+async def test_apply_theme_custom_sets_dark_mode_from_the_base_and_the_variables(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    scripts: list[str] = []
+    view.run_js = lambda script, **kw: scripts.append(script)  # type: ignore[method-assign]
+    view.custom_theme = CustomTheme("dark", "#7e57c2", None, "#1e1e2e", "#e6e6f0")
+    view.apply_theme("custom")
+    assert view.theme == "custom" and view.dark.value is True
+    assert len(scripts) == 1 and 'setProperty("--app-bg", "#1e1e2e")' in scripts[0]
+    view.apply_theme("light")
+    assert view.dark.value is False
+    assert len(scripts) == 2 and 'setProperty("--q-primary", "#5898d4")' in scripts[1] and 'removeProperty("--app-bg")' in scripts[1]
+
+
+async def test_apply_theme_with_a_preview_color_does_not_change_the_saved_color(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    scripts: list[str] = []
+    view.run_js = lambda script, **kw: scripts.append(script)  # type: ignore[method-assign]
+    saved = view.custom_theme
+    view.apply_theme("custom", CustomTheme("dark", "#112233", None, "#000000", "#ffffff"))
+    assert view.custom_theme == saved
+    assert '"#112233"' in scripts[0] and view.dark.value is True
+
+
+async def test_starting_with_the_custom_theme_applies_the_saved_colors(user: User, tmp_path: Path) -> None:
+    save_custom_theme(CustomTheme("dark", "#7e57c2", None, "#1e1e2e", "#e6e6f0"), tmp_path, select=True)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    assert views[0].theme == "custom" and views[0].dark.value is True
+    assert views[0].custom_theme.primary == "#7e57c2"
+
+
+async def test_starting_with_custom_and_no_colors_uses_the_light_default(user: User, tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text(json.dumps({"theme": "custom"}), encoding="utf-8")
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    assert views[0].theme == "custom" and views[0].dark.value is False
+
+
+async def test_selecting_custom_in_the_menu_saves_the_theme_and_keeps_the_colors(user: User, tmp_path: Path) -> None:
+    view = await open_header_view(user, tmp_path)
+    user.find(marker="theme-custom").click()
+    assert view.theme == "custom"
+    assert load_theme(tmp_path) == "custom"
+    assert load_custom_theme(tmp_path) == view.custom_theme
+
+
+async def test_theme_dialog_preview_then_cancel_restores_the_previous_theme(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.set_theme("dark")
+    user.find(marker="theme-custom-settings").click()
+    user.find(marker="theme-primary").elements.pop().set_value("#7e57c2")
+    assert view.theme == "custom"  # プレビュー中
+    user.find(marker="theme-cancel").click()
+    assert view.theme == "dark" and view.dark.value is True
+    assert load_theme(tmp_path) == "dark"
+    assert load_custom_theme(tmp_path) == DEFAULTS["light"]  # 何も保存していない
+
+
+async def test_theme_dialog_apply_saves_the_colors_and_selects_custom(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    user.find(marker="theme-custom-settings").click()
+    user.find(marker="theme-primary").elements.pop().set_value("#7e57c2")
+    user.find(marker="theme-apply").click()
+    assert view.theme == "custom" and view.custom_theme.primary == "#7e57c2"
+    assert load_theme(tmp_path) == "custom"
+    assert load_custom_theme(tmp_path).primary == "#7e57c2"
+
+
+async def test_theme_dialog_apply_failure_notifies_and_keeps_saved_state(user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise OSError("読み取り専用")
+
+    monkeypatch.setattr("projectapp.views.save_custom_theme", fail)
+    user.find(marker="theme-custom-settings").click()
+    user.find(marker="theme-primary").elements.pop().set_value("#7e57c2")
+    user.find(marker="theme-apply").click()
+    await user.should_see("テーマを保存できませんでした")
+    assert view.custom_theme == DEFAULTS["light"]  # 保存済みの色は変えない
+    await user.should_see(marker="theme-apply")  # ダイアログは開いたまま
+
+
+async def test_selecting_custom_settings_in_the_menu_opens_the_dialog(user: User, tmp_path: Path) -> None:
+    await open_header_view(user, tmp_path)
+    user.find(marker="theme-custom-settings").click()
+    await user.should_see(marker="theme-apply")
+
+
+def test_header_project_select_follows_the_header_text_color_and_keeps_the_defaults() -> None:
+    assert ".app-header .app-project-select .q-field__native" in HEADER_CSS
+    assert "color: var(--app-header-fg, #fff)" in HEADER_CSS.split(".app-header .app-project-select {")[1].split("\n")[0] or "var(--app-header-fg, #fff)" in HEADER_CSS
+    assert "var(--app-header-border, hsla(0, 0%, 100%, 0.24))" in HEADER_CSS
+    assert "var(--app-header-label, rgba(255, 255, 255, 0.7))" in HEADER_CSS

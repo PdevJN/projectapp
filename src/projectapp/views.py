@@ -21,12 +21,14 @@ from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import (
     THEMES,
     check_project_dir,
+    load_custom_theme,
     load_project_dir,
     load_name_width,
     load_task_layout,
     load_theme,
     load_zoom,
     resolve_project_dir,
+    save_custom_theme,
     save_name_width,
     save_project_dir,
     save_task_layout,
@@ -110,12 +112,15 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.task_dialog import open_task_dialog
+from projectapp.theme import BODY_CSS, CustomTheme, theme_js
+from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
 from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
 from projectapp.ratios import ParameterEdit, apply_parameter_edit, deletion_impacts
 from projectapp.timeline import Schedule, build_columns, clip_overloads, overallocations, visible_range
 
-THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
-THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
+THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク", "custom": "カスタム"}
+CUSTOM_COLORS_LABEL = "カスタムの色…"
+THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode", "custom": "palette"}
 
 
 @dataclass(frozen=True)
@@ -131,20 +136,22 @@ NEW_PROJECT_NAME = "新規プロジェクト"
 # ヘッダーは、画面の上端・左右いっぱいの四角い帯(ui.header)。テーマカラーの背景 + 白文字(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
 # メニューのボタンは折り返さない(縮むのはプロジェクト選択のコンボだけ。中のファイル名は 10px)。プロジェクト名は、ヘッダーの外(メイン側の左上)に、12px の太字(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
 HEADER_CSS = """
-.app-header { background: var(--q-primary); color: #fff; font-size: 12px; padding: 4px 12px; flex-wrap: nowrap !important; overflow: hidden; }
-body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55%, #000); }
+.app-header { background: var(--app-header, var(--q-primary)); color: var(--app-header-fg, #fff); font-size: 12px; padding: 4px 12px; flex-wrap: nowrap !important; overflow: hidden; }
+body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, var(--q-primary) 55%, #000)); }
 .app-header .q-btn, .app-header .q-field { font-size: 12px; }
 .app-header .q-btn { white-space: nowrap; flex: none; }
 .app-header .q-btn__content { white-space: nowrap; flex-wrap: nowrap; }
-.app-header .app-project-select { flex: 0 1 16rem; min-width: 8rem; }
-.app-header .app-project-select .q-field__native, .app-header .app-project-select .q-field__input { font-size: 10px; }
+.app-header .app-project-select { flex: 0 1 16rem; min-width: 8rem; color: var(--app-header-fg, #fff); }
+.app-header .app-project-select .q-field__native, .app-header .app-project-select .q-field__input { font-size: 10px; color: var(--app-header-fg, #fff); }
+.app-header .app-project-select.q-field--outlined .q-field__control:before { border-color: var(--app-header-border, hsla(0, 0%, 100%, 0.24)); }
+.app-header .app-project-select .q-field__label, .app-header .app-project-select .q-field__append { color: var(--app-header-label, rgba(255, 255, 255, 0.7)); }
 .app-select-popup .q-item { font-size: 10px; min-height: 28px; }
 .app-title { font-size: 12px; font-weight: 700; white-space: nowrap; }
-.app-header .app-menu-btn { background: rgba(255, 255, 255, 0.18); padding: 0 14px; }
-.app-header .app-menu-btn:hover { background: rgba(255, 255, 255, 0.3); }
+.app-header .app-menu-btn { background: var(--app-header-chip, rgba(255, 255, 255, 0.18)); padding: 0 14px; }
+.app-header .app-menu-btn:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }
 .app-menu .q-item { font-size: 12px; min-height: 32px; }
-.app-git-chip { flex: none; font-size: 10px; line-height: 1; padding: 4px 8px; border-radius: 9999px; background: rgba(255, 255, 255, 0.18); white-space: nowrap; cursor: pointer; }
-.app-git-chip:hover { background: rgba(255, 255, 255, 0.3); }
+.app-git-chip { flex: none; font-size: 10px; line-height: 1; padding: 4px 8px; border-radius: 9999px; background: var(--app-header-chip, rgba(255, 255, 255, 0.18)); white-space: nowrap; cursor: pointer; }
+.app-git-chip:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }
 .app-git-chip.app-git-dirty { background: #ffd54f; color: #3e2723; }
 .app-git-chip.app-git-behind { background: #ffb74d; color: #3e2723; }
 .app-git-chip.app-git-error { background: #ef9a9a; color: #3e2723; }
@@ -208,8 +215,9 @@ class MainView:
         self.history = History()  # 元に戻す・やり直しの履歴。保存しても残し、別のプロジェクトに切り替えると捨てる
         self.committed = deepcopy(self.project)  # 最後に確定した状態。これと違えば、編集があったとみなして履歴に積む
         self.theme = load_theme(base_dir)
+        self.custom_theme = load_custom_theme(base_dir)  # 保存済みのカスタムの色
         self.dark = ui.dark_mode()
-        self.apply_theme(self.theme)
+        self.dark.value = self.dark_value(self.theme, self.custom_theme)
         cached = load_cache(base_dir)
         self.holidays: dict[date, str] = cached or {}
         self.needs_first_fetch = cached is None
@@ -231,15 +239,54 @@ class MainView:
         self.preview_bar = PreviewBar(self.on_preview_change, self.exit_preview, self.save_image, self.save_plantuml)
         self.dashboard_view = DashboardView(self.close_dashboard, self.change_dashboard_period)
 
-    def apply_theme(self, theme: str) -> None:
+    @staticmethod
+    def dark_value(theme: str, colors: CustomTheme) -> bool | None:
+        """`ui.dark_mode`の値。自動は None、カスタムは基調に従う。"""
+        if theme == "custom":
+            return colors.base == "dark"
+        return None if theme == "auto" else theme == "dark"
+
+    def apply_theme(self, theme: str, custom: CustomTheme | None = None) -> None:
+        """テーマを画面に反映する(保存はしない)。`custom`を渡すと、保存済みでなくその色で見せる(プレビュー)。"""
+        was_custom = self.theme == "custom"
         self.theme = theme
-        self.dark.value = None if theme == "auto" else theme == "dark"
+        colors = custom or self.custom_theme
+        self.dark.value = self.dark_value(theme, colors)
+        if theme == "custom":
+            self.run_js(theme_js(colors))
+        elif was_custom:
+            self.run_js(theme_js(None))  # カスタムの変数が付いているときだけ外す
 
     def set_theme(self, theme: str) -> None:
         self.apply_theme(theme)
         self.gantt.refresh_scrollbars()  # 標準のスクロールバーは、切り替えだけでは配色が変わらない
         save_theme(theme, self.base_dir)
         self.theme_menu.refresh()
+
+    def open_theme_dialog(self) -> None:
+        """カスタムの色のダイアログ。色を変えると画面に反映し(プレビュー)、キャンセルで開く前に戻す。"""
+        previous = self.theme
+        show_theme_dialog(self.custom_theme, self.preview_custom, self.apply_custom, lambda: self.restore_theme(previous))
+
+    def preview_custom(self, theme: CustomTheme) -> None:
+        self.apply_theme("custom", theme)
+        self.gantt.refresh_scrollbars()
+
+    def restore_theme(self, theme: str) -> None:
+        self.apply_theme(theme)
+        self.gantt.refresh_scrollbars()
+
+    def apply_custom(self, theme: CustomTheme) -> bool:
+        """色と`theme: custom`を 1 回の書き込みで保存する。失敗したら通知して False(保存済みの色は変えない)。"""
+        try:
+            save_custom_theme(theme, self.base_dir, select=True)
+        except OSError:
+            ui.notify("テーマを保存できませんでした", type="warning")
+            return False
+        self.custom_theme = theme
+        self.apply_theme("custom")
+        self.theme_menu.refresh()
+        return True
 
     def set_name_width(self, width: int) -> None:
         """名前の欄の幅を、アプリ全体の設定として保存する。プロジェクトのデータには入れない。
@@ -1065,6 +1112,7 @@ class MainView:
     def build(self) -> None:
         ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
         ui.add_css(HEADER_CSS)
+        ui.add_css(BODY_CSS)
         ui.add_css(MEMBER_TABLE_CSS)
         self.help_dialog = self.build_help_dialog()
         self.header()
@@ -1079,6 +1127,8 @@ class MainView:
         self.request_git_refresh()
         self.run_js(KEY_GUARD_JS)
         self.run_js(zoom_js(self.zoom))
+        if self.theme == "custom":
+            self.run_js(theme_js(self.custom_theme))
         ui.keyboard(on_key=self.on_plain_key)  # 入力欄・ボタンにフォーカスがあるときは、受けない
         ui.keyboard(on_key=self.on_modified_key, ignore=[])  # Ctrl/Cmd 付きだけは、入力欄でも受ける(Ctrl/Cmd+Z を除く)
         ui.keyboard(on_key=self.on_undo_key, ignore=["input", "select", "textarea"])  # Ctrl/Cmd+Z: 入力欄では文字の取り消し
@@ -1466,6 +1516,8 @@ class MainView:
                     )
                     if theme == self.theme:
                         item.props("active")
+                ui.separator().mark("theme-separator")
+                self.menu_entry(CUSTOM_COLORS_LABEL, "tune", self.open_theme_dialog, "theme-custom-settings")
 
     def build_help_dialog(self) -> ui.dialog:
         """ショートカットヘルプのダイアログ(ヘルプメニューから開く)。"""
