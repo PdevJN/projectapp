@@ -713,6 +713,8 @@ class GanttChart:
         ui.on("chart_name_width", lambda e: self.handle_name_width(e.args))
         self.build_menu()
         self.toolbar = ui.row().classes("w-full items-center no-wrap gap-4")
+        # 検索欄・担当の切り替えの右クリックで、WebView 標準のメニュー(サービス・自動入力など)を出さない
+        self.toolbar.on("contextmenu", js_handler="(e) => e.preventDefault()")
         with self.toolbar.mark("chart-toolbar"):
             ui.toggle(
                 {scale: scale.value for scale in Scale},

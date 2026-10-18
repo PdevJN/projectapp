@@ -86,3 +86,12 @@ async def test_the_menu_is_compact(user: User) -> None:
     await user.open("/")
     assert "app-context-menu" in charts[0].menu.classes  # type: ignore[union-attr]
     assert "min-height: 26px" in CONTEXT_MENU_CSS and "font-size: 12px" in CONTEXT_MENU_CSS
+
+
+async def test_the_toolbar_shows_no_browser_menu_on_right_click(user: User) -> None:
+    # 検索欄・担当の切り替えでは、WebView 標準のメニュー(サービス・自動入力など)を出さない
+    mount_chart(menu_project())
+    await user.open("/")
+    toolbar = user.find(marker="chart-toolbar").elements.pop()
+    listeners = [l for l in toolbar._event_listeners.values() if l.type == "contextmenu"]
+    assert listeners and "preventDefault" in (listeners[0].js_handler or "")
