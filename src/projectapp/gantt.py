@@ -19,10 +19,11 @@ from projectapp.config import (
     MIN_NAME_WIDTH_PX,
     parse_name_width,
 )
-from projectapp.filtering import TaskFilter, matches, section_has_match, visible_task_indexes
+from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
 from projectapp.models import MAX_SECTION_DEPTH, Category, Event, Priority, Project, Section, SectionPath, Status, Task, TaskKind
+from projectapp.summary import children_of, parent_map, summary_progress, summary_status
 from projectapp.timeline import (
     in_range,
     Band,
@@ -71,6 +72,10 @@ BAR_TOP_PX = 6
 BAR_HEIGHT_PX = ROW_HEIGHT_PX - 12
 ACTUAL_HEIGHT_PX = BAR_HEIGHT_PX // 2  # 実績の棒は、予定の棒の下半分
 ACTUAL_TOP_PX = BAR_TOP_PX + BAR_HEIGHT_PX - ACTUAL_HEIGHT_PX
+SUMMARY_BAND_HEIGHT_PX = 9  # まとめの細い帯(通常の棒は BAR_HEIGHT_PX)
+SUMMARY_BAND_TOP_PX = (ROW_HEIGHT_PX - SUMMARY_BAND_HEIGHT_PX) // 2 - 1
+SUMMARY_TIP_PX = 6  # 帯の両端の三角の半幅
+SUMMARY_INDENT_PX = 12  # まとめの子の名前の欄の字下げ
 OVERDUE_COLOR = "rgba(239, 83, 80, 0.18)"  # 予定超過のタスク行の背景
 # 進捗の状態を示す枠線の色と印。赤は予定超過の背景、橙は◆(締切)と競合するので使わない。通常は何も出さない
 PROGRESS_STATE_COLORS = {
@@ -308,6 +313,14 @@ class SectionView:
 
 
 @dataclass
+class SummaryView:
+    """描画したまとめの、折りたたみで切り替える部品。描き直すたびに作り直す。"""
+
+    arrow: ui.button | None = None  # 開閉の矢印(読み取り専用では出さない)
+    count: ui.element | None = None  # 折りたたみ中に出す子の件数
+
+
+@dataclass
 class GanttActions:
     """チャートからの操作要求を受け取るコールバック。"""
 
@@ -347,6 +360,11 @@ class GanttChart:
         self.task_filter = TaskFilter()
         self.collapsed: set[SectionPath] = set()  # 折りたたんだセクションのパス。保存しない
         self.section_views: dict[SectionPath, SectionView] = {}  # 描画中のセクションの部品
+        self.collapsed_summaries: set[str] = set()  # 折りたたんだまとめのタスク id。保存しない
+        self.summary_views: dict[str, SummaryView] = {}  # 描画中のまとめの部品
+        self.task_rows: dict[str, ui.element] = {}  # 描画中のタスクの行(折りたたみで表示を切り替える)
+        self.tasks_by_id: dict[str, Task] = {}
+        self.parents: dict[str, str] = {}  # 子のタスク id → まとめの id
         self.search_input: ui.input | None = None
         self.assignee_select: ui.select | None = None
         self.client: Client | None = None
@@ -386,7 +404,19 @@ class GanttChart:
             return
         parsed = arrange.parse_move(args)
         if parsed is not None:
-            self.actions.move_task(*parsed)
+            src, dst, copy = parsed
+            self.actions.move_task(src, self.after_folded_children(dst), copy)
+
+    def after_folded_children(self, dst: arrange.Position) -> arrange.Position:
+        """折りたたんだまとめの隠れた子のあいだには置けないので、その後ろへ送る。"""
+        if not self.collapsed_summaries or self.options.read_only or not arrange.has_list(self.project, dst):
+            return dst
+        path, index = dst
+        tasks = arrange.tasks_at(self.project, path)
+        folded = hidden_by_summary(self.project, self.collapsed_summaries)
+        while 0 <= index < len(tasks) and tasks[index].id in folded:
+            index += 1
+        return path, index
 
     def handle_shift(self, args: object) -> None:
         """バーの横移動を受ける。日次スケール以外と、不正な値は無視する。"""
@@ -429,6 +459,7 @@ class GanttChart:
             view.arrow.props(f"icon={ARROW_COLLAPSED if path in self.collapsed else ARROW_EXPANDED}")
         if not self.task_filter.active:  # 絞り込み中は、折りたたみを無視する(表示は変えない)
             self.apply_visibility(path, self.hidden_by_ancestor(path))
+            self.sync_task_rows()  # 折りたたんだまとめの子は、セクションを開いても隠したまま
 
     def apply_visibility(self, path: SectionPath, hidden: bool) -> None:
         """セクションの見出し・タスク・サブセクションの表示を、折りたたみの状態に合わせる。"""
@@ -443,6 +474,33 @@ class GanttChart:
         for child in view.children:
             self.apply_visibility(child, hidden or collapsed)
 
+    def folded_ids(self) -> set[str]:
+        """折りたたみで隠すタスクの id(折りたたんだまとめの子)。絞り込み中と読み取り専用では、折りたたみを無視する。"""
+        if self.task_filter.active or self.options.read_only:
+            return set()
+        return hidden_by_summary(self.project, self.collapsed_summaries)
+
+    def toggle_summary(self, task_id: str) -> None:
+        """まとめの折りたたみを切り替える。描き直さず、子の行の表示・矢印・件数だけを変える。"""
+        self.collapsed_summaries.symmetric_difference_update({task_id})
+        view = self.summary_views.get(task_id)
+        if view is None or self.options.read_only:
+            return
+        folded = task_id in self.collapsed_summaries
+        if view.arrow is not None:
+            view.arrow.props(f"icon={ARROW_COLLAPSED if folded else ARROW_EXPANDED}")
+        if view.count is not None:
+            view.count.set_visibility(folded)
+        self.sync_task_rows()
+        self.update_links()
+
+    def sync_task_rows(self) -> None:
+        """行の表示を `slots()`(セクション・まとめの折りたたみ・絞り込みをすべて見たもの)に合わせる。"""
+        for slot in self.slots():
+            row = self.task_rows.get(slot.task_id) if slot.task_id is not None else None
+            if row is not None:
+                row.set_visibility(slot.shown)
+
     def expand_section(self, path: SectionPath) -> None:
         """セクションと、その親をすべて展開する(描き直しは、呼び出し側のあとの処理に任せる)。"""
         for n in range(1, len(path) + 1):
@@ -451,6 +509,7 @@ class GanttChart:
     def reset_collapsed(self) -> None:
         """すべて展開に戻す(描き直しは、呼び出し側のあとの処理に任せる)。"""
         self.collapsed.clear()
+        self.collapsed_summaries.clear()
 
     def reset_filter(self) -> None:
         """条件を空に戻し、入力欄と選択にも反映する。別のプロジェクトを開いたときに使う。"""
@@ -557,6 +616,7 @@ class GanttChart:
             self.options.read_only,
             ROW_HEIGHT_PX,
             ADD_ROW_HEIGHT_PX,
+            self.collapsed_summaries,
         )
 
     def link_bars(self, columns: list[Column], width: int) -> dict[str, Bar]:
@@ -581,17 +641,30 @@ class GanttChart:
         centers = row_centers(slots, 0)
         bars = self.link_bars(columns, width)
         paths: list[str] = []
+        parents = parent_map(self.project) if self.collapsed_summaries else {}
+        folding = not self.task_filter.active and not self.options.read_only
+
+        def shown(task_id: str) -> str:
+            """折りたたんだまとめに隠れた子は、そのまとめの帯から引く。"""
+            parent = parents.get(task_id)
+            if folding and task_id not in centers and parent in self.collapsed_summaries and parent in centers:
+                return parent
+            return task_id
+
+        drawn: set[tuple[str, str]] = set()
         for task in self.project.all_tasks():
-            for pid in task.predecessors:
-                if pid not in bars or task.id not in bars:
+            for pred in task.predecessors:
+                pid, tid = shown(pred), shown(task.id)
+                if pid == tid or (pid, tid) in drawn:
                     continue
-                if pid not in centers or task.id not in centers:
+                if pid not in bars or tid not in bars:
                     continue
-                points = link_points(
-                    bars[pid], centers[pid], bars[task.id], centers[task.id], ROW_HEIGHT_PX
-                )
+                if pid not in centers or tid not in centers:
+                    continue
+                drawn.add((pid, tid))
+                points = link_points(bars[pid], centers[pid], bars[tid], centers[tid], ROW_HEIGHT_PX)
                 paths.append(
-                    f'<path data-link="{html.escape(pid)}-{html.escape(task.id)}"'
+                    f'<path data-link="{html.escape(pid)}-{html.escape(tid)}"'
                     f' d="{path_data(points)}" style="{LINK_STYLE}" marker-end="url(#link-head)"/>'
                 )
         size = f'width="{width * len(columns):g}" height="{total_height(slots, 0):g}"'
@@ -681,6 +754,10 @@ class GanttChart:
     @ui.refreshable_method
     def render(self) -> None:
         self.section_views = {}
+        self.summary_views = {}
+        self.task_rows = {}
+        self.tasks_by_id = self.project.task_map()
+        self.parents = parent_map(self.project)
         self.schedule = Schedule(self.project, self.holidays)
         columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
         self.overloads = overallocations(self.project, self.holidays)
@@ -699,9 +776,10 @@ class GanttChart:
             self.header(columns, width)
             self.no_match_message()
             self.links(columns, width)
+            folded = self.folded_ids()
             for ti, task in enumerate(self.project.tasks):
-                if matches(task, self.task_filter):
-                    self.task_row((), ti, task, columns, width)
+                if matches(task, self.task_filter, self.tasks_by_id):
+                    self.task_row((), ti, task, columns, width).set_visibility(task.id not in folded)
             self.top_add_row()
             for index, section in enumerate(self.project.sections):
                 self.section_rows((index,), section, columns, width)
@@ -712,7 +790,7 @@ class GanttChart:
         tasks = self.project.all_tasks()
         if not (self.task_filter.active and tasks):
             return
-        if any(matches(task, self.task_filter) for task in tasks):
+        if any(matches(task, self.task_filter, self.tasks_by_id) for task in tasks):
             return
         ui.label("条件に一致するタスクがありません").classes("text-caption").style(
             "position: relative; padding: 8px 16px"
@@ -876,12 +954,13 @@ class GanttChart:
         self, path: SectionPath, section: Section, columns: list[Column], width: int, hidden: bool = False
     ) -> None:
         """セクションの見出し・タスク・サブセクション(再帰)を描く。hidden は、親のどれかが折りたたまれている。"""
-        if self.task_filter.active and not section_has_match(section, self.task_filter):
+        if self.task_filter.active and not section_has_match(section, self.task_filter, self.tasks_by_id):
             return
         key = section_key(path)
         collapsed = path in self.collapsed and not self.options.read_only
         effective = collapsed and not self.task_filter.active
-        visible = visible_task_indexes(section, self.task_filter, collapsed)
+        visible = visible_task_indexes(section, self.task_filter, collapsed, self.tasks_by_id)
+        folded = self.folded_ids()
         view = self.section_views[path] = SectionView()
         indent = 12 * (len(path) - 1)
         header = ui.row().classes("items-center no-wrap gap-2").style(ROW_STYLE)
@@ -906,7 +985,7 @@ class GanttChart:
                 label.tooltip(section.name).mark(f"section-label-{key}")
                 if not self.options.read_only:
                     label.classes("cursor-pointer").on("click", lambda path=path: self.toggle_section(path))
-                ui.label(f"({len(section.all_tasks())})").classes("text-caption shrink-0").mark(
+                ui.label(f"({sum(1 for t in section.all_tasks() if t.kind is not TaskKind.SUMMARY)})").classes("text-caption shrink-0").mark(
                     f"section-count-{key}"
                 )
                 if not self.options.read_only and len(path) < MAX_SECTION_DEPTH:
@@ -926,7 +1005,7 @@ class GanttChart:
             if self.task_filter.active and ti not in shown:
                 continue  # 絞り込みで外れたタスクは、描かない
             row = self.task_row(path, ti, task, columns, width)
-            row.set_visibility(not hidden and ti in shown)  # 折りたたみ中は、行を作って隠しておく(開くとき作り直さない)
+            row.set_visibility(not hidden and ti in shown and task.id not in folded)  # 折りたたみ中は、行を作って隠しておく(開くとき作り直さない)
             view.rows.append(row)
         for index, child in enumerate(section.sections):
             child_path = (*path, index)
@@ -943,17 +1022,22 @@ class GanttChart:
         overdue = is_overdue(task, self.project, self.holidays, now, self.schedule) and self.options.show_alerts
         state = progress_state(task, self.project, self.holidays, now, self.schedule)
         finished = state in (ProgressState.DONE, ProgressState.LATE_DONE)
+        if task.kind is TaskKind.SUMMARY:  # 状態は子から算出する
+            finished = summary_status(children_of(task, self.tasks_by_id)) is Status.DONE
         if overdue:
             style += f"; background: {OVERDUE_COLOR}"
         row = ui.row().classes("items-center no-wrap gap-0").style(style)
         row.props(self.drag_props("row", key, ti=ti)).mark(f"row-{key}-{ti}")
+        self.task_rows[task.id] = row
+        summary = task.kind is TaskKind.SUMMARY
+        indent = SUMMARY_INDENT_PX if task.id in self.parents else 0  # まとめの子は、一段字下げする
         with row:
             cell = ui.row().classes(
                 "items-center no-wrap gap-1 cursor-pointer gantt-sticky"
                 f" {PRIORITY_CLASSES[task.priority]}" + self.resize_classes()
             )
             cell_style = (
-                f"width: var(--name-w); padding-left: {16 + 12 * max(len(path) - 1, 0)}px; padding-right: 4px;"
+                f"width: var(--name-w); padding-left: {16 + 12 * max(len(path) - 1, 0) + indent}px; padding-right: 4px;"
                 f" align-self: stretch; background-color: {PRIORITY_BACKGROUND_VAR};"
                 f" {sticky_left(STICKY_Z_NAME)}"
             )
@@ -967,16 +1051,43 @@ class GanttChart:
             if not self.task_filter.active and not self.options.read_only:
                 cell.props(f"draggable=true data-drag-handle data-si={key} data-ti={ti}")
             with cell:
+                if summary and not self.options.read_only:
+                    view = self.summary_views[task.id] = SummaryView()
+                    folded = task.id in self.collapsed_summaries
+                    view.arrow = (
+                        ui.button(icon=ARROW_COLLAPSED if folded else ARROW_EXPANDED)
+                        .on(
+                            "click",
+                            lambda tid=task.id: self.toggle_summary(tid),
+                            js_handler="(e) => { e.stopPropagation(); emit(); }",
+                        )
+                        .props("flat dense round size=sm")
+                        .classes("shrink-0")
+                        .mark(f"summary-toggle-{key}-{ti}")
+                    )
                 name = ui.label(task.name).classes("ellipsis").style(
                     f"flex: 1 1 0; min-width: 0; line-height: {ROW_HEIGHT_PX - 1}px"
                 )
+                if summary:
+                    name.style("font-weight: 700")
+                    if not self.options.read_only:  # 名前のクリックでも開閉する(行の編集は開かない)
+                        name.on(
+                            "click",
+                            lambda tid=task.id: self.toggle_summary(tid),
+                            js_handler="(e) => { e.stopPropagation(); emit(); }",
+                        )
                 if finished:  # 終了したタスクは、名前に取り消し線を引く
                     name.style("text-decoration: line-through")
                 name.mark(f"task-name-{key}-{ti}")
+                if summary and not self.options.read_only:
+                    self.summary_count(key, ti, task)
                 if self.options.show_chips:
                     self.task_chips(key, ti, task)
             if task.kind is TaskKind.CHECKPOINT:  # バーも実績もなく、◆ だけを出す
                 self.checkpoint_marker(path, ti, task, columns, width)
+                return row
+            if summary:  # 棒の代わりに、子の期間を覆う細い帯を出す
+                self.summary_band(path, key, ti, task, columns, width)
                 return row
             start = self.schedule.start(task)
             end = self.schedule.end(task)
@@ -1039,9 +1150,53 @@ class GanttChart:
             ui.label(f"+{len(rest)}").style(ASSIGNEE_CHIP_STYLE).tooltip(
                 "\n".join(f"{a.name} {round(a.allocation * 100)}%" for a in rest)
             ).mark(f"task-assignee-more-{key}-{ti}")
-        percent = None if task.kind is TaskKind.CHECKPOINT else fill_percent(task)
+        if task.kind is TaskKind.SUMMARY:
+            percent = summary_progress(children_of(task, self.tasks_by_id))
+        else:
+            percent = None if task.kind is TaskKind.CHECKPOINT else fill_percent(task)
         if percent is not None:
             ui.label(f"{percent}%").style(PROGRESS_TEXT_STYLE).mark(f"task-progress-{key}-{ti}")
+
+    def summary_count(self, key: int | str, ti: int, task: Task) -> None:
+        """折りたたみ中のまとめに添える、子の件数。開いているときは隠す。名前の欄の枠の中で呼ぶ。"""
+        count = ui.label(f"{len(task.children)}件").classes("code-chip").style(CODE_CHIP_STYLE)
+        count.mark(f"summary-count-{key}-{ti}")
+        count.set_visibility(task.id in self.collapsed_summaries)
+        self.summary_views[task.id].count = count
+
+    def summary_band(
+        self, path: SectionPath, key: str, ti: int, task: Task, columns: list[Column], width: int
+    ) -> None:
+        """まとめの細い帯。子の期間を覆い、状態の色で塗る。進捗は暗く塗り、両端に下向きの三角を付ける。"""
+        start, end = self.schedule.start(task), self.schedule.end(task)
+        span = bar_span(start, end, columns)
+        if span is None or not self.bar_visible(start, end, columns):
+            return
+        left, length = span
+        band_width = max(length * width, MIN_BAR_PX)
+        kids = children_of(task, self.tasks_by_id)
+        percent = summary_progress(kids)
+        band = ui.element("div").style(
+            f"position: absolute; left: {from_name(left * width)}; width: {band_width:.1f}px;"
+            f" top: {SUMMARY_BAND_TOP_PX}px; height: {SUMMARY_BAND_HEIGHT_PX}px;"
+            f" background: {STATUS_COLOR_VAR}; border-radius: 1px; cursor: pointer"
+        )
+        band.classes(STATUS_CLASSES[summary_status(kids)])
+        self.edit_on_click(band, path, ti)
+        band.mark(f"summary-band-{key}-{ti}")
+        with band:
+            if percent:
+                ui.element("div").style(
+                    f"position: absolute; left: 0; top: 0; bottom: 0; width: {percent}%;"
+                    " background: rgba(0, 0, 0, 0.25); pointer-events: none"
+                )
+            for side in ("left", "right"):
+                ui.element("div").style(
+                    f"position: absolute; {side}: -{SUMMARY_TIP_PX}px; top: {SUMMARY_BAND_HEIGHT_PX}px;"
+                    f" width: 0; height: 0; border-top: {SUMMARY_TIP_PX + 1}px solid {STATUS_COLOR_VAR};"
+                    f" border-left: {SUMMARY_TIP_PX}px solid transparent;"
+                    f" border-right: {SUMMARY_TIP_PX}px solid transparent; pointer-events: none"
+                )
 
     def progress_fill(
         self, key: int | str, ti: int, task: Task, columns: list[Column], end: datetime | None

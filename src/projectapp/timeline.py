@@ -11,7 +11,7 @@ from math import ceil, isfinite
 
 from projectapp.models import Assignee, Member, Parameter, Project, Status, Task, TaskKind
 from projectapp.ratios import effective_ratio
-
+from projectapp.summary import children_of
 
 class Scale(StrEnum):
     DAY = "日次"
@@ -421,7 +421,17 @@ class Schedule:
         return self._resolve(task)[1]
 
     def finish(self, pred: Task) -> datetime | None:
-        """先行としての完了。終了済みで実績の終了があればその時刻、なければ実効の完了。"""
+        """先行としての完了。終了済みで実績の終了があればその時刻、なければ実効の完了。
+        まとめは、子の完了の最大(終了済みの子は実績の終了)。"""
+        if pred.kind is TaskKind.SUMMARY:
+            if pred.id in self._active:  # 循環(手編集のファイルなど)
+                return None
+            self._active.add(pred.id)
+            try:
+                finishes = [self.finish(child) for child in children_of(pred, self._tasks)]
+            finally:
+                self._active.discard(pred.id)
+            return max((f for f in finishes if f is not None), default=None)
         if pred.status is Status.DONE:
             actual = actual_end(pred)
             if actual is not None:
@@ -445,6 +455,19 @@ class Schedule:
             result = (task.deadline, task.deadline)
             self._done[task.id] = result
             return result
+        if task.kind is TaskKind.SUMMARY:  # 子の最小の開始と最大の完了。自分の先行は持たない
+            if task.id in self._active:  # 循環(手編集のファイルなど)
+                return None, None
+            self._active.add(task.id)
+            try:
+                spans = [self._resolve(child) for child in children_of(task, self._tasks)]
+            finally:
+                self._active.discard(task.id)
+            starts = [start for start, _ in spans if start is not None]
+            ends = [end for _, end in spans if end is not None]
+            result = (min(starts, default=None), max(ends, default=None))
+            self._done[task.id] = result
+            return result
         if task.id in self._active:  # 循環(手編集のファイルなど)。押し出しなしで扱う
             return task.planned_start, _own_end(task, self.project, self.holidays, task.planned_start)
         self._active.add(task.id)
@@ -466,6 +489,8 @@ def effective_start(
     """実効の開始。先行がなければ開始予定。あれば、開始予定と先行の完了の遅いほう。チェックポイントは締切。"""
     if task.kind is TaskKind.CHECKPOINT:
         return task.deadline
+    if task.kind is TaskKind.SUMMARY:
+        return (schedule or Schedule(project, holidays)).start(task)
     if schedule is None and not task.predecessors:
         return task.planned_start
     return (schedule or Schedule(project, holidays)).start(task)
@@ -478,6 +503,8 @@ def effective_end(
     チェックポイントは締切。"""
     if task.kind is TaskKind.CHECKPOINT:
         return task.deadline
+    if task.kind is TaskKind.SUMMARY:
+        return (schedule or Schedule(project, holidays)).end(task)
     if schedule is None and not task.predecessors:
         return _own_end(task, project, holidays, task.planned_start)
     return (schedule or Schedule(project, holidays)).end(task)
@@ -504,6 +531,8 @@ def is_overdue(
 ) -> bool:
     """締切か完了予定を過ぎている。実績の終了があれば、その時刻で判定する(遅れて終わったものも超過)。
     実績の終了がなければ、状態が「終了」でない間だけ、現在時刻と比べる。"""
+    if task.kind is TaskKind.SUMMARY:
+        return False  # 超過は子に出る
     moment = actual_end(task)
     if moment is None:
         if task.status is Status.DONE:
@@ -550,6 +579,8 @@ def progress_state(
     if task.status is Status.DONE:
         late = is_overdue(task, project, holidays, now, schedule)
         return ProgressState.LATE_DONE if late else ProgressState.DONE
+    if task.kind is TaskKind.SUMMARY:
+        return None
     percent = current_progress(task)
     start = effective_start(task, project, holidays, schedule)
     end = effective_end(task, project, holidays, schedule)

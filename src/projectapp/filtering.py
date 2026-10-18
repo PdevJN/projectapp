@@ -1,8 +1,9 @@
 """タスクの絞り込み条件と判定。NiceGUI には依存しない。"""
 
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 
-from projectapp.models import Section, Task
+from projectapp.models import Project, Section, Task, TaskKind
 
 
 @dataclass(frozen=True)
@@ -15,24 +16,43 @@ class TaskFilter:
         return bool(self.query.strip()) or self.assignee is not None
 
 
-def matches(task: Task, task_filter: TaskFilter) -> bool:
-    """検索と担当者の両方に合うとき True。条件が空なら常に True。"""
-    if task_filter.assignee is not None and task_filter.assignee not in task.assignee_names:
-        return False
-    return task_filter.query.strip().casefold() in task.name.casefold()
+def matches(task: Task, task_filter: TaskFilter, by_id: Mapping[str, Task] | None = None) -> bool:
+    """検索と担当者の両方に合うとき True。条件が空なら常に True。
+    `by_id`(id → タスク)を渡すと、まとめは子のどれかが合っても合う。"""
+    own = (task_filter.assignee is None or task_filter.assignee in task.assignee_names) and (
+        task_filter.query.strip().casefold() in task.name.casefold()
+    )
+    if own:
+        return True
+    if by_id is not None and task.kind is TaskKind.SUMMARY:
+        return any(matches(by_id[cid], task_filter) for cid in task.children if cid in by_id)
+    return False
 
 
-def visible_task_indexes(section: Section, task_filter: TaskFilter, collapsed: bool) -> list[int]:
+def visible_task_indexes(
+    section: Section, task_filter: TaskFilter, collapsed: bool, by_id: Mapping[str, Task] | None = None
+) -> list[int]:
     """セクションで描くタスクの添字。絞り込み中は折りたたみを無視し、一致したものだけを返す。"""
     if task_filter.active:
-        return [i for i, task in enumerate(section.tasks) if matches(task, task_filter)]
+        return [i for i, task in enumerate(section.tasks) if matches(task, task_filter, by_id)]
     return [] if collapsed else list(range(len(section.tasks)))
 
 
-def section_has_match(section: Section, task_filter: TaskFilter) -> bool:
+def section_has_match(section: Section, task_filter: TaskFilter, by_id: Mapping[str, Task] | None = None) -> bool:
     """セクション自身か、子孫のどれかのタスクが条件に合うか。条件が空なら常に True。"""
     if not task_filter.active:
         return True
-    return any(matches(task, task_filter) for task in section.tasks) or any(
-        section_has_match(child, task_filter) for child in section.sections
+    return any(matches(task, task_filter, by_id) for task in section.tasks) or any(
+        section_has_match(child, task_filter, by_id) for child in section.sections
     )
+
+
+def hidden_by_summary(project: Project, collapsed_summaries: Collection[str]) -> set[str]:
+    """折りたたんだまとめの子の id。"""
+    by_id = project.task_map()
+    return {
+        cid
+        for sid in collapsed_summaries
+        if (task := by_id.get(sid)) is not None and task.kind is TaskKind.SUMMARY
+        for cid in task.children
+    }

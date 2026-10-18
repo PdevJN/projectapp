@@ -699,7 +699,7 @@ async def test_stripes_stay_inside_a_thin_bar(user: User) -> None:
 
 
 def mount_chart(
-    project: Project, holidays: dict[date, str] | None = None
+    project: Project, holidays: dict[date, str] | None = None, now: datetime = datetime(2026, 10, 1)
 ) -> tuple[list[GanttChart], Recorder]:
     charts: list[GanttChart] = []
     recorder = Recorder()
@@ -707,7 +707,7 @@ def mount_chart(
     @ui.page("/")
     def index() -> None:
         chart = GanttChart(
-            project, holidays or {}, recorder.actions, now=lambda: datetime(2026, 10, 1)
+            project, holidays or {}, recorder.actions, now=lambda: now
         )
         charts.append(chart)
         chart.build()

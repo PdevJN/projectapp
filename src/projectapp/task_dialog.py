@@ -839,8 +839,10 @@ def open_task_dialog(
     categories: list[Category] | None = None,
     layout: str = "all",
     on_layout_change: Callable[[str], object] | None = None,
+    on_decompose: Callable[[Callable[[], object]], object] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
+    is_summary = initial.kind is TaskKind.SUMMARY  # まとめは、名前・カテゴリ・優先度・リンクだけを編集する
     # 換算には、パラメータを反映した実効比率を使う(以降は、このコピーだけを見る)
     member_list = [Member(m.name, effective_ratio(m, parameters or [])) for m in members or []]
     for assignee in initial.assignees:  # 一覧にいない担当者も、保存で失わない(相対比率は 100% とみなす)
@@ -852,7 +854,10 @@ def open_task_dialog(
         layout_toggle = ui.toggle(LAYOUT_LABELS, value=layout if layout in LAYOUT_LABELS else "all").mark(
             "task-layout"
         )
-        kind = ui.toggle({k: k.value for k in TaskKind}, value=initial.kind).mark("task-kind")
+        kind = ui.toggle(  # まとめは分解でだけ作る(選択肢に出さない)。まとめの編集では、トグル自体を隠す
+            {k: k.value for k in TaskKind if k is not TaskKind.SUMMARY},
+            value=TaskKind.NORMAL if is_summary else initial.kind,
+        ).mark("task-kind")
         kind_hint = (
             ui.label("保存すると、開始予定・工数・担当・実績は消えます")
             .classes("text-caption text-grey")
@@ -1026,6 +1031,15 @@ def open_task_dialog(
         def refresh_visibility(_event: object = None) -> None:
             """欄の出し入れを 1 か所で決める(値は消さない)。チェックポイントでは通常の欄を隠し、レイアウトは付加的な欄を隠す。
             換算の説明は、完了予定の算出値を動かすので、レイアウトに関わらず出す。"""
+            if is_summary:
+                for widget in (
+                    fields.first_row, fields.second_row, conversion, actual_box, progress_field.container,
+                    assignee_fields.container, predecessors, push, status, hint, color, kind, kind_hint, layout_toggle,
+                ):
+                    widget.set_visibility(False)
+                for widget in (category, priority_box, url_box):
+                    widget.set_visibility(True)
+                return
             full = layout_toggle.value == "all"
             normal = kind.value != TaskKind.CHECKPOINT
             for widget in (fields.first_row, effort, conversion, actual_box, progress_field.container):
@@ -1079,7 +1093,7 @@ def open_task_dialog(
                     color=color.value or initial.color,
                     assignees=assignee_fields.rows(),
                     predecessors=merged_predecessors(),
-                    kind=TaskKind(kind.value),
+                    kind=TaskKind.SUMMARY if is_summary else TaskKind(kind.value),
                     linkable_ids=frozenset(options) | frozenset(initial.predecessors),
                     actual_start=actual_fields.start_text(),
                     actual_end=actual_fields.end_text(),
@@ -1114,6 +1128,8 @@ def open_task_dialog(
             handler = on_delete
             with ui.dialog() as delete_confirm, ui.card():
                 ui.label(f"「{task.name}」を削除しますか?")
+                if task.kind is TaskKind.SUMMARY:
+                    ui.label(f"子のタスク {len(task.children)} 件は、通常のタスクとして残ります")
 
                 def delete() -> None:
                     delete_confirm.close()
@@ -1141,6 +1157,23 @@ def open_task_dialog(
                 ui.button("削除", on_click=delete_confirm.open).props(
                     "flat color=negative"
                 ).mark("task-delete")
+            if (
+                task is not None
+                and on_decompose is not None
+                and task.kind is TaskKind.NORMAL
+                and not task.actuals
+                and task.status is Status.NOT_STARTED
+                and task.progress is None
+            ):
+                decompose_handler = on_decompose
+
+                def decompose_now() -> None:
+                    if current() != opened:
+                        ui.notify("編集内容を保存してから分解してください", type="warning")
+                        return
+                    decompose_handler(dialog.close)  # 編集は開いたまま、上に分解を重ねる(閉じて開くと画面が一瞬消える)。成功したら閉じる
+
+                ui.button("分解…", on_click=decompose_now).props("flat").mark("task-decompose")
             ui.space()
             ui.button("キャンセル", on_click=request_close).props("flat").mark("task-cancel")
             ui.button("保存", on_click=save).mark("task-save")

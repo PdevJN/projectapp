@@ -269,8 +269,14 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         urls=_task_urls(raw.get("urls")),
         progress=_task_progress(raw, ctx.version, legacy_progress),
         category_id=_category_id(raw.get("category_id")) if ctx.version >= 3 else None,
+        children=_children(raw.get("children")) if ctx.version >= 6 else [],
     )
-    result = _checkpoint(task) if kind is TaskKind.CHECKPOINT else task
+    if kind is TaskKind.CHECKPOINT:
+        result = _checkpoint(task)
+    elif kind is TaskKind.SUMMARY:
+        result = _summary(task)
+    else:
+        result = task
     if ctx.version < 3:
         ctx.legacy_codes[id(result)] = _project_code(raw.get("project_code"))  # 読込の最後に、カテゴリへ移す
     if raw.get("id") is None:
@@ -452,6 +458,32 @@ def _kind(value: Any) -> TaskKind:
         return TaskKind(value)
     except ValueError:
         raise ValueError(f"タスクの種別が正しくありません: {value!r}") from None
+
+
+def _children(value: Any) -> list[str]:
+    """まとめの子の id のリスト。キーがない・null は空。リストでない・文字列以外は ValueError。"""
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(cid, str) for cid in value):
+        raise ValueError("まとめの子が文字列のリストではありません")
+    return list(value)
+
+
+def _summary(task: Task) -> Task:
+    """まとめの使わない項目(日程・工数・担当・実績・進捗度・先行・締切)を空にし、状態を未着手にして返す。"""
+    return replace(
+        task,
+        planned_start=None,
+        planned_end=None,
+        planned_end_manual=False,
+        deadline=None,
+        effort_hours=0.0,
+        assignees=[],
+        actuals=[],
+        progress=None,
+        predecessors=[],
+        status=Status.NOT_STARTED,
+    )
 
 
 def _checkpoint(task: Task) -> Task:

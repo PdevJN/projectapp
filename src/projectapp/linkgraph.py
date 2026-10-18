@@ -1,17 +1,19 @@
 """タスクの連結(先行 → 後続)のグラフ操作。NiceGUI には依存しない純粋関数。"""
 
-from projectapp.models import Project, Task, walk_sections
+from projectapp.models import Project, Task, TaskKind, walk_sections
+from projectapp.summary import drop_child, parent_map
 
 
 def downstream_ids(project: Project, task_id: str) -> set[str]:
-    """そのタスクを、直接・間接に先行にしているタスクの id。循環があっても止まる。"""
+    """そのタスクを、直接・間接に先行にしているタスクの id。循環があっても止まる。
+    まとめは、子の完了を待つので、子の後続として数える。"""
     tasks = project.all_tasks()
     found: set[str] = set()
     frontier = [task_id]
     while frontier:
         current = frontier.pop()
         for task in tasks:
-            if current in task.predecessors and task.id not in found:
+            if (current in task.predecessors or current in task.children) and task.id not in found:
                 found.add(task.id)
                 frontier.append(task.id)
     return found
@@ -23,6 +25,26 @@ def validate_links(tasks: list[Task]) -> None:
     if len(set(ids)) != len(ids):
         raise ValueError("タスクの id が重複しています")
     known = set(ids)
+    parents: dict[str, str] = {}
+    by_id = {task.id: task for task in tasks}
+    for task in tasks:
+        if task.kind is not TaskKind.SUMMARY:
+            if task.children:
+                raise ValueError(f"まとめでないタスクが子を持っています: {task.name}")
+            continue
+        if not task.children:
+            raise ValueError(f"まとめに子がありません: {task.name}")
+        if len(set(task.children)) != len(task.children):
+            raise ValueError(f"まとめの子が重複しています: {task.name}")
+        for cid in task.children:
+            child = by_id.get(cid)
+            if cid == task.id or child is None:
+                raise ValueError(f"まとめが存在しない子(または自分自身)を指しています: {task.name}")
+            if child.kind is TaskKind.SUMMARY:
+                raise ValueError(f"まとめの子をまとめにはできません: {task.name}")
+            if cid in parents:
+                raise ValueError(f"1 つのタスクが複数のまとめに属しています: {child.name}")
+            parents[cid] = task.id
     for task in tasks:
         if len(set(task.predecessors)) != len(task.predecessors):
             raise ValueError(f"先行タスクが重複しています: {task.name}")
@@ -44,7 +66,7 @@ def _reject_cycle(tasks: list[Task]) -> None:
         if state.get(task_id) == 1:
             raise ValueError("先行タスクが循環しています")
         state[task_id] = 1
-        for pid in by_id[task_id].predecessors:
+        for pid in [*by_id[task_id].predecessors, *by_id[task_id].children]:
             visit(pid)
         state[task_id] = 2
 
@@ -53,10 +75,11 @@ def _reject_cycle(tasks: list[Task]) -> None:
 
 
 def drop_task_links(project: Project, task_id: str) -> None:
-    """全タスクの先行から、その id を取り除く(タスクの削除のとき)。"""
+    """全タスクの先行から、その id を取り除く(タスクの削除のとき)。まとめの子からも外し、空になったまとめは通常タスクに戻す。"""
     for task in project.all_tasks():
         if task_id in task.predecessors:
             task.predecessors = [pid for pid in task.predecessors if pid != task_id]
+    drop_child(project, task_id)
 
 
 def link_options(project: Project, task: Task | None) -> dict[str, str]:
@@ -67,7 +90,10 @@ def link_options(project: Project, task: Task | None) -> dict[str, str]:
     """
     excluded: set[str] = set()
     if task is not None:
-        excluded = {task.id, *downstream_ids(project, task.id)}
+        excluded = {task.id, *downstream_ids(project, task.id), *task.children}  # まとめが自分の子を先行にすると循環する
+        parent = parent_map(project).get(task.id)
+        if parent is not None:
+            excluded.add(parent)  # 子が親のまとめを先行にすると循環する
     labelled: list[tuple[str, str]] = [(t.id, t.name) for t in project.tasks]
     names: dict[tuple[int, ...], str] = {}
     for path, section in walk_sections(project.sections):

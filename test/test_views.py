@@ -18,10 +18,11 @@ from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.handoff import JSON_FILE_TYPES
 from projectapp.categories import CategoryEdit
-from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, Section, Task, TaskUrl, UrlTemplate
+from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, Section, Task, TaskKind, TaskUrl, UrlTemplate
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
+from projectapp.decompose import Part
 from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.plantuml import PLANTUML_FILE_TYPES
 from projectapp.puml_import import PLANTUML_OPEN_FILE_TYPES
@@ -674,6 +675,79 @@ async def test_delete_task_removes_only_that_task_and_makes_the_view_dirty(
     assert [t.name for t in view.project.sections[0].tasks] == ["x"]
     assert [t.name for t in view.project.tasks] == ["b"]
     assert view.is_dirty()
+
+
+async def test_delete_task_keeps_the_summary_consistent(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    save_project(
+        Project("既存", tasks=[
+            Task("m", id="m", kind=TaskKind.SUMMARY, children=["a", "b"]), Task("a", id="a"), Task("b", id="b"),
+        ]),
+        tmp_path,
+    )
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    view.delete_task((), 1)
+    assert view.project.tasks[0].children == ["b"]
+    view.delete_task((), 1)
+    assert view.project.tasks[0].kind is TaskKind.NORMAL
+
+
+async def test_decompose_task_makes_a_summary_in_one_undo_step(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    view.apply_decompose((0,), 0, [Part("a", 2.0), Part("b", 2.0)], True, False)
+    assert [t.name for t in view.project.sections[0].tasks] == ["実装", "a", "b"]
+    assert view.is_dirty()
+    view.undo()
+    assert [t.name for t in view.project.sections[0].tasks] == ["実装"]
+    assert view.project.sections[0].tasks[0].kind is TaskKind.NORMAL
+
+
+async def open_edit_dialog_of_the_only_task(user: User, tmp_path: Path) -> MainView:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    await user.should_see(marker="task-0-0")
+    user.find(marker="task-0-0").click()
+    return view
+
+
+def open_dialog_count(view: MainView) -> int:
+    return sum(1 for e in view.client.elements.values() if isinstance(e, ui.dialog) and e.value)
+
+
+async def test_decompose_stacks_over_the_edit_dialog_and_closes_both_on_success(user: User, tmp_path: Path) -> None:
+    view = await open_edit_dialog_of_the_only_task(user, tmp_path)
+    user.find(marker="task-decompose").click()
+    assert open_dialog_count(view) == 2  # 閉じて開くと画面が一瞬消えるので、編集は開いたまま分解を重ねる
+    user.find(marker="decompose-apply").click()
+    assert [t.kind for t in view.project.sections[0].tasks][0] is TaskKind.SUMMARY
+    assert len(view.project.sections[0].tasks) == 3
+    assert open_dialog_count(view) == 0
+
+
+async def test_cancelling_the_decompose_dialog_returns_to_the_edit_dialog(user: User, tmp_path: Path) -> None:
+    view = await open_edit_dialog_of_the_only_task(user, tmp_path)
+    user.find(marker="task-decompose").click()
+    user.find(marker="decompose-cancel").click()
+    assert open_dialog_count(view) == 1
+    assert len(view.project.sections[0].tasks) == 1
 
 
 async def test_delete_task_removes_its_id_from_the_successors(
@@ -4164,3 +4238,51 @@ async def test_a_later_base_date_keeps_earlier_tasks_and_moves_the_drag_limit(us
     assert task.planned_start == datetime(2026, 10, 7, 9)
     view.shift_task((), 0, 2)  # 右へは動く
     assert task.planned_start == datetime(2026, 10, 9, 9)
+
+
+async def test_decompose_button_is_not_shown_for_a_summary_child(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    child = Task("子", id="c1", effort_hours=2.0)
+    parent = Task("親", id="p1", kind=TaskKind.SUMMARY, children=["c1"])
+    save_project(Project("既存", sections=[Section("開発", [parent, child])]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    await user.should_see(marker="task-0-1")
+    user.find(marker="task-0-1").click()
+    await user.should_see(marker="task-save")
+    await user.should_not_see(marker="task-decompose")
+
+
+async def test_decompose_without_chain_warns_about_the_overallocation(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    view.apply_members([Member("田中")], {})
+    view.project.tasks.append(
+        Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=13.0, assignees=[Assignee("田中")])
+    )
+    view.apply_decompose((), 0, [Part("x", 6.5), Part("y", 6.5)], chain=False, new_section=False)
+    await user.should_see("田中 の割り当てが最大200%になる期間があります")
+    assert len([n for n in user.notify.messages if "田中 の割り当て" in n]) == 1  # 子の数だけ出さない
+
+
+async def test_decompose_with_chain_does_not_warn(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    view.apply_members([Member("田中")], {})
+    view.project.tasks.append(
+        Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=13.0, assignees=[Assignee("田中")])
+    )
+    view.apply_decompose((), 0, [Part("x", 6.5), Part("y", 6.5)], chain=True, new_section=False)
+    assert not user.notify.contains("割り当て")

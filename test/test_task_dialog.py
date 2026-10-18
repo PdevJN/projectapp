@@ -44,6 +44,7 @@ def mount_dialog(
     categories: list[Category] | None = None,
     layout: str = "all",
     on_layout_change: Callable[[str], object] | None = None,
+    on_decompose: Callable[[Callable[[], object]], object] | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -65,6 +66,7 @@ def mount_dialog(
                 categories=categories,
                 layout=layout,
                 on_layout_change=on_layout_change,
+                on_decompose=on_decompose,
                 open_url=(lambda url: opened.append(url)) if opened is not None else default_open_url,
             ),
         )
@@ -2363,3 +2365,84 @@ async def test_a_real_allocation_change_still_asks_before_closing(user: User) ->
         user.find(marker="task-allocation").elements.pop().set_value(50)
     user.find(marker="task-cancel").click()
     assert confirm_dialog_of(user).value is True
+
+
+async def test_a_summary_dialog_shows_only_name_category_priority_and_links(user: User) -> None:
+    mount_dialog(Task("m", id="m", kind=TaskKind.SUMMARY, children=["a"]), [])
+    await open_dialog(user)
+    await user.should_see(marker="task-name")
+    await user.should_see(marker="task-category")
+    for marker in ("task-status", "task-kind", "task-predecessors", "task-color", "task-conversion"):
+        await user.should_not_see(marker=marker)
+
+
+async def test_a_summary_dialog_saves_a_summary(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("m", id="m", kind=TaskKind.SUMMARY, children=["a"], effort_hours=0.0), saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("改名")
+    user.find(marker="task-save").click()
+    assert (saved[0].kind, saved[0].children, saved[0].name.endswith("改名")) == (TaskKind.SUMMARY, ["a"], True)
+
+
+async def test_the_kind_toggle_never_offers_summary(user: User) -> None:
+    mount_dialog(Task("x"), [])
+    await open_dialog(user)
+    toggle = user.find(marker="task-kind").elements.pop()
+    assert TaskKind.SUMMARY not in toggle.options
+
+
+async def test_decompose_button_calls_back_without_closing_the_edit_dialog(user: User) -> None:
+    calls: list[Callable[[], object]] = []
+    mount_dialog(Task("x"), [], on_decompose=calls.append)
+    await open_dialog(user)
+    user.find(marker="task-decompose").click()
+    assert len(calls) == 1
+    await user.should_see(marker="task-save")  # 閉じて開くと画面が一瞬消えるので、編集は開いたまま重ねる
+    assert dialog_of(user).value is True
+    calls[0]()  # 分解に成功したときに、呼び出し側が閉じる
+    assert dialog_of(user).value is False
+
+
+async def test_decompose_button_is_not_shown_for_a_new_task(user: User) -> None:
+    mount_dialog(None, [], on_decompose=lambda close: None)
+    await open_dialog(user)
+    await user.should_not_see(marker="task-decompose")
+
+
+async def test_decompose_button_is_not_shown_for_a_checkpoint(user: User) -> None:
+    mount_dialog(Task("c", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 12, 17)), [], on_decompose=lambda close: None)
+    await open_dialog(user)
+    await user.should_not_see(marker="task-decompose")
+
+
+async def test_decompose_button_is_not_shown_for_a_task_with_actuals(user: User) -> None:
+    task = Task("r", actuals=[Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12))])
+    mount_dialog(task, [], on_decompose=lambda close: None)
+    await open_dialog(user)
+    await user.should_not_see(marker="task-decompose")
+
+
+async def test_decompose_button_asks_to_save_first_when_the_form_was_edited(user: User) -> None:
+    calls: list[str] = []
+    mount_dialog(Task("x"), [], on_decompose=lambda close: calls.append("go"))
+    await open_dialog(user)
+    user.find(marker="task-name").type("変更")
+    user.find(marker="task-decompose").click()
+    assert calls == []
+    await user.should_see("保存してから分解")
+
+
+@pytest.mark.parametrize("fields", [{"status": Status.RUNNING}, {"progress": 40}])
+async def test_decompose_button_is_not_shown_for_a_task_with_status_or_progress(user: User, fields: dict[str, object]) -> None:
+    mount_dialog(Task("r", **fields), [], on_decompose=lambda close: None)  # type: ignore[arg-type]
+    await open_dialog(user)
+    await user.should_not_see(marker="task-decompose")
+
+
+async def test_deleting_a_summary_says_the_children_stay(user: User) -> None:
+    summary = Task("まとめ", id="m", kind=TaskKind.SUMMARY, children=["a", "b"])
+    mount_dialog(summary, [], deleted=[])
+    await open_dialog(user)
+    user.find(marker="task-delete").click()
+    await user.should_see("子のタスク 2 件は、通常のタスクとして残ります")

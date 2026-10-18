@@ -140,6 +140,8 @@ def build_plantuml(
 
     def emit(task: Task, target: list[str]) -> None:
         nonlocal skipped
+        if task.kind is TaskKind.SUMMARY:
+            return  # 親子の構文がなく、帯を出すと子と二重になる。親子は区切り(セクション)で表す
         start = effective_start(task, project, holidays, schedule)
         if start is None:
             skipped += 1
@@ -186,12 +188,25 @@ def build_plantuml(
     for section in project.sections:
         visit(section, [])
 
-    arrows = [
-        f"[{aliases[pid]}] -> [{aliases[task.id]}]"
-        for task in order
-        for pid in task.predecessors
-        if pid in aliases and pid != task.id
-    ]
+    summaries = {t.id: t for t in project.all_tasks() if t.kind is TaskKind.SUMMARY}
+
+    def source_alias(pid: str) -> str | None:
+        """先行の別名。まとめは、出力した子のうち完了が最も遅いものから引く(出した子がなければ引かない)。"""
+        if pid in aliases:
+            return aliases[pid]
+        owner = summaries.get(pid)
+        drawn = [t for t in order if owner is not None and t.id in owner.children]
+        if not drawn:
+            return None
+        latest = max(drawn, key=lambda t: schedule.end(t) or datetime.min)
+        return aliases[latest.id]
+
+    arrows = []
+    for task in order:
+        for pid in task.predecessors:
+            alias = source_alias(pid)
+            if alias is not None and pid != task.id:
+                arrows.append(f"[{alias}] -> [{aliases[task.id]}]")
     lines = [*head, *root_body]
     if event_lines:
         lines += [f"-- {EVENT_SECTION} --", *event_lines]

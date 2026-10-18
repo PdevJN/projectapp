@@ -87,6 +87,8 @@ from projectapp.gitops import FileChange, GitResult, PullKind, PullOps, default_
 from projectapp.gitops import commit as commit_files_in_git
 from projectapp.gitops import push as push_to_remote
 from projectapp.gitstate import GitKind, GitState, describe, read_git_state, tooltip
+from projectapp.decompose import Part, can_make_section, decompose
+from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
@@ -112,6 +114,7 @@ from projectapp.storage import (
     save_project,
     validate_name,
 )
+from projectapp.summary import parent_map
 from projectapp.task_dialog import open_task_dialog
 from projectapp.theme import BODY_CSS, CustomTheme, theme_js
 from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
@@ -1053,8 +1056,35 @@ class MainView:
             members=self.project.members,
             actual_mode=self.project.actual_mode,
             on_delete=lambda: self.delete_task(path, task_index),
+            on_decompose=None  # まとめの子は、入れ子になるので分解できない
+            if task.id in parent_map(self.project)
+            else lambda close_edit: self.decompose_task(path, task_index, close_edit),
             **self.link_args(task),
         )
+
+    def decompose_task(
+        self, path: SectionPath, index: int, on_done: Callable[[], object] | None = None
+    ) -> None:
+        """分解ダイアログを開く。実行は `apply_decompose`。`on_done` は、分解に成功したあとに呼ぶ(開いたままの編集ダイアログを閉じる)。"""
+
+        def apply(parts: list[Part], chain: bool, new_section: bool) -> None:
+            self.apply_decompose(path, index, parts, chain, new_section)
+            if on_done is not None:
+                on_done()
+
+        open_decompose_dialog(self.tasks_in(path)[index], can_make_section(path), apply)
+
+    def apply_decompose(
+        self, path: SectionPath, index: int, parts: list[Part], chain: bool, new_section: bool
+    ) -> None:
+        """分解して再描画する(元に戻すの 1 ステップ)。不正なときは ValueError で、何も変えない。"""
+        name = self.tasks_in(path)[index].name
+        children = decompose(self.project, path, index, parts, chain=chain, new_section=new_section)
+        if path:
+            self.gantt.expand_section(path)
+        self.after_edit()
+        ui.notify(f"「{name}」を {len(parts)} 件に分解しました")
+        self.warn_overallocation(*children)  # 連結しない分解は、同じ担当の子が重なる
 
     def delete_task(self, path: SectionPath, task_index: int) -> None:
         """タスクを取り除いて再描画する。保存は自動では行わない(編集中の判定に入る)。"""
@@ -1111,13 +1141,15 @@ class MainView:
         self.after_edit()
         self.warn_overallocation(task)
 
-    def warn_overallocation(self, task: Task) -> None:
-        """保存したタスクが担当者の割り当て合計の超過に関わるなら、担当者ごとに通知する(保存は妨げない)。"""
-        if not task.assignees:
+    def warn_overallocation(self, *tasks: Task) -> None:
+        """保存したタスクが担当者の割り当て合計の超過に関わるなら、担当者ごとに通知する(保存は妨げない)。
+        複数のタスクを渡したときは、担当者ごとに 1 回だけ出す。"""
+        if not any(task.assignees for task in tasks):
             return
         overloads = overallocations(self.project, self.holidays)
-        mine = clip_overloads(task, self.project, self.holidays, overloads)
-        for name in task.assignee_names:
+        mine = [o for task in tasks for o in clip_overloads(task, self.project, self.holidays, overloads)]
+        names = dict.fromkeys(name for task in tasks for name in task.assignee_names)
+        for name in names:
             peaks = [o.total for o in mine if o.member == name]
             if peaks:
                 ui.notify(
