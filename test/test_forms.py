@@ -22,6 +22,7 @@ from projectapp.forms import (
     build_section_name,
     build_task,
     build_urls,
+    build_base_date,
     build_work_settings,
     compose_actual,
     compose_datetime,
@@ -1931,3 +1932,76 @@ def test_end_gap_hint_compares_calendar_days() -> None:
     assert end_gap_hint(datetime(2026, 10, 13, 18, 0), computed) == "算出値と同じ日"
     assert end_gap_hint(None, computed) == ""
     assert end_gap_hint(computed, None) == ""
+
+
+TODAY = date(2026, 10, 18)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("2026-10-05", date(2026, 10, 5)),
+        ("20261005", date(2026, 10, 5)),
+        ("２０２６１００５", date(2026, 10, 5)),
+        ("10/05", date(2026, 10, 5)),  # 年を省くと今年。過ぎた日でも翌年にしない
+        ("2020-01-01", date(2020, 1, 1)),  # 過去の基準日も許可する
+    ],
+)
+def test_build_base_date_reads_shortened_forms_and_keeps_past_days(text: str, expected: date) -> None:
+    assert build_base_date(text, TODAY) == expected
+
+
+@pytest.mark.parametrize("text", ["", "   ", "あした", "2026-02-30", "1999-12-31", "2101-01-01"])
+def test_build_base_date_rejects_unreadable_or_out_of_range_days(text: str) -> None:
+    with pytest.raises(ValueError, match="基準日"):
+        build_base_date(text, TODAY)
+
+
+async def test_settings_dialog_applies_the_base_date_only_when_given(user: User) -> None:
+    bases: list[date] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda h, s, m: None, base_date=date(2026, 10, 5), on_base_date=bases.append
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    assert user.find(marker="settings-base-date").elements.pop().value == "2026-10-05"
+    user.find(marker="settings-base-date").clear().type("1020")
+    user.find(marker="settings-apply").click()
+    assert bases == [date(date.today().year, 10, 20)]  # 年を省くと今年
+
+
+async def test_settings_dialog_rejects_a_bad_base_date_and_keeps_the_dialog(user: User) -> None:
+    bases: list[date] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda h, s, m: None, base_date=date(2026, 10, 5), on_base_date=bases.append
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-base-date").clear().type("あした")
+    user.find(marker="settings-apply").click()
+    await user.should_see("基準日")
+    assert bases == []
+
+
+async def test_settings_dialog_has_no_base_date_field_without_one(user: User) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s, m: None))
+
+    await user.open("/")
+    user.find("open").click()
+    await user.should_not_see(marker="settings-base-date")
