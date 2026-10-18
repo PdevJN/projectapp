@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from projectapp.models import FORMAT_VERSION, Project, Section, Status, Task, TaskKind
+from projectapp.summary import children_of, drop_child, parent_map, revert_empty, summary_progress, summary_status
 from projectapp.storage import dumps_project, load_project, parse_project, save_project
 import json
 
@@ -116,3 +117,59 @@ def test_planned_start_is_not_kept_on_a_summary() -> None:
         "p",
     ).tasks[0]
     assert task.planned_start is None
+
+
+def child(name: str, status: Status = Status.NOT_STARTED, effort: float = 0.0, progress: int | None = None) -> Task:
+    return Task(name, id=name, status=status, effort_hours=effort, progress=progress)
+
+
+def test_parent_map_points_children_at_their_summary() -> None:
+    assert parent_map(project_with_summary()) == {"a": "まとめ", "b": "まとめ"}
+
+
+def test_children_of_keeps_the_order_and_skips_missing_ids() -> None:
+    project = Project("p", tasks=[summary("m", "b", "x", "a"), child("a"), child("b")])
+    assert [c.name for c in children_of(project.tasks[0], project.task_map())] == ["b", "a"]
+
+
+@pytest.mark.parametrize(
+    ("statuses", "expected"),
+    [
+        ([Status.DONE, Status.DONE], Status.DONE),
+        ([Status.NOT_STARTED, Status.NOT_STARTED], Status.NOT_STARTED),
+        ([Status.DONE, Status.NOT_STARTED], Status.RUNNING),
+        ([Status.PAUSED, Status.NOT_STARTED], Status.RUNNING),
+        ([Status.RUNNING, Status.NOT_STARTED], Status.RUNNING),
+        ([], Status.NOT_STARTED),
+    ],
+)
+def test_summary_status(statuses: list[Status], expected: Status) -> None:
+    assert summary_status([child(f"c{i}", s) for i, s in enumerate(statuses)]) == expected
+
+
+def test_summary_progress_is_weighted_by_effort() -> None:
+    kids = [child("a", effort=6.0, progress=50), child("b", effort=2.0, progress=100)]
+    assert summary_progress(kids) == 63  # (6*50 + 2*100) / 8 = 62.5 → 63 (四捨五入)
+
+
+def test_summary_progress_counts_done_as_100_and_unset_as_0_and_no_effort_as_weight_1() -> None:
+    kids = [child("a", Status.DONE), child("b")]
+    assert summary_progress(kids) == 50
+
+
+def test_summary_progress_is_none_when_no_child_has_progress_or_is_done() -> None:
+    assert summary_progress([child("a"), child("b")]) is None
+
+
+def test_drop_child_removes_the_id_and_reverts_an_empty_summary() -> None:
+    project = Project("p", tasks=[summary("m", "a", "b"), child("a"), child("b")])
+    drop_child(project, "a")
+    assert project.tasks[0].children == ["b"] and project.tasks[0].kind is TaskKind.SUMMARY
+    drop_child(project, "b")
+    assert project.tasks[0].children == [] and project.tasks[0].kind is TaskKind.NORMAL
+
+
+def test_revert_empty_leaves_other_summaries() -> None:
+    project = Project("p", tasks=[summary("m", "a"), summary("n"), child("a")])
+    revert_empty(project)
+    assert [t.kind for t in project.tasks] == [TaskKind.SUMMARY, TaskKind.NORMAL, TaskKind.NORMAL]
