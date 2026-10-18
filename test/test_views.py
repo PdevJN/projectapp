@@ -30,7 +30,7 @@ from projectapp.timeline import Scale, effective_end
 from projectapp.gantt import ViewOptions
 from projectapp.forms import MEMBER_TABLE_CSS
 from projectapp.config import load_custom_theme, load_theme, save_custom_theme
-from projectapp.theme import CustomTheme
+from projectapp.theme import DEFAULTS, CustomTheme
 from projectapp.views import HEADER_CSS, THEME_ICONS, MainView
 
 
@@ -4008,3 +4008,55 @@ async def test_selecting_custom_in_the_menu_saves_the_theme_and_keeps_the_colors
     assert view.theme == "custom"
     assert load_theme(tmp_path) == "custom"
     assert load_custom_theme(tmp_path) == view.custom_theme
+
+
+async def test_theme_dialog_preview_then_cancel_restores_the_previous_theme(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.set_theme("dark")
+    user.find(marker="theme-custom-settings").click()
+    user.find(marker="theme-primary").elements.pop().set_value("#7e57c2")
+    assert view.theme == "custom"  # プレビュー中
+    user.find(marker="theme-cancel").click()
+    assert view.theme == "dark" and view.dark.value is True
+    assert load_theme(tmp_path) == "dark"
+    assert load_custom_theme(tmp_path) == DEFAULTS["light"]  # 何も保存していない
+
+
+async def test_theme_dialog_apply_saves_the_colors_and_selects_custom(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    user.find(marker="theme-custom-settings").click()
+    user.find(marker="theme-primary").elements.pop().set_value("#7e57c2")
+    user.find(marker="theme-apply").click()
+    assert view.theme == "custom" and view.custom_theme.primary == "#7e57c2"
+    assert load_theme(tmp_path) == "custom"
+    assert load_custom_theme(tmp_path).primary == "#7e57c2"
+
+
+async def test_theme_dialog_apply_failure_notifies_and_keeps_saved_state(user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise OSError("読み取り専用")
+
+    monkeypatch.setattr("projectapp.views.save_custom_theme", fail)
+    user.find(marker="theme-custom-settings").click()
+    user.find(marker="theme-primary").elements.pop().set_value("#7e57c2")
+    user.find(marker="theme-apply").click()
+    await user.should_see("テーマを保存できませんでした")
+    assert view.custom_theme == DEFAULTS["light"]  # 保存済みの色は変えない
+    await user.should_see(marker="theme-apply")  # ダイアログは開いたまま
+
+
+async def test_selecting_custom_settings_in_the_menu_opens_the_dialog(user: User, tmp_path: Path) -> None:
+    await open_header_view(user, tmp_path)
+    user.find(marker="theme-custom-settings").click()
+    await user.should_see(marker="theme-apply")

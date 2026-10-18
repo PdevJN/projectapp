@@ -28,6 +28,7 @@ from projectapp.config import (
     load_theme,
     load_zoom,
     resolve_project_dir,
+    save_custom_theme,
     save_name_width,
     save_project_dir,
     save_task_layout,
@@ -112,6 +113,7 @@ from projectapp.storage import (
 )
 from projectapp.task_dialog import open_task_dialog
 from projectapp.theme import BODY_CSS, CustomTheme, theme_js
+from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
 from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
 from projectapp.ratios import ParameterEdit, apply_parameter_edit, deletion_impacts
 from projectapp.timeline import Schedule, build_columns, clip_overloads, overallocations, visible_range
@@ -260,8 +262,29 @@ class MainView:
         self.theme_menu.refresh()
 
     def open_theme_dialog(self) -> None:
-        """カスタムの色のダイアログ。"""
-        raise NotImplementedError
+        """カスタムの色のダイアログ。色を変えると画面に反映し(プレビュー)、キャンセルで開く前に戻す。"""
+        previous = self.theme
+        show_theme_dialog(self.custom_theme, self.preview_custom, self.apply_custom, lambda: self.restore_theme(previous))
+
+    def preview_custom(self, theme: CustomTheme) -> None:
+        self.apply_theme("custom", theme)
+        self.gantt.refresh_scrollbars()
+
+    def restore_theme(self, theme: str) -> None:
+        self.apply_theme(theme)
+        self.gantt.refresh_scrollbars()
+
+    def apply_custom(self, theme: CustomTheme) -> bool:
+        """色と`theme: custom`を 1 回の書き込みで保存する。失敗したら通知して False(保存済みの色は変えない)。"""
+        try:
+            save_custom_theme(theme, self.base_dir, select=True)
+        except OSError:
+            ui.notify("テーマを保存できませんでした", type="warning")
+            return False
+        self.custom_theme = theme
+        self.apply_theme("custom")
+        self.theme_menu.refresh()
+        return True
 
     def set_name_width(self, width: int) -> None:
         """名前の欄の幅を、アプリ全体の設定として保存する。プロジェクトのデータには入れない。
