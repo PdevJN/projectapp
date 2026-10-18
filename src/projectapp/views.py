@@ -114,8 +114,8 @@ from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
 from projectapp.ratios import ParameterEdit, apply_parameter_edit, deletion_impacts
 from projectapp.timeline import Schedule, build_columns, clip_overloads, overallocations, visible_range
 
-THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク"}
-THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}
+THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク", "custom": "カスタム"}
+THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode", "custom": "palette"}
 
 
 @dataclass(frozen=True)

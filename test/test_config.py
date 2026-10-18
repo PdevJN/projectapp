@@ -10,15 +10,19 @@ from projectapp.config import (
     MIN_NAME_WIDTH_PX,
     PROJECT_DIR_MISSING_MESSAGE,
     check_project_dir,
+    load_custom_theme,
     load_name_width,
     load_project_dir,
     load_theme,
     parse_name_width,
     resolve_project_dir,
+    save_custom_theme,
     save_name_width,
     save_project_dir,
     save_theme,
 )
+
+from projectapp.theme import DEFAULTS, CustomTheme
 
 
 def test_the_width_constants() -> None:
@@ -274,3 +278,42 @@ def test_resolve_project_dir_falls_back_without_touching_the_config(tmp_path: Pa
     save_project_dir(missing, tmp_path)
     assert resolve_project_dir(tmp_path) == (tmp_path, PROJECT_DIR_MISSING_MESSAGE)
     assert load_project_dir(tmp_path) == missing  # 設定は残す(ドライブをつなぎ直せば戻る)
+
+
+def test_theme_accepts_custom(tmp_path: Path) -> None:
+    save_theme("custom", tmp_path)
+    assert load_theme(tmp_path) == "custom"
+
+
+def test_custom_theme_defaults_to_light_when_missing(tmp_path: Path) -> None:
+    assert load_custom_theme(tmp_path) == DEFAULTS["light"]
+    (tmp_path / "config.json").write_text(json.dumps({"theme": "custom"}), encoding="utf-8")
+    assert load_theme(tmp_path) == "custom"
+    assert load_custom_theme(tmp_path) == DEFAULTS["light"]
+
+
+@pytest.mark.parametrize("raw", [[], "dark", 3, None, True])
+def test_custom_theme_that_is_not_an_object_reads_as_the_default(tmp_path: Path, raw: object) -> None:
+    (tmp_path / "config.json").write_text(json.dumps({"custom_theme": raw}), encoding="utf-8")
+    assert load_custom_theme(tmp_path) == DEFAULTS["light"]
+
+
+def test_save_custom_theme_round_trips_and_keeps_other_keys(tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text(json.dumps({"theme": "dark", "name_width": 300, "other": 1}), encoding="utf-8")
+    theme = CustomTheme("dark", "#7e57c2", None, "#1e1e2e", "#e6e6f0")
+    save_custom_theme(theme, tmp_path)
+    saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert saved["theme"] == "dark" and saved["name_width"] == 300 and saved["other"] == 1
+    assert load_custom_theme(tmp_path) == theme
+
+
+def test_save_custom_theme_with_select_also_sets_the_theme(tmp_path: Path) -> None:
+    save_custom_theme(DEFAULTS["dark"], tmp_path, select=True)
+    assert load_theme(tmp_path) == "custom"
+    assert load_custom_theme(tmp_path) == DEFAULTS["dark"]
+
+
+def test_saving_the_theme_keeps_the_custom_colors(tmp_path: Path) -> None:
+    save_custom_theme(DEFAULTS["dark"], tmp_path, select=True)
+    save_theme("light", tmp_path)
+    assert load_custom_theme(tmp_path) == DEFAULTS["dark"]

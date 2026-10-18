@@ -2329,13 +2329,13 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
     assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share"]
     assert menu_icons(user, "menu-help-items") == ["keyboard"]
-    assert menu_icons(user, "menu-theme-items") == ["brightness_auto", "light_mode", "dark_mode"]
+    assert menu_icons(user, "menu-theme-items") == ["brightness_auto", "light_mode", "dark_mode", "palette"]
     assert menu_items(user, "menu-export-items") == [
         ("チャートプレビュー", "export-preview"),
         ("担当者へ書き出し", "export-handoff"),
     ]
     assert menu_items(user, "menu-help-items") == [("ショートカットヘルプ", "help-shortcuts")]
-    assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark")]
+    assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark"), ("カスタム", "theme-custom")]
 
 
 async def test_the_file_menu_separates_open_save_and_update(user: User, tmp_path: Path) -> None:
@@ -2375,7 +2375,7 @@ async def test_the_theme_menu_marks_the_selected_theme_and_switches_it(user: Use
     view = await open_header_view(user, tmp_path)
 
     def selected() -> list[str]:
-        return [t for t in ("auto", "light", "dark") if user.find(marker=f"theme-{t}").elements.pop()._props.get("active")]
+        return [t for t in ("auto", "light", "dark", "custom") if user.find(marker=f"theme-{t}").elements.pop()._props.get("active")]
 
     def icon() -> str:
         return user.find(marker="menu-theme").elements.pop()._props["icon"]

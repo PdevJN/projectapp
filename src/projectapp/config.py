@@ -7,8 +7,9 @@ from math import isfinite
 from pathlib import Path
 
 from projectapp.storage import BASE_DIR
+from projectapp.theme import CustomTheme, custom_theme_to_dict, parse_custom_theme
 
-THEMES = ("auto", "light", "dark")
+THEMES = ("auto", "light", "dark", "custom")
 TASK_LAYOUTS = ("all", "schedule")  # タスクのダイアログのレイアウト(すべて・予定と実績)
 DEFAULT_NAME_WIDTH_PX = 200  # ガントチャートの名前の欄の幅
 MIN_NAME_WIDTH_PX = 120
@@ -58,6 +59,18 @@ def load_theme(base_dir: Path = BASE_DIR) -> str:
 
 def save_theme(theme: str, base_dir: Path = BASE_DIR) -> None:
     update_config({"theme": theme}, base_dir)
+
+
+def load_custom_theme(base_dir: Path = BASE_DIR) -> CustomTheme:
+    return parse_custom_theme(read_config(base_dir).get("custom_theme"))
+
+
+def save_custom_theme(theme: CustomTheme, base_dir: Path = BASE_DIR, select: bool = False) -> None:
+    """カスタムの色を保存する。`select`が真なら、テーマも`custom`にして、1 回の書き込みで保存する。"""
+    updates: dict = {"custom_theme": custom_theme_to_dict(theme)}
+    if select:
+        updates["theme"] = "custom"
+    update_config(updates, base_dir)
 
 
 def load_task_layout(base_dir: Path = BASE_DIR) -> str:
