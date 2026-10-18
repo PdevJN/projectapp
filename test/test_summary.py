@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from projectapp.models import FORMAT_VERSION, Project, Section, Status, Task, TaskKind
+from projectapp.timeline import Schedule, effective_end, effective_start, is_overdue, progress_state
 from projectapp.summary import children_of, drop_child, parent_map, revert_empty, summary_progress, summary_status
 from projectapp.storage import dumps_project, load_project, parse_project, save_project
 import json
@@ -173,3 +174,61 @@ def test_revert_empty_leaves_other_summaries() -> None:
     project = Project("p", tasks=[summary("m", "a"), summary("n"), child("a")])
     revert_empty(project)
     assert [t.kind for t in project.tasks] == [TaskKind.SUMMARY, TaskKind.NORMAL, TaskKind.NORMAL]
+
+
+D = datetime
+
+
+def timed(name: str, start: datetime | None, end: datetime | None, **fields: object) -> Task:
+    return Task(name, id=name, planned_start=start, planned_end=end, **fields)  # type: ignore[arg-type]
+
+
+def span_project() -> Project:
+    return Project(
+        "p",
+        tasks=[
+            summary("m", "a", "b"),
+            timed("a", D(2026, 10, 6, 9), D(2026, 10, 7, 17)),
+            timed("b", D(2026, 10, 8, 9), D(2026, 10, 12, 17)),
+            Task("after", id="after", predecessors=["m"], planned_start=D(2026, 10, 1, 9),
+                 planned_end=D(2026, 10, 2, 9)),
+        ],
+    )
+
+
+def test_a_summary_spans_its_children() -> None:
+    project = span_project()
+    schedule = Schedule(project, {})
+    assert (schedule.start(project.tasks[0]), schedule.end(project.tasks[0])) == (D(2026, 10, 6, 9), D(2026, 10, 12, 17))
+    assert effective_start(project.tasks[0], project, {}) == D(2026, 10, 6, 9)
+    assert effective_end(project.tasks[0], project, {}) == D(2026, 10, 12, 17)
+
+
+def test_a_task_after_a_summary_is_pushed_to_the_latest_child_finish() -> None:
+    project = span_project()
+    assert Schedule(project, {}).start(project.tasks[3]) == D(2026, 10, 12, 17)
+
+
+def test_a_summary_without_scheduled_children_has_no_span() -> None:
+    project = Project("p", tasks=[summary("m", "a"), Task("a", id="a")])
+    schedule = Schedule(project, {})
+    assert (schedule.start(project.tasks[0]), schedule.end(project.tasks[0])) == (None, None)
+
+
+def test_a_summary_uses_the_pushed_dates_of_its_children() -> None:
+    project = Project(
+        "p",
+        tasks=[
+            summary("m", "b"),
+            timed("a", D(2026, 10, 6, 9), D(2026, 10, 9, 17)),
+            timed("b", D(2026, 10, 6, 9), D(2026, 10, 7, 17), predecessors=["a"]),
+        ],
+    )
+    assert Schedule(project, {}).start(project.tasks[0]) == D(2026, 10, 9, 17)  # b は a の完了まで押し出される
+
+
+def test_a_summary_is_never_overdue_and_has_no_progress_state() -> None:
+    project = span_project()
+    now = D(2027, 1, 1)
+    assert not is_overdue(project.tasks[0], project, {}, now)
+    assert progress_state(project.tasks[0], project, {}, now) is None
