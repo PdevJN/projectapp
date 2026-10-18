@@ -8,7 +8,7 @@ import secrets
 import unicodedata
 from enum import StrEnum
 
-FORMAT_VERSION = 5  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度)
+FORMAT_VERSION = 6  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕)
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -70,6 +70,7 @@ class Status(StrEnum):
 class TaskKind(StrEnum):
     NORMAL = "通常"
     CHECKPOINT = "チェックポイント"  # 締切だけを持つ節目。バーを持たず、◆ だけを出す
+    SUMMARY = "まとめ"  # 分解した子のタスクをまとめる親。日程・工数・進捗・状態は子から算出し、保存しない
 
 
 CHECKPOINT_STATUSES = (Status.NOT_STARTED, Status.DONE)  # チェックポイントが取れる状態
@@ -174,6 +175,7 @@ class Task:
     kind: TaskKind = TaskKind.NORMAL  # チェックポイントは、締切だけを持つ(他の日時・工数・担当・実績は持たない)
     urls: list[TaskUrl] = field(default_factory=list)  # 関連する URL(チケット・資料など)
     progress: int | None = None  # タスクの進捗度(0〜100%)。進捗度の入力はこの 1 つだけ
+    children: list[str] = field(default_factory=list)  # まとめの子のタスクの id(まとめだけが持つ)
 
     @property
     def assignee_names(self) -> list[str]:
@@ -224,6 +226,10 @@ class Project:
         for section in self.sections:
             tasks += section.all_tasks()
         return tasks
+
+    def task_map(self) -> dict[str, Task]:
+        """id → タスク。"""
+        return {task.id: task for task in self.all_tasks()}
 
     def used_ids(self) -> set[str]:
         """タスク・メンバー・セクション・カテゴリ・イベントの id。新しい id が既存と重ならないように、振る側が渡す。"""
