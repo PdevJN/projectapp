@@ -19,6 +19,7 @@ from projectapp.categories import count_usage as count_category_usage
 from projectapp.linkgraph import drop_task_links, link_options
 from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import (
+    DEFAULT_ZOOM_PERCENT,
     THEMES,
     check_project_dir,
     load_custom_theme,
@@ -542,10 +543,30 @@ class MainView:
             return
         self.zoom = zoom
         self.run_js(zoom_js(zoom))
+        self.apply_select_popup()
         try:
             save_zoom(zoom, self.base_dir)
         except OSError:
             ui.notify("倍率を保存できませんでした", type="warning")
+
+    def apply_select_popup(self) -> None:
+        """倍率が 100% でないあいだ、プルダウンの候補を専用のダイアログで出す。
+
+        Quasar のメニューは、位置を `window.innerHeight` で決める。CSS の `zoom` をかけた画面では、見える範囲が
+        その倍率ぶん狭いので、メニューが画面の下にはみ出し、下の候補が見えなくなる(拡大のときだけ)。
+        ダイアログ形式なら位置の計算を使わない。これから作るプルダウンは `default_props` で、いま画面にあるものは
+        個別に切り替える(`default_props` はクラスに付くので、100% に戻すときは外す)。"""
+        zoomed = self.zoom != DEFAULT_ZOOM_PERCENT
+        if zoomed:
+            ui.select.default_props("behavior=dialog")
+        else:
+            ui.select.default_props(remove="behavior")
+        for element in list(self.client.elements.values()):
+            if isinstance(element, ui.select):
+                if zoomed:
+                    element.props("behavior=dialog")
+                else:
+                    element.props(remove="behavior")
 
     def set_task_layout(self, layout: str) -> None:
         """タスクのダイアログのレイアウトを覚える。保存できなくても、画面には反映する(通知だけ出す)。"""
@@ -1127,6 +1148,7 @@ class MainView:
         self.request_git_refresh()
         self.run_js(KEY_GUARD_JS)
         self.run_js(zoom_js(self.zoom))
+        self.apply_select_popup()
         if self.theme == "custom":
             self.run_js(theme_js(self.custom_theme))
         ui.keyboard(on_key=self.on_plain_key)  # 入力欄・ボタンにフォーカスがあるときは、受けない
