@@ -4067,3 +4067,39 @@ def test_header_project_select_follows_the_header_text_color_and_keeps_the_defau
     assert "color: var(--app-header-fg, #fff)" in HEADER_CSS.split(".app-header .app-project-select {")[1].split("\n")[0] or "var(--app-header-fg, #fff)" in HEADER_CSS
     assert "var(--app-header-border, hsla(0, 0%, 100%, 0.24))" in HEADER_CSS
     assert "var(--app-header-label, rgba(255, 255, 255, 0.7))" in HEADER_CSS
+
+
+def selects(view: MainView) -> list[ui.select]:
+    return [e for e in view.client.elements.values() if isinstance(e, ui.select)]
+
+
+async def test_selects_open_their_options_in_a_dialog_while_zoomed(user: User, tmp_path: Path) -> None:
+    """CSS の zoom 中は、Quasar のメニューが画面の高さを誤るので、下の候補が画面の外に出る。zoom 中は専用の枠で出す。"""
+    view, _ = await open_zoom_view(user, tmp_path)
+    assert selects(view)
+    assert all("behavior" not in s.props for s in selects(view))
+    for _ in range(4):
+        view.on_key(key_event("=", ctrl=True))
+    assert view.zoom == 140
+    assert all(s.props.get("behavior") == "dialog" for s in selects(view))
+    view.on_key(key_event("0", ctrl=True))
+    assert all("behavior" not in s.props for s in selects(view))
+
+
+async def test_selects_created_while_zoomed_also_open_in_a_dialog(user: User, tmp_path: Path) -> None:
+    view, _ = await open_zoom_view(user, tmp_path)
+    view.on_key(key_event("=", ctrl=True))
+    with view.client:
+        later = ui.select(["a", "b"])
+    assert later.props.get("behavior") == "dialog"
+    view.on_key(key_event("0", ctrl=True))
+    with view.client:
+        assert "behavior" not in ui.select(["a"]).props
+    assert "behavior" not in later.props
+
+
+async def test_starting_zoomed_opens_selects_in_a_dialog(user: User, tmp_path: Path) -> None:
+    save_zoom(130, tmp_path)
+    view, _ = await open_zoom_view(user, tmp_path)
+    assert selects(view)
+    assert all(s.props.get("behavior") == "dialog" for s in selects(view))

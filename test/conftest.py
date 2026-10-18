@@ -75,3 +75,10 @@ def freeze_baseline_heap():
 def no_real_git(monkeypatch: pytest.MonkeyPatch) -> None:
     """画面のテストは、本物の`git`を呼ばない(既定は、作業ツリーではない格納先)。`gitstate`の単体テストには影響しない。"""
     monkeypatch.setattr("projectapp.views.read_git_state", lambda project_dir: GitState(GitKind.NOT_REPO))
+
+
+@pytest.fixture(autouse=True)
+def reset_select_default_props():
+    """`ui.select.default_props` はクラスに付くので、倍率を変えたテストの `behavior` を、次のテストへ持ち越さない。"""
+    yield
+    ui.select.default_props(remove="behavior")
