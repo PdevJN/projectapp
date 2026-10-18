@@ -642,3 +642,31 @@ def test_a_task_after_a_summary_waits_for_the_actual_end_of_its_done_children() 
     schedule = Schedule(project, {})
     assert schedule.finish(project.tasks[0]) == D(2026, 10, 9, 12)  # 終了済みの子は実績の終了を使う(通常のタスクと同じ)
     assert schedule.start(project.tasks[2]) == D(2026, 10, 9, 12)
+
+
+def test_decompose_block_reason_explains_why_a_task_cannot_be_decomposed() -> None:
+    from projectapp.decompose import decompose_block_reason
+
+    project = Project(
+        "p",
+        sections=[Section("s", [summary("m", "a"), Task("a", id="a"), Task("n", id="n"), Task("r", id="r", status=Status.RUNNING)])],
+    )
+    tasks = project.sections[0].tasks
+    assert decompose_block_reason(project, tasks[2]) is None
+    assert "まとめの子" in (decompose_block_reason(project, tasks[1]) or "")
+    assert "通常" in (decompose_block_reason(project, tasks[0]) or "")
+    assert "状態" in (decompose_block_reason(project, tasks[3]) or "")
+
+
+def test_after_task_skips_the_children_of_a_summary() -> None:
+    project = Project("p", tasks=[summary("m", "a", "b"), child("a"), child("b"), child("z")])
+    assert arrange.after_task(project, ((), 0)) == ((), 3)
+    assert arrange.after_task(project, ((), 3)) == ((), 4)
+    assert arrange.after_task(project, ((), 1)) == ((), 2)
+
+
+def test_task_name_error_matches_the_task_rules() -> None:
+    from projectapp.forms import task_name_error
+
+    assert task_name_error("ok") is None
+    assert task_name_error("") and task_name_error("x" * 51) and task_name_error("a\nb")

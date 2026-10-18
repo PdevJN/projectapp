@@ -19,6 +19,7 @@ from projectapp.config import (
     MIN_NAME_WIDTH_PX,
     parse_name_width,
 )
+from projectapp.decompose import decompose_block_reason
 from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
@@ -198,6 +199,10 @@ LINK_CSS = """
 .gantt-links { --link-color: #757575; }
 body.body--dark .gantt-links { --link-color: #bdbdbd; }
 """
+CONTEXT_MENU_CSS = """
+.app-context-menu .q-item { min-height: 26px; padding: 2px 12px; font-size: 12px; }
+.app-context-menu .q-separator { margin: 2px 0; }
+"""
 LINK_STYLE = "stroke: var(--link-color); stroke-width: 1.5; fill: none"
 LINK_HEAD = (
     '<defs><marker id="link-head" markerWidth="6" markerHeight="6" refX="6" refY="3"'
@@ -332,6 +337,15 @@ class GanttActions:
     shift_task: Callable[[SectionPath, int, int], object]  # セクションのパス(root は ()), タスク番号, 日数
     set_name_width: Callable[[int], object]  # 名前の欄の幅(px)。範囲に収めた整数。保存は受け取り側
     add_subsection: Callable[[SectionPath], object] = lambda path: None  # サブセクションの追加(親のセクションのパス)
+    # 右クリックのメニューの操作(セクションのパス, タスク番号)
+    decompose_task: Callable[[SectionPath, int], object] = lambda path, ti: None
+    copy_task: Callable[[SectionPath, int], object] = lambda path, ti: None
+    rename_task: Callable[[SectionPath, int], object] = lambda path, ti: None
+    delete_task: Callable[[SectionPath, int], object] = lambda path, ti: None
+    # セクションの見出しの右クリックのメニューの操作(セクションのパス)
+    copy_section: Callable[[SectionPath], object] = lambda path: None
+    rename_section: Callable[[SectionPath], object] = lambda path: None
+    delete_section: Callable[[SectionPath], object] = lambda path: None
 
 
 class GanttChart:
@@ -361,6 +375,11 @@ class GanttChart:
         self.collapsed: set[SectionPath] = set()  # 折りたたんだセクションのパス。保存しない
         self.section_views: dict[SectionPath, SectionView] = {}  # 描画中のセクションの部品
         self.collapsed_summaries: set[str] = set()  # 折りたたんだまとめのタスク id。保存しない
+        self.menu: ui.context_menu | None = None  # 右クリックの共有メニュー(1 つだけ。行ごとには作らない)
+        self.menu_target: tuple[SectionPath, int] | None = None  # メニューを開いた行
+        self.decompose_item: ui.menu_item | None = None
+        self.section_menu: ui.context_menu | None = None  # セクションの見出しの右クリックの共有メニュー
+        self.section_menu_target: SectionPath | None = None
         self.summary_views: dict[str, SummaryView] = {}  # 描画中のまとめの部品
         self.task_rows: dict[str, ui.element] = {}  # 描画中のタスクの行(折りたたみで表示を切り替える)
         self.tasks_by_id: dict[str, Task] = {}
@@ -447,6 +466,10 @@ class GanttChart:
     def hidden_by_ancestor(self, path: SectionPath) -> bool:
         """親のどれかが折りたたまれているか。"""
         return any(path[:n] in self.collapsed for n in range(1, len(path)))
+
+    def remap_collapsed(self, parent: SectionPath, index: int, delta: int) -> None:
+        """セクションの挿入・削除で番号がずれたぶん、折りたたみの状態を付け替える(再描画は呼び出し側)。"""
+        self.collapsed = arrange.remap_collapsed(self.collapsed, parent, index, delta)
 
     def toggle_section(self, path: SectionPath) -> None:
         """セクションの折りたたみを切り替える。描き直さず、行の表示と矢印だけを変える。"""
@@ -589,12 +612,6 @@ class GanttChart:
         """名前の欄の右端を、幅の調整の掴み場所にするクラス(先頭に空白)。読み取り専用では付けない。"""
         return "" if self.options.read_only else " gantt-name-resizable"
 
-    def edit_on_click(self, element: ui.element, path: SectionPath, ti: int) -> ui.element:
-        """クリックでタスクの編集を開く。読み取り専用では何も付けない。"""
-        if not self.options.read_only:
-            element.on("click", lambda path=path, ti=ti: self.actions.edit_task(path, ti))
-        return element
-
     def content_width(self) -> int:
         """描画の全体の幅(px)。名前の列と、すべての列。画像の幅になる。"""
         columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
@@ -698,12 +715,16 @@ class GanttChart:
         ui.add_css(STATUS_CSS)
         ui.add_css(PRIORITY_CSS)
         ui.add_css(LINK_CSS)
+        ui.add_css(CONTEXT_MENU_CSS)
         ui.add_css(EVENT_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
         ui.on("chart_name_width", lambda e: self.handle_name_width(e.args))
+        self.build_menu()
         self.toolbar = ui.row().classes("w-full items-center no-wrap gap-4")
+        # 検索欄・担当の切り替えの右クリックで、WebView 標準のメニュー(サービス・自動入力など)を出さない
+        self.toolbar.on("contextmenu", js_handler="(e) => e.preventDefault()")
         with self.toolbar.mark("chart-toolbar"):
             ui.toggle(
                 {scale: scale.value for scale in Scale},
@@ -750,6 +771,84 @@ class GanttChart:
         scroll.on("scroll", js_handler=TRACK_SCROLL_JS)
         with scroll.props("data-chart-scroll").mark("chart-scroll"):
             self.render()
+
+    def build_menu(self) -> None:
+        """タスクの行の右クリックで開く共有メニュー。開いた行は `menu_target` に持つ。"""
+
+        def act(action: Callable[[SectionPath, int], object]) -> Callable[[], None]:
+            def run() -> None:
+                if self.menu_target is not None:
+                    action(*self.menu_target)
+
+            return run
+
+        with ui.context_menu().props("no-parent-event").classes("app-context-menu") as self.menu:  # 親の右クリックでは開かない(行の右クリックだけ)
+            ui.menu_item("編集", on_click=act(lambda p, t: self.actions.edit_task(p, t))).mark("context-edit")
+            self.decompose_item = ui.menu_item(
+                "分解…", on_click=act(lambda p, t: self.actions.decompose_task(p, t))
+            ).mark("context-decompose")
+            ui.menu_item("コピー", on_click=act(lambda p, t: self.actions.copy_task(p, t))).mark("context-copy")
+            ui.menu_item("名前の変更", on_click=act(lambda p, t: self.actions.rename_task(p, t))).mark("context-rename")
+            ui.separator()
+            ui.menu_item("削除", on_click=act(lambda p, t: self.actions.delete_task(p, t))).props(
+                "class=text-negative"
+            ).mark("context-delete")
+        with ui.context_menu().props("no-parent-event").classes("app-context-menu") as self.section_menu:
+            for label, marker, action in (
+                ("コピー", "section-context-copy", lambda p: self.actions.copy_section(p)),
+                ("名前の変更", "section-context-rename", lambda p: self.actions.rename_section(p)),
+            ):
+                ui.menu_item(label, on_click=lambda action=action: self.act_on_section(action)).mark(marker)
+            ui.separator()
+            ui.menu_item("削除", on_click=lambda: self.act_on_section(lambda p: self.actions.delete_section(p))).props(
+                "class=text-negative"
+            ).mark("section-context-delete")
+        ui.run_javascript(self.menu_close_js())
+
+    def act_on_section(self, action: Callable[[SectionPath], object]) -> None:
+        if self.section_menu_target is not None:
+            action(self.section_menu_target)
+
+    def open_section_menu(self, path: SectionPath) -> None:
+        """右クリックした見出しのセクションを覚える(メニュー自体はブラウザ側で開く)。"""
+        self.section_menu_target = path
+
+    def section_menu_on_right_click(self, header: ui.element, path: SectionPath) -> None:
+        """セクションの見出しの右クリックで、セクションのメニューを、クリックした位置に開く。"""
+        if self.options.read_only or self.section_menu is None:
+            return
+        js = f"(e) => {{ e.preventDefault(); getElement({self.section_menu.id}).show(e); emit(); }}"
+        header.on("contextmenu", lambda path=path: self.open_section_menu(path), js_handler=js)
+
+    def menu_close_js(self) -> str:
+        """メニューの外を押したら閉じる JS(タスクとセクションの両方)。Quasar の外側クリックだけに任せると、
+        ドラッグできる行などで閉じないことがある。メニューの中の押下は除く(項目のクリックを妨げない)。"""
+        assert self.menu is not None and self.section_menu is not None
+        hide = "".join(
+            f" if (getElement({menu.id})) getElement({menu.id}).hide();" for menu in (self.menu, self.section_menu)
+        )
+        return (
+            "document.addEventListener('pointerdown', (e) => {"
+            " if (e.target.closest && e.target.closest('.q-menu')) return;"
+            f"{hide}"
+            " }, true);"
+        )
+
+    def open_menu(self, path: SectionPath, ti: int) -> None:
+        """右クリックした行を覚え、分解できるかをメニューに反映する(メニュー自体はブラウザ側で開く)。"""
+        self.menu_target = (path, ti)
+        if self.decompose_item is None:
+            return
+        tasks = arrange.tasks_at(self.project, path) if arrange.has_list(self.project, (path, 0)) else []
+        blocked = ti >= len(tasks) or decompose_block_reason(self.project, tasks[ti]) is not None
+        self.decompose_item.props(add="disable" if blocked else "", remove="" if blocked else "disable")
+
+    def menu_on_right_click(self, row: ui.element, path: SectionPath, ti: int) -> None:
+        """行の右クリックで共有メニューを、クリックした位置に開く。ブラウザ標準のメニューは出さない。"""
+        if self.options.read_only or self.menu is None:
+            return
+        js = f"(e) => {{ e.preventDefault(); getElement({self.menu.id}).show(e); emit(); }}"
+        row.on("contextmenu", lambda path=path, ti=ti: self.open_menu(path, ti), js_handler=js)
 
     @ui.refreshable_method
     def render(self) -> None:
@@ -966,6 +1065,7 @@ class GanttChart:
         header = ui.row().classes("items-center no-wrap gap-2").style(ROW_STYLE)
         header.props(self.drag_props("section", key, count=len(section.tasks)))
         header.mark(f"section-{key}")
+        self.section_menu_on_right_click(header, path)
         header.set_visibility(not hidden)
         view.header = header
         with header:
@@ -1028,12 +1128,13 @@ class GanttChart:
             style += f"; background: {OVERDUE_COLOR}"
         row = ui.row().classes("items-center no-wrap gap-0").style(style)
         row.props(self.drag_props("row", key, ti=ti)).mark(f"row-{key}-{ti}")
+        self.menu_on_right_click(row, path, ti)
         self.task_rows[task.id] = row
         summary = task.kind is TaskKind.SUMMARY
         indent = SUMMARY_INDENT_PX if task.id in self.parents else 0  # まとめの子は、一段字下げする
         with row:
             cell = ui.row().classes(
-                "items-center no-wrap gap-1 cursor-pointer gantt-sticky"
+                "items-center no-wrap gap-1 gantt-sticky"
                 f" {PRIORITY_CLASSES[task.priority]}" + self.resize_classes()
             )
             cell_style = (
@@ -1046,7 +1147,6 @@ class GanttChart:
                     f"; background-image: linear-gradient({OVERDUE_COLOR}, {OVERDUE_COLOR})"
                 )
             cell.style(cell_style)
-            self.edit_on_click(cell, path, ti)
             cell.mark(f"task-{key}-{ti}")
             if not self.task_filter.active and not self.options.read_only:
                 cell.props(f"draggable=true data-drag-handle data-si={key} data-ti={ti}")
@@ -1096,7 +1196,7 @@ class GanttChart:
                 left, length = span
                 bar_width = max(length * width, MIN_BAR_PX)
                 draggable = self.view_scale is Scale.DAY and not self.options.read_only
-                cursor = "grab" if draggable else "pointer"
+                cursor = "grab" if draggable else "default"
                 outline = ""
                 if state in PROGRESS_STATE_COLORS:
                     outline = " outline: 2px solid var(--pstate); outline-offset: -2px;"
@@ -1111,7 +1211,6 @@ class GanttChart:
                 bar.classes(STATUS_CLASSES[task.status])
                 if state in PROGRESS_STATE_CLASSES:
                     bar.classes(PROGRESS_STATE_CLASSES[state])
-                self.edit_on_click(bar, path, ti)
                 bar.mark(f"bar-{key}-{ti}")
                 if draggable:
                     least = arrange.min_shift_days(
@@ -1179,10 +1278,9 @@ class GanttChart:
         band = ui.element("div").style(
             f"position: absolute; left: {from_name(left * width)}; width: {band_width:.1f}px;"
             f" top: {SUMMARY_BAND_TOP_PX}px; height: {SUMMARY_BAND_HEIGHT_PX}px;"
-            f" background: {STATUS_COLOR_VAR}; border-radius: 1px; cursor: pointer"
+            f" background: {STATUS_COLOR_VAR}; border-radius: 1px"
         )
         band.classes(STATUS_CLASSES[summary_status(kids)])
-        self.edit_on_click(band, path, ti)
         band.mark(f"summary-band-{key}-{ti}")
         with band:
             if percent:
@@ -1293,10 +1391,9 @@ class GanttChart:
                 f"position: absolute; left: {from_name(left * width)};"
                 f" width: {max(length * width, MIN_BAR_PX):.1f}px;"
                 f" top: {ACTUAL_TOP_PX}px; height: {ACTUAL_HEIGHT_PX}px;"
-                f" background: {STATUS_COLOR_VAR}; border-radius: 3px; cursor: pointer;"
+                f" background: {STATUS_COLOR_VAR}; border-radius: 3px;"
                 " user-select: none; overflow: hidden"
             ).classes(STATUS_CLASSES[task.status])
-            self.edit_on_click(bar, path, ti)
             bar.mark(f"actual-{key}-{ti}-{n}")
         for n in range(len(task.actuals) - 1):
             before, after = task.actuals[n], task.actuals[n + 1]
@@ -1309,9 +1406,8 @@ class GanttChart:
                 f"position: absolute; left: {from_name(left * width)};"
                 f" width: {length * width:.1f}px;"
                 f" top: {ACTUAL_TOP_PX}px; height: {ACTUAL_HEIGHT_PX}px;"
-                f" background: {ACTUAL_GAP_BACKGROUND}; cursor: pointer; user-select: none"
+                f" background: {ACTUAL_GAP_BACKGROUND}; user-select: none"
             ).classes(STATUS_CLASSES[task.status])
-            self.edit_on_click(gap, path, ti)
             gap.mark(f"actual-gap-{key}-{ti}-{n}")
 
     def overload_stripes(
@@ -1361,10 +1457,9 @@ class GanttChart:
         marker = ui.label("◆").style(
             f"position: absolute; left: {from_name(left)}; top: 0; width: {CHECKPOINT_MARKER_PX}px;"
             f" height: {ROW_HEIGHT_PX}px; line-height: {ROW_HEIGHT_PX}px; text-align: center;"
-            f" font-size: {CHECKPOINT_MARKER_PX}px; color: {STATUS_COLOR_VAR}; cursor: pointer;"
+            f" font-size: {CHECKPOINT_MARKER_PX}px; color: {STATUS_COLOR_VAR};"
             " user-select: none"
         ).classes(STATUS_CLASSES[task.status])
-        self.edit_on_click(marker, path, ti)
         marker.tooltip(f"チェックポイント {task.deadline:%Y-%m-%d %H:%M}").mark(
             f"checkpoint-{key}-{ti}"
         )
@@ -1382,7 +1477,6 @@ class GanttChart:
         left = position * width - DEADLINE_MARKER_HALF_PX
         marker = ui.label("◆").style(
             f"position: absolute; left: {from_name(left)}; top: 4px; line-height: 1;"
-            f" color: {DEADLINE_COLOR}; cursor: pointer"
+            f" color: {DEADLINE_COLOR}"
         )
-        self.edit_on_click(marker, path, ti)
         marker.tooltip(f"締切 {task.deadline:%Y-%m-%d %H:%M}").mark(f"deadline-{key}-{ti}")

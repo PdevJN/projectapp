@@ -243,6 +243,17 @@ def _build_assignees(rows: list[tuple[str, float | None]]) -> list[Assignee]:
     return result
 
 
+def task_name_error(clean: str) -> str | None:
+    """タスク名(前後の空白を除いたもの)の不正な理由。問題なければ None。"""
+    if not clean:
+        return "名前を入力してください"
+    if len(clean) > MAX_TASK_NAME_LENGTH:
+        return f"名前は{MAX_TASK_NAME_LENGTH}文字以内で入力してください"
+    if has_control_char(clean):
+        return "名前に改行・制御文字は使えません"
+    return None
+
+
 def build_task(
     existing: Task | None,
     *,
@@ -268,12 +279,8 @@ def build_task(
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。`progress` はタスクの進捗度。"""
     clean = name.strip()
-    if not clean:
-        raise ValueError("名前を入力してください")
-    if len(clean) > MAX_TASK_NAME_LENGTH:
-        raise ValueError(f"名前は{MAX_TASK_NAME_LENGTH}文字以内で入力してください")
-    if has_control_char(clean):
-        raise ValueError("名前に改行・制御文字は使えません")
+    if (message := task_name_error(clean)) is not None:
+        raise ValueError(message)
     base = existing or Task(clean)
     if kind is TaskKind.SUMMARY:  # まとめは分解でだけ作る。編集では、共通の項目(名前・カテゴリ・優先度・リンク)だけを変える
         if existing is None or existing.kind is not TaskKind.SUMMARY:
@@ -642,6 +649,15 @@ def build_section_name(text: str) -> str:
     return clean
 
 
+def section_name_error(text: str) -> str | None:
+    """セクション名の不正な理由。問題なければ None。"""
+    try:
+        build_section_name(text)
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
 def format_datetime(moment: datetime | None) -> str:
     return moment.strftime(DATETIME_FORMAT) if moment else ""
 
@@ -735,11 +751,12 @@ def open_name_dialog(
     *,
     title: str = "プロジェクトの保存",
     initial: str = "",
+    label: str = "プロジェクト名",
 ) -> None:
     """名前を入力して保存する。on_submitがFalseを返したら(保存に失敗)、入力を残して開いたままにする。"""
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-80"):
         ui.label(title).classes("text-h6")
-        name = ui.input("プロジェクト名", value=initial).mark("project-name")
+        name = ui.input(label, value=initial).mark("project-name")
         error = ui.label("").classes("text-negative").mark("name-error")
 
         def save() -> None:
@@ -754,6 +771,25 @@ def open_name_dialog(
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")
             ui.button("保存", on_click=save).mark("name-save")
+    dialog.open()
+
+
+def open_confirm_dialog(
+    message: str, on_confirm: Callable[[], object], *, detail: str | None = None, confirm_label: str = "削除"
+) -> None:
+    """確認のダイアログ。確認したときだけ on_confirm を呼ぶ。"""
+    with disposable(ui.dialog()) as dialog, ui.card():
+        ui.label(message)
+        if detail:
+            ui.label(detail).classes("text-caption")
+
+        def confirm() -> None:
+            dialog.close()
+            on_confirm()
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark("confirm-cancel")
+            ui.button(confirm_label, on_click=confirm).props("color=negative").mark("confirm-ok")
     dialog.open()
 
 

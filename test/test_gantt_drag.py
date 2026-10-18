@@ -152,7 +152,7 @@ async def test_other_scales_have_no_draggable_bars(user: User) -> None:
     await settles(user, lambda cells: "2026-10-05" in cells and cells["2026-10-05"][1] is None)  # 描画し直しを待つ
     bar = user.find(marker="bar-0-0").elements.pop()
     assert "data-bar" not in bar.props
-    assert bar._style["cursor"] == "pointer"
+    assert bar._style["cursor"] == "default"  # ドラッグできないので、手のカーソルにしない(左クリックの編集もない)
     charts[0].set_scale(Scale.MONTH)
     await should_see_column(user, "2026-10-01")
     assert "data-bar" not in props_of(user, "bar-0-0")

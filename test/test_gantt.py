@@ -99,6 +99,13 @@ class Recorder:
             shift_task=lambda si, ti, days: self.events.append(("shift_task", (si, ti, days))),
             set_name_width=lambda width: self.events.append(("set_name_width", (width,))),
             add_subsection=lambda path: self.events.append(("add_subsection", (path,))),
+            decompose_task=lambda path, ti: self.events.append(("decompose_task", (path, ti))),
+            copy_task=lambda path, ti: self.events.append(("copy_task", (path, ti))),
+            rename_task=lambda path, ti: self.events.append(("rename_task", (path, ti))),
+            delete_task=lambda path, ti: self.events.append(("delete_task", (path, ti))),
+            copy_section=lambda path: self.events.append(("copy_section", (path,))),
+            rename_section=lambda path: self.events.append(("rename_section", (path,))),
+            delete_section=lambda path: self.events.append(("delete_section", (path,))),
         )
 
 
@@ -185,16 +192,25 @@ async def test_month_scale_labels(user: User) -> None:
 async def test_clicks_call_the_actions(user: User) -> None:
     recorder = mount(sample_project())
     await user.open("/")
-    user.find(marker="bar-0-0").click()
-    user.find(marker="task-0-1").click()
     user.find(marker="add-task-0").click()
     user.find(marker="add-section").click()
     assert recorder.events == [
-        ("edit_task", ((0,), 0)),
-        ("edit_task", ((0,), 1)),
         ("add_task", ((0,),)),
         ("add_section", ()),
     ]
+
+
+async def test_left_click_does_not_edit_the_task(user: User) -> None:
+    # 編集は右クリックのメニューからだけ。バー・名前の欄・締切・実績・チェックポイントの左クリックでは開かない
+    project = sample_project()
+    project.sections[0].tasks[0].deadline = datetime(2026, 10, 8, 12)
+    project.sections[0].tasks[0].actuals = [Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))]
+    project.sections[0].tasks.append(Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 12)))
+    recorder = mount(project)
+    await user.open("/")
+    for marker in ("bar-0-0", "task-0-1", "deadline-0-0", "actual-0-0-0", "checkpoint-0-2"):
+        user.find(marker=marker).click()
+    assert recorder.events == []
 
 
 async def test_empty_section_and_html_like_names_are_shown_literally(user: User) -> None:
@@ -284,12 +300,12 @@ async def test_top_level_tasks_render_without_any_section(user: User) -> None:
     assert bar._style["background"] == planned_background(STATUS_COLOR_VAR)
 
 
-async def test_top_level_task_clicks_call_edit_with_no_section(user: User) -> None:
-    recorder = mount(top_project())
+async def test_top_level_task_menu_calls_edit_with_no_section(user: User) -> None:
+    charts, recorder = mount_chart(top_project())
     await user.open("/")
-    user.find(marker="bar-top-0").click()
-    user.find(marker="task-top-1").click()
-    assert recorder.events == [("edit_task", ((), 0)), ("edit_task", ((), 1))]
+    charts[0].open_menu((), 1)
+    user.find(marker="context-edit").click()
+    assert recorder.events == [("edit_task", ((), 1))]
 
 
 async def test_top_level_tasks_come_before_sections(user: User) -> None:
@@ -562,15 +578,6 @@ async def test_a_deadline_outside_the_range_has_no_marker(user: User) -> None:
     await user.should_not_see(marker="deadline-top-0")
 
 
-async def test_clicking_the_deadline_marker_edits_the_task(user: User) -> None:
-    project = sample_project()
-    project.sections[0].tasks[0].deadline = datetime(2026, 10, 8, 12)
-    recorder = mount(project)
-    await user.open("/")
-    user.find(marker="deadline-0-0").click()
-    assert recorder.events == [("edit_task", ((0,), 0))]
-
-
 async def test_a_task_with_a_start_and_a_deadline_draws_the_bar_up_to_the_deadline(
     user: User,
 ) -> None:
@@ -617,12 +624,10 @@ async def test_stripes_cover_only_the_overloaded_part_of_each_bar(user: User) ->
     assert (b._style["left"], b._style["width"]) == ("0.0px", "80.0px")
 
 
-async def test_stripes_do_not_block_clicks_on_the_bar(user: User) -> None:
-    recorder = mount(overloaded_project())
+async def test_stripes_do_not_block_the_bar_events(user: User) -> None:
+    mount(overloaded_project())
     await user.open("/")
     assert user.find(marker="overload-top-0-0").elements.pop()._style["pointer-events"] == "none"
-    user.find(marker="bar-top-0").click()
-    assert recorder.events == [("edit_task", ((), 0))]
 
 
 async def test_the_bar_tooltip_names_the_member_and_the_peak(user: User) -> None:
@@ -938,15 +943,17 @@ async def test_an_empty_filter_shows_every_row(user: User) -> None:
         await user.should_see(marker=marker)
 
 
-async def test_original_indexes_are_kept_for_clicks_and_markers(user: User) -> None:
+async def test_original_indexes_are_kept_for_the_menu_and_markers(user: User) -> None:
     charts, recorder = mount_chart(filter_project())
     await user.open("/")
     charts[0].set_filter(TaskFilter(assignee="鈴木"))
     await user.should_see(marker="bar-0-1")
     await user.should_see(marker="bar-1-0")
     await user.should_not_see(marker="bar-0-0")
-    user.find(marker="task-0-1").click()
-    user.find(marker="bar-1-0").click()
+    charts[0].open_menu((0,), 1)
+    user.find(marker="context-edit").click()
+    charts[0].open_menu((1,), 0)
+    user.find(marker="context-edit").click()
     assert recorder.events == [("edit_task", ((0,), 1)), ("edit_task", ((1,), 0))]
 
 
@@ -1575,13 +1582,6 @@ async def test_progress_css_is_added_to_the_page(user: User) -> None:
         assert rule in response.text
 
 
-async def test_clicking_an_actual_bar_edits_the_task(user: User) -> None:
-    recorder = mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))))
-    await user.open("/")
-    user.find(marker="actual-0-0-0").click()
-    assert recorder.events == [("edit_task", ((0,), 0))]
-
-
 async def test_actual_bar_follows_the_week_scale(user: User) -> None:
     mount(actual_project(Actual(datetime(2026, 10, 5, 0), datetime(2026, 10, 12, 0))))
     await user.open("/")
@@ -2111,20 +2111,16 @@ async def test_the_chips_do_not_shrink_and_the_name_does(user: User) -> None:
     assert "flex" in name._style and name._style["min-width"] == "0"
 
 
-async def test_the_click_is_handled_once_by_the_name_cell_so_the_chips_bubble_to_it(
-    user: User,
-) -> None:
-    # User のシミュレーションのクリックは、親へ伝わらない(実ブラウザでは、DOM のクリックが枠へ伝わる)。
-    # そのため、枠だけがクリックを処理し、名前とチップは自分では処理しないことを確かめる。
+async def test_the_name_cell_and_its_chips_have_no_click_handler(user: User) -> None:
+    # 左クリックでは何もしない(編集は右クリックのメニュー)。
     recorder = mount(
         categorized(Task("設計", assignees=[Assignee("山")], status=Status.DONE), "PRJ-1")
     )
     await user.open("/")
-    assert len(click_listeners(chip(user, "task-0-0"))) == 1
-    for marker in ("task-name-0-0", "task-code-0-0", "task-assignee-0-0", "task-progress-0-0"):
+    for marker in ("task-0-0", "task-name-0-0", "task-code-0-0", "task-assignee-0-0", "task-progress-0-0"):
         assert click_listeners(chip(user, marker)) == []
     user.find(marker="task-0-0").click()
-    assert recorder.events == [("edit_task", ((0,), 0))]
+    assert recorder.events == []
 
 
 def mount_with(project: Project, options: ViewOptions, now: datetime = datetime(2026, 10, 1)) -> None:
@@ -2297,14 +2293,6 @@ async def test_read_only_has_no_click_handlers_and_no_drag_attributes(user: User
     assert "data-bar" not in bar.props
     assert "data-drop" not in user.find(marker="row-0-0").elements.pop().props
     assert "data-drop" not in user.find(marker="section-0").elements.pop().props
-
-
-async def test_the_edit_handlers_are_kept_when_not_read_only(user: User) -> None:
-    recorder = mount(sample_project())
-    await user.open("/")
-    user.find(marker="bar-0-0").click()
-    user.find(marker="task-0-1").click()
-    assert recorder.events == [("edit_task", ((0,), 0)), ("edit_task", ((0,), 1))]
 
 
 async def test_content_width_and_the_content_attribute(user: User) -> None:
@@ -2880,13 +2868,6 @@ async def test_a_checkpoint_is_a_diamond_without_a_bar(user: User) -> None:
     user.find(marker="bar-0-1")  # 通常タスクは、これまでどおり
 
 
-async def test_clicking_a_checkpoint_opens_the_editor(user: User) -> None:
-    recorder = mount(checkpoint_project())
-    await user.open("/")
-    user.find(marker="checkpoint-0-0").click()
-    assert ("edit_task", ((0,), 0)) in recorder.events
-
-
 async def test_a_finished_checkpoint_is_grey_and_struck_through_without_chips(user: User) -> None:
     mount(checkpoint_project(status=Status.DONE))
     await user.open("/")
@@ -3039,10 +3020,11 @@ async def test_a_filter_shows_the_parents_of_a_match_and_ignores_collapse(user: 
         await user.should_not_see(marker=marker)
 
 
-async def test_clicking_a_nested_task_reports_its_path(user: User) -> None:
-    recorder = mount(nested_chart_project())
+async def test_the_menu_of_a_nested_task_reports_its_path(user: User) -> None:
+    charts, recorder = mount_chart(nested_chart_project())
     await user.open("/")
-    user.find(marker="task-0.0-0").click()
+    charts[0].open_menu((0, 0), 0)
+    user.find(marker="context-edit").click()
     assert recorder.events == [("edit_task", ((0, 0), 0))]
 
 

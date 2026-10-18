@@ -151,6 +151,14 @@ async def test_add_section_then_task_shows_a_bar(user: User, tmp_path: Path) -> 
     await user.should_see(marker="bar-0-0")
 
 
+def edit_from_menu(user: User, row_marker: str) -> None:
+    """行を右クリックして、メニューの`編集`を押す(左クリックでは編集を開かない)。"""
+    row = user.find(marker=row_marker).elements.pop()
+    [listener] = [l for l in row._event_listeners.values() if l.type == "contextmenu"]
+    listener.handler()
+    user.find(marker="context-edit").click()
+
+
 async def test_edit_task_updates_the_name(user: User, tmp_path: Path) -> None:
     save_cache({}, tmp_path)
     mount(tmp_path, make_transport(200, []))
@@ -163,7 +171,7 @@ async def test_edit_task_updates_the_name(user: User, tmp_path: Path) -> None:
     user.find(marker="task-name").type("設計")
     user.find(marker="task-save").click()
     await user.should_see(marker="task-0-0")
-    user.find(marker="task-0-0").click()
+    edit_from_menu(user, "row-0-0")
     await user.should_see("タスクの編集")
 
 
@@ -205,7 +213,7 @@ async def test_edit_top_level_task_opens_the_edit_dialog(user: User, tmp_path: P
     user.find(marker="task-name").type("設計")
     user.find(marker="task-save").click()
     await user.should_see(marker="task-top-0")
-    user.find(marker="task-top-0").click()
+    edit_from_menu(user, "row-top-0")
     await user.should_see("タスクの編集")
 
 
@@ -724,7 +732,7 @@ async def open_edit_dialog_of_the_only_task(user: User, tmp_path: Path) -> MainV
     await choose_in_combo(user, "既存")
     assert await wait_until(lambda: view.path is not None)
     await user.should_see(marker="task-0-0")
-    user.find(marker="task-0-0").click()
+    edit_from_menu(user, "row-0-0")
     return view
 
 
@@ -782,7 +790,7 @@ async def test_the_edit_dialog_offers_other_tasks_as_predecessors(
     await choose_in_combo(user, "既存")
     assert await wait_until(lambda: view.path is not None)
     await user.should_see(marker="task-top-0")
-    user.find(marker="task-top-0").click()  # a を開く: 後続の b と自分は候補から外れる
+    edit_from_menu(user, "row-top-0")  # a を開く: 後続の b と自分は候補から外れる
     select = user.find(marker="task-predecessors").elements.pop()
     assert select.options == {"cccccccc": "c"}
 
@@ -818,7 +826,7 @@ async def test_delete_from_the_edit_dialog_removes_the_bar(user: User, tmp_path:
     user.find(marker="task-name").type("設計")
     user.find(marker="task-save").click()
     await user.should_see(marker="task-top-0")
-    user.find(marker="task-top-0").click()
+    edit_from_menu(user, "row-top-0")
     user.find(marker="task-delete").click()
     user.find(marker="delete-confirm").click()
     await user.should_not_see(marker="task-top-0")
@@ -4252,7 +4260,7 @@ async def test_decompose_button_is_not_shown_for_a_summary_child(user: User, tmp
     await choose_in_combo(user, "既存")
     assert await wait_until(lambda: view.path is not None)
     await user.should_see(marker="task-0-1")
-    user.find(marker="task-0-1").click()
+    edit_from_menu(user, "row-0-1")
     await user.should_see(marker="task-save")
     await user.should_not_see(marker="task-decompose")
 
@@ -4286,3 +4294,143 @@ async def test_decompose_with_chain_does_not_warn(user: User, tmp_path: Path) ->
     )
     view.apply_decompose((), 0, [Part("x", 6.5), Part("y", 6.5)], chain=True, new_section=False)
     assert not user.notify.contains("割り当て")
+
+
+async def open_context_menu_on_the_only_task(user: User, tmp_path: Path) -> MainView:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    await user.should_see(marker="task-0-0")
+    view.gantt.open_menu((0,), 0)
+    return view
+
+
+async def test_context_menu_copy_puts_the_copy_right_after(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    user.find(marker="context-copy").click()
+    assert [t.name for t in view.project.sections[0].tasks] == ["実装", "実装(コピー)"]
+    assert view.is_dirty()
+
+
+async def test_context_menu_rename_changes_only_the_name(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    before = view.project.sections[0].tasks[0]
+    user.find(marker="context-rename").click()
+    user.find(marker="project-name").elements.pop().set_value("設計")
+    user.find(marker="name-save").click()
+    after = view.project.sections[0].tasks[0]
+    assert (after.name, after.id, after.effort_hours) == ("設計", before.id, 4.0)
+    assert view.is_dirty()
+
+
+async def test_context_menu_rename_rejects_an_invalid_name(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    user.find(marker="context-rename").click()
+    user.find(marker="project-name").elements.pop().set_value("   ")
+    user.find(marker="name-save").click()
+    await user.should_see("名前を入力してください")
+    assert view.project.sections[0].tasks[0].name == "実装"
+
+
+async def test_context_menu_delete_asks_first(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    user.find(marker="context-delete").click()
+    await user.should_see("「実装」を削除しますか?")
+    assert len(view.project.sections[0].tasks) == 1
+    user.find(marker="confirm-ok").click()
+    assert view.project.sections[0].tasks == []
+
+
+async def test_context_menu_delete_can_be_cancelled(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    user.find(marker="context-delete").click()
+    user.find(marker="confirm-cancel").click()
+    assert len(view.project.sections[0].tasks) == 1
+
+
+async def test_context_menu_decompose_opens_the_decompose_dialog(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    user.find(marker="context-decompose").click()
+    user.find(marker="decompose-apply").click()
+    assert view.project.sections[0].tasks[0].kind is TaskKind.SUMMARY
+    assert len(view.project.sections[0].tasks) == 3
+
+
+async def open_section_menu_on_a_project(user: User, tmp_path: Path) -> MainView:
+    save_cache({}, tmp_path)
+    project = Project(
+        "既存",
+        tasks=[Task("直下", id="top")],
+        sections=[
+            Section("開発", [Task("a", id="a")], [Section("子", [Task("c", id="c")])]),
+            Section("企画", [Task("d", id="d")]),
+        ],
+    )
+    save_project(project, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    await user.should_see(marker="section-0")
+    return view
+
+
+async def test_section_menu_copy_puts_the_copy_after_it_and_follows_the_collapsed_state(user: User, tmp_path: Path) -> None:
+    view = await open_section_menu_on_a_project(user, tmp_path)
+    view.gantt.collapsed.add((1,))  # 企画を折りたたむ
+    view.gantt.open_section_menu((0,))
+    user.find(marker="section-context-copy").click()
+    assert [s.name for s in view.project.sections] == ["開発", "開発(コピー)", "企画"]
+    assert view.gantt.collapsed == {(2,)}  # 企画は番号が 1 つ後ろへずれた
+    assert view.is_dirty()
+    await user.should_see("セクション「開発」をコピーしました")
+
+
+async def test_section_menu_rename_changes_only_the_name(user: User, tmp_path: Path) -> None:
+    view = await open_section_menu_on_a_project(user, tmp_path)
+    view.gantt.open_section_menu((0, 0))  # サブセクション
+    user.find(marker="section-context-rename").click()
+    user.find(marker="project-name").elements.pop().set_value("設計")
+    user.find(marker="name-save").click()
+    child = view.project.sections[0].sections[0]
+    assert (child.name, [t.name for t in child.tasks]) == ("設計", ["c"])
+    assert view.is_dirty()
+
+
+async def test_section_menu_rename_rejects_an_empty_name(user: User, tmp_path: Path) -> None:
+    view = await open_section_menu_on_a_project(user, tmp_path)
+    view.gantt.open_section_menu((0,))
+    user.find(marker="section-context-rename").click()
+    user.find(marker="project-name").elements.pop().set_value("  ")
+    user.find(marker="name-save").click()
+    await user.should_see("名前を入力してください")
+    assert view.project.sections[0].name == "開発"
+
+
+async def test_section_menu_delete_asks_then_moves_the_tasks_to_the_root_and_notifies(user: User, tmp_path: Path) -> None:
+    view = await open_section_menu_on_a_project(user, tmp_path)
+    view.gantt.collapsed.update({(0,), (1,)})
+    view.gantt.open_section_menu((0,))
+    user.find(marker="section-context-delete").click()
+    await user.should_see("セクション「開発」を削除しますか?")
+    assert [s.name for s in view.project.sections] == ["開発", "企画"]  # 確認するまでは消さない
+    user.find(marker="confirm-ok").click()
+    assert [s.name for s in view.project.sections] == ["企画"]
+    assert [t.name for t in view.project.tasks] == ["直下", "a", "c"]
+    assert view.gantt.collapsed == {(0,)}  # 企画の分だけ残り、番号は詰まる
+    await user.should_see("セクション「開発」を削除しました(タスク 2 件は、セクションなしへ移しました)")
+
+
+async def test_section_menu_delete_can_be_cancelled(user: User, tmp_path: Path) -> None:
+    view = await open_section_menu_on_a_project(user, tmp_path)
+    view.gantt.open_section_menu((1,))
+    user.find(marker="section-context-delete").click()
+    user.find(marker="confirm-cancel").click()
+    assert [s.name for s in view.project.sections] == ["開発", "企画"]
