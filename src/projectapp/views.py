@@ -141,8 +141,10 @@ body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, v
 .app-header .q-btn, .app-header .q-field { font-size: 12px; }
 .app-header .q-btn { white-space: nowrap; flex: none; }
 .app-header .q-btn__content { white-space: nowrap; flex-wrap: nowrap; }
-.app-header .app-project-select { flex: 0 1 16rem; min-width: 8rem; }
-.app-header .app-project-select .q-field__native, .app-header .app-project-select .q-field__input { font-size: 10px; }
+.app-header .app-project-select { flex: 0 1 16rem; min-width: 8rem; color: var(--app-header-fg, #fff); }
+.app-header .app-project-select .q-field__native, .app-header .app-project-select .q-field__input { font-size: 10px; color: var(--app-header-fg, #fff); }
+.app-header .app-project-select.q-field--outlined .q-field__control:before { border-color: var(--app-header-border, hsla(0, 0%, 100%, 0.24)); }
+.app-header .app-project-select .q-field__label, .app-header .app-project-select .q-field__append { color: var(--app-header-label, rgba(255, 255, 255, 0.7)); }
 .app-select-popup .q-item { font-size: 10px; min-height: 28px; }
 .app-title { font-size: 12px; font-weight: 700; white-space: nowrap; }
 .app-header .app-menu-btn { background: var(--app-header-chip, rgba(255, 255, 255, 0.18)); padding: 0 14px; }

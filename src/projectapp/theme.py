@@ -20,7 +20,10 @@ VARIABLES = (
     "--app-header-fg",
     "--app-header-chip",
     "--app-header-chip-hover",
+    "--app-header-border",
+    "--app-header-label",
 )
+BRAND_PRIMARY = "#5898d4"  # NiceGUI の既定の primary。外すと Quasar の既定(#1976D2)に変わるので、戻すときは明示する
 MISMATCH_MESSAGE = "基調と背景の明るさが合っていません。ダイアログの文字が読みにくくなることがあります"
 
 
@@ -34,8 +37,8 @@ class CustomTheme:
 
 
 DEFAULTS: dict[str, CustomTheme] = {
-    "light": CustomTheme("light", "#5898d4", None, "#ffffff", "#000000"),
-    "dark": CustomTheme("dark", "#5898d4", None, "#121212", "#ffffff"),
+    "light": CustomTheme("light", BRAND_PRIMARY, None, "#ffffff", "#000000"),
+    "dark": CustomTheme("dark", BRAND_PRIMARY, None, "#121212", "#ffffff"),
 }
 
 
@@ -118,14 +121,17 @@ def css_variables(theme: CustomTheme) -> dict[str, str]:
         "--app-header-fg": fg,
         "--app-header-chip": f"rgba({chip}, 0.18)",
         "--app-header-chip-hover": f"rgba({chip}, 0.3)",
+        "--app-header-border": f"rgba({chip}, 0.24)",  # ヘッダーの中の入力欄(プロジェクトの切り替え)
+        "--app-header-label": f"rgba({chip}, 0.7)",
     }
 
 
 def theme_js(theme: CustomTheme | None) -> str:
-    """`body`に変数とクラスを設定する JS。None は全部外す(NiceGUI の既定の primary に戻る)。"""
+    """`body`に変数とクラスを設定する JS。None は外して、primary は NiceGUI の既定へ戻す。"""
     if theme is None:
-        removes = "".join(f"s.removeProperty({json.dumps(name)});" for name in VARIABLES)
-        return f"(() => {{ const b = document.body, s = b.style; {removes} b.classList.remove('{CUSTOM_CLASS}'); }})()"
+        removes = "".join(f"s.removeProperty({json.dumps(n)});" for n in VARIABLES if n != "--q-primary")
+        restore = f"s.setProperty(\"--q-primary\", {json.dumps(BRAND_PRIMARY)});"
+        return f"(() => {{ const b = document.body, s = b.style; {removes}{restore} b.classList.remove('{CUSTOM_CLASS}'); }})()"
     sets = "".join(f"s.setProperty({json.dumps(n)}, {json.dumps(v)});" for n, v in css_variables(theme).items())
     return f"(() => {{ const b = document.body, s = b.style; {sets} b.classList.add('{CUSTOM_CLASS}'); }})()"
 

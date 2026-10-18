@@ -129,9 +129,24 @@ def test_theme_js_sets_the_variables_and_the_class() -> None:
 def test_theme_js_none_removes_everything() -> None:
     js = theme_js(None)
     assert f"classList.remove('{CUSTOM_CLASS}')" in js
-    for name in ("--q-primary", "--app-bg", "--app-fg", "--app-header", "--app-header-fg", "--app-header-chip", "--app-header-chip-hover"):
+    for name in ("--app-bg", "--app-fg", "--app-header", "--app-header-fg", "--app-header-chip", "--app-header-chip-hover", "--app-header-border", "--app-header-label"):
         assert f'removeProperty("{name}")' in js
-    assert "setProperty" not in js
+
+
+def test_theme_js_none_restores_the_nicegui_primary_instead_of_removing_it() -> None:
+    js = theme_js(None)  # 外すと、Quasar の既定(#1976D2)になってしまう
+    assert 'removeProperty("--q-primary")' not in js
+    assert 'setProperty("--q-primary", "#5898d4")' in js
+    assert js.count("setProperty") == 1
+
+
+def test_css_variables_make_the_header_field_follow_the_header_text_color() -> None:
+    dark_text = css_variables(CustomTheme("light", "#5898d4", "#ffeb3b", "#ffffff", "#000000"))
+    assert dark_text["--app-header-border"] == "rgba(0, 0, 0, 0.24)"
+    assert dark_text["--app-header-label"] == "rgba(0, 0, 0, 0.7)"
+    white_text = css_variables(CustomTheme("dark", "#5898d4", None, "#121212", "#ffffff"))
+    assert white_text["--app-header-border"] == "rgba(255, 255, 255, 0.24)"
+    assert white_text["--app-header-label"] == "rgba(255, 255, 255, 0.7)"
 
 
 def test_no_warnings_for_the_defaults() -> None:

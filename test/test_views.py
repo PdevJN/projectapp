@@ -3969,7 +3969,7 @@ async def test_apply_theme_custom_sets_dark_mode_from_the_base_and_the_variables
     assert len(scripts) == 1 and 'setProperty("--app-bg", "#1e1e2e")' in scripts[0]
     view.apply_theme("light")
     assert view.dark.value is False
-    assert len(scripts) == 2 and "setProperty" not in scripts[1] and 'removeProperty("--q-primary")' in scripts[1]
+    assert len(scripts) == 2 and 'setProperty("--q-primary", "#5898d4")' in scripts[1] and 'removeProperty("--app-bg")' in scripts[1]
 
 
 async def test_apply_theme_with_a_preview_color_does_not_change_the_saved_color(user: User, tmp_path: Path) -> None:
@@ -4060,3 +4060,10 @@ async def test_selecting_custom_settings_in_the_menu_opens_the_dialog(user: User
     await open_header_view(user, tmp_path)
     user.find(marker="theme-custom-settings").click()
     await user.should_see(marker="theme-apply")
+
+
+def test_header_project_select_follows_the_header_text_color_and_keeps_the_defaults() -> None:
+    assert ".app-header .app-project-select .q-field__native" in HEADER_CSS
+    assert "color: var(--app-header-fg, #fff)" in HEADER_CSS.split(".app-header .app-project-select {")[1].split("\n")[0] or "var(--app-header-fg, #fff)" in HEADER_CSS
+    assert "var(--app-header-border, hsla(0, 0%, 100%, 0.24))" in HEADER_CSS
+    assert "var(--app-header-label, rgba(255, 255, 255, 0.7))" in HEADER_CSS
