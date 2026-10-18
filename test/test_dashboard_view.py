@@ -218,8 +218,8 @@ async def test_the_team_legend_tooltip_lists_task_chips(user: User) -> None:
     await user.open("/")
     views[0].show(sample(), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-team-percent")
-    assert [e.text for e in user.find(marker="dashboard-team-chip-RUNNING").elements] == ["設計", "実装"]
-    assert [e.text for e in user.find(marker="dashboard-team-chip-DONE").elements] == ["調査"]
+    assert {e.text for e in user.find(marker="dashboard-team-chip-RUNNING").elements} == {"設計", "実装"}  # elements は集合で順序を持たない
+    assert {e.text for e in user.find(marker="dashboard-team-chip-DONE").elements} == {"調査"}
     await user.should_not_see(marker="dashboard-team-more-RUNNING")
     chip = user.find(marker="dashboard-team-chip-RUNNING").elements.pop()
     assert chip._style["color"] == "var(--pie-running)"  # 凡例の色。primary にはしない
