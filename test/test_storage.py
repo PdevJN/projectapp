@@ -775,7 +775,7 @@ def test_legacy_project_codes_become_categories(tmp_path: Path) -> None:
     first, second = loaded.categories
     assert [t.category_id for t in loaded.tasks] == [first.id, second.id, first.id, None]
     raw = json.loads(save_project(loaded, tmp_path, overwrite=True).read_text(encoding="utf-8"))
-    assert raw["version"] == 6 and len(raw["categories"]) == 2
+    assert raw["version"] == FORMAT_VERSION and len(raw["categories"]) == 2
 
 
 @pytest.mark.parametrize("missing", ["delete", "null"])
@@ -796,7 +796,7 @@ def test_legacy_code_that_is_not_a_valid_prj_code_keeps_only_the_name(tmp_path: 
     assert [(c.name, c.prj_code) for c in loaded.categories] == [("設計 A", ""), ("A B", "")]
     raw = json.loads(save_project(loaded, tmp_path, overwrite=True).read_text(encoding="utf-8"))
     assert load_project(tmp_path / "demo.json").categories == loaded.categories  # 書き戻したファイルを、そのまま読める
-    assert raw["version"] == 6
+    assert raw["version"] == FORMAT_VERSION
 
 
 def test_legacy_reserved_code_becomes_undecided(tmp_path: Path) -> None:
@@ -1304,7 +1304,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 6
+    assert raw["version"] == FORMAT_VERSION == 7
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1372,7 +1372,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 6
+    assert raw["version"] == FORMAT_VERSION == 7
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -1412,7 +1412,7 @@ def test_a_version_1_file_gets_unique_ids(tmp_path: Path) -> None:
     assert all(len(i) == 8 for i in ids)
     assert loaded.sections[0].tasks[0].assignees == [Assignee("田中", 0.6), Assignee("鈴木", 0.4)]
     raw = json.loads(save_project(loaded, tmp_path, overwrite=True).read_text(encoding="utf-8"))
-    assert raw["version"] == 6
+    assert raw["version"] == FORMAT_VERSION
 
 
 def test_version_1_ids_avoid_the_ids_in_the_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1642,7 +1642,7 @@ def test_events_roundtrip_and_are_ordered_as_saved(tmp_path: Path) -> None:
     assert loaded.events == [a, b]
     assert [e.id for e in loaded.events] == ["e1", "e2"]
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["version"] == 6
+    assert raw["version"] == FORMAT_VERSION
     assert raw["events"][0] == {"start": "2026-10-20", "end": "2026-10-24", "text": "リリース", "color": "red", "id": "e1"}
 
 
@@ -1770,3 +1770,71 @@ def test_a_checkpoint_loads_without_progress(tmp_path: Path) -> None:
     path = save_project(Project("p", tasks=[checkpoint]), tmp_path)
     _rewrite_task(path, progress=50)
     assert load_project(path).tasks[0].progress is None
+
+
+def write_member_icon(path: Path, value: object, version: int = 7) -> None:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["version"] = version
+    raw["members"][0]["icon"] = value
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+
+def test_member_icon_roundtrips(tmp_path: Path, icon: str) -> None:
+    project = Project("demo", members=[Member("甲", 1.0, icon=icon), Member("乙", 1.0)])
+    loaded = load_project(save_project(project, tmp_path))
+    assert [m.icon for m in loaded.members] == [icon, ""]
+
+
+def test_a_file_without_the_icon_key_loads_with_no_icon(tmp_path: Path) -> None:
+    path = save_project(Project("demo", members=[Member("甲", 1.0)]), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["version"] = 6
+    del raw["members"][0]["icon"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).members[0].icon == ""
+
+
+def test_a_version_6_file_ignores_an_icon_key(tmp_path: Path, icon: str) -> None:
+    path = save_project(Project("demo", members=[Member("甲", 1.0)]), tmp_path)
+    write_member_icon(path, icon, version=6)
+    assert load_project(path).members[0].icon == ""
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_a_null_or_empty_icon_means_no_icon(tmp_path: Path, value: object) -> None:
+    path = save_project(Project("demo", members=[Member("甲", 1.0)]), tmp_path)
+    write_member_icon(path, value)
+    assert load_project(path).members[0].icon == ""
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["https://example.com/a.png", "data:image/png;base64,!!!", "data:image/png;base64,AAAA", 123, ["x"]],
+)
+def test_an_invalid_icon_is_rejected_on_load(tmp_path: Path, value: object) -> None:
+    path = save_project(Project("demo", members=[Member("甲", 1.0)]), tmp_path)
+    write_member_icon(path, value)
+    with pytest.raises(ValueError, match="アイコン"):
+        load_project(path)
+
+
+def test_a_member_added_for_an_unknown_assignee_is_saved_with_an_empty_icon(tmp_path: Path) -> None:
+    project = Project("demo", sections=[Section("s", [Task("t", assignees=[Assignee("丙", 1.0)])])])
+    raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
+    assert raw["members"] == [{"name": "丙", "ratio": 1.0, "levels": {}, "id": raw["members"][0]["id"], "icon": ""}]
+
+
+def test_an_icon_with_a_huge_declared_size_is_rejected_on_load_with_a_value_error(tmp_path: Path) -> None:
+    import base64
+    import struct
+    import zlib
+
+    def chunk(tag: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body))
+
+    raw = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 20000, 20000, 8, 2, 0, 0, 0))
+    raw += chunk(b"IDAT", zlib.compress(b"\0" * 100)) + chunk(b"IEND", b"")
+    path = save_project(Project("demo", members=[Member("甲", 1.0)]), tmp_path)
+    write_member_icon(path, "data:image/png;base64," + base64.b64encode(raw).decode())
+    with pytest.raises(ValueError, match="アイコン"):
+        load_project(path)

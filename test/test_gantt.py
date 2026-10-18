@@ -2020,6 +2020,48 @@ async def test_assignee_chip_shows_the_first_character_and_the_name_on_hover(use
     assert who.parent_slot.parent is chip(user, "task-0-0")
 
 
+async def test_assignee_chip_shows_the_member_icon_and_keeps_the_hover(user: User, icon: str) -> None:
+    project = project_with(Task("設計", assignees=[Assignee("山田太郎", 0.5)]))
+    project.members = [Member("山田太郎", 1.0, icon=icon)]
+    mount(project)
+    await user.open("/")
+    who = chip(user, "task-assignee-0-0")
+    assert who.tag == "img" and who._props["src"] == icon
+    assert tooltips_targeting(who) == ["山田太郎 50%"]
+
+
+async def test_assignee_chip_without_an_icon_keeps_the_first_character_for_other_members(user: User, icon: str) -> None:
+    project = project_with(Task("設計", assignees=[Assignee("山田"), Assignee("佐藤")]))
+    project.members = [Member("山田", 1.0, icon=icon), Member("佐藤", 1.0)]
+    mount(project)
+    await user.open("/")
+    assert chip(user, "task-assignee-0-0").tag == "img"
+    assert chip(user, "task-assignee-0-0-1").text == "佐"
+
+
+async def test_the_icon_follows_a_changed_project(user: User, icon: str) -> None:
+    project = project_with(Task("設計", assignees=[Assignee("山田")]))
+    project.members = [Member("山田", 1.0)]
+    charts, _ = mount_chart(project)
+    await user.open("/")
+    assert chip(user, "task-assignee-0-0").text == "山"
+    project.members[0].icon = icon
+    charts[0].set_project(project)
+    for _ in range(40):  # 描き直しを待つ
+        if chip(user, "task-assignee-0-0").tag == "img":
+            break
+        await asyncio.sleep(0.05)
+    assert chip(user, "task-assignee-0-0").tag == "img"
+
+
+async def test_the_read_only_chart_shows_the_member_icon(user: User, icon: str) -> None:
+    project = project_with(Task("設計", assignees=[Assignee("山田")]))
+    project.members = [Member("山田", 1.0, icon=icon)]
+    mount_with(project, ViewOptions(read_only=True))
+    await user.open("/")
+    assert chip(user, "task-assignee-0-0").tag == "img"
+
+
 async def test_several_assignees_get_one_chip_each(user: User) -> None:
     mount(project_with(Task("設計", assignees=[Assignee("山田", 1.0), Assignee("鈴木", 0.5)])))
     await user.open("/")

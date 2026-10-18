@@ -726,6 +726,17 @@ def test_build_members_converts_percent_to_ratio_and_trims_names() -> None:
     assert renames == {}
 
 
+def test_build_members_carries_the_icon(icon: str) -> None:
+    rows = [MemberRow("甲", "甲", 100.0, icon=icon), MemberRow(None, "乙", 100.0)]
+    members, _ = build_members(rows, ["甲"], lambda _: 0)
+    assert [m.icon for m in members] == [icon, ""]
+
+
+def test_build_members_rejects_a_broken_icon() -> None:
+    with pytest.raises(ValueError, match="アイコン"):
+        build_members([MemberRow(None, "甲", 100.0, icon="data:image/png;base64,AAAA")], [], lambda _: 0)
+
+
 def test_build_members_rejects_a_blank_name() -> None:
     with pytest.raises(ValueError, match="名前"):
         build_members(rows((None, "  ", 100.0)), [], no_tasks)

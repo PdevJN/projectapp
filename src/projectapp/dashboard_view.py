@@ -6,6 +6,7 @@ from datetime import datetime
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
+from projectapp.avatar import avatar
 from projectapp.dashboard import Dashboard, PeriodKind
 from projectapp.models import Status
 
@@ -58,6 +59,7 @@ class DashboardView:
         self.box: ui.column | None = None
         self.toggle: ui.toggle | None = None
         self.data: Dashboard | None = None
+        self.icons: dict[str, str] = {}  # メンバー名 → アイコン(ある人だけ)
         self.syncing = False  # 開き直しでトグルの値を書き換えるあいだは、変更を通知しない
 
     def build(self) -> None:
@@ -81,7 +83,8 @@ class DashboardView:
         if not self.syncing:
             self.on_change(PeriodKind(event.value))
 
-    def show(self, data: Dashboard, kind: PeriodKind) -> None:
+    def show(self, data: Dashboard, kind: PeriodKind, icons: dict[str, str] | None = None) -> None:
+        self.icons = icons or {}
         self.data = data
         if self.toggle is not None and self.toggle.value != kind.value:
             self.syncing = True
@@ -137,7 +140,10 @@ class DashboardView:
             for name, stats in data.loads.items():
                 over = stats.overload_days > 0
                 with ui.column().classes("w-full gap-1"):
-                    ui.label(name)
+                    with ui.row().classes("items-center no-wrap gap-2"):
+                        if icon := self.icons.get(name):
+                            avatar(name, icon, 20).mark(f"dashboard-load-icon-{name}")
+                        ui.label(name)
                     ui.label(
                         f"平均 {stats.average * 100:.0f}% / 最大 {stats.peak * 100:.0f}% / 超過 {stats.overload_days} 日"
                     ).classes("text-caption" + (" text-negative" if over else "")).mark(f"dashboard-load-{name}")

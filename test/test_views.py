@@ -1565,6 +1565,88 @@ def mount_preview(base_dir: Path, views: list[MainView], exporter: FakeExporter)
         view.build()
 
 
+async def open_members_view_with(user: User, tmp_path: Path, exporter: FakeExporter) -> MainView:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, exporter)
+    await user.open("/")
+    return views[0]
+
+
+async def test_choosing_an_icon_shows_it_and_applies_it(user: User, tmp_path: Path, make_png) -> None:
+    path = tmp_path / "a.png"
+    path.write_bytes(make_png())
+    exporter = FakeExporter(open_path=path)
+    view = await open_members_view_with(user, tmp_path, exporter)
+    view.project.members = [Member("田中", 1.0)]
+    await open_members_parameters(user)
+    user.find(marker="member-icon-pick-0").click()
+    assert await wait_until(lambda: user.find(marker="member-icon-0").elements.pop().tag == "img")
+    assert exporter.asked_open and "png" in exporter.asked_open[0][0]
+    assert user.find(marker="members-dirty").elements.pop().text == "●"  # 未適用の編集
+    assert view.project.members[0].icon == ""  # 適用までは変わらない
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members[0].icon.startswith("data:image/png;base64,"))
+
+
+async def test_clearing_an_icon_applies_the_removal(user: User, tmp_path: Path, icon: str) -> None:
+    view = await open_members_view_with(user, tmp_path, FakeExporter())
+    view.project.members = [Member("田中", 1.0, icon=icon)]
+    await open_members_parameters(user)
+    user.find(marker="member-icon-clear-0").click()
+    assert await wait_until(lambda: user.find(marker="member-icon-0").elements.pop().tag != "img")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members[0].icon == "")
+
+
+async def test_cancelling_the_file_choice_changes_nothing(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=None)
+    view = await open_members_view_with(user, tmp_path, exporter)
+    view.project.members = [Member("田中", 1.0)]
+    await open_members_parameters(user)
+    user.find(marker="member-icon-pick-0").click()
+    assert await wait_until(lambda: bool(exporter.asked_open))
+    assert user.find(marker="member-icon-0").elements.pop().tag != "img"
+    assert user.find(marker="members-dirty").elements.pop().text == ""
+
+
+async def test_an_unreadable_image_is_reported_and_changes_nothing(user: User, tmp_path: Path) -> None:
+    bad = tmp_path / "bad.png"
+    bad.write_bytes(b"not an image")
+    view = await open_members_view_with(user, tmp_path, FakeExporter(open_path=bad))
+    view.project.members = [Member("田中", 1.0)]
+    await open_members_parameters(user)
+    user.find(marker="member-icon-pick-0").click()
+    await user.should_see("アイコンにできませんでした")
+    assert user.find(marker="member-icon-0").elements.pop().tag != "img"
+
+
+async def test_the_pick_button_is_hidden_without_a_native_window(user: User, tmp_path: Path, icon: str) -> None:
+    view = await open_members_view_with(user, tmp_path, FakeExporter(available=False))
+    view.project.members = [Member("田中", 1.0, icon=icon)]
+    await open_members_parameters(user)
+    await user.should_see(marker="member-icon-0")
+    await user.should_not_see(marker="member-icon-pick-0")
+    await user.should_see(marker="member-icon-clear-0")  # 外すことはできる
+
+
+async def test_the_icon_survives_a_rename_and_undo_restores_it(user: User, tmp_path: Path, icon: str) -> None:
+    view = await open_members_view_with(user, tmp_path, FakeExporter())
+    view.project.members = [Member("田中", 1.0, icon=icon)]
+    await open_members_parameters(user)
+    first = user.find(marker="member-icon-clear-0").elements.pop()
+    user.find(marker="member-name-0").clear().type("田中太郎")
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: [m.name for m in view.project.members] == ["田中太郎"])
+    assert view.project.members[0].icon == icon
+    assert await wait_until(lambda: user.find(marker="member-icon-clear-0").elements.pop() is not first)  # 行の作り直しを待つ
+    user.find(marker="member-icon-clear-0").click()
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members[0].icon == "")
+    view.undo()
+    assert view.project.members[0].icon == icon
+
+
 def planned_task() -> Task:
     return Task("設計", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12))
 
@@ -3272,8 +3354,8 @@ async def test_the_members_dialog_is_a_table_whose_columns_follow_the_parameters
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    # 名前・相対比率・削除
-    assert len(grid_columns(user)) == 3
+    # アイコン・名前・相対比率・削除
+    assert len(grid_columns(user)) == 4
 
 
 async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path) -> None:
@@ -3282,8 +3364,8 @@ async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path)
     view.project.parameters.append(Parameter("専門性", [Level("高", 0.1)]))
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    # 名前・基本比率・経験・専門性・相対比率・削除
-    assert len(grid_columns(user)) == 6
+    # アイコン・名前・基本比率・経験・専門性・相対比率・削除
+    assert len(grid_columns(user)) == 7
     assert user.find(marker="member-header-level-1").elements.pop().text == "専門性"
 
 
@@ -3297,8 +3379,8 @@ async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(user: U
     assert scroll._style["overflow-x"] == "auto"  # パラメータが多くて広がっても、横にスクロールできる
     grid = user.find(marker="member-grid").elements.pop()
     assert "min-width" in grid._style  # 列を押しつぶさない
-    assert grid_columns(user)[0] == "7rem"  # 名前の列は、列の数にかかわらず固定(狭くも広くもならない)
-    assert len(grid_columns(user)) == 2 + 7 + 2
+    assert grid_columns(user)[1] == "7rem"  # 名前の列は、列の数にかかわらず固定(狭くも広くもならない)
+    assert len(grid_columns(user)) == 3 + 7 + 2
 
 
 async def test_the_table_inputs_have_no_floating_labels(user: User, tmp_path: Path) -> None:
@@ -3317,15 +3399,15 @@ async def test_the_name_column_is_a_narrow_fixed_width_with_or_without_parameter
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    assert grid_columns(user) == ["7rem", "7rem", "3rem"]  # 名前・相対比率・削除
+    assert grid_columns(user) == ["6rem", "7rem", "7rem", "3rem"]  # アイコン・名前・相対比率・削除
 
 
 async def test_the_dialog_width_follows_the_columns_without_the_old_wide_name(user: User, tmp_path: Path) -> None:
     from projectapp.forms import member_table_min_rem
 
-    # 名前 7rem + 比率 7rem + 削除 3rem + 列の間隔。以前の名前 12rem 以上の幅ではない
-    assert member_table_min_rem(0, False) == 7 + 7 + 3 + 2 * 3
-    assert member_table_min_rem(2, True) == 7 + 7 + 9 * 2 + 11 + 3 + 2 * 6
+    # アイコン 6rem + 名前 7rem + 比率 7rem + 削除 3rem + 列の間隔。以前の名前 12rem 以上の幅ではない
+    assert member_table_min_rem(0, False) == 6 + 7 + 7 + 3 + 2 * 4
+    assert member_table_min_rem(2, True) == 6 + 7 + 7 + 9 * 2 + 11 + 3 + 2 * 7
 
 
 async def test_the_member_table_uses_14px_controls(user: User, tmp_path: Path) -> None:

@@ -347,3 +347,39 @@ def test_same_name_members_added_on_both_sides_keep_both_after_a_round_trip() ->
     by_task = {t.name: [ratio_of[a.name] for a in t.assignees] for t in merged.tasks}
     assert by_task == {"x": [1.0], "y": [1.5]}  # 担当者は、それぞれ元のメンバーを指したまま
     assert any("丁 (2)" in n for n in result.notes)
+
+
+def test_a_member_icon_changed_on_one_side_is_taken(icon: str) -> None:
+    base = proj(members=[Member("甲", 1.0, id="m1")])
+    ours = proj(members=[Member("甲", 1.0, id="m1", icon=icon)])
+    result = merge_projects(base, ours, base)
+    assert result.conflicts == [] and result.project.members[0].icon == icon
+
+
+def test_different_member_icons_on_both_sides_conflict(make_png) -> None:
+    from projectapp.icons import make_icon
+
+    one, two = make_icon(make_png(color=(255, 0, 0, 255))), make_icon(make_png(color=(0, 0, 255, 255)))
+    base = proj(members=[Member("甲", 1.0, id="m1")])
+    ours = proj(members=[Member("甲", 1.0, id="m1", icon=one)])
+    theirs = proj(members=[Member("甲", 1.0, id="m1", icon=two)])
+    result = merge_projects(base, ours, theirs, {("member", "m1", "アイコン"): THEIRS})
+    (conflict,) = result.conflicts
+    assert (conflict.kind, conflict.field) == ("member", "アイコン")
+    assert result.project.members[0].icon == two
+
+
+def test_the_icon_survives_the_rename_of_a_same_name_member(icon: str) -> None:
+    base = proj()
+    ours = proj(members=[Member("甲", 1.0, id="m1", icon=icon)])
+    theirs = proj(members=[Member("甲", 1.0, id="m2")])
+    merged = merge_projects(base, ours, theirs).project
+    assert sorted(m.name for m in merged.members) == ["甲", "甲 (2)"]
+    assert {m.id: m.icon for m in merged.members} == {"m1": icon, "m2": ""}  # 改名されても、アイコンは持ち主に付く
+
+
+def test_format_value_shortens_an_image_data_uri(icon: str) -> None:
+    from projectapp.merge import format_value
+
+    text = format_value(icon)
+    assert text.startswith("画像(") and "data:" not in text and len(text) < 30
