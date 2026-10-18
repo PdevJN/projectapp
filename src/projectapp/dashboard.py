@@ -73,11 +73,19 @@ class OverdueRow:
     limit: datetime  # 過ぎている基準(締切と完了予定のうち、早いほう)
 
 
+@dataclass(frozen=True)
+class MemberProgress:
+    name: str
+    percent: float | None  # 工数で重みづけした進捗率(0〜100)。担当のタスクがなければ None
+    counts: dict[Status, int]
+
+
 @dataclass
 class Progress:
     percent: float | None  # 工数で重みづけした進捗率(0〜100)。タスクがなければ None
     counts: dict[Status, int]
     overdue: list[OverdueRow]
+    by_member: list[MemberProgress] = field(default_factory=list)  # メンバーごと。絞り込み中は空
 
 
 def _tasks(project: Project, member: str | None = None) -> list[Task]:
@@ -156,6 +164,29 @@ def summarize_team_progress(
     return TeamProgress(weighted / total if total else None, hours, period, counts, names)
 
 
+def _member_row(name: str, tasks: list[Task]) -> MemberProgress:
+    counts = {status: 0 for status in Status}
+    weighted = total = 0.0
+    for task in tasks:
+        counts[task.status] += 1
+        if (weight_and_percent := _progress_weight(task)) is not None:  # 節目は重みに入れない
+            weight, percent = weight_and_percent
+            weighted += weight * percent
+            total += weight
+    return MemberProgress(name, weighted / total if total else None, counts)
+
+
+def summarize_member_progress(project: Project) -> list[MemberProgress]:
+    """メンバーごとの進捗。共同タスクは担当の全員の行に数える。メンバーが担当にいないタスクは`未割り当て`。"""
+    tasks = _tasks(project)
+    names = {member.name for member in project.members}
+    rows = [_member_row(m.name, [t for t in tasks if m.name in t.assignee_names]) for m in project.members]
+    nobody = [t for t in tasks if not names.intersection(t.assignee_names)]
+    if nobody:
+        rows.append(_member_row(UNASSIGNED, nobody))
+    return rows
+
+
 def summarize_progress(
     project: Project, holidays: dict[date, str], now: datetime, member: str | None = None
 ) -> Progress:
@@ -179,7 +210,8 @@ def summarize_progress(
             limit = min(limits, default=task.deadline or now)  # 見込みの超過は、締切を基準にする
             overdue.append(OverdueRow(task.name, assignee_label(task), limit))
     overdue.sort(key=lambda row: row.limit)
-    return Progress(weighted / total if total else None, counts, overdue)
+    by_member = summarize_member_progress(project) if member is None else []
+    return Progress(weighted / total if total else None, counts, overdue, by_member)
 
 
 UNASSIGNED = "未割り当て"

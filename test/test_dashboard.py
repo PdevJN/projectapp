@@ -5,11 +5,13 @@ import pytest
 from projectapp.dashboard import (
     UNASSIGNED,
     DueRow,
+    MemberProgress,
     Period,
     PeriodKind,
     period_for,
     summarize,
     summarize_due,
+    summarize_member_progress,
     summarize_loads,
     summarize_progress,
     summarize_team_progress,
@@ -553,3 +555,40 @@ def test_summarize_passes_the_member_and_lists_the_member_names() -> None:
     assert only.progress.counts[Status.DONE] == 0 and everyone.progress.counts[Status.DONE] == 1
     assert list(only.loads) == ["田中"] and [row.name for row in only.workload] == ["田中"]
     assert only.team.tasks[Status.NOT_STARTED] == ["共同"]
+
+
+def test_member_progress_has_a_row_per_member_and_counts_shared_tasks_for_each() -> None:
+    rows = summarize_member_progress(shared_project())
+    assert [row.name for row in rows] == ["田中", "佐藤", UNASSIGNED]
+    tanaka, sato, nobody = rows
+    assert tanaka.percent == pytest.approx(100 / 8)
+    assert tanaka.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 0}
+    assert sato.percent == pytest.approx(40)  # 共同(6h × 0%)と佐藤の(4h × 100%)
+    assert sato.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 0, Status.PAUSED: 0, Status.DONE: 1}
+    assert nobody.percent == pytest.approx(0)  # 担当なしと、メンバーでない担当者だけのタスク
+    assert nobody.counts[Status.NOT_STARTED] == 2
+
+
+def test_member_progress_marks_a_member_without_tasks_and_skips_an_empty_unassigned_row() -> None:
+    project = project_of(
+        Task("田中の", effort_hours=1, assignees=[Assignee("田中", 1.0)]),
+        members=[Member("田中", 1.0), Member("山田", 1.0)],
+    )
+    rows = summarize_member_progress(project)
+    assert [row.name for row in rows] == ["田中", "山田"]  # 未割り当ては、該当するタスクがあるときだけ
+    assert rows[1].percent is None and sum(rows[1].counts.values()) == 0
+
+
+def test_member_progress_ignores_summaries() -> None:
+    child = Task("子", effort_hours=4, status=Status.DONE, assignees=[Assignee("田中", 1.0)])
+    summary = Task("まとめ", kind=TaskKind.SUMMARY, children=[child.id], assignees=[Assignee("田中", 1.0)])
+    rows = summarize_member_progress(project_of(summary, child))
+    assert rows[0].counts[Status.DONE] == 1 and rows[0].percent == pytest.approx(100)
+    assert isinstance(rows[0], MemberProgress)
+
+
+def test_by_member_is_built_for_everyone_only() -> None:
+    project = shared_project()
+    assert [row.name for row in summarize_progress(project, {}, NOW).by_member] == ["田中", "佐藤", UNASSIGNED]
+    assert summarize_progress(project, {}, NOW, "田中").by_member == []
+    assert [row.name for row in summarize(project, WEEK, NOW, {}).progress.by_member][0] == "田中"
