@@ -16,6 +16,7 @@ from typing import Any, NamedTuple
 
 from projectapp.categories import COLORS, migrate_legacy, parse_expiry, validate_categories
 from projectapp.events import normalize_color, validate_events
+from projectapp.icons import is_valid_icon
 from projectapp.linkgraph import validate_links
 from projectapp.models import (
     FORMAT_VERSION,
@@ -113,7 +114,7 @@ def _dump(project: Project) -> dict[str, Any]:
             if name not in ids:
                 ids[name] = new_id(taken)
                 taken.add(ids[name])
-                data["members"].append({"name": name, "ratio": 1.0, "levels": {}, "id": ids[name]})
+                data["members"].append({"name": name, "ratio": 1.0, "levels": {}, "id": ids[name], "icon": ""})
             refs.append({"member": ids[name], "allocation": assignee["allocation"]})
         task["assignees"] = refs
     return data
@@ -699,6 +700,15 @@ def _section(raw: Any, depth: int, ctx: "_Context") -> Section:
     return section
 
 
+def _icon(value: Any) -> str:
+    """メンバーのアイコン(version 7)。キーがない・null・空は、アイコンなし。形・大きさ・中身が不正なら ValueError。"""
+    if value is None or value == "":
+        return ""
+    if not isinstance(value, str) or not is_valid_icon(value):
+        raise ValueError("メンバーのアイコンが正しくありません")
+    return value
+
+
 def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]:
     """メンバーを読む。相対比率は検証し、空の名前と重複は(最初の1件を残して)捨てる。"""
     members: list[Member] = []
@@ -708,6 +718,7 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
         name = str(raw["name"]).strip()
         ratio = _number_in_range(raw.get("ratio", 1.0), MIN_RATIO, MAX_RATIO, "相対比率")
         levels = _member_levels(raw.get("levels"))
+        icon = _icon(raw.get("icon")) if ctx.version >= 7 else ""
         member_id = None
         if ctx.version >= 2:
             member_id = _entity_id(raw.get("id"), "メンバー")
@@ -719,7 +730,7 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
         if not name or name in seen:
             continue
         seen.add(name)
-        member = Member(name, ratio, levels)
+        member = Member(name, ratio, levels, icon=icon)
         if member_id is not None:
             member.id = member_id
         members.append(member)
