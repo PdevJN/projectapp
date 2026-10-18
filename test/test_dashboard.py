@@ -482,3 +482,74 @@ def test_team_progress_lists_task_names_by_status_in_order() -> None:
 def test_team_progress_task_names_follow_the_period() -> None:
     team = summarize_team_progress(project_of(dated("中", 6, 7), dated("後", 20, 21)), WEEK, NOW, {})
     assert team.tasks[Status.NOT_STARTED] == ["中"]
+
+
+def shared_project() -> Project:
+    members = [Member("田中", 1.0), Member("佐藤", 1.0)]
+    mine = Task("田中の", effort_hours=2, status=Status.RUNNING, progress=50, assignees=[Assignee("田中", 1.0)])
+    shared = Task("共同", effort_hours=6, assignees=[Assignee("田中", 0.5), Assignee("佐藤", 0.5)])
+    other = Task("佐藤の", effort_hours=4, status=Status.DONE, assignees=[Assignee("佐藤", 1.0)])
+    unassigned = Task("担当なし", effort_hours=1)
+    ghost = Task("退職者の", effort_hours=1, assignees=[Assignee("退職者", 1.0)])
+    return project_of(mine, shared, other, unassigned, ghost, members=members)
+
+
+def test_the_member_filter_keeps_tasks_the_member_is_on_as_whole_tasks() -> None:
+    progress = summarize_progress(shared_project(), {}, NOW, "田中")
+    assert progress.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 0}
+    assert progress.percent == pytest.approx(100 / 8)  # (2h × 50% + 6h × 0%) / 8h。共同タスクは丸ごと
+
+
+def test_the_member_filter_leaves_out_unassigned_and_non_member_tasks() -> None:
+    team = summarize_team_progress(shared_project(), member="佐藤")
+    assert team.hours == {Status.NOT_STARTED: 6, Status.RUNNING: 0, Status.PAUSED: 0, Status.DONE: 4}
+    assert team.tasks[Status.NOT_STARTED] == ["共同"]
+
+
+def test_a_member_without_tasks_gives_empty_results_without_errors() -> None:
+    project = shared_project()
+    project.members.append(Member("山田", 1.0))
+    assert summarize_progress(project, {}, NOW, "山田").percent is None
+    assert summarize_team_progress(project, member="山田").percent is None
+    assert summarize_due(project, WEEK, NOW, {}, "山田") == []
+    assert summarize_loads(project, WEEK, {}, "山田")["山田"].peak == 0.0
+
+
+def test_the_member_filter_limits_loads_and_workload_to_that_member() -> None:
+    project = project_of(
+        dated("田中の", 6, 7, assignees=[Assignee("田中", 1.0)]),
+        dated("佐藤の", 6, 7, assignees=[Assignee("佐藤", 1.0)]),
+        members=[Member("田中", 1.0), Member("佐藤", 1.0)],
+    )
+    loads = summarize_loads(project, WEEK, {}, "田中")
+    assert list(loads) == ["田中"]
+    assert loads["田中"] == summarize_loads(project, WEEK, {})["田中"]
+    rows = summarize_workload(project, WEEK, NOW, {}, "田中")
+    assert [row.name for row in rows] == ["田中"]
+    assert rows[0] == next(row for row in summarize_workload(project, WEEK, NOW, {}) if row.name == "田中")
+
+
+def test_the_member_filter_hides_the_unassigned_workload_row() -> None:
+    project = project_of(dated("担当なし", 6, 7), dated("田中の", 6, 7, assignees=[Assignee("田中", 1.0)]))
+    assert UNASSIGNED in [row.name for row in summarize_workload(project, WEEK, NOW, {})]
+    assert [row.name for row in summarize_workload(project, WEEK, NOW, {}, "田中")] == ["田中"]
+
+
+def test_the_member_filter_keeps_schedules_pushed_by_other_members_tasks() -> None:
+    blocker = dated("佐藤の", 6, 9, assignees=[Assignee("佐藤", 1.0)])
+    pushed = dated("田中の", 6, 7, assignees=[Assignee("田中", 1.0)], predecessors=[blocker.id])
+    project = project_of(blocker, pushed, members=[Member("田中", 1.0), Member("佐藤", 1.0)])
+    everyone = next(row for row in summarize_due(project, WEEK, NOW, {}) if row.name == "田中の")
+    only = summarize_due(project, WEEK, NOW, {}, "田中")
+    assert [row.name for row in only] == ["田中の"] and only[0].moment == everyone.moment
+
+
+def test_summarize_passes_the_member_and_lists_the_member_names() -> None:
+    project = shared_project()
+    everyone = summarize(project, WEEK, NOW, {})
+    assert everyone.member is None and everyone.members == ["田中", "佐藤"]
+    only = summarize(project, WEEK, NOW, {}, member="田中")
+    assert only.member == "田中" and only.members == ["田中", "佐藤"]
+    assert only.progress.counts[Status.DONE] == 0 and everyone.progress.counts[Status.DONE] == 1
+    assert list(only.loads) == ["田中"] and [row.name for row in only.workload] == ["田中"]
+    assert only.team.tasks[Status.NOT_STARTED] == ["共同"]
