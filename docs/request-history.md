@@ -76,6 +76,9 @@
 | PlantUML 出力(プレビューの「PlantUML として保存」。`@startgantt`〜`@endgantt`) | `plantuml-export` | PR #19(05c601a。2026-10-15) | `plantuml.py`。描画のテストは `java` と `plantuml.jar` があるときだけ |
 | 見送った軽微な指摘を開発者向けメモに記録 | — | PR #20(33e1a59。2026-10-15) | ドキュメントのみ |
 | 拡大中に、プルダウンの下の候補が見えなくなる(Quasar のメニューが画面の高さを誤る。拡大中は`behavior=dialog`にして直した) | — | PR #30(be3dd15。2026-10-18) | テスト 2,839 件。実機確認済み |
+| PlantUML の取り込みで、日付のないチャートは取り込み日を起点にする(PlantUML の規則どおり、相対の日数で解く) | `plantuml-import` | PR #33(2026-10-18) | 実機確認済み |
+| PlantUML の取り込みで、`requires`・`is N% complete`・`<style>` を読む | `plantuml-import` | PR #34(2026-10-18) | 実機確認済み |
+| 進捗度の入力をタスクの欄 1 つにする(実績の区間の進捗度を廃止。旧ファイルは読込時にタスクの進捗度へ寄せる) | `task-progress` | PR #35(2026-10-18) | テスト 2,827 件。実機確認済み |
 
 ## 未着手の整理
 

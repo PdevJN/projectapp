@@ -1,138 +1,24 @@
 # 作業記録
 
-最終更新: 2026-10-18(要望 28〔カスタムテーマ。PR #26〕を`develop`へマージ済み。`develop`は ef8ade3。テスト 2,836 件と`ty check`が通る) / 2026-10-17(要望 36〔Undo / Redo。PR #24〕を`develop`へマージ済み。`develop`は 89b058d。テスト 2,761 件と`ty check`が通る) / 2026-10-16(要望 37〔PR #21〕・38〔タスクの進捗度。PR #22〕を`develop`へマージ済み。`develop`は 3fe89a3。テスト 2,730 件と`ty check`が通る) / 2026-10-13(要望 10 の 3 番目〔git の状態表示。PR #13・#14〕を`develop`へマージ。4 番目〔コミットとプッシュ〕を`feature/git-commit-push`で実装・レビュー済み、push と PR は未) / 2026-10-11(要望 32〜36 の登録、プロジェクトメニューの見直し・タスクのダイアログの入力の見直し・ESC の不具合 2 件・完了予定のヒントの重なりを `develop` へマージ。`develop` は 03cd469) / 2026-10-11(カテゴリ機能(要望 29)をマージ) / 2026-10-10(データの持ち方の見直し: 提案 1 `version` と提案 2 メンバー・セクションの安定 id を `develop` へマージ・プッシュ)
+最終更新: 2026-10-18(`develop`は e2ef199。テスト 2,827 件と`ty check`が通る。過去の最終更新と「現在の状況」の経緯は`docs/work-log.md`)
 
 ## 現在の状況
 
-**2026-10-17〜18 の作業(要望 28: カスタムテーマ。PR #26 で`develop`へマージ済み〔マージコミット ef8ade3〕。ブランチ`feature/custom-theme`は未削除。テスト 2,836 件と`ty check`が通る。実機確認は完了)**
+**2026-10-18 時点: `develop` は e2ef199(PR #35 まで)。作業ブランチは docs 系 4 本(PR 作成待ち。マージはユーザーの指示があってから)**
 
-- 設計書`2026-10-17-custom-theme-design.md`、実装計画`2026-10-17-custom-theme.md`(6 タスク。native 方式で実行)。`theme.py`(純粋関数)・`theme_dialog.py`(ダイアログ)・`config.py`(`custom_theme`)・`views.py`(`apply_theme`・メニュー)・CSS を`var(--app-*, 今の値)`に。
-- 設計からの変更: 基調を切り替えると背景と文字を新しい基調の既定値に入れ替える(2026-10-18。実機確認のあとの要望)。`ui.color_input`は検証がないため`ui.input`+`ui.color_picker`にした。キャンセルは`on_value_change`で検知。`save_custom_theme(select=True)`で色と`theme: custom`を 1 回で保存。
-- 最終レビューで直したもの: カスタムから出ると primary が Quasar 既定(`#1976D2`)になる〔`theme_js(None)`が`--q-primary`を外していた。`BRAND_PRIMARY`へ明示的に戻す〕、明るいヘッダーでプロジェクトのコンボが読めない〔文字・枠・ラベルをヘッダーの文字色に追従〕。カスタムの既定(ライト)ではヘッダーの文字が黒になる(白とのコントラスト 3.06、黒と 6.8。設計書の「白か黒の良いほう」に従った)。先送りの軽微: `config.json`の`ValueError`を捕まえない、変更せず適用するとスクロールバーを描き直さない、`既定に戻す`でプレビューが複数回走る、追従を外すとヘッダー欄が古い値に戻る、色の選択部品が今の色から始まらない。
-- 実機(ネイティブ)の確認: 次の 6 項目すべて確認済み(2026-10-18。ユーザーの申告。項目ごとの数値などは記録していない。確認のあとの要望は、基調の切り替えで背景と文字を入れ替えること 1 件)。 ①ライトの`body`の文字色が`#000000`と一致する(違えば`DEFAULTS["light"].foreground`を直す) ②ダーク基調でスクロールバーが描き直される ③PNG の背景がカスタムの背景になる ④明るいヘッダー(例`#ffeb3b`)で文字が黒になり、ボタン・チップが見える ⑤プレビューとキャンセル・ESC・外側クリックでの復元、適用後の再起動で色が復元される ⑥自動・ライト・ダークの見た目が変わっていない。
+- 2026-10-18 にマージ済み: #29(要望 28/36 の履歴修正)・#30(拡大中にプルダウンの下の候補が消える。`behavior=dialog`)・#31(要望 34: 手指定の完了予定でも算出値を参考表示)・#32(履歴)・#33(PlantUML 取り込み: 日付がなければ取り込み日を起点)・#34(`requires`・`is N% complete`・`<style>` を読む)・#35(進捗度の入力をタスクの欄 1 つに。実績の区間の進捗度は廃止し、旧ファイルは読込時にタスクの進捗度へ寄せる)。
+- docs 見直し(ユーザー依頼): ① README / `docs/development.md` / RULE(`docs/readme-development-refresh`) ② `CLAUDE.md` の突き合わせ(`docs/claude-md-audit`。差異は「添付ファイル」が未実装なこと、古い一文 1 件) ③ 設計書に状態と索引(`docs/design-docs-index`。`docs/superpowers/README.md`) ④ 作業記録(`docs/work-log-refresh`)。
+- 学んだこと: 実機確認を頼む前に、チェックアウト中のブランチを確かめる。`ui.select.default_props` はクラス全体の状態なので、テストで戻す(`conftest.py`)。`git push`は keychain で止まるので`GIT_TERMINAL_PROMPT=0 timeout 60 git -c credential.helper= -c credential.helper='!gh auth git-credential' push`。
+- 手で消すもの: `~/.projectapp/進捗度_旧データ_簡易.json`・`進捗度_旧データ_区間.json`(確認用に作ったテストデータ)。
+- 次: 未着手の要望(5・10 の残り・11・24・30〜33・35)から、ユーザーが選ぶ。
 
-**2026-10-16 の作業(要望 38: PR #22 で`develop`へマージ済み〔マージコミット 3fe89a3。ブランチ`feature/task-progress`は削除済み〕。実機確認済み。テスト 2,730 件と`ty check`が通る)**
-
-- `Task.progress: int | None`(0〜100。ファイル形式 version 5。version 4 以下のキーは読まない。チェックポイントは`None`)。現在値は`timeline.current_progress`(区間を優先、なければタスクの値)。編集ダイアログに`TaskProgressField`(区間に進捗度があれば読み取り専用で区間の値を示し、タスクの値は変えない)。PlantUML の取り込みは、1〜100% を`Task.progress`に入れる(0 は入れない。通知の「進捗度を取り込まなかった」は廃止)。状態と進捗度は連動させない。
-- 注意: `IntervalFields.bind`は最後のコールバックを保持する。変更時の処理は`on_actual_change`に 1 つにまとめる(2 回`bind`すると、状態の提案が壊れる)。
-- 設計書`2026-10-16-task-progress-design.md`、実装計画`2026-10-16-task-progress.md`(5 タスク。native 方式で実行済み)。実機で確認済み(進捗度の欄・読み取り専用・チェックポイント・取り込み)。次の要望は未決(未着手は 5・10・11・24・28・30〜36)。
-
-**2026-10-16 の作業(要望 37。PR #21 で`develop`へマージ済み。以下は当時の記録)**
-**2026-10-16 の作業(ブランチ`feature/plantuml-import`〔`develop`の33e1a59から。PR #21〕。実装・実機確認まで完了。テスト 2,689 件と`ty check`が通る。レビュー待ち)**
-
-- 実装を完了(ネイティブ方式。`puml_import.py`・`export.ask_open_path`・`ファイル`メニュー)。実機で 2 点を直した: ① ファイル選択の拡張子は pywebview の書式(`;`区切り。空白区切りは拒否される)。② 確認ダイアログの中で作ったダイアログは、確認が閉じて削除されるときに一緒に消える(NiceGUI の`Dialog`は作成時の文脈の要素に紐づく)。名前入力は`with self.client:`で画面の直下に作る(`save_then`・`save_as_then`)。確認ダイアログから別のダイアログを開く経路を足すときは同じ注意が要る。
-- 計画からの変更: 先行の循環は、循環になる連結だけ外す(そのままだと読込の検証が取り込み全体を拒否する)。
-- PR #21 は`develop`へマージ済み(1a081c2)。
-
-(以下は、計画段階の記録)
-
-- 要望 37(PlantUML の取り込み: 他所の PlantUML のガントから、新規プロジェクトを作る)を、brainstorming → 設計書 → 実装計画まで進めた。設計書`2026-10-16-plantuml-import-design.md`(承認済み)、実装計画`2026-10-16-plantuml-import.md`(5 タスク。承認待ち)。**次は、計画のレビューと、実行方法の選択(subagent-driven か native。推奨は native)**。
-  - 決めたこと: 取り込み先は保存前の新規プロジェクト(追加はしない。取り込み直後は未保存の扱い)。日付は取り込み時に PlantUML のルールで解決し、完了予定は直接入力の値(`planned_end_manual`は偽)。休み(`closed`・`open`)は計算にだけ使い保存しない。担当者`{名前:50%}`はメンバーを自動作成(基本比率 100%)。進捗は状態だけ決める(0=未着手・1〜99=実行中・100=終了)。**進捗度は取り込まない**(入れ物が実績の区間にしかなく、実績を捏造しないため。`Task.progress`の新設は要望 38 として別機能)。
-  - 実装の構成: `puml_import.py`(`_Scanner`→`_Resolver`→`_Builder`。結果は`dumps_project`→`parse_project`で検証)、`export.ask_open_path`、`ファイル`メニューの`PlantUML を取り込む`(`file-import-plantuml`)。
-  - 確かめたこと: 手元の`plantuml.jar`(1.2021.15)で、`starts at [X]'s end`・`starts N days after`・`happens at`・`is N% completed`・`->`が構文エラーにならない。
-  - 計画の細部(設計書より細かい。Task 5 で設計書へ反映): 日付の指定は曜日の指定より優先する、`'s start`の参照は先行にしない(押し出しの意味が変わるため)、日程の求まらないマイルストーンは日程なしの通常タスクにする、非ネイティブでは項目を押すと通知する。
-- 記録の追い付き: 要望 37・38 を`docs/request-history.md`・`docs/requests.md`に登録。2026-10-14〜15 のイベント(PR #18)、PlantUML 出力(PR #19)、見送った軽微な指摘(PR #20)の実績を`request-history.md`に追記した。
-- 未了: 計画のレビュー、実行方法の選択、実装(Task 1〜5)、実機確認、push と`develop`向け PR(指示待ち)。
-
-**2026-10-13 の作業(ブランチ`feature/git-commit-push`〔`develop`の41f3091から。d19b549まで〕。テスト 2,418 件と`ty check`が通る。push と PR は未)**
-
-- 要望 10 の 4 番目の子(コミットとプッシュ)を、ネイティブ方式(`executing-plans`)で実装した。設計書`2026-10-13-git-commit-push-design.md`(承認済み)、実装計画`2026-10-13-git-commit-push.md`(6 タスク)。
-  - `gitops.py`(`list_changes`・`commit`・`push`・`default_message`・`valid_name`)、`gitstate.run_git`・`failure_reason`の公開(`GIT_TERMINAL_PROMPT=0`)、`forms.open_commit_dialog`、`MainView`の`Git`メニュー(左から 4 つ目)・`git_reason`・`update_git_menu`・`run_commit`・`run_push`・`git_busy`・`later`、`Ctrl/Cmd+K`(コミット)・`Ctrl/Cmd+Shift+K`(プッシュ)。
-  - 決めたこと: コミットは一覧から選ぶ(既定は全選択)・メッセージは自動の案つきで編集可(前回の案と同じときだけ更新)・ボタンは「コミット」と「コミットしてプッシュ」・ブランチ切り替えは入れない・上流なしはプッシュ不可。`commit --only`で選んだファイルだけ(別に stage したファイルは入れず、その stage も残る)。
-  - 実機で分かったこと: `status -z`のパスはルート基準(名前は最後の`/`以降)・改名は追加と削除の 2 件・`git show`は同内容の削除+追加を改名にまとめる(テストは`--no-renames`)・BSD の`sed`は`\b`非対応。
-- 全体レビュー(fable): Critical なし。Important 1 件(作業ツリーでないと「状態を読み直す」まで押せない)は修正済み(d19b549。`refresh`は常に可)。
-- **保留した Minor**(`.superpowers/sdd/2026-10-13-git-commit-push/progress.md`にも記録): (1) 確認の間に格納先を変えると名前と`project_dir`がずれる〔`commit`が再検査するので誤コミットなし〕 (2) `list_changes`がプロジェクト名として不正な名前(`a*b.json`等)も返し、チェックしたままだとコミット全体が失敗する (3) `add`成功後に`commit`が失敗すると stage が残る (4) ssh のパスフレーズ・ホスト鍵確認は止まらない〔`ssh -o BatchMode=yes`の検討。Windows のタイムアウト後の復帰も要確認〕 (5) ダイアログの二重起動・閉じた画面での`request_git_refresh`の例外・`commit_files`の予期しない例外が通知されない (6) 開いている間は`push_blocked`が更新されない。
-- 未了: 実機確認(押せない項目のツールチップが出るか・ヘッダーの幅〔メニューが 5 つ〕・実際のコミットとプッシュ・拒否の通知・ダークテーマ)、Minor 4・3 を今回含めるかの判断、push と`develop`向け PR(指示待ち)。マージ後は 5 番目(プルとマージ)の設計。
-
-**2026-10-13 の作業(要望 10 の 3 番目の子。PR #13・#14 で`develop`へマージ済み、`develop`は 41f3091)**
-
-- git の状態表示(`gitstate.py`・ヘッダーのチップ)。設計書`2026-10-12-git-status-design.md`(2026-10-13 確定)、実装計画`2026-10-13-git-status.md`。実機確認済み(Windows のコンソール窓のみ未)。レビューの Minor 1・2 は修正済み(b449203)、Minor 3(巨大リポジトリで遅い)は保留。ローカルのマージ済みブランチは削除済み。
-
-**2026-10-12 の作業(`develop` は 210766f。テスト 2,256 件と `ty check` が通る)**
-
-- PR #11 要望 8(格納先の指定)をマージ(210766f)。ネイティブで実機確認済み。全体レビューの Important 1 件(起動時に既定の場所へ戻ったあと、既定の場所を選び直しても設定が直らない)は修正済み。
-- 要望 10(git / GitHub 連携)を 5 つの子に分割して設計中(`docs/request-history.md`の「要望 10 の分割」)。2 番目の子(外部変更の検知)は、ブランチ`feature/external-change`で実装済み(マージ待ち。テスト 2,275 件と`ty`が通る)。設計書`2026-10-12-external-change-design.md`、実装計画`2026-10-12-external-change.md`。決めたこと: 3 択の確認(上書き・名前をつけて保存・キャンセル)、判定は内容の SHA-256、消えていたら通知して保存、`.bak`は上書きのときだけ 1 世代、調べるのは保存の直前だけ。`write`と`save_then`の続きの引き継ぎが、実装の要点。
-
-**2026-10-11 の作業(すべて `develop` へマージ・プッシュ済み。`develop` は 03cd469。テスト 2,224 件と `ty check` が通る。`ty` は dev 依存に追加した: `uv run ty check src`)**
-
-- PR #4 カテゴリ機能(要望 29。75126f7)。
-- PR #5 プロジェクトメニューの見直し(0cce975。設計書 `2026-10-11-project-menu-design.md`、実装計画 `2026-10-11-project-menu.md`。architectural・Native 実行)。新規作成をファイルメニューへ、プロジェクトメニューは「設定 / メンバーとパラメータ / ダッシュボード」、メンバーとパラメータは 1 つのタブ付きダイアログ(適用はタブごと・適用しても閉じない・未適用のタブに `●`・`Ctrl/Cmd+Shift+M`)、全メニュー項目にアイコン(`MenuItem`)。実機で、低いウィンドウでタブのパネルが縮んで下が切れる不具合を見つけて直した(`flex-shrink: 0`)。
-- PR #6 タスクの追加・編集ダイアログの入力の見直し(786097f。設計書 `2026-10-11-task-dialog-input-design.md`、実装計画 `2026-10-11-task-dialog-input.md`。architectural・Native 実行)。レイアウトの切り替え(予定・実績 / すべて。`config.json` の `task_layout`)、日付・時刻の省略形(`dateinput.py`。全角も可。実在しない日付は補正しない)と今日・明日・来週月のチップ、開始・完了の横並び(幅 44rem)、工数の単位(時間・日・週・月。`effortunits.py`。時間を正本として持つ `EffortField`)とプリセットと参考値、工数の桁数の検証(小数点以下 2 桁。古い値は変えなければ保存できる)、割り当て率はメンバーを選んだ行だけ表示。最終レビューの指摘 3 件(可視性が登録順に依存・換算の説明が隠れる・全角が整形されない)を修正。
-- PR #7 要望 30・31 の記録と、`docs/requests.md`・`docs/request-history.md` の新設。
-- PR #8 ESC の不具合 2 件(d6e5a45): 未保存のとき ESC で出す確認ダイアログが一瞬で消える(Quasar は window の keydown で ESC の印を付け、keyup で一番上のダイアログへ伝える。keydown で開いた確認ダイアログが、同じ ESC の keyup で閉じていた。`ESCAPE_KEYDOWN_JS` で `stopPropagation`)、入力欄の ESC で macOS の警告音が鳴る(キーガードが入力欄を除外していた。ESC は入力欄でも止める)。ネイティブで、音が鳴らないことを確認済み。
-- PR #9 完了予定のヒントが、時刻の入力が並ぶと折り返して、下のチップに重なる(03cd469。入力欄の `hint` は固定の高さ。通常のラベル `task-end-hint` にした)。ネイティブでの見た目は未確認。
-- 見送った軽微な指摘: メンバーとパラメータのダイアログで、キャンセル・ESC・外側クリックが未適用の編集を確認なしに捨てる / 未適用の印を 0.3 秒ごとにポーリング / `members_panel` の内側の `current` が外側と同名 / パラメータの適用でメンバーのエラー表示が消えない / `Ctrl/Cmd+Shift+M` が一部の環境でブラウザの既定と重なりうる / `●` が色だけ / 読めない日付・時刻を入力欄で知らせる機能(今は保存時のエラー)。
-- 要望 32〜36(2026-10-11 に受領。未着手): 詳細は `docs/requests.md`。
-
-**データの持ち方の見直し(2026-10-10。プロジェクトファイルの構造を批判的にレビューして出た提案。1・2 は完了・`develop` へマージ・プッシュ済み(マージコミット 3dfb667)。テスト 1,881 件と `ty` が通る。ネイティブで実機確認済み)**
-
-1. (完了)`version`: ファイルの先頭に `version`(整数)を保存。キーなしは 1 として読み、このアプリより新しい値と不正な値は読込を拒否する(`storage._check_version`)。bounded。マージコミット bc1ce3e。
-2. (完了)メンバーとセクションの安定 id(ファイル形式 version 2。architectural・Native 実行)。設計書 `docs/superpowers/specs/2026-10-10-stable-ids-design.md`、実装計画 `docs/superpowers/plans/2026-10-10-stable-ids.md`。決定: `Member.id`・`Section.id`(`new_id()` の 8 桁の 16 進、`compare=False`)を保存し、担当者はファイルではメンバー id で指す(`{"member", "allocation"}`)。**実行時の `Assignee` は名前のまま**(読込が id から名前へ戻す。約 30 箇所の名前参照は変えない)。version 1 は読込の最後に id を振る(`_assign_ids`)。保存は重複 id を拒否し(`_check_unique_ids`)、メンバーにいない担当者名は、ファイルにだけメンバーを補う(`_dump`)。新しい id は `new_id(project.used_ids())` で振る。メンバーのダイアログは `MemberRow.id` で行の id を引き継ぐ。最終レビューは Critical・Important なし。持ち越した軽微な指摘: 消して同じ内容で足し直すと古い id が残る(`Member.id` が `compare=False` のため `apply_members` が早期 return)、補ったメンバーの id が保存のたびに変わる(画面からはほぼ到達しない)、手書きの version 2 で同名メンバーの id を 2 つ指す担当者は拒否される。
-3. 保存と読込のシリアライズ層の統合(未着手): 保存は `asdict`、読込は手書きの検証で非対称。状態・優先度は表示用の日本語をそのまま保存している(「開始」→「未着手」で移行が要った)ので、内部コードで保存する案。`_dump` の担当者の置き換えは、その途中経過。
-4. 実行時の id 化(未着手。優先度は低い): `Assignee.member_id` にして、改名の連鎖処理(`views.apply_members`)をなくす。約 30 箇所と大量のテストに影響する。要望 5 の再設計で必要になったら行う。`handoff.py` の id(`uuid5`(プロジェクト名・タスク名))の見直しも同じ時に行う。
-5. (完了・マージ待ち)保存時の外部変更の確認(要望 10 の 2 番目の子): 読んだ時点の内容のハッシュを覚えて(更新時刻ではない)、別プロセス・iCloud・git による変更を黙って上書きしない。バックアップ(`.bak`)も。要望 8(格納先の指定)・10(git 連携)の前提。
-6. その他、レビューで挙げた未対応の指摘: ファイルの中の `name` を読込で使っていない(`path.stem` が正)、完了予定を保存しないので祝日・稼働時間の更新で過去の予定が動く、`planned_end` が 2 つの意味を持つ、チェックポイントの不正な状態が表現できる、進捗度が実績の区間の中にあり実績のないタスクは持てない、添付ファイル(CLAUDE.md にある)が未実装。
-
-**要約(2026-10-07 時点)**
-
-- `develop`(最後のマージコミット 8eca5c3): 要望 1・2・3・4・6・9・12〜19・23 と、優先度の背景色、実績の複数区間、エクスポートとプレビュー、セクションの折りたたみ、テストの高速化・並列実行・ヘッダーのラベルのまとめまで、マージ済み。マージ後に、テスト 1,271 件(並列で約 12 秒)と `ty check` が通る。
-- 名前の欄の幅(要望 23。2026-10-07 に `develop` へマージ。ブランチ `feature/name-width` は削除済み。設計書 `2026-10-06-name-width-design.md`、実装計画 `2026-10-06-name-width.md`。Native で実行し、最終レビュー済み(Critical なし)): 名前の欄の右端 6px(CSS の疑似要素)をドラッグして、120〜480px(既定 200)に変えられる。右端のダブルクリックで既定へ。幅は `config.json` の `name_width`(全プロジェクト共通。テーマと互いを消さない。一時ファイル経由で書く)。位置は CSS 変数 `--name-w` と `from_name()`(`calc(var(--name-w) + Npx)`)で、`marker_left` などは境界からの相対値。**ドラッグ中は `--name-w` を書き換えず、名前の欄の幅だけを直接動かし、離したときに 1 回だけ更新する**(変数の書き換えは、約 1,800 要素のスタイルを再計算して、約 30fps にカクつくため。直して 60fps)。ネイティブウィンドウで実機確認済み(問題なし)。
-- `feature/faster-tests` の、テストの高速化と、ヘッダーのラベルのまとめは、マージ時に最終レビューを行っていない。ヘッダー(日付・曜日)の見た目は、実機で確認済み(2026-10-07。問題なし)。
-- テストの高速化(2649e93・32f4a08・88e7625): 全体テストが 415 秒から 47 秒。`test/conftest.py` と `test/test_leak_cleanup.py`。詳しくは「次にやること」の 7。
-- 並列実行(7fa9d88。`pytest-xdist`): `uv run pytest -n auto` で約 10 秒。
-- ヘッダーのラベルのまとめ(a03d69f。設計書 `2026-10-06-header-labels-design.md`): ヘッダーの日付・曜日を 1 つの HTML 要素にまとめた。再描画が、429 列のプロジェクトで約 250ms → 約 40ms。
-- **プッシュ**: `develop` は 2026-10-09 に 44f74d7(追加ボタンの作業記録)までプッシュ済み(マージコミットは 12adb0e)。以降は、許可を得てから行う。
-- 追加ボタンの配置とアイコン(2026-10-09。`develop` へマージ済み(マージコミット 12adb0e。ブランチ `feature/add-buttons-ui` は削除済み)。ネイティブで実機確認済み): 「セクション追加」を、ツールバーからチャート末尾の行(マーカー `bottom-end`、ボタン `add-section`。プレビューでは出さず、絞り込み中は出す)へ移した。アイコンは、タスクを足すボタン=`add_task`、セクション・サブセクションを足すボタン=`create_new_folder`。テスト 1,833 件と `ty` が通る。小さな変更のため、設計書・実装計画は作っていない。
-- **ネイティブ(WebKit)でだけ起きる不具合は、実機でないと見つからない**(2026-10-09 に、セクションの入れ子の実機確認で 2 件見つかった。ヘッドレス Chrome では再現しない)。確認用に、`ui.run(native=True)` のスクリプトで JS を実行し、`screencapture -D <番号>` で画面を撮って確かめた(測定は、実際の WebKit の座標・`elementFromPoint` で)。
-  - 画面の拡大中、WebKit は `getBoundingClientRect` と `offsetWidth` を拡大前の値で返し、`clientX` と `elementFromPoint` は画面上の座標を使う。`gantt_drag.py` の `cssScale` は `body.style.zoom` から取り、名前の欄の右端の判定は、`elementFromPoint` で右へ掴み場所の幅(×倍率)進んだ点が欄の外かで決める(a73deeb。以前は拡大 110% 以上で、名前の欄の幅の調整もバーの移動量も外れていた)。
-  - 画像の書き出し(`html-to-image`)は、フォントの埋め込みで `@import` 先の CSS を画面のスタイルシートへ `insertRule` し、`@layer` の外に出て、書き出しのあと見出しの高さと日付のラベルがずれたままになる。`toPng` に `skipFonts: true` を渡して防ぐ(b8ff07c)。画像の見た目は変わらない。
-- 担当者向けファイルの書き出し(要望 4。2026-10-07。`develop` へマージ済み(マージコミット baa0656。ブランチ `feature/assignee-handoff` は削除済み)。**ネイティブで実機確認済み(2026-10-07)**。設計書 `2026-10-07-assignee-handoff-design.md`、`2026-10-07-dashboard-design.md`、実装計画 `2026-10-07-assignee-handoff.md`。Native で実行): ヘッダーの「担当者へ書き出し」で、メンバーを選び、その担当の未終了タスクを todoapp 形式の `todos.json` に書き出す(`handoff.py`。todoapp の形式は `file-format.md`、git 管理外)。`ImageExporter.ask_path` はファイルの種類を引数に取る。テスト 1,195 件と `ty check` が通る。
-- ダッシュボード(要望 6。2026-10-07。`develop` へマージ済み(マージコミット 5d4018c。ブランチ `feature/dashboard` は削除済み)。**ネイティブで実機確認済み(2026-10-07)**。設計書 `2026-10-07-dashboard-design.md`、実装計画 `2026-10-07-dashboard.md`。Native で実行): ヘッダーの「ダッシュボード」で、ガントチャートと入れ替える(ESC・「戻る」で戻る。読み取り専用)。期間は今週・今月・全期間。4 つの柱: 進捗と遅れ・人ごとの負荷(`timeline.counted_span`。割り当て超過の縞と同じ前提)・工数の予定と実績(終了したタスクも予定に数える)・期限とマイルストーン。`dashboard.py`(純粋関数)、`dashboard_view.py`、`GanttChart.set_visible`(隠す前にスクロール位置を覚えて戻す)。色は dataviz の検証で、予定=青 #1e88e5・実績=緑 #43a047(灰青は不合格)。最終レビュー済み(Critical なし。Important 3 件を修正: スクロール位置をスクロールのたびに覚える・「全期間」で実行中の実績を今日まで数える・負荷を同時刻の最大にして縞と一致させる)。テスト 1,246 件と `ty check` が通る。見送った軽微な指摘: 期限の一覧の赤がタスク単位(未来の完了予定の行にも付く)、ページ全体の縦位置は覚えていない、開いている間の祝日の初回取得を反映しない、再度開くとき前回のカードが 1 フレーム見える、`end` が先の区間・ピークの印に凡例がない。
-- ヘッダーの整理(2026-10-07。`develop` へマージ済み(マージコミット 9118de3。ブランチ `feature/header-menus` は削除済み)。**ネイティブで実機確認済み(2026-10-07)**。bounded: 設計はチャットで承認。設計書・実装計画はなし): ヘッダーを 1 行にした(左からメニュー 4 つ。`ファイル`〔開く・保存・エクスポート・祝日を更新〕・`プロジェクト`〔設定・メンバー〕・`エクスポート`〔担当者へ書き出し〕・`ヘルプ`〔ショートカットヘルプ〕。右側にプロジェクトの切り替えのコンボ・ダッシュボードのアイコン・テーマのメニュー〔1 アイコン + 自動・ライト・ダーク〕)。ヘッダーは画面の上端・左右いっぱいの四角い帯(`ui.header`。ダークは暗めのテーマカラー、白文字。`HEADER_CSS`)、フォント 12px(-2)、メニューのボタンは楕円型(`app-menu-btn`)。プロジェクト名はヘッダーの外(メイン側の左上。`title_box`。12px の太字)。ヘッダー・タイトル・メニューは折り返さず、縮むのはプロジェクト選択のコンボだけ(中のファイル名は 10px)。右下のヘルプ FAB と右上のテーマ FAB は廃止。マーカー(`save-project` など)は維持し、`file-open`・`menu-*`・`menu-*-items`・`help-shortcuts`・`theme-*` を足した。`views.py` の `header` / `header_menu` / `build_help_dialog`。チャートの高さの上限は、ヘッダーが低くなったので `CHART_TOP_OFFSET_PX` を 190 → 170 にし、`FAB_ZONE_PX` を廃止した(見積もり。実機で確認済み)。削除したテスト: `test_refresh_holidays_button_is_right_next_to_the_project_title`(旧ヘッダーの配置の検査。メニューのテストに置き換え)。テスト 1,254 件と `ty check` が通る。
-- プロジェクト格納フォルダを開くボタン(2026-10-07。`develop` へマージ済み(マージコミット fec31e0。ブランチ `feature/open-folder` は削除済み)。**ネイティブで実機確認済み(2026-10-07。Finder が開くことも確認)**。bounded: 設計はチャットで説明。承認の確認は省いた): ヘッダー右側の、ダッシュボードとテーマの間に、`folder_special` のアイコン(`open-folder`)。押すと `base_dir`(`~/.projectapp`)を、`filemanager.open_folder`(macOS は `open`、Windows は `explorer`、それ以外は `xdg-open`)で開く。フォルダがなければ作る。失敗は通知。テストでは `MainView.open_folder` を差し替える(自動テストでは、実際にはファイラを開かない)。テスト 1,263 件と `ty check` が通る。要望 8(格納先の指定)を作るときは、このボタンも新しい格納先を開くこと。
-- 「新規プロジェクト作成」(プロジェクトメニューの先頭)と、ファイルメニューの「名前をつけて保存」を追加(2026-10-07。`develop` へマージ済み(マージコミット 37ab27e。ブランチ `feature/file-new-save-as` は削除済み)。**ネイティブで実機確認済み(2026-10-07)**。bounded: 設計はチャットで説明した。要件が明確なので、承認の確認は省いた): `file-new`(編集中は「保存して作成・保存せず作成・キャンセル」の確認。保存前の「新規プロジェクト」にする)・`file-save-as`(名前の入力ダイアログ。初期値は現在の名前。既存の名前は拒否。成功したら新しいファイルが現在のプロジェクトで、元のファイルは残る)。`views.py` の `request_new` / `new_project` / `save_as` / `show_project`(`open_project` と共通)、`forms.py` の `open_name_dialog(title, initial)` と `open_unsaved_dialog(purpose)`。テスト 1,261 件と `ty check` が通る。
-- メニューの微調整(2026-10-07。`develop` へマージ済み(マージコミット 8eca5c3。ブランチ `feature/menu-tweaks` は削除済み)。**ネイティブで実機確認済み(2026-10-07)**): ファイルメニューの「エクスポート」を、エクスポートメニューの先頭へ移し、「チャートプレビュー」に改名した(マーカー `export-preview` は同じ)。ファイルメニューは、開く・上書き保存(旧「保存」。マーカー `save-project` は同じ)・名前をつけて保存・(水平線)・祝日を更新。
-- タスク同士の矢印連結(2026-10-07。PR #1 で `develop` へマージ済み(マージコミット 3947822。ブランチ `feature/task-links` は削除済み)。ネイティブで矢印の位置は実機確認済み。Native で実行し、最終レビュー済み(Critical・Important なし)。設計書 `2026-10-07-task-links-design.md`、実装計画 `2026-10-07-task-links.md`): 後続の実効の開始 = `max(自分の開始予定, 先行の完了)`(`timeline.Schedule`。保存しない)、連結は編集ダイアログの「先行タスク」欄だけ、`Task.id` と `predecessors`、矢印は `links.py` と `ui.html` 1 要素の SVG(最初の行の直前の高さ 0 の要素が基準)。後続のバーを手で動かすと、その位置が自分の開始予定になり、先行を戻しても追従しない(押し出しのみ。確認してこのままとした)。実機の WKWebView は、年・月の帯が設計(22px)より高く、ヘッダーが約 30px 高い(原因は未調査)。**未確認の実機項目: 折りたたみ・絞り込み、PNG(SVG の CSS 変数・marker が画像に出るか)、120 タスクの速度**。繰り延べた軽微な指摘: 深い連鎖(約 300 超)の `RecursionError`、開始予定が空の棒のドラッグが無反応、`Schedule` の複数回生成(`handoff._schedule` は O(n²))、`views.py` の import 順。(押し出しによる締切超過の先読みは、チェックポイントだけ `is_overdue` に入れた。)
-- タスクのリンクリスト(要望 25。2026-10-08。ネイティブで実機確認済み。`develop` へマージ済み。ブランチ `feature/url-links` は削除済み。architectural。Native で実行)。全体テスト 1489 件・`ty` 通過。最終レビューは Critical・Important なし。設計書 `docs/superpowers/specs/2026-10-08-url-links-design.md`、実装計画 `docs/superpowers/plans/2026-10-08-url-links.md`。見送った軽微な指摘: 読込で URL の長さ・制御文字を検査しない、読込でテンプレート名の前後の空白を取り除かない(手編集のファイルだけ)、`/` を含む ID は `%2F` になる(画面の説明文に一言足すと親切)、連鎖の改名(A→B、B→C)と「確認をキャンセルして再適用」のテストがない。仕様の要点: `Task.urls`(`TaskUrl`: `title`・`template`・`values`)と `Project.url_templates`(`UrlTemplate`: `name`・`pattern` に `{ID}`)。値のキーはテンプレートなしが `URL`、ありが `ID`。`http`・`https` だけ開ける。テンプレートの削除は確認を出し、使うリンクは URL に展開して残す。純粋関数は `urls.py`、開く処理は `browser.py`。ガントチャートと `todos.json` は変えない。
-- チェックポイント用のタスク(要望 21。2026-10-08。PR #2 で `develop` へマージ済み(マージコミット 8d735a6)。ネイティブで実機確認済み。ブランチ `feature/checkpoint` は削除済み)。全体テスト 1398 件・`ty` 通過。設計書 `docs/superpowers/specs/2026-10-08-checkpoint-design.md`、実装計画 `docs/superpowers/plans/2026-10-08-checkpoint.md`。仕様の要点: `Task.kind`(通常 / チェックポイント)。チェックポイントは締切だけを持ち(必須。状態は未着手・終了)、バーを出さず、状態の色の大きめの ◆(`CHECKPOINT_MARKER_PX`)を出す。`Schedule` では実効の開始・完了が締切(押し出されない。先行にすると後続を押し出す)。先行の完了が締切を超える見込みなら、行を赤くする(`is_overdue` のチェックポイントだけの条件)。ダッシュボードは、件数に含め、進捗率の重みから外す。
-- 未着手の要望: 5・7・8・10・11・20・21・22・24(後述)。
-- 書き出し(PNG)の文字の折り返し・省略の修正(2026-10-07 に `develop` へマージ。マージコミット b6882d6。ブランチ `feature/export-text-fit` は削除済み。bounded。ネイティブで実機確認済み: 月次の見出しの折り返しと ProjectCode の省略が直った)。ネイティブで書き出した PNG で、月の見出しが 2 行に割れ(`9月` → `9` / `月`。下線に重なる)、ProjectCode が省略される(`PRJ-001` → `PRJ-...`)不具合を確認した。原因: `html-to-image` が、各要素の計算済みの幅(小数の px)を複製に固定し、Web フォントを埋め込まないため、書き出しの文字の測り方がわずかに違うと、収まらずに折り返し・省略が起きる(半角の英数字を含む文字列だけ)。対策: 書き出しの間だけ、`export.EXPORT_CSS`(`white-space: nowrap`、`.code-chip` は `text-overflow: clip; overflow: visible`)を `<style>` で当て、終われば必ず外す(`finally`)。ヘッドレス Chrome で、チップの省略が直ることと、`<style>` が残らないことを確認済み。月の見出しの折り返しは、ヘッドレス Chrome では再現せず、ネイティブ(WebKit)で確認した(問題なし)。
-- 実機の確認は、すべて済み(2026-10-07。問題なし): ヘッダー(日付・曜日)の見た目、セクションの折りたたみ(矢印・件数・絞り込み中の自動展開・プレビュー・追加での展開)、エクスポート(画像化の見た目、ライト・ダーク、日次・週次・月次、長い期間、保存ダイアログ、ESC)、タスク表示のチップ(押して編集が開くこと、はみ出し、ダークテーマの背景色)、名前の欄の幅。確認待ちの項目は、なし。
-- 確認用のデータ(`~/.projectapp/`、確認後に削除してよい): `状態色テスト.json`、`区間テスト.json`、`チップテスト.json`、`エクスポートテスト.json`、`ダッシュボード_標準.json`、`ダッシュボード_境界.json`(要望 6 の確認用。日付は作成した 2026-10-07 の週が基準)。 矢印連結の確認用: `連結テスト.json`(17 タスク)、`連結テスト120.json`(120 タスク。速度の確認用)。
-
-**各作業の記録**
-
-- ヘッダーのラベルのまとめ(2026-10-06。ブランチ `feature/header-labels` で実装し、`feature/faster-tests` へ早送りで統合した。設計書 `2026-10-06-header-labels-design.md`。実装計画は書かず、設計書から直接 TDD で実装した): 日付・曜日の行(`label_row`)を、列ごとの `ui.column`・`ui.label` から、1 つの `ui.html`(`header_cell_html`)にした。再描画(完了まで)は、列が少ない 2 つのプロジェクト(42 列)で 60〜80ms → 約 30ms と 55〜70ms → 約 37ms、429 列のプロジェクトで約 250ms → 約 40ms、要素数は 1,472 → 186 個。個々のラベルのマーカー(`col-<日付>`・`weekday-<日付>`)をなくし、テストは `test/header_cells.py` で読む(`test_gantt.py`・`test_gantt_drag.py` の約 20 か所を書き換え、新しいテスト 3 件)。**見た目の実機確認は、まだ**(行の高さ・中央揃え・ダークテーマの文字色・スクロールでの固定表示・エクスポートの画像)。
-- セクションの折りたたみ(要望 19)は、2026-10-06 にブランチ `feature/section-collapse` で実装し、同日に `develop` へマージした(マージコミット 45d8063。ブランチ `feature/section-collapse` は削除済み)。設計書 `2026-10-06-section-collapse-design.md`、実装計画 `2026-10-06-section-collapse.md`(Native で実行)。方式: `GanttChart.collapsed`(セクションの添字の集合。保存しない)、`filtering.visible_task_indexes`(純粋関数。絞り込み中は折りたたみを無視)、見出しに矢印(`section-toggle-N`)と件数(`section-count-N`)、切り替えは再描画せず、行の `set_visibility` と矢印のアイコンだけを変える(`section_views`。再描画だと、列が多いプロジェクト(429 列)で約 230ms かかったため。2026-10-06 に変更し、約 0.3ms)、プレビュー(読み取り専用)は全展開で矢印なし、`MainView.save_task` は折りたたみ中のセクションへの追加で展開、`open_project` は全展開に戻す。テスト 1,061 件(再描画なしの切り替えの 5 件を足した)。**実機での確認は、まだ**。セクションの並べ替え・削除を足すときは、`collapsed` の添字を一緒にずらすこと。
-
-- エクスポートとプレビュー(要望 2)は、2026-10-05 に実装し、2026-10-06 に `develop` へマージ済み(マージコミット e7fbf52)。ブランチ `feature/export-preview` は削除済み。**プッシュは未実施**。設計書 `2026-10-05-export-preview-design.md`、実装計画 `2026-10-05-export-preview.md`(Native で実行)。方式: メイン画面を、同じ `GanttChart` の `ViewOptions`(期間・スケール・チップ・赤みと縞・読み取り専用)で描き直すプレビューモードにし(`preview.py` の `PreviewBar`、`MainView.enter_preview` / `exit_preview` / `save_image`、ESC で戻る)、同梱の html-to-image(`src/projectapp/static/`、MIT)で `data-chart-content` を PNG にして Python に返し、保存ダイアログで保存する(`export.py`。倍率 `min(2, 16384/幅)`、倍率 1 でも超えるときは警告して縮小)。設計書からの変更: `ViewOptions` に `scale` を足した(ツールバーのスケールと分ける)、戻るときスケールが違えば横スクロールは先頭へ。最終レビュー済み(Critical なし。Important 4 件を修正: 画像を分割して受け取る・印と進捗の塗りを期間に合わせる・列数の上限・保存中は画面を変えない。テスト 1,020 件)。見送った軽微な指摘: 保存ボタンを入力が不正でも有効に戻す、ESC が日付ピッカーと干渉する、保存ファイルの権限が 0600、`handle_move`/`handle_shift` が読み取り専用を検査しない、`ExportError`/`OSError` 以外の通知、PEP8、日次の最小列で足された期間外の日の棒。**実機での確認はこれから**(画像化の見た目、ライト・ダーク、日次・週次・月次、1 年以上の日次、保存ダイアログの戻り値、ESC)。保留: 期間にタスクがない行を隠すか、画像の見出し、分割保存。 実機の確認で出た改善(2026-10-06): 来年度のタスクなどで全期間が広いと、画像の文字が小さくなりすぎるため、プレビューを開くとき、全期間の幅が 6,000px(`PREVIEW_COMFORT_WIDTH_PX`)を超えるあいだ、メイン画面のスケールから 1 段ずつ粗くして開く(`preview.fit_scale`)ようにした。お知らせはバーに出し、設定を変えたら消す。しきい値は目安で、実機で見て調整する。
-- タスク表示の拡張(要望 9)・ProjectCode(要望 3)・優先度の背景色(2026-10-05 追加)は、2026-10-05 に `develop` へマージ済み(マージコミット 0278f64)。ブランチ `feature/task-chips` は削除済み。**プッシュは未実施**。テスト 911 件と `ty check` が通る。最終レビュー済み(Critical・Important なし)。見送った軽微な指摘: ドラッグ中の text/plain にチップの文字まで入る、頭文字が結合文字・ZWJ 絵文字だと欠ける、同じ頭文字の担当者を区別できない、チップの幅の合計が名前の欄に収まる前提のテストがない。設計書 `2026-10-05-task-chips-design.md`、実装計画 `2026-10-05-task-chips.md`(Native で実行)。`Task.project_code`(最大20文字。キーなし・null は空、文字列以外と超過は読込拒否)、編集ダイアログの入力(`task-project-code`)。名前の欄は `ui.row` の枠に作り替え(マーカー `task-<key>-<ti>` は枠。名前は `task-name-*`)、右に ProjectCode のチップ・担当の頭1文字(ツールチップで名前)・進捗(`fill_percent`)。優先度の背景色は CSS 変数 `--pbg`(`PRIORITY_BACKGROUNDS` / `PRIORITY_DARK_BACKGROUNDS`)。実機での確認はこれから(特に、チップを押して編集が開くこと = DOM の伝播、ProjectCode が長いときの名前の省略、ダークテーマの背景の濃さ)。保留: 頭文字が同じ担当者の区別。
-- 実績の複数区間と記録方式の設定(要望 15)は、2026-10-05 に `develop` へマージ済み(マージコミット ec64cba)。ブランチ `feature/actual-intervals` は削除済み。**プッシュは未実施**。テスト 875 件と `ty check` が通る。最終レビュー済み(Critical・Important なし)。見送った軽微な指摘: `apply_settings` を直接呼ぶと簡易へ戻せる(画面では防いでいる)、「開始の早い順に」のエラーだけ行番号がない、末尾の空行で状態の提案が止まる、空行を足しただけで閉じる確認が出る、簡易から区間へ切り替える通しのテストがない。設計書 `2026-10-05-actual-intervals-design.md`、実装計画 `2026-10-05-actual-intervals.md`(Native で実行)。`Project.actual_mode`(`ActualMode`。`simple` / `intervals`。キーなしは simple、不正は読込拒否)。設定ダイアログに「実績の記録方式」のトグル(2区間以上のタスクがあるあいだは、区間から簡易へ戻す選択を区間へ戻す。設計書の「選べなくする」の代わり)。`forms.build_actual_intervals`(空の行は無視、開始の昇順、重ならない、終了のない区間は最後の1つだけ、進捗度は前の入力以上)、`suggest_status(intervals=True)`(最後の区間が終わっていれば一時停止、進捗度100なら終了)。ダイアログの `IntervalFields`(行を足す・削除)。ガントチャートは、区間の間に点線(`actual-gap-*`、`ACTUAL_GAP_BACKGROUND`)。実機での確認はこれから。保留: 区間が多いときのダイアログの縦の長さ、区間ごとの進捗度の見た目。
-- 状態別のバーの色(要望 12)は、2026-10-05 に `develop` へマージ済み(マージコミット b014a5a)。ブランチ `feature/status-bar-color` は削除済み。**プッシュは未実施**。bounded(設計はチャットで承認。設計書・実装計画はなし)。テスト 824 件と `ty check` が通る。方式は「状態の色で上書き」: 予定の棒(40%の半透明)・進捗の塗り・実績の棒を、タスクの色(`task.color`。データには残す)ではなく、`STATUS_COLORS`(未着手=#78909c、実行中=#1e88e5、一時停止=#fb8c00、終了=#9e9e9e)で塗る。色は棒の `status-*` クラスが持つ CSS 変数 `--scolor` で、ダークテーマは `STATUS_DARK_COLORS`。`FINISHED_ACTUAL_COLOR` は表に吸収して削除。進捗の枠線・印(`--pstate`)、予定超過の赤い背景、割り当て超過の縞はそのまま。実機確認用のデータ `~/.projectapp/状態色テスト.json`(9/28 基準、8 タスク)を作った(確認後に削除してよい)。実機での見た目の確認はこれから。
-
-- タスク欄・見出しの固定表示(要望 13。見出しの上下固定を含む)は、2026-10-04 に `develop` へマージ済み(マージコミット 17ab309)。ブランチ `feature/sticky-name-column` は削除済み。bounded(設計はチャットで承認。設計書・実装計画はなし)。テスト 697 件と `ty check` が通る。`gantt.py`: 左の列(タスク名・セクション名・「タスク追加」の行・見出しの左端)を `position: sticky; left: 0` で固定し、見出しを `top: 0` で固定する(重なりは見出し > タスク名の列 > 棒・縞・格子線。`STICKY_Z_*`)。固定した要素は不透明な背景(`.gantt-sticky`。ライトは白、ダークは `--q-dark-page`)で、予定超過の行は赤みを重ねる。上下の固定のため、チャートの枠(`chart-scroll`)を縦横ともスクロールする枠にした(`overflow: auto`、高さの上限は `CHART_MAX_HEIGHT` = `calc(100vh - 290px)`。ヘッダー 190px とヘルプのボタンの分 100px の見積もり)。セクション名は 200px に収めて省略する。行のドラッグの青い線は、固定した列にも出す(`gantt_drag.py`)。ダークテーマでは、枠の背景と `::-webkit-scrollbar` の配色を明示し、テーマ切り替え後は `refresh_scrollbars()` で枠の `overflow` を切り替えて描き直させる。実機確認(画面 2 を `screencapture -D 2` で撮影)で、ライト・ダーク、日次・週次・月次の見え方を確認済み。**未確認**: ライトからダークへの切り替え後のスクロールバーの再描画(`refresh_scrollbars` の効果)と、行のドラッグで青い線が名前の列にも出ること。実機確認用のサンプル(`~/.projectapp/サンプル_固定表示.json`)は削除済み。
-- スクロール位置の維持(要望 16。固定表示の副作用の修正)は、2026-10-04 に `develop` へマージ済み(マージコミット 6ae313b)。ブランチ `feature/keep-scroll` は削除済み。bounded。テスト 704 件と `ty check` が通る。スクロールする枠(`chart-scroll`)を `build()` で一度だけ作り、`render`(refreshable)は中身だけを作り直す。行の移動・バーの横移動・タスクの編集・削除などの再描画(`set_project`)では、スクロール位置を動かさない。先頭に戻すのは、スケールの切り替え(横だけ。`scroll_to_left`)、プロジェクトを開き直したとき(縦横とも。`views.open_project` が `reset_scroll` を呼ぶ)、絞り込みの変更時(縦だけ。従来どおり)。**失敗した点(再発防止)**: 最初は `set_project()` の中で先頭に戻したが、`set_project()` は開き直しだけでなくすべての編集後の再描画に使われるため、どの編集でもスクロールが戻った(実機で発覚。自動テストは `set_project` を開き直しと思い込んで書いていたので見逃した)。呼び出し元(`views.py` の 8 か所)を確認してから、副作用のある処理を置く場所を決めること。実機で、行のドラッグの前後を撮影して比べ、見えている行・日付・スクロールバーのつまみの位置が変わらないことを確認済み。**未確認**: スケールの切り替えで横だけ先頭に戻ること、プロジェクトを開き直したとき縦横とも先頭に戻ること(自動テストでは、指示が送られることを確認済み)。
-
-- 実績の入力は、2026-10-04 に `develop` へマージ済み(マージコミット 9b2294b)。ブランチ `feature/actuals` は削除済み。設計書 `2026-10-04-actuals-design.md`、実装計画 `2026-10-04-actuals.md`。テスト 682 件と `ty check` が通る。独立したレビュー済み(Important 2 件は修正済み)。`Actual(start, end|None)` と `Task.actuals`(保存は `actuals: [{start, end}]`。古いファイルは実績なしで読む)、編集ダイアログの実績の入力(日付と時刻を両方入れる。`ActualFields`)、状態の提案(`suggest_status`。手で選ぶと以降は提案しない。入力が完成した形式のときだけ)、超過判定は実績の終了があればその時刻で(`actual_end`)、ガントチャートは予定の棒を背景だけ半透明(`planned_background`。`opacity` は縞まで薄くなるので使わない)にして実績の棒を下半分に重ねる(進行中は現在時刻まで)。行のコピーは実績を複製せず、バーの横移動は実績を動かさない。実績が 2 件以上のファイルは、ダイアログで読み取り専用(保存しても変わらない)。実機確認用のサンプル(`~/.projectapp/サンプル_実績.json`)は削除済み。先送りした軽微な指摘: エラー文が開始・終了のどちらか示さない、既存の実績の編集でも状態が再提案される、進行中の棒の右端は描画時点で止まる、表示範囲外の実績が端に細い棒で出る、予定の棒の下半分はドラッグできない、`actual_end` は並び順に依存、実績の行のダイアログ幅は未確認。
-- ドラッグ&ドロップは、2026-10-04 に `develop` へマージ済み(マージコミット 0623167)。ブランチ `feature/drag-and-drop` は削除済み。実機で確認済み。設計書 `2026-10-04-drag-and-drop-design.md`、実装計画 `2026-10-04-drag-and-drop.md`。テスト 622 件(JS は Node で偽の document を作って状態機械を動かすテストを含む。Node がなければ skip)と `ty check` が通る。独立したレビュー済み(Important 3 件は修正済み)。実機で「放した直後にバーが一瞬元の位置へ戻って見える」と分かり(約 70ms。ブラウザでフレームごとに記録して確認)、日数を送ったあとは再描画まで `transform` を残すようにした(サーバーが受け付けなかったときの保険は 1.5 秒)。先送りした軽微な指摘: ドラッグ中の横スクロールとの座標のずれ、`pointerType` の確認、位置(番号)で送るためタスクの ID がない、`dragleave` 未処理、コピーは Option のみ、週次・月次のバーにも `touch-action: none`、制限で 0 日になったときの通知なし。`arrange.py`(`move_task`・`copy_task`・`shift_task`・`min_shift_days`、届く値の検証)、`gantt_drag.py`(行は HTML5 の drag、バーは pointer イベントの JS と CSS)、`GanttChart.handle_move` / `handle_shift`、`MainView.move_task` / `shift_task`。実機で、Option を押した drag の `altKey` が取れることは確認済み(WKWebView)。実機確認で、バーを基準日より左へ動かすとチャートの左端が伸びて、ほかのバーがずれて見えると分かり、基準日より前へは動かさないようにした(`data-min-days`)。確認用のサンプル(`サンプル_dnd.json`)は削除済み。
-- 絞り込み(検索・担当者)は、2026-10-04 に `develop` へマージ済み(マージコミット 4a6a774)。ブランチ `feature/filtering` は削除済み。実機で確認済み(2026-10-04。日本語 IME の変換中と変換確定の Enter を含む)。実機確認後に、WebView 固有の表示の修正を2つ入れた(確認済み): ツールバーを `no-wrap` にして検索欄と担当者の選択を縮められる幅にした(狭いと折り返していた)、チャート領域を `overflow-y: hidden` と `padding-bottom: 16px`(`SCROLLBAR_ROOM_PX`)にした(WebKit は高さ auto の領域に横スクロールバーの厚みを含めず、縦のバーが出て最下行が隠れていた。Chrome では再現しない)。設計書 `2026-10-04-filtering-design.md`、実装計画 `2026-10-04-filtering.md`。テスト 572 件と `ty check` が通る。`filtering.py`(`TaskFilter`・`matches`)、`GanttChart` の `set_filter` / `reset_filter`、検索入力(Enter で確定。IME の変換確定の Enter は無視し、入力欄が空になったときだけすぐ解除。日本語入力で入力途中が壊れる報告を受けて、デバウンスをやめた)と担当者の選択、絞り込み変更時の `window.scrollTo`、`open_project` での条件リセット。次のサブプロジェクトは、ドラッグ&ドロップ(行の縦移動とコピー〔Alt/Option〕、バーの横移動)。仮定は、開始予定を日単位でずらす、手指定の完了予定は同じ日数ずらす、締切は動かさない、絞り込み中は行の並べ替えを無効にする。
-- 見積もりのバッファ換算とリソース割り当て比率(メンバー、割り当て率、換算、割り当て超過の縞)は、2026-10-03 に `develop` へマージ済み(マージコミット 6dc7972)。実機で確認済み。ブランチ `feature/resources` と `feature/resources-*`(7本)は削除済み。実機確認用のサンプル(`~/.projectapp/サンプル_*.json`)は削除済み。テスト 539 件が通る。設計書 `2026-10-03-resources-design.md`、実装計画 `2026-10-03-resources.md`。
-- 開始予定・完了予定・締切の変更は、2026-10-03 に `develop` へマージ済み(マージコミット 5a45807)。実機で確認済み。ブランチ `feature/planned-dates` と `feature/planned-dates-*`(9本)は削除済み。テスト 432 件が通る。
-
-- `feature/task-edit-dialog` は 2026-10-03 に `develop` へマージ済み(マージコミット e054563)。ブランチは削除済み。
-- このブランチで、タスク編集ダイアログの見直し(設計書 `2026-10-03-task-edit-dialog-design.md`、実装計画 `2026-10-03-task-edit-dialog.md`)を実装した: 優先度の色付きチップ、色のプレビュー、`task_dialog.py` への切り出し、日付の選択と時刻のチェック(開始・終了は横並び、チェックは側ごと)、閉じるときの確認、タスクの削除(確認つき)、自動算出の終了の保護。12 コミット(662e0c9..7cc5d5c)。
-- 最終レビュー(独立した reviewer)は、Critical・Important なし。その後に、利用者の指示で次を変えた(この差分は独立したレビューをしていない): 時刻のチェックを開始・終了で別々にした、チェックを外しても入力値を保つ、自動算出の終了はチェックをオンに固定した。
-- テストは `uv run pytest --cov=projectapp -q`、型チェックは `uvx ty check src`(実装の最新時点: 432 件が通る)。
-- 実機確認は済み(全項目問題なし。確認した項目): 開始・終了の横並びと幅、日付・時刻の選択ダイアログが小さなウィンドウで切れないこと、色のプレビュー、チップの色(ライト/ダーク)、`ESC` と背景クリックの挙動(`persistent` + `escape-key`)、削除後の「編集中」表示、自動算出の終了のタスクを開いたときの終了側チェック(無効の見た目とヒント)。`ESC` が確認に入らないときは、「キャンセル」ボタンだけを確認の対象にして、設計書を直す。
-- `develop` には、雛形、ガントチャートの基本表示、日程計算、保存 UI、開く動作の変更、稼働時間の設定画面が入っている(`develop` の最新は 30512f8)。
-- **プッシュは未実施**。ユーザーの許可を得てから行う。マージ済みの `feature/*` ブランチ(5つ)は削除済み。
 
 ## ブランチ
 
 | ブランチ | 内容 |
 |---|---|
 | `main` | 初回コミットのみ(447c38f)。リリース用(まだ使っていない) |
-| `develop` | 開発ブランチ。2026-10-11 時点で、要望 1〜4・6・7・9・12〜23・25〜27・29 と、プロジェクトメニューの見直し、タスクのダイアログの入力の見直し、ESC の不具合、完了予定のヒントの重なりまで、マージ済み(最後のマージコミット 03cd469、PR #9)。GitHub の Pull Request で進めている(PR #1〜#9) |
+| `develop` | 開発ブランチ。2026-10-18 時点で e2ef199(PR #35 まで)。GitHub の Pull Request で進めている。マージ履歴は`docs/request-history.md` |
 
 マージ済み・統合済みの `feature/*` ブランチは、すべて削除した(`feature/name-width` も含む)(`feature/header-labels` は、`feature/faster-tests` へ統合して削除し、`feature/faster-tests` も、`develop` へのマージ後に削除した。コミットは、`develop` の履歴に残っている)。`develop` と `main` は、2026-10-06 にリモートへプッシュした(`develop` は、その後 28 コミット進んでいる)。リモートの feature ブランチはない。
 
@@ -204,8 +90,8 @@
 
 ## 次にやること(候補)
 
-00. (2026-10-11)未着手の要望は、5・8・10・11・24・28・30〜36(`docs/request-history.md` の「未着手の整理」)。小さく着手できるのは 34(`task_dialog.py` だけ)。決めたいことが多いのは 32・33・35・36。35 と 36 は、一括操作を 1 回の Undo にまとめる設計を合わせる。
-00. ネイティブでの未確認: 完了予定のヒントの重なり(PR #9)、未保存のときの ESC の確認ダイアログが残ること(PR #8)。
+00. (2026-10-18)未着手の要望は、5・10 の残り・11・24・30〜33・35(`docs/request-history.md` の「未着手の整理」)。決めたいことが多いのは 32・33・35。35 は一括操作を 1 回の Undo にまとめる設計と合わせる。
+00. 添付ファイル(`CLAUDE.md` にある機能)は未実装。
 
 0. (完了)要望 23 の実機確認とマージ(2026-10-07)。`feature/name-width` は削除済み。
 0. (完了)要望 4 の実機確認・マージ(baa0656)・プッシュ(2026-10-07。`develop` の b53e7f5 まで)。`feature/assignee-handoff` は削除済み。次は、未着手の要望から選ぶ(要望 5 は、要望 4 の id の安定性を先に設計する)。
@@ -213,7 +99,7 @@
 2. (完了)プッシュ: 2026-10-06 に公開リポジトリ https://github.com/PdevJN/projectapp を作成し、`develop` と `main` をプッシュした(`origin` を設定済み)。以降のプッシュは、許可を得てから行う。
 3. 未着手の要望から選ぶ(設計 → 設計書 → 実装計画の順)。優先順位は未決。影響が大きいのは 22(複数アサイン)と 20(相対割合のパラメータ化)。小さいのは 24(描画の高速化)。23 の計測で、約 1,800 要素のスタイル再計算が重いと分かったので、要素数を減らす方向と相性がよい。制約(`docs/development.md`)を守った範囲で、いつでも着手できる。
 4. 要望の一覧にない後続: 添付ファイル(`CLAUDE.md` にある機能)。タスク同士の矢印連結は、2026-10-07 に実装・マージ済み。その後続: 矢印のドラッグでの連結と、クリックでの解除。
-5. README の「主な機能」とキー操作の表は空欄のまま。
+5. (完了)README の「主な機能」とキー操作の表は、2026-10-18 に更新した。
 6. 見送った軽微な指摘は、各作業の記録に残してある(まとめて直す機会があれば)。
 7. (完了)テストが遅い件の対策(2026-10-06 に調査して、ブランチ `feature/faster-tests` で対応): 全体テストが、415 秒(1,065 件)から 47 秒(1,072 件)になった(約 8.8 倍。解放だけで 87 秒、`gc.freeze` を足して 47 秒)。
    - 原因: テスト本体ではなく、NiceGUI の fixture の `gc.collect()`(`nicegui.testing.general.nicegui_reset_globals` が、各テストの setup と teardown で 1 回ずつ呼ぶ)が、テストが進むほど遅くなっていた。`User` のシミュレーションは、テストが終わっても、クライアントとその要素を削除しないので、前のテストのオブジェクトが、次の 3 つの経路で保持され続けていた(`test_gantt.py` 単独で、オブジェクトが 11 万 → 94 万個。フル GC は 1 件目 50ms → 最終件 421ms)。(1) クラスの `@ui.refreshable_method`(`GanttChart.render`、`MainView.title`・`MainView.theme_buttons`)の `targets` と `instance`(要素が削除されるまで、インスタンスを持つ)。(2) FastAPI の `lru_cache`(ページ関数をキーにし、ページ関数のクロージャが `MainView` を持つ)。(3) `weakref.finalize` の登録簿(`ui.dialog` が、自分自身を捕まえるラムダを登録する。開いたままのダイアログのボタンが `MainView` のメソッドを持つ)。(2) と (3) は、片方だけ断っても、もう片方が同じオブジェクトを保持する(単独の効果はほとんどなく、両方で効く)。
@@ -229,7 +115,7 @@
 
 NiceGUI の内部関数の差し替えと、Tooltip の `title` 属性への置換(オプション化も含む)は、対応しない。速度の改善は、公開 API の範囲で、見た目を変えない手段に限る(飾りの HTML 化など)。計測結果と測り方は `docs/development.md` の「描画速度の設計制約」。
 
-## 今後の要望(2026-10-04・05・11・16 に受領。未着手は 5・11・24・30〜35。10 は進行中。28・36・37・38 は完了。優先順位は未決。対応の実績は `docs/request-history.md`、未着手の詳細は `docs/requests.md`)
+## 今後の要望(2026-10-04・05・11・16 に受領。未着手は 5・11・24・30〜33・35。10 は進行中。28・34・36・37・38 は完了。優先順位は未決。対応の実績は `docs/request-history.md`)
 
 「次にやること(候補)」とは別に押さえておく。着手するときは、設計 → 設計書 → 実装計画の順。
 
@@ -282,7 +168,9 @@ NiceGUI の内部関数の差し替えと、Tooltip の `title` 属性への置�
 - 設計書: `docs/superpowers/specs/2026-10-11-category-design.md`、`2026-10-02-gantt-basic-design.md`、`2026-10-03-schedule-calc-design.md`、`2026-10-03-project-save-design.md`、`2026-10-03-work-hours-design.md`、`2026-10-03-task-edit-dialog-design.md`、`2026-10-05-actual-intervals-design.md`、`2026-10-05-task-chips-design.md`、`2026-10-05-export-preview-design.md`、`2026-10-06-section-collapse-design.md`、`2026-10-06-header-labels-design.md`、`2026-10-06-name-width-design.md`、`2026-10-07-assignee-handoff-design.md`、`2026-10-07-dashboard-design.md`、`2026-10-07-task-links-design.md`、`2026-10-08-checkpoint-design.md`
 - 実装計画: `docs/superpowers/plans/2026-10-11-category.md`、`2026-10-03-gantt-basic.md`、`2026-10-03-schedule-calc.md`、`2026-10-03-task-edit-dialog.md`、`2026-10-05-actual-intervals.md`、`2026-10-05-task-chips.md`、`2026-10-05-export-preview.md`、`2026-10-06-section-collapse.md`、`2026-10-06-name-width.md`、`2026-10-07-assignee-handoff.md`、`2026-10-07-dashboard.md`、`2026-10-07-task-links.md`、`2026-10-08-checkpoint.md`(ヘッダーのラベルのまとめは、実装計画なしで、設計書から実装した)
 - 開発者向け: `docs/development.md`
-- 要望: `docs/requests.md`(未着手の詳細。要望 30・31)、`docs/request-history.md`(対応一覧と実績。要望 1〜31)
+- 要望: `docs/requests.md`(未着手の詳細)、`docs/request-history.md`(対応一覧と実績)
+- 過去の作業ログ: `docs/work-log.md`
+- 設計書・計画の索引: `docs/superpowers/README.md`
 - 実行の記録(git 管理外): `.superpowers/sdd/*/progress.md`(`.git/info/exclude` で除外)
 - 起動: `uv run projectapp`(NiceGUI + pywebview のネイティブウィンドウ)
 
