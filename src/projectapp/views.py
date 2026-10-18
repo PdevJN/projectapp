@@ -21,6 +21,7 @@ from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import (
     THEMES,
     check_project_dir,
+    load_custom_theme,
     load_project_dir,
     load_name_width,
     load_task_layout,
@@ -110,12 +111,13 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.task_dialog import open_task_dialog
-from projectapp.theme import BODY_CSS
+from projectapp.theme import BODY_CSS, CustomTheme, theme_js
 from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
 from projectapp.ratios import ParameterEdit, apply_parameter_edit, deletion_impacts
 from projectapp.timeline import Schedule, build_columns, clip_overloads, overallocations, visible_range
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク", "custom": "カスタム"}
+CUSTOM_COLORS_LABEL = "カスタムの色…"
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode", "custom": "palette"}
 
 
@@ -209,8 +211,9 @@ class MainView:
         self.history = History()  # 元に戻す・やり直しの履歴。保存しても残し、別のプロジェクトに切り替えると捨てる
         self.committed = deepcopy(self.project)  # 最後に確定した状態。これと違えば、編集があったとみなして履歴に積む
         self.theme = load_theme(base_dir)
+        self.custom_theme = load_custom_theme(base_dir)  # 保存済みのカスタムの色
         self.dark = ui.dark_mode()
-        self.apply_theme(self.theme)
+        self.dark.value = self.dark_value(self.theme, self.custom_theme)
         cached = load_cache(base_dir)
         self.holidays: dict[date, str] = cached or {}
         self.needs_first_fetch = cached is None
@@ -232,15 +235,33 @@ class MainView:
         self.preview_bar = PreviewBar(self.on_preview_change, self.exit_preview, self.save_image, self.save_plantuml)
         self.dashboard_view = DashboardView(self.close_dashboard, self.change_dashboard_period)
 
-    def apply_theme(self, theme: str) -> None:
+    @staticmethod
+    def dark_value(theme: str, colors: CustomTheme) -> bool | None:
+        """`ui.dark_mode`の値。自動は None、カスタムは基調に従う。"""
+        if theme == "custom":
+            return colors.base == "dark"
+        return None if theme == "auto" else theme == "dark"
+
+    def apply_theme(self, theme: str, custom: CustomTheme | None = None) -> None:
+        """テーマを画面に反映する(保存はしない)。`custom`を渡すと、保存済みでなくその色で見せる(プレビュー)。"""
+        was_custom = self.theme == "custom"
         self.theme = theme
-        self.dark.value = None if theme == "auto" else theme == "dark"
+        colors = custom or self.custom_theme
+        self.dark.value = self.dark_value(theme, colors)
+        if theme == "custom":
+            self.run_js(theme_js(colors))
+        elif was_custom:
+            self.run_js(theme_js(None))  # カスタムの変数が付いているときだけ外す
 
     def set_theme(self, theme: str) -> None:
         self.apply_theme(theme)
         self.gantt.refresh_scrollbars()  # 標準のスクロールバーは、切り替えだけでは配色が変わらない
         save_theme(theme, self.base_dir)
         self.theme_menu.refresh()
+
+    def open_theme_dialog(self) -> None:
+        """カスタムの色のダイアログ。"""
+        raise NotImplementedError
 
     def set_name_width(self, width: int) -> None:
         """名前の欄の幅を、アプリ全体の設定として保存する。プロジェクトのデータには入れない。
@@ -1081,6 +1102,8 @@ class MainView:
         self.request_git_refresh()
         self.run_js(KEY_GUARD_JS)
         self.run_js(zoom_js(self.zoom))
+        if self.theme == "custom":
+            self.run_js(theme_js(self.custom_theme))
         ui.keyboard(on_key=self.on_plain_key)  # 入力欄・ボタンにフォーカスがあるときは、受けない
         ui.keyboard(on_key=self.on_modified_key, ignore=[])  # Ctrl/Cmd 付きだけは、入力欄でも受ける(Ctrl/Cmd+Z を除く)
         ui.keyboard(on_key=self.on_undo_key, ignore=["input", "select", "textarea"])  # Ctrl/Cmd+Z: 入力欄では文字の取り消し
@@ -1468,6 +1491,8 @@ class MainView:
                     )
                     if theme == self.theme:
                         item.props("active")
+                ui.separator().mark("theme-separator")
+                self.menu_entry(CUSTOM_COLORS_LABEL, "tune", self.open_theme_dialog, "theme-custom-settings")
 
     def build_help_dialog(self) -> ui.dialog:
         """ショートカットヘルプのダイアログ(ヘルプメニューから開く)。"""
