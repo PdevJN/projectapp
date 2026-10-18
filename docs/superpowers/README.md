@@ -47,3 +47,4 @@
 | 2026-10-16 | 進捗度の持ち方の見直し(`Task.progress`) | [設計](specs/2026-10-16-task-progress-design.md) | [計画](plans/2026-10-16-task-progress.md) | 要望 38 | PR #22(3fe89a3。2026-10-16) | 区間の進捗度の優先と、欄の読み取り専用の仕様は廃止(PR #35) |
 | 2026-10-17 | カスタムテーマ | [設計](specs/2026-10-17-custom-theme-design.md) | [計画](plans/2026-10-17-custom-theme.md) | 要望 28 | PR #26(ef8ade3。2026-10-18) | — |
 | 2026-10-17 | 元に戻す・やり直し | [設計](specs/2026-10-17-undo-redo-design.md) | [計画](plans/2026-10-17-undo-redo.md) | 要望 36 | PR #24(89b058d。2026-10-17) | — |
+| 2026-10-18 | タスクの分解(まとめ) | [設計](specs/2026-10-18-task-decompose-design.md) | [計画](plans/2026-10-18-task-decompose.md) | 要望 33 | `feature/task-decompose`(マージ待ち) | — |
