@@ -553,7 +553,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Modify: `src/projectapp/gantt.py:370`(`__init__`)、`:867`(`category_lookup` の隣)、`:1246-1250`(担当者チップ)
 - Modify: `src/projectapp/dashboard_view.py`(`show`、`cards`、`load_card`)
 - Modify: `src/projectapp/views.py:681`(`show` の呼び出し)
-- Test: `test/test_avatar.py`(新規)、`test/test_gantt.py`、`test/test_dashboard_view.py`、`test/test_preview.py`
+- Test: `test/test_avatar.py`(新規)、`test/test_gantt.py`、`test/test_dashboard_view.py`
 
 **Interfaces:**
 - Consumes: `projectapp.icons.is_valid_icon(value: str) -> bool`、`Member.icon`
