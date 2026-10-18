@@ -10,7 +10,7 @@ from projectapp.decompose import MAX_PARTS, Part, can_make_section, decompose, d
 from projectapp.models import Actual, Assignee, Category, TaskUrl
 from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
 from projectapp.links import RowSlot, row_slots
-from projectapp.linkgraph import drop_task_links, link_options
+from projectapp.linkgraph import drop_task_links, link_options, validate_links
 from datetime import date
 
 from projectapp.dashboard import Period, summarize_due, summarize_loads, summarize_progress, summarize_workload
@@ -420,11 +420,42 @@ def test_a_summary_cannot_pick_its_own_child() -> None:
     assert set(link_options(project, project.tasks[0])) == {"other"}
 
 
-def test_copying_a_summary_gives_a_plain_task_without_children() -> None:
-    project = Project("p", tasks=[summary("m", "a"), child("a")])
-    copy = arrange.copy_task(project, ((), 0), ((), 2))
-    assert (copy.kind, copy.children) == (TaskKind.NORMAL, [])
-    assert project.tasks[0].children == ["a"]
+def test_copying_a_summary_copies_its_children_after_it() -> None:
+    project = Project("p", tasks=[summary("m", "a", "b"), child("a"), child("b"), child("z")])
+    copy = arrange.copy_task(project, ((), 0), ((), 3))
+    assert [t.name for t in project.tasks] == ["m", "a", "b", "m(コピー)", "a", "b", "z"]
+    assert copy.kind is TaskKind.SUMMARY and copy.children == [project.tasks[4].id, project.tasks[5].id]
+    ids = [t.id for t in project.tasks]
+    assert len(set(ids)) == len(ids)  # id は新しく振る
+    assert project.tasks[0].children == ["a", "b"]  # 元は変えない
+
+
+def test_copying_a_summary_relinks_the_chain_among_the_copies_and_drops_outside_links() -> None:
+    project = Project(
+        "p",
+        tasks=[
+            summary("m", "a", "b"),
+            child("a"),
+            Task("b", id="b", predecessors=["a", "z"]),
+            child("z"),
+        ],
+    )
+    copy = arrange.copy_task(project, ((), 0), ((), 4))
+    new_a, new_b = project.tasks[5], project.tasks[6]
+    assert new_b.predecessors == [new_a.id]  # コピー同士の連結は付け替え、外への先行は通常のコピーと同じく外す
+    assert project.tasks[2].predecessors == ["a", "z"]
+    validate_links(project.all_tasks())
+    assert copy.id not in ("m", "a", "b")
+
+
+def test_copying_a_summary_keeps_each_childs_attributes_without_actuals() -> None:
+    kid = Task("a", id="a", effort_hours=3.0, assignees=[Assignee("田中", 0.5)],
+               actuals=[Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12))], status=Status.DONE)
+    project = Project("p", tasks=[summary("m", "a"), kid])
+    arrange.copy_task(project, ((), 0), ((), 2))
+    copied = project.tasks[3]
+    assert (copied.effort_hours, copied.assignees, copied.actuals) == (3.0, [Assignee("田中", 0.5)], [])
+    assert copied.assignees[0] is not kid.assignees[0]
 
 
 def slot_project() -> Project:

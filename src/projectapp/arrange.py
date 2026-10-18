@@ -17,6 +17,7 @@ from projectapp.models import (
     TaskKind,
     new_id,
 )
+from projectapp.summary import children_of
 
 Position = tuple[SectionPath, int]  # (セクションのパス。root は (), 番号)
 COPY_SUFFIX = "(コピー)"
@@ -88,21 +89,43 @@ def move_task(project: Project, src: Position, dst: Position) -> bool:
     return True
 
 
-def copy_task(project: Project, src: Position, dst: Position) -> Task:
-    original = tasks_at(project, src[0])[src[1]]
-    copy = replace(
+def _plain_copy(original: Task, task_id: str, name: str) -> Task:
+    """連結・実績を持たない複製。担当とリンクは独立した複製にする。"""
+    return replace(
         original,
-        name=original.name[: MAX_TASK_NAME_LENGTH - len(COPY_SUFFIX)] + COPY_SUFFIX,  # 上限を超えないよう、元の名前を切り詰める
-        id=new_id(project.used_ids()),
-        kind=TaskKind.NORMAL if original.kind is TaskKind.SUMMARY else original.kind,  # 子はコピーしない。まとめのコピーは通常タスク
-        children=[],
+        name=name,
+        id=task_id,
         predecessors=[],
         actuals=[],
         assignees=[replace(a) for a in original.assignees],
         urls=[replace(u, values=dict(u.values)) for u in original.urls],
     )
+
+
+def copy_task(project: Project, src: Position, dst: Position) -> Task:
+    """タスクを dst に複製する。まとめは、子も複製して直後に並べる(子同士の先行は複製へ付け替え、外への先行は外す)。"""
+    original = tasks_at(project, src[0])[src[1]]
+    taken = project.used_ids()
+    copy_id = new_id(taken)
+    taken.add(copy_id)
+    copy = _plain_copy(original, copy_id, original.name[: MAX_TASK_NAME_LENGTH - len(COPY_SUFFIX)] + COPY_SUFFIX)  # 上限を超えないよう、元の名前を切り詰める
+    copies = [copy]
+    if original.kind is TaskKind.SUMMARY:
+        kids = children_of(original, project.task_map())
+        renamed: dict[str, str] = {}
+        for kid in kids:
+            renamed[kid.id] = new_id(taken)
+            taken.add(renamed[kid.id])
+        for kid in kids:
+            kid_copy = _plain_copy(kid, renamed[kid.id], kid.name)
+            kid_copy.predecessors = [renamed[pid] for pid in kid.predecessors if pid in renamed]
+            copies.append(kid_copy)
+        copy.children = [renamed[kid.id] for kid in kids]
+    else:
+        copy.children = []
     target = tasks_at(project, dst[0])
-    target.insert(min(dst[1], len(target)), copy)
+    at = min(dst[1], len(target))
+    target[at:at] = copies
     return copy
 
 
