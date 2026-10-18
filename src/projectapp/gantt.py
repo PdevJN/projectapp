@@ -9,6 +9,7 @@ from nicegui import Client, context, ui
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp import arrange
+from projectapp.browser import open_url as default_open_url
 from projectapp.arrange import Position, section_key
 from projectapp.calendar import DayKind, day_kind
 from projectapp.events import assign_lanes, cell_colors, color_hex, column_span
@@ -23,7 +24,8 @@ from projectapp.decompose import decompose_block_reason
 from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
-from projectapp.models import MAX_SECTION_DEPTH, Category, Event, Priority, Project, Section, SectionPath, Status, Task, TaskKind
+from projectapp.models import ID_KEY, MAX_SECTION_DEPTH, URL_KEY, Category, Event, Priority, Project, Section, SectionPath, Status, Task, TaskKind, TaskUrl
+from projectapp.urls import resolve
 from projectapp.summary import children_of, parent_map, summary_progress, summary_status
 from projectapp.timeline import (
     in_range,
@@ -356,8 +358,10 @@ class GanttChart:
         actions: GanttActions,
         now: Callable[[], datetime] = datetime.now,
         name_width: int = DEFAULT_NAME_WIDTH_PX,
+        open_url: Callable[[str], object] = default_open_url,
     ) -> None:
         self.project = project
+        self.open_url = open_url
         self.holidays = holidays
         self.actions = actions
         self.now = now
@@ -1255,6 +1259,37 @@ class GanttChart:
             percent = None if task.kind is TaskKind.CHECKPOINT else fill_percent(task)
         if percent is not None:
             ui.label(f"{percent}%").style(PROGRESS_TEXT_STYLE).mark(f"task-progress-{key}-{ti}")
+        if task.urls and not self.options.read_only:
+            self.link_icon(key, ti, task)
+
+    def open_link(self, link: TaskUrl) -> None:
+        try:
+            self.open_url(resolve(link, self.project.url_templates))
+        except (ValueError, OSError) as exc:
+            ui.notify(str(exc), type="negative")
+
+    def link_icon(self, key: int | str, ti: int, task: Task) -> None:
+        """リンクのアイコン。1 件ならクリックで開き、複数ならメニューから選ぶ。名前の欄の枠の中で呼ぶ。"""
+
+        def label(link: TaskUrl) -> str:
+            if link.title:
+                return link.title
+            try:
+                return resolve(link, self.project.url_templates)
+            except ValueError:
+                return link.values.get(URL_KEY) or link.values.get(ID_KEY) or ""
+
+        icon = ui.icon("link", size="16px").classes("cursor-pointer").mark(f"task-link-{key}-{ti}")
+        if len(task.urls) == 1:
+            link = task.urls[0]
+            icon.tooltip(label(link))
+            icon.on("click", lambda _=None, link=link: self.open_link(link))
+            return
+        with icon, ui.menu():
+            for n, link in enumerate(task.urls):
+                ui.menu_item(label(link), on_click=lambda link=link: self.open_link(link)).mark(
+                    f"task-link-item-{key}-{ti}-{n}"
+                )
 
     def summary_count(self, key: int | str, ti: int, task: Task) -> None:
         """折りたたみ中のまとめに添える、子の件数。開いているときは隠す。名前の欄の枠の中で呼ぶ。"""

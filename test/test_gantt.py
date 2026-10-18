@@ -79,6 +79,8 @@ from projectapp.models import (
     Status,
     Task,
     TaskKind,
+    TaskUrl,
+    UrlTemplate,
 )
 from projectapp.timeline import ProgressState, Scale
 
@@ -3184,3 +3186,90 @@ def test_sticky_css_reads_the_app_variables_and_keeps_the_current_defaults() -> 
     assert ".gantt-sticky { background-color: var(--app-bg, #fff); }" in STICKY_CSS
     assert "body.body--dark .gantt-sticky { background-color: var(--app-bg, var(--q-dark-page, #121212)); }" in STICKY_CSS
     assert "var(--q-dark-page, #121212)" not in STICKY_CSS.replace("var(--app-bg, var(--q-dark-page, #121212))", "")
+
+
+# --- リンクのアイコン ---
+
+
+def mount_links(project: Project, opened: list[str], options: ViewOptions | None = None) -> None:
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(project, {}, Recorder().actions, open_url=opened.append)
+        if options is not None:
+            chart.options = options
+        chart.build()
+
+
+def linked(*urls: TaskUrl) -> Project:
+    return Project(
+        "demo",
+        base_date=BASE,
+        sections=[Section("開発", [Task("設計", urls=list(urls))])],
+        url_templates=[UrlTemplate("チケット", "https://example.com/{ID}")],
+    )
+
+
+async def test_no_link_icon_without_links(user: User) -> None:
+    mount_links(linked(), [])
+    await user.open("/")
+    await user.should_not_see(marker="task-link-0-0")
+
+
+async def test_a_single_link_opens_on_click(user: User) -> None:
+    opened: list[str] = []
+    mount_links(linked(TaskUrl("仕様", "チケット", {"ID": "231"})), opened)
+    await user.open("/")
+    icon = chip(user, "task-link-0-0")
+    assert icon.parent_slot.parent is chip(user, "task-0-0")  # 名前の欄の枠の中
+    assert tooltips_targeting(icon) == ["仕様"]
+    user.find(marker="task-link-0-0").click()
+    assert opened == ["https://example.com/231"]
+
+
+async def test_the_tooltip_falls_back_to_the_url(user: User) -> None:
+    mount_links(linked(TaskUrl("", None, {"URL": "https://example.com/a"})), [])
+    await user.open("/")
+    assert tooltips_targeting(chip(user, "task-link-0-0")) == ["https://example.com/a"]
+
+
+async def test_several_links_make_one_icon_with_a_menu(user: User) -> None:
+    opened: list[str] = []
+    mount_links(
+        linked(
+            TaskUrl("仕様", None, {"URL": "https://example.com/a"}),
+            TaskUrl("", "チケット", {"ID": "7"}),
+        ),
+        opened,
+    )
+    await user.open("/")
+    assert len(user.find(marker="task-link-0-0").elements) == 1
+    await user.should_see(marker="task-link-item-0-0-0")
+    user.find(marker="task-link-item-0-0-1").click()
+    assert opened == ["https://example.com/7"]
+
+
+async def test_a_failed_open_notifies(user: User) -> None:
+    def fail(url: str) -> None:
+        raise OSError("ブラウザを開けませんでした")
+
+    @ui.page("/")
+    def index() -> None:
+        GanttChart(linked(TaskUrl("", None, {"URL": "https://example.com/a"})), {}, Recorder().actions, open_url=fail).build()
+
+    await user.open("/")
+    user.find(marker="task-link-0-0").click()
+    await user.should_see("ブラウザを開けませんでした")
+
+
+async def test_no_link_icon_when_read_only_or_chips_are_off(user: User) -> None:
+    link = TaskUrl("", None, {"URL": "https://example.com/a"})
+    mount_links(linked(link), [], ViewOptions(read_only=True))
+    await user.open("/")
+    await user.should_not_see(marker="task-link-0-0")
+
+
+async def test_no_link_icon_when_chips_are_off(user: User) -> None:
+    link = TaskUrl("", None, {"URL": "https://example.com/a"})
+    mount_links(linked(link), [], ViewOptions(show_chips=False))
+    await user.open("/")
+    await user.should_not_see(marker="task-link-0-0")
