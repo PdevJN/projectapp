@@ -144,3 +144,43 @@ def test_is_valid_icon(icon: str) -> None:
     assert not is_valid_icon(DATA_PREFIX + base64.b64encode(b"not a png").decode())
     assert not is_valid_icon(DATA_PREFIX + base64.b64encode(b"\0" * (MAX_ICON_BYTES + 1)).decode())
     assert not is_valid_icon(DATA_PREFIX + body[: len(body) // 2])  # 途中で切れた PNG
+
+
+def crafted_png(width: int, height: int, idat: bytes) -> bytes:
+    """画素数を偽った PNG(IHDR の大きさだけ大きい。CRC は合っている)。"""
+    import struct
+    import zlib
+
+    def chunk(tag: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body))
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
+
+
+def as_icon(raw: bytes) -> str:
+    return DATA_PREFIX + base64.b64encode(raw).decode()
+
+
+@pytest.mark.parametrize("size", [(20000, 20000), (60000, 60000)])
+def test_is_valid_icon_rejects_a_huge_declared_size_without_raising(size: tuple[int, int]) -> None:
+    import zlib
+
+    assert is_valid_icon(as_icon(crafted_png(*size, zlib.compress(b"\0" * 100)))) is False
+
+
+def test_is_valid_icon_rejects_a_png_that_is_not_128_square(make_png) -> None:
+    assert is_valid_icon(as_icon(make_png((64, 64)))) is False
+
+
+def test_is_valid_icon_rejects_a_png_whose_pixels_cannot_be_decoded(icon: str) -> None:
+    import struct
+    import zlib
+
+    raw = bytearray(base64.b64decode(icon[len(DATA_PREFIX) :]))
+    start = raw.index(b"IDAT") + 4
+    length = struct.unpack(">I", raw[start - 8 : start - 4])[0]
+    body = bytes(b ^ 0xFF for b in raw[start : start + length])  # 中身を壊し、CRC は合わせ直す
+    raw[start : start + length] = body
+    raw[start + length : start + length + 4] = struct.pack(">I", zlib.crc32(b"IDAT" + body))
+    assert is_valid_icon(as_icon(bytes(raw))) is False

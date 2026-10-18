@@ -58,7 +58,7 @@ def load_icon(path: Path) -> str:
 
 @lru_cache(maxsize=256)
 def is_valid_icon(value: str) -> bool:
-    """保存してよいアイコンか(PNG の data URI で、64KB 以下で、PNG として読める)。表示のたびに呼ぶので、結果を覚える。"""
+    """保存してよいアイコンか(PNG の data URI で、64KB 以下の 128×128 で、画素まで読める)。表示のたびに呼ぶので、結果を覚える。"""
     if not value.startswith(DATA_PREFIX) or len(value) > len(DATA_PREFIX) + MAX_ICON_BYTES * 4 // 3 + 4:
         return False
     try:
@@ -69,7 +69,9 @@ def is_valid_icon(value: str) -> bool:
         return False
     try:
         with Image.open(io.BytesIO(raw)) as image:
-            image.verify()
-            return image.format == "PNG"
-    except (UnidentifiedImageError, OSError, SyntaxError, ValueError):
+            if image.format != "PNG" or image.size != (ICON_SIZE, ICON_SIZE):  # 読み込む前に大きさを見る
+                return False
+            image.load()  # 画素の中身まで読めるか
+            return True
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError, Image.DecompressionBombError):
         return False

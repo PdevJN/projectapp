@@ -74,6 +74,8 @@ def format_value(value: object) -> str:
         return ", ".join(f"{k}={format_value(v)}" for k, v in value.items()) or "(なし)"
     if value == "":
         return "(空)"
+    if isinstance(value, str) and value.startswith("data:image/"):
+        return f"画像({len(value) // 1024 + 1}KB)"  # アイコンの base64 全文は出さない
     return str(value)
 
 

@@ -376,3 +376,10 @@ def test_the_icon_survives_the_rename_of_a_same_name_member(icon: str) -> None:
     merged = merge_projects(base, ours, theirs).project
     assert sorted(m.name for m in merged.members) == ["甲", "甲 (2)"]
     assert {m.id: m.icon for m in merged.members} == {"m1": icon, "m2": ""}  # 改名されても、アイコンは持ち主に付く
+
+
+def test_format_value_shortens_an_image_data_uri(icon: str) -> None:
+    from projectapp.merge import format_value
+
+    text = format_value(icon)
+    assert text.startswith("画像(") and "data:" not in text and len(text) < 30

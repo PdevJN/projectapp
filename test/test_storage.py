@@ -1822,3 +1822,19 @@ def test_a_member_added_for_an_unknown_assignee_is_saved_with_an_empty_icon(tmp_
     project = Project("demo", sections=[Section("s", [Task("t", assignees=[Assignee("丙", 1.0)])])])
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
     assert raw["members"] == [{"name": "丙", "ratio": 1.0, "levels": {}, "id": raw["members"][0]["id"], "icon": ""}]
+
+
+def test_an_icon_with_a_huge_declared_size_is_rejected_on_load_with_a_value_error(tmp_path: Path) -> None:
+    import base64
+    import struct
+    import zlib
+
+    def chunk(tag: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body))
+
+    raw = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 20000, 20000, 8, 2, 0, 0, 0))
+    raw += chunk(b"IDAT", zlib.compress(b"\0" * 100)) + chunk(b"IEND", b"")
+    path = save_project(Project("demo", members=[Member("甲", 1.0)]), tmp_path)
+    write_member_icon(path, "data:image/png;base64," + base64.b64encode(raw).decode())
+    with pytest.raises(ValueError, match="アイコン"):
+        load_project(path)
