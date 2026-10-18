@@ -100,6 +100,7 @@ class _Raw:
     preds: list[str] = field(default_factory=list)  # `->` の先行(名前または別名)
     assignees: list[tuple[str, float | None]] = field(default_factory=list)  # (名前, `:N%` の N。省略は None)
     progress: int | None = None
+    bad_date: bool = False  # 日付の書式はあるが、日付として読めなかった(PlantUML ではエラー。日程なしにする)
 
 
 class _Scanner:
@@ -228,6 +229,8 @@ class _Scanner:
         if m := _HAPPENS_ON.search(rest):
             if (day := self._note(m.group(1))) is not None:
                 raw.milestone, raw.day, matched = True, day, True
+            else:
+                raw.bad_date = True
         elif m := _HAPPENS_AT.search(rest):
             raw.milestone, raw.after, matched = True, (m.group(1).strip(), m.group(2).lower(), 0), True
         elif m := _STARTS_AT.search(rest):
@@ -237,9 +240,13 @@ class _Scanner:
         elif m := _STARTS_DATE.search(rest):
             if (day := self._note(m.group(1))) is not None:
                 raw.day, matched = day, True
+            else:
+                raw.bad_date = True
         if m := _ENDS_DATE.search(rest):
             if (day := self._note(m.group(1))) is not None:
                 raw.end_day, matched = day, True
+            else:
+                raw.bad_date = True
         if m := _LASTS.search(rest):
             count = int(m.group(1)) * (WORKDAYS_PER_WEEK if m.group(2).lower() == "week" else 1)
             if 1 <= count <= MAX_LASTS_DAYS:
@@ -275,8 +282,9 @@ def _in_range(span: Span) -> bool:
 class _Resolver:
     """PlantUML のルールで、タスクの開始日・終了日(含む)を求める。"""
 
-    def __init__(self, scanner: _Scanner) -> None:
+    def __init__(self, scanner: _Scanner, today: date) -> None:
         self.scanner = scanner
+        self.today = today
         self.calendar = _Calendar(frozenset(scanner.closed_weekdays), dict(scanner.day_rules))
         self._memo: dict[int, Span] = {}
         self._active: set[int] = set()
@@ -329,7 +337,10 @@ class _Resolver:
             if len(known) != len(ends):
                 return None
             return self.calendar.next_open(max(known) + timedelta(days=1))
-        return self.scanner.project_start or self.scanner.first_date
+        if raw.bad_date:
+            return None
+        # 日付がまったくないガントは、PlantUML では相対の日数(1 日目から)で描かれる。取り込み日を 1 日目とみなす
+        return self.scanner.project_start or self.scanner.first_date or self.today
 
     def _end(self, raw: _Raw, start: date) -> date:
         if raw.end_day is not None:
@@ -355,10 +366,10 @@ class _Counts:
 class _Builder:
     """読み取った結果と解決した日付から、`Project` を組み立てる。"""
 
-    def __init__(self, scanner: _Scanner, name: str) -> None:
+    def __init__(self, scanner: _Scanner, name: str, today: date) -> None:
         self.scanner = scanner
-        self.resolver = _Resolver(scanner)
-        self.project = Project(tidy_task_name(scanner.title) or name, base_date=scanner.project_start or date.today())
+        self.resolver = _Resolver(scanner, today)
+        self.project = Project(tidy_task_name(scanner.title) or name, base_date=scanner.project_start or today)
         self.counts = _Counts()
         self._taken: set[str] = set()
         self._sections: dict[tuple[str, ...], Section] = {}
@@ -461,15 +472,16 @@ def _status(progress: int | None) -> Status:
     return Status.DONE if progress == 100 else Status.RUNNING
 
 
-def parse_plantuml(text: str, name: str) -> PlantUmlImport:
-    """PlantUML のガントのテキストから、新規プロジェクトを作る。取り込めなければ `PlantUmlImportError`。"""
+def parse_plantuml(text: str, name: str, today: date | None = None) -> PlantUmlImport:
+    """PlantUML のガントのテキストから、新規プロジェクトを作る。取り込めなければ `PlantUmlImportError`。
+    `today` は、日付がまったくないガントの 1 日目(省略は今日)。"""
     scanner = _Scanner()
     scanner.scan(text)
     if not scanner.complete:
         raise PlantUmlImportError("@startgantt から @endgantt までが見つかりません")
     if not scanner.tasks:
         raise PlantUmlImportError("取り込めるタスクがありません")
-    builder = _Builder(scanner, name)
+    builder = _Builder(scanner, name, today or date.today())
     project = builder.build()
     try:  # 保存・読込と同じ検証を通す
         project = parse_project(dumps_project(project), project.name)

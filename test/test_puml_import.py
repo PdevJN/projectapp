@@ -117,9 +117,45 @@ def test_without_a_project_start_the_first_date_seen_is_used() -> None:
     assert span(result, "A")[0] == at(14)
 
 
-def test_a_task_with_no_date_anywhere_has_no_schedule() -> None:
-    result = parse("[A]")
+TODAY = date(2026, 10, 14)  # 水曜
+
+
+def parse_on_today(*lines: str) -> PlantUmlImport:
+    return parse_plantuml("\n".join(["@startgantt", *lines, "@endgantt"]), "取込", TODAY)
+
+
+def test_a_task_with_no_date_anywhere_starts_today() -> None:
+    result = parse_on_today("[A]")
+    assert span(result, "A") == (at(14), at(14, *END)) and result.unresolved == 0
+    assert result.project.base_date == TODAY
+
+
+def test_undated_tasks_all_start_today_and_follow_their_lasts() -> None:
+    """PlantUML は、日付のないガントを 1 日目から相対の日数で描く(2021 版で確認)。"""
+    result = parse_on_today("[A] lasts 2 days", "[B] lasts 3 days")
+    assert span(result, "A") == (at(14), at(15, *END))
+    assert span(result, "B") == (at(14), at(16, *END))
+
+
+def test_a_known_date_wins_over_today() -> None:
+    assert span(parse_on_today("Project starts 2026-10-20", "[A]"), "A")[0] == at(20)
+    assert span(parse_on_today("[A]", "[B] starts 2026-10-15"), "A")[0] == at(15)
+
+
+def test_today_is_not_used_when_the_date_cannot_be_resolved() -> None:
+    """循環・参照先のない別名は、PlantUML でもエラーになる。今までどおり日程なし。"""
+    result = parse_on_today("[A] starts at [Z]'s end")
     assert span(result, "A") == (None, None) and result.unresolved == 1
+
+
+def test_an_invalid_date_is_not_replaced_by_today() -> None:
+    for line in ("[A] starts 2026-13-40", "[A] ends 2026-13-40", "[A] happens on 2026-13-40"):
+        result = parse_on_today(line)
+        assert span(result, "A") == (None, None) and result.unresolved == 1, line
+
+
+def test_the_default_today_is_the_current_date() -> None:
+    assert span(parse("[A]"), "A")[0].date() == date.today()
 
 
 def test_extreme_periods_do_not_hang() -> None:
@@ -258,7 +294,7 @@ def test_a_reference_to_an_unknown_task_is_unresolved_and_creates_nothing() -> N
 
 
 def test_a_task_after_an_unresolved_task_is_unresolved() -> None:
-    result = parse("[A]", "[B] lasts 1 day", "[A] -> [B]")
+    result = parse("[A] starts at [Z]'s end", "[B] lasts 1 day", "[A] -> [B]")
     assert span(result, "B") == (None, None)
 
 
