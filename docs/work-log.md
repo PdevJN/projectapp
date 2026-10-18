@@ -8,6 +8,13 @@
 
 ## 現在の状況
 
+**2026-10-18 の作業(要望 41: メンバーのアイコン。PR #51。`develop`へは未マージ。実機確認待ち。テスト 3,085 件と`ty check src/projectapp`が通る)**
+
+- 要望 39〜46 を整理した(PR #50 でマージ済み)。39(担当なしのタスクの割り当て)・40(ダッシュボードのカスタムビュー)は要望の記録のみ。41(アイコン)→ 42(円グラフ)→ 43(絞り込み・メンバー別)→ 44〜46(休暇・不在。`version` 8)の順。
+- 設計書`2026-10-18-member-icon-design.md`、実装計画`2026-10-18-member-icon.md`(5 タスク。native 方式で実行)。画像ファイルを選び、128×128 の PNG にして`Member.icon`に data URI で埋め込む(`version` 7)。`icons.py`(Pillow)・`avatar.py`・メンバーのダイアログのアイコン列。
+- 最終レビュー(独立したレビュアー)で直したもの: `is_valid_icon`が巨大な画素数を宣言した PNG で例外を出していた・画素の中身を読んでいなかった(128×128 と`load()`で確かめる)、マージの衝突ダイアログに base64 全文が出ていた。
+- 実機確認はまだ(計画 Task 5 Step 3 の 7 項目)。
+
 **2026-10-17〜18 の作業(要望 28: カスタムテーマ。PR #26 で`develop`へマージ済み〔マージコミット ef8ade3〕。ブランチ`feature/custom-theme`は未削除。テスト 2,836 件と`ty check`が通る。実機確認は完了)**
 
 - 設計書`2026-10-17-custom-theme-design.md`、実装計画`2026-10-17-custom-theme.md`(6 タスク。native 方式で実行)。`theme.py`(純粋関数)・`theme_dialog.py`(ダイアログ)・`config.py`(`custom_theme`)・`views.py`(`apply_theme`・メニュー)・CSS を`var(--app-*, 今の値)`に。
