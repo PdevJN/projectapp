@@ -87,6 +87,8 @@ from projectapp.gitops import FileChange, GitResult, PullKind, PullOps, default_
 from projectapp.gitops import commit as commit_files_in_git
 from projectapp.gitops import push as push_to_remote
 from projectapp.gitstate import GitKind, GitState, describe, read_git_state, tooltip
+from projectapp.decompose import Part, can_make_section, decompose
+from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
@@ -1053,8 +1055,28 @@ class MainView:
             members=self.project.members,
             actual_mode=self.project.actual_mode,
             on_delete=lambda: self.delete_task(path, task_index),
+            on_decompose=lambda: self.decompose_task(path, task_index),
             **self.link_args(task),
         )
+
+    def decompose_task(self, path: SectionPath, index: int) -> None:
+        """分解ダイアログを開く。実行は `apply_decompose`。"""
+        open_decompose_dialog(
+            self.tasks_in(path)[index],
+            can_make_section(path),
+            lambda parts, chain, new_section: self.apply_decompose(path, index, parts, chain, new_section),
+        )
+
+    def apply_decompose(
+        self, path: SectionPath, index: int, parts: list[Part], chain: bool, new_section: bool
+    ) -> None:
+        """分解して再描画する(元に戻すの 1 ステップ)。不正なときは ValueError で、何も変えない。"""
+        name = self.tasks_in(path)[index].name
+        decompose(self.project, path, index, parts, chain=chain, new_section=new_section)
+        if path:
+            self.gantt.expand_section(path)
+        self.after_edit()
+        ui.notify(f"「{name}」を {len(parts)} 件に分解しました")
 
     def delete_task(self, path: SectionPath, task_index: int) -> None:
         """タスクを取り除いて再描画する。保存は自動では行わない(編集中の判定に入る)。"""

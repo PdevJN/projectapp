@@ -1,6 +1,10 @@
 from datetime import date, datetime
 
+from nicegui import ui
 from nicegui.testing import User
+
+from projectapp.decompose import Part
+from projectapp.decompose_dialog import open_decompose_dialog
 
 from projectapp.filtering import TaskFilter
 from projectapp.gantt import SUMMARY_BAND_HEIGHT_PX
@@ -123,3 +127,87 @@ async def test_links_from_a_hidden_child_disappear_while_the_summary_is_collapse
     user.find(marker="summary-toggle-0-0").click()
     html = user.find(marker="links").elements.pop().content
     assert 'data-link="a-z"' not in html and 'data-link="m-z"' in html
+
+
+def mount_decompose(task: Task, calls: list[tuple[list[Part], bool, bool]], reason: str | None = None, fail: str | None = None) -> None:
+    @ui.page("/")
+    def index() -> None:
+        def on_apply(parts: list[Part], chain: bool, new_section: bool) -> None:
+            if fail:
+                raise ValueError(fail)
+            calls.append((parts, chain, new_section))
+
+        ui.button("開く", on_click=lambda: open_decompose_dialog(task, reason, on_apply))
+
+
+async def test_the_dialog_starts_with_two_even_rows(user: User) -> None:
+    mount_decompose(Task("実装", effort_hours=5.0), [])
+    await user.open("/")
+    user.find("開く").click()
+    assert user.find(marker="decompose-name-0").elements.pop().value == "実装 1"
+    assert user.find(marker="decompose-effort-0").elements.pop().value == 2.5
+    assert user.find(marker="decompose-effort-1").elements.pop().value == 2.5
+
+
+async def test_apply_passes_the_rows_and_the_options(user: User) -> None:
+    calls: list[tuple[list[Part], bool, bool]] = []
+    mount_decompose(Task("実装", effort_hours=4.0), calls)
+    await user.open("/")
+    user.find("開く").click()
+    user.find(marker="decompose-apply").click()
+    assert calls == [([Part("実装 1", 2.0), Part("実装 2", 2.0)], True, False)]
+
+
+async def test_edited_rows_and_options_are_passed(user: User) -> None:
+    calls: list[tuple[list[Part], bool, bool]] = []
+    mount_decompose(Task("実装", effort_hours=4.0), calls)
+    await user.open("/")
+    user.find("開く").click()
+    user.find(marker="decompose-name-1").elements.pop().set_value("後半")
+    user.find(marker="decompose-effort-0").elements.pop().set_value(3.0)
+    user.find(marker="decompose-chain").elements.pop().set_value(False)
+    user.find(marker="decompose-section").elements.pop().set_value(True)
+    user.find(marker="decompose-apply").click()
+    assert calls == [([Part("実装 1", 3.0), Part("後半", 2.0)], False, True)]
+
+
+async def test_rows_can_be_added_and_removed_but_not_below_two(user: User) -> None:
+    mount_decompose(Task("実装", effort_hours=3.0), [])
+    await user.open("/")
+    user.find("開く").click()
+    await user.should_not_see(marker="decompose-remove-1")  # 2 行のときは削除を出さない
+    user.find(marker="decompose-add").click()
+    await user.should_see(marker="decompose-name-2")
+    user.find(marker="decompose-remove-2").click()
+    await user.should_not_see(marker="decompose-name-2")
+    await user.should_not_see(marker="decompose-remove-1")
+
+
+async def test_the_total_warns_when_it_differs_from_the_original(user: User) -> None:
+    mount_decompose(Task("実装", effort_hours=4.0), [])
+    await user.open("/")
+    user.find("開く").click()
+    assert "一致" in user.find(marker="decompose-total").elements.pop().text
+    user.find(marker="decompose-effort-0").elements.pop().set_value(9.0)
+    assert "違います" in user.find(marker="decompose-total").elements.pop().text
+
+
+async def test_the_section_option_is_disabled_with_the_reason(user: User) -> None:
+    calls: list[tuple[list[Part], bool, bool]] = []
+    mount_decompose(Task("実装"), calls, reason="セクションは 3 階層までです")
+    await user.open("/")
+    user.find("開く").click()
+    box = user.find(marker="decompose-section").elements.pop()
+    assert not box.enabled
+    await user.should_see("セクションは 3 階層までです")
+    user.find(marker="decompose-apply").click()
+    assert calls[0][2] is False
+
+
+async def test_an_error_from_the_callback_keeps_the_dialog_open(user: User) -> None:
+    mount_decompose(Task("実装"), [], fail="実績のあるタスクは分解できません")
+    await user.open("/")
+    user.find("開く").click()
+    user.find(marker="decompose-apply").click()
+    await user.should_see("実績のあるタスクは分解できません")
+    await user.should_see(marker="decompose-apply")

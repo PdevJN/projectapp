@@ -22,6 +22,7 @@ from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Lev
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
+from projectapp.decompose import Part
 from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.plantuml import PLANTUML_FILE_TYPES
 from projectapp.puml_import import PLANTUML_OPEN_FILE_TYPES
@@ -694,6 +695,41 @@ async def test_delete_task_keeps_the_summary_consistent(user: User, tmp_path: Pa
     assert view.project.tasks[0].children == ["b"]
     view.delete_task((), 1)
     assert view.project.tasks[0].kind is TaskKind.NORMAL
+
+
+async def test_decompose_task_makes_a_summary_in_one_undo_step(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    view.apply_decompose((0,), 0, [Part("a", 2.0), Part("b", 2.0)], True, False)
+    assert [t.name for t in view.project.sections[0].tasks] == ["実装", "a", "b"]
+    assert view.is_dirty()
+    view.undo()
+    assert [t.name for t in view.project.sections[0].tasks] == ["実装"]
+    assert view.project.sections[0].tasks[0].kind is TaskKind.NORMAL
+
+
+async def test_the_decompose_button_in_the_edit_dialog_opens_the_decompose_dialog(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    await user.should_see(marker="task-0-0")
+    user.find(marker="task-0-0").click()
+    user.find(marker="task-decompose").click()
+    await user.should_see(marker="decompose-apply")
+    user.find(marker="decompose-apply").click()
+    assert [t.kind for t in view.project.sections[0].tasks][0] is TaskKind.SUMMARY
+    assert len(view.project.sections[0].tasks) == 3
 
 
 async def test_delete_task_removes_its_id_from_the_successors(
