@@ -15,7 +15,7 @@ MIN_GAP_PX = 2 * STUB_PX  # 後続の左端がこれ未満のときは、行の�
 class RowSlot:
     """描く行 1 つ。折りたたみで隠れる行は、作るが shown=False(高さを持たない)。"""
 
-    kind: Literal["task", "section", "top-add"]
+    kind: Literal["task", "section", "top-add", "quick-add"]
     path: SectionPath  # 行が属するセクションのパス(root と追加行は ())
     ti: int | None
     task_id: str | None
@@ -31,20 +31,28 @@ def row_slots(
     row_height: int,
     add_height: int,
     collapsed_summaries: Collection[str] = frozenset(),
+    quick_add: tuple[SectionPath, int] | None = None,
 ) -> list[RowSlot]:
     """gantt.render が描く行の並び。描画と矢印の計算の、両方がこの並びを使う。
-    折りたたんだまとめの子の行は shown=False。絞り込み中と読み取り専用では、まとめの折りたたみを無視する。"""
+    折りたたんだまとめの子の行は shown=False。絞り込み中と読み取り専用では、まとめの折りたたみを無視する。
+    quick_add は、名前を入れる入力行の位置(セクションのパス, 番号)。絞り込み中と読み取り専用では出さない。"""
     slots: list[RowSlot] = []
+    if read_only or task_filter.active:
+        quick_add = None
     by_id = project.task_map()
     folded = hidden_by_summary(project, collapsed_summaries) if not task_filter.active and not read_only else set()
+    if quick_add == ((), 0):
+        slots.append(RowSlot("quick-add", (), None, None, True, row_height))
     for ti, task in enumerate(project.tasks):
         if matches(task, task_filter, by_id):
             slots.append(RowSlot("task", (), ti, task.id, task.id not in folded, row_height))
+            if quick_add == ((), ti + 1):
+                slots.append(RowSlot("quick-add", (), None, None, True, row_height))
     if not read_only:
         slots.append(RowSlot("top-add", (), None, None, True, add_height))
     for index, section in enumerate(project.sections):
         _section_slots(
-            slots, section, (index,), task_filter, collapsed, read_only, False, row_height, by_id, folded
+            slots, section, (index,), task_filter, collapsed, read_only, False, row_height, by_id, folded, quick_add
         )
     return slots
 
@@ -60,6 +68,7 @@ def _section_slots(
     row_height: int,
     by_id: Mapping[str, Task],
     folded: Collection[str],
+    quick_add: tuple[SectionPath, int] | None,
 ) -> None:
     """セクションの見出し・タスク・サブセクションの行を足す。hidden は、親のどれかが折りたたまれている。"""
     if task_filter.active and not section_has_match(section, task_filter, by_id):
@@ -67,16 +76,20 @@ def _section_slots(
     own_collapsed = path in collapsed and not read_only and not task_filter.active
     slots.append(RowSlot("section", path, None, None, not hidden, row_height))
     visible = set(visible_task_indexes(section, task_filter, own_collapsed, by_id))
+    if quick_add == (path, 0):
+        slots.append(RowSlot("quick-add", path, None, None, not hidden, row_height))
     for ti, task in enumerate(section.tasks):
         if task_filter.active and ti not in visible:
             continue
         slots.append(
             RowSlot("task", path, ti, task.id, not hidden and ti in visible and task.id not in folded, row_height)
         )
+        if quick_add == (path, ti + 1):
+            slots.append(RowSlot("quick-add", path, None, None, not hidden, row_height))
     for index, child in enumerate(section.sections):
         _section_slots(
             slots, child, (*path, index), task_filter, collapsed, read_only, hidden or own_collapsed, row_height,
-            by_id, folded,
+            by_id, folded, quick_add,
         )
 
 

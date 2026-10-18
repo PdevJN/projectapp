@@ -108,6 +108,7 @@ class Recorder:
             copy_section=lambda path: self.events.append(("copy_section", (path,))),
             rename_section=lambda path: self.events.append(("rename_section", (path,))),
             delete_section=lambda path: self.events.append(("delete_section", (path,))),
+            add_named_task=lambda path, index, name: self.events.append(("add_named_task", (path, index, name))),
         )
 
 

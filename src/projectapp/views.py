@@ -249,6 +249,7 @@ class MainView:
                 copy_section=self.copy_section,
                 rename_section=self.rename_section,
                 delete_section=self.confirm_delete_section,
+                add_named_task=self.add_named_task,
             ),
             name_width=load_name_width(base_dir),
         )
@@ -1125,6 +1126,11 @@ class MainView:
             self.after_edit()
 
         open_name_dialog(apply, task_name_error, title="タスク名の変更", initial=task.name, label="タスク名")
+
+    def add_named_task(self, path: SectionPath, index: int, name: str) -> None:
+        """名前だけの通常タスクを、セクション(root は ())の index 番目に作る(名前の入力行の確定)。"""
+        arrange.insert_named_task(self.project, (path, index), name)
+        self.after_edit()
 
     def confirm_delete_task(self, path: SectionPath, index: int) -> None:
         """確認してから、タスクを削除する。"""
