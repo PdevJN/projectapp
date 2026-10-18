@@ -1,10 +1,10 @@
 # 作業記録
 
-最終更新: 2026-10-18(`develop`は PR #44(最後の機能)まで、それ以降は記録だけの PR。テスト 3,019 件と`ty check`が通る。過去の最終更新と「現在の状況」の経緯は`docs/work-log.md`)
+最終更新: 2026-10-18(`develop`は PR #48(最後の機能)まで、それ以降は記録だけの PR。テスト 3,026 件(+メニューの余白の 1 件)と`ty check`が通る。過去の最終更新と「現在の状況」の経緯は`docs/work-log.md`)
 
 ## 現在の状況
 
-**2026-10-18 時点: `develop` は PR #44(最後の機能)まで、それ以降は記録だけの PR。作業ブランチはなし(PR の push・マージは、ユーザーの指示があってから)**
+**2026-10-18 時点: `develop` は PR #48(最後の機能)まで、それ以降は記録だけの PR。作業ブランチはなし(PR の push・マージは、ユーザーの指示があってから)**
 
 - 2026-10-18 にマージ済み: #29(要望 28/36 の履歴修正)・#30(拡大中にプルダウンの下の候補が消える。`behavior=dialog`)・#31(要望 34: 手指定の完了予定でも算出値を参考表示)・#32(履歴)・#33(PlantUML 取り込み: 日付がなければ取り込み日を起点)・#34(`requires`・`is N% complete`・`<style>` を読む)・#35(進捗度の入力をタスクの欄 1 つに。実績の区間の進捗度は廃止し、旧ファイルは読込時にタスクの進捗度へ寄せる)。
 - docs 見直し(ユーザー依頼): ① README / `docs/development.md` / RULE(`docs/readme-development-refresh`) ② `CLAUDE.md` の突き合わせ(`docs/claude-md-audit`。差異は「添付ファイル」が未実装なこと、古い一文 1 件) ③ 設計書に状態と索引(`docs/design-docs-index`。`docs/superpowers/README.md`) ④ 作業記録(`docs/work-log-refresh`)。
@@ -16,6 +16,8 @@
 - 学んだこと(右クリック): `ui.menu` ではなく`ui.context_menu`(`context-menu`と`touch-position`の両方が要る)を使い、親では開かないよう`no-parent-event`を付ける。ブラウザ側で開くのは`getElement(menu.id).show(e)`(QMenu は`getElement`が直接返すので、`$refs.qRef`は無い)。メニューの外のクリックは、ドラッグできる行などで Quasar の閉じる動作が効かないことがあるので、`pointerdown`で明示的に閉じる。ユーザーシミュレーションは右クリックを再現できないので、テストは`open_menu`と`js_handler`の文字列で確かめ、実際の表示は画面なしの Chrome(`--remote-debugging-port` と CDP の WebSocket)で確かめた。
 - 記録の書き方: `develop` の位置は、コミットでなく PR の番号で書く(記録を直す PR のマージで`develop`のコミットが進み、書いたコミットがいつも 1 つ前になるため)。機能の PR の番号を書き、それ以降は「記録だけの PR」とする。
 - 学んだこと(進め方): ブランチを切り替えたと書いたのに、切り替えていなかった(実機確認の結果が別のブランチのものになりかけた)。実機確認を頼む前に、`git branch --show-current`の出力を見る。コマンドを`;`でつなぐと、テストが落ちてもコミットまで進む。`&&`でつなぐ。起動直後にコンボを開くまで約 1 分かかったが、`develop`・右クリック入りのブランチ・Chrome の計測のどれでも再現せず、一時的なものと判断した(再発したら、起動直後か・他の重い処理がないか・ネットワークを記録する)。
+- 2026-10-18 夜: タスクのリンクのアイコン(番号のない要望)を PR #48 で`develop`へマージ済み。名前欄のチップの末尾に`link`アイコン(`GanttChart.link_icon`、マーカー`task-link-<key>-<ti>`)。1 件はクリックで開き、複数はメニュー(`app-context-menu`で右クリックと同じ余白)。読み取り専用・チップがオフでは出さない。開くのは`open_url`(`GanttChart(open_url=)`で差し替え)。`CLAUDE.md`の「左クリックでは何も起きない」に、このアイコンの例外を追記した。
+- 学んだこと(進め方・今回): ① 「業務再開」で`.claude/MEMORY.md`を読まずに始めた。② `develop`に直接コミットした(`.claude/BRANCH.md`は git-flow。`feature/*`を切る)。ローカルだけだったので`feature/link-icon`へ移し、`develop`を`origin/develop`へ戻して PR にした。最初に`git branch --show-current`を見て、`develop`なら`feature/*`を切る。③ `ty check`を走らせていなかった(RULE)。④ この環境のシェルは GitHub の認証が通らず`git push`が失敗する。ユーザーが`! git push -u origin <branch>`で押し、PR の作成・マージは`gh`でできる(上のメモの`gh auth git-credential`の方法も試す価値あり)。
 - 次: 未着手の要望(5・24・30〜32・35)から、ユーザーが選ぶ。
 
 
