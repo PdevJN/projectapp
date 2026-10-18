@@ -367,7 +367,7 @@ class GanttChart:
         self.collapsed: set[SectionPath] = set()  # 折りたたんだセクションのパス。保存しない
         self.section_views: dict[SectionPath, SectionView] = {}  # 描画中のセクションの部品
         self.collapsed_summaries: set[str] = set()  # 折りたたんだまとめのタスク id。保存しない
-        self.menu: ui.menu | None = None  # 右クリックの共有メニュー(1 つだけ。行ごとには作らない)
+        self.menu: ui.context_menu | None = None  # 右クリックの共有メニュー(1 つだけ。行ごとには作らない)
         self.menu_target: tuple[SectionPath, int] | None = None  # メニューを開いた行
         self.decompose_item: ui.menu_item | None = None
         self.summary_views: dict[str, SummaryView] = {}  # 描画中のまとめの部品
@@ -771,7 +771,7 @@ class GanttChart:
 
             return run
 
-        with ui.menu().props("context-menu no-parent-event") as self.menu:
+        with ui.context_menu().props("no-parent-event") as self.menu:  # 親の右クリックでは開かない(行の右クリックだけ)
             ui.menu_item("編集", on_click=act(lambda p, t: self.actions.edit_task(p, t))).mark("context-edit")
             self.decompose_item = ui.menu_item(
                 "分解…", on_click=act(lambda p, t: self.actions.decompose_task(p, t))
@@ -796,7 +796,7 @@ class GanttChart:
         """行の右クリックで共有メニューを、クリックした位置に開く。ブラウザ標準のメニューは出さない。"""
         if self.options.read_only or self.menu is None:
             return
-        js = f"(e) => {{ e.preventDefault(); getElement({self.menu.id}).$refs.qRef.show(e); emit(); }}"
+        js = f"(e) => {{ e.preventDefault(); getElement({self.menu.id}).show(e); emit(); }}"
         row.on("contextmenu", lambda path=path, ti=ti: self.open_menu(path, ti), js_handler=js)
 
     @ui.refreshable_method

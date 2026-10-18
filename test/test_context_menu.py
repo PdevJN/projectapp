@@ -59,7 +59,9 @@ async def test_every_row_opens_the_shared_menu_on_right_click(user: User) -> Non
     for marker in ("row-0-0", "row-0-1", "row-top-0"):
         row = user.find(marker=marker).elements.pop()
         listeners = [l for l in row._event_listeners.values() if l.type == "contextmenu"]
-        assert listeners and "preventDefault" in (listeners[0].js_handler or "")
+        handler = listeners[0].js_handler or ""
+        assert "preventDefault" in handler
+        assert ".show(e)" in handler and "qRef" not in handler  # QMenu は getElement が直接返す(qRef は無い)
 
 
 async def test_read_only_rows_have_no_menu(user: User) -> None:
