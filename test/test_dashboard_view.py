@@ -143,3 +143,20 @@ async def test_the_hours_card_has_a_legend_for_its_two_series(user: User) -> Non
     await user.should_see(marker="dashboard-progress-percent")  # refresh は遅延実行なので、描かれるのを待つ
     assert text(user, "dashboard-hours-legend-planned") == "予定"
     assert text(user, "dashboard-hours-legend-actual") == "実績"
+
+
+async def test_the_load_card_shows_the_icon_of_a_member_who_has_one(user: User, icon: str) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK, {"田中": icon})
+    await user.should_see(marker="dashboard-load-icon-田中")
+    assert user.find(marker="dashboard-load-icon-田中").elements.pop()._props["src"] == icon
+    await user.should_not_see(marker="dashboard-load-icon-佐藤")  # アイコンのない人には出さない
+
+
+async def test_the_load_card_shows_no_icon_when_none_are_given(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-load-田中")
+    await user.should_not_see(marker="dashboard-load-icon-田中")

@@ -9,6 +9,7 @@ from nicegui import Client, context, ui
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp import arrange
+from projectapp.avatar import avatar
 from projectapp.browser import open_url as default_open_url
 from projectapp.arrange import Position, section_key
 from projectapp.calendar import DayKind, day_kind
@@ -368,6 +369,7 @@ class GanttChart:
         self.name_width = name_width  # 名前の欄の幅(px)。ドラッグで変わり、保存は呼び出し側
         self.overloads: list[Overload] = []
         self.category_lookup: dict[str, Category] = {}
+        self.icon_lookup: dict[str, str] = {}
         self.schedule = Schedule(project, holidays)
         self.links_html: ui.html | None = None
         self.link_layout: tuple[list[Column], int] | None = None
@@ -865,6 +867,7 @@ class GanttChart:
         columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
         self.overloads = overallocations(self.project, self.holidays)
         self.category_lookup = by_id(self.project.categories)
+        self.icon_lookup = {m.name: m.icon for m in self.project.members if m.icon}
         width = COLUMN_WIDTH_PX[self.view_scale]
         content = ui.element("div").style(
             f"position: relative; width: {from_name(width * len(columns))};"
@@ -1245,7 +1248,7 @@ class GanttChart:
             ).mark(f"task-code-{key}-{ti}")
         for n, assignee in enumerate(task.assignees[:MAX_ASSIGNEE_CHIPS]):
             suffix = "" if n == 0 else f"-{n}"
-            ui.label(assignee.name[0]).style(ASSIGNEE_CHIP_STYLE).tooltip(
+            avatar(assignee.name, self.icon_lookup.get(assignee.name, ""), 16).tooltip(
                 f"{assignee.name} {round(assignee.allocation * 100)}%"
             ).mark(f"task-assignee-{key}-{ti}{suffix}")
         rest = task.assignees[MAX_ASSIGNEE_CHIPS:]

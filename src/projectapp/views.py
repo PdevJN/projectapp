@@ -678,7 +678,8 @@ class MainView:
             return
         now = self.now()
         period = period_for(self.dashboard_kind, now.date(), self.project, self.holidays)
-        self.dashboard_view.show(summarize(self.project, period, now, self.holidays), self.dashboard_kind)
+        icons = {m.name: m.icon for m in self.project.members if m.icon}
+        self.dashboard_view.show(summarize(self.project, period, now, self.holidays), self.dashboard_kind, icons)
 
     def change_dashboard_period(self, kind: PeriodKind) -> None:
         if self.dashboard_kind is None:
