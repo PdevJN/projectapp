@@ -419,16 +419,17 @@ def test_the_output_of_build_plantuml_comes_back() -> None:
     ).text
     result = parse_plantuml(text, "代わり")
     back = result.project
-    assert back.name == "検証" and result.created_members == 0 and result.skipped_lines == 0
+    assert back.name == "検証" and result.created_members == 1  # 担当の田中がメンバーとして戻る and result.skipped_lines == 0
     by_name = {t.name: t for t in back.all_tasks()}
-    assert set(by_name) == {"設計 (田中)", "実装", "リリース"}  # 担当者名は表示名に残る
-    assert (by_name["設計 (田中)"].planned_start, by_name["設計 (田中)"].planned_end) == (at(13), at(14, *END))
+    assert set(by_name) == {"設計", "実装", "リリース"}
+    assert (by_name["設計"].planned_start, by_name["設計"].planned_end) == (at(13), at(14, *END))
     assert (by_name["実装"].planned_start, by_name["実装"].planned_end) == (at(15), at(20, *END))
-    assert by_name["実装"].predecessors == [by_name["設計 (田中)"].id]
+    assert by_name["実装"].predecessors == [by_name["設計"].id]
     assert by_name["リリース"].kind is TaskKind.CHECKPOINT and by_name["リリース"].deadline == at(23, *END)
-    assert [t.name for t in back.tasks] == ["設計 (田中)"]
+    assert [t.name for t in back.tasks] == ["設計"]
     assert [s.name for s in back.sections] == ["開発"] and [s.name for s in back.sections[0].sections] == ["運用"]
-    assert by_name["設計 (田中)"].progress == 40 and by_name["設計 (田中)"].status is Status.RUNNING
+    assert [(a.name, a.allocation) for a in by_name["設計"].assignees] == [("田中", 1.0)]  # 担当構文で戻る
+    assert by_name["設計"].progress == 40 and by_name["設計"].status is Status.RUNNING
 
 
 PLANTUML_JAR = Path(os.environ.get("PLANTUML_JAR", "/usr/local/lib/plantuml.jar"))
