@@ -101,6 +101,8 @@ class TeamProgress:
     percent: float | None = None  # 工数で重みづけした進捗率(0〜100)。タスクがなければ None
     hours: dict[Status, float] = field(default_factory=lambda: {status: 0.0 for status in Status})
     period: Period | None = None  # 絞り込んだ期間。None は全期間(すべてのタスク)
+    counts: dict[Status, int] = field(default_factory=lambda: {status: 0 for status in Status})  # 円に数えたタスクの件数
+    tasks: dict[Status, list[str]] = field(default_factory=lambda: {status: [] for status in Status})  # その名前(並び順)
 
     @property
     def total(self) -> float:
@@ -131,6 +133,8 @@ def summarize_team_progress(
 ) -> TeamProgress:
     """チーム全体の進捗。担当者に関わらず、1 タスクを 1 回だけ数える。`period` があれば、期間にかかるタスクだけ。"""
     hours = {status: 0.0 for status in Status}
+    counts = {status: 0 for status in Status}
+    names: dict[Status, list[str]] = {status: [] for status in Status}
     weighted = total = 0.0
     schedule = Schedule(project, holidays or {})
     moment = now or datetime.now()
@@ -140,9 +144,11 @@ def summarize_team_progress(
             continue
         weight, percent = weight_and_percent
         hours[task.status] += weight
+        counts[task.status] += 1
+        names[task.status].append(task.name)
         weighted += weight * percent
         total += weight
-    return TeamProgress(weighted / total if total else None, hours, period)
+    return TeamProgress(weighted / total if total else None, hours, period, counts, names)
 
 
 def summarize_progress(project: Project, holidays: dict[date, str], now: datetime) -> Progress:

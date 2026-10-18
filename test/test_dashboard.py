@@ -453,3 +453,32 @@ def test_summarize_filters_the_team_card_except_for_the_whole_period() -> None:
     whole = summarize(project, WEEK, NOW, {}, PeriodKind.ALL).team
     assert whole.total == 4 and whole.period is None
     assert summarize(project, WEEK, NOW, {}).team.total == 4  # 種別を渡さなければ全期間
+
+
+def test_team_progress_counts_tasks_by_status_without_checkpoints_or_summaries() -> None:
+    child = Task("子", effort_hours=4, status=Status.PAUSED)
+    summary = Task("まとめ", kind=TaskKind.SUMMARY, children=[child.id])
+    checkpoint = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17))
+    a, b = Task("A", effort_hours=2), Task("B", effort_hours=3, status=Status.DONE)
+    team = summarize_team_progress(project_of(a, b, child, summary, checkpoint))
+    assert team.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 0, Status.PAUSED: 1, Status.DONE: 1}
+
+
+def test_team_progress_counts_follow_the_period() -> None:
+    team = summarize_team_progress(project_of(dated("中", 6, 7), dated("後", 20, 21)), WEEK, NOW, {})
+    assert team.counts[Status.NOT_STARTED] == 1
+
+
+def test_team_progress_lists_task_names_by_status_in_order() -> None:
+    child = Task("子", effort_hours=4, status=Status.PAUSED)
+    summary = Task("まとめ", kind=TaskKind.SUMMARY, children=[child.id])
+    checkpoint = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17))
+    a, b, c = Task("A", effort_hours=2), Task("B", effort_hours=3, status=Status.DONE), Task("C")
+    team = summarize_team_progress(project_of(a, b, child, summary, checkpoint, c))
+    assert team.tasks == {Status.NOT_STARTED: ["A", "C"], Status.RUNNING: [], Status.PAUSED: ["子"], Status.DONE: ["B"]}
+    assert {status: len(names) for status, names in team.tasks.items()} == team.counts
+
+
+def test_team_progress_task_names_follow_the_period() -> None:
+    team = summarize_team_progress(project_of(dated("中", 6, 7), dated("後", 20, 21)), WEEK, NOW, {})
+    assert team.tasks[Status.NOT_STARTED] == ["中"]

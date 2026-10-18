@@ -22,6 +22,7 @@ OVER_COLOR = "#ef5350"  # 100% を超える日がある負荷(予定超過の赤
 PLANNED_COLOR = "#1e88e5"  # 予定の時間。dataviz の検証で、灰青は「灰色に見える」ため不合格。青と緑の組は全項目 PASS
 ACTUAL_COLOR = "#43a047"  # 実績の時間
 EMPTY = "データがありません"
+MAX_TIP_CHIPS = 10  # 凡例のツールチップに並べるチップの上限。超えた分は「+n件」にまとめる
 PIE_DIAMETER = "9rem"
 PIE_HOLE_PERCENT = 60  # 中央に進捗率を出すための穴(円の半径に対する割合)
 PIE_VARS = {status: f"--pie-{status.name.lower().replace('_', '-')}" for status in Status}
@@ -161,9 +162,22 @@ class DashboardView:
                             ui.element("span").style(
                                 f"width: 10px; height: 10px; border-radius: 2px; background: var({PIE_VARS[status]})"
                             )
-                            ui.label(f"{status.value} {hours:.1f}h ({fraction * 100:.0f}%)").mark(
+                            ui.label(f"{status.value} {team.counts[status]}件 {hours:.1f}h ({fraction * 100:.0f}%)").mark(
                                 f"dashboard-team-legend-{status.name}"
                             )
+                            self.status_tip(team, status)
+
+    def status_tip(self, team: TeamProgress, status: Status) -> None:
+        """凡例の行のツールチップ。その状態のタスク名をチップで並べる。"""
+        names = team.tasks[status]
+        with ui.tooltip().classes("bg-grey-9 text-white").style("max-width: 28rem"):
+            with ui.row().classes("gap-1"):
+                for name in names[:MAX_TIP_CHIPS]:
+                    ui.chip(name, color=None).props("dense square outline").classes("ellipsis").style(
+                        f"color: var({PIE_VARS[status]})"  # 枠と文字が currentColor になり、凡例の色と揃う
+                    ).mark(f"dashboard-team-chip-{status.name}")
+                if len(names) > MAX_TIP_CHIPS:
+                    ui.label(f"+{len(names) - MAX_TIP_CHIPS}件").mark(f"dashboard-team-more-{status.name}")
 
     def progress_card(self, data: Dashboard) -> None:
         progress = data.progress
