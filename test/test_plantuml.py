@@ -146,12 +146,12 @@ def test_chips_add_progress_and_assignees_when_enabled() -> None:
         "設計",
         "2026-10-13T09:00",
         "2026-10-14T18:00",
-        assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.4), Assignee("佐藤", 0.2), Assignee("高橋", 0.2), Assignee("伊藤", 0.2)],
+        assignees=[Assignee("田中", 0.6), Assignee("鈴木", 1.0)],
         actuals=[Actual(datetime(2026, 10, 13, 9), datetime(2026, 10, 13, 12))],
         progress=40,
     )
     out = lines(Project("p", tasks=[t]))
-    assert "[設計 (田中・鈴木・佐藤ほか2名)] as [T1] starts 2026-10-13 and ends 2026-10-14" in out
+    assert "[設計] as [T1] on {田中:60%} {鈴木} starts 2026-10-13 and ends 2026-10-14" in out
     assert "[T1] is 40% completed" in out
     off = lines(Project("p", tasks=[t]), show_chips=False)
     assert "[設計] as [T1] starts 2026-10-13 and ends 2026-10-14" in off
@@ -277,7 +277,8 @@ PLANTUML_JAR = Path(os.environ.get("PLANTUML_JAR", "/usr/local/lib/plantuml.jar"
 def test_the_output_renders_without_syntax_errors(scale: Scale) -> None:
     first = task("[重要] 設計", "2026-10-13T09:00", "2026-10-14T18:00", id="t1", status=Status.RUNNING,
                  assignees=[Assignee("田中", 1.0)], actuals=[Actual(datetime(2026, 10, 13, 9), None, 40)])
-    second = task("実装", "2026-10-15T09:00", "2026-10-20T18:00", id="t2", predecessors=["t1"])
+    second = task("実装", "2026-10-15T09:00", "2026-10-20T18:00", id="t2", predecessors=["t1"],
+                  assignees=[Assignee("田中", 0.5), Assignee("鈴木:{特}", 1.0)])  # 担当構文と、記号の置き換え
     dup = task("実装", "2026-10-16T09:00", "2026-10-21T18:00", id="t3")
     cp = Task("リリース", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 23, 18), id="t4", predecessors=["t2"])
     project = Project(
@@ -293,3 +294,46 @@ def test_the_output_renders_without_syntax_errors(scale: Scale) -> None:
     )
     svg = done.stdout.decode(errors="replace")
     assert done.returncode == 0 and "<svg" in svg and "Syntax Error" not in svg
+
+
+def test_every_assignee_is_listed_without_a_limit() -> None:
+    names = ["田中", "鈴木", "佐藤", "高橋", "伊藤"]
+    t = task("設計", "2026-10-13T09:00", "2026-10-13T18:00", assignees=[Assignee(n, 1.0) for n in names])
+    out = lines(Project("p", tasks=[t]))
+    assert "[設計] as [T1] on {田中} {鈴木} {佐藤} {高橋} {伊藤} starts 2026-10-13 and ends 2026-10-13" in out
+
+
+def test_allocation_is_omitted_at_one_hundred_percent_and_rounded_otherwise() -> None:
+    t = task("設計", "2026-10-13T09:00", "2026-10-13T18:00", assignees=[Assignee("田中", 1.0), Assignee("鈴木", 1 / 3), Assignee("佐藤", 0.005)])
+    out = lines(Project("p", tasks=[t]))
+    assert any("on {田中} {鈴木:33%} {佐藤:1%} starts" in line for line in out)
+
+
+def test_assignee_names_cannot_break_the_resource_syntax() -> None:
+    t = task("設計", "2026-10-13T09:00", "2026-10-13T18:00", assignees=[Assignee("田{中}:A", 0.5)])
+    out = lines(Project("p", tasks=[t]))
+    assert any("on {田(中)：A:50%} starts" in line for line in out)
+
+
+def test_no_resource_clause_without_assignees_or_with_chips_off() -> None:
+    plain = task("a", "2026-10-13T09:00", "2026-10-13T18:00")
+    assigned = task("b", "2026-10-14T09:00", "2026-10-14T18:00", assignees=[Assignee("田中", 1.0)])
+    project = Project("p", tasks=[plain, assigned])
+    assert not any(" on {" in line for line in lines(project, show_chips=False))
+    assert [line for line in lines(project) if " on {" in line] == [
+        "[b] as [T2] on {田中} starts 2026-10-14 and ends 2026-10-14"
+    ]
+
+
+def test_checkpoints_never_get_a_resource_clause() -> None:
+    t = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 14, 17), assignees=[Assignee("田中", 1.0)])
+    assert not any(" on {" in line for line in lines(Project("p", tasks=[t])))
+
+
+def test_exported_assignees_read_back_through_the_importer() -> None:
+    from projectapp.puml_import import parse_plantuml
+
+    t = task("設計", "2026-10-13T09:00", "2026-10-14T18:00", assignees=[Assignee("田中", 0.6), Assignee("鈴木", 1.0)])
+    text = build(Project("p", tasks=[t])).text
+    back = parse_plantuml(text, "戻し").project.all_tasks()[0]
+    assert [(a.name, round(a.allocation, 2)) for a in back.assignees] == [("田中", 0.6), ("鈴木", 1.0)]

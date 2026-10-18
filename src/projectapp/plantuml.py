@@ -5,6 +5,7 @@ import re
 import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from math import isfinite
 from pathlib import Path
 
 from projectapp.events import color_hex
@@ -22,7 +23,6 @@ STATUS_COLORS = {  # gantt.STATUS_COLORS と同じ(あちらは NiceGUI に依�
     Status.DONE: "#9e9e9e",
 }
 OVERDUE_COLOR = "#e53935"
-MAX_ASSIGNEE_NAMES = 3  # これを超える担当者は「ほか n 名」にまとめる
 EVENT_SECTION = "イベント"
 
 
@@ -71,13 +71,18 @@ def _days(start: datetime, end: datetime | None) -> tuple[date, date]:
     return first, max(first, last)
 
 
+def _resource(name: str) -> str:
+    """担当の構文 `{名前}` の中に置けるよう、波括弧を丸括弧に、コロンを全角にする。"""
+    return name.replace("{", "(").replace("}", ")").replace(":", "：")
+
+
 def _assignees(task: Task) -> str:
-    names = task.assignee_names
-    if not names:
-        return ""
-    shown = "・".join(names[:MAX_ASSIGNEE_NAMES])
-    more = len(names) - MAX_ASSIGNEE_NAMES
-    return f" ({shown}ほか{more}名)" if more > 0 else f" ({shown})"
+    """` on {田中:60%} {鈴木}`。割り当て率が 100% なら省く。担当なしは空。"""
+    parts = []
+    for a in task.assignees:
+        percent = max(1, min(100, round(a.allocation * 100))) if isfinite(a.allocation) else 100
+        parts.append(f"{{{_resource(a.name)}}}" if percent == 100 else f"{{{_resource(a.name)}:{percent}%}}")
+    return f" on {' '.join(parts)}" if parts else ""
 
 
 def build_plantuml(
@@ -152,13 +157,14 @@ def build_plantuml(
             return
         first, last = max(first, p_start), min(last, p_end)
         alias = f"T{len(aliases) + 1}"
-        label = unique(_safe(task.name) + (_assignees(task) if show_chips else ""))
+        label = unique(_safe(task.name))
         aliases[task.id] = alias
         order.append(task)
         if task.kind is TaskKind.CHECKPOINT:
             target.append(f"[{label}] as [{alias}] happens on {first.isoformat()}")
         else:
-            target.append(f"[{label}] as [{alias}] starts {first.isoformat()} and ends {last.isoformat()}")
+            on = _assignees(task) if show_chips else ""
+            target.append(f"[{label}] as [{alias}]{on} starts {first.isoformat()} and ends {last.isoformat()}")
             progress = current_progress(task)
             if show_chips and progress is not None:
                 target.append(f"[{alias}] is {progress}% completed")

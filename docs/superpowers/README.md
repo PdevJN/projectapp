@@ -42,7 +42,7 @@
 | 2026-10-13 | git のコミットとプッシュ | [設計](specs/2026-10-13-git-commit-push-design.md) | [計画](plans/2026-10-13-git-commit-push.md) | 要望 10 の 4 | PR #15(2026-10-13) | — |
 | 2026-10-14 | git のプルとマージ | [設計](specs/2026-10-14-git-pull-merge-design.md) | [計画](plans/2026-10-14-git-pull-merge.md) | 要望 10 の 5 | PR #16(2026-10-14) | — |
 | 2026-10-15 | イベント | [設計](specs/2026-10-15-events-design.md) | [計画](plans/2026-10-15-events.md) | — | PR #18(9b86779。2026-10-15) | — |
-| 2026-10-15 | PlantUML 出力 | [設計](specs/2026-10-15-plantuml-export-design.md) | [計画](plans/2026-10-15-plantuml-export.md) | — | PR #19(05c601a。2026-10-15) | — |
+| 2026-10-15 | PlantUML 出力 | [設計](specs/2026-10-15-plantuml-export-design.md) | [計画](plans/2026-10-15-plantuml-export.md) | — | PR #19(05c601a。2026-10-15) | 担当者名は、表示名の末尾の括弧書きをやめ、担当構文`on {名前:60%}`で出す(割り当て率つき。人数の上限なし) |
 | 2026-10-16 | PlantUML の取り込み | [設計](specs/2026-10-16-plantuml-import-design.md) | [計画](plans/2026-10-16-plantuml-import.md) | 要望 37 | PR #21(1a081c2。2026-10-16) | 日付がまったくないガントは取り込み日を開始にする(PR #33)、`requires`・`is N% complete`・`<style>` を読む(PR #34) |
 | 2026-10-16 | 進捗度の持ち方の見直し(`Task.progress`) | [設計](specs/2026-10-16-task-progress-design.md) | [計画](plans/2026-10-16-task-progress.md) | 要望 38 | PR #22(3fe89a3。2026-10-16) | 区間の進捗度の優先と、欄の読み取り専用の仕様は廃止(PR #35) |
 | 2026-10-17 | カスタムテーマ | [設計](specs/2026-10-17-custom-theme-design.md) | [計画](plans/2026-10-17-custom-theme.md) | 要望 28 | PR #26(ef8ade3。2026-10-18) | — |
