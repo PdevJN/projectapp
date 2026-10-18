@@ -1,4 +1,5 @@
 import gc
+import io
 import sys
 import weakref
 
@@ -82,3 +83,26 @@ def reset_select_default_props():
     """`ui.select.default_props` はクラスに付くので、倍率を変えたテストの `behavior` を、次のテストへ持ち越さない。"""
     yield
     ui.select.default_props(remove="behavior")
+
+
+@pytest.fixture
+def make_png():
+    """画像のバイト列を作る関数。fmt は Pillow の形式名(PNG・JPEG・GIF・WEBP)。"""
+    from PIL import Image
+
+    def build(size: tuple[int, int] = (64, 64), color: tuple[int, ...] = (200, 30, 30, 255), fmt: str = "PNG") -> bytes:
+        mode = "RGBA" if fmt in ("PNG", "WEBP") else "RGB"
+        image = Image.new(mode, size, color if mode == "RGBA" else color[:3])
+        buffer = io.BytesIO()
+        image.save(buffer, fmt)
+        return buffer.getvalue()
+
+    return build
+
+
+@pytest.fixture
+def icon(make_png) -> str:
+    """有効なアイコン(data URI)。"""
+    from projectapp.icons import make_icon
+
+    return make_icon(make_png())
