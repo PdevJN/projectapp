@@ -714,7 +714,7 @@ async def test_decompose_task_makes_a_summary_in_one_undo_step(user: User, tmp_p
     assert view.project.sections[0].tasks[0].kind is TaskKind.NORMAL
 
 
-async def test_the_decompose_button_in_the_edit_dialog_opens_the_decompose_dialog(user: User, tmp_path: Path) -> None:
+async def open_edit_dialog_of_the_only_task(user: User, tmp_path: Path) -> MainView:
     save_cache({}, tmp_path)
     save_project(Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]), tmp_path)
     views: list[MainView] = []
@@ -725,11 +725,29 @@ async def test_the_decompose_button_in_the_edit_dialog_opens_the_decompose_dialo
     assert await wait_until(lambda: view.path is not None)
     await user.should_see(marker="task-0-0")
     user.find(marker="task-0-0").click()
+    return view
+
+
+def open_dialog_count(view: MainView) -> int:
+    return sum(1 for e in view.client.elements.values() if isinstance(e, ui.dialog) and e.value)
+
+
+async def test_decompose_stacks_over_the_edit_dialog_and_closes_both_on_success(user: User, tmp_path: Path) -> None:
+    view = await open_edit_dialog_of_the_only_task(user, tmp_path)
     user.find(marker="task-decompose").click()
-    await user.should_see(marker="decompose-apply")
+    assert open_dialog_count(view) == 2  # 閉じて開くと画面が一瞬消えるので、編集は開いたまま分解を重ねる
     user.find(marker="decompose-apply").click()
     assert [t.kind for t in view.project.sections[0].tasks][0] is TaskKind.SUMMARY
     assert len(view.project.sections[0].tasks) == 3
+    assert open_dialog_count(view) == 0
+
+
+async def test_cancelling_the_decompose_dialog_returns_to_the_edit_dialog(user: User, tmp_path: Path) -> None:
+    view = await open_edit_dialog_of_the_only_task(user, tmp_path)
+    user.find(marker="task-decompose").click()
+    user.find(marker="decompose-cancel").click()
+    assert open_dialog_count(view) == 1
+    assert len(view.project.sections[0].tasks) == 1
 
 
 async def test_delete_task_removes_its_id_from_the_successors(

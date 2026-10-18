@@ -839,7 +839,7 @@ def open_task_dialog(
     categories: list[Category] | None = None,
     layout: str = "all",
     on_layout_change: Callable[[str], object] | None = None,
-    on_decompose: Callable[[], object] | None = None,
+    on_decompose: Callable[[Callable[[], object]], object] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
     is_summary = initial.kind is TaskKind.SUMMARY  # まとめは、名前・カテゴリ・優先度・リンクだけを編集する
@@ -1167,8 +1167,7 @@ def open_task_dialog(
                     if current() != opened:
                         ui.notify("編集内容を保存してから分解してください", type="warning")
                         return
-                    dialog.close()
-                    decompose_handler()
+                    decompose_handler(dialog.close)  # 編集は開いたまま、上に分解を重ねる(閉じて開くと画面が一瞬消える)。成功したら閉じる
 
                 ui.button("分解…", on_click=decompose_now).props("flat").mark("task-decompose")
             ui.space()

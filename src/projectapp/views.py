@@ -1055,17 +1055,21 @@ class MainView:
             members=self.project.members,
             actual_mode=self.project.actual_mode,
             on_delete=lambda: self.delete_task(path, task_index),
-            on_decompose=lambda: self.decompose_task(path, task_index),
+            on_decompose=lambda close_edit: self.decompose_task(path, task_index, close_edit),
             **self.link_args(task),
         )
 
-    def decompose_task(self, path: SectionPath, index: int) -> None:
-        """分解ダイアログを開く。実行は `apply_decompose`。"""
-        open_decompose_dialog(
-            self.tasks_in(path)[index],
-            can_make_section(path),
-            lambda parts, chain, new_section: self.apply_decompose(path, index, parts, chain, new_section),
-        )
+    def decompose_task(
+        self, path: SectionPath, index: int, on_done: Callable[[], object] | None = None
+    ) -> None:
+        """分解ダイアログを開く。実行は `apply_decompose`。`on_done` は、分解に成功したあとに呼ぶ(開いたままの編集ダイアログを閉じる)。"""
+
+        def apply(parts: list[Part], chain: bool, new_section: bool) -> None:
+            self.apply_decompose(path, index, parts, chain, new_section)
+            if on_done is not None:
+                on_done()
+
+        open_decompose_dialog(self.tasks_in(path)[index], can_make_section(path), apply)
 
     def apply_decompose(
         self, path: SectionPath, index: int, parts: list[Part], chain: bool, new_section: bool

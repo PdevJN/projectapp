@@ -44,7 +44,7 @@ def mount_dialog(
     categories: list[Category] | None = None,
     layout: str = "all",
     on_layout_change: Callable[[str], object] | None = None,
-    on_decompose: Callable[[], object] | None = None,
+    on_decompose: Callable[[Callable[[], object]], object] | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -2392,36 +2392,40 @@ async def test_the_kind_toggle_never_offers_summary(user: User) -> None:
     assert TaskKind.SUMMARY not in toggle.options
 
 
-async def test_decompose_button_calls_back_for_a_normal_saved_task(user: User) -> None:
-    calls: list[str] = []
-    mount_dialog(Task("x"), [], on_decompose=lambda: calls.append("go"))
+async def test_decompose_button_calls_back_without_closing_the_edit_dialog(user: User) -> None:
+    calls: list[Callable[[], object]] = []
+    mount_dialog(Task("x"), [], on_decompose=calls.append)
     await open_dialog(user)
     user.find(marker="task-decompose").click()
-    assert calls == ["go"]
+    assert len(calls) == 1
+    await user.should_see(marker="task-save")  # 閉じて開くと画面が一瞬消えるので、編集は開いたまま重ねる
+    assert dialog_of(user).value is True
+    calls[0]()  # 分解に成功したときに、呼び出し側が閉じる
+    assert dialog_of(user).value is False
 
 
 async def test_decompose_button_is_not_shown_for_a_new_task(user: User) -> None:
-    mount_dialog(None, [], on_decompose=lambda: None)
+    mount_dialog(None, [], on_decompose=lambda close: None)
     await open_dialog(user)
     await user.should_not_see(marker="task-decompose")
 
 
 async def test_decompose_button_is_not_shown_for_a_checkpoint(user: User) -> None:
-    mount_dialog(Task("c", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 12, 17)), [], on_decompose=lambda: None)
+    mount_dialog(Task("c", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 12, 17)), [], on_decompose=lambda close: None)
     await open_dialog(user)
     await user.should_not_see(marker="task-decompose")
 
 
 async def test_decompose_button_is_not_shown_for_a_task_with_actuals(user: User) -> None:
     task = Task("r", actuals=[Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12))])
-    mount_dialog(task, [], on_decompose=lambda: None)
+    mount_dialog(task, [], on_decompose=lambda close: None)
     await open_dialog(user)
     await user.should_not_see(marker="task-decompose")
 
 
 async def test_decompose_button_asks_to_save_first_when_the_form_was_edited(user: User) -> None:
     calls: list[str] = []
-    mount_dialog(Task("x"), [], on_decompose=lambda: calls.append("go"))
+    mount_dialog(Task("x"), [], on_decompose=lambda close: calls.append("go"))
     await open_dialog(user)
     user.find(marker="task-name").type("変更")
     user.find(marker="task-decompose").click()
