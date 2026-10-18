@@ -5,9 +5,11 @@
 | モジュール | 役割 |
 |---|---|
 | `main.py` | エントリポイント(NiceGUI + pywebview。静的ファイルの登録) |
-| `views.py` | メイン画面(ヘッダー〔メニュー 4 つ・プロジェクトの切り替え・ダッシュボード・テーマのメニュー。プロジェクト名はヘッダーの外の `title_box`。`header` / `header_menu`(項目は `MenuItem`: 文言・アイコン・操作・マーカー・キー。`menu_entry` が左のアイコンと右端のキーを足す)/ `theme_menu`。配色とフォントは `HEADER_CSS`〕・チャート領域・ヘルプのダイアログ・プレビューとダッシュボードの出入り・画像の保存・担当者向けファイルの書き出し) |
+| `views.py` | メイン画面(ヘッダー〔メニュー 5 つ(ファイル・プロジェクト・エクスポート・Git・ヘルプ)・プロジェクトの切り替え・ダッシュボード・テーマのメニュー。プロジェクト名はヘッダーの外の `title_box`。`header` / `header_menu`(項目は `MenuItem`: 文言・アイコン・操作・マーカー・キー。`menu_entry` が左のアイコンと右端のキーを足す)/ `theme_menu`。配色とフォントは `HEADER_CSS`〕・チャート領域・ヘルプのダイアログ・プレビューとダッシュボードの出入り・画像の保存・担当者向けファイルの書き出し) |
 | `calendar.py` | 祝日の取得・キャッシュ(`holidays.json`)と日付種別の判定 |
 | `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`・`assignees_rate`・`counted_assignees`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |
+| `linkgraph.py` | タスクの連結(先行 → 後続)のグラフ操作。NiceGUI に依存しない純粋関数 |
+| `links.py` | 矢印の連結の計算(行の並び・縦位置・折れ線)。NiceGUI に依存しない純粋関数 |
 | `filtering.py` | 絞り込み条件(`TaskFilter`)とタスクの判定(`matches`)、セクションで描くタスクの決定(`visible_task_indexes`)(純粋関数) |
 | `arrange.py` | タスクの移動(`move_task`)・コピー(`copy_task`)・日程のずらし(`shift_task`、左へずらせる限度 `min_shift_days`)と、画面から届く値の検証(`parse_move`・`parse_shift`)(純粋関数) |
 | `gantt_drag.py` | ガントチャートのドラッグ操作用の JS と CSS(定数のみ。行は HTML5 の drag、バーと名前の欄の右端は pointer イベント) |
