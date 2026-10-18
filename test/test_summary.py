@@ -8,6 +8,7 @@ from projectapp.timeline import Schedule, effective_end, effective_start, is_ove
 from projectapp import arrange
 from projectapp.decompose import MAX_PARTS, Part, can_make_section, decompose, default_parts, split_effort
 from projectapp.models import Actual, Assignee, Category, TaskUrl
+from projectapp.linkgraph import drop_task_links, link_options
 from projectapp.summary import children_of, drop_child, parent_map, revert_empty, summary_progress, summary_status
 from projectapp.storage import dumps_project, load_project, parse_project, save_project
 import json
@@ -383,3 +384,35 @@ def test_the_result_passes_the_load_validation() -> None:
     project = decomposable()
     decompose(project, (0,), 1, PARTS, new_section=True)
     parse_project(dumps_project(project), "p")
+
+
+def test_drop_task_links_removes_a_deleted_child_from_its_summary() -> None:
+    project = Project("p", tasks=[summary("m", "a", "b"), child("a"), child("b")])
+    drop_task_links(project, "a")
+    assert project.tasks[0].children == ["b"]
+    drop_task_links(project, "b")
+    assert project.tasks[0].kind is TaskKind.NORMAL
+
+
+def test_deleting_a_summary_leaves_the_children_as_plain_tasks() -> None:
+    project = Project("p", tasks=[summary("m", "a"), child("a")])
+    removed = project.tasks.pop(0)
+    drop_task_links(project, removed.id)
+    assert [(t.name, t.kind) for t in project.tasks] == [("a", TaskKind.NORMAL)]
+
+
+def test_a_child_cannot_pick_its_own_summary_as_a_predecessor() -> None:
+    project = Project("p", tasks=[summary("m", "a"), child("a"), child("other")])
+    assert set(link_options(project, project.tasks[1])) == {"other"}
+
+
+def test_a_summary_cannot_pick_its_own_child() -> None:
+    project = Project("p", tasks=[summary("m", "a"), child("a"), child("other")])
+    assert set(link_options(project, project.tasks[0])) == {"other"}
+
+
+def test_copying_a_summary_gives_a_plain_task_without_children() -> None:
+    project = Project("p", tasks=[summary("m", "a"), child("a")])
+    copy = arrange.copy_task(project, ((), 0), ((), 2))
+    assert (copy.kind, copy.children) == (TaskKind.NORMAL, [])
+    assert project.tasks[0].children == ["a"]

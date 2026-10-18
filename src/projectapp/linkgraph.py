@@ -1,6 +1,7 @@
 """タスクの連結(先行 → 後続)のグラフ操作。NiceGUI には依存しない純粋関数。"""
 
 from projectapp.models import Project, Task, TaskKind, walk_sections
+from projectapp.summary import drop_child, parent_map
 
 
 def downstream_ids(project: Project, task_id: str) -> set[str]:
@@ -73,10 +74,11 @@ def _reject_cycle(tasks: list[Task]) -> None:
 
 
 def drop_task_links(project: Project, task_id: str) -> None:
-    """全タスクの先行から、その id を取り除く(タスクの削除のとき)。"""
+    """全タスクの先行から、その id を取り除く(タスクの削除のとき)。まとめの子からも外し、空になったまとめは通常タスクに戻す。"""
     for task in project.all_tasks():
         if task_id in task.predecessors:
             task.predecessors = [pid for pid in task.predecessors if pid != task_id]
+    drop_child(project, task_id)
 
 
 def link_options(project: Project, task: Task | None) -> dict[str, str]:
@@ -87,7 +89,10 @@ def link_options(project: Project, task: Task | None) -> dict[str, str]:
     """
     excluded: set[str] = set()
     if task is not None:
-        excluded = {task.id, *downstream_ids(project, task.id)}
+        excluded = {task.id, *downstream_ids(project, task.id), *task.children}  # まとめが自分の子を先行にすると循環する
+        parent = parent_map(project).get(task.id)
+        if parent is not None:
+            excluded.add(parent)  # 子が親のまとめを先行にすると循環する
     labelled: list[tuple[str, str]] = [(t.id, t.name) for t in project.tasks]
     names: dict[tuple[int, ...], str] = {}
     for path, section in walk_sections(project.sections):

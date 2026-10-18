@@ -18,7 +18,7 @@ from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.handoff import JSON_FILE_TYPES
 from projectapp.categories import CategoryEdit
-from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, Section, Task, TaskUrl, UrlTemplate
+from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, Section, Task, TaskKind, TaskUrl, UrlTemplate
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
@@ -674,6 +674,26 @@ async def test_delete_task_removes_only_that_task_and_makes_the_view_dirty(
     assert [t.name for t in view.project.sections[0].tasks] == ["x"]
     assert [t.name for t in view.project.tasks] == ["b"]
     assert view.is_dirty()
+
+
+async def test_delete_task_keeps_the_summary_consistent(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    save_project(
+        Project("既存", tasks=[
+            Task("m", id="m", kind=TaskKind.SUMMARY, children=["a", "b"]), Task("a", id="a"), Task("b", id="b"),
+        ]),
+        tmp_path,
+    )
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    view.delete_task((), 1)
+    assert view.project.tasks[0].children == ["b"]
+    view.delete_task((), 1)
+    assert view.project.tasks[0].kind is TaskKind.NORMAL
 
 
 async def test_delete_task_removes_its_id_from_the_successors(
