@@ -529,6 +529,8 @@ class MainView:
             events=self.project.events,
             on_events=self.apply_events,
             used_ids=self.project.used_ids(),
+            base_date=self.project.base_date,
+            on_base_date=self.apply_base_date,
         )
 
     def multi_interval_count(self) -> int:
@@ -877,6 +879,13 @@ class MainView:
             return
         self.project.daily_hours, self.project.work_start = hours, start
         self.project.actual_mode = mode
+        self.after_edit()
+
+    def apply_base_date(self, day: date) -> None:
+        """基準日(プロジェクト開始日)を更新して再描画する。同じ日なら何もしない。保存はしない。"""
+        if day == self.project.base_date:
+            return
+        self.project.base_date = day
         self.after_edit()
 
     def apply_templates(self, edit: TemplateEdit) -> None:

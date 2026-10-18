@@ -26,7 +26,7 @@ from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.plantuml import PLANTUML_FILE_TYPES
 from projectapp.puml_import import PLANTUML_OPEN_FILE_TYPES
 from projectapp.dashboard import PeriodKind
-from projectapp.timeline import Scale, effective_end
+from projectapp.timeline import Scale, effective_end, visible_range
 from projectapp.gantt import ViewOptions
 from projectapp.forms import MEMBER_TABLE_CSS
 from projectapp.config import load_custom_theme, load_theme, save_custom_theme
@@ -4103,3 +4103,64 @@ async def test_starting_zoomed_opens_selects_in_a_dialog(user: User, tmp_path: P
     view, _ = await open_zoom_view(user, tmp_path)
     assert selects(view)
     assert all(s.props.get("behavior") == "dialog" for s in selects(view))
+
+
+async def test_apply_base_date_changes_marks_dirty_and_undoes(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.apply_base_date(date(2026, 10, 5))
+    view.mark_clean()
+    view.apply_base_date(date(2026, 11, 2))
+    assert view.project.base_date == date(2026, 11, 2)
+    assert view.is_dirty()
+    view.undo()
+    assert view.project.base_date == date(2026, 10, 5)
+
+
+async def test_apply_base_date_with_the_same_day_does_nothing(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    view.mark_clean()
+    view.apply_base_date(date(2026, 10, 5))
+    assert not view.is_dirty()
+    assert not view.history.can_undo()
+
+
+async def test_settings_dialog_changes_the_base_date_of_the_project(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    view.mark_clean()
+    user.find(marker="open-settings").click()
+    user.find(marker="settings-base-date").clear().type("2026-11-02")
+    user.find(marker="settings-apply").click()
+    assert view.project.base_date == date(2026, 11, 2)
+    assert view.is_dirty()
+
+
+async def test_a_later_base_date_keeps_earlier_tasks_and_moves_the_drag_limit(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    task = Task("a", planned_start=datetime(2026, 10, 7, 9), planned_end=datetime(2026, 10, 8, 18), planned_end_manual=True)
+    view.project.base_date = date(2026, 10, 5)
+    view.project.tasks.append(task)
+    view.apply_base_date(date(2026, 10, 20))  # タスクより後ろの基準日(案 A)
+    start, _ = visible_range(view.project)
+    assert start == date(2026, 10, 7)  # タスクは表示範囲に残る
+    view.shift_task((), 0, -3)  # 基準日より前にあるので、左へは動かない
+    assert task.planned_start == datetime(2026, 10, 7, 9)
+    view.shift_task((), 0, 2)  # 右へは動く
+    assert task.planned_start == datetime(2026, 10, 9, 9)

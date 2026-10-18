@@ -409,6 +409,17 @@ def build_work_settings(hours: float | None, start: str) -> tuple[float, time]:
     return hours, work_start
 
 
+def build_base_date(text: str, today: date) -> date:
+    """基準日(プロジェクト開始日)の入力を検証する。過去の日も、タスクより後ろの日も許可する。"""
+    parsed = parse_date_input(text, today, roll_forward=False)
+    if parsed is None:
+        raise ValueError("基準日を日付で入力してください(例: 2026-10-05、10/05)")
+    day = date.fromisoformat(parsed)
+    if not MIN_YEAR <= day.year <= MAX_YEAR:
+        raise ValueError(f"基準日の年は{MIN_YEAR}〜{MAX_YEAR}の範囲で入力してください")
+    return day
+
+
 @dataclass
 class TemplateRow:
     """設定ダイアログの URL テンプレートの 1 行。originalは、開いた時点の名前(新しい行はNone)。"""
@@ -928,6 +939,8 @@ def open_settings_dialog(
     events: list[Event] | None = None,
     on_events: Callable[[list[Event]], object] | None = None,
     used_ids: Collection[str] = (),
+    base_date: date | None = None,
+    on_base_date: Callable[[date], object] | None = None,
 ) -> None:
     card_width = "w-[30rem] max-w-full" if categories is None and events is None else "w-[46rem] max-w-full"
     with disposable(ui.dialog()) as dialog, ui.card().classes(card_width):
@@ -955,6 +968,18 @@ def open_settings_dialog(
             ui.icon("access_time").classes("cursor-pointer").on("click", picker.open).mark(
                 "open-time-picker"
             )
+        base_input: ui.input | None = None
+        if base_date is not None:
+            base_input = ui.input("基準日(プロジェクト開始日)", value=base_date.isoformat()).classes(
+                "w-full"
+            ).mark("settings-base-date")
+            with ui.dialog() as base_picker, ui.card():
+                bind_picker(ui.date().mark("settings-base-date-picker"), base_input, "%Y-%m-%d")
+                ui.button("OK", on_click=base_picker.close).mark("date-picker-ok")
+            with base_input.add_slot("append"):
+                ui.icon("event").classes("cursor-pointer").on("click", base_picker.open).mark(
+                    "open-date-picker"
+                )
         ui.label("実績の記録方式").classes("text-caption text-grey")
         mode = ui.toggle(
             {ActualMode.SIMPLE.value: "簡易", ActualMode.INTERVALS.value: "区間"},
@@ -1204,8 +1229,11 @@ def open_settings_dialog(
             edit: TemplateEdit | None,
             cedit: CategoryEdit | None,
             elist: list[Event] | None,
+            base: date | None,
         ) -> None:
             on_apply(*result, ActualMode(mode.value))
+            if base is not None and on_base_date is not None:
+                on_base_date(base)
             if edit is not None and on_templates is not None and edit.templates != templates:
                 on_templates(edit)
             if cedit is not None and on_categories is not None and (cedit.categories != categories or cedit.removed_ids):  # Category の比較は id を見ないので、内容が同じ行の入れ直しも、削除として適用する
@@ -1216,7 +1244,7 @@ def open_settings_dialog(
 
         def confirm_delete() -> None:
             confirm.close()
-            commit(pending["result"], pending["edit"], pending["cedit"], pending["elist"])
+            commit(pending["result"], pending["edit"], pending["cedit"], pending["elist"], pending["base"])
 
         def apply() -> None:
             try:
@@ -1224,6 +1252,7 @@ def open_settings_dialog(
                 edit = build_edit()
                 cedit = build_categories()
                 elist = build_events()
+                base = build_base_date(base_input.value or "", date.today()) if base_input else None
             except ValueError as exc:
                 error.set_text(str(exc))
                 return
@@ -1237,11 +1266,11 @@ def open_settings_dialog(
             if tasks:
                 messages.append(f"削除するカテゴリを使っているタスクが{tasks}件あります。未定に戻ります。")
             if messages:
-                pending.update(result=result, edit=edit, cedit=cedit, elist=elist)
+                pending.update(result=result, edit=edit, cedit=cedit, elist=elist, base=base)
                 confirm_text.set_text("\n".join(messages))
                 confirm.open()
                 return
-            commit(result, edit, cedit, elist)
+            commit(result, edit, cedit, elist, base)
 
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")
