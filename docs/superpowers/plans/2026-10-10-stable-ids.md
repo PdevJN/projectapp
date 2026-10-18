@@ -1,5 +1,7 @@
 # メンバーとセクションの安定 id Implementation Plan
 
+> **状態**: 実装済み — マージ 3dfb667(2026-10-10)。設計書は [`2026-10-10-stable-ids-design.md`](../specs/2026-10-10-stable-ids-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** メンバーとセクションに安定した `id` を付け、ファイル(version 2)では担当者がメンバー `id` を指すようにする。実行時の担当者は名前参照のまま。

@@ -1,5 +1,8 @@
 # プロジェクトメニューの見直し Implementation Plan
 
+> **状態**: 実装済み — マージ PR #5(0cce975。2026-10-11)。設計書は [`2026-10-11-project-menu-design.md`](../specs/2026-10-11-project-menu-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: Git メニューを足した(PR #15)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** ヘッダーのメニューを整理する(新規作成をファイルメニューへ、メンバーとパラメータを 1 つのタブ付きダイアログへ、ダッシュボードの項目を足す、全項目にアイコン)。

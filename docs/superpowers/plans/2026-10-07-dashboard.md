@@ -1,5 +1,8 @@
 # ダッシュボード 実装計画
 
+> **状態**: 実装済み — 要望 6 — マージ 5d4018c(2026-10-07)。設計書は [`2026-10-07-dashboard-design.md`](../specs/2026-10-07-dashboard-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: 複数の担当者・進捗度の見直しを反映
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** メイン画面に、進捗と遅れ・人ごとの負荷・工数の予定と実績・期限とマイルストーンの 4 つの柱を出すダッシュボード(期間は `今週`・`今月`・`全期間`)を足す(要望 6)。実機確認用のテストデータも 2 種類作る。

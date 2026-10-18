@@ -1,5 +1,8 @@
 # セクションの折りたたみ 実装計画
 
+> **状態**: 実装済み — 要望 19 — マージ 45d8063(2026-10-06)。設計書は [`2026-10-06-section-collapse-design.md`](../specs/2026-10-06-section-collapse-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: セクションの入れ子(nested-sections)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** ガントチャートのセクション見出しで、タスク行を折りたたみ・展開できるようにする(要望 19)。

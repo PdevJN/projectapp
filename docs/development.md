@@ -43,31 +43,7 @@
 
 ## 設計書と実装計画
 
-機能ごとに、設計 → 設計書 → 実装計画の順で進めた。設計書と実装計画は、その時点の記録で、後の変更は反映していない。現在の仕様は `CLAUDE.md`、実装の注意は下の「ファイル形式の注意」を正とする。
-
-| 機能 | 設計書(`docs/superpowers/specs/`) |
-|---|---|
-| ガントチャートの基本表示 | `2026-10-02-gantt-basic-design.md` |
-| 日程計算・保存・稼働時間・開始予定と完了予定 | `2026-10-03-schedule-calc-design.md`、`project-save`、`work-hours`、`planned-dates` |
-| タスク編集ダイアログ | `2026-10-03-task-edit-dialog-design.md` |
-| メンバーと割り当て | `2026-10-03-resources-design.md` |
-| 絞り込み・ドラッグ操作 | `2026-10-04-filtering-design.md`、`drag-and-drop` |
-| 実績・進捗・進捗の棒 | `2026-10-04-actuals-design.md`、`progress`、`progress-bar` |
-| 実績の複数区間 | `2026-10-05-actual-intervals-design.md` |
-| タスク表示のチップ | `2026-10-05-task-chips-design.md` |
-| エクスポートとプレビュー | `2026-10-05-export-preview-design.md` |
-| セクションの折りたたみ | `2026-10-06-section-collapse-design.md` |
-| 名前の欄の幅 | `2026-10-06-name-width-design.md` |
-| ダッシュボード | `2026-10-07-dashboard-design.md` |
-| 担当者向けファイルの書き出し | `2026-10-07-assignee-handoff-design.md` |
-| PlantUML 出力 | `2026-10-15-plantuml-export-design.md` |
-| PlantUML 取り込み | `2026-10-16-plantuml-import-design.md` |
-| 複数の担当者 | `2026-10-08-multi-assignee-design.md` |
-| メンバーの相対比率のパラメータ化 | `2026-10-09-ratio-parameters-design.md` |
-| セクションの入れ子 | `2026-10-09-nested-sections-design.md` |
-| イベントカレンダー | `2026-10-15-events-design.md` |
-
-実装計画は `docs/superpowers/plans/` に、同じ日付・名前(`-design` なし)である。
+機能ごとに、設計 → 設計書 → 実装計画の順で進めた(`docs/superpowers/specs/`・`docs/superpowers/plans/`)。一覧と、各機能の状態・後の変更は、[`docs/superpowers/README.md`](superpowers/README.md) にある。設計書と実装計画は、その時点の記録で、後の変更は本文に反映していない。現在の仕様は `CLAUDE.md`、実装の注意は下の「ファイル形式の注意」を正とする。
 
 ## ブランチ
 

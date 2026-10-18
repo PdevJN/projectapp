@@ -1,5 +1,7 @@
 # git のコミットとプッシュ Implementation Plan
 
+> **状態**: 実装済み — 要望 10 の 4 — マージ PR #15(2026-10-13)。設計書は [`2026-10-13-git-commit-push-design.md`](../specs/2026-10-13-git-commit-push-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 変更のあるプロジェクトファイルを一覧から選んでコミットし、プッシュして共有できるようにする(ヘッダーの 5 つ目のメニュー「Git」とショートカット)。

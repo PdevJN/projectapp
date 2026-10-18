@@ -1,5 +1,8 @@
 # 見積もりのバッファ換算とリソース割り当て比率 Implementation Plan
 
+> **状態**: 実装済み — マージ 最初の機能群(36e46a1・5a45807・6dc7972・4a6a774・0623167・9b2294b。2026-10-03〜04)。設計書は [`2026-10-03-resources-design.md`](../specs/2026-10-03-resources-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: 相対比率はパラメータ化(ratio-parameters)、複数担当(multi-assignee)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 担当者をプロジェクトのメンバー(相対比率つき)として管理し、タスクの割り当て率とあわせて工数を日数に換算する。同じ担当者の割り当て合計が 100% を超える期間を、通知とガントの縞で示す。

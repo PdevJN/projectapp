@@ -1,5 +1,8 @@
 # タスク表示の拡張(ProjectCode・担当・進捗のチップと優先度の背景色) Implementation Plan
 
+> **状態**: 実装済み — 要望 3・9 — マージ 0278f64(2026-10-05)。設計書は [`2026-10-05-task-chips-design.md`](../specs/2026-10-05-task-chips-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: ProjectCode はカテゴリ(category)に置き換わった
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** ガントチャートの名前の欄に、ProjectCode・担当者・進捗のチップを出し、優先度で名前の欄の背景に色を付ける。ProjectCode を、タスクのデータと編集ダイアログの入力に加える。

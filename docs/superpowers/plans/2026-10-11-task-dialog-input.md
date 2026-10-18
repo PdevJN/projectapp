@@ -1,5 +1,8 @@
 # タスクの追加・編集ダイアログの入力の見直し Implementation Plan
 
+> **状態**: 実装済み — マージ PR #6(786097f。2026-10-11)。設計書は [`2026-10-11-task-dialog-input-design.md`](../specs/2026-10-11-task-dialog-input-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: 完了予定の参考値(要望 34。PR #31)、進捗度の入力は 1 つに(PR #35)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** タスクの追加・編集ダイアログを、レイアウトの切り替え・日付と時刻の省略入力・工数の単位とプリセット・担当者の割り当て率の出し入れで、登録しやすくする。

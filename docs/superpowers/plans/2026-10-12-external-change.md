@@ -1,5 +1,7 @@
 # 外部変更の検知(保存時の確認) Implementation Plan
 
+> **状態**: 実装済み — 要望 10 の 2 — マージ PR #12(2026-10-13)。設計書は [`2026-10-12-external-change-design.md`](../specs/2026-10-12-external-change-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 別のプロセス・iCloud・git が書き換えたプロジェクトファイルを、「上書き保存」が黙って消さないように、保存の直前に内容のハッシュで検知して 3 択の確認を出す。

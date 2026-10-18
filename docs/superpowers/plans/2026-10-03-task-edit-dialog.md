@@ -1,5 +1,8 @@
 # タスク編集ダイアログの見直し 実装計画
 
+> **状態**: 実装済み — マージ 最初の機能群(36e46a1・5a45807・6dc7972・4a6a774・0623167・9b2294b。2026-10-03〜04)。設計書は [`2026-10-03-task-edit-dialog-design.md`](../specs/2026-10-03-task-edit-dialog-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: 入力の見直し(task-dialog-input)、進捗度の入力は 1 つに(PR #35)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** タスクの追加・編集ダイアログに、色のプレビュー、日付選択(時刻はチェックで追加)、開始・終了の横並び、閉じるときの確認、タスクの削除を加える。

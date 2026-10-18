@@ -1,5 +1,7 @@
 # ドラッグ&ドロップ Implementation Plan
 
+> **状態**: 実装済み — マージ 0623167(2026-10-04)。設計書は [`2026-10-04-drag-and-drop-design.md`](../specs/2026-10-04-drag-and-drop-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** ガントチャートで、タスクの行をドラッグして移動・コピーし、日次スケールではバーを横にドラッグして開始予定をずらせるようにする。
