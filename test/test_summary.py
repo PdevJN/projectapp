@@ -8,6 +8,8 @@ from projectapp.timeline import Schedule, effective_end, effective_start, is_ove
 from projectapp import arrange
 from projectapp.decompose import MAX_PARTS, Part, can_make_section, decompose, default_parts, split_effort
 from projectapp.models import Actual, Assignee, Category, TaskUrl
+from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
+from projectapp.links import RowSlot, row_slots
 from projectapp.linkgraph import drop_task_links, link_options
 from projectapp.summary import children_of, drop_child, parent_map, revert_empty, summary_progress, summary_status
 from projectapp.storage import dumps_project, load_project, parse_project, save_project
@@ -416,3 +418,65 @@ def test_copying_a_summary_gives_a_plain_task_without_children() -> None:
     copy = arrange.copy_task(project, ((), 0), ((), 2))
     assert (copy.kind, copy.children) == (TaskKind.NORMAL, [])
     assert project.tasks[0].children == ["a"]
+
+
+def slot_project() -> Project:
+    return Project(
+        "p",
+        sections=[Section("s", [summary("m", "a", "b"), child("a"), child("b"), child("other")])],
+    )
+
+
+def test_a_summary_matches_when_a_child_matches() -> None:
+    project = slot_project()
+    flt = TaskFilter(query="a")
+    assert not matches(project.sections[0].tasks[0], flt)
+    assert matches(project.sections[0].tasks[0], flt, project.task_map())
+
+
+def test_a_summary_matches_by_its_own_name() -> None:
+    project = slot_project()
+    assert matches(project.sections[0].tasks[0], TaskFilter(query="m"))
+
+
+def test_visible_task_indexes_include_the_summary_of_a_matching_child() -> None:
+    project = slot_project()
+    section = project.sections[0]
+    flt = TaskFilter(query="b")
+    assert visible_task_indexes(section, flt, False, project.task_map()) == [0, 2]  # m(子 b が合う)と b
+
+
+def test_section_has_match_sees_a_summary_through_its_children() -> None:
+    project = Project("p", sections=[Section("s", [summary("m", "a")]), Section("t", [child("a")])])
+    flt = TaskFilter(query="a")
+    assert section_has_match(project.sections[0], flt, project.task_map())
+
+
+def test_hidden_by_summary() -> None:
+    assert hidden_by_summary(slot_project(), {"m"}) == {"a", "b"}
+    assert hidden_by_summary(slot_project(), set()) == set()
+
+
+def shown(slots: list[RowSlot]) -> list[str | None]:
+    return [s.task_id for s in slots if s.kind == "task" and s.shown]
+
+
+def test_collapsed_summary_hides_its_children_rows() -> None:
+    slots = row_slots(slot_project(), TaskFilter(), set(), False, 32, 24, {"m"})
+    assert shown(slots) == ["m", "other"]
+
+
+def test_rows_are_kept_but_not_shown_so_the_layout_keeps_the_indexes() -> None:
+    slots = row_slots(slot_project(), TaskFilter(), set(), False, 32, 24, {"m"})
+    assert [s.task_id for s in slots if s.kind == "task"] == ["m", "a", "b", "other"]
+
+
+def test_the_summary_collapse_is_ignored_while_filtering_and_in_read_only() -> None:
+    project = slot_project()
+    assert shown(row_slots(project, TaskFilter(query="a"), set(), False, 32, 24, {"m"})) == ["m", "a"]
+    assert shown(row_slots(project, TaskFilter(), set(), True, 32, 24, {"m"})) == ["m", "a", "b", "other"]
+
+
+def test_a_collapsed_section_still_hides_everything() -> None:
+    slots = row_slots(slot_project(), TaskFilter(), {(0,)}, False, 32, 24, set())
+    assert shown(slots) == []

@@ -1,10 +1,11 @@
 """矢印の連結の計算(行の並び・縦位置・折れ線)。NiceGUI には依存しない純粋関数。"""
 
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from projectapp.filtering import TaskFilter, matches, section_has_match, visible_task_indexes
-from projectapp.models import Project, Section, SectionPath
+from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
+from projectapp.models import Project, Section, SectionPath, Task
 
 STUB_PX = 6  # 先行の棒の右端から出る長さ。後続の棒の左端へ入る手前も同じ長さ
 MIN_GAP_PX = 2 * STUB_PX  # 後続の左端がこれ未満のときは、行の間を通る経路にする
@@ -29,16 +30,22 @@ def row_slots(
     read_only: bool,
     row_height: int,
     add_height: int,
+    collapsed_summaries: Collection[str] = frozenset(),
 ) -> list[RowSlot]:
-    """gantt.render が描く行の並び。描画と矢印の計算の、両方がこの並びを使う。"""
+    """gantt.render が描く行の並び。描画と矢印の計算の、両方がこの並びを使う。
+    折りたたんだまとめの子の行は shown=False。絞り込み中と読み取り専用では、まとめの折りたたみを無視する。"""
     slots: list[RowSlot] = []
+    by_id = project.task_map()
+    folded = hidden_by_summary(project, collapsed_summaries) if not task_filter.active and not read_only else set()
     for ti, task in enumerate(project.tasks):
-        if matches(task, task_filter):
-            slots.append(RowSlot("task", (), ti, task.id, True, row_height))
+        if matches(task, task_filter, by_id):
+            slots.append(RowSlot("task", (), ti, task.id, task.id not in folded, row_height))
     if not read_only:
         slots.append(RowSlot("top-add", (), None, None, True, add_height))
     for index, section in enumerate(project.sections):
-        _section_slots(slots, section, (index,), task_filter, collapsed, read_only, False, row_height)
+        _section_slots(
+            slots, section, (index,), task_filter, collapsed, read_only, False, row_height, by_id, folded
+        )
     return slots
 
 
@@ -51,20 +58,25 @@ def _section_slots(
     read_only: bool,
     hidden: bool,
     row_height: int,
+    by_id: Mapping[str, Task],
+    folded: Collection[str],
 ) -> None:
     """セクションの見出し・タスク・サブセクションの行を足す。hidden は、親のどれかが折りたたまれている。"""
-    if task_filter.active and not section_has_match(section, task_filter):
+    if task_filter.active and not section_has_match(section, task_filter, by_id):
         return
     own_collapsed = path in collapsed and not read_only and not task_filter.active
     slots.append(RowSlot("section", path, None, None, not hidden, row_height))
-    visible = set(visible_task_indexes(section, task_filter, own_collapsed))
+    visible = set(visible_task_indexes(section, task_filter, own_collapsed, by_id))
     for ti, task in enumerate(section.tasks):
         if task_filter.active and ti not in visible:
             continue
-        slots.append(RowSlot("task", path, ti, task.id, not hidden and ti in visible, row_height))
+        slots.append(
+            RowSlot("task", path, ti, task.id, not hidden and ti in visible and task.id not in folded, row_height)
+        )
     for index, child in enumerate(section.sections):
         _section_slots(
-            slots, child, (*path, index), task_filter, collapsed, read_only, hidden or own_collapsed, row_height
+            slots, child, (*path, index), task_filter, collapsed, read_only, hidden or own_collapsed, row_height,
+            by_id, folded,
         )
 
 
