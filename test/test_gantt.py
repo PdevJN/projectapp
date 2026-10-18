@@ -3273,3 +3273,13 @@ async def test_no_link_icon_when_chips_are_off(user: User) -> None:
     mount_links(linked(link), [], ViewOptions(show_chips=False))
     await user.open("/")
     await user.should_not_see(marker="task-link-0-0")
+
+
+async def test_the_link_menu_uses_the_compact_menu_class(user: User) -> None:
+    link = TaskUrl("", None, {"URL": "https://example.com/a"})
+    mount_links(linked(link, link), [])
+    await user.open("/")
+    item = chip(user, "task-link-item-0-0-0")
+    menu = item.parent_slot.parent
+    assert isinstance(menu, ui.menu)
+    assert "app-context-menu" in menu.classes

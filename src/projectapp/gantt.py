@@ -1285,7 +1285,7 @@ class GanttChart:
             icon.tooltip(label(link))
             icon.on("click", lambda _=None, link=link: self.open_link(link))
             return
-        with icon, ui.menu():
+        with icon, ui.menu().classes("app-context-menu"):
             for n, link in enumerate(task.urls):
                 ui.menu_item(label(link), on_click=lambda link=link: self.open_link(link)).mark(
                     f"task-link-item-{key}-{ti}-{n}"
