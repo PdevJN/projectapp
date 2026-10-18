@@ -1,5 +1,8 @@
 # PlantUML 取り込み Implementation Plan
 
+> **状態**: 実装済み — 要望 37 — マージ PR #21(1a081c2。2026-10-16)。設計書は [`2026-10-16-plantuml-import-design.md`](../specs/2026-10-16-plantuml-import-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: 日付がまったくないガントは取り込み日を開始にする(PR #33)、`requires`・`is N% complete`・`<style>` を読む(PR #34)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 他所で作られた PlantUML のガント(`@startgantt`〜`@endgantt`)から、`ファイル`メニューで新規プロジェクトを作れるようにする。

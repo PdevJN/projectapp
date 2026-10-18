@@ -1,5 +1,8 @@
 # 進捗率に応じたバーの表現 Implementation Plan
 
+> **状態**: 実装済み — 要望 14 — マージ 803dfff(2026-10-04)。設計書は [`2026-10-04-progress-bar-design.md`](../specs/2026-10-04-progress-bar-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: 進捗はタスクの進捗度だけを見る(PR #35)。実績のバー上の進捗の文字は廃止
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 進捗度と予定の経過を比べて、タスクを「通常・遅延・前倒し・完了・遅延完了」に判定し、予定の棒に進捗の塗り分け・状態の枠線・右の印で表す。

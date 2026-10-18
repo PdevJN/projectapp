@@ -1,5 +1,7 @@
 # タスク同士の矢印連結 Implementation Plan
 
+> **状態**: 実装済み — マージ PR #1(3947822。2026-10-07)。設計書は [`2026-10-07-task-links-design.md`](../specs/2026-10-07-task-links-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** ガントチャートのタスクを「先行 → 後続」で連結し、後続の開始を先行の完了まで押し出して、棒線型の矢印で表示する。

@@ -1,5 +1,7 @@
 # 開始予定・完了予定・締切 Implementation Plan
 
+> **状態**: 実装済み — マージ 最初の機能群(36e46a1・5a45807・6dc7972・4a6a774・0623167・9b2294b。2026-10-03〜04)。設計書は [`2026-10-03-planned-dates-design.md`](../specs/2026-10-03-planned-dates-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** タスクの「開始」「終了」を「開始予定」「完了予定」に改め、締切(納期)を足す。完了予定は保存せず、開始予定・工数・稼働設定・祝日からその都度計算する。

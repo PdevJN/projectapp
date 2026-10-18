@@ -1,5 +1,8 @@
 # 実績の複数区間と記録方式の設定 Implementation Plan
 
+> **状態**: 実装済み — 要望 15 — マージ ec64cba(2026-10-05)。設計書は [`2026-10-05-actual-intervals-design.md`](../specs/2026-10-05-actual-intervals-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: 区間ごとの進捗度の入力は廃止(PR #35)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** プロジェクトの記録方式(簡易/区間)を設定でき、区間のときはタスク編集ダイアログで実績を複数の区間として入力でき、ガントチャートで区間の間が点線で見える。

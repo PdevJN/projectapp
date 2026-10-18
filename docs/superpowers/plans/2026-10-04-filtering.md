@@ -1,5 +1,7 @@
 # 絞り込み(検索・担当者) Implementation Plan
 
+> **状態**: 実装済み — マージ 最初の機能群(36e46a1・5a45807・6dc7972・4a6a774・0623167・9b2294b。2026-10-03〜04)。設計書は [`2026-10-04-filtering-design.md`](../specs/2026-10-04-filtering-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** ガントチャートのタスクを、タスク名の検索と担当者の選択で絞り込めるようにする。

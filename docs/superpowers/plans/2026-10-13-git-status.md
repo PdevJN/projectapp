@@ -1,5 +1,7 @@
 # git の状態表示 Implementation Plan
 
+> **状態**: 実装済み — 要望 10 の 3 — マージ PR #13(2026-10-13)。設計書は [`2026-10-12-git-status-design.md`](../specs/2026-10-12-git-status-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 格納先が git の作業ツリーのとき、ブランチ・未コミットの変更・ahead/behind を、ヘッダーの読み取り専用のチップで見られるようにする。

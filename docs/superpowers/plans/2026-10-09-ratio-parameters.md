@@ -1,5 +1,7 @@
 # メンバーの相対比率のパラメータ化 Implementation Plan
 
+> **状態**: 実装済み — 要望 20 — マージ b164632(2026-10-09)。設計書は [`2026-10-09-ratio-parameters-design.md`](../specs/2026-10-09-ratio-parameters-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** メンバーの相対比率を、プロジェクト共通のパラメータ(名前 + 段階)と、メンバーごとの段階の選択で調整できるようにする。`相対比率 = 基本比率 + 選んだ段階の判定値の合計`(10〜300% に丸める)。

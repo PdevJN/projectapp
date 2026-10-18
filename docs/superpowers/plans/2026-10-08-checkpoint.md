@@ -1,5 +1,7 @@
 # チェックポイント用のタスク Implementation Plan
 
+> **状態**: 実装済み — 要望 21 — マージ PR #2(8d735a6。2026-10-08)。設計書は [`2026-10-08-checkpoint-design.md`](../specs/2026-10-08-checkpoint-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 締切の日時しか持たない「チェックポイント」を、タスクの種別として登録でき、ガントチャートに大きめの ◆ だけで表示する。

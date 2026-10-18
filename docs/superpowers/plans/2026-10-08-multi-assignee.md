@@ -1,5 +1,7 @@
 # タスクへの複数アサイン Implementation Plan
 
+> **状態**: 実装済み — 要望 22 — マージ 1fdd77d(2026-10-09)。設計書は [`2026-10-08-multi-assignee-design.md`](../specs/2026-10-08-multi-assignee-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 1 つのタスクに複数のメンバーを割り当て、メンバーごとに割り当て率を設定できるようにする。工数は 1 つのまま、担当者全員の換算率の合計で完了予定を出す。

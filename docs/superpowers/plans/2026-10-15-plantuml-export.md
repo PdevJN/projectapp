@@ -1,5 +1,7 @@
 # PlantUML 出力 Implementation Plan
 
+> **状態**: 実装済み — マージ PR #19(05c601a。2026-10-15)。設計書は [`2026-10-15-plantuml-export-design.md`](../specs/2026-10-15-plantuml-export-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** プレビューで見ているガントチャートを、PlantUML のガント(`@startgantt`)のテキストとして保存できるようにする。

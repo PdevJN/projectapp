@@ -1,5 +1,8 @@
 # PlantUML の取り込み 設計書
 
+> **状態**: 実装済み — 要望 37 — マージ PR #21(1a081c2。2026-10-16)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: 日付がまったくないガントは取り込み日を開始にする(PR #33)、`requires`・`is N% complete`・`<style>` を読む(PR #34)
+
 2026-10-16。architectural。ブランチ `feature/plantuml-import`。
 
 ## 背景と目的

@@ -1,5 +1,8 @@
 # 日程計算 Implementation Plan
 
+> **状態**: 実装済み — マージ 最初の機能群(36e46a1・5a45807・6dc7972・4a6a774・0623167・9b2294b。2026-10-03〜04)。設計書は [`2026-10-03-schedule-calc-design.md`](../specs/2026-10-03-schedule-calc-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: 完了予定の参考値を、手で指定でも出す(要望 34。PR #31)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 > **コミットについて:** ユーザーから許可が出るまでコミットしない。各タスク末尾の Commit ステップは、許可が出てから実施する(許可前は `git status` で変更を確認するだけにする)。

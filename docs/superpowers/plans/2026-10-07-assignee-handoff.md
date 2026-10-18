@@ -1,5 +1,8 @@
 # 担当者向けファイルの書き出し 実装計画
 
+> **状態**: 実装済み — 要望 4 — マージ baa0656(2026-10-07)。設計書は [`2026-10-07-assignee-handoff-design.md`](../specs/2026-10-07-assignee-handoff-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: 複数の担当者に対応(multi-assignee)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** メイン画面から担当者を 1 人選び、その担当の未終了タスクを todoapp 形式(`todos.json`)で書き出せるようにする(要望 4)。

@@ -1,5 +1,7 @@
 # インラインセクション(セクションの入れ子) Implementation Plan
 
+> **状態**: 実装済み — 要望 7 — マージ 200d882(2026-10-09)。設計書は [`2026-10-09-nested-sections-design.md`](../specs/2026-10-09-nested-sections-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** セクションの中にサブセクションを置けるようにする(セクションを最大 3 階層。root は数えない)。タスクは root と、どの階層のセクションにも置ける。インデントして同じ画面に並べる。

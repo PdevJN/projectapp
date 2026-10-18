@@ -1,5 +1,8 @@
 # タスクの進捗度 Implementation Plan
 
+> **状態**: 実装済み — 要望 38 — マージ PR #22(3fe89a3。2026-10-16)。設計書は [`2026-10-16-task-progress-design.md`](../specs/2026-10-16-task-progress-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: 区間の進捗度の優先と、欄の読み取り専用の仕様は廃止(PR #35)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 進捗度を、実績の区間に紐づけずに、タスクそのものの値(`Task.progress`)として持てるようにし、PlantUML の取り込みでも進捗度を取り込む。

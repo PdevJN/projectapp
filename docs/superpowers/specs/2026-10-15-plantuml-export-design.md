@@ -1,5 +1,7 @@
 # PlantUML 形式での出力 設計書
 
+> **状態**: 実装済み — マージ PR #19(05c601a。2026-10-15)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 2026-10-15。architectural。ブランチ `feature/plantuml`。
 
 ## 背景と目的

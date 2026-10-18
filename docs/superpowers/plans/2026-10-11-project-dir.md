@@ -1,5 +1,7 @@
 # プロジェクトの格納先を指定する Implementation Plan
 
+> **状態**: 実装済み — 要望 8 — マージ PR #11(210766f。2026-10-12)。設計書は [`2026-10-11-project-dir-design.md`](../specs/2026-10-11-project-dir-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** プロジェクトファイルの置き場所(格納先)を、設定の置き場所(`~/.projectapp`)と分けて、ファイルメニューの「格納先を変更」で変えられるようにする。

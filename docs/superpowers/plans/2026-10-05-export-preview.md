@@ -1,5 +1,8 @@
 # エクスポートとプレビュー Implementation Plan
 
+> **状態**: 実装済み — 要望 2 — マージ e7fbf52(2026-10-06)。設計書は [`2026-10-05-export-preview-design.md`](../specs/2026-10-05-export-preview-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+> **後の変更**: PlantUML としても保存できる(plantuml-export)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** メイン画面をプレビューモード(読み取り専用。期間・スケール・表示項目を選べる)に切り替えられ、プレビューの内容を PNG 画像として保存できる。

@@ -1,5 +1,7 @@
 # 名前の欄の幅をドラッグで調整する 実装計画
 
+> **状態**: 実装済み — 要望 23 — マージ 5d5cc4c(2026-10-07)。設計書は [`2026-10-06-name-width-design.md`](../specs/2026-10-06-name-width-design.md)。当時の記録で、現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** ガントチャートの、タスクの名前の欄とチャートの境目をドラッグして、名前の欄の幅(120〜480px。既定 200px)を変えられるようにし、アプリ全体の設定として保存する(要望 23)。
