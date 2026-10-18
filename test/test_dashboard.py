@@ -592,3 +592,15 @@ def test_by_member_is_built_for_everyone_only() -> None:
     assert [row.name for row in summarize_progress(project, {}, NOW).by_member] == ["田中", "佐藤", UNASSIGNED]
     assert summarize_progress(project, {}, NOW, "田中").by_member == []
     assert [row.name for row in summarize(project, WEEK, NOW, {}).progress.by_member][0] == "田中"
+
+
+def test_member_progress_is_empty_without_members() -> None:
+    project = project_of(Task("作業", effort_hours=2), members=[])
+    assert summarize_member_progress(project) == []
+    assert summarize_progress(project, {}, NOW).by_member == []
+
+
+def test_member_progress_does_not_list_checkpoints_as_unassigned() -> None:
+    checkpoint = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17))
+    project = project_of(Task("田中の", effort_hours=1, assignees=[Assignee("田中", 1.0)]), checkpoint)
+    assert [row.name for row in summarize_member_progress(project)] == ["田中"]  # 節目は担当を持てず、重みもない

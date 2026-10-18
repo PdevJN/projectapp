@@ -178,10 +178,13 @@ def _member_row(name: str, tasks: list[Task]) -> MemberProgress:
 
 def summarize_member_progress(project: Project) -> list[MemberProgress]:
     """メンバーごとの進捗。共同タスクは担当の全員の行に数える。メンバーが担当にいないタスクは`未割り当て`。"""
+    if not project.members:
+        return []
     tasks = _tasks(project)
     names = {member.name for member in project.members}
     rows = [_member_row(m.name, [t for t in tasks if m.name in t.assignee_names]) for m in project.members]
-    nobody = [t for t in tasks if not names.intersection(t.assignee_names)]
+    # 節目は担当を持てず、進捗の重みもないので、割り当て漏れには数えない
+    nobody = [t for t in tasks if t.kind is not TaskKind.CHECKPOINT and not names.intersection(t.assignee_names)]
     if nobody:
         rows.append(_member_row(UNASSIGNED, nobody))
     return rows
