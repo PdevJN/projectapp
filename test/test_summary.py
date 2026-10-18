@@ -5,6 +5,9 @@ import pytest
 
 from projectapp.models import FORMAT_VERSION, Project, Section, Status, Task, TaskKind
 from projectapp.timeline import Schedule, effective_end, effective_start, is_overdue, progress_state
+from projectapp import arrange
+from projectapp.decompose import MAX_PARTS, Part, can_make_section, decompose, default_parts, split_effort
+from projectapp.models import Actual, Assignee, Category, TaskUrl
 from projectapp.summary import children_of, drop_child, parent_map, revert_empty, summary_progress, summary_status
 from projectapp.storage import dumps_project, load_project, parse_project, save_project
 import json
@@ -232,3 +235,151 @@ def test_a_summary_is_never_overdue_and_has_no_progress_state() -> None:
     now = D(2027, 1, 1)
     assert not is_overdue(project.tasks[0], project, {}, now)
     assert progress_state(project.tasks[0], project, {}, now) is None
+
+
+def original() -> Task:
+    return Task(
+        "実装", id="orig", planned_start=D(2026, 10, 6, 9), effort_hours=10.0, deadline=D(2026, 10, 20, 17),
+        assignees=[Assignee("田中", 0.5)], category_id="cat", predecessors=["pre"],
+        urls=[TaskUrl("t", values={"URL": "https://example.com"})], color="#112233",
+    )
+
+
+def decomposable() -> Project:
+    return Project(
+        "p",
+        categories=[Category("開発", id="cat")],
+        sections=[Section("開発", [Task("pre", id="pre"), original(), Task("post", id="post", predecessors=["orig"])])],
+    )
+
+
+PARTS = [Part("設計", 4.0), Part("実装", 4.0), Part("確認", 2.0)]
+
+
+def test_split_effort_is_even_with_the_remainder_on_the_last() -> None:
+    assert split_effort(10.0, 3) == [3.33, 3.33, 3.34]
+    assert split_effort(0.0, 2) == [0.0, 0.0]
+    assert sum(split_effort(7.0, 4)) == pytest.approx(7.0)
+
+
+def test_default_parts_are_numbered_and_fit_the_name_limit() -> None:
+    parts = default_parts(Task("x" * 50, effort_hours=4.0), 2)
+    assert [len(p.name) for p in parts] == [50, 50]
+    assert [p.effort_hours for p in parts] == [2.0, 2.0]
+
+
+def test_decompose_makes_a_summary_and_children_after_it() -> None:
+    project = decomposable()
+    kids = decompose(project, (0,), 1, PARTS)
+    tasks = project.sections[0].tasks
+    assert [t.name for t in tasks] == ["pre", "実装", "設計", "実装", "確認", "post"]
+    summary_task = tasks[1]
+    assert (summary_task.kind, summary_task.children) == (TaskKind.SUMMARY, [k.id for k in kids])
+    assert (summary_task.id, summary_task.effort_hours, summary_task.assignees, summary_task.predecessors) == ("orig", 0.0, [], [])
+    assert summary_task.deadline is None and summary_task.planned_start is None
+
+
+def test_children_inherit_the_attributes_and_split_the_effort() -> None:
+    kids = decompose(decomposable(), (0,), 1, PARTS)
+    assert [k.effort_hours for k in kids] == [4.0, 4.0, 2.0]
+    for kid in kids:
+        assert (kid.kind, kid.status, kid.category_id, kid.color) == (TaskKind.NORMAL, Status.NOT_STARTED, "cat", "#112233")
+        assert [(a.name, a.allocation) for a in kid.assignees] == [("田中", 0.5)]
+        assert kid.urls == original().urls and kid.urls is not original().urls
+        assert kid.planned_start == D(2026, 10, 6, 9)
+        assert kid.actuals == [] and kid.progress is None
+
+
+def test_chain_links_the_children_in_order_and_the_first_takes_the_original_predecessors() -> None:
+    kids = decompose(decomposable(), (0,), 1, PARTS, chain=True)
+    assert [k.predecessors for k in kids] == [["pre"], [kids[0].id], [kids[1].id]]
+
+
+def test_without_chain_every_child_takes_the_original_predecessors() -> None:
+    kids = decompose(decomposable(), (0,), 1, PARTS, chain=False)
+    assert [k.predecessors for k in kids] == [["pre"], ["pre"], ["pre"]]
+
+
+def test_the_deadline_goes_to_the_last_child_only() -> None:
+    kids = decompose(decomposable(), (0,), 1, PARTS)
+    assert [k.deadline for k in kids] == [None, None, D(2026, 10, 20, 17)]
+
+
+def test_successors_still_point_at_the_summary() -> None:
+    project = decomposable()
+    decompose(project, (0,), 1, PARTS)
+    assert project.sections[0].tasks[-1].predecessors == ["orig"]
+
+
+def test_new_section_puts_the_children_in_a_subsection_named_after_the_task() -> None:
+    project = decomposable()
+    kids = decompose(project, (0,), 1, PARTS, new_section=True)
+    section = project.sections[0]
+    assert [t.name for t in section.tasks] == ["pre", "実装", "post"]
+    assert [(s.name, [t.id for t in s.tasks]) for s in section.sections] == [("実装", [k.id for k in kids])]
+
+
+def test_new_section_gets_a_unique_name() -> None:
+    project = decomposable()
+    project.sections[0].sections.append(Section("実装"))
+    decompose(project, (0,), 1, PARTS, new_section=True)
+    assert [s.name for s in project.sections[0].sections] == ["実装", "実装#2"]
+
+
+def test_can_make_section_explains_why_not() -> None:
+    assert can_make_section((0,)) is None
+    assert "セクション" in (can_make_section(()) or "")
+    assert "3 階層" in (can_make_section((0, 0, 0)) or "")
+
+
+@pytest.mark.parametrize("path", [(), (0, 0, 0)])
+def test_new_section_is_refused_at_root_and_at_the_third_level(path: tuple[int, ...]) -> None:
+    project = Project("p", tasks=[original()])
+    if path:
+        project = Project("p", sections=[Section("a", sections=[Section("b", sections=[Section("c", [original()])])])])
+    before = repr(project)
+    with pytest.raises(ValueError):
+        decompose(project, path, 0, PARTS, new_section=True)
+    assert repr(project) == before
+
+
+@pytest.mark.parametrize(
+    "parts",
+    [
+        [Part("a", 1.0)],  # 1 件
+        [Part("a", 1.0), Part("", 1.0)],  # 名前が空
+        [Part("a", 1.0), Part("b" * 51, 1.0)],  # 長い
+        [Part("a", 1.0), Part("b\nc", 1.0)],  # 制御文字
+        [Part("a", 1.0), Part("b", -1.0)],  # 負の工数
+        [Part("a", 1.0), Part("b", float("nan"))],
+        [Part("a", 1.0), Part("b", 1.234)],  # 小数点以下 3 桁
+        [Part(str(n), 1.0) for n in range(MAX_PARTS + 1)],  # 多すぎる
+    ],
+)
+def test_bad_parts_are_refused_without_changing_the_project(parts: list[Part]) -> None:
+    project = decomposable()
+    before = repr(project)
+    with pytest.raises(ValueError):
+        decompose(project, (0,), 1, parts)
+    assert repr(project) == before
+
+
+def test_a_task_with_actuals_cannot_be_decomposed() -> None:
+    project = decomposable()
+    project.sections[0].tasks[1].actuals = [Actual(D(2026, 10, 6, 9), D(2026, 10, 6, 12))]
+    with pytest.raises(ValueError, match="実績"):
+        decompose(project, (0,), 1, PARTS)
+
+
+@pytest.mark.parametrize("kind", [TaskKind.CHECKPOINT, TaskKind.SUMMARY])
+def test_only_normal_tasks_can_be_decomposed(kind: TaskKind) -> None:
+    project = decomposable()
+    project.sections[0].tasks[1].kind = kind
+    with pytest.raises(ValueError):
+        decompose(project, (0,), 1, PARTS)
+
+
+def test_the_result_passes_the_load_validation() -> None:
+    project = decomposable()
+    decompose(project, (0,), 1, PARTS, new_section=True)
+    parse_project(dumps_project(project), "p")
