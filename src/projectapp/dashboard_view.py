@@ -7,7 +7,8 @@ from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp.avatar import avatar
-from projectapp.dashboard import Dashboard, PeriodKind
+from projectapp.dashboard import Dashboard, PeriodKind, TeamProgress
+from projectapp.gantt import STATUS_COLORS, STATUS_DARK_COLORS
 from projectapp.models import Status
 
 TRACK_STYLE = (
@@ -21,6 +22,17 @@ OVER_COLOR = "#ef5350"  # 100% を超える日がある負荷(予定超過の赤
 PLANNED_COLOR = "#1e88e5"  # 予定の時間。dataviz の検証で、灰青は「灰色に見える」ため不合格。青と緑の組は全項目 PASS
 ACTUAL_COLOR = "#43a047"  # 実績の時間
 EMPTY = "データがありません"
+PIE_DIAMETER = "9rem"
+PIE_HOLE_PERCENT = 60  # 中央に進捗率を出すための穴(円の半径に対する割合)
+PIE_VARS = {status: f"--pie-{status.name.lower().replace('_', '-')}" for status in Status}
+# 状態色はガントチャートの棒と同じ。ダークテーマでは明るい色に替える
+PIE_CSS = (
+    ":root { "
+    + " ".join(f"{PIE_VARS[status]}: {STATUS_COLORS[status]};" for status in Status)
+    + " }\nbody.body--dark { "
+    + " ".join(f"{PIE_VARS[status]}: {STATUS_DARK_COLORS[status]};" for status in Status)
+    + " }"
+)
 
 
 def percent_width(fraction: float) -> str:
@@ -34,6 +46,17 @@ def bar(fraction: float, color: str, tick: float | None = None) -> None:
         ui.element("div").style(f"height: 100%; width: {percent_width(fraction)}; background: {color}")
         if tick is not None:
             ui.element("div").style(f"{TICK_STYLE}; left: {percent_width(tick)}")
+
+
+def pie_background(team: TeamProgress) -> str:
+    """切片を状態の順に並べた conic-gradient。"""
+    stops: list[str] = []
+    start = 0.0
+    for status, _, fraction in team.slices():
+        end = start + fraction * 100
+        stops.append(f"var({PIE_VARS[status]}) {start:.1f}% {end:.1f}%")
+        start = end
+    return f"conic-gradient({', '.join(stops)})"
 
 
 def card(title: str, marker: str) -> ui.card:
@@ -63,6 +86,7 @@ class DashboardView:
         self.syncing = False  # 開き直しでトグルの値を書き換えるあいだは、変更を通知しない
 
     def build(self) -> None:
+        ui.add_css(PIE_CSS)
         with ui.column().classes("w-full gap-4") as box:
             self.box = box
             box.mark("dashboard-box")
@@ -106,10 +130,40 @@ class DashboardView:
         if data is None:
             return
         with ui.element("div").style(GRID_STYLE):
+            self.team_card(data)
             self.progress_card(data)
             self.load_card(data)
             self.hours_card(data)
             self.due_card(data)
+
+    def team_card(self, data: Dashboard) -> None:
+        team = data.team
+        with card("チーム全体の進捗", "dashboard-team"):
+            period = team.period
+            scope = "すべてのタスク" if period is None else f"{period.start:%m/%d}〜{period.end:%m/%d} にかかるタスク"
+            ui.label(scope).classes("text-caption text-grey").mark("dashboard-team-scope")
+            if team.percent is None:
+                empty_message("dashboard-empty-team")
+                return
+            with ui.row().classes("w-full items-center no-wrap gap-4"):
+                with ui.element("div").style(
+                    f"position: relative; flex: none; width: {PIE_DIAMETER}; height: {PIE_DIAMETER}"
+                ):
+                    hole = f"radial-gradient(circle, transparent {PIE_HOLE_PERCENT}%, #000 {PIE_HOLE_PERCENT + 1}%)"
+                    ui.element("div").style(
+                        f"width: 100%; height: 100%; border-radius: 50%; background: {pie_background(team)};"
+                        f" -webkit-mask: {hole}; mask: {hole}"
+                    ).mark("dashboard-team-pie")
+                    ui.label(f"{team.percent:.0f}%").classes("text-h6 absolute-center").mark("dashboard-team-percent")
+                with ui.column().classes("gap-1"):
+                    for status, hours, fraction in team.slices():
+                        with ui.row().classes("items-center no-wrap gap-2"):
+                            ui.element("span").style(
+                                f"width: 10px; height: 10px; border-radius: 2px; background: var({PIE_VARS[status]})"
+                            )
+                            ui.label(f"{status.value} {hours:.1f}h ({fraction * 100:.0f}%)").mark(
+                                f"dashboard-team-legend-{status.name}"
+                            )
 
     def progress_card(self, data: Dashboard) -> None:
         progress = data.progress

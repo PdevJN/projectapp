@@ -12,6 +12,7 @@ from projectapp.dashboard import (
     Period,
     PeriodKind,
     Progress,
+    TeamProgress,
     WorkloadRow,
 )
 from projectapp.dashboard_view import DashboardView, percent_width
@@ -32,6 +33,9 @@ def sample() -> Dashboard:
             DueRow(datetime(2026, 10, 8, 17), "締切", "設計", "田中", False),
             DueRow(datetime(2026, 10, 9, 12), "完了予定", "遅れ", None, True),
         ],
+        TeamProgress(
+            42.4, {Status.NOT_STARTED: 0.0, Status.RUNNING: 3.0, Status.PAUSED: 0.0, Status.DONE: 1.0}
+        ),
     )
 
 
@@ -160,3 +164,47 @@ async def test_the_load_card_shows_no_icon_when_none_are_given(user: User) -> No
     views[0].show(sample(), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-load-田中")
     await user.should_not_see(marker="dashboard-load-icon-田中")
+
+
+async def test_the_team_card_draws_the_pie_and_lists_status_hours(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-team-percent")
+    assert text(user, "dashboard-team-percent") == "42%"
+    assert text(user, "dashboard-team-legend-RUNNING") == "実行中 3.0h (75%)"
+    assert text(user, "dashboard-team-legend-DONE") == "終了 1.0h (25%)"
+    await user.should_not_see(marker="dashboard-team-legend-PAUSED")  # 工数のない状態は出さない
+    style = user.find(marker="dashboard-team-pie").elements.pop()._style
+    assert "conic-gradient" in style["background"]
+
+
+async def test_the_team_card_is_empty_without_tasks(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(empty(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-empty-team")
+    await user.should_not_see(marker="dashboard-team-pie")
+
+
+def test_pie_background_covers_the_circle_in_status_order() -> None:
+    from projectapp.dashboard_view import pie_background
+
+    team = TeamProgress(0, {Status.NOT_STARTED: 1.0, Status.RUNNING: 3.0, Status.PAUSED: 0.0, Status.DONE: 0.0})
+    background = pie_background(team)
+    assert background.startswith("conic-gradient(")
+    assert "var(--pie-not-started) 0.0% 25.0%" in background
+    assert "var(--pie-running) 25.0% 100.0%" in background
+
+
+async def test_the_team_card_says_which_tasks_it_counts(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    views[0].show(data, PeriodKind.ALL)
+    await user.should_see(marker="dashboard-team-scope")
+    assert text(user, "dashboard-team-scope") == "すべてのタスク"
+    data.team.period = data.period
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see("10/05〜10/11 にかかるタスク")  # refresh は遅延実行なので、文言が変わるのを待つ
+    assert text(user, "dashboard-team-scope") == "10/05〜10/11 にかかるタスク"

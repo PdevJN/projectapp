@@ -12,10 +12,11 @@ from projectapp.dashboard import (
     summarize_due,
     summarize_loads,
     summarize_progress,
+    summarize_team_progress,
     summarize_workload,
 )
 from projectapp.timeline import overallocations
-from projectapp.models import Assignee, Actual, Member, Project, Status, Task
+from projectapp.models import Assignee, Actual, Member, Project, Status, Task, TaskKind
 
 TODAY = date(2026, 10, 7)  # 水曜
 NOW = datetime(2026, 10, 7, 12)
@@ -355,3 +356,100 @@ def test_overdue_and_due_rows_show_every_assignee() -> None:
     assert summarize_progress(project, {}, NOW).overdue[0].assignee == "田中、鈴木"
     due = summarize_due(project, Period(date(2026, 10, 5), date(2026, 10, 11)), NOW, {})
     assert due[0].assignee == "田中、鈴木"
+
+
+def test_team_progress_sums_effort_by_status_and_matches_the_progress_rate() -> None:
+    a = Task("A", effort_hours=10, status=Status.RUNNING, progress=50)
+    b = Task("B", status=Status.DONE)  # 工数なしは重み 1
+    c = Task("C", effort_hours=10)
+    project = project_of(a, b, c)
+    team = summarize_team_progress(project)
+    assert team.hours == {Status.NOT_STARTED: 10, Status.RUNNING: 10, Status.PAUSED: 0, Status.DONE: 1}
+    assert team.percent == pytest.approx(summarize_progress(project, {}, NOW).percent)
+    assert team.total == 21
+
+
+def test_team_progress_counts_each_task_once_whatever_the_assignees() -> None:
+    members = [Member("田中", 1.0), Member("佐藤", 1.0)]
+    shared = Task("共同", effort_hours=8, assignees=[Assignee("田中", 1.0), Assignee("佐藤", 1.0)])
+    alone = Task("担当なし", effort_hours=2)
+    team = summarize_team_progress(project_of(shared, alone, members=members))
+    assert team.hours[Status.NOT_STARTED] == 10
+
+
+def test_team_progress_skips_summaries_and_checkpoints() -> None:
+    child = Task("子", effort_hours=4, status=Status.PAUSED)
+    summary = Task("まとめ", kind=TaskKind.SUMMARY, effort_hours=4)
+    summary.children = [child.id]
+    checkpoint = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17))
+    team = summarize_team_progress(project_of(summary, child, checkpoint))
+    assert team.hours == {Status.NOT_STARTED: 0, Status.RUNNING: 0, Status.PAUSED: 4, Status.DONE: 0}
+
+
+def test_team_progress_is_empty_without_tasks() -> None:
+    team = summarize_team_progress(project_of())
+    assert team.percent is None
+    assert team.total == 0
+    assert team.slices() == []
+
+
+def test_team_progress_slices_skip_empty_statuses_and_give_fractions() -> None:
+    a = Task("A", effort_hours=3, status=Status.RUNNING)
+    b = Task("B", effort_hours=1, status=Status.DONE)
+    slices = summarize_team_progress(project_of(a, b)).slices()
+    assert slices == [(Status.RUNNING, 3, 0.75), (Status.DONE, 1, 0.25)]
+
+
+WEEK = Period(date(2026, 10, 5), date(2026, 10, 11))
+
+
+def dated(name: str, start_day: int, end_day: int, **kwargs) -> Task:
+    return Task(
+        name,
+        planned_start=datetime(2026, 10, start_day, 9),
+        planned_end=datetime(2026, 10, end_day, 17),
+        planned_end_manual=True,
+        effort_hours=kwargs.pop("effort_hours", 2),
+        **kwargs,
+    )
+
+
+def test_team_progress_keeps_only_tasks_overlapping_the_period() -> None:
+    inside = dated("中", 6, 7)
+    straddling = dated("またぐ", 2, 6, status=Status.RUNNING)
+    before = dated("前", 1, 2)
+    after = dated("後", 20, 21)
+    undated = Task("日程なし", effort_hours=5)
+    team = summarize_team_progress(
+        project_of(inside, straddling, before, after, undated), WEEK, NOW, {}
+    )
+    assert team.hours[Status.NOT_STARTED] == 2 and team.hours[Status.RUNNING] == 2
+    assert team.total == 4
+    assert team.period == WEEK
+
+
+def test_team_progress_counts_a_deadline_or_an_actual_inside_the_period() -> None:
+    due = Task("締切", effort_hours=1, deadline=datetime(2026, 10, 9, 17))
+    worked = Task(
+        "実績", effort_hours=3, status=Status.DONE,
+        actuals=[Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12))],
+    )
+    running = Task("実行中", effort_hours=4, status=Status.RUNNING, actuals=[Actual(datetime(2026, 9, 1, 9), None)])
+    old = Task("昔", effort_hours=8, status=Status.DONE, actuals=[Actual(datetime(2026, 9, 1, 9), datetime(2026, 9, 1, 12))])
+    team = summarize_team_progress(project_of(due, worked, running, old), WEEK, NOW, {})
+    assert team.total == 8  # 昔だけ外れる。終了していない実績は now まで続くので期間にかかる
+    assert team.percent == pytest.approx(300 / 8)
+
+
+def test_team_progress_without_a_period_counts_every_task() -> None:
+    team = summarize_team_progress(project_of(dated("後", 20, 21), Task("日程なし", effort_hours=5)))
+    assert team.total == 7
+    assert team.period is None
+
+
+def test_summarize_filters_the_team_card_except_for_the_whole_period() -> None:
+    project = project_of(dated("中", 6, 7), dated("後", 20, 21))
+    assert summarize(project, WEEK, NOW, {}, PeriodKind.WEEK).team.total == 2
+    whole = summarize(project, WEEK, NOW, {}, PeriodKind.ALL).team
+    assert whole.total == 4 and whole.period is None
+    assert summarize(project, WEEK, NOW, {}).team.total == 4  # 種別を渡さなければ全期間
