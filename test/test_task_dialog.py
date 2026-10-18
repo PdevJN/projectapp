@@ -1103,103 +1103,58 @@ async def test_a_partly_typed_date_does_not_suggest_a_status(user: User) -> None
     assert value_of(user, "task-status") == Status.RUNNING
 
 
-def progress_input(user: User):  # noqa: ANN202
-    return user.find(marker="task-actual-progress").elements.pop()
-
-
 def start_actual(user: User) -> None:
     user.find(marker="task-actual-start-date").type("2026-10-05")
     user.find(marker="task-actual-start-time").type("09:00")
 
 
-async def test_progress_input_saves_into_the_actual(user: User) -> None:
-    saved: list[Task] = []
-    mount_dialog(None, saved)
+async def test_the_actual_has_no_progress_input(user: User) -> None:
+    """進捗度の入力は、タスクの欄の 1 つだけ(実績の中には置かない)。"""
+    mount_dialog(None, [])
     await open_dialog(user)
-    user.find(marker="task-name").type("設計")
-    start_actual(user)
-    progress_input(user).set_value(40)
-    user.find(marker="task-save").click()
-    assert saved[0].actuals[0].progress == 40
+    await user.should_see(marker="task-progress")
+    await user.should_not_see(marker="task-actual-progress")
+    assert len(user.find("進捗度").elements) == 1
 
 
-async def test_progress_zero_is_saved_as_zero(user: User) -> None:
+async def test_the_task_progress_is_editable_even_with_an_actual(user: User) -> None:
     saved: list[Task] = []
-    mount_dialog(None, saved)
-    await open_dialog(user)
-    user.find(marker="task-name").type("設計")
-    start_actual(user)
-    progress_input(user).set_value(0)
-    user.find(marker="task-save").click()
-    assert saved[0].actuals[0].progress == 0
-
-
-async def test_existing_progress_is_shown(user: User) -> None:
-    task = Task("旧", actuals=[Actual(datetime(2026, 10, 5, 9, 0), None, 70)])
-    mount_dialog(task, [])
-    await open_dialog(user)
-    assert progress_input(user).value == 70
-
-
-async def test_clearing_the_progress_saves_none(user: User) -> None:
-    saved: list[Task] = []
-    task = Task("旧", actuals=[Actual(datetime(2026, 10, 5, 9, 0), None, 70)])
+    task = Task("旧", progress=10, actuals=[Actual(datetime(2026, 10, 5, 9, 0), None)])
     mount_dialog(task, saved)
     await open_dialog(user)
-    progress_input(user).set_value(None)
+    field = task_progress_input(user)
+    assert field.value == 10 and field.enabled
+    field.set_value(70)
     user.find(marker="task-save").click()
-    assert saved[0].actuals[0].progress is None
+    assert saved[0].progress == 70 and saved[0].actuals == task.actuals
 
 
-async def test_progress_without_a_start_is_an_error(user: User) -> None:
+async def test_progress_can_be_entered_without_an_actual(user: User) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved)
     await open_dialog(user)
     user.find(marker="task-name").type("設計")
-    progress_input(user).set_value(40)
+    task_progress_input(user).set_value(0)
     user.find(marker="task-save").click()
-    assert saved == []
-    await user.should_see("実績の開始を入れてください")
-
-
-async def test_progress_out_of_range_is_an_error(user: User) -> None:
-    saved: list[Task] = []
-    mount_dialog(None, saved)
-    await open_dialog(user)
-    user.find(marker="task-name").type("設計")
-    start_actual(user)
-    progress_input(user).set_value(120)
-    user.find(marker="task-save").click()
-    assert saved == []
-    await user.should_see("進捗度は0〜100の整数で入力してください")
+    assert saved[0].progress == 0 and saved[0].actuals == []
 
 
 async def test_hundred_percent_without_an_end_does_not_suggest_a_status(user: User) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
-    progress_input(user).set_value(100)
+    task_progress_input(user).set_value(100)
     start_actual(user)
     assert value_of(user, "task-status") == Status.NOT_STARTED
 
 
-async def test_changing_the_progress_counts_as_a_change_when_closing(user: User) -> None:
-    task = Task("旧", actuals=[Actual(datetime(2026, 10, 5, 9, 0), None, 10)])
-    mount_dialog(task, [])
-    await open_dialog(user)
-    progress_input(user).set_value(20)
-    user.find(marker="task-cancel").click()
-    await user.should_see(marker="close-save")
-
-
-async def test_two_actuals_keep_their_progress_and_hide_the_input(user: User) -> None:
+async def test_two_actuals_are_kept_when_saved_in_the_simple_mode(user: User) -> None:
     saved: list[Task] = []
     kept = [
-        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 30),
-        Actual(datetime(2026, 10, 6, 9, 0), None, 60),
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0)),
+        Actual(datetime(2026, 10, 6, 9, 0), None),
     ]
     mount_dialog(Task("旧", actuals=list(kept)), saved)
     await open_dialog(user)
-    await user.should_not_see(marker="task-actual-progress")
     user.find(marker="task-save").click()
     assert saved[0].actuals == kept
 
@@ -1226,60 +1181,6 @@ async def test_the_existing_task_progress_is_shown_and_can_be_cleared(user: User
     task_progress_input(user).set_value(None)
     user.find(marker="task-save").click()
     assert saved[0].progress is None
-
-
-async def test_an_interval_progress_is_shown_read_only_and_the_task_value_is_kept(user: User) -> None:
-    saved: list[Task] = []
-    task = Task("旧", progress=10, actuals=[Actual(datetime(2026, 10, 5, 9, 0), None, 60)])
-    mount_dialog(task, saved)
-    await open_dialog(user)
-    field = task_progress_input(user)
-    assert field.value == 60 and not field.enabled
-    await user.should_see(marker="task-progress-hint")
-    user.find(marker="task-save").click()
-    assert saved[0].progress == 10 and saved[0].actuals[0].progress == 60
-
-
-async def test_the_field_returns_to_the_task_value_when_the_interval_progress_is_cleared(user: User) -> None:
-    saved: list[Task] = []
-    task = Task("旧", progress=10, actuals=[Actual(datetime(2026, 10, 5, 9, 0), None, 60)])
-    mount_dialog(task, saved)
-    await open_dialog(user)
-    progress_input(user).set_value(None)
-    field = task_progress_input(user)
-    assert field.value == 10 and field.enabled
-    await user.should_not_see(marker="task-progress-hint")
-    field.set_value(20)
-    user.find(marker="task-save").click()
-    assert saved[0].progress == 20
-
-
-async def test_the_interval_mode_reads_the_last_entered_interval(user: User) -> None:
-    task = Task(
-        "旧",
-        progress=10,
-        actuals=[
-            Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 30),
-            Actual(datetime(2026, 10, 6, 9, 0), None, None),
-        ],
-    )
-    mount_dialog(task, [], actual_mode=ActualMode.INTERVALS)
-    await open_dialog(user)
-    assert task_progress_input(user).value == 30
-
-
-async def test_two_actuals_in_the_simple_mode_lock_the_field_to_their_last_value(user: User) -> None:
-    saved: list[Task] = []
-    kept = [
-        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 30),
-        Actual(datetime(2026, 10, 6, 9, 0), None, 60),
-    ]
-    mount_dialog(Task("旧", progress=10, actuals=list(kept)), saved)
-    await open_dialog(user)
-    field = task_progress_input(user)
-    assert field.value == 60 and not field.enabled
-    user.find(marker="task-save").click()
-    assert saved[0].progress == 10 and saved[0].actuals == kept
 
 
 async def test_the_task_progress_is_hidden_for_a_checkpoint_and_cleared_on_save(user: User) -> None:
@@ -1319,7 +1220,7 @@ async def test_an_out_of_range_task_progress_is_an_error(user: User) -> None:
 INTERVALS = ActualMode.INTERVALS
 
 
-def interval_inputs(user: User, n: int, start: str, end: str = "", progress: str = "") -> None:
+def interval_inputs(user: User, n: int, start: str, end: str = "") -> None:
     day, clock = start.split(" ")
     user.find(marker=f"task-interval-{n}-start-date").clear().type(day)
     user.find(marker=f"task-interval-{n}-start-time").clear().type(clock)
@@ -1327,8 +1228,6 @@ def interval_inputs(user: User, n: int, start: str, end: str = "", progress: str
         day, clock = end.split(" ")
         user.find(marker=f"task-interval-{n}-end-date").clear().type(day)
         user.find(marker=f"task-interval-{n}-end-time").clear().type(clock)
-    if progress:
-        user.find(marker=f"task-interval-{n}-progress").clear().type(progress)
 
 
 async def test_interval_mode_shows_no_rows_for_a_task_without_actuals(user: User) -> None:
@@ -1345,28 +1244,28 @@ async def test_interval_rows_are_added_and_saved(user: User) -> None:
     await open_dialog(user)
     user.find(marker="task-name").type("設計")
     user.find(marker="task-interval-add").click()
-    interval_inputs(user, 0, "2026-10-05 09:00", "2026-10-05 12:00", "30")
+    interval_inputs(user, 0, "2026-10-05 09:00", "2026-10-05 12:00")
     user.find(marker="task-interval-add").click()
-    interval_inputs(user, 1, "2026-10-06 09:00", "", "60")
+    interval_inputs(user, 1, "2026-10-06 09:00")
     user.find(marker="task-save").click()
     assert saved[0].actuals == [
-        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12), 30),
-        Actual(datetime(2026, 10, 6, 9), None, 60),
+        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
+        Actual(datetime(2026, 10, 6, 9), None),
     ]
 
 
 async def test_two_actuals_are_editable_in_interval_mode(user: User) -> None:
     saved: list[Task] = []
     two = [
-        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12), 30),
-        Actual(datetime(2026, 10, 6, 9), None, 60),
+        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
+        Actual(datetime(2026, 10, 6, 9), None),
     ]
     mount_dialog(Task("旧", actuals=list(two)), saved, actual_mode=INTERVALS)
     await open_dialog(user)
     await user.should_not_see(marker="task-actuals-readonly")
     assert value_of(user, "task-interval-0-start-date") == "2026-10-05"
     assert value_of(user, "task-interval-1-start-time") == "09:00"
-    assert value_of(user, "task-interval-1-progress") == 60
+    await user.should_not_see(marker="task-interval-1-progress")
     user.find(marker="task-save").click()
     assert saved[0].actuals == two
 
@@ -1459,7 +1358,7 @@ async def test_interval_mode_suggests_paused_when_the_last_interval_ended(user: 
     user.find(marker="task-interval-0-end-date").type("2026-10-05")
     user.find(marker="task-interval-0-end-time").type("12:00")
     assert value_of(user, "task-status") == Status.PAUSED
-    user.find(marker="task-interval-0-progress").type("100")
+    task_progress_input(user).set_value(100)
     assert value_of(user, "task-status") == Status.DONE
 
 
@@ -1684,7 +1583,7 @@ async def test_the_kind_toggle_hides_and_shows_the_normal_fields(user: User) -> 
         "task-end-date",
         "task-effort",
         "task-assignee",
-        "task-actual-progress",
+        "task-progress",
     ):
         await user.should_not_see(marker=marker)
     for marker in (

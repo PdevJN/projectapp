@@ -555,14 +555,29 @@ def test_invalid_actuals_are_rejected(tmp_path: Path, bad: object) -> None:
         load_project(path)
 
 
-def test_actual_progress_roundtrip(tmp_path: Path) -> None:
+def test_legacy_actual_progress_moves_to_the_task_progress(tmp_path: Path) -> None:
+    """実績の区間の進捗度は廃止した。古いファイルは、入っている最後の値をタスクの進捗度にして読む。"""
     project = _project_with_actuals(
         Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 0),
         Actual(datetime(2026, 10, 6, 9, 0), None, 40),
         Actual(datetime(2026, 10, 7, 9, 0), None, None),
     )
     loaded = load_project(save_project(project, tmp_path))
-    assert [a.progress for a in loaded.tasks[0].actuals] == [0, 40, None]
+    assert loaded.tasks[0].progress == 40
+    assert [a.progress for a in loaded.tasks[0].actuals] == [None, None, None]
+
+
+def test_legacy_actual_progress_wins_over_the_task_value(tmp_path: Path) -> None:
+    """以前は区間の値を優先して表示していたので、その表示のまま移す。"""
+    project = _project_with_actuals(Actual(datetime(2026, 10, 5, 9, 0), None, 60))
+    project.tasks[0].progress = 10
+    assert load_project(save_project(project, tmp_path)).tasks[0].progress == 60
+
+
+def test_the_task_value_is_kept_without_actual_progress(tmp_path: Path) -> None:
+    project = _project_with_actuals(Actual(datetime(2026, 10, 5, 9, 0)))
+    project.tasks[0].progress = 10
+    assert load_project(save_project(project, tmp_path)).tasks[0].progress == 10
 
 
 def test_file_without_progress_loads_as_none(tmp_path: Path) -> None:
@@ -570,7 +585,8 @@ def test_file_without_progress_loads_as_none(tmp_path: Path) -> None:
     raw = json.loads(path.read_text(encoding="utf-8"))
     del raw["tasks"][0]["actuals"][0]["progress"]
     path.write_text(json.dumps(raw), encoding="utf-8")
-    assert load_project(path).tasks[0].actuals[0].progress is None
+    loaded = load_project(path).tasks[0]
+    assert loaded.actuals[0].progress is None and loaded.progress is None
 
 
 @pytest.mark.parametrize("bad", [True, False, 40.5, 40.0, "40", -1, 101, [40]])
@@ -587,27 +603,16 @@ def test_invalid_progress_is_rejected(tmp_path: Path, bad: object) -> None:
 def test_progress_boundaries_are_accepted(tmp_path: Path, value: int) -> None:
     project = _project_with_actuals(Actual(datetime(2026, 10, 5, 9, 0), None, value))
     loaded = load_project(save_project(project, tmp_path))
-    assert loaded.tasks[0].actuals[0].progress == value
+    assert loaded.tasks[0].progress == value
 
 
-def test_progress_that_decreases_across_actuals_is_rejected(tmp_path: Path) -> None:
+def test_legacy_progress_that_decreases_across_actuals_is_no_longer_rejected(tmp_path: Path) -> None:
+    """区間の進捗度は入力できなくなったので、順序の検査はしない。最後の値を使う。"""
     project = _project_with_actuals(
         Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 60),
         Actual(datetime(2026, 10, 6, 9, 0), None, 40),
     )
-    path = save_project(project, tmp_path)
-    with pytest.raises(ValueError):
-        load_project(path)
-
-
-def test_unset_progress_between_actuals_is_skipped_when_checking_order(tmp_path: Path) -> None:
-    project = _project_with_actuals(
-        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 40),
-        Actual(datetime(2026, 10, 6, 9, 0), datetime(2026, 10, 6, 12, 0), None),
-        Actual(datetime(2026, 10, 7, 9, 0), None, 40),
-    )
-    loaded = load_project(save_project(project, tmp_path))
-    assert [a.progress for a in loaded.tasks[0].actuals] == [40, None, 40]
+    assert load_project(save_project(project, tmp_path)).tasks[0].progress == 40
 
 
 def test_not_started_status_is_saved_as_the_new_name(tmp_path: Path) -> None:

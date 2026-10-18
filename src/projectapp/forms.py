@@ -217,7 +217,7 @@ def build_urls(rows: list[UrlRow], templates: list[UrlTemplate]) -> list[TaskUrl
     return urls
 
 
-ActualRow = tuple[str, str, float | None]  # 区間の1行の入力(開始・終了の文字列、進捗度)
+ActualRow = tuple[str, str]  # 区間の1行の入力(開始・終了の文字列)
 
 
 def _build_assignees(rows: list[tuple[str, float | None]]) -> list[Assignee]:
@@ -257,7 +257,6 @@ def build_task(
     color: str,
     actual_start: str = "",
     actual_end: str = "",
-    actual_progress: float | None = None,
     actual_rows: list[ActualRow] | None = None,
     progress: float | None = None,
     category_id: str | None = None,
@@ -267,7 +266,7 @@ def build_task(
     urls: list[TaskUrl] | None = None,
     assignees: list[tuple[str, float | None]] | None = None,
 ) -> Task:
-    """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。`progress` はタスクの進捗度(区間の進捗度とは別)。"""
+    """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。`progress` はタスクの進捗度。"""
     clean = name.strip()
     if not clean:
         raise ValueError("名前を入力してください")
@@ -305,7 +304,7 @@ def build_task(
     elif len(base.actuals) > 1:
         actuals = base.actuals
     else:
-        actuals = build_actuals(actual_start, actual_end, actual_progress)
+        actuals = build_actuals(actual_start, actual_end)
     links = _links(base, predecessors, linkable_ids)
     task_progress = _check_progress(progress)
     return replace(
@@ -329,17 +328,14 @@ def build_task(
     )
 
 
-def build_actuals(
-    start_text: str, end_text: str, progress: float | None = None
-) -> list[Actual]:
-    """実績の入力(compose_actual の結果と進捗度)を検証して、0件か1件の区間にする。"""
+def build_actuals(start_text: str, end_text: str) -> list[Actual]:
+    """実績の入力(compose_actual の結果)を検証して、0件か1件の区間にする。"""
     try:
         start_at, end_at = parse_datetime(start_text), parse_datetime(end_text)
     except ValueError:
         raise ValueError("実績の日時の形式が正しくありません") from None
-    percent = _check_progress(progress)
     if start_at is None:
-        if end_at is not None or percent is not None:
+        if end_at is not None:
             raise ValueError("実績の開始を入れてください")
         return []
     for moment in (start_at, end_at):
@@ -347,23 +343,22 @@ def build_actuals(
             raise ValueError(f"年は{MIN_YEAR}〜{MAX_YEAR}の範囲で入力してください")
     if end_at is not None and end_at < start_at:
         raise ValueError("実績の終了は開始以降の日時にしてください")
-    return [Actual(start_at, end_at, percent)]
+    return [Actual(start_at, end_at)]
 
 
 def build_actual_intervals(rows: list[ActualRow]) -> list[Actual]:
     """区間の行の入力を検証して、区間のリストにする。すべて空の行は無視する(行番号は数える)。
-    開始の昇順、重ならない、終了のない区間は最後の1つだけ、進捗度は前の入力以上。"""
+    開始の昇順、重ならない、終了のない区間は最後の1つだけ。"""
     kept: list[tuple[int, Actual]] = []
-    for number, (start_text, end_text, progress) in enumerate(rows, start=1):
-        if not start_text and not end_text and progress is None:
+    for number, (start_text, end_text) in enumerate(rows, start=1):
+        if not start_text and not end_text:
             continue
         try:
-            built = build_actuals(start_text, end_text, progress)
+            built = build_actuals(start_text, end_text)
         except ValueError as exc:
             raise ValueError(f"区間 {number}: {exc}") from None
         kept.append((number, built[0]))
     previous: tuple[int, Actual] | None = None
-    last_progress: int | None = None
     for number, actual in kept:
         if previous is not None:
             before_number, before = previous
@@ -373,10 +368,6 @@ def build_actual_intervals(rows: list[ActualRow]) -> list[Actual]:
                 raise ValueError("区間は開始の早い順に入れてください")
             if actual.start < before.end:
                 raise ValueError(f"区間 {number}: 前の区間と重なっています")
-        if actual.progress is not None:
-            if last_progress is not None and actual.progress < last_progress:
-                raise ValueError(f"区間 {number}: 進捗度は前の区間以上にしてください")
-            last_progress = actual.progress
         previous = (number, actual)
     return [actual for _, actual in kept]
 

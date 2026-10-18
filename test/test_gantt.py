@@ -1226,20 +1226,6 @@ async def test_actual_bar_is_drawn_without_a_planned_bar(user: User) -> None:
     await user.should_not_see(marker="bar-0-0")
 
 
-async def test_actual_bar_shows_the_progress(user: User) -> None:
-    mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12), 40)))
-    await user.open("/")
-    label = user.find(marker="actual-progress-0-0-0").elements.pop()
-    assert label.text == "40%"
-    assert label._style["pointer-events"] == "none"
-
-
-async def test_actual_bar_shows_zero_percent(user: User) -> None:
-    mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12), 0)))
-    await user.open("/")
-    assert user.find(marker="actual-progress-0-0-0").elements.pop().text == "0%"
-
-
 async def test_actual_bar_without_progress_shows_no_text(user: User) -> None:
     mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))))
     await user.open("/")
@@ -1247,28 +1233,17 @@ async def test_actual_bar_without_progress_shows_no_text(user: User) -> None:
     await user.should_not_see(marker="actual-progress-0-0-0")
 
 
-async def test_each_actual_shows_its_own_progress(user: User) -> None:
-    mount(
-        actual_project(
-            Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 7, 12), 30),
-            Actual(datetime(2026, 10, 8, 12), None, 60),
-        )
-    )
-    await user.open("/")
-    assert user.find(marker="actual-progress-0-0-0").elements.pop().text == "30%"
-    assert user.find(marker="actual-progress-0-0-1").elements.pop().text == "60%"
-
-
 async def test_actual_bar_clips_its_progress_text(user: User) -> None:
-    mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 6, 13), 40)))
+    mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 6, 13))))
     await user.open("/")
     bar = user.find(marker="actual-0-0-0").elements.pop()
     assert bar._style["overflow"] == "hidden"
 
 
 def progress_project(progress: int | None, **overrides: object) -> Project:
-    actuals = [Actual(datetime(2026, 10, 5, 12), None, progress)] if progress is not None else []
+    actuals = [Actual(datetime(2026, 10, 5, 12), None)] if progress is not None else []
     values: dict[str, object] = {
+        "progress": progress,
         "planned_start": datetime(2026, 10, 5, 12),
         "planned_end": datetime(2026, 10, 7, 12),
         "color": "#ff0000",
@@ -1281,12 +1256,11 @@ def progress_project(progress: int | None, **overrides: object) -> Project:
 
 
 def test_fill_percent() -> None:
-    assert fill_percent(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9), None, 40)])) == 40
-    assert fill_percent(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9), None, 0)])) == 0
+    assert fill_percent(Task("t", progress=40)) == 40
+    assert fill_percent(Task("t", progress=0)) == 0
     assert fill_percent(Task("t")) is None
     assert fill_percent(Task("t", status=Status.DONE)) == 100
-    done = Task("t", status=Status.DONE, actuals=[Actual(datetime(2026, 10, 5, 9), None, 80)])
-    assert fill_percent(done) == 80
+    assert fill_percent(Task("t", status=Status.DONE, progress=80)) == 80
 
 
 def test_fill_percent_uses_the_task_progress() -> None:
@@ -1323,7 +1297,7 @@ async def test_done_without_progress_is_filled_completely(user: User) -> None:
 
 
 async def test_no_fill_without_a_planned_bar(user: User) -> None:
-    task = Task("設計", actuals=[Actual(datetime(2026, 10, 6, 12), None, 40)])
+    task = Task("設計", actuals=[Actual(datetime(2026, 10, 6, 12), None)], progress=40)
     mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
     await user.open("/")
     await user.should_see(marker="actual-0-0-0")
@@ -1392,14 +1366,14 @@ async def test_no_state_without_progress_has_no_outline_and_no_mark(user: User) 
 
 
 async def test_done_state_is_marked(user: User) -> None:
-    in_time = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 7, 10), 100)
+    in_time = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 7, 10))
     mount(progress_project(100, status=Status.DONE, actuals=[in_time]), now=datetime(2026, 10, 20))
     await user.open("/")
     assert user.find(marker="progress-state-0-0").elements.pop().text == "✓"
 
 
 async def test_late_done_state_is_marked(user: User) -> None:
-    late = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 8, 12), 100)
+    late = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 8, 12))
     mount(progress_project(100, status=Status.DONE, actuals=[late]), now=datetime(2026, 10, 20))
     await user.open("/")
     assert user.find(marker="progress-state-0-0").elements.pop().text == "✓!"
@@ -1434,7 +1408,7 @@ async def test_done_mark_tooltip_has_no_progress_part(user: User) -> None:
 
 
 async def test_no_outline_or_mark_without_a_planned_bar(user: User) -> None:
-    task = Task("設計", status=Status.DONE, actuals=[Actual(datetime(2026, 10, 6, 12), None, 40)])
+    task = Task("設計", status=Status.DONE, actuals=[Actual(datetime(2026, 10, 6, 12), None)], progress=40)
     mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
     await user.open("/")
     await user.should_see(marker="actual-0-0-0")
@@ -1442,7 +1416,7 @@ async def test_no_outline_or_mark_without_a_planned_bar(user: User) -> None:
 
 
 async def test_overdue_background_and_state_outline_coexist(user: User) -> None:
-    late = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 8, 12), 100)
+    late = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 8, 12))
     mount(progress_project(100, status=Status.DONE, actuals=[late]), now=datetime(2026, 10, 20))
     await user.open("/")
     row = user.find(marker="row-0-0").elements.pop()
@@ -1451,7 +1425,7 @@ async def test_overdue_background_and_state_outline_coexist(user: User) -> None:
 
 def finished_project(end: datetime) -> Project:
     return progress_project(
-        100, status=Status.DONE, actuals=[Actual(datetime(2026, 10, 5, 12), end, 100)]
+        100, status=Status.DONE, actuals=[Actual(datetime(2026, 10, 5, 12), end)]
     )
 
 
@@ -1482,7 +1456,7 @@ async def test_finished_task_without_a_planned_bar_is_also_grayed(user: User) ->
         "設計",
         status=Status.DONE,
         color="#ff0000",
-        actuals=[Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 7, 12), 100)],
+        actuals=[Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 7, 12))],
     )
     mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
     await user.open("/")
@@ -1815,7 +1789,8 @@ async def test_bars_use_the_status_color_instead_of_the_task_color(
         color="red; background: url(x)",
         planned_start=datetime(2026, 10, 5, 12),
         planned_end=datetime(2026, 10, 7, 12),
-        actuals=[Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 7, 12), 50)],
+        actuals=[Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 7, 12))],
+        progress=50,
     )
     mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
     await user.open("/")
@@ -2089,7 +2064,8 @@ async def test_progress_text(user: User) -> None:
         "設計",
         planned_start=datetime(2026, 10, 5, 12),
         planned_end=datetime(2026, 10, 7, 12),
-        actuals=[Actual(datetime(2026, 10, 5, 12), None, 40)],
+        actuals=[Actual(datetime(2026, 10, 5, 12), None)],
+        progress=40,
     )
     mount(project_with(task), now=datetime(2026, 10, 6, 12))
     await user.open("/")
@@ -2110,7 +2086,7 @@ async def test_a_finished_task_without_progress_shows_100_percent(user: User) ->
 
 
 async def test_a_zero_progress_is_shown(user: User) -> None:
-    task = Task("設計", actuals=[Actual(datetime(2026, 10, 5, 12), None, 0)])
+    task = Task("設計", actuals=[Actual(datetime(2026, 10, 5, 12), None)], progress=0)
     mount(project_with(task))
     await user.open("/")
     assert chip(user, "task-progress-0-0").text == "0%"
@@ -2360,7 +2336,8 @@ def long_running_task(progress: int) -> Task:
         planned_end=datetime(2027, 1, 31),
         planned_end_manual=True,
         status=Status.RUNNING,
-        actuals=[Actual(datetime(2026, 10, 5, 9), None, progress)],
+        actuals=[Actual(datetime(2026, 10, 5, 9), None)],
+        progress=progress,
     )
 
 
@@ -2389,9 +2366,10 @@ async def test_a_state_mark_does_not_follow_an_actual_bar_outside_the_period(use
         planned_end_manual=True,
         status=Status.RUNNING,
         actuals=[
-            Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12), 0),
-            Actual(datetime(2027, 6, 1, 9), datetime(2027, 6, 1, 12), 0),  # 期間よりずっと後ろ
+            Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
+            Actual(datetime(2027, 6, 1, 9), datetime(2027, 6, 1, 12)),  # 期間よりずっと後ろ
         ],
+        progress=0,
     )
     mount_with(project_with(task), ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 20))), now=datetime(2026, 10, 12))
     await user.open("/")
@@ -2406,7 +2384,8 @@ def clipped_task(progress: int, start: datetime, end: datetime) -> Task:
         planned_end=end,
         planned_end_manual=True,
         status=Status.RUNNING,
-        actuals=[Actual(start.replace(hour=9), None, progress)],
+        actuals=[Actual(start.replace(hour=9), None)],
+        progress=progress,
     )
 
 

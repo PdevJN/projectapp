@@ -73,7 +73,7 @@ def test_a_period_lists_its_days_and_its_bounds() -> None:
 
 
 def test_progress_is_the_effort_weighted_average() -> None:
-    a = Task("A", effort_hours=10, status=Status.RUNNING, actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12), progress=50)])
+    a = Task("A", effort_hours=10, status=Status.RUNNING, actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12))], progress=50)
     b = Task("B", status=Status.DONE)  # 工数なしは重み 1。終了は 100%
     c = Task("C", effort_hours=10)  # 進捗の入力なしは 0%
     progress = summarize_progress(project_of(a, b, c), {}, NOW)

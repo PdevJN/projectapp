@@ -18,7 +18,7 @@ MAX_SECTION_DEPTH = 3  # セクションの入れ子の上限(root 直下が 1 �
 SectionPath = tuple[int, ...]  # セクションの位置。root は ()、1 番目のセクションは (0,)、その 2 番目のサブセクションは (0, 1)
 MIN_LEVEL_VALUE, MAX_LEVEL_VALUE = -0.9, 2.9  # パラメータの段階の判定値(-90%〜+290%)
 MIN_ALLOCATION, MAX_ALLOCATION = 0.01, 1.0  # 割り当て率(1%〜100%)
-MIN_PROGRESS, MAX_PROGRESS = 0, 100  # 実績の進捗度(%)
+MIN_PROGRESS, MAX_PROGRESS = 0, 100  # 進捗度(%)
 MAX_PROJECT_CODE_LENGTH = 20  # PRJコードの最大文字数
 MAX_TASK_NAME_LENGTH = 50  # タスク名の最大文字数
 MAX_CATEGORY_NAME_LENGTH = 30  # カテゴリの名前の最大文字数
@@ -129,7 +129,7 @@ class Actual:
 
     start: datetime
     end: datetime | None = None
-    progress: int | None = None  # 区間の終わり時点の累積(0〜100%)。Noneは未入力
+    progress: int | None = None  # 廃止(常に None)。古いファイルの値は、読込でタスクの進捗度へ寄せる
 
 
 URL_KEY = "URL"  # テンプレートなしのリンクの値のキー
@@ -173,7 +173,7 @@ class Task:
     category_id: str | None = None  # カテゴリの id。None は「未定」
     kind: TaskKind = TaskKind.NORMAL  # チェックポイントは、締切だけを持つ(他の日時・工数・担当・実績は持たない)
     urls: list[TaskUrl] = field(default_factory=list)  # 関連する URL(チケット・資料など)
-    progress: int | None = None  # タスクの進捗度(0〜100%)。実績の区間に進捗度があれば、そちらを優先する
+    progress: int | None = None  # タスクの進捗度(0〜100%)。進捗度の入力はこの 1 つだけ
 
     @property
     def assignee_names(self) -> list[str]:

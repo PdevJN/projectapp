@@ -147,7 +147,8 @@ def test_chips_add_progress_and_assignees_when_enabled() -> None:
         "2026-10-13T09:00",
         "2026-10-14T18:00",
         assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.4), Assignee("佐藤", 0.2), Assignee("高橋", 0.2), Assignee("伊藤", 0.2)],
-        actuals=[Actual(datetime(2026, 10, 13, 9), datetime(2026, 10, 13, 12), 40)],
+        actuals=[Actual(datetime(2026, 10, 13, 9), datetime(2026, 10, 13, 12))],
+        progress=40,
     )
     out = lines(Project("p", tasks=[t]))
     assert "[設計 (田中・鈴木・佐藤ほか2名)] as [T1] starts 2026-10-13 and ends 2026-10-14" in out

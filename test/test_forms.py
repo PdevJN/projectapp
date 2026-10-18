@@ -848,26 +848,6 @@ def test_two_or_more_actuals_are_kept_and_the_inputs_are_ignored() -> None:
     assert make(existing, actual_start="2030-01-01T09:00").actuals == kept
 
 
-def test_progress_is_saved_in_the_actual() -> None:
-    task = make(actual_start="2026-10-05T09:00", actual_progress=40)
-    assert task.actuals == [Actual(datetime(2026, 10, 5, 9, 0), None, 40)]
-
-
-def test_progress_zero_and_hundred_are_accepted() -> None:
-    assert make(actual_start="2026-10-05T09:00", actual_progress=0).actuals[0].progress == 0
-    assert make(actual_start="2026-10-05T09:00", actual_progress=100.0).actuals[0].progress == 100
-
-
-def test_empty_progress_is_none() -> None:
-    assert make(actual_start="2026-10-05T09:00", actual_progress=None).actuals[0].progress is None
-
-
-@pytest.mark.parametrize("bad", [-1, 101, 40.5, float("nan"), float("inf")])
-def test_bad_progress_is_rejected(bad: float) -> None:
-    with pytest.raises(ValueError, match="進捗度"):
-        make(actual_start="2026-10-05T09:00", actual_progress=bad)
-
-
 def test_the_task_progress_is_saved_apart_from_the_actuals() -> None:
     task = make(progress=40)
     assert task.progress == 40 and task.actuals == []
@@ -885,11 +865,6 @@ def test_a_bad_task_progress_is_rejected(bad: float) -> None:
         make(progress=bad)
 
 
-def test_the_task_progress_does_not_touch_the_actual_progress() -> None:
-    task = make(progress=10, actual_start="2026-10-05T09:00", actual_progress=60)
-    assert (task.progress, task.actuals[0].progress) == (10, 60)
-
-
 def test_a_checkpoint_drops_the_task_progress() -> None:
     task = make(
         Task("t", progress=40),
@@ -901,19 +876,13 @@ def test_a_checkpoint_drops_the_task_progress() -> None:
     assert task.progress is None
 
 
-def test_progress_without_a_start_is_rejected() -> None:
-    with pytest.raises(ValueError, match="実績の開始"):
-        make(actual_progress=40)
-
-
-def test_two_or_more_actuals_keep_their_progress_and_ignore_the_input() -> None:
+def test_two_or_more_actuals_are_kept_when_saved_with_the_simple_input() -> None:
     kept = [
-        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0), 30),
-        Actual(datetime(2026, 10, 6, 9, 0), None, 60),
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0)),
+        Actual(datetime(2026, 10, 6, 9, 0), None),
     ]
     existing = Task("t", actuals=list(kept))
-    assert make(existing, actual_progress=None).actuals == kept
-    assert make(existing, actual_progress=90).actuals == kept
+    assert make(existing).actuals == kept
 
 
 @pytest.mark.parametrize(
@@ -958,68 +927,60 @@ S2, E2 = "2026-10-06T09:00", "2026-10-06T12:00"
 
 
 def test_intervals_build_in_order() -> None:
-    result = build_actual_intervals([(S1, E1, 30), (S2, "", 60)])
+    result = build_actual_intervals([(S1, E1), (S2, "")])
     assert result == [
-        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12), 30),
-        Actual(datetime(2026, 10, 6, 9), None, 60),
+        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
+        Actual(datetime(2026, 10, 6, 9)),
     ]
 
 
 def test_empty_rows_are_ignored() -> None:
-    assert build_actual_intervals([("", "", None), (S1, E1, None), ("", "", None)]) == [
-        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12), None)
+    assert build_actual_intervals([("", ""), (S1, E1), ("", "")]) == [
+        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12))
     ]
-    assert build_actual_intervals([("", "", None)]) == []
+    assert build_actual_intervals([("", "")]) == []
     assert build_actual_intervals([]) == []
 
 
 def test_interval_errors_name_the_row() -> None:
     with pytest.raises(ValueError, match="区間 2: 実績の終了"):
-        build_actual_intervals([(S1, E1, None), (S2, "2026-10-06T08:00", None)])
+        build_actual_intervals([(S1, E1), (S2, "2026-10-06T08:00")])
     with pytest.raises(ValueError, match="区間 1: 実績の開始"):
-        build_actual_intervals([("", E1, None)])
+        build_actual_intervals([("", E1)])
     with pytest.raises(ValueError, match="区間 1: .*形式"):
-        build_actual_intervals([("abc", "", None)])
+        build_actual_intervals([("abc", "")])
 
 
 def test_the_row_number_counts_the_ignored_empty_rows() -> None:
     with pytest.raises(ValueError, match="区間 3: 前の区間と重なっています"):
         build_actual_intervals(
-            [(S1, "2026-10-05T12:00", None), ("", "", None), ("2026-10-05T11:00", E2, None)]
+            [(S1, "2026-10-05T12:00"), ("", ""), ("2026-10-05T11:00", E2)]
         )
 
 
 def test_overlapping_intervals_are_rejected_but_touching_ones_are_not() -> None:
     with pytest.raises(ValueError, match="区間 2: 前の区間と重なっています"):
-        build_actual_intervals([(S1, E1, None), ("2026-10-05T11:59", E2, None)])
-    assert len(build_actual_intervals([(S1, E1, None), (E1, E2, None)])) == 2
+        build_actual_intervals([(S1, E1), ("2026-10-05T11:59", E2)])
+    assert len(build_actual_intervals([(S1, E1), (E1, E2)])) == 2
 
 
 def test_intervals_must_be_in_start_order() -> None:
     with pytest.raises(ValueError, match="開始の早い順"):
-        build_actual_intervals([(S2, E2, None), (S1, E1, None)])
+        build_actual_intervals([(S2, E2), (S1, E1)])
 
 
 def test_only_the_last_interval_may_be_open() -> None:
     with pytest.raises(ValueError, match="区間 1: 終了のない区間は最後の1つだけ"):
-        build_actual_intervals([(S1, "", None), (S2, E2, None)])
-    assert len(build_actual_intervals([(S1, E1, None), (S2, "", None)])) == 2
-
-
-def test_progress_must_not_decrease_across_intervals() -> None:
-    with pytest.raises(ValueError, match="区間 3: 進捗度は前の区間以上"):
-        build_actual_intervals(
-            [(S1, E1, 50), (S2, E2, None), ("2026-10-07T09:00", "", 40)]
-        )
-    assert len(build_actual_intervals([(S1, E1, 50), (S2, E2, 50)])) == 2
+        build_actual_intervals([(S1, ""), (S2, E2)])
+    assert len(build_actual_intervals([(S1, E1), (S2, "")])) == 2
 
 
 def test_build_task_uses_the_rows_when_given() -> None:
-    existing = Task("t", actuals=[Actual(datetime(2026, 1, 1, 9), None)])
-    task = make(existing, actual_rows=[(S1, E1, None), (S2, "", None)], actual_start="2030-01-01T09:00")
+    existing = Task("t", actuals=[Actual(datetime(2026, 1, 1, 9))])
+    task = make(existing, actual_rows=[(S1, E1), (S2, "")], actual_start="2030-01-01T09:00")
     assert [a.start for a in task.actuals] == [datetime(2026, 10, 5, 9), datetime(2026, 10, 6, 9)]
     assert make(existing, actual_rows=[]).actuals == []
-    assert make(existing, actual_rows=[("", "", None)]).actuals == []
+    assert make(existing, actual_rows=[("", "")]).actuals == []
 
 
 def test_build_task_without_rows_keeps_the_simple_behaviour() -> None:

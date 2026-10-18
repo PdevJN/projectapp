@@ -250,6 +250,7 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         legacy_end = None if raw.get("end_auto") is True else _datetime(raw.get("end"))
         deadline = _datetime(raw.get("deadline")) or legacy_end  # 明示された締切を優先
     kind = _kind(raw.get("kind"))
+    actuals, legacy_progress = _actuals(raw.get("actuals"))
     task = Task(
         name=_task_name(raw.get("name")),
         id=_task_id(raw.get("id")),
@@ -263,10 +264,10 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         color=raw["color"],
         assignees=_assignees(raw, ctx),
         predecessors=_predecessors(raw.get("predecessors")),
-        actuals=_actuals(raw.get("actuals")),
+        actuals=actuals,
         kind=kind,
         urls=_task_urls(raw.get("urls")),
-        progress=_progress(raw.get("progress"), "進捗度") if ctx.version >= 5 else None,
+        progress=_task_progress(raw, ctx.version, legacy_progress),
         category_id=_category_id(raw.get("category_id")) if ctx.version >= 3 else None,
     )
     result = _checkpoint(task) if kind is TaskKind.CHECKPOINT else task
@@ -319,14 +320,21 @@ def _progress(value: Any, label: str = "実績の進捗度") -> int | None:
     return value
 
 
-def _actuals(value: Any) -> list[Actual]:
-    """実績を読む。キーがない・nullは実績なし。不正はValueError(開けませんでした)。"""
+def _task_progress(raw: dict[str, Any], version: int, legacy: int | None) -> int | None:
+    """タスクの進捗度。古いファイルの実績の区間に進捗度があれば、入っている最後の値を使う(従来の優先順位のまま)。"""
+    own = _progress(raw.get("progress"), "進捗度") if version >= 5 else None
+    return legacy if legacy is not None else own
+
+
+def _actuals(value: Any) -> tuple[list[Actual], int | None]:
+    """実績を読む。キーがない・nullは実績なし。不正はValueError(開けませんでした)。
+    区間の進捗度は廃止したので、Actual には入れず、入っている最後の値を別に返す。"""
     if value is None:
-        return []
+        return [], None
     if not isinstance(value, list):
         raise ValueError("実績がリストではありません")
     actuals: list[Actual] = []
-    previous: int | None = None  # 直前に入力のあった区間の進捗度(累積なので減らない)
+    last_progress: int | None = None
     for raw in value:
         if not isinstance(raw, dict) or "start" not in raw:
             raise ValueError("実績に開始がありません")
@@ -336,11 +344,9 @@ def _actuals(value: Any) -> list[Actual]:
             raise ValueError("実績の終了が開始より前です")
         progress = _progress(raw.get("progress"))
         if progress is not None:
-            if previous is not None and progress < previous:
-                raise ValueError("実績の進捗度が前の区間より小さくなっています")
-            previous = progress
-        actuals.append(Actual(start, end, progress))
-    return actuals
+            last_progress = progress
+        actuals.append(Actual(start, end))
+    return actuals, last_progress
 
 
 def _project_code(value: Any) -> str:

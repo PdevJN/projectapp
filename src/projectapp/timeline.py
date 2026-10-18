@@ -484,10 +484,7 @@ def effective_end(
 
 
 def current_progress(task: Task) -> int | None:
-    """進捗度の入っている最後の区間の値(累積)。なければ、タスクの進捗度。どちらもなければ None。0 は入力ありとして返す。"""
-    for actual in reversed(task.actuals):
-        if actual.progress is not None:
-            return actual.progress
+    """タスクの進捗度。入っていなければ None。0 は入力ありとして返す。"""
     return task.progress
 
 
