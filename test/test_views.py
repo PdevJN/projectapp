@@ -2408,7 +2408,7 @@ async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path
     popup_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-select-popup"))
     assert "font-size: 10px" in popup_rule
     assert "font-size: 12px" in HEADER_CSS  # 14px から -2
-    assert "var(--q-primary)" in HEADER_CSS and "color: #fff" in HEADER_CSS  # テーマカラーの背景 + 白文字
+    assert "var(--q-primary)" in HEADER_CSS and "var(--app-header-fg, #fff)" in HEADER_CSS  # テーマカラーの背景 + 白文字
     assert "body.body--dark .app-header" in HEADER_CSS and "color-mix" in HEADER_CSS  # ダークは暗めのテーマカラー
     title = next(e for e in user.find(kind=ui.label, content="新規プロジェクト").elements if e.text == "新規プロジェクト")  # ヘルプの「新規プロジェクト作成」と区別する
     assert "app-title" in title.classes
@@ -3943,3 +3943,12 @@ async def test_undo_works_when_a_button_has_the_focus(user: User, tmp_path: Path
     view.save_task((), None, Task("b"))
     view.on_undo_key(key_event("z", ctrl=True))
     assert task_names(view) == ["a"]  # 1 回で 1 ステップ
+
+
+def test_header_css_reads_the_custom_variables_and_keeps_the_current_defaults() -> None:
+    assert "background: var(--app-header, var(--q-primary)); color: var(--app-header-fg, #fff)" in HEADER_CSS
+    assert "body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, var(--q-primary) 55%, #000)); }" in HEADER_CSS
+    assert ".app-header .app-menu-btn { background: var(--app-header-chip, rgba(255, 255, 255, 0.18));" in HEADER_CSS
+    assert ".app-header .app-menu-btn:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }" in HEADER_CSS
+    assert "border-radius: 9999px; background: var(--app-header-chip, rgba(255, 255, 255, 0.18))" in HEADER_CSS
+    assert ".app-git-chip:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }" in HEADER_CSS

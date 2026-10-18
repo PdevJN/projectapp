@@ -110,6 +110,7 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.task_dialog import open_task_dialog
+from projectapp.theme import BODY_CSS
 from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
 from projectapp.ratios import ParameterEdit, apply_parameter_edit, deletion_impacts
 from projectapp.timeline import Schedule, build_columns, clip_overloads, overallocations, visible_range
@@ -131,8 +132,8 @@ NEW_PROJECT_NAME = "新規プロジェクト"
 # ヘッダーは、画面の上端・左右いっぱいの四角い帯(ui.header)。テーマカラーの背景 + 白文字(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
 # メニューのボタンは折り返さない(縮むのはプロジェクト選択のコンボだけ。中のファイル名は 10px)。プロジェクト名は、ヘッダーの外(メイン側の左上)に、12px の太字(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
 HEADER_CSS = """
-.app-header { background: var(--q-primary); color: #fff; font-size: 12px; padding: 4px 12px; flex-wrap: nowrap !important; overflow: hidden; }
-body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55%, #000); }
+.app-header { background: var(--app-header, var(--q-primary)); color: var(--app-header-fg, #fff); font-size: 12px; padding: 4px 12px; flex-wrap: nowrap !important; overflow: hidden; }
+body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, var(--q-primary) 55%, #000)); }
 .app-header .q-btn, .app-header .q-field { font-size: 12px; }
 .app-header .q-btn { white-space: nowrap; flex: none; }
 .app-header .q-btn__content { white-space: nowrap; flex-wrap: nowrap; }
@@ -140,11 +141,11 @@ body.body--dark .app-header { background: color-mix(in srgb, var(--q-primary) 55
 .app-header .app-project-select .q-field__native, .app-header .app-project-select .q-field__input { font-size: 10px; }
 .app-select-popup .q-item { font-size: 10px; min-height: 28px; }
 .app-title { font-size: 12px; font-weight: 700; white-space: nowrap; }
-.app-header .app-menu-btn { background: rgba(255, 255, 255, 0.18); padding: 0 14px; }
-.app-header .app-menu-btn:hover { background: rgba(255, 255, 255, 0.3); }
+.app-header .app-menu-btn { background: var(--app-header-chip, rgba(255, 255, 255, 0.18)); padding: 0 14px; }
+.app-header .app-menu-btn:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }
 .app-menu .q-item { font-size: 12px; min-height: 32px; }
-.app-git-chip { flex: none; font-size: 10px; line-height: 1; padding: 4px 8px; border-radius: 9999px; background: rgba(255, 255, 255, 0.18); white-space: nowrap; cursor: pointer; }
-.app-git-chip:hover { background: rgba(255, 255, 255, 0.3); }
+.app-git-chip { flex: none; font-size: 10px; line-height: 1; padding: 4px 8px; border-radius: 9999px; background: var(--app-header-chip, rgba(255, 255, 255, 0.18)); white-space: nowrap; cursor: pointer; }
+.app-git-chip:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }
 .app-git-chip.app-git-dirty { background: #ffd54f; color: #3e2723; }
 .app-git-chip.app-git-behind { background: #ffb74d; color: #3e2723; }
 .app-git-chip.app-git-error { background: #ef9a9a; color: #3e2723; }
@@ -1065,6 +1066,7 @@ class MainView:
     def build(self) -> None:
         ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
         ui.add_css(HEADER_CSS)
+        ui.add_css(BODY_CSS)
         ui.add_css(MEMBER_TABLE_CSS)
         self.help_dialog = self.build_help_dialog()
         self.header()
