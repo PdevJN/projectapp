@@ -1143,13 +1143,6 @@ class GanttChart:
             ).classes(STATUS_CLASSES[task.status])
             self.edit_on_click(bar, path, ti)
             bar.mark(f"actual-{key}-{ti}-{n}")
-            if actual.progress is not None:
-                with bar:
-                    ui.label(f"{actual.progress}%").style(
-                        f"font-size: 10px; line-height: {ACTUAL_HEIGHT_PX}px; padding: 0 4px;"
-                        " color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);"
-                        " white-space: nowrap; pointer-events: none"
-                    ).mark(f"actual-progress-{key}-{ti}-{n}")
         for n in range(len(task.actuals) - 1):
             before, after = task.actuals[n], task.actuals[n + 1]
             if before.end is None or after.start <= before.end:

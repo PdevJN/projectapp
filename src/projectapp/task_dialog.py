@@ -427,7 +427,6 @@ class ActualFields:
 
     def __init__(self, task: Task) -> None:
         self.read_only = len(task.actuals) > 1
-        self._actuals = list(task.actuals)
         ui.label("実績").classes("text-caption text-grey")
         if self.read_only:
             ui.label("複数の区間があるため、このバージョンでは編集できません").classes(
@@ -442,17 +441,6 @@ class ActualFields:
             self.end_day, self.end_time = self._column(
                 "終了", "end", actual.end if actual else None
             )
-        self.progress = (
-            ui.number(
-                "進捗度(%)",
-                value=actual.progress if actual else None,
-                min=MIN_PROGRESS,
-                max=MAX_PROGRESS,
-                precision=0,
-            )
-            .classes("w-full")
-            .mark("task-actual-progress")
-        )
 
     def _column(self, label: str, key: str, moment: datetime | None) -> tuple[ui.input, ui.input]:
         return moment_column(label, f"task-actual-{key}", f"actual-{key}", moment)
@@ -465,18 +453,7 @@ class ActualFields:
     def inputs(self) -> list[ui.input | ui.number]:
         if self.read_only:
             return []
-        return [self.start_day, self.start_time, self.end_day, self.end_time, self.progress]
-
-    def progress_value(self) -> float | None:
-        if self.read_only:
-            return None
-        return self.progress.value
-
-    def interval_progress(self) -> float | None:
-        """区間の進捗度(入っている最後の値)。2 件以上で編集できないときは、保持している区間の値。"""
-        if self.read_only:
-            return next((a.progress for a in reversed(self._actuals) if a.progress is not None), None)
-        return self.progress.value
+        return [self.start_day, self.start_time, self.end_day, self.end_time]
 
     def start_text(self) -> str:
         if self.read_only:
@@ -498,9 +475,8 @@ class ActualFields:
         )
 
     def state(self) -> tuple[object, ...]:
-        """変更の判定に使う入力値。進捗度は 0 と空を区別する。"""
-        texts = tuple(widget.value or "" for widget in self.inputs()[:4])
-        return (*texts, None if self.read_only else self.progress.value)
+        """変更の判定に使う入力値。"""
+        return tuple(widget.value or "" for widget in self.inputs())
 
 
 @dataclass
@@ -510,12 +486,11 @@ class IntervalRow:
     start_time: ui.input
     end_day: ui.input
     end_time: ui.input
-    progress: ui.number
 
 
 class IntervalFields:
     """実績の区間を、行を足していく形で入力する(記録方式が「区間」のとき)。
-    ActualFields と同じ呼び出し口(bind / filled / progress_value / state)にそろえる。
+    ActualFields と同じ呼び出し口(bind / filled / state)にそろえる。
     状態の提案は、最後の行で判定する。"""
 
     read_only = False
@@ -550,21 +525,10 @@ class IntervalFields:
                         f"interval-{n}-end",
                         actual.end if actual else None,
                     )
-                progress = (
-                    ui.number(
-                        "進捗度(%)",
-                        value=actual.progress if actual else None,
-                        min=MIN_PROGRESS,
-                        max=MAX_PROGRESS,
-                        precision=0,
-                    )
-                    .classes("w-full")
-                    .mark(f"task-interval-{n}-progress")
-                )
                 ui.button(
                     "削除", icon="delete", on_click=lambda c=card: self._remove(c)
                 ).props("flat dense color=negative").mark(f"task-interval-{n}-remove")
-        row = IntervalRow(card, start_day, start_time, end_day, end_time, progress)
+        row = IntervalRow(card, start_day, start_time, end_day, end_time)
         self._rows.append(row)
         if self._on_change is not None:
             for widget in self._widgets(row):
@@ -579,7 +543,7 @@ class IntervalFields:
 
     @staticmethod
     def _widgets(row: IntervalRow) -> list[ui.input | ui.number]:
-        return [row.start_day, row.start_time, row.end_day, row.end_time, row.progress]
+        return [row.start_day, row.start_time, row.end_day, row.end_time]
 
     def bind(self, callback: Callable[[object], None]) -> None:
         self._on_change = callback
@@ -598,7 +562,7 @@ class IntervalFields:
                 end = compose_actual(row.end_day.value or "", row.end_time.value or "")
             except ValueError as exc:
                 raise ValueError(f"区間 {number}: {exc}") from None
-            result.append((start, end, row.progress.value))
+            result.append((start, end))
         return result
 
     def start_text(self) -> str:
@@ -617,15 +581,8 @@ class IntervalFields:
             _parses(last.end_day.value, last.end_time.value),
         )
 
-    def progress_value(self) -> float | None:
-        return self._rows[-1].progress.value if self._rows else None
-
-    def interval_progress(self) -> float | None:
-        """進捗度の入っている最後の行の値。なければ None。"""
-        return next((row.progress.value for row in reversed(self._rows) if row.progress.value is not None), None)
-
     def state(self) -> tuple[object, ...]:
-        """変更の判定に使う入力値。行の数と、各行の値(進捗度は 0 と空を区別する)。"""
+        """変更の判定に使う入力値。行の数と、各行の値。"""
         values: list[object] = [len(self._rows)]
         for row in self._rows:
             values += [
@@ -633,47 +590,28 @@ class IntervalFields:
                 row.start_time.value or "",
                 row.end_day.value or "",
                 row.end_time.value or "",
-                row.progress.value,
             ]
         return tuple(values)
 
 
 class TaskProgressField:
-    """タスクの進捗度の欄。区間に進捗度があるときは、その値を読み取り専用で示し、タスクの値(`own`)は変えない。"""
+    """タスクの進捗度の欄。進捗度の入力はこの 1 つだけ(実績には持たない)。"""
 
     def __init__(self, own: int | None) -> None:
-        self.own: float | None = own
-        self._syncing = False
         with ui.column().classes("w-full gap-0") as self.container:
             self.input = (
                 ui.number("進捗度(%)", value=own, min=MIN_PROGRESS, max=MAX_PROGRESS, precision=0)
                 .classes("w-full")
                 .mark("task-progress")
             )
-            self.hint = (
-                ui.label("実績の区間の値を使っています").classes("text-caption text-grey").mark("task-progress-hint")
-            )
-        self.hint.set_visibility(False)
-        self.input.on_value_change(self._edited)
 
-    def _edited(self, _event: object) -> None:
-        if not self._syncing:
-            self.own = self.input.value
-
-    def sync(self, interval: float | None) -> None:
-        """区間の進捗度があれば、その値を読み取り専用で示す。なければ、タスクの値に戻して編集できるようにする。"""
-        locked = interval is not None
-        self._syncing = True
-        try:
-            self.input.set_value(interval if locked else self.own)
-        finally:
-            self._syncing = False
-        self.input.set_enabled(not locked)
-        self.hint.set_visibility(locked)
+    @property
+    def value(self) -> float | None:
+        return self.input.value
 
     def state(self) -> tuple[object, ...]:
         """変更の判定に使う入力値(進捗度は 0 と空を区別する)。"""
-        return (self.own,)
+        return (self.input.value,)
 
 
 NO_TEMPLATE = ""  # 選択肢の「テンプレートなし」(select の値は空文字で表す)
@@ -1016,7 +954,6 @@ def open_task_dialog(
                 IntervalFields(initial) if intervals else ActualFields(initial)
             )
         progress_field = TaskProgressField(initial.progress)
-        progress_field.sync(actual_fields.interval_progress())
         status = (
             ui.select({s: s.value for s in Status}, label="状態", value=initial.status)
             .classes("w-full")
@@ -1034,11 +971,10 @@ def open_task_dialog(
         status.on_value_change(on_status_change)
 
         def on_actual_change(_event: object = None) -> None:
-            progress_field.sync(actual_fields.interval_progress())
             if suggest["manual"]:
                 return
             suggested = suggest_status(
-                *actual_fields.filled(), actual_fields.progress_value(), intervals=intervals
+                *actual_fields.filled(), progress_field.value, intervals=intervals
             )
             if suggested is None or suggested == status.value:
                 return
@@ -1051,6 +987,7 @@ def open_task_dialog(
             hint.set_visibility(True)
 
         actual_fields.bind(on_actual_change)
+        progress_field.input.on_value_change(on_actual_change)
         has_normal_data = bool(
             initial.planned_start
             or initial.planned_end
@@ -1146,9 +1083,8 @@ def open_task_dialog(
                     linkable_ids=frozenset(options) | frozenset(initial.predecessors),
                     actual_start=actual_fields.start_text(),
                     actual_end=actual_fields.end_text(),
-                    actual_progress=actual_fields.progress_value(),
                     actual_rows=actual_fields.rows() if isinstance(actual_fields, IntervalFields) else None,
-                    progress=progress_field.own,
+                    progress=progress_field.value,
                     urls=build_urls(url_fields.rows(), templates),
                 )
             except ValueError as exc:

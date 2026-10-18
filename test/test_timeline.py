@@ -704,32 +704,12 @@ def test_current_progress_is_none_without_actuals_or_values() -> None:
 
 
 def test_current_progress_keeps_zero() -> None:
-    assert current_progress(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9), None, 0)])) == 0
-
-
-def test_current_progress_is_the_last_entered_value() -> None:
-    task = Task(
-        "t",
-        actuals=[
-            Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12), 30),
-            Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12), 60),
-            Actual(datetime(2026, 10, 7, 9), None, None),
-        ],
-    )
-    assert current_progress(task) == 60
-
-
-def test_current_progress_falls_back_to_the_task_value() -> None:
-    assert current_progress(Task("t", progress=40)) == 40
     assert current_progress(Task("t", progress=0)) == 0
+
+
+def test_current_progress_is_the_task_value() -> None:
+    assert current_progress(Task("t", progress=40)) == 40
     assert current_progress(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9))], progress=30)) == 30
-
-
-def test_current_progress_prefers_the_actual_intervals() -> None:
-    task = Task("t", progress=10, actuals=[Actual(datetime(2026, 10, 5, 9), None, 60)])
-    assert current_progress(task) == 60
-    task.actuals[0].progress = None
-    assert current_progress(task) == 10
 
 
 P_START = datetime(2026, 10, 5, 12)
@@ -738,8 +718,9 @@ P_MID = datetime(2026, 10, 6, 12)  # ちょうど50%
 
 
 def running(progress: int | None, **overrides: object) -> Task:
-    actuals = [Actual(P_START, None, progress)] if progress is not None else []
+    actuals = [Actual(P_START, None)] if progress is not None else []
     values: dict[str, object] = {
+        "progress": progress,
         "planned_start": P_START,
         "planned_end": P_END,
         "status": Status.RUNNING,
@@ -816,12 +797,12 @@ def test_zero_length_plan_does_not_crash() -> None:
 
 
 def test_done_in_time_is_done() -> None:
-    task = running(100, status=Status.DONE, actuals=[Actual(P_START, datetime(2026, 10, 7, 10), 100)])
+    task = running(100, status=Status.DONE, actuals=[Actual(P_START, datetime(2026, 10, 7, 10))])
     assert state_of(task, datetime(2026, 10, 20)) is ProgressState.DONE
 
 
 def test_done_after_the_planned_end_is_late_done() -> None:
-    task = running(100, status=Status.DONE, actuals=[Actual(P_START, datetime(2026, 10, 8, 12), 100)])
+    task = running(100, status=Status.DONE, actuals=[Actual(P_START, datetime(2026, 10, 8, 12))])
     assert state_of(task, datetime(2026, 10, 20)) is ProgressState.LATE_DONE
 
 
