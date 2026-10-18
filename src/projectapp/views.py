@@ -14,6 +14,7 @@ from nicegui.events import KeyEventArguments
 
 from projectapp.calendar import load_cache
 from projectapp.categories import CategoryEdit
+from projectapp.icons import ICON_FILE_TYPES, IconError, load_icon
 from projectapp.categories import apply_edit as apply_category_edit
 from projectapp.categories import count_usage as count_category_usage
 from projectapp.linkgraph import drop_task_links, link_options
@@ -859,7 +860,19 @@ class MainView:
             impacts=lambda edit: deletion_impacts(self.project, edit),
             on_apply_parameters=self.apply_parameters,
             get_taken=self.project.used_ids,
+            pick_icon=self.pick_member_icon if self.exporter.available else None,
         )
+
+    async def pick_member_icon(self) -> str | None:
+        """メンバーのアイコンにする画像を選ばせる。キャンセルと、画像にできないとき(理由を通知)は None。"""
+        path = await self.exporter.ask_open_path(ICON_FILE_TYPES)
+        if path is None:
+            return None
+        try:
+            return load_icon(path)
+        except (IconError, OSError) as exc:
+            ui.notify(f"アイコンにできませんでした: {exc}", type="negative")
+            return None
 
     def assigned_count(self, name: str) -> int:
         return sum(1 for task in self.project.all_tasks() if name in task.assignee_names)

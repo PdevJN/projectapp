@@ -12,7 +12,9 @@ from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp.dateinput import parse_date_input
+from projectapp.avatar import avatar
 from projectapp.events import color_hex, normalize_color, sort_events, validate_events
+from projectapp.icons import is_valid_icon
 from projectapp.categories import (
     COLOR_HEX,
     COLOR_LABELS,
@@ -601,6 +603,7 @@ class MemberRow:
     ratio_percent: float | None
     levels: dict[str, str] = field(default_factory=dict)  # パラメータ名 → 選んだ段階名
     id: str | None = None  # 開いた時点のメンバーの id。新しい行は None(適用で新しい id を振る)
+    icon: str = ""  # アイコン(data URI)。空はアイコンなし
 
 
 def build_members(
@@ -630,9 +633,11 @@ def build_members(
             raise ValueError(f"相対比率は小数点以下{HOURS_DECIMALS}桁までで入力してください")
         existing = {p.name: {lv.name for lv in p.levels} for p in parameters or []}
         levels = {p: lv for p, lv in row.levels.items() if lv in existing.get(p, set())}
+        if row.icon and not is_valid_icon(row.icon):
+            raise ValueError(f"アイコンが正しくありません: {name}")
         member_id = row.id or new_id(used)
         used.add(member_id)
-        members.append(Member(name, round(ratio / 100, 4), levels, member_id))
+        members.append(Member(name, round(ratio / 100, 4), levels, member_id, row.icon))
         if row.original is not None and row.original != name:
             renames[row.original] = name
     kept = {row.original for row in rows if row.original is not None}
@@ -1463,6 +1468,8 @@ def _signed_percent(value: float) -> str:
     return f"{value * 100:+g}%" if value else "0%"
 
 
+MEMBER_ICON_COLUMN_REM = 6  # アイコンの列(画像 + 選ぶ・外すのボタン)
+MEMBER_ICON_SIZE_PX = 28
 MEMBER_NAME_COLUMN_REM = 7  # 名前の列(固定。列の数や画面の幅で変わらない)
 MEMBER_RATIO_COLUMN_REM = 7
 MEMBER_LEVEL_COLUMN_REM = 9
@@ -1480,8 +1487,8 @@ MEMBER_TABLE_CSS = f"""
 
 
 def member_columns(level_count: int, with_effective: bool) -> list[str]:
-    """メンバーの表の列の幅(名前・基本比率・パラメータごとの段階・実効比率・削除)。"""
-    columns = [f"{MEMBER_NAME_COLUMN_REM}rem", f"{MEMBER_RATIO_COLUMN_REM}rem"]
+    """メンバーの表の列の幅(アイコン・名前・基本比率・パラメータごとの段階・実効比率・削除)。"""
+    columns = [f"{MEMBER_ICON_COLUMN_REM}rem", f"{MEMBER_NAME_COLUMN_REM}rem", f"{MEMBER_RATIO_COLUMN_REM}rem"]
     columns += [f"{MEMBER_LEVEL_COLUMN_REM}rem"] * level_count
     if with_effective:
         columns.append(f"{MEMBER_EFFECTIVE_COLUMN_REM}rem")
@@ -1492,12 +1499,13 @@ def member_columns(level_count: int, with_effective: bool) -> list[str]:
 def member_table_min_rem(level_count: int, with_effective: bool) -> int:
     """表の最小の幅(rem)。これより狭い画面では、表を横にスクロールさせる。"""
     return (
-        MEMBER_NAME_COLUMN_REM
+        MEMBER_ICON_COLUMN_REM
+        + MEMBER_NAME_COLUMN_REM
         + MEMBER_RATIO_COLUMN_REM
         + MEMBER_LEVEL_COLUMN_REM * level_count
         + (MEMBER_EFFECTIVE_COLUMN_REM if with_effective else 0)
         + MEMBER_DELETE_COLUMN_REM
-        + 2 * (3 + level_count + (1 if with_effective else 0))  # 列の間隔(gap 0.5rem)の概算
+        + 2 * (4 + level_count + (1 if with_effective else 0))  # 列の間隔(gap 0.5rem)の概算
     )
 
 
@@ -1517,12 +1525,15 @@ def members_panel(
     on_apply: Callable[[list[Member], dict[str, str]], object],
     get_parameters: Callable[[], list[Parameter]],
     get_taken: Callable[[], Collection[str]],
+    pick_icon: Callable[[], Awaitable[str | None]] | None = None,
 ) -> MembersPanel:
     """メンバーの編集(タブの中身)。1 行が 1 人の表(名前・基本比率・パラメータごとの段階・実効比率・削除)。
     適用してもダイアログは閉じず、プロジェクトの今のメンバーから行を作り直す。"""
 
     def to_rows() -> list[MemberRow]:
-        return [MemberRow(m.name, m.name, round(m.ratio * 100, 2), dict(m.levels), m.id) for m in get_members()]
+        return [
+            MemberRow(m.name, m.name, round(m.ratio * 100, 2), dict(m.levels), m.id, m.icon) for m in get_members()
+        ]
 
     rows = to_rows()
     baseline = deepcopy(rows)
@@ -1550,6 +1561,7 @@ def members_panel(
                 f"min-width: {min_rem}rem"
             ).mark("member-grid"):
                 header = "text-caption text-grey"
+                ui.label("アイコン").classes(header).mark("member-header-icon")
                 ui.label("名前").classes(header).mark("member-header-name")
                 ui.label("基本比率(%)" if with_effective else "相対比率(%)").classes(header).mark(
                     "member-header-ratio"
@@ -1570,6 +1582,16 @@ def members_panel(
                         r.ratio_percent = e.value
                         refresh_effective(r)
 
+                    with ui.row().classes("items-center no-wrap gap-1"):
+                        avatar(row.name or "?", row.icon, MEMBER_ICON_SIZE_PX).mark(f"member-icon-{index}")
+                        if pick_icon is not None:
+                            ui.button(icon="image", on_click=lambda r=row: choose_icon(r)).props(
+                                "flat dense round size=sm"
+                            ).tooltip("アイコンを選ぶ").mark(f"member-icon-pick-{index}")
+                        if row.icon:
+                            ui.button(icon="close", on_click=lambda r=row: clear_icon(r)).props(
+                                "flat dense round size=sm"
+                            ).tooltip("アイコンを外す").mark(f"member-icon-clear-{index}")
                     ui.input(
                         value=row.name,
                         on_change=lambda e, r=row: setattr(r, "name", e.value or ""),
@@ -1618,6 +1640,17 @@ def members_panel(
         rows.remove(row)
         table.refresh()
 
+    async def choose_icon(row: MemberRow) -> None:
+        assert pick_icon is not None
+        chosen = await pick_icon()
+        if chosen is not None:
+            row.icon = chosen
+            table.refresh()
+
+    def clear_icon(row: MemberRow) -> None:
+        row.icon = ""
+        table.refresh()
+
     def add() -> None:
         rows.append(MemberRow(None, "", 100.0))
         table.refresh()
@@ -1661,6 +1694,7 @@ def open_members_parameters_dialog(
     impacts: Callable[[ParameterEdit], list[tuple[str, int]]],
     on_apply_parameters: Callable[[ParameterEdit], object],
     get_taken: Callable[[], Collection[str]],
+    pick_icon: Callable[[], Awaitable[str | None]] | None = None,
 ) -> None:
     """メンバーとパラメータのダイアログ。タブごとに適用し、適用しても閉じない(キャンセルで閉じる)。"""
     with disposable(ui.dialog()) as dialog, ui.card() as card:
@@ -1676,7 +1710,7 @@ def open_members_parameters_dialog(
             "flex-shrink: 0"  # 縮むと、はみ出た分が overflow: hidden で切れる。カードのスクロールに任せる
         ).mark("members-parameters-panels"):
             with ui.tab_panel("members"):
-                members = members_panel(get_members, assigned, on_apply_members, get_parameters, get_taken)
+                members = members_panel(get_members, assigned, on_apply_members, get_parameters, get_taken, pick_icon)
             with ui.tab_panel("parameters"):
 
                 def parameters_applied(edit: ParameterEdit) -> None:
