@@ -2343,6 +2343,40 @@ async def test_changing_the_period_redraws_with_the_new_period(user: User, tmp_p
     await user.should_see(marker="dashboard-due-1")  # 今月: 10/20 の締切も入る
 
 
+async def test_the_member_filter_narrows_the_dashboard_and_resets_when_reopened(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-member")
+    user.find(marker="dashboard-member").elements.pop().set_value("田中")
+    assert view.dashboard_member == "田中"
+    await user.should_see("田中・10/05〜10/11 にかかるタスク")
+    user.find(marker="dashboard-back").click()
+    user.find(marker="open-dashboard").click()
+    assert view.dashboard_member is None
+
+
+async def test_the_member_filter_stays_when_the_period_changes(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-member")
+    user.find(marker="dashboard-member").elements.pop().set_value("田中")
+    user.find(marker="dashboard-period").elements.pop().set_value("今月")
+    assert view.dashboard_member == "田中" and view.dashboard_kind == PeriodKind.MONTH
+
+
+async def test_a_removed_member_falls_back_to_everyone(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-member")
+    view.change_dashboard_member("消えた人")
+    assert view.dashboard_member is None
+    view.change_dashboard_member("田中")
+    assert view.dashboard_member == "田中"
+    view.project.members = [Member("佐藤", 1.0)]
+    view.refresh_dashboard()
+    assert view.dashboard_member is None
+
+
 async def test_the_dashboard_leaves_the_chart_state_and_the_project_untouched(user: User, tmp_path: Path) -> None:
     view = await open_dashboard_view(user, tmp_path)
     view.gantt.set_scale(Scale.WEEK)

@@ -200,6 +200,7 @@ class MainView:
         self.preview_notice: str | None = None  # スケールを粗くして開いたときのお知らせ。設定を変えたら消す
         self.now: Callable[[], datetime] = datetime.now  # テストで差し替える
         self.dashboard_kind: PeriodKind | None = None  # 開いているときの期間。保存しない
+        self.dashboard_member: str | None = None  # ダッシュボードで絞り込み中のメンバー。保存しない
         self.open_folder: Callable[[Path], object] = open_folder  # テストで差し替える(実際にはファイラを開かない)
         self.saving = False
         self.zoom = load_zoom(base_dir)  # 画面全体の倍率(%)。全プロジェクト共通
@@ -252,7 +253,9 @@ class MainView:
             name_width=load_name_width(base_dir),
         )
         self.preview_bar = PreviewBar(self.on_preview_change, self.exit_preview, self.save_image, self.save_plantuml)
-        self.dashboard_view = DashboardView(self.close_dashboard, self.change_dashboard_period)
+        self.dashboard_view = DashboardView(
+            self.close_dashboard, self.change_dashboard_period, self.change_dashboard_member
+        )
 
     @staticmethod
     def dark_value(theme: str, colors: CustomTheme) -> bool | None:
@@ -670,6 +673,7 @@ class MainView:
         if self.preview is not None or self.dashboard_kind is not None:
             return
         self.dashboard_kind = PeriodKind.WEEK
+        self.dashboard_member = None
         self.set_header_visible(False)
         self.gantt.set_visible(False)
         self.refresh_dashboard()
@@ -677,16 +681,24 @@ class MainView:
     def refresh_dashboard(self) -> None:
         if self.dashboard_kind is None:
             return
+        if self.dashboard_member not in {m.name for m in self.project.members}:
+            self.dashboard_member = None  # 削除・改名されたメンバーは、全員に戻す
         now = self.now()
         period = period_for(self.dashboard_kind, now.date(), self.project, self.holidays)
         icons = {m.name: m.icon for m in self.project.members if m.icon}
-        data = summarize(self.project, period, now, self.holidays, self.dashboard_kind)
+        data = summarize(self.project, period, now, self.holidays, self.dashboard_kind, self.dashboard_member)
         self.dashboard_view.show(data, self.dashboard_kind, icons)
 
     def change_dashboard_period(self, kind: PeriodKind) -> None:
         if self.dashboard_kind is None:
             return
         self.dashboard_kind = kind
+        self.refresh_dashboard()
+
+    def change_dashboard_member(self, name: str | None) -> None:
+        if self.dashboard_kind is None:
+            return
+        self.dashboard_member = name
         self.refresh_dashboard()
 
     def close_dashboard(self) -> None:
