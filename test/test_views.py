@@ -4238,3 +4238,20 @@ async def test_a_later_base_date_keeps_earlier_tasks_and_moves_the_drag_limit(us
     assert task.planned_start == datetime(2026, 10, 7, 9)
     view.shift_task((), 0, 2)  # 右へは動く
     assert task.planned_start == datetime(2026, 10, 9, 9)
+
+
+async def test_decompose_button_is_not_shown_for_a_summary_child(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    child = Task("子", id="c1", effort_hours=2.0)
+    parent = Task("親", id="p1", kind=TaskKind.SUMMARY, children=["c1"])
+    save_project(Project("既存", sections=[Section("開発", [parent, child])]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    await user.should_see(marker="task-0-1")
+    user.find(marker="task-0-1").click()
+    await user.should_see(marker="task-save")
+    await user.should_not_see(marker="task-decompose")

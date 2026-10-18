@@ -421,7 +421,17 @@ class Schedule:
         return self._resolve(task)[1]
 
     def finish(self, pred: Task) -> datetime | None:
-        """先行としての完了。終了済みで実績の終了があればその時刻、なければ実効の完了。"""
+        """先行としての完了。終了済みで実績の終了があればその時刻、なければ実効の完了。
+        まとめは、子の完了の最大(終了済みの子は実績の終了)。"""
+        if pred.kind is TaskKind.SUMMARY:
+            if pred.id in self._active:  # 循環(手編集のファイルなど)
+                return None
+            self._active.add(pred.id)
+            try:
+                finishes = [self.finish(child) for child in children_of(pred, self._tasks)]
+            finally:
+                self._active.discard(pred.id)
+            return max((f for f in finishes if f is not None), default=None)
         if pred.status is Status.DONE:
             actual = actual_end(pred)
             if actual is not None:

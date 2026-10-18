@@ -114,6 +114,7 @@ from projectapp.storage import (
     save_project,
     validate_name,
 )
+from projectapp.summary import parent_map
 from projectapp.task_dialog import open_task_dialog
 from projectapp.theme import BODY_CSS, CustomTheme, theme_js
 from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
@@ -1055,7 +1056,9 @@ class MainView:
             members=self.project.members,
             actual_mode=self.project.actual_mode,
             on_delete=lambda: self.delete_task(path, task_index),
-            on_decompose=lambda close_edit: self.decompose_task(path, task_index, close_edit),
+            on_decompose=None  # まとめの子は、入れ子になるので分解できない
+            if task.id in parent_map(self.project)
+            else lambda close_edit: self.decompose_task(path, task_index, close_edit),
             **self.link_args(task),
         )
 

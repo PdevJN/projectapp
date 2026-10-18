@@ -2431,3 +2431,10 @@ async def test_decompose_button_asks_to_save_first_when_the_form_was_edited(user
     user.find(marker="task-decompose").click()
     assert calls == []
     await user.should_see("保存してから分解")
+
+
+@pytest.mark.parametrize("fields", [{"status": Status.RUNNING}, {"progress": 40}])
+async def test_decompose_button_is_not_shown_for_a_task_with_status_or_progress(user: User, fields: dict[str, object]) -> None:
+    mount_dialog(Task("r", **fields), [], on_decompose=lambda close: None)  # type: ignore[arg-type]
+    await open_dialog(user)
+    await user.should_not_see(marker="task-decompose")

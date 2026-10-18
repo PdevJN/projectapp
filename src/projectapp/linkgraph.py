@@ -5,14 +5,15 @@ from projectapp.summary import drop_child, parent_map
 
 
 def downstream_ids(project: Project, task_id: str) -> set[str]:
-    """そのタスクを、直接・間接に先行にしているタスクの id。循環があっても止まる。"""
+    """そのタスクを、直接・間接に先行にしているタスクの id。循環があっても止まる。
+    まとめは、子の完了を待つので、子の後続として数える。"""
     tasks = project.all_tasks()
     found: set[str] = set()
     frontier = [task_id]
     while frontier:
         current = frontier.pop()
         for task in tasks:
-            if current in task.predecessors and task.id not in found:
+            if (current in task.predecessors or current in task.children) and task.id not in found:
                 found.add(task.id)
                 frontier.append(task.id)
     return found

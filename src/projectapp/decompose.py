@@ -18,6 +18,7 @@ from projectapp.models import (
     has_control_char,
     new_id,
 )
+from projectapp.summary import parent_map
 
 MAX_PARTS = 20  # 一度に分けられる数の上限
 EFFORT_DECIMALS = 2  # 工数の小数点以下の桁数(forms.HOURS_DECIMALS と同じ。forms は NiceGUI に依存するのでここに持つ)
@@ -58,6 +59,8 @@ def _validate(task: Task, parts: Sequence[Part]) -> None:
         raise ValueError("通常のタスクだけ分解できます")
     if task.actuals:
         raise ValueError("実績のあるタスクは分解できません")
+    if task.status is not Status.NOT_STARTED or task.progress is not None:
+        raise ValueError("状態が未着手でない、または進捗度のあるタスクは分解できません(分解すると失われます)")
     if not 2 <= len(parts) <= MAX_PARTS:
         raise ValueError(f"分解は 2〜{MAX_PARTS} 件で指定してください")
     for part in parts:
@@ -100,6 +103,8 @@ def decompose(
     tasks = tasks_at(project, path)
     task = tasks[index]
     _validate(task, parts)
+    if task.id in parent_map(project):
+        raise ValueError("まとめの子は分解できません")
     parent_section: Section | None = None
     if new_section:
         reason = can_make_section(path)

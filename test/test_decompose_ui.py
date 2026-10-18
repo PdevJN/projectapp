@@ -211,3 +211,11 @@ async def test_an_error_from_the_callback_keeps_the_dialog_open(user: User) -> N
     user.find(marker="decompose-apply").click()
     await user.should_see("実績のあるタスクは分解できません")
     await user.should_see(marker="decompose-apply")
+
+
+async def test_the_arrow_stops_the_click_from_reaching_the_row_editor(user: User) -> None:
+    mount_chart(summary_project())
+    await user.open("/")
+    arrow = user.find(marker="summary-toggle-0-0").elements.pop()
+    clicks = [l for l in arrow._event_listeners.values() if l.type == "click"]
+    assert clicks and all("stopPropagation" in (l.js_handler or "") for l in clicks)

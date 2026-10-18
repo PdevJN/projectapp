@@ -1028,9 +1028,11 @@ class GanttChart:
                     view = self.summary_views[task.id] = SummaryView()
                     folded = task.id in self.collapsed_summaries
                     view.arrow = (
-                        ui.button(
-                            icon=ARROW_COLLAPSED if folded else ARROW_EXPANDED,
-                            on_click=lambda tid=task.id: self.toggle_summary(tid),
+                        ui.button(icon=ARROW_COLLAPSED if folded else ARROW_EXPANDED)
+                        .on(
+                            "click",
+                            lambda tid=task.id: self.toggle_summary(tid),
+                            js_handler="(e) => { e.stopPropagation(); emit(); }",
                         )
                         .props("flat dense round size=sm")
                         .classes("shrink-0")

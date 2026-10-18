@@ -1160,6 +1160,8 @@ def open_task_dialog(
                 and on_decompose is not None
                 and task.kind is TaskKind.NORMAL
                 and not task.actuals
+                and task.status is Status.NOT_STARTED
+                and task.progress is None
             ):
                 decompose_handler = on_decompose
 

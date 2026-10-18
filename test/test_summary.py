@@ -563,3 +563,51 @@ def test_merge_drops_deleted_children_and_reverts_an_empty_summary() -> None:
     theirs = Project("p", tasks=[summary("m", "a")])  # a を削除(m の children は触っていない)
     result = merge_projects(base, base, theirs)
     assert result.project.tasks[0].kind is TaskKind.NORMAL and result.project.tasks[0].children == []
+
+
+def test_a_summary_child_cannot_be_decomposed() -> None:
+    project = Project("p", sections=[Section("s", [summary("m", "a"), Task("a", id="a", effort_hours=4.0)])])
+    with pytest.raises(ValueError, match="まとめの子"):
+        decompose(project, (0,), 1, [Part("x", 2.0), Part("y", 2.0)])
+    assert project.sections[0].tasks[0].children == ["a"] and len(project.sections[0].tasks) == 2
+
+
+def test_link_options_excludes_a_summary_that_depends_on_the_task_through_its_child() -> None:
+    # x → c(子)。まとめ m は c を含むので、x は m を先行にできない(x → c → m → x の循環)
+    project = Project(
+        "p",
+        tasks=[summary("m", "c"), Task("c", id="c", predecessors=["x"]), Task("x", id="x")],
+    )
+    assert "m" not in link_options(project, project.tasks[2])
+
+
+def test_link_options_excludes_what_follows_the_parent_summary_for_a_child() -> None:
+    # d は m の後続。m の子 c は d を先行にできない(c → d → m → c)
+    project = Project(
+        "p",
+        tasks=[summary("m", "c"), Task("c", id="c"), Task("d", id="d", predecessors=["m"])],
+    )
+    assert "d" not in link_options(project, project.tasks[1])
+
+
+@pytest.mark.parametrize("fields", [{"status": Status.RUNNING}, {"status": Status.DONE}, {"progress": 40}])
+def test_a_task_with_status_or_progress_cannot_be_decomposed(fields: dict[str, object]) -> None:
+    project = Project("p", sections=[Section("s", [Task("a", id="a", effort_hours=4.0, **fields)])])  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="状態|進捗"):
+        decompose(project, (0,), 0, [Part("x", 2.0), Part("y", 2.0)])
+    assert project.sections[0].tasks[0].kind is TaskKind.NORMAL
+
+
+def test_a_task_after_a_summary_waits_for_the_actual_end_of_its_done_children() -> None:
+    project = Project(
+        "p",
+        tasks=[
+            summary("m", "a"),
+            timed("a", D(2026, 10, 6, 9), D(2026, 10, 7, 17), status=Status.DONE,
+                  actuals=[Actual(D(2026, 10, 6, 9), D(2026, 10, 9, 12))]),
+            timed("z", D(2026, 10, 6, 9), D(2026, 10, 6, 17), predecessors=["m"]),
+        ],
+    )
+    schedule = Schedule(project, {})
+    assert schedule.finish(project.tasks[0]) == D(2026, 10, 9, 12)  # 終了済みの子は実績の終了を使う(通常のタスクと同じ)
+    assert schedule.start(project.tasks[2]) == D(2026, 10, 9, 12)
