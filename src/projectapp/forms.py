@@ -275,6 +275,16 @@ def build_task(
     if has_control_char(clean):
         raise ValueError("名前に改行・制御文字は使えません")
     base = existing or Task(clean)
+    if kind is TaskKind.SUMMARY:  # まとめは分解でだけ作る。編集では、共通の項目(名前・カテゴリ・優先度・リンク)だけを変える
+        if existing is None or existing.kind is not TaskKind.SUMMARY:
+            raise ValueError("まとめは分解でだけ作れます")
+        return replace(
+            existing,
+            name=clean,
+            category_id=category_id,
+            priority=priority,
+            urls=existing.urls if urls is None else urls,
+        )
     if kind is TaskKind.CHECKPOINT:
         return _build_checkpoint(
             base, clean, category_id, deadline, priority, status, color, predecessors, linkable_ids, urls

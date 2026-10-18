@@ -2005,3 +2005,20 @@ async def test_settings_dialog_has_no_base_date_field_without_one(user: User) ->
     await user.open("/")
     user.find("open").click()
     await user.should_not_see(marker="settings-base-date")
+
+
+def test_build_task_for_a_summary_updates_only_the_shared_fields() -> None:
+    existing = Task("m", id="m", kind=TaskKind.SUMMARY, children=["a"], color="#112233")
+    built = make(existing, name=" 新 ", priority=Priority.HIGH, category_id="c", kind=TaskKind.SUMMARY, effort_hours=5.0,
+                 status=Status.RUNNING, color="#ffffff")
+    assert (built.kind, built.children, built.name, built.priority, built.category_id) == (
+        TaskKind.SUMMARY, ["a"], "新", Priority.HIGH, "c",
+    )
+    assert (built.effort_hours, built.status, built.color, built.predecessors) == (0.0, Status.NOT_STARTED, "#112233", [])
+
+
+def test_a_summary_cannot_be_made_from_a_form() -> None:
+    with pytest.raises(ValueError, match="まとめ"):
+        make(None, kind=TaskKind.SUMMARY)
+    with pytest.raises(ValueError, match="まとめ"):
+        make(Task("x"), kind=TaskKind.SUMMARY)
