@@ -1079,11 +1079,12 @@ class MainView:
     ) -> None:
         """分解して再描画する(元に戻すの 1 ステップ)。不正なときは ValueError で、何も変えない。"""
         name = self.tasks_in(path)[index].name
-        decompose(self.project, path, index, parts, chain=chain, new_section=new_section)
+        children = decompose(self.project, path, index, parts, chain=chain, new_section=new_section)
         if path:
             self.gantt.expand_section(path)
         self.after_edit()
         ui.notify(f"「{name}」を {len(parts)} 件に分解しました")
+        self.warn_overallocation(*children)  # 連結しない分解は、同じ担当の子が重なる
 
     def delete_task(self, path: SectionPath, task_index: int) -> None:
         """タスクを取り除いて再描画する。保存は自動では行わない(編集中の判定に入る)。"""
@@ -1140,13 +1141,15 @@ class MainView:
         self.after_edit()
         self.warn_overallocation(task)
 
-    def warn_overallocation(self, task: Task) -> None:
-        """保存したタスクが担当者の割り当て合計の超過に関わるなら、担当者ごとに通知する(保存は妨げない)。"""
-        if not task.assignees:
+    def warn_overallocation(self, *tasks: Task) -> None:
+        """保存したタスクが担当者の割り当て合計の超過に関わるなら、担当者ごとに通知する(保存は妨げない)。
+        複数のタスクを渡したときは、担当者ごとに 1 回だけ出す。"""
+        if not any(task.assignees for task in tasks):
             return
         overloads = overallocations(self.project, self.holidays)
-        mine = clip_overloads(task, self.project, self.holidays, overloads)
-        for name in task.assignee_names:
+        mine = [o for task in tasks for o in clip_overloads(task, self.project, self.holidays, overloads)]
+        names = dict.fromkeys(name for task in tasks for name in task.assignee_names)
+        for name in names:
             peaks = [o.total for o in mine if o.member == name]
             if peaks:
                 ui.notify(

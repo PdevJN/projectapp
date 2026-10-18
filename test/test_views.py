@@ -4255,3 +4255,34 @@ async def test_decompose_button_is_not_shown_for_a_summary_child(user: User, tmp
     user.find(marker="task-0-1").click()
     await user.should_see(marker="task-save")
     await user.should_not_see(marker="task-decompose")
+
+
+async def test_decompose_without_chain_warns_about_the_overallocation(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    view.apply_members([Member("田中")], {})
+    view.project.tasks.append(
+        Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=13.0, assignees=[Assignee("田中")])
+    )
+    view.apply_decompose((), 0, [Part("x", 6.5), Part("y", 6.5)], chain=False, new_section=False)
+    await user.should_see("田中 の割り当てが最大200%になる期間があります")
+    assert len([n for n in user.notify.messages if "田中 の割り当て" in n]) == 1  # 子の数だけ出さない
+
+
+async def test_decompose_with_chain_does_not_warn(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    view.apply_members([Member("田中")], {})
+    view.project.tasks.append(
+        Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=13.0, assignees=[Assignee("田中")])
+    )
+    view.apply_decompose((), 0, [Part("x", 6.5), Part("y", 6.5)], chain=True, new_section=False)
+    assert not user.notify.contains("割り当て")
