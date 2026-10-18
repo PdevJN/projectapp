@@ -46,7 +46,7 @@ def period_for(kind: PeriodKind, today: date, project: Project, holidays: dict[d
         return Period(today.replace(day=1), today.replace(day=monthrange(today.year, today.month)[1]))
     moments: list[datetime] = []
     schedule = Schedule(project, holidays)
-    for task in project.all_tasks():
+    for task in _tasks(project):
         for moment in (schedule.start(task), task.deadline, schedule.end(task)):
             if moment is not None:
                 moments.append(moment)
@@ -80,6 +80,11 @@ class Progress:
     overdue: list[OverdueRow]
 
 
+def _tasks(project: Project) -> list[Task]:
+    """集計の対象のタスク。まとめは、子の工数・進捗・期限を二重に数えないよう外す。"""
+    return [task for task in project.all_tasks() if task.kind is not TaskKind.SUMMARY]
+
+
 def _weight(effort_hours: float) -> float:
     return effort_hours if isfinite(effort_hours) and effort_hours > 0 else 1.0
 
@@ -89,7 +94,7 @@ def summarize_progress(project: Project, holidays: dict[date, str], now: datetim
     weighted = total = 0.0
     overdue: list[OverdueRow] = []
     schedule = Schedule(project, holidays)
-    for task in project.all_tasks():
+    for task in _tasks(project):
         counts[task.status] += 1
         if task.kind is not TaskKind.CHECKPOINT:  # 節目は、工数がないので進捗率の重みに入れない
             weight = _weight(task.effort_hours)
@@ -162,7 +167,7 @@ def summarize_loads(project: Project, period: Period, holidays: dict[date, str])
     days = _workdays(period, holidays)
     spans: dict[str, list[tuple[datetime, datetime, float]]] = {}
     schedule = Schedule(project, holidays)
-    for task in project.all_tasks():
+    for task in _tasks(project):
         counted = counted_span(task, project, holidays, schedule)
         if counted is not None:
             for assignee in counted_assignees(task, project):
@@ -204,7 +209,7 @@ def summarize_workload(
     days = _workdays(period, holidays)
     low, high = period.bounds()
     schedule = Schedule(project, holidays)
-    for task in project.all_tasks():
+    for task in _tasks(project):
         start, end = schedule.start(task), schedule.end(task)
         count = (
             sum(1 for day in days if _covers(start, end, day))
@@ -230,7 +235,7 @@ def summarize_due(
     low, high = period.bounds()
     rows: list[DueRow] = []
     schedule = Schedule(project, holidays)
-    for task in project.all_tasks():
+    for task in _tasks(project):
         if task.status is Status.DONE:
             continue
         late = is_overdue(task, project, holidays, now, schedule)

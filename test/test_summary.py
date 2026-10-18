@@ -11,6 +11,13 @@ from projectapp.models import Actual, Assignee, Category, TaskUrl
 from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
 from projectapp.links import RowSlot, row_slots
 from projectapp.linkgraph import drop_task_links, link_options
+from datetime import date
+
+from projectapp.dashboard import Period, summarize_due, summarize_loads, summarize_progress, summarize_workload
+from projectapp.merge import merge_projects
+from projectapp.models import Member
+from projectapp.plantuml import build_plantuml
+from projectapp.timeline import Scale
 from projectapp.summary import children_of, drop_child, parent_map, revert_empty, summary_progress, summary_status
 from projectapp.storage import dumps_project, load_project, parse_project, save_project
 import json
@@ -480,3 +487,79 @@ def test_the_summary_collapse_is_ignored_while_filtering_and_in_read_only() -> N
 def test_a_collapsed_section_still_hides_everything() -> None:
     slots = row_slots(slot_project(), TaskFilter(), {(0,)}, False, 32, 24, set())
     assert shown(slots) == []
+
+
+def dashboard_project(with_summary: bool) -> Project:
+    a = timed("a", D(2026, 10, 6, 9), D(2026, 10, 7, 17), effort_hours=4.0, assignees=[Assignee("田中", 1.0)])
+    b = timed("b", D(2026, 10, 8, 9), D(2026, 10, 9, 17), effort_hours=2.0, assignees=[Assignee("田中", 1.0)],
+              deadline=D(2026, 10, 9, 17))
+    tasks = [a, b]
+    if with_summary:
+        tasks.insert(0, summary("m", "a", "b"))
+    return Project("p", base_date=date(2026, 10, 5), members=[Member("田中")], tasks=tasks)
+
+
+NOW = D(2026, 10, 12, 12)
+PERIOD = Period(date(2026, 10, 5), date(2026, 10, 11))
+
+
+def test_the_dashboard_progress_ignores_the_summary() -> None:
+    plain = summarize_progress(dashboard_project(False), {}, NOW)
+    with_summary = summarize_progress(dashboard_project(True), {}, NOW)
+    assert (with_summary.counts, with_summary.percent, with_summary.overdue) == (plain.counts, plain.percent, plain.overdue)
+    assert len(with_summary.overdue) == 2  # 比較が空同士にならないよう、超過が出ていることを確かめる
+
+
+def test_the_dashboard_workload_loads_and_due_ignore_the_summary() -> None:
+    plain, withs = dashboard_project(False), dashboard_project(True)
+    assert summarize_workload(withs, PERIOD, NOW, {}) == summarize_workload(plain, PERIOD, NOW, {})
+    assert summarize_loads(withs, PERIOD, {}) == summarize_loads(plain, PERIOD, {})
+    assert summarize_due(withs, PERIOD, NOW, {}) == summarize_due(plain, PERIOD, NOW, {})
+    assert summarize_due(plain, PERIOD, NOW, {})  # 空同士の比較にならない
+
+
+def puml(project: Project):
+    return build_plantuml(project, {}, (date(2026, 10, 5), date(2026, 10, 18)), Scale.DAY, TaskFilter(), NOW)
+
+
+def test_plantuml_does_not_draw_the_summary_and_does_not_count_it_as_skipped() -> None:
+    result = puml(dashboard_project(True))
+    assert "[m]" not in result.text
+    assert (result.task_count, result.skipped) == (2, 0)
+
+
+def test_plantuml_draws_the_arrow_from_the_latest_child_for_a_successor_of_the_summary() -> None:
+    project = dashboard_project(True)
+    project.tasks.append(timed("after", D(2026, 10, 13, 9), D(2026, 10, 14, 9), predecessors=["m"]))
+    text = puml(project).text
+    # a=T1, b=T2, after=T3。b の完了が最も遅い
+    assert "[T2] -> [T3]" in text and "[T1] -> [T3]" not in text
+
+
+def test_plantuml_draws_no_arrow_for_a_summary_without_drawn_children() -> None:
+    project = Project(
+        "p",
+        tasks=[summary("m", "a"), Task("a", id="a"), timed("z", D(2026, 10, 6, 9), D(2026, 10, 7, 9), predecessors=["m"])],
+    )
+    assert "->" not in puml(project).text
+
+
+def test_merge_takes_the_one_sided_change_of_the_children() -> None:
+    base = Project("p", tasks=[summary("m", "a"), child("a"), child("b")])
+    ours = Project("p", tasks=[summary("m", "a", "b"), child("a"), child("b")])
+    result = merge_projects(base, ours, base)
+    assert result.project.tasks[0].children == ["a", "b"] and not result.conflicts
+
+
+def test_merge_conflicts_when_both_sides_change_the_children() -> None:
+    base = Project("p", tasks=[summary("m", "a"), child("a"), child("b"), child("c")])
+    ours = Project("p", tasks=[summary("m", "a", "b"), child("a"), child("b"), child("c")])
+    theirs = Project("p", tasks=[summary("m", "a", "c"), child("a"), child("b"), child("c")])
+    assert [c.field for c in merge_projects(base, ours, theirs).conflicts] == ["子"]
+
+
+def test_merge_drops_deleted_children_and_reverts_an_empty_summary() -> None:
+    base = Project("p", tasks=[summary("m", "a"), child("a")])
+    theirs = Project("p", tasks=[summary("m", "a")])  # a を削除(m の children は触っていない)
+    result = merge_projects(base, base, theirs)
+    assert result.project.tasks[0].kind is TaskKind.NORMAL and result.project.tasks[0].children == []

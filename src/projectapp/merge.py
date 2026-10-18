@@ -22,6 +22,7 @@ from projectapp.models import (
     Project,
     Section,
     Task,
+    TaskKind,
     UrlTemplate,
 )
 from projectapp.storage import dumps_project, parse_project
@@ -209,7 +210,7 @@ TASK_LABELS = {
     "name": "名前", "planned_start": "開始予定", "effort_hours": "工数", "priority": "優先度", "status": "状態",
     "color": "色", "assignees": "担当", "predecessors": "先行", "deadline": "締切", "planned_end": "完了予定",
     "planned_end_manual": "完了予定を手で指定", "actuals": "実績", "progress": "進捗度", "category_id": "カテゴリ", "kind": "種別",
-    "urls": "リンク", "parent": "所属",
+    "urls": "リンク", "children": "子", "parent": "所属",
 }
 SECTION_LABELS = {"name": "名前", "parent": "所属"}
 
@@ -307,13 +308,20 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
                 assignees.append(Assignee(names[member_id], allocation))
             else:
                 notes.append(f"担当者を外しました: 「{record['name']}」の{shown.get(member_id, member_id)}")
-        data = {k: v for k, v in record.items() if k not in ("assignees", "parent", "predecessors", "category_id")}
+        data = {
+            k: v for k, v in record.items() if k not in ("assignees", "parent", "predecessors", "category_id", "children")
+        }
         category = record["category_id"]
         if category is not None and category not in categories:
             notes.append(f"カテゴリを外しました: 「{record['name']}」")
             category = None
         predecessors = [p for p in record["predecessors"] if p in tasks]
-        return Task(id=key, assignees=assignees, predecessors=predecessors, category_id=category, **data)
+        children = [c for c in record["children"] if c in tasks]
+        if data["kind"] is TaskKind.SUMMARY and not children:
+            data["kind"] = TaskKind.NORMAL  # 子がいなくなったまとめは、通常タスクに戻す
+        return Task(
+            id=key, assignees=assignees, predecessors=predecessors, category_id=category, children=children, **data
+        )
 
     task_objects = {key: make_task(key, record) for key, record in tasks.items()}
 
