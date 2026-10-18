@@ -19,6 +19,7 @@ from projectapp.config import (
     MIN_NAME_WIDTH_PX,
     parse_name_width,
 )
+from projectapp.decompose import decompose_block_reason
 from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
@@ -332,6 +333,11 @@ class GanttActions:
     shift_task: Callable[[SectionPath, int, int], object]  # セクションのパス(root は ()), タスク番号, 日数
     set_name_width: Callable[[int], object]  # 名前の欄の幅(px)。範囲に収めた整数。保存は受け取り側
     add_subsection: Callable[[SectionPath], object] = lambda path: None  # サブセクションの追加(親のセクションのパス)
+    # 右クリックのメニューの操作(セクションのパス, タスク番号)
+    decompose_task: Callable[[SectionPath, int], object] = lambda path, ti: None
+    copy_task: Callable[[SectionPath, int], object] = lambda path, ti: None
+    rename_task: Callable[[SectionPath, int], object] = lambda path, ti: None
+    delete_task: Callable[[SectionPath, int], object] = lambda path, ti: None
 
 
 class GanttChart:
@@ -361,6 +367,9 @@ class GanttChart:
         self.collapsed: set[SectionPath] = set()  # 折りたたんだセクションのパス。保存しない
         self.section_views: dict[SectionPath, SectionView] = {}  # 描画中のセクションの部品
         self.collapsed_summaries: set[str] = set()  # 折りたたんだまとめのタスク id。保存しない
+        self.menu: ui.menu | None = None  # 右クリックの共有メニュー(1 つだけ。行ごとには作らない)
+        self.menu_target: tuple[SectionPath, int] | None = None  # メニューを開いた行
+        self.decompose_item: ui.menu_item | None = None
         self.summary_views: dict[str, SummaryView] = {}  # 描画中のまとめの部品
         self.task_rows: dict[str, ui.element] = {}  # 描画中のタスクの行(折りたたみで表示を切り替える)
         self.tasks_by_id: dict[str, Task] = {}
@@ -703,6 +712,7 @@ class GanttChart:
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
         ui.on("chart_name_width", lambda e: self.handle_name_width(e.args))
+        self.build_menu()
         self.toolbar = ui.row().classes("w-full items-center no-wrap gap-4")
         with self.toolbar.mark("chart-toolbar"):
             ui.toggle(
@@ -750,6 +760,44 @@ class GanttChart:
         scroll.on("scroll", js_handler=TRACK_SCROLL_JS)
         with scroll.props("data-chart-scroll").mark("chart-scroll"):
             self.render()
+
+    def build_menu(self) -> None:
+        """タスクの行の右クリックで開く共有メニュー。開いた行は `menu_target` に持つ。"""
+
+        def act(action: Callable[[SectionPath, int], object]) -> Callable[[], None]:
+            def run() -> None:
+                if self.menu_target is not None:
+                    action(*self.menu_target)
+
+            return run
+
+        with ui.menu().props("context-menu no-parent-event") as self.menu:
+            ui.menu_item("編集", on_click=act(lambda p, t: self.actions.edit_task(p, t))).mark("context-edit")
+            self.decompose_item = ui.menu_item(
+                "分解…", on_click=act(lambda p, t: self.actions.decompose_task(p, t))
+            ).mark("context-decompose")
+            ui.menu_item("コピー", on_click=act(lambda p, t: self.actions.copy_task(p, t))).mark("context-copy")
+            ui.menu_item("名前の変更", on_click=act(lambda p, t: self.actions.rename_task(p, t))).mark("context-rename")
+            ui.separator()
+            ui.menu_item("削除", on_click=act(lambda p, t: self.actions.delete_task(p, t))).props(
+                "class=text-negative"
+            ).mark("context-delete")
+
+    def open_menu(self, path: SectionPath, ti: int) -> None:
+        """右クリックした行を覚え、分解できるかをメニューに反映する(メニュー自体はブラウザ側で開く)。"""
+        self.menu_target = (path, ti)
+        if self.decompose_item is None:
+            return
+        tasks = arrange.tasks_at(self.project, path) if arrange.has_list(self.project, (path, 0)) else []
+        blocked = ti >= len(tasks) or decompose_block_reason(self.project, tasks[ti]) is not None
+        self.decompose_item.props(add="disable" if blocked else "", remove="" if blocked else "disable")
+
+    def menu_on_right_click(self, row: ui.element, path: SectionPath, ti: int) -> None:
+        """行の右クリックで共有メニューを、クリックした位置に開く。ブラウザ標準のメニューは出さない。"""
+        if self.options.read_only or self.menu is None:
+            return
+        js = f"(e) => {{ e.preventDefault(); getElement({self.menu.id}).$refs.qRef.show(e); emit(); }}"
+        row.on("contextmenu", lambda path=path, ti=ti: self.open_menu(path, ti), js_handler=js)
 
     @ui.refreshable_method
     def render(self) -> None:
@@ -1028,6 +1076,7 @@ class GanttChart:
             style += f"; background: {OVERDUE_COLOR}"
         row = ui.row().classes("items-center no-wrap gap-0").style(style)
         row.props(self.drag_props("row", key, ti=ti)).mark(f"row-{key}-{ti}")
+        self.menu_on_right_click(row, path, ti)
         self.task_rows[task.id] = row
         summary = task.kind is TaskKind.SUMMARY
         indent = SUMMARY_INDENT_PX if task.id in self.parents else 0  # まとめの子は、一段字下げする

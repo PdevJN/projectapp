@@ -99,6 +99,10 @@ class Recorder:
             shift_task=lambda si, ti, days: self.events.append(("shift_task", (si, ti, days))),
             set_name_width=lambda width: self.events.append(("set_name_width", (width,))),
             add_subsection=lambda path: self.events.append(("add_subsection", (path,))),
+            decompose_task=lambda path, ti: self.events.append(("decompose_task", (path, ti))),
+            copy_task=lambda path, ti: self.events.append(("copy_task", (path, ti))),
+            rename_task=lambda path, ti: self.events.append(("rename_task", (path, ti))),
+            delete_task=lambda path, ti: self.events.append(("delete_task", (path, ti))),
         )
 
 

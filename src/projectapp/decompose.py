@@ -54,13 +54,22 @@ def can_make_section(path: SectionPath) -> str | None:
     return None
 
 
-def _validate(task: Task, parts: Sequence[Part]) -> None:
+def decompose_block_reason(project: Project, task: Task) -> str | None:
+    """そのタスクを分解できない理由。分解できるなら None。"""
     if task.kind is not TaskKind.NORMAL:
-        raise ValueError("通常のタスクだけ分解できます")
+        return "通常のタスクだけ分解できます"
     if task.actuals:
-        raise ValueError("実績のあるタスクは分解できません")
+        return "実績のあるタスクは分解できません"
     if task.status is not Status.NOT_STARTED or task.progress is not None:
-        raise ValueError("状態が未着手でない、または進捗度のあるタスクは分解できません(分解すると失われます)")
+        return "状態が未着手でない、または進捗度のあるタスクは分解できません(分解すると失われます)"
+    if task.id in parent_map(project):
+        return "まとめの子は分解できません"
+    return None
+
+
+def _validate(project: Project, task: Task, parts: Sequence[Part]) -> None:
+    if (reason := decompose_block_reason(project, task)) is not None:
+        raise ValueError(reason)
     if not 2 <= len(parts) <= MAX_PARTS:
         raise ValueError(f"分解は 2〜{MAX_PARTS} 件で指定してください")
     for part in parts:
@@ -102,9 +111,7 @@ def decompose(
     """
     tasks = tasks_at(project, path)
     task = tasks[index]
-    _validate(task, parts)
-    if task.id in parent_map(project):
-        raise ValueError("まとめの子は分解できません")
+    _validate(project, task, parts)
     parent_section: Section | None = None
     if new_section:
         reason = can_make_section(path)

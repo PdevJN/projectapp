@@ -102,6 +102,18 @@ def _plain_copy(original: Task, task_id: str, name: str) -> Task:
     )
 
 
+def after_task(project: Project, src: Position) -> Position:
+    """タスクの直後の挿入位置。まとめは、続く子の後ろ。"""
+    path, index = src
+    tasks = tasks_at(project, path)
+    task = tasks[index]
+    after = index + 1
+    if task.kind is TaskKind.SUMMARY:
+        while after < len(tasks) and tasks[after].id in task.children:
+            after += 1
+    return path, after
+
+
 def copy_task(project: Project, src: Position, dst: Position) -> Task:
     """タスクを dst に複製する。まとめは、子も複製して直後に並べる(子同士の先行は複製へ付け替え、外への先行は外す)。"""
     original = tasks_at(project, src[0])[src[1]]

@@ -4286,3 +4286,68 @@ async def test_decompose_with_chain_does_not_warn(user: User, tmp_path: Path) ->
     )
     view.apply_decompose((), 0, [Part("x", 6.5), Part("y", 6.5)], chain=True, new_section=False)
     assert not user.notify.contains("割り当て")
+
+
+async def open_context_menu_on_the_only_task(user: User, tmp_path: Path) -> MainView:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    await user.should_see(marker="task-0-0")
+    view.gantt.open_menu((0,), 0)
+    return view
+
+
+async def test_context_menu_copy_puts_the_copy_right_after(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    user.find(marker="context-copy").click()
+    assert [t.name for t in view.project.sections[0].tasks] == ["実装", "実装(コピー)"]
+    assert view.is_dirty()
+
+
+async def test_context_menu_rename_changes_only_the_name(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    before = view.project.sections[0].tasks[0]
+    user.find(marker="context-rename").click()
+    user.find(marker="project-name").elements.pop().set_value("設計")
+    user.find(marker="name-save").click()
+    after = view.project.sections[0].tasks[0]
+    assert (after.name, after.id, after.effort_hours) == ("設計", before.id, 4.0)
+    assert view.is_dirty()
+
+
+async def test_context_menu_rename_rejects_an_invalid_name(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    user.find(marker="context-rename").click()
+    user.find(marker="project-name").elements.pop().set_value("   ")
+    user.find(marker="name-save").click()
+    await user.should_see("名前を入力してください")
+    assert view.project.sections[0].tasks[0].name == "実装"
+
+
+async def test_context_menu_delete_asks_first(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    user.find(marker="context-delete").click()
+    await user.should_see("「実装」を削除しますか?")
+    assert len(view.project.sections[0].tasks) == 1
+    user.find(marker="confirm-ok").click()
+    assert view.project.sections[0].tasks == []
+
+
+async def test_context_menu_delete_can_be_cancelled(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    user.find(marker="context-delete").click()
+    user.find(marker="confirm-cancel").click()
+    assert len(view.project.sections[0].tasks) == 1
+
+
+async def test_context_menu_decompose_opens_the_decompose_dialog(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    user.find(marker="context-decompose").click()
+    user.find(marker="decompose-apply").click()
+    assert view.project.sections[0].tasks[0].kind is TaskKind.SUMMARY
+    assert len(view.project.sections[0].tasks) == 3

@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, time, timedelta
 from typing import Any
 from pathlib import Path
@@ -45,7 +45,9 @@ from projectapp.forms import (
     open_file_dialog,
     open_handoff_dialog,
     open_members_parameters_dialog,
+    open_confirm_dialog,
     open_name_dialog,
+    task_name_error,
     open_section_dialog,
     open_settings_dialog,
     open_unsaved_dialog,
@@ -92,7 +94,7 @@ from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
-from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Event, Member, Project, Section, SectionPath, Task, new_id
+from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Event, Member, Project, Section, SectionPath, Task, TaskKind, new_id
 from projectapp.preview import (
     LARGE_IMAGE_MESSAGE,
     NOT_NATIVE_MESSAGE,
@@ -237,6 +239,10 @@ class MainView:
                 shift_task=self.shift_task,
                 set_name_width=self.set_name_width,
                 add_subsection=self.add_subsection,
+                decompose_task=self.decompose_task,
+                copy_task=self.copy_task_below,
+                rename_task=self.rename_task,
+                delete_task=self.confirm_delete_task,
             ),
             name_width=load_name_width(base_dir),
         )
@@ -1073,6 +1079,27 @@ class MainView:
                 on_done()
 
         open_decompose_dialog(self.tasks_in(path)[index], can_make_section(path), apply)
+
+    def copy_task_below(self, path: SectionPath, index: int) -> None:
+        """タスクを複製して、直後(まとめは子の後ろ)に置く。"""
+        src = (path, index)
+        self.move_task(src, arrange.after_task(self.project, src), True)
+
+    def rename_task(self, path: SectionPath, index: int) -> None:
+        """タスク名だけを変える(名前の入力ダイアログ)。"""
+        task = self.tasks_in(path)[index]
+
+        def apply(name: str) -> None:
+            self.tasks_in(path)[index] = replace(task, name=name)
+            self.after_edit()
+
+        open_name_dialog(apply, task_name_error, title="タスク名の変更", initial=task.name, label="タスク名")
+
+    def confirm_delete_task(self, path: SectionPath, index: int) -> None:
+        """確認してから、タスクを削除する。"""
+        task = self.tasks_in(path)[index]
+        detail = f"子のタスク {len(task.children)} 件は、通常のタスクとして残ります" if task.kind is TaskKind.SUMMARY else None
+        open_confirm_dialog(f"「{task.name}」を削除しますか?", lambda: self.delete_task(path, index), detail=detail)
 
     def apply_decompose(
         self, path: SectionPath, index: int, parts: list[Part], chain: bool, new_section: bool
