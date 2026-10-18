@@ -77,3 +77,12 @@ async def test_pressing_anywhere_outside_the_menu_closes_it(user: User) -> None:
     js = charts[0].menu_close_js()
     assert "pointerdown" in js and ".q-menu" in js
     assert f"getElement({charts[0].menu.id}).hide()" in js  # type: ignore[union-attr]
+
+
+async def test_the_menu_is_compact(user: User) -> None:
+    from projectapp.gantt import CONTEXT_MENU_CSS
+
+    charts, _ = mount_chart(menu_project())
+    await user.open("/")
+    assert "app-context-menu" in charts[0].menu.classes  # type: ignore[union-attr]
+    assert "min-height: 26px" in CONTEXT_MENU_CSS and "font-size: 12px" in CONTEXT_MENU_CSS

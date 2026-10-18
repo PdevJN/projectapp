@@ -199,6 +199,10 @@ LINK_CSS = """
 .gantt-links { --link-color: #757575; }
 body.body--dark .gantt-links { --link-color: #bdbdbd; }
 """
+CONTEXT_MENU_CSS = """
+.app-context-menu .q-item { min-height: 26px; padding: 2px 12px; font-size: 12px; }
+.app-context-menu .q-separator { margin: 2px 0; }
+"""
 LINK_STYLE = "stroke: var(--link-color); stroke-width: 1.5; fill: none"
 LINK_HEAD = (
     '<defs><marker id="link-head" markerWidth="6" markerHeight="6" refX="6" refY="3"'
@@ -701,6 +705,7 @@ class GanttChart:
         ui.add_css(STATUS_CSS)
         ui.add_css(PRIORITY_CSS)
         ui.add_css(LINK_CSS)
+        ui.add_css(CONTEXT_MENU_CSS)
         ui.add_css(EVENT_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
@@ -765,7 +770,7 @@ class GanttChart:
 
             return run
 
-        with ui.context_menu().props("no-parent-event") as self.menu:  # 親の右クリックでは開かない(行の右クリックだけ)
+        with ui.context_menu().props("no-parent-event").classes("app-context-menu") as self.menu:  # 親の右クリックでは開かない(行の右クリックだけ)
             ui.menu_item("編集", on_click=act(lambda p, t: self.actions.edit_task(p, t))).mark("context-edit")
             self.decompose_item = ui.menu_item(
                 "分解…", on_click=act(lambda p, t: self.actions.decompose_task(p, t))
