@@ -69,3 +69,11 @@ async def test_read_only_rows_have_no_menu(user: User) -> None:
     await user.open("/")
     row = user.find(marker="row-0-0").elements.pop()
     assert not [l for l in row._event_listeners.values() if l.type == "contextmenu"]
+
+
+async def test_pressing_anywhere_outside_the_menu_closes_it(user: User) -> None:
+    charts, _ = mount_chart(menu_project())
+    await user.open("/")
+    js = charts[0].menu_close_js()
+    assert "pointerdown" in js and ".q-menu" in js
+    assert f"getElement({charts[0].menu.id}).hide()" in js  # type: ignore[union-attr]

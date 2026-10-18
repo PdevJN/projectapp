@@ -598,12 +598,6 @@ class GanttChart:
         """名前の欄の右端を、幅の調整の掴み場所にするクラス(先頭に空白)。読み取り専用では付けない。"""
         return "" if self.options.read_only else " gantt-name-resizable"
 
-    def edit_on_click(self, element: ui.element, path: SectionPath, ti: int) -> ui.element:
-        """クリックでタスクの編集を開く。読み取り専用では何も付けない。"""
-        if not self.options.read_only:
-            element.on("click", lambda path=path, ti=ti: self.actions.edit_task(path, ti))
-        return element
-
     def content_width(self) -> int:
         """描画の全体の幅(px)。名前の列と、すべての列。画像の幅になる。"""
         columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
@@ -782,6 +776,19 @@ class GanttChart:
             ui.menu_item("削除", on_click=act(lambda p, t: self.actions.delete_task(p, t))).props(
                 "class=text-negative"
             ).mark("context-delete")
+        ui.run_javascript(self.menu_close_js())
+
+    def menu_close_js(self) -> str:
+        """メニューの外を押したら閉じる JS。Quasar の外側クリックだけに任せると、ドラッグできる行などで閉じないことがある。
+        メニューの中の押下は除く(項目のクリックを妨げない)。"""
+        assert self.menu is not None
+        menu = f"getElement({self.menu.id})"
+        return (
+            "document.addEventListener('pointerdown', (e) => {"
+            " if (e.target.closest && e.target.closest('.q-menu')) return;"
+            f" if ({menu}) {menu}.hide();"
+            " }, true);"
+        )
 
     def open_menu(self, path: SectionPath, ti: int) -> None:
         """右クリックした行を覚え、分解できるかをメニューに反映する(メニュー自体はブラウザ側で開く)。"""
@@ -1082,7 +1089,7 @@ class GanttChart:
         indent = SUMMARY_INDENT_PX if task.id in self.parents else 0  # まとめの子は、一段字下げする
         with row:
             cell = ui.row().classes(
-                "items-center no-wrap gap-1 cursor-pointer gantt-sticky"
+                "items-center no-wrap gap-1 gantt-sticky"
                 f" {PRIORITY_CLASSES[task.priority]}" + self.resize_classes()
             )
             cell_style = (
@@ -1095,7 +1102,6 @@ class GanttChart:
                     f"; background-image: linear-gradient({OVERDUE_COLOR}, {OVERDUE_COLOR})"
                 )
             cell.style(cell_style)
-            self.edit_on_click(cell, path, ti)
             cell.mark(f"task-{key}-{ti}")
             if not self.task_filter.active and not self.options.read_only:
                 cell.props(f"draggable=true data-drag-handle data-si={key} data-ti={ti}")
@@ -1145,7 +1151,7 @@ class GanttChart:
                 left, length = span
                 bar_width = max(length * width, MIN_BAR_PX)
                 draggable = self.view_scale is Scale.DAY and not self.options.read_only
-                cursor = "grab" if draggable else "pointer"
+                cursor = "grab" if draggable else "default"
                 outline = ""
                 if state in PROGRESS_STATE_COLORS:
                     outline = " outline: 2px solid var(--pstate); outline-offset: -2px;"
@@ -1160,7 +1166,6 @@ class GanttChart:
                 bar.classes(STATUS_CLASSES[task.status])
                 if state in PROGRESS_STATE_CLASSES:
                     bar.classes(PROGRESS_STATE_CLASSES[state])
-                self.edit_on_click(bar, path, ti)
                 bar.mark(f"bar-{key}-{ti}")
                 if draggable:
                     least = arrange.min_shift_days(
@@ -1228,10 +1233,9 @@ class GanttChart:
         band = ui.element("div").style(
             f"position: absolute; left: {from_name(left * width)}; width: {band_width:.1f}px;"
             f" top: {SUMMARY_BAND_TOP_PX}px; height: {SUMMARY_BAND_HEIGHT_PX}px;"
-            f" background: {STATUS_COLOR_VAR}; border-radius: 1px; cursor: pointer"
+            f" background: {STATUS_COLOR_VAR}; border-radius: 1px"
         )
         band.classes(STATUS_CLASSES[summary_status(kids)])
-        self.edit_on_click(band, path, ti)
         band.mark(f"summary-band-{key}-{ti}")
         with band:
             if percent:
@@ -1342,10 +1346,9 @@ class GanttChart:
                 f"position: absolute; left: {from_name(left * width)};"
                 f" width: {max(length * width, MIN_BAR_PX):.1f}px;"
                 f" top: {ACTUAL_TOP_PX}px; height: {ACTUAL_HEIGHT_PX}px;"
-                f" background: {STATUS_COLOR_VAR}; border-radius: 3px; cursor: pointer;"
+                f" background: {STATUS_COLOR_VAR}; border-radius: 3px;"
                 " user-select: none; overflow: hidden"
             ).classes(STATUS_CLASSES[task.status])
-            self.edit_on_click(bar, path, ti)
             bar.mark(f"actual-{key}-{ti}-{n}")
         for n in range(len(task.actuals) - 1):
             before, after = task.actuals[n], task.actuals[n + 1]
@@ -1358,9 +1361,8 @@ class GanttChart:
                 f"position: absolute; left: {from_name(left * width)};"
                 f" width: {length * width:.1f}px;"
                 f" top: {ACTUAL_TOP_PX}px; height: {ACTUAL_HEIGHT_PX}px;"
-                f" background: {ACTUAL_GAP_BACKGROUND}; cursor: pointer; user-select: none"
+                f" background: {ACTUAL_GAP_BACKGROUND}; user-select: none"
             ).classes(STATUS_CLASSES[task.status])
-            self.edit_on_click(gap, path, ti)
             gap.mark(f"actual-gap-{key}-{ti}-{n}")
 
     def overload_stripes(
@@ -1410,10 +1412,9 @@ class GanttChart:
         marker = ui.label("◆").style(
             f"position: absolute; left: {from_name(left)}; top: 0; width: {CHECKPOINT_MARKER_PX}px;"
             f" height: {ROW_HEIGHT_PX}px; line-height: {ROW_HEIGHT_PX}px; text-align: center;"
-            f" font-size: {CHECKPOINT_MARKER_PX}px; color: {STATUS_COLOR_VAR}; cursor: pointer;"
+            f" font-size: {CHECKPOINT_MARKER_PX}px; color: {STATUS_COLOR_VAR};"
             " user-select: none"
         ).classes(STATUS_CLASSES[task.status])
-        self.edit_on_click(marker, path, ti)
         marker.tooltip(f"チェックポイント {task.deadline:%Y-%m-%d %H:%M}").mark(
             f"checkpoint-{key}-{ti}"
         )
@@ -1431,7 +1432,6 @@ class GanttChart:
         left = position * width - DEADLINE_MARKER_HALF_PX
         marker = ui.label("◆").style(
             f"position: absolute; left: {from_name(left)}; top: 4px; line-height: 1;"
-            f" color: {DEADLINE_COLOR}; cursor: pointer"
+            f" color: {DEADLINE_COLOR}"
         )
-        self.edit_on_click(marker, path, ti)
         marker.tooltip(f"締切 {task.deadline:%Y-%m-%d %H:%M}").mark(f"deadline-{key}-{ti}")

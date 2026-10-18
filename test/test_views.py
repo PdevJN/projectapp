@@ -151,6 +151,14 @@ async def test_add_section_then_task_shows_a_bar(user: User, tmp_path: Path) -> 
     await user.should_see(marker="bar-0-0")
 
 
+def edit_from_menu(user: User, row_marker: str) -> None:
+    """行を右クリックして、メニューの`編集`を押す(左クリックでは編集を開かない)。"""
+    row = user.find(marker=row_marker).elements.pop()
+    [listener] = [l for l in row._event_listeners.values() if l.type == "contextmenu"]
+    listener.handler()
+    user.find(marker="context-edit").click()
+
+
 async def test_edit_task_updates_the_name(user: User, tmp_path: Path) -> None:
     save_cache({}, tmp_path)
     mount(tmp_path, make_transport(200, []))
@@ -163,7 +171,7 @@ async def test_edit_task_updates_the_name(user: User, tmp_path: Path) -> None:
     user.find(marker="task-name").type("設計")
     user.find(marker="task-save").click()
     await user.should_see(marker="task-0-0")
-    user.find(marker="task-0-0").click()
+    edit_from_menu(user, "row-0-0")
     await user.should_see("タスクの編集")
 
 
@@ -205,7 +213,7 @@ async def test_edit_top_level_task_opens_the_edit_dialog(user: User, tmp_path: P
     user.find(marker="task-name").type("設計")
     user.find(marker="task-save").click()
     await user.should_see(marker="task-top-0")
-    user.find(marker="task-top-0").click()
+    edit_from_menu(user, "row-top-0")
     await user.should_see("タスクの編集")
 
 
@@ -724,7 +732,7 @@ async def open_edit_dialog_of_the_only_task(user: User, tmp_path: Path) -> MainV
     await choose_in_combo(user, "既存")
     assert await wait_until(lambda: view.path is not None)
     await user.should_see(marker="task-0-0")
-    user.find(marker="task-0-0").click()
+    edit_from_menu(user, "row-0-0")
     return view
 
 
@@ -782,7 +790,7 @@ async def test_the_edit_dialog_offers_other_tasks_as_predecessors(
     await choose_in_combo(user, "既存")
     assert await wait_until(lambda: view.path is not None)
     await user.should_see(marker="task-top-0")
-    user.find(marker="task-top-0").click()  # a を開く: 後続の b と自分は候補から外れる
+    edit_from_menu(user, "row-top-0")  # a を開く: 後続の b と自分は候補から外れる
     select = user.find(marker="task-predecessors").elements.pop()
     assert select.options == {"cccccccc": "c"}
 
@@ -818,7 +826,7 @@ async def test_delete_from_the_edit_dialog_removes_the_bar(user: User, tmp_path:
     user.find(marker="task-name").type("設計")
     user.find(marker="task-save").click()
     await user.should_see(marker="task-top-0")
-    user.find(marker="task-top-0").click()
+    edit_from_menu(user, "row-top-0")
     user.find(marker="task-delete").click()
     user.find(marker="delete-confirm").click()
     await user.should_not_see(marker="task-top-0")
@@ -4252,7 +4260,7 @@ async def test_decompose_button_is_not_shown_for_a_summary_child(user: User, tmp
     await choose_in_combo(user, "既存")
     assert await wait_until(lambda: view.path is not None)
     await user.should_see(marker="task-0-1")
-    user.find(marker="task-0-1").click()
+    edit_from_menu(user, "row-0-1")
     await user.should_see(marker="task-save")
     await user.should_not_see(marker="task-decompose")
 
