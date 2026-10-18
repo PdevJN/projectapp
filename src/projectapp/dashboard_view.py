@@ -7,7 +7,7 @@ from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp.avatar import avatar
-from projectapp.dashboard import Dashboard, PeriodKind, TeamProgress
+from projectapp.dashboard import Dashboard, MemberProgress, PeriodKind, TeamProgress
 from projectapp.gantt import STATUS_COLORS, STATUS_DARK_COLORS
 from projectapp.models import Status
 
@@ -22,6 +22,7 @@ OVER_COLOR = "#ef5350"  # 100% を超える日がある負荷(予定超過の赤
 PLANNED_COLOR = "#1e88e5"  # 予定の時間。dataviz の検証で、灰青は「灰色に見える」ため不合格。青と緑の組は全項目 PASS
 ACTUAL_COLOR = "#43a047"  # 実績の時間
 EMPTY = "データがありません"
+ALL_MEMBERS = ""  # プルダウンの`全員`の値
 MAX_TIP_CHIPS = 10  # 凡例のツールチップに並べるチップの上限。超えた分は「+n件」にまとめる
 PIE_DIAMETER = "9rem"
 PIE_HOLE_PERCENT = 60  # 中央に進捗率を出すための穴(円の半径に対する割合)
@@ -78,10 +79,16 @@ def moment_text(moment: datetime) -> str:
 class DashboardView:
     """メイン画面の切り替え先。`show` で集計を受け取って描き、`hide` で隠す。"""
 
-    def __init__(self, on_back: Callable[[], object], on_change: Callable[[PeriodKind], object]) -> None:
-        self.on_back, self.on_change = on_back, on_change
+    def __init__(
+        self,
+        on_back: Callable[[], object],
+        on_change: Callable[[PeriodKind], object],
+        on_member_change: Callable[[str | None], object] | None = None,
+    ) -> None:
+        self.on_back, self.on_change, self.on_member_change = on_back, on_change, on_member_change
         self.box: ui.column | None = None
         self.toggle: ui.toggle | None = None
+        self.member_select: ui.select | None = None
         self.data: Dashboard | None = None
         self.icons: dict[str, str] = {}  # メンバー名 → アイコン(ある人だけ)
         self.syncing = False  # 開き直しでトグルの値を書き換えるあいだは、変更を通知しない
@@ -98,6 +105,12 @@ class DashboardView:
                     value=PeriodKind.WEEK.value,
                     on_change=self.on_toggle,
                 ).mark("dashboard-period")
+                self.member_select = (
+                    ui.select({ALL_MEMBERS: "全員"}, value=ALL_MEMBERS, on_change=self.on_member)
+                    .props("dense outlined options-dense")
+                    .style("min-width: 8rem")
+                    .mark("dashboard-member")
+                )
                 ui.button("戻る", icon="arrow_back", on_click=lambda: self.on_back()).props("flat").mark(
                     "dashboard-back"
                 )
@@ -108,6 +121,10 @@ class DashboardView:
         if not self.syncing:
             self.on_change(PeriodKind(event.value))
 
+    def on_member(self, event: ValueChangeEventArguments) -> None:
+        if not self.syncing and self.on_member_change is not None:
+            self.on_member_change(event.value or None)
+
     def show(self, data: Dashboard, kind: PeriodKind, icons: dict[str, str] | None = None) -> None:
         self.icons = icons or {}
         self.data = data
@@ -115,6 +132,13 @@ class DashboardView:
             self.syncing = True
             try:
                 self.toggle.value = kind.value
+            finally:
+                self.syncing = False
+        if self.member_select is not None:
+            options = {ALL_MEMBERS: "全員", **{name: name for name in data.members}}
+            self.syncing = True
+            try:
+                self.member_select.set_options(options, value=data.member or ALL_MEMBERS)
             finally:
                 self.syncing = False
         if self.box is not None:
@@ -142,6 +166,8 @@ class DashboardView:
         with card("チーム全体の進捗", "dashboard-team"):
             period = team.period
             scope = "すべてのタスク" if period is None else f"{period.start:%m/%d}〜{period.end:%m/%d} にかかるタスク"
+            if data.member:
+                scope = f"{data.member}・{scope}"
             ui.label(scope).classes("text-caption text-grey").mark("dashboard-team-scope")
             if team.percent is None:
                 empty_message("dashboard-empty-team")
@@ -190,6 +216,10 @@ class DashboardView:
             with ui.row().classes("gap-4"):
                 for status in Status:
                     ui.label(f"{status.value} {progress.counts[status]}").mark(f"dashboard-count-{status.name}")
+            if progress.by_member:
+                ui.label("メンバー別").classes("text-subtitle2")
+                for row in progress.by_member:
+                    self.member_progress_row(row)
             ui.label("予定超過").classes("text-subtitle2")
             if not progress.overdue:
                 ui.label("なし").classes("text-grey").mark("dashboard-overdue-none")
@@ -198,6 +228,20 @@ class DashboardView:
                     ui.label(moment_text(row.limit)).classes("text-negative")
                     ui.label(row.name).classes("col ellipsis").mark(f"dashboard-overdue-name-{index}")
                     ui.label(row.assignee or "").classes("text-caption")
+
+    def member_progress_row(self, row: MemberProgress) -> None:
+        with ui.column().classes("w-full gap-1"):
+            with ui.row().classes("items-center no-wrap gap-2"):
+                if icon := self.icons.get(row.name):
+                    avatar(row.name, icon, 20).mark(f"dashboard-member-icon-{row.name}")
+                ui.label(row.name)
+            if row.percent is None:
+                ui.label("タスクなし").classes("text-caption text-grey").mark(f"dashboard-member-progress-{row.name}")
+                return
+            ui.label(f"{row.percent:.0f}% / {sum(row.counts.values())}件").classes("text-caption").mark(
+                f"dashboard-member-progress-{row.name}"
+            )
+            bar(row.percent / 100, LOAD_COLOR)
 
     def load_card(self, data: Dashboard) -> None:
         with card("人ごとの負荷", "dashboard-load"):

@@ -73,16 +73,28 @@ class OverdueRow:
     limit: datetime  # 過ぎている基準(締切と完了予定のうち、早いほう)
 
 
+@dataclass(frozen=True)
+class MemberProgress:
+    name: str
+    percent: float | None  # 工数で重みづけした進捗率(0〜100)。担当のタスクがなければ None
+    counts: dict[Status, int]
+
+
 @dataclass
 class Progress:
     percent: float | None  # 工数で重みづけした進捗率(0〜100)。タスクがなければ None
     counts: dict[Status, int]
     overdue: list[OverdueRow]
+    by_member: list[MemberProgress] = field(default_factory=list)  # メンバーごと。絞り込み中は空
 
 
-def _tasks(project: Project) -> list[Task]:
-    """集計の対象のタスク。まとめは、子の工数・進捗・期限を二重に数えないよう外す。"""
-    return [task for task in project.all_tasks() if task.kind is not TaskKind.SUMMARY]
+def _tasks(project: Project, member: str | None = None) -> list[Task]:
+    """集計の対象のタスク。まとめは、子の工数・進捗・期限を二重に数えないよう外す。`member`があれば、その人が担当のものだけ。"""
+    return [
+        task
+        for task in project.all_tasks()
+        if task.kind is not TaskKind.SUMMARY and (member is None or member in task.assignee_names)
+    ]
 
 
 def _weight(effort_hours: float) -> float:
@@ -130,6 +142,7 @@ def summarize_team_progress(
     period: Period | None = None,
     now: datetime | None = None,
     holidays: dict[date, str] | None = None,
+    member: str | None = None,
 ) -> TeamProgress:
     """チーム全体の進捗。担当者に関わらず、1 タスクを 1 回だけ数える。`period` があれば、期間にかかるタスクだけ。"""
     hours = {status: 0.0 for status in Status}
@@ -138,7 +151,7 @@ def summarize_team_progress(
     weighted = total = 0.0
     schedule = Schedule(project, holidays or {})
     moment = now or datetime.now()
-    for task in _tasks(project):
+    for task in _tasks(project, member):
         weight_and_percent = _progress_weight(task)
         if weight_and_percent is None or (period is not None and not _touches(task, schedule, period, moment)):
             continue
@@ -151,12 +164,40 @@ def summarize_team_progress(
     return TeamProgress(weighted / total if total else None, hours, period, counts, names)
 
 
-def summarize_progress(project: Project, holidays: dict[date, str], now: datetime) -> Progress:
+def _member_row(name: str, tasks: list[Task]) -> MemberProgress:
+    counts = {status: 0 for status in Status}
+    weighted = total = 0.0
+    for task in tasks:
+        counts[task.status] += 1
+        if (weight_and_percent := _progress_weight(task)) is not None:  # 節目は重みに入れない
+            weight, percent = weight_and_percent
+            weighted += weight * percent
+            total += weight
+    return MemberProgress(name, weighted / total if total else None, counts)
+
+
+def summarize_member_progress(project: Project) -> list[MemberProgress]:
+    """メンバーごとの進捗。共同タスクは担当の全員の行に数える。メンバーが担当にいないタスクは`未割り当て`。"""
+    if not project.members:
+        return []
+    tasks = _tasks(project)
+    names = {member.name for member in project.members}
+    rows = [_member_row(m.name, [t for t in tasks if m.name in t.assignee_names]) for m in project.members]
+    # 節目は担当を持てず、進捗の重みもないので、割り当て漏れには数えない
+    nobody = [t for t in tasks if t.kind is not TaskKind.CHECKPOINT and not names.intersection(t.assignee_names)]
+    if nobody:
+        rows.append(_member_row(UNASSIGNED, nobody))
+    return rows
+
+
+def summarize_progress(
+    project: Project, holidays: dict[date, str], now: datetime, member: str | None = None
+) -> Progress:
     counts = {status: 0 for status in Status}
     weighted = total = 0.0
     overdue: list[OverdueRow] = []
     schedule = Schedule(project, holidays)
-    for task in _tasks(project):
+    for task in _tasks(project, member):
         counts[task.status] += 1
         if (weight_and_percent := _progress_weight(task)) is not None:  # 節目は進捗率の重みに入れない
             weight, percent = weight_and_percent
@@ -172,7 +213,8 @@ def summarize_progress(project: Project, holidays: dict[date, str], now: datetim
             limit = min(limits, default=task.deadline or now)  # 見込みの超過は、締切を基準にする
             overdue.append(OverdueRow(task.name, assignee_label(task), limit))
     overdue.sort(key=lambda row: row.limit)
-    return Progress(weighted / total if total else None, counts, overdue)
+    by_member = summarize_member_progress(project) if member is None else []
+    return Progress(weighted / total if total else None, counts, overdue, by_member)
 
 
 UNASSIGNED = "未割り当て"
@@ -224,20 +266,24 @@ def _day_peak(items: list[tuple[datetime, datetime, float]], day: date) -> float
     )
 
 
-def summarize_loads(project: Project, period: Period, holidays: dict[date, str]) -> dict[str, LoadStats]:
+def summarize_loads(
+    project: Project, period: Period, holidays: dict[date, str], member: str | None = None
+) -> dict[str, LoadStats]:
     days = _workdays(period, holidays)
     spans: dict[str, list[tuple[datetime, datetime, float]]] = {}
     schedule = Schedule(project, holidays)
-    for task in _tasks(project):
+    for task in _tasks(project, member):
         counted = counted_span(task, project, holidays, schedule)
         if counted is not None:
             for assignee in counted_assignees(task, project):
                 spans.setdefault(assignee.name, []).append((*counted, assignee.allocation))
     loads: dict[str, LoadStats] = {}
-    for member in project.members:
-        items = spans.get(member.name, [])
+    for entry in project.members:
+        if member is not None and entry.name != member:
+            continue
+        items = spans.get(entry.name, [])
         totals = [_day_peak(items, day) for day in days]
-        loads[member.name] = LoadStats(
+        loads[entry.name] = LoadStats(
             sum(totals) / len(totals) if totals else 0.0,
             max(totals, default=0.0),
             sum(1 for total in totals if total > 1.0 + OVERLOAD_EPSILON),
@@ -262,7 +308,7 @@ def _shares(task: Task, names: list[str]) -> list[tuple[str, float, float]]:
 
 
 def summarize_workload(
-    project: Project, period: Period, now: datetime, holidays: dict[date, str]
+    project: Project, period: Period, now: datetime, holidays: dict[date, str], member: str | None = None
 ) -> list[WorkloadRow]:
     names = [member.name for member in project.members]
     planned = {name: 0.0 for name in (*names, UNASSIGNED)}
@@ -270,7 +316,7 @@ def summarize_workload(
     days = _workdays(period, holidays)
     low, high = period.bounds()
     schedule = Schedule(project, holidays)
-    for task in _tasks(project):
+    for task in _tasks(project, member):
         start, end = schedule.start(task), schedule.end(task)
         count = (
             sum(1 for day in days if _covers(start, end, day))
@@ -284,19 +330,20 @@ def summarize_workload(
                 seconds = (min(interval.end or now, high) - max(interval.start, low)).total_seconds()
                 if seconds > 0:
                     actual[key] += seconds / 3600 * share
-    rows = [WorkloadRow(name, planned[name], actual[name]) for name in names]
-    if planned[UNASSIGNED] or actual[UNASSIGNED]:
+    shown = [name for name in names if member is None or name == member]
+    rows = [WorkloadRow(name, planned[name], actual[name]) for name in shown]
+    if member is None and (planned[UNASSIGNED] or actual[UNASSIGNED]):
         rows.append(WorkloadRow(UNASSIGNED, planned[UNASSIGNED], actual[UNASSIGNED]))
     return rows
 
 
 def summarize_due(
-    project: Project, period: Period, now: datetime, holidays: dict[date, str]
+    project: Project, period: Period, now: datetime, holidays: dict[date, str], member: str | None = None
 ) -> list[DueRow]:
     low, high = period.bounds()
     rows: list[DueRow] = []
     schedule = Schedule(project, holidays)
-    for task in _tasks(project):
+    for task in _tasks(project, member):
         if task.status is Status.DONE:
             continue
         late = is_overdue(task, project, holidays, now, schedule)
@@ -317,6 +364,8 @@ class Dashboard:
     workload: list[WorkloadRow]
     due: list[DueRow]
     team: TeamProgress = field(default_factory=TeamProgress)
+    member: str | None = None  # 絞り込み中のメンバー。None は全員
+    members: list[str] = field(default_factory=list)  # プルダウンの選択肢(プロジェクトのメンバーの順)
 
     @property
     def planned_total(self) -> float:
@@ -333,12 +382,15 @@ def summarize(
     now: datetime,
     holidays: dict[date, str],
     kind: PeriodKind = PeriodKind.ALL,
+    member: str | None = None,
 ) -> Dashboard:
     return Dashboard(
         period,
-        summarize_progress(project, holidays, now),
-        summarize_loads(project, period, holidays),
-        summarize_workload(project, period, now, holidays),
-        summarize_due(project, period, now, holidays),
-        summarize_team_progress(project, None if kind is PeriodKind.ALL else period, now, holidays),
+        summarize_progress(project, holidays, now, member),
+        summarize_loads(project, period, holidays, member),
+        summarize_workload(project, period, now, holidays, member),
+        summarize_due(project, period, now, holidays, member),
+        summarize_team_progress(project, None if kind is PeriodKind.ALL else period, now, holidays, member),
+        member,
+        [m.name for m in project.members],
     )

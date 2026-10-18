@@ -8,6 +8,7 @@ from projectapp.dashboard import (
     Dashboard,
     DueRow,
     LoadStats,
+    MemberProgress,
     OverdueRow,
     Period,
     PeriodKind,
@@ -26,6 +27,10 @@ def sample() -> Dashboard:
             42.4,
             {Status.NOT_STARTED: 1, Status.RUNNING: 2, Status.PAUSED: 0, Status.DONE: 3},
             [OverdueRow("遅れた作業", "田中", datetime(2026, 10, 6, 17))],
+            [
+                MemberProgress("田中", 40.0, {Status.NOT_STARTED: 1, Status.RUNNING: 2, Status.PAUSED: 0, Status.DONE: 0}),
+                MemberProgress("佐藤", None, {status: 0 for status in Status}),
+            ],
         ),
         {"田中": LoadStats(0.5, 1.2, 2), "佐藤": LoadStats(0.0, 0.0, 0)},
         [WorkloadRow("田中", 9.5, 3.0), WorkloadRow("佐藤", 0.0, 0.0), WorkloadRow(UNASSIGNED, 6.5, 0.0)],
@@ -39,6 +44,8 @@ def sample() -> Dashboard:
             counts={Status.NOT_STARTED: 0, Status.RUNNING: 2, Status.PAUSED: 0, Status.DONE: 1},
             tasks={Status.NOT_STARTED: [], Status.RUNNING: ["設計", "実装"], Status.PAUSED: [], Status.DONE: ["調査"]},
         ),
+        None,
+        ["田中", "佐藤"],
     )
 
 
@@ -47,14 +54,18 @@ def empty() -> Dashboard:
     return Dashboard(day, Progress(None, {status: 0 for status in Status}, []), {}, [], [])
 
 
-def mount() -> tuple[list[DashboardView], list[int], list[PeriodKind]]:
+def mount(member_changes: list[str | None] | None = None) -> tuple[list[DashboardView], list[int], list[PeriodKind]]:
     views: list[DashboardView] = []
     backs: list[int] = []
     changes: list[PeriodKind] = []
 
     @ui.page("/")
     def index() -> None:
-        view = DashboardView(lambda: backs.append(1), changes.append)
+        view = DashboardView(
+            lambda: backs.append(1),
+            changes.append,
+            member_changes.append if member_changes is not None else None,
+        )
         views.append(view)
         view.build()
 
@@ -237,3 +248,69 @@ async def test_the_team_legend_tooltip_folds_the_overflow(user: User) -> None:
     await user.should_see(marker="dashboard-team-more-RUNNING")
     assert text(user, "dashboard-team-more-RUNNING") == "+3件"
     assert len(user.find(marker="dashboard-team-chip-RUNNING").elements) == MAX_TIP_CHIPS
+
+
+async def test_the_member_select_lists_everyone_and_the_members_and_reports_changes(user: User) -> None:
+    picked: list[str | None] = []
+    views, _, _ = mount(picked)
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-member")
+    select = user.find(marker="dashboard-member").elements.pop()
+    assert select.options == {"": "全員", "田中": "田中", "佐藤": "佐藤"}
+    assert select.value == ""
+    assert picked == []  # 表示を合わせるだけでは通知しない
+    select.set_value("田中")
+    assert picked == ["田中"]
+    select.set_value("")
+    assert picked == ["田中", None]
+
+
+async def test_the_member_select_follows_the_dashboard_data(user: User) -> None:
+    views, _, _ = mount([])
+    await user.open("/")
+    data = sample()
+    data.member = "佐藤"
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-member")
+    assert user.find(marker="dashboard-member").elements.pop().value == "佐藤"
+
+
+async def test_the_progress_card_lists_progress_per_member(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-member-progress-田中")
+    assert text(user, "dashboard-member-progress-田中") == "40% / 3件"
+    assert text(user, "dashboard-member-progress-佐藤") == "タスクなし"
+
+
+async def test_the_member_rows_are_not_shown_while_filtering(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    data.member = "田中"
+    data.progress.by_member = []
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-progress-percent")
+    await user.should_not_see(marker="dashboard-member-progress-田中")
+
+
+async def test_the_team_card_scope_starts_with_the_member(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    data.member = "田中"
+    views[0].show(data, PeriodKind.ALL)
+    await user.should_see("田中・すべてのタスク")
+
+
+async def test_without_members_the_select_has_only_everyone_and_no_member_section(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    data.members, data.progress.by_member = [], []
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-progress-percent")
+    assert user.find(marker="dashboard-member").elements.pop().options == {"": "全員"}
+    await user.should_not_see("メンバー別")
