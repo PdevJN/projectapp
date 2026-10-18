@@ -57,7 +57,7 @@
 | 38 | 進捗度の持ち方の見直し(`Task.progress` の新設) | 完了(PR #22。`develop`へマージ済み) | 2026-10-16 | `task-progress` | 3fe89a3 | `Task.progress`(version 5)。区間を優先、なければタスクの値。編集ダイアログに欄を足し、37 の取り込みも進捗度を入れるようにした。設計書・実装計画は`2026-10-16-task-progress*`。[`requests.md`](requests.md) |
 | 41 | メンバーのアイコン(画像ファイルを選び、担当者チップ・ダッシュボードに出す) | 実装済み・実機確認待ち(PR #51。テスト 3,085 件) | 2026-10-18 | [設計](superpowers/specs/2026-10-18-member-icon-design.md)・[計画](superpowers/plans/2026-10-18-member-icon.md) | — | `Member.icon`(version 7)。128×128 の PNG を埋め込む。`選ぶ`はネイティブのみ |
 | 42 | チーム全体の進捗の円グラフ(ダッシュボード) | 実装済み・実機確認済み(`feature/team-progress-pie`。テスト 3,104 件) | 2026-10-18 | — | — | 状態別の工数の割合のドーナツ。`今週`・`今月`は期間にかかるタスクだけ。凡例に件数、マウスオーバーでタスク名のチップ。ファイル形式は変えない。[`requests.md`](requests.md) |
-| 43 | ダッシュボードのメンバー絞り込みと、メンバー別の内訳 | 実装済み・実機確認待ち(`feature/dashboard-member-filter`) | 2026-10-18 | [設計](superpowers/specs/2026-10-18-dashboard-member-filter-design.md)・[計画](superpowers/plans/2026-10-18-dashboard-member-filter.md) | — | 期間の横のプルダウンで全カードを絞る。共同タスクは丸ごと 1 件。`進捗と遅れ`にメンバー別の行。ファイル形式は変えない。[`requests.md`](requests.md) |
+| 43 | ダッシュボードのメンバー絞り込みと、メンバー別の内訳 | 完了(PR #53。3a2cabf。2026-10-18。テスト 3,126 件) | 2026-10-18 | [設計](superpowers/specs/2026-10-18-dashboard-member-filter-design.md)・[計画](superpowers/plans/2026-10-18-dashboard-member-filter.md) | — | 期間の横のプルダウンで全カードを絞る。共同タスクは丸ごと 1 件。`進捗と遅れ`にメンバー別の行。ファイル形式は変えない。[`requests.md`](requests.md) |
 
 ## 番号のない対応(要望の一覧に載らないもの)
 
