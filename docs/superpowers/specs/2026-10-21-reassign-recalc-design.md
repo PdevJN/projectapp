@@ -41,15 +41,15 @@ NiceGUI に依存しない。`timeline.py` の`calc_end`・`assignees_rate`を�
   - `task.progress` が 1 以上なら `工数 × progress / 100`。
   - なければ、実績の区間(簡易は開始〜終了、区間は各行)の合計時間 × `old_rate`。終了のない区間は数えない。
   - 結果は`0`〜`工数`に丸める。
-- `needs_review(old, new_assignees, project) -> bool`: 次をすべて満たすとき真。
+- `needs_review(task, old_rate, new_rate) -> bool`: `task`は編集後のタスク。次をすべて満たすとき真。
   - 種別が通常、工数が正、状態が`終了`でない。
   - 実績があるか、進捗度が 1 以上。
   - 保存前後の換算率が、許容差(1e-9)より離れている。
-- `reviewed_end(task, old_rate, new_rate, project, now) -> datetime | None`: 見直した完了予定。残り(工数 − 消化分)が 0 以下、または`calc_end`が`None`のときは`None`。
+- `reviewed_end(task, old_rate, new_rate, daily_hours, work_start, holidays, now) -> datetime | None`: 見直した完了予定。起点は`max(now, 開始予定)`(開始予定が先のときは、開始予定から)。残り(工数 − 消化分)が 0 以下、または`calc_end`が`None`のときは`None`。
 
 ### 画面(`task_dialog.py` の `save()`)
 
-1. `build_task` が成功したあと、元のタスクと新しい担当から`needs_review`を調べる。
+1. `build_task` が成功したあと、既存のタスクの編集(新規追加は対象外)のときだけ、`needs_review`を調べる。旧換算率は開いたときの担当から、新換算率は保存する担当から出す。
 2. 偽(または`reviewed_end`が`None`)なら、今までどおり`on_save`して閉じる。
 3. 真なら確認ダイアログを出す。文面の例:「換算率が 1.00 → 0.50 に変わります。残り 8h を新しい担当で見直すと、完了予定は 2026-10-23 15:30 です。」
 4. ボタン:
