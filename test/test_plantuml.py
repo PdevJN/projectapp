@@ -272,9 +272,12 @@ def test_write_text_failure_leaves_nothing(tmp_path: Path) -> None:
 PLANTUML_JAR = Path(os.environ.get("PLANTUML_JAR", "/usr/local/lib/plantuml.jar"))
 
 
-@pytest.mark.skipif(shutil.which("java") is None or not PLANTUML_JAR.exists(), reason="java と plantuml.jar が要る")
-@pytest.mark.parametrize("scale", [Scale.DAY, Scale.WEEK, Scale.MONTH])
-def test_the_output_renders_without_syntax_errors(scale: Scale) -> None:
+JAVA_FAST = ["java", "-Djava.awt.headless=true", "-XX:TieredStopAtLevel=1", "-jar"]
+
+
+@pytest.fixture(scope="module")
+def rendered_svgs() -> dict[Scale, str]:
+    """3 つのスケールを 1 回の JVM 起動でまとめて描く(起動が支配的なので、スケールごとに起動しない)。"""
     first = task("[重要] 設計", "2026-10-13T09:00", "2026-10-14T18:00", id="t1", status=Status.RUNNING,
                  assignees=[Assignee("田中", 1.0)], actuals=[Actual(datetime(2026, 10, 13, 9), None, 40)])
     second = task("実装", "2026-10-15T09:00", "2026-10-20T18:00", id="t2", predecessors=["t1"],
@@ -288,12 +291,20 @@ def test_the_output_renders_without_syntax_errors(scale: Scale) -> None:
         events=[Event(date(2026, 10, 19), date(2026, 10, 30), "繁忙期", "lightpink", id="e1"),
                 Event(date(2026, 10, 23), date(2026, 10, 23), "本番", "red", id="e2")],
     )
-    text = build(project, holidays={date(2026, 10, 12): "祝日"}, scale=scale, now=datetime(2026, 10, 20)).text
-    done = subprocess.run(
-        ["java", "-jar", str(PLANTUML_JAR), "-pipe", "-tsvg"], input=text.encode(), capture_output=True, timeout=60
-    )
-    svg = done.stdout.decode(errors="replace")
-    assert done.returncode == 0 and "<svg" in svg and "Syntax Error" not in svg
+    scales = [Scale.DAY, Scale.WEEK, Scale.MONTH]
+    texts = [build(project, holidays={date(2026, 10, 12): "祝日"}, scale=s, now=datetime(2026, 10, 20)).text for s in scales]
+    done = subprocess.run([*JAVA_FAST, str(PLANTUML_JAR), "-pipe", "-tsvg"], input="\n".join(texts).encode(), capture_output=True, timeout=120)
+    assert done.returncode == 0
+    svgs = [chunk + "</svg>" for chunk in done.stdout.decode(errors="replace").split("</svg>")[:-1]]
+    assert len(svgs) == len(scales)  # 構文エラーでも、エラーの図が 1 枚出る
+    return dict(zip(scales, svgs))
+
+
+@pytest.mark.skipif(shutil.which("java") is None or not PLANTUML_JAR.exists(), reason="java と plantuml.jar が要る")
+@pytest.mark.parametrize("scale", [Scale.DAY, Scale.WEEK, Scale.MONTH])
+def test_the_output_renders_without_syntax_errors(scale: Scale, rendered_svgs: dict[Scale, str]) -> None:
+    svg = rendered_svgs[scale]
+    assert "<svg" in svg and "Syntax Error" not in svg
 
 
 def test_every_assignee_is_listed_without_a_limit() -> None:
