@@ -455,7 +455,7 @@ sunday are closed
 @pytest.mark.skipif(shutil.which("java") is None or not PLANTUML_JAR.exists(), reason="java と plantuml.jar が要る")
 def test_the_supported_syntax_is_accepted_by_plantuml_and_imported() -> None:
     done = subprocess.run(
-        ["java", "-jar", str(PLANTUML_JAR), "-pipe", "-tsvg"], input=SUPPORTED_SYNTAX.encode(), capture_output=True, timeout=60
+        ["java", "-Djava.awt.headless=true", "-XX:TieredStopAtLevel=1", "-jar", str(PLANTUML_JAR), "-pipe", "-tsvg"], input=SUPPORTED_SYNTAX.encode(), capture_output=True, timeout=60
     )
     svg = done.stdout.decode(errors="replace")
     assert done.returncode == 0 and "<svg" in svg and "Syntax Error" not in svg
