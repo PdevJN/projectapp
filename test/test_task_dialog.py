@@ -45,6 +45,7 @@ def mount_dialog(
     layout: str = "all",
     on_layout_change: Callable[[str], object] | None = None,
     on_decompose: Callable[[Callable[[], object]], object] | None = None,
+    now: Callable[[], datetime] | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -67,6 +68,7 @@ def mount_dialog(
                 layout=layout,
                 on_layout_change=on_layout_change,
                 on_decompose=on_decompose,
+                now=now or datetime.now,
                 open_url=(lambda url: opened.append(url)) if opened is not None else default_open_url,
             ),
         )
@@ -2446,3 +2448,104 @@ async def test_deleting_a_summary_says_the_children_stay(user: User) -> None:
     await open_dialog(user)
     user.find(marker="task-delete").click()
     await user.should_see("子のタスク 2 件は、通常のタスクとして残ります")
+
+
+REASSIGN_NOW = datetime(2026, 10, 14, 10, 0)  # 水曜
+FAST = Member("早", 1.0)
+SLOW = Member("遅", 0.5)
+
+
+def reassign_task(**kwargs) -> Task:
+    base = dict(
+        name="設計", planned_start=datetime(2026, 10, 12, 9, 0), effort_hours=16.0, status=Status.RUNNING,
+        progress=50, assignees=[Assignee("早", 1.0)],
+    )
+    return Task(**{**base, **kwargs})
+
+
+async def switch_to_slow(user: User, saved: list[Task], task: Task) -> None:
+    mount_dialog(task, saved, members=[FAST, SLOW], now=lambda: REASSIGN_NOW)
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("遅")
+    user.find(marker="task-save").click()
+
+
+async def test_switching_a_member_with_progress_asks_for_a_review(user: User) -> None:
+    saved: list[Task] = []
+    await switch_to_slow(user, saved, reassign_task())
+    await user.should_see(marker="reassign-text")
+    assert saved == []
+    assert "2026-10-16 13:00" in user.find(marker="reassign-text").elements.pop().text
+
+
+async def test_applying_the_review_saves_the_end_as_manual(user: User) -> None:
+    saved: list[Task] = []
+    await switch_to_slow(user, saved, reassign_task())
+    user.find(marker="reassign-apply").click()
+    assert len(saved) == 1
+    assert saved[0].planned_end == datetime(2026, 10, 16, 13, 0)
+    assert saved[0].planned_end_manual is True
+    assert saved[0].effort_hours == 16.0
+    assert saved[0].progress == 50
+    assert saved[0].assignees == [Assignee("遅", 1.0)]
+
+
+async def test_skipping_the_review_saves_without_touching_the_end(user: User) -> None:
+    saved: list[Task] = []
+    await switch_to_slow(user, saved, reassign_task())
+    user.find(marker="reassign-skip").click()
+    assert len(saved) == 1
+    assert saved[0].planned_end is None
+    assert saved[0].planned_end_manual is False
+    assert saved[0].assignees == [Assignee("遅", 1.0)]
+
+
+async def test_going_back_keeps_the_dialog_open_and_saves_nothing(user: User) -> None:
+    saved: list[Task] = []
+    await switch_to_slow(user, saved, reassign_task())
+    user.find(marker="reassign-back").click()
+    assert saved == []
+    await user.should_see(marker="task-save")
+
+
+async def test_changing_only_the_allocation_also_asks(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(reassign_task(), saved, members=[FAST, SLOW], now=lambda: REASSIGN_NOW)
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="task-allocation").elements.pop().set_value(50)
+    user.find(marker="task-save").click()
+    await user.should_see(marker="reassign-text")
+
+
+async def test_a_task_without_records_is_saved_without_asking(user: User) -> None:
+    saved: list[Task] = []
+    await switch_to_slow(user, saved, reassign_task(progress=None))
+    assert len(saved) == 1
+
+
+async def test_an_unchanged_rate_is_saved_without_asking(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(reassign_task(), saved, members=[FAST, SLOW], now=lambda: REASSIGN_NOW)
+    await open_dialog(user)
+    user.find(marker="task-name").type("改")
+    user.find(marker="task-save").click()
+    assert len(saved) == 1
+
+
+async def test_a_finished_progress_is_saved_without_asking(user: User) -> None:
+    saved: list[Task] = []
+    await switch_to_slow(user, saved, reassign_task(progress=100))
+    assert len(saved) == 1
+
+
+async def test_a_new_task_is_saved_without_asking(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, members=[FAST, SLOW], now=lambda: REASSIGN_NOW)
+    await open_dialog(user)
+    user.find(marker="task-name").type("新規")
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("遅")
+    user.find(marker="task-save").click()
+    assert len(saved) == 1

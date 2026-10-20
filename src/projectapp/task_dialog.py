@@ -63,6 +63,7 @@ from projectapp.models import (
     has_control_char,
 )
 from projectapp.ratios import effective_ratio
+from projectapp.reassign import needs_review, reviewed_end
 from projectapp.timeline import assignees_rate, combine_rate, computed_end, effort_days
 from projectapp.urls import resolve
 
@@ -840,6 +841,7 @@ def open_task_dialog(
     layout: str = "all",
     on_layout_change: Callable[[str], object] | None = None,
     on_decompose: Callable[[Callable[[], object]], object] | None = None,
+    now: Callable[[], datetime] = datetime.now,
 ) -> ui.dialog:
     initial = task or Task("")
     is_summary = initial.kind is TaskKind.SUMMARY  # まとめは、名前・カテゴリ・優先度・リンクだけを編集する
@@ -1075,6 +1077,26 @@ def open_task_dialog(
             )
 
         opened = current()
+        pending: dict[str, object] = {}  # 確認待ちの保存内容(task)と、見直した完了予定(end)
+
+        def finish(apply: bool) -> None:
+            review.close()
+            result = pending["task"]
+            assert isinstance(result, Task)
+            if apply:
+                end = pending["end"]
+                assert isinstance(end, datetime)
+                result.planned_end = end
+                result.planned_end_manual = True
+            on_save(result)
+            dialog.close()
+
+        with ui.dialog() as review, ui.card():
+            review_text = ui.label("").classes("whitespace-pre-line").mark("reassign-text")
+            with ui.row():
+                ui.button("見直す", on_click=lambda: finish(True)).mark("reassign-apply")
+                ui.button("見直さない", on_click=lambda: finish(False)).props("flat").mark("reassign-skip")
+                ui.button("編集に戻る", on_click=lambda: review.close()).props("flat").mark("reassign-back")
 
         def save() -> None:
             error.set_text("")
@@ -1104,8 +1126,22 @@ def open_task_dialog(
             except ValueError as exc:
                 error.set_text(str(exc))
                 return
-            on_save(result)
-            dialog.close()
+            new_rate = assignees_rate(result.assignees, member_list)
+            new_end = (
+                reviewed_end(result, initial_rate, new_rate, daily_hours, work_start, holidays or {}, now())
+                if task is not None and needs_review(result, initial_rate, new_rate)
+                else None
+            )
+            if new_end is None:
+                on_save(result)
+                dialog.close()
+                return
+            pending["task"], pending["end"] = result, new_end
+            review_text.set_text(
+                f"担当の付け替えで、換算率が {initial_rate:.2f} → {new_rate:.2f} に変わります。\n"
+                f"残りの作業を新しい担当で見直すと、完了予定は {new_end:%Y-%m-%d %H:%M} です。"
+            )
+            review.open()
 
         with ui.dialog() as confirm, ui.card():
             ui.label("編集内容を確定しますか?")
