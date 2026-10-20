@@ -140,7 +140,7 @@ def test_reviewed_end_skips_holidays() -> None:
 
 def test_reviewed_end_starts_from_the_planned_start_when_it_is_later() -> None:
     t = task(progress=50, planned_start=datetime(2026, 10, 19, 9, 0))
-    assert reviewed_end(t, 1.0, 1.0, 6.5, WORK_START, {}, NOW) == datetime(2026, 10, 20, 11, 30)  # 月 6.5h + 火 1.5h
+    assert reviewed_end(t, 1.0, 1.0, 6.5, WORK_START, {}, NOW) == datetime(2026, 10, 20, 10, 30)  # 月 6.5h + 火 1.5h
 
 
 def test_reviewed_end_is_none_when_nothing_remains() -> None:
