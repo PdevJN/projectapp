@@ -23,7 +23,7 @@ from projectapp.dashboard import (
     TeamProgress,
     WorkloadRow,
 )
-from projectapp.dashboard_view import MAX_TIP_CHIPS, DashboardView, heatmap_html, percent_width
+from projectapp.dashboard_view import HEATMAP_CSS, MAX_TIP_CHIPS, DashboardView, heatmap_html, percent_width
 from projectapp.models import Status
 
 
@@ -416,8 +416,8 @@ def cell_of(markup: str, key: str) -> str:
 def test_the_heatmap_has_a_cell_per_person_and_day_and_marks_overload() -> None:
     markup = heatmap_html(heat_summary())
     assert markup.count("data-cell=") == 3
-    assert "outline" in cell_of(markup, "田中|2026-10-07")  # 120% は枠線つき
-    assert "outline" not in cell_of(markup, "田中|2026-10-06")
+    assert "heat-over" in cell_of(markup, "田中|2026-10-07")  # 120% は枠線つき
+    assert "heat-over" not in cell_of(markup, "田中|2026-10-06")
     assert "transparent" in cell_of(markup, "田中|2026-10-05")  # 0% は塗りなし
 
 
@@ -456,3 +456,23 @@ async def test_the_heatmap_card_says_so_when_there_are_no_workdays(user: User) -
     views[0].show(data, PeriodKind.WEEK)
     await user.should_see(marker="dashboard-heatmap-empty")
     assert text(user, "dashboard-heatmap-empty") == "稼働日がありません"
+
+
+def test_the_heatmap_cells_keep_the_fixed_styles_in_css_to_stay_small() -> None:
+    cell = cell_of(heatmap_html(heat_summary()), "田中|2026-10-07")
+    assert "width" not in cell and "outline" not in cell and "border" not in cell
+
+
+def test_the_overload_outline_is_brighter_in_the_dark_theme() -> None:
+    assert "body.body--dark .heat-over" in HEATMAP_CSS
+
+
+async def test_the_heatmap_card_can_shrink_so_that_the_table_scrolls(user: User) -> None:
+    views, _, _ = mount_cross()
+    await user.open("/")
+    data = cross_sample()
+    assert data.cross is not None
+    data.cross.loads["田中"] = heat_summary().loads["田中"]
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-heatmap")
+    assert user.find(marker="dashboard-heatmap").elements.pop()._style.get("min-width") == "0"

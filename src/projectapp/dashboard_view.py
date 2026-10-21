@@ -48,10 +48,12 @@ PIE_CSS = (
 
 
 CELL_PX = 26  # 見出しの `10/22` が収まる幅
-HEAT_OVER_OUTLINE = "#b71c1c"
 HEATMAP_CSS = (
     ".heatmap-name { position: sticky; left: 0; background: #fff; padding-right: 8px; white-space: nowrap }\n"
-    "body.body--dark .heatmap-name { background: #1d1d1d }"
+    ".heat-cell { width: 26px; height: 26px; border: 1px solid rgba(128, 128, 128, 0.25) }\n"
+    ".heat-over { outline: 2px solid #b71c1c; outline-offset: -2px }\n"
+    "body.body--dark .heatmap-name { background: #1d1d1d }\n"
+    "body.body--dark .heat-over { outline-color: #ff8a80 }"
 )
 
 
@@ -61,13 +63,16 @@ def rgba(color: str, alpha: float) -> str:
 
 
 def cell_style(total: float) -> str:
-    """セルの塗り。0% は塗りなし、100% 以下は青、100% 超は赤と太い枠線(濃さは値に比例)。"""
+    """セルの塗り。0% は塗りなし、100% 以下は青、100% 超は赤(濃さは値に比例)。枠線は heat-over で足す。"""
     if total <= 0:
         return "background: transparent"
     if total <= 1.0 + OVERLOAD_EPSILON:
         return f"background: {rgba(LOAD_COLOR, 0.15 + 0.65 * min(total, 1.0))}"
-    alpha = 0.55 + 0.45 * min(total - 1.0, 1.0)
-    return f"background: {rgba(OVER_COLOR, alpha)}; outline: 2px solid {HEAT_OVER_OUTLINE}; outline-offset: -2px"
+    return f"background: {rgba(OVER_COLOR, 0.55 + 0.45 * min(total - 1.0, 1.0))}"
+
+
+def cell_class(total: float) -> str:
+    return "heat-cell heat-over" if total > 1.0 + OVERLOAD_EPSILON else "heat-cell"
 
 
 def cell_title(name: str, load: DayLoad) -> str:
@@ -90,9 +95,8 @@ def heatmap_html(cross: CrossSummary) -> str:
     rows = []
     for name, entry in cross.loads.items():
         cells = "".join(
-            f'<td data-cell="{html.escape(name)}|{day.day.isoformat()}" title="{cell_title(name, day)}"'
-            f' style="width: {CELL_PX}px; height: {CELL_PX}px; border: 1px solid rgba(128, 128, 128, 0.25);'
-            f' {cell_style(day.total)}"></td>'
+            f'<td class="{cell_class(day.total)}" data-cell="{html.escape(name)}|{day.day.isoformat()}"'
+            f' title="{cell_title(name, day)}" style="{cell_style(day.total)}"></td>'
             for day in entry.days
         )
         label = f'<th class="heatmap-name text-body2" style="text-align: left">{html.escape(name)}</th>'
@@ -108,8 +112,8 @@ def legend_html() -> str:
     swatches = [(0.0, "0%"), (0.5, "50%"), (1.0, "100%"), (1.5, "超過")]
     items = "".join(
         f'<span style="display: inline-flex; align-items: center; gap: 4px; margin-right: 12px">'
-        f'<span style="display: inline-block; width: 14px; height: 14px; {cell_style(value)};'
-        f' border: 1px solid rgba(128, 128, 128, 0.25)"></span>{label}</span>'
+        f'<span class="{cell_class(value)}" style="display: inline-block; width: 14px; height: 14px;'
+        f' {cell_style(value)}"></span>{label}</span>'
         for value, label in swatches
     )
     return f'<div class="text-caption">{items}</div>'
@@ -373,7 +377,7 @@ class DashboardView:
         if cross is None or not cross.loads:
             return
         box = card("負荷の日ごとの推移", "dashboard-heatmap")
-        box.style("grid-column: 1 / -1")
+        box.style("grid-column: 1 / -1; min-width: 0")
         with box:
             if not any(entry.days for entry in cross.loads.values()):
                 ui.label("稼働日がありません").classes("text-grey").mark("dashboard-heatmap-empty")
