@@ -1,5 +1,6 @@
 """ダッシュボードの表示。集計(dashboard.py)の結果を、カードと横棒で描く。"""
 
+import html
 from collections.abc import Callable
 from datetime import datetime
 
@@ -7,9 +8,18 @@ from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp.avatar import avatar
-from projectapp.dashboard import CrossSummary, Dashboard, LoadStats, MemberProgress, PeriodKind, TeamProgress
-from projectapp.gantt import STATUS_COLORS, STATUS_DARK_COLORS
+from projectapp.dashboard import (
+    CrossSummary,
+    Dashboard,
+    DayLoad,
+    LoadStats,
+    MemberProgress,
+    PeriodKind,
+    TeamProgress,
+)
+from projectapp.gantt import STATUS_COLORS, STATUS_DARK_COLORS, WEEKDAYS
 from projectapp.models import Status
+from projectapp.timeline import OVERLOAD_EPSILON
 
 TRACK_STYLE = (
     "height: 10px; width: 100%; border-radius: 5px; overflow: hidden;"
@@ -35,6 +45,74 @@ PIE_CSS = (
     + " ".join(f"{PIE_VARS[status]}: {STATUS_DARK_COLORS[status]};" for status in Status)
     + " }"
 )
+
+
+CELL_PX = 26  # 見出しの `10/22` が収まる幅
+HEAT_OVER_OUTLINE = "#b71c1c"
+HEATMAP_CSS = (
+    ".heatmap-name { position: sticky; left: 0; background: #fff; padding-right: 8px; white-space: nowrap }\n"
+    "body.body--dark .heatmap-name { background: #1d1d1d }"
+)
+
+
+def rgba(color: str, alpha: float) -> str:
+    red, green, blue = (int(color[i : i + 2], 16) for i in (1, 3, 5))
+    return f"rgba({red}, {green}, {blue}, {alpha:.2f})"
+
+
+def cell_style(total: float) -> str:
+    """セルの塗り。0% は塗りなし、100% 以下は青、100% 超は赤と太い枠線(濃さは値に比例)。"""
+    if total <= 0:
+        return "background: transparent"
+    if total <= 1.0 + OVERLOAD_EPSILON:
+        return f"background: {rgba(LOAD_COLOR, 0.15 + 0.65 * min(total, 1.0))}"
+    alpha = 0.55 + 0.45 * min(total - 1.0, 1.0)
+    return f"background: {rgba(OVER_COLOR, alpha)}; outline: 2px solid {HEAT_OVER_OUTLINE}; outline-offset: -2px"
+
+
+def cell_title(name: str, load: DayLoad) -> str:
+    head = f"{name} {load.day:%m/%d}({WEEKDAYS[load.day.weekday()]}) {load.total * 100:.0f}%"
+    lines = [html.escape(head)]
+    if load.by_project:
+        lines.append(html.escape(" / ".join(f"{p.project} {p.peak * 100:.0f}%" for p in load.by_project)))
+    return "&#10;".join(lines)
+
+
+def heatmap_html(cross: CrossSummary) -> str:
+    """人×稼働日の表。名前・プロジェクト名はエスケープする。"""
+    first = next(iter(cross.loads.values()), None)
+    days = first.days if first is not None else []
+    head = "".join(
+        f'<th class="text-caption" style="font-weight: normal; font-size: 10px; min-width: {CELL_PX}px">'
+        f"<div>{day.day:%m/%d}</div><div>{WEEKDAYS[day.day.weekday()]}</div></th>"
+        for day in days
+    )
+    rows = []
+    for name, entry in cross.loads.items():
+        cells = "".join(
+            f'<td data-cell="{html.escape(name)}|{day.day.isoformat()}" title="{cell_title(name, day)}"'
+            f' style="width: {CELL_PX}px; height: {CELL_PX}px; border: 1px solid rgba(128, 128, 128, 0.25);'
+            f' {cell_style(day.total)}"></td>'
+            for day in entry.days
+        )
+        label = f'<th class="heatmap-name text-body2" style="text-align: left">{html.escape(name)}</th>'
+        rows.append(f"<tr>{label}{cells}</tr>")
+    return (
+        '<div style="overflow-x: auto; max-width: 100%">'
+        '<table style="border-collapse: separate; border-spacing: 2px">'
+        f'<tr><th class="heatmap-name"></th>{head}</tr>{"".join(rows)}</table></div>'
+    )
+
+
+def legend_html() -> str:
+    swatches = [(0.0, "0%"), (0.5, "50%"), (1.0, "100%"), (1.5, "超過")]
+    items = "".join(
+        f'<span style="display: inline-flex; align-items: center; gap: 4px; margin-right: 12px">'
+        f'<span style="display: inline-block; width: 14px; height: 14px; {cell_style(value)};'
+        f' border: 1px solid rgba(128, 128, 128, 0.25)"></span>{label}</span>'
+        for value, label in swatches
+    )
+    return f'<div class="text-caption">{items}</div>'
 
 
 def percent_width(fraction: float) -> str:
@@ -99,6 +177,7 @@ class DashboardView:
 
     def build(self) -> None:
         ui.add_css(PIE_CSS)
+        ui.add_css(HEATMAP_CSS)
         with ui.column().classes("w-full gap-4") as box:
             self.box = box
             box.mark("dashboard-box")
@@ -179,6 +258,7 @@ class DashboardView:
             self.team_card(data)
             self.progress_card(data)
             self.load_card(data)
+            self.heatmap_card(data)
             self.hours_card(data)
             self.due_card(data)
 
@@ -287,6 +367,19 @@ class DashboardView:
             scale = max(1.0, *(stats.peak for stats in data.loads.values()))
             for name, stats in data.loads.items():
                 self.load_row(name, stats, scale)
+
+    def heatmap_card(self, data: Dashboard) -> None:
+        cross = data.cross
+        if cross is None or not cross.loads:
+            return
+        box = card("負荷の日ごとの推移", "dashboard-heatmap")
+        box.style("grid-column: 1 / -1")
+        with box:
+            if not any(entry.days for entry in cross.loads.values()):
+                ui.label("稼働日がありません").classes("text-grey").mark("dashboard-heatmap-empty")
+                return
+            ui.html(legend_html(), sanitize=False)
+            ui.html(heatmap_html(cross), sanitize=False).mark("dashboard-heatmap-table")
 
     def cross_load_card(self, cross: CrossSummary) -> None:
         ui.label(

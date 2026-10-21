@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime
 
 from nicegui import ui
@@ -6,8 +7,10 @@ from nicegui.testing import User
 from projectapp.dashboard import (
     CrossLoad,
     CrossSummary,
+    DayLoad,
     LoadFailure,
     ProjectLoad,
+    ProjectPeak,
     UNASSIGNED,
     Dashboard,
     DueRow,
@@ -20,7 +23,7 @@ from projectapp.dashboard import (
     TeamProgress,
     WorkloadRow,
 )
-from projectapp.dashboard_view import MAX_TIP_CHIPS, DashboardView, percent_width
+from projectapp.dashboard_view import MAX_TIP_CHIPS, DashboardView, heatmap_html, percent_width
 from projectapp.models import Status
 
 
@@ -392,3 +395,64 @@ async def test_without_cross_the_load_card_is_unchanged_and_the_switch_is_off(us
     await user.should_not_see(marker="dashboard-cross-note")
     assert user.find(marker="dashboard-cross").elements.pop().value is False
     assert crosses == []  # 表示の同期では通知しない
+
+
+def heat_summary(name: str = "田中", project: str = "A") -> CrossSummary:
+    days = [
+        DayLoad(date(2026, 10, 5), 0.0, []),
+        DayLoad(date(2026, 10, 6), 0.6, [ProjectPeak(project, 0.6)]),
+        DayLoad(date(2026, 10, 7), 1.2, [ProjectPeak(project, 0.6), ProjectPeak("B", 0.6)]),
+    ]
+    loads = {name: CrossLoad(LoadStats(0.6, 1.2, 1), [], days)}
+    return CrossSummary(loads, [project, "B"], set(), [])
+
+
+def cell_of(markup: str, key: str) -> str:
+    match = re.search(rf'<td[^>]*data-cell="{re.escape(key)}"[^>]*>', markup)
+    assert match is not None, key
+    return match.group(0)
+
+
+def test_the_heatmap_has_a_cell_per_person_and_day_and_marks_overload() -> None:
+    markup = heatmap_html(heat_summary())
+    assert markup.count("data-cell=") == 3
+    assert "outline" in cell_of(markup, "田中|2026-10-07")  # 120% は枠線つき
+    assert "outline" not in cell_of(markup, "田中|2026-10-06")
+    assert "transparent" in cell_of(markup, "田中|2026-10-05")  # 0% は塗りなし
+
+
+def test_the_heatmap_cells_show_the_total_and_the_breakdown_on_hover() -> None:
+    markup = heatmap_html(heat_summary())
+    assert "田中 10/07(水) 120%&#10;A 60% / B 60%" in cell_of(markup, "田中|2026-10-07")
+    assert "田中 10/05(月) 0%" in cell_of(markup, "田中|2026-10-05")
+
+
+def test_the_heatmap_escapes_names() -> None:
+    markup = heatmap_html(heat_summary(name='<b>"田&中', project="<i>"))
+    assert "<b>" not in markup and "<i>" not in markup
+    assert "&lt;b&gt;" in markup and "&lt;i&gt;" in markup
+
+
+async def test_the_heatmap_card_is_shown_only_with_cross(user: User) -> None:
+    views, _, _ = mount_cross()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-load-田中")
+    await user.should_not_see(marker="dashboard-heatmap")
+    data = cross_sample()
+    assert data.cross is not None
+    data.cross.loads["田中"] = heat_summary().loads["田中"]
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-heatmap-table")
+    assert "data-cell" in user.find(marker="dashboard-heatmap-table").elements.pop().content
+
+
+async def test_the_heatmap_card_says_so_when_there_are_no_workdays(user: User) -> None:
+    views, _, _ = mount_cross()
+    await user.open("/")
+    data = cross_sample()
+    assert data.cross is not None
+    data.cross.loads["田中"] = CrossLoad(LoadStats(0.0, 0.0, 0), [], [])
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-heatmap-empty")
+    assert text(user, "dashboard-heatmap-empty") == "稼働日がありません"
