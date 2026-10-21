@@ -230,6 +230,19 @@ class LoadStats:
 
 
 @dataclass(frozen=True)
+class ProjectLoad:
+    project: str
+    average: float  # そのプロジェクトだけで見た、稼働日ごとの負荷の平均
+    peak: float
+
+
+@dataclass(frozen=True)
+class CrossLoad:
+    total: LoadStats  # 全プロジェクトを重ねた負荷
+    by_project: list[ProjectLoad]  # その人がメンバーのプロジェクトごと
+
+
+@dataclass(frozen=True)
 class WorkloadRow:
     name: str
     planned_hours: float
@@ -266,28 +279,61 @@ def _day_peak(items: list[tuple[datetime, datetime, float]], day: date) -> float
     )
 
 
-def summarize_loads(
-    project: Project, period: Period, holidays: dict[date, str], member: str | None = None
-) -> dict[str, LoadStats]:
-    days = _workdays(period, holidays)
-    spans: dict[str, list[tuple[datetime, datetime, float]]] = {}
+Span = tuple[datetime, datetime, float]
+
+
+def _member_spans(project: Project, holidays: dict[date, str], member: str | None) -> dict[str, list[Span]]:
+    """担当者名 → (開始, 終了, 割り当て率)。数えないタスクは入れない。"""
+    spans: dict[str, list[Span]] = {}
     schedule = Schedule(project, holidays)
     for task in _tasks(project, member):
         counted = counted_span(task, project, holidays, schedule)
         if counted is not None:
             for assignee in counted_assignees(task, project):
                 spans.setdefault(assignee.name, []).append((*counted, assignee.allocation))
-    loads: dict[str, LoadStats] = {}
-    for entry in project.members:
-        if member is not None and entry.name != member:
-            continue
-        items = spans.get(entry.name, [])
-        totals = [_day_peak(items, day) for day in days]
-        loads[entry.name] = LoadStats(
-            sum(totals) / len(totals) if totals else 0.0,
-            max(totals, default=0.0),
-            sum(1 for total in totals if total > 1.0 + OVERLOAD_EPSILON),
-        )
+    return spans
+
+
+def _load_stats(items: list[Span], days: list[date]) -> LoadStats:
+    totals = [_day_peak(items, day) for day in days]
+    return LoadStats(
+        sum(totals) / len(totals) if totals else 0.0,
+        max(totals, default=0.0),
+        sum(1 for total in totals if total > 1.0 + OVERLOAD_EPSILON),
+    )
+
+
+def summarize_loads(
+    project: Project, period: Period, holidays: dict[date, str], member: str | None = None
+) -> dict[str, LoadStats]:
+    days = _workdays(period, holidays)
+    spans = _member_spans(project, holidays, member)
+    return {
+        entry.name: _load_stats(spans.get(entry.name, []), days)
+        for entry in project.members
+        if member is None or entry.name == member
+    }
+
+
+def summarize_cross_loads(
+    projects: list[Project], period: Period, holidays: dict[date, str], member: str | None = None
+) -> dict[str, CrossLoad]:
+    """複数のプロジェクトを重ねた負荷。同じ名前のメンバーを同一人物とみなす。"""
+    days = _workdays(period, holidays)
+    per_project = [(project, _member_spans(project, holidays, member)) for project in projects]
+    names = dict.fromkeys(m.name for p in projects for m in p.members if member is None or m.name == member)
+    loads: dict[str, CrossLoad] = {}
+    for name in names:
+        rows: list[ProjectLoad] = []
+        everything: list[Span] = []
+        for project, spans in per_project:
+            if name not in {m.name for m in project.members}:
+                continue
+            items = spans.get(name, [])
+            everything += items
+            stats = _load_stats(items, days)
+            rows.append(ProjectLoad(project.name, stats.average, stats.peak))
+        loads[name] = CrossLoad(_load_stats(everything, days), rows)
     return loads
 
 
