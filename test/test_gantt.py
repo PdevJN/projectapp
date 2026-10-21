@@ -1494,10 +1494,10 @@ async def test_late_done_mark_does_not_overlap_the_longer_actual_bar(user: User)
     assert mark._style["left"] == from_name(144.0)  # 実績の棒の右端 + 4
 
 
-async def test_mark_stays_next_to_the_planned_bar_when_the_actual_is_shorter(user: User) -> None:
+async def test_mark_follows_the_bar_that_ends_at_the_actual_end_when_done_early(user: User) -> None:
     mount(finished_project(datetime(2026, 10, 7, 10)), now=datetime(2026, 10, 20))
     await user.open("/")
-    assert user.find(marker="progress-state-0-0").elements.pop()._style["left"] == from_name(104.0)
+    assert user.find(marker="progress-state-0-0").elements.pop()._style["left"] == from_name(100.7)  # 棒の右端は実績の終了
 
 
 async def test_delayed_mark_clears_an_in_progress_actual_bar_that_runs_past_the_plan(

@@ -4,6 +4,7 @@ import pytest
 
 from projectapp.models import Assignee, Actual, Level, Member, Parameter, Project, Section, Status, Task
 from projectapp.timeline import (
+    Schedule,
     PROGRESS_TOLERANCE,
     ProgressState,
     expected_progress,
@@ -929,3 +930,17 @@ def test_visible_range_includes_tasks_in_nested_sections() -> None:
     start, end = visible_range(project)
     assert start == date(2026, 10, 5)
     assert end >= date(2026, 12, 4)  # 入れ子のタスクのバーまで、範囲が広がる
+
+
+def test_bar_end_of_a_done_task_is_the_actual_end() -> None:
+    task = done_task(datetime(2026, 10, 6, 18))
+    project = Project("p", tasks=[task])
+    assert Schedule(project, {}).bar_end(task) == datetime(2026, 10, 6, 18)
+
+
+def test_bar_end_keeps_the_planned_end_unless_done_with_an_actual_end() -> None:
+    running = done_task(datetime(2026, 10, 6, 18), status=Status.RUNNING)
+    no_end = done_task(None)
+    project = Project("p", tasks=[running, no_end])
+    assert Schedule(project, {}).bar_end(running) == datetime(2026, 10, 7, 18)
+    assert Schedule(project, {}).bar_end(no_end) == datetime(2026, 10, 7, 18)
