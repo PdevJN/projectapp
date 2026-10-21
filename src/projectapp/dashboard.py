@@ -248,6 +248,14 @@ class CrossLoad:
     by_project: list[ProjectLoad]  # その人がメンバーのプロジェクトごと
 
 
+@dataclass
+class CrossSummary:
+    loads: dict[str, CrossLoad]
+    projects: list[str]  # チェックの並び。開いているプロジェクトが先
+    excluded: set[str]
+    failures: list[LoadFailure]
+
+
 @dataclass(frozen=True)
 class WorkloadRow:
     name: str
@@ -418,6 +426,7 @@ class Dashboard:
     team: TeamProgress = field(default_factory=TeamProgress)
     member: str | None = None  # 絞り込み中のメンバー。None は全員
     members: list[str] = field(default_factory=list)  # プルダウンの選択肢(プロジェクトのメンバーの順)
+    cross: CrossSummary | None = None  # 全プロジェクトを重ねるとき。None は開いているプロジェクトだけ
 
     @property
     def planned_total(self) -> float:
