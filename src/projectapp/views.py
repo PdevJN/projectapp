@@ -56,8 +56,9 @@ from projectapp.forms import (
 )
 from projectapp import arrange
 from projectapp.shortcuts import Screen, defers_to_inputs, help_entries, key_guard_js, label_for, resolve
-from projectapp.dashboard import PeriodKind, period_for, summarize
+from projectapp.dashboard import CrossSummary, PeriodKind, period_for, summarize, summarize_cross_loads
 from projectapp.dashboard_view import DashboardView
+from projectapp.portfolio import load_others
 from projectapp.export import (
     HTML_TO_IMAGE_URL,
     PNG_FILE_TYPES,
@@ -201,6 +202,8 @@ class MainView:
         self.now: Callable[[], datetime] = datetime.now  # テストで差し替える
         self.dashboard_kind: PeriodKind | None = None  # 開いているときの期間。保存しない
         self.dashboard_member: str | None = None  # ダッシュボードで絞り込み中のメンバー。保存しない
+        self.dashboard_cross = False  # 全プロジェクトを重ねるか。保存しない
+        self.dashboard_excluded: set[str] = set()  # 重ねるのから外したプロジェクトの名前。保存しない
         self.open_folder: Callable[[Path], object] = open_folder  # テストで差し替える(実際にはファイラを開かない)
         self.saving = False
         self.zoom = load_zoom(base_dir)  # 画面全体の倍率(%)。全プロジェクト共通
@@ -255,7 +258,11 @@ class MainView:
         )
         self.preview_bar = PreviewBar(self.on_preview_change, self.exit_preview, self.save_image, self.save_plantuml)
         self.dashboard_view = DashboardView(
-            self.close_dashboard, self.change_dashboard_period, self.change_dashboard_member
+            self.close_dashboard,
+            self.change_dashboard_period,
+            self.change_dashboard_member,
+            self.change_dashboard_cross,
+            self.change_dashboard_project,
         )
 
     @staticmethod
@@ -675,6 +682,8 @@ class MainView:
             return
         self.dashboard_kind = PeriodKind.WEEK
         self.dashboard_member = None
+        self.dashboard_cross = False
+        self.dashboard_excluded = set()
         self.set_header_visible(False)
         self.gantt.set_visible(False)
         self.refresh_dashboard()
@@ -682,13 +691,37 @@ class MainView:
     def refresh_dashboard(self) -> None:
         if self.dashboard_kind is None:
             return
-        if self.dashboard_member not in {m.name for m in self.project.members}:
-            self.dashboard_member = None  # 削除・改名されたメンバーは、全員に戻す
         now = self.now()
         period = period_for(self.dashboard_kind, now.date(), self.project, self.holidays)
-        icons = {m.name: m.icon for m in self.project.members if m.icon}
+        projects = [self.project]
+        failures = []
+        if self.dashboard_cross:
+            others, failures = load_others(self.project_dir, self.path)
+            projects += others
+        names = list(dict.fromkeys(m.name for p in projects for m in p.members))
+        if self.dashboard_member not in names:
+            self.dashboard_member = None  # 削除・改名・横断オフで見えなくなったメンバーは、全員に戻す
         data = summarize(self.project, period, now, self.holidays, self.dashboard_kind, self.dashboard_member)
+        if self.dashboard_cross:
+            chosen = [p for p in projects if p.name not in self.dashboard_excluded]
+            loads = summarize_cross_loads(chosen, period, self.holidays, self.dashboard_member)
+            titles = [p.name for p in projects]
+            data.cross = CrossSummary(loads, titles, self.dashboard_excluded & set(titles), failures)
+            data.members = names
+        icons = {m.name: m.icon for p in reversed(projects) for m in p.members if m.icon}
         self.dashboard_view.show(data, self.dashboard_kind, icons)
+
+    def change_dashboard_cross(self, on: bool) -> None:
+        if self.dashboard_kind is None:
+            return
+        self.dashboard_cross = on
+        self.refresh_dashboard()
+
+    def change_dashboard_project(self, name: str, included: bool) -> None:
+        if self.dashboard_kind is None:
+            return
+        (self.dashboard_excluded.discard if included else self.dashboard_excluded.add)(name)
+        self.refresh_dashboard()
 
     def change_dashboard_period(self, kind: PeriodKind) -> None:
         if self.dashboard_kind is None:
