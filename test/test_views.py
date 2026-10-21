@@ -2306,6 +2306,101 @@ async def open_dashboard_view(user: User, tmp_path: Path, with_task: bool = True
     return view
 
 
+def text_of(user: User, marker: str) -> str:
+    return user.find(marker=marker).elements.pop().text
+
+
+def other_project(name: str, start_day: int, end_day: int, allocation: float) -> Project:
+    return Project(
+        name,
+        base_date=date(2026, 10, 5),
+        members=[Member("田中", 1.0)],
+        tasks=[
+            Task(
+                "別の作業",
+                assignees=[Assignee("田中", allocation)],
+                planned_start=datetime(2026, 10, start_day, 9),
+                planned_end=datetime(2026, 10, end_day, 17),
+            )
+        ],
+    )
+
+
+async def test_the_cross_switch_overlays_the_other_projects_in_the_storage(user: User, tmp_path: Path) -> None:
+    save_project(other_project("別", 6, 7, 1.0), tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-load-田中")
+    assert view.dashboard_cross is False
+    view.change_dashboard_cross(True)
+    await user.should_see(marker="dashboard-cross-project-別")
+    assert "超過 0 日" not in text_of(user, "dashboard-load-田中")
+    assert view.dashboard_excluded == set()
+
+
+async def test_excluding_a_project_removes_it_from_the_total(user: User, tmp_path: Path) -> None:
+    save_project(other_project("別", 6, 7, 1.0), tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    view.change_dashboard_cross(True)
+    await user.should_see(marker="dashboard-cross-project-別")
+    view.change_dashboard_project("別", False)
+    assert view.dashboard_excluded == {"別"}
+    await asyncio.sleep(0.3)  # refresh は遅延実行なので、描き直されるのを待つ
+    assert "超過 0 日" in text_of(user, "dashboard-load-田中")
+
+
+async def test_a_same_named_project_is_told_apart_from_the_open_one(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    save_project(other_project(view.project.name, 6, 7, 1.0), tmp_path)
+    user.find(marker="open-dashboard").click()
+    view.change_dashboard_cross(True)
+    await user.should_see(marker=f"dashboard-cross-project-{view.project.name}(開いている)")
+    await user.should_see(marker=f"dashboard-cross-project-{view.project.name}")
+    view.change_dashboard_project(view.project.name, False)  # ファイル側だけが外れる
+    await asyncio.sleep(0.3)  # refresh は遅延実行なので、描き直されるのを待つ
+    assert user.find(marker=f"dashboard-cross-project-{view.project.name}(開いている)").elements.pop().value is True
+    assert user.find(marker=f"dashboard-cross-project-{view.project.name}").elements.pop().value is False
+
+
+async def test_an_unreadable_file_is_shown_and_the_rest_is_still_summed(user: User, tmp_path: Path) -> None:
+    (tmp_path / "壊れた.json").write_text("{not json", encoding="utf-8")
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    view.change_dashboard_cross(True)
+    await user.should_see(marker="dashboard-cross-failure-0")
+    await user.should_see(marker="dashboard-load-田中")
+
+
+async def test_reopening_the_dashboard_turns_the_cross_switch_off_and_includes_everything(
+    user: User, tmp_path: Path
+) -> None:
+    save_project(other_project("別", 6, 7, 1.0), tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    view.change_dashboard_cross(True)
+    view.change_dashboard_project("別", False)
+    view.close_dashboard()
+    view.open_dashboard()
+    assert view.dashboard_cross is False
+    assert view.dashboard_excluded == set()
+
+
+async def test_a_member_of_another_project_falls_back_to_everyone_when_the_switch_goes_off(
+    user: User, tmp_path: Path
+) -> None:
+    other = other_project("別", 6, 7, 0.5)
+    other.members = [Member("田中", 1.0), Member("佐藤", 1.0)]
+    save_project(other, tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    view.change_dashboard_cross(True)
+    view.change_dashboard_member("佐藤")
+    assert view.dashboard_member == "佐藤"
+    view.change_dashboard_cross(False)
+    assert view.dashboard_member is None
+
+
 async def test_the_dashboard_replaces_the_header_and_the_chart(user: User, tmp_path: Path) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()

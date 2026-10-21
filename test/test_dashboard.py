@@ -10,6 +10,7 @@ from projectapp.dashboard import (
     PeriodKind,
     period_for,
     summarize,
+    summarize_cross_loads,
     summarize_due,
     summarize_member_progress,
     summarize_loads,
@@ -185,6 +186,68 @@ def test_loads_list_the_members_in_order_and_skip_non_members() -> None:
     loads = summarize_loads(project_of(span_task("a", 5, 7, 0.5), stranger, members=members), WEEK, {})
     assert list(loads) == ["田中", "佐藤"]
     assert loads["佐藤"].peak == 0.0
+
+
+def named(name: str, *tasks: Task, members: list[Member] | None = None) -> Project:
+    project = project_of(*tasks, members=members)
+    project.name = name
+    return project
+
+
+def test_cross_load_with_one_project_matches_the_single_project_load() -> None:
+    project = project_of(span_task("a", 5, 6, 0.6), span_task("b", 5, 6, 0.6))
+    cross = summarize_cross_loads([project], WEEK, {})["田中"]
+    assert cross.total == summarize_loads(project, WEEK, {})["田中"]
+
+
+def test_cross_load_adds_the_same_person_across_projects_and_counts_the_overload() -> None:
+    first = named("A", span_task("a", 5, 6, 0.6))
+    second = named("B", span_task("b", 5, 6, 0.6))
+    cross = summarize_cross_loads([first, second], WEEK, {})["田中"]
+    assert (cross.total.peak, cross.total.overload_days) == (pytest.approx(1.2), 2)  # 1 件ずつは 60%
+    assert [(p.project, p.peak) for p in cross.by_project] == [("A", 0.6), ("B", 0.6)]
+
+
+def test_cross_load_does_not_add_projects_that_do_not_overlap() -> None:
+    first = named("A", span_task("a", 5, 5, 0.6))
+    second = named("B", span_task("b", 6, 6, 0.6))
+    cross = summarize_cross_loads([first, second], WEEK, {})["田中"]
+    assert (cross.total.peak, cross.total.overload_days) == (0.6, 0)
+
+
+def test_cross_load_skips_finished_tasks() -> None:
+    first = named("A", span_task("a", 5, 6, 0.9))
+    second = named("B", span_task("b", 5, 6, 0.9, status=Status.DONE))
+    cross = summarize_cross_loads([first, second], WEEK, {})["田中"]
+    assert cross.total.overload_days == 0
+
+
+def test_cross_load_overlays_projects_with_different_working_hours_by_date_and_time() -> None:
+    first = named("A", span_task("a", 5, 6, 0.6))
+    second = named("B", span_task("b", 5, 6, 0.6))
+    second.daily_hours = 4.0
+    cross = summarize_cross_loads([first, second], WEEK, {})["田中"]
+    assert cross.total.peak == pytest.approx(1.2)  # 期間は各自の設定で求め、日時のまま重ねる
+
+
+def test_cross_load_lists_a_person_who_is_only_in_one_project_with_that_project_only() -> None:
+    first = named("A", span_task("a", 5, 6, 0.5))
+    second = named("B", members=[Member("佐藤", 1.0)])
+    loads = summarize_cross_loads([first, second], WEEK, {})
+    assert list(loads) == ["田中", "佐藤"]
+    assert [p.project for p in loads["田中"].by_project] == ["A"]
+    assert [p.project for p in loads["佐藤"].by_project] == ["B"]
+
+
+def test_cross_load_filters_to_one_member_by_name() -> None:
+    first = named("A", span_task("a", 5, 6, 0.5))
+    second = named("B", members=[Member("佐藤", 1.0)])
+    assert list(summarize_cross_loads([first, second], WEEK, {}, "佐藤")) == ["佐藤"]
+    assert summarize_cross_loads([first, second], WEEK, {}, "鈴木") == {}
+
+
+def test_cross_load_without_projects_is_empty() -> None:
+    assert summarize_cross_loads([], WEEK, {}) == {}
 
 
 DAY = Period(date(2026, 10, 6), date(2026, 10, 6))

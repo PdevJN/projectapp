@@ -7,7 +7,7 @@ from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp.avatar import avatar
-from projectapp.dashboard import Dashboard, MemberProgress, PeriodKind, TeamProgress
+from projectapp.dashboard import CrossSummary, Dashboard, LoadStats, MemberProgress, PeriodKind, TeamProgress
 from projectapp.gantt import STATUS_COLORS, STATUS_DARK_COLORS
 from projectapp.models import Status
 
@@ -84,8 +84,12 @@ class DashboardView:
         on_back: Callable[[], object],
         on_change: Callable[[PeriodKind], object],
         on_member_change: Callable[[str | None], object] | None = None,
+        on_cross_change: Callable[[bool], object] | None = None,
+        on_project_change: Callable[[str, bool], object] | None = None,
     ) -> None:
         self.on_back, self.on_change, self.on_member_change = on_back, on_change, on_member_change
+        self.on_cross_change, self.on_project_change = on_cross_change, on_project_change
+        self.cross_switch: ui.switch | None = None
         self.box: ui.column | None = None
         self.toggle: ui.toggle | None = None
         self.member_select: ui.select | None = None
@@ -111,6 +115,9 @@ class DashboardView:
                     .style("min-width: 8rem")
                     .mark("dashboard-member")
                 )
+                self.cross_switch = ui.switch("全プロジェクト", value=False, on_change=self.on_cross).mark(
+                    "dashboard-cross"
+                )
                 ui.button("戻る", icon="arrow_back", on_click=lambda: self.on_back()).props("flat").mark(
                     "dashboard-back"
                 )
@@ -124,6 +131,14 @@ class DashboardView:
     def on_member(self, event: ValueChangeEventArguments) -> None:
         if not self.syncing and self.on_member_change is not None:
             self.on_member_change(event.value or None)
+
+    def on_cross(self, event: ValueChangeEventArguments) -> None:
+        if not self.syncing and self.on_cross_change is not None:
+            self.on_cross_change(bool(event.value))
+
+    def on_project(self, name: str, included: bool) -> None:
+        if not self.syncing and self.on_project_change is not None:
+            self.on_project_change(name, included)
 
     def show(self, data: Dashboard, kind: PeriodKind, icons: dict[str, str] | None = None) -> None:
         self.icons = icons or {}
@@ -139,6 +154,12 @@ class DashboardView:
             self.syncing = True
             try:
                 self.member_select.set_options(options, value=data.member or ALL_MEMBERS)
+            finally:
+                self.syncing = False
+        if self.cross_switch is not None and self.cross_switch.value != (data.cross is not None):
+            self.syncing = True
+            try:
+                self.cross_switch.value = data.cross is not None
             finally:
                 self.syncing = False
         if self.box is not None:
@@ -243,23 +264,56 @@ class DashboardView:
             )
             bar(row.percent / 100, LOAD_COLOR)
 
+    def load_row(self, name: str, stats: LoadStats, scale: float) -> None:
+        over = stats.overload_days > 0
+        with ui.column().classes("w-full gap-1"):
+            with ui.row().classes("items-center no-wrap gap-2"):
+                if icon := self.icons.get(name):
+                    avatar(name, icon, 20).mark(f"dashboard-load-icon-{name}")
+                ui.label(name)
+            ui.label(
+                f"平均 {stats.average * 100:.0f}% / 最大 {stats.peak * 100:.0f}% / 超過 {stats.overload_days} 日"
+            ).classes("text-caption" + (" text-negative" if over else "")).mark(f"dashboard-load-{name}")
+            bar(stats.average / scale, OVER_COLOR if over else LOAD_COLOR, tick=stats.peak / scale)
+
     def load_card(self, data: Dashboard) -> None:
         with card("人ごとの負荷", "dashboard-load"):
+            if data.cross is not None:
+                self.cross_load_card(data.cross)
+                return
             if not data.loads:
                 empty_message("dashboard-empty-load")
                 return
             scale = max(1.0, *(stats.peak for stats in data.loads.values()))
             for name, stats in data.loads.items():
-                over = stats.overload_days > 0
-                with ui.column().classes("w-full gap-1"):
-                    with ui.row().classes("items-center no-wrap gap-2"):
-                        if icon := self.icons.get(name):
-                            avatar(name, icon, 20).mark(f"dashboard-load-icon-{name}")
-                        ui.label(name)
-                    ui.label(
-                        f"平均 {stats.average * 100:.0f}% / 最大 {stats.peak * 100:.0f}% / 超過 {stats.overload_days} 日"
-                    ).classes("text-caption" + (" text-negative" if over else "")).mark(f"dashboard-load-{name}")
-                    bar(stats.average / scale, OVER_COLOR if over else LOAD_COLOR, tick=stats.peak / scale)
+                self.load_row(name, stats, scale)
+
+    def cross_load_card(self, cross: CrossSummary) -> None:
+        ui.label(
+            "同じ名前のメンバーを同一人物として、全プロジェクトを重ねています。開いているプロジェクト以外は保存済みの内容です。"
+        ).classes("text-caption text-grey").mark("dashboard-cross-note")
+        with ui.row().classes("w-full gap-2"):
+            for name in cross.projects:
+                ui.checkbox(
+                    name,
+                    value=name not in cross.excluded,
+                    on_change=lambda event, name=name: self.on_project(name, bool(event.value)),
+                ).mark(f"dashboard-cross-project-{name}")
+        for index, failure in enumerate(cross.failures):
+            ui.label(f"読み込めなかったファイル: {failure.name}({failure.reason})").classes(
+                "text-caption text-negative"
+            ).mark(f"dashboard-cross-failure-{index}")
+        if not cross.loads:
+            empty_message("dashboard-empty-load")
+            return
+        scale = max(1.0, *(entry.total.peak for entry in cross.loads.values()))
+        for name, entry in cross.loads.items():
+            self.load_row(name, entry.total, scale)
+            with ui.expansion("プロジェクト別").classes("w-full text-caption"):
+                for index, row in enumerate(entry.by_project):
+                    ui.label(f"{row.project}: 平均 {row.average * 100:.0f}% / 最大 {row.peak * 100:.0f}%").mark(
+                        f"dashboard-cross-detail-{name}-{index}"
+                    )
 
     def hours_card(self, data: Dashboard) -> None:
         with card("工数の予定と実績", "dashboard-hours"):

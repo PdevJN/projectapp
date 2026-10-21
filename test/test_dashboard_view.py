@@ -4,6 +4,10 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.dashboard import (
+    CrossLoad,
+    CrossSummary,
+    LoadFailure,
+    ProjectLoad,
     UNASSIGNED,
     Dashboard,
     DueRow,
@@ -314,3 +318,77 @@ async def test_without_members_the_select_has_only_everyone_and_no_member_sectio
     await user.should_see(marker="dashboard-progress-percent")
     assert user.find(marker="dashboard-member").elements.pop().options == {"": "全員"}
     await user.should_not_see("メンバー別")
+
+
+def cross_sample() -> Dashboard:
+    data = sample()
+    data.cross = CrossSummary(
+        {"田中": CrossLoad(LoadStats(0.7, 1.2, 1), [ProjectLoad("A", 0.4, 0.6), ProjectLoad("B", 0.3, 0.6)])},
+        ["A", "B", "C"],
+        {"C"},
+        [LoadFailure("壊れた", "invalid")],
+    )
+    return data
+
+
+def mount_cross() -> tuple[list[DashboardView], list[bool], list[tuple[str, bool]]]:
+    views: list[DashboardView] = []
+    crosses: list[bool] = []
+    projects: list[tuple[str, bool]] = []
+
+    @ui.page("/")
+    def index() -> None:
+        view = DashboardView(
+            lambda: None,
+            lambda kind: None,
+            None,
+            crosses.append,
+            lambda name, on: projects.append((name, on)),
+        )
+        views.append(view)
+        view.build()
+
+    return views, crosses, projects
+
+
+async def test_the_cross_load_card_shows_the_total_and_the_project_breakdown(user: User) -> None:
+    views, _, _ = mount_cross()
+    await user.open("/")
+    views[0].show(cross_sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-load-田中")
+    assert text(user, "dashboard-load-田中") == "平均 70% / 最大 120% / 超過 1 日"
+    assert text(user, "dashboard-cross-detail-田中-0") == "A: 平均 40% / 最大 60%"
+    assert text(user, "dashboard-cross-detail-田中-1") == "B: 平均 30% / 最大 60%"
+    await user.should_see(marker="dashboard-cross-note")
+
+
+async def test_the_cross_load_card_lists_failures_and_the_project_checks(user: User) -> None:
+    views, _, _ = mount_cross()
+    await user.open("/")
+    views[0].show(cross_sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-cross-failure-0")
+    assert text(user, "dashboard-cross-failure-0") == "読み込めなかったファイル: 壊れた(invalid)"
+    assert user.find(marker="dashboard-cross-project-A").elements.pop().value is True
+    assert user.find(marker="dashboard-cross-project-C").elements.pop().value is False
+
+
+async def test_toggling_the_switch_and_a_project_check_calls_back(user: User) -> None:
+    views, crosses, projects = mount_cross()
+    await user.open("/")
+    views[0].show(cross_sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-cross-project-A")
+    user.find(marker="dashboard-cross").elements.pop().set_value(False)
+    user.find(marker="dashboard-cross-project-A").elements.pop().set_value(False)
+    assert crosses == [False]
+    assert projects == [("A", False)]
+
+
+async def test_without_cross_the_load_card_is_unchanged_and_the_switch_is_off(user: User) -> None:
+    views, crosses, _ = mount_cross()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-load-田中")
+    assert text(user, "dashboard-load-田中") == "平均 50% / 最大 120% / 超過 2 日"
+    await user.should_not_see(marker="dashboard-cross-note")
+    assert user.find(marker="dashboard-cross").elements.pop().value is False
+    assert crosses == []  # 表示の同期では通知しない
