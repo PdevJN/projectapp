@@ -2350,6 +2350,19 @@ async def test_excluding_a_project_removes_it_from_the_total(user: User, tmp_pat
     assert "超過 0 日" in text_of(user, "dashboard-load-田中")
 
 
+async def test_a_same_named_project_is_told_apart_from_the_open_one(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    save_project(other_project(view.project.name, 6, 7, 1.0), tmp_path)
+    user.find(marker="open-dashboard").click()
+    view.change_dashboard_cross(True)
+    await user.should_see(marker=f"dashboard-cross-project-{view.project.name}(開いている)")
+    await user.should_see(marker=f"dashboard-cross-project-{view.project.name}")
+    view.change_dashboard_project(view.project.name, False)  # ファイル側だけが外れる
+    await asyncio.sleep(0.3)  # refresh は遅延実行なので、描き直されるのを待つ
+    assert user.find(marker=f"dashboard-cross-project-{view.project.name}(開いている)").elements.pop().value is True
+    assert user.find(marker=f"dashboard-cross-project-{view.project.name}").elements.pop().value is False
+
+
 async def test_an_unreadable_file_is_shown_and_the_rest_is_still_summed(user: User, tmp_path: Path) -> None:
     (tmp_path / "壊れた.json").write_text("{not json", encoding="utf-8")
     view = await open_dashboard_view(user, tmp_path)

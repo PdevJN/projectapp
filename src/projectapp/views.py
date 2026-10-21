@@ -697,6 +697,8 @@ class MainView:
         failures = []
         if self.dashboard_cross:
             others, failures = load_others(self.project_dir, self.path)
+            if self.project.name in {p.name for p in others}:  # 保存前の新規などが、ファイルと同名のとき
+                projects = [replace(self.project, name=f"{self.project.name}(開いている)")]
             projects += others
         names = list(dict.fromkeys(m.name for p in projects for m in p.members))
         if self.dashboard_member not in names:
