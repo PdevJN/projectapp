@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from math import isfinite
+from typing import NamedTuple
 
 from projectapp.models import Project, Status, Task, TaskKind
 from projectapp.timeline import (
@@ -220,6 +221,11 @@ def summarize_progress(
 UNASSIGNED = "未割り当て"
 DEADLINE = "締切"
 PLANNED_END = "完了予定"
+
+
+class LoadFailure(NamedTuple):
+    name: str
+    reason: str
 
 
 @dataclass(frozen=True)
