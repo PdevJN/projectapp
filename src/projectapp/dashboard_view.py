@@ -48,6 +48,7 @@ PIE_CSS = (
 
 
 CELL_PX = 26  # 見出しの `10/22` が収まる幅
+HEATMAP_HINT_DAYS = 20  # これより列が多いとき、横にスクロールできることを案内する
 HEATMAP_CSS = (
     ".heatmap-name { position: sticky; left: 0; background: #fff; padding-right: 8px; white-space: nowrap }\n"
     ".heat-cell { width: 26px; height: 26px; border: 1px solid rgba(128, 128, 128, 0.25) }\n"
@@ -386,6 +387,9 @@ class DashboardView:
             if not any(entry.days for entry in cross.loads.values()):
                 ui.label("稼働日がありません").classes("text-grey").mark("dashboard-heatmap-empty")
                 return
+            columns = max(len(entry.days) for entry in cross.loads.values())
+            if columns > HEATMAP_HINT_DAYS:
+                ui.label("横にスクロールできます").classes("text-caption text-grey").mark("dashboard-heatmap-hint")
             ui.html(legend_html(), sanitize=False)
             ui.html(heatmap_html(cross), sanitize=False).style(
                 "min-width: 0; max-width: 100%; overflow-x: auto"

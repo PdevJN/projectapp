@@ -1,5 +1,5 @@
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from nicegui import ui
 from nicegui.testing import User
@@ -23,7 +23,7 @@ from projectapp.dashboard import (
     TeamProgress,
     WorkloadRow,
 )
-from projectapp.dashboard_view import HEATMAP_CSS, MAX_TIP_CHIPS, DashboardView, heatmap_html, percent_width
+from projectapp.dashboard_view import HEATMAP_CSS, HEATMAP_HINT_DAYS, MAX_TIP_CHIPS, DashboardView, heatmap_html, percent_width
 from projectapp.models import Status
 
 
@@ -494,3 +494,28 @@ def test_the_heatmap_scroller_has_an_always_visible_scrollbar_style() -> None:
     assert 'class="heatmap-scroll"' in heatmap_html(heat_summary())
     for rule in ("::-webkit-scrollbar {", "::-webkit-scrollbar-track", "::-webkit-scrollbar-thumb"):
         assert f".heatmap-scroll{rule}" in HEATMAP_CSS
+
+
+def long_heat_summary(count: int) -> CrossSummary:
+    days = [DayLoad(date(2026, 10, 1) + timedelta(days=i), 0.5, []) for i in range(count)]
+    return CrossSummary({"田中": CrossLoad(LoadStats(0.5, 0.5, 0), [], days)}, ["A"], set(), [])
+
+
+async def test_the_heatmap_card_tells_that_a_wide_table_scrolls_sideways(user: User) -> None:
+    views, _, _ = mount_cross()
+    await user.open("/")
+    data = sample()
+    data.cross = long_heat_summary(HEATMAP_HINT_DAYS + 1)
+    views[0].show(data, PeriodKind.ALL)
+    await user.should_see(marker="dashboard-heatmap-hint")
+    assert text(user, "dashboard-heatmap-hint") == "横にスクロールできます"
+
+
+async def test_the_heatmap_card_has_no_scroll_hint_for_a_narrow_table(user: User) -> None:
+    views, _, _ = mount_cross()
+    await user.open("/")
+    data = sample()
+    data.cross = long_heat_summary(HEATMAP_HINT_DAYS)
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-heatmap-table")
+    await user.should_not_see(marker="dashboard-heatmap-hint")
