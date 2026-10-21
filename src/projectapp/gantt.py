@@ -655,7 +655,7 @@ class GanttChart:
         """矢印を出せる棒(表示範囲にあるもの)の、境界からの左端・右端。"""
         bars: dict[str, Bar] = {}
         for task in self.project.all_tasks():
-            start, end = self.schedule.start(task), self.schedule.end(task)
+            start, end = self.schedule.start(task), self.schedule.bar_end(task)
             span = bar_span(start, end, columns)
             if span is None or not self.bar_visible(start, end, columns):
                 continue
@@ -1281,7 +1281,7 @@ class GanttChart:
                 self.summary_band(path, key, ti, task, columns, width)
                 return row
             start = self.schedule.start(task)
-            end = self.schedule.end(task)
+            end = self.schedule.bar_end(task)
             span = bar_span(start, end, columns)
             if span is not None and self.bar_visible(start, end, columns):
                 left, length = span

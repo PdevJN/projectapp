@@ -420,6 +420,14 @@ class Schedule:
     def end(self, task: Task) -> datetime | None:
         return self._resolve(task)[1]
 
+    def bar_end(self, task: Task) -> datetime | None:
+        """棒の右端。終了済みで実績の終了があればその時刻(担当を替えても伸び縮みしない)、なければ実効の完了。"""
+        if task.kind is TaskKind.NORMAL and task.status is Status.DONE:
+            actual = actual_end(task)
+            if actual is not None:
+                return actual
+        return self.end(task)
+
     def finish(self, pred: Task) -> datetime | None:
         """先行としての完了。終了済みで実績の終了があればその時刻、なければ実効の完了。
         まとめは、子の完了の最大(終了済みの子は実績の終了)。"""
