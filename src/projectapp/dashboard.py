@@ -243,9 +243,23 @@ class ProjectLoad:
 
 
 @dataclass(frozen=True)
+class ProjectPeak:
+    project: str
+    peak: float  # その日、そのプロジェクトだけで見た割り当て率の合計の最大
+
+
+@dataclass(frozen=True)
+class DayLoad:
+    day: date
+    total: float  # 全プロジェクトを重ねた、その日の負荷(1.0 = 100%)
+    by_project: list[ProjectPeak]  # 0 より大きいプロジェクトだけ
+
+
+@dataclass(frozen=True)
 class CrossLoad:
     total: LoadStats  # 全プロジェクトを重ねた負荷
     by_project: list[ProjectLoad]  # その人がメンバーのプロジェクトごと
+    days: list[DayLoad] = field(default_factory=list)  # 稼働日ごと
 
 
 @dataclass
@@ -308,13 +322,20 @@ def _member_spans(project: Project, holidays: dict[date, str], member: str | Non
     return spans
 
 
-def _load_stats(items: list[Span], days: list[date]) -> LoadStats:
-    totals = [_day_peak(items, day) for day in days]
+def _day_totals(items: list[Span], days: list[date]) -> list[float]:
+    return [_day_peak(items, day) for day in days]
+
+
+def _stats_of(totals: list[float]) -> LoadStats:
     return LoadStats(
         sum(totals) / len(totals) if totals else 0.0,
         max(totals, default=0.0),
         sum(1 for total in totals if total > 1.0 + OVERLOAD_EPSILON),
     )
+
+
+def _load_stats(items: list[Span], days: list[date]) -> LoadStats:
+    return _stats_of(_day_totals(items, days))
 
 
 def summarize_loads(
@@ -340,14 +361,22 @@ def summarize_cross_loads(
     for name in names:
         rows: list[ProjectLoad] = []
         everything: list[Span] = []
+        per_day: list[tuple[str, list[float]]] = []
         for project, spans in per_project:
             if name not in {m.name for m in project.members}:
                 continue
             items = spans.get(name, [])
             everything += items
-            stats = _load_stats(items, days)
+            totals = _day_totals(items, days)
+            stats = _stats_of(totals)
             rows.append(ProjectLoad(project.name, stats.average, stats.peak))
-        loads[name] = CrossLoad(_load_stats(everything, days), rows)
+            per_day.append((project.name, totals))
+        overall = _day_totals(everything, days)
+        day_rows = [
+            DayLoad(day, overall[i], [ProjectPeak(title, totals[i]) for title, totals in per_day if totals[i] > 0])
+            for i, day in enumerate(days)
+        ]
+        loads[name] = CrossLoad(_stats_of(overall), rows, day_rows)
     return loads
 
 

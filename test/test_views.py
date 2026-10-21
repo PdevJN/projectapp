@@ -2363,6 +2363,23 @@ async def test_a_same_named_project_is_told_apart_from_the_open_one(user: User, 
     assert user.find(marker=f"dashboard-cross-project-{view.project.name}").elements.pop().value is False
 
 
+async def test_the_heatmap_follows_the_cross_switch_and_the_excluded_projects(user: User, tmp_path: Path) -> None:
+    save_project(other_project("別", 6, 7, 1.0), tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-load-田中")
+    await user.should_not_see(marker="dashboard-heatmap")  # 横断オフでは出ない
+    view.change_dashboard_cross(True)
+    await user.should_see(marker="dashboard-heatmap-table")
+    assert "別 100%" in user.find(marker="dashboard-heatmap-table").elements.pop().content
+    view.change_dashboard_project("別", False)
+    await asyncio.sleep(0.3)  # refresh は遅延実行なので、描き直されるのを待つ
+    assert "別 100%" not in user.find(marker="dashboard-heatmap-table").elements.pop().content
+    view.change_dashboard_cross(False)
+    await asyncio.sleep(0.3)
+    await user.should_not_see(marker="dashboard-heatmap")
+
+
 async def test_an_unreadable_file_is_shown_and_the_rest_is_still_summed(user: User, tmp_path: Path) -> None:
     (tmp_path / "壊れた.json").write_text("{not json", encoding="utf-8")
     view = await open_dashboard_view(user, tmp_path)

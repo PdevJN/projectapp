@@ -250,6 +250,41 @@ def test_cross_load_without_projects_is_empty() -> None:
     assert summarize_cross_loads([], WEEK, {}) == {}
 
 
+def test_cross_days_reproduce_the_load_stats() -> None:
+    first = named("A", span_task("a", 5, 6, 0.6))
+    second = named("B", span_task("b", 5, 6, 0.6), span_task("c", 8, 8, 0.3))
+    cross = summarize_cross_loads([first, second], WEEK, {})["田中"]
+    totals = [day.total for day in cross.days]
+    assert cross.total.average == pytest.approx(sum(totals) / len(totals))
+    assert cross.total.peak == max(totals)
+    assert cross.total.overload_days == sum(1 for total in totals if total > 1.0 + 1e-9)
+
+
+def test_cross_days_list_the_workdays_only() -> None:
+    project = named("A", span_task("a", 5, 12, 0.5))
+    cross = summarize_cross_loads([project], WEEK, {date(2026, 10, 6): "祝"})["田中"]
+    assert [day.day for day in cross.days] == [date(2026, 10, d) for d in (5, 7, 8, 9)]
+
+
+def test_cross_days_add_projects_on_the_same_day_and_break_them_down() -> None:
+    first = named("A", span_task("a", 5, 6, 0.6))
+    second = named("B", span_task("b", 6, 7, 0.6))
+    days = {day.day: day for day in summarize_cross_loads([first, second], WEEK, {})["田中"].days}
+    only_a = days[date(2026, 10, 5)]
+    assert only_a.total == 0.6
+    assert [(p.project, p.peak) for p in only_a.by_project] == [("A", 0.6)]
+    both = days[date(2026, 10, 6)]
+    assert both.total == pytest.approx(1.2)
+    assert [(p.project, p.peak) for p in both.by_project] == [("A", 0.6), ("B", 0.6)]
+    nobody = days[date(2026, 10, 8)]
+    assert (nobody.total, nobody.by_project) == (0.0, [])
+
+
+def test_cross_days_are_filled_for_a_single_project_too() -> None:
+    cross = summarize_cross_loads([named("A", span_task("a", 5, 6, 0.5))], WEEK, {})["田中"]
+    assert len(cross.days) == 5
+
+
 DAY = Period(date(2026, 10, 6), date(2026, 10, 6))
 
 
