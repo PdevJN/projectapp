@@ -476,3 +476,15 @@ async def test_the_heatmap_card_can_shrink_so_that_the_table_scrolls(user: User)
     views[0].show(data, PeriodKind.WEEK)
     await user.should_see(marker="dashboard-heatmap")
     assert user.find(marker="dashboard-heatmap").elements.pop()._style.get("min-width") == "0"
+
+
+async def test_the_heatmap_table_wrapper_can_shrink_and_scrolls_by_itself(user: User) -> None:
+    views, _, _ = mount_cross()
+    await user.open("/")
+    data = cross_sample()
+    assert data.cross is not None
+    data.cross.loads["田中"] = heat_summary().loads["田中"]
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-heatmap-table")
+    style = user.find(marker="dashboard-heatmap-table").elements.pop()._style
+    assert style.get("min-width") == "0" and style.get("max-width") == "100%" and style.get("overflow-x") == "auto"

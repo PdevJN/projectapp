@@ -383,7 +383,9 @@ class DashboardView:
                 ui.label("稼働日がありません").classes("text-grey").mark("dashboard-heatmap-empty")
                 return
             ui.html(legend_html(), sanitize=False)
-            ui.html(heatmap_html(cross), sanitize=False).mark("dashboard-heatmap-table")
+            ui.html(heatmap_html(cross), sanitize=False).style(
+                "min-width: 0; max-width: 100%; overflow-x: auto"
+            ).mark("dashboard-heatmap-table")
 
     def cross_load_card(self, cross: CrossSummary) -> None:
         ui.label(
