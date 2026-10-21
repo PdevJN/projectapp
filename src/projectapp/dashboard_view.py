@@ -52,6 +52,10 @@ HEATMAP_CSS = (
     ".heatmap-name { position: sticky; left: 0; background: #fff; padding-right: 8px; white-space: nowrap }\n"
     ".heat-cell { width: 26px; height: 26px; border: 1px solid rgba(128, 128, 128, 0.25) }\n"
     ".heat-over { outline: 2px solid #b71c1c; outline-offset: -2px }\n"
+    ".heatmap-scroll { overflow-x: auto; max-width: 100% }\n"
+    ".heatmap-scroll::-webkit-scrollbar { height: 12px }\n"
+    ".heatmap-scroll::-webkit-scrollbar-track { background: rgba(128, 128, 128, 0.15) }\n"
+    ".heatmap-scroll::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.55); border-radius: 6px }\n"
     "body.body--dark .heatmap-name { background: #1d1d1d }\n"
     "body.body--dark .heat-over { outline-color: #ff8a80 }"
 )
@@ -102,7 +106,7 @@ def heatmap_html(cross: CrossSummary) -> str:
         label = f'<th class="heatmap-name text-body2" style="text-align: left">{html.escape(name)}</th>'
         rows.append(f"<tr>{label}{cells}</tr>")
     return (
-        '<div style="overflow-x: auto; max-width: 100%">'
+        '<div class="heatmap-scroll">'
         '<table style="border-collapse: separate; border-spacing: 2px">'
         f'<tr><th class="heatmap-name"></th>{head}</tr>{"".join(rows)}</table></div>'
     )

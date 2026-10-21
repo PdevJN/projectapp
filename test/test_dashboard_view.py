@@ -488,3 +488,9 @@ async def test_the_heatmap_table_wrapper_can_shrink_and_scrolls_by_itself(user: 
     await user.should_see(marker="dashboard-heatmap-table")
     style = user.find(marker="dashboard-heatmap-table").elements.pop()._style
     assert style.get("min-width") == "0" and style.get("max-width") == "100%" and style.get("overflow-x") == "auto"
+
+
+def test_the_heatmap_scroller_has_an_always_visible_scrollbar_style() -> None:
+    assert 'class="heatmap-scroll"' in heatmap_html(heat_summary())
+    for rule in ("::-webkit-scrollbar {", "::-webkit-scrollbar-track", "::-webkit-scrollbar-thumb"):
+        assert f".heatmap-scroll{rule}" in HEATMAP_CSS
