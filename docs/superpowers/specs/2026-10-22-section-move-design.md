@@ -46,7 +46,8 @@
 ## 受け取りと反映(`gantt.py`・`views.py`)
 
 - `GanttChart.handle_move_section(args)`: 絞り込み中・読み取り専用・`parse_section_move` が通らない・`valid_section` でないときは無視する。通れば `actions.move_section(src, dst)` を呼ぶ。
-- `views.py` の `move_section(src, dst)`: 履歴を積んでから `arrange.move_section` を呼び、`False` なら履歴を戻す(何もしない)。`True` なら、`gantt.reorder_collapsed` で折りたたみを付け替え、変更扱いにして再描画する。これで、`copy_section`・`delete_section` と同じ流れになる。
+- `GanttChart.reorder_collapsed(parent, src, dst)`: `arrange.reorder_collapsed` で `collapsed` を付け替える(`remap_collapsed` と同じ作り。再描画は呼び出し側)。
+- `views.py` の `move_section(src, dst)`: 同じ親でなければ何もしない。`arrange.move_section` が `True` のときだけ、`gantt.reorder_collapsed` で折りたたみを付け替え、`after_edit()` で再描画する。履歴は`after_edit`が差分で積むので、`False`(何も変わらない)なら積まれない。
 - 再描画は、スクロール位置を動かさない(`set_project` の既存の挙動)。
 
 ## 仕様書の更新
