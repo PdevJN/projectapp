@@ -110,6 +110,7 @@ class _Merger:
     def __init__(self, choices: Choices | None) -> None:
         self.choices = choices or {}
         self.conflicts: list[Conflict] = []
+        self.titles: dict[str, str] = {}  # 記録の鍵 → 画面に出す名前(名前の項目がない記録用)
 
     def pick(self, conflict: Conflict) -> str:
         self.conflicts.append(conflict)
@@ -129,7 +130,7 @@ class _Merger:
         if ours is None and theirs is None:
             return None
         shown = ours or theirs or base or {}
-        label = str(shown.get("name") or shown.get("text") or key)
+        label = str(shown.get("name") or shown.get("text") or self.titles.get(key) or key)
         if base is None:
             if ours is None:
                 return theirs
@@ -283,6 +284,10 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
     members = merger.collection("member", MEMBER_LABELS, _members(base), _members(ours), _members(theirs))
     categories = merger.collection("category", CATEGORY_LABELS, _categories(base), _categories(ours), _categories(theirs))
     events = merger.collection("event", EVENT_LABELS, _events(base), _events(ours), _events(theirs))
+    for source in (theirs, ours):  # 自分の名前を優先する
+        for member in source.members:
+            for row in member.work_days:
+                merger.titles[f"{member.id}:{row.day.isoformat()}"] = f"{member.name}: {row.day.isoformat()}"
     member_days = merger.collection(
         "work_day",
         WORK_DAY_LABELS,

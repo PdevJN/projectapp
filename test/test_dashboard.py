@@ -796,3 +796,16 @@ def test_unassigned_planned_hours_use_the_default_calendar() -> None:
     project = Project("p", tasks=[task])
     rows = {r.name: r.planned_hours for r in summarize_workload(project, Period(date(2026, 10, 12), date(2026, 10, 18)), NOW, {})}
     assert rows[UNASSIGNED] == pytest.approx(project.daily_hours)  # 金曜だけ
+
+
+def test_cross_load_averages_count_only_the_persons_own_workdays() -> None:
+    task = Task("t", planned_start=datetime(2026, 10, 19, 9), planned_end=datetime(2026, 10, 23, 17), planned_end_manual=True)
+    task.assignees = [Assignee("田中", 1.0)]
+    tanaka = Project("p", members=[Member("田中"), Member("鈴木", work_days=[WorkDay(date(2026, 10, 24), time(9), time(12))])], tasks=[task])
+    period = Period(date(2026, 10, 19), date(2026, 10, 25))
+    alone = summarize_loads(tanaka, period, {})["田中"]
+    cross = summarize_cross_loads([tanaka], period, {})["田中"]
+    assert alone.average == pytest.approx(1.0)
+    assert cross.total.average == pytest.approx(alone.average)  # 鈴木の土曜は、田中の平均を薄めない
+    assert cross.by_project[0].average == pytest.approx(alone.average)
+    assert next(d for d in cross.days if d.day == date(2026, 10, 24)).total == 0.0  # 列には出る

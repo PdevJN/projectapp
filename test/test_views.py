@@ -4793,3 +4793,31 @@ async def test_a_rest_work_day_disables_the_time_inputs_and_a_bad_window_shows_t
     await settle()
     assert "甲" in user.find(marker="member-error").elements.pop().text
     assert view.project.members[0].work_days == []
+
+
+async def test_work_day_inputs_have_calendar_and_time_pickers(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("甲", 1.0, {}, "m1")]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="member-workday-open-0").click()
+    await user.should_see(marker="member-workday-add")
+    user.find(marker="member-workday-add").click()
+    for field in ("day", "start", "end"):
+        await user.should_see(marker=f"open-member-workday-0-{field}-picker")
+    def picker_open() -> bool:
+        element = user.find(marker="member-workday-0-start-picker").elements.pop()
+        while not isinstance(element, ui.dialog):
+            element = element.parent_slot.parent
+        return element.value
+
+    user.find(marker="member-workday-0-rest").click()  # 休みのあいだは、時刻の選択を開かない
+    await settle()
+    user.find(marker="open-member-workday-0-start-picker").click()
+    await settle()
+    assert not picker_open()
+    user.find(marker="member-workday-0-rest").click()
+    await settle()
+    user.find(marker="open-member-workday-0-start-picker").click()
+    await settle()
+    assert picker_open()

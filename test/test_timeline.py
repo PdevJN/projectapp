@@ -1071,3 +1071,13 @@ def test_crew_of_skips_unknown_assignees_and_carries_member_calendars() -> None:
     crew = crew_of([Assignee("甲", 0.5), Assignee("乙", 1.0)], [m])
     assert [w.rate for w in crew] == [0.5]
     assert SAT in crew[0].days
+
+
+@pytest.mark.parametrize(("rate", "effort", "expected"), [
+    (0.4, 13.0, datetime(2026, 10, 23, 15, 30)),  # 32.5h = 6.5h × 5 日。ちょうど金曜の終業で終わる
+    (0.1, 6.5, datetime(2026, 10, 30, 15, 30)),  # 65h = 10 稼働日
+    (0.7, 13.65, datetime(2026, 10, 21, 15, 30)),
+])
+def test_an_effort_that_ends_exactly_at_the_close_stays_on_that_day(rate: float, effort: float, expected: datetime) -> None:
+    # 浮動小数の丸めで、ちょうど終業で終わる工数が翌稼働日の始業に回らない
+    assert calc_end(datetime(2026, 10, 19, 9), effort, 6.5, OPEN, {}, [Worker(rate)]) == expected

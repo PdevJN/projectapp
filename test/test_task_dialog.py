@@ -23,6 +23,7 @@ from projectapp.models import (
     TaskKind,
     TaskUrl,
     UrlTemplate,
+    WorkDay,
 )
 from projectapp.task_dialog import open_task_dialog
 
@@ -2549,3 +2550,26 @@ async def test_a_new_task_is_saved_without_asking(user: User) -> None:
         user.find(marker="task-assignee").elements.pop().set_value("遅")
     user.find(marker="task-save").click()
     assert len(saved) == 1
+
+
+SAT_WORKER = Member("田中", 1.0, work_days=[WorkDay(date(2026, 10, 10), time(9), time(15, 30))])
+
+
+async def test_the_computed_end_uses_the_assignees_work_days(user: User) -> None:
+    task = Task("t", planned_start=datetime(2026, 10, 9, 9), effort_hours=13, assignees=[Assignee("田中", 1.0)])
+    mount_dialog(task, [], members=[SAT_WORKER])
+    await open_dialog(user)
+    await user.should_see(marker="task-end-computed")
+    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-10 15:30"  # 金曜 6.5h + 土曜 6.5h
+
+
+async def test_choosing_an_assignee_recomputes_the_end_with_their_work_days(user: User) -> None:
+    mount_dialog(None, [], members=[SAT_WORKER])
+    await open_dialog(user)
+    user.find(marker="task-start-date").type("2026-10-09")
+    user.find(marker="task-effort").clear().type("13")
+    await user.should_see(marker="task-end-computed")
+    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-12 15:30"  # 担当なしは通常カレンダー
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("田中")
+    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-10 15:30"

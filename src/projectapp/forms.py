@@ -533,20 +533,24 @@ def build_work_day_list(rows: list[WorkDayRow], today: date) -> list[WorkDay]:
 def work_day_editor(rows: list[WorkDayRow], marker: str) -> None:
     """稼働日の上書きの行(日付 / 開始 / 終了 / 休み / 削除)と追加ボタン。rows をその場で書き換える。"""
 
+    from projectapp.task_dialog import add_picker, date_normalizer  # task_dialog が forms を使うので、呼ぶときに読む
+
     @ui.refreshable
     def table() -> None:
         with ui.column().classes("w-full gap-1"):
             for n, wrow in enumerate(rows):
                 with ui.row().classes("w-full items-center no-wrap gap-2"):
-                    ui.input("日付", value=wrow.day, on_change=lambda e, r=wrow: setattr(r, "day", e.value or "")).classes(
-                        "w-36"
-                    ).mark(f"{marker}-{n}-day")
+                    day_input = ui.input(
+                        "日付", value=wrow.day, on_change=lambda e, r=wrow: setattr(r, "day", e.value or "")
+                    ).classes("w-40").mark(f"{marker}-{n}-day")
+                    add_picker(day_input, ui.date, "event", f"{marker}-{n}-day", "%Y-%m-%d", date_normalizer(False))
                     for label, name in (("開始", "start"), ("終了", "end")):
                         field_input = ui.input(
                             label,
                             value=getattr(wrow, name),
                             on_change=lambda e, r=wrow, k=name: setattr(r, k, e.value or ""),
-                        ).classes("w-24").mark(f"{marker}-{n}-{name}")
+                        ).classes("w-28").mark(f"{marker}-{n}-{name}")
+                        add_picker(field_input, ui.time, "access_time", f"{marker}-{n}-{name}", "%H:%M", parse_time_input)
                         field_input.set_enabled(not wrow.rest)
                     ui.checkbox("休み", value=wrow.rest, on_change=lambda e, r=wrow: toggle(r, bool(e.value))).mark(
                         f"{marker}-{n}-rest"

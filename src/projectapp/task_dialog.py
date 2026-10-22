@@ -205,14 +205,14 @@ def add_picker(
     normalize: Callable[[str], str | None] | None = None,
 ) -> None:
     """入力欄の右端のアイコンで、選択部品のダイアログを開く。小さな画面でも切れない。
-    normalize があれば、欄を離れたときに省略形を直す。"""
+    normalize があれば、欄を離れたときに省略形を直す。入力欄が無効のあいだは開かない。"""
     if normalize is not None:
         field.on("blur", lambda _e: normalize_field(field, normalize))
     with ui.dialog() as picker, ui.card():
         bind_picker(picker_factory().mark(f"{key}-picker"), field, fmt)
         ui.button("OK", on_click=picker.close).mark(f"{key}-picker-ok")
     with field.add_slot("append"):
-        ui.icon(icon).classes("cursor-pointer").on("click", picker.open).mark(
+        ui.icon(icon).classes("cursor-pointer").on("click", lambda: picker.open() if field.enabled else None).mark(
             f"open-{key}-picker"
         )
 
@@ -847,7 +847,9 @@ def open_task_dialog(
     initial = task or Task("")
     is_summary = initial.kind is TaskKind.SUMMARY  # まとめは、名前・カテゴリ・優先度・リンクだけを編集する
     # 換算には、パラメータを反映した実効比率を使う(以降は、このコピーだけを見る)
-    member_list = [Member(m.name, effective_ratio(m, parameters or [])) for m in members or []]
+    member_list = [
+        Member(m.name, effective_ratio(m, parameters or []), work_days=list(m.work_days)) for m in members or []
+    ]
     for assignee in initial.assignees:  # 一覧にいない担当者も、保存で失わない(相対比率は 100% とみなす)
         if all(m.name != assignee.name for m in member_list):
             member_list.append(Member(assignee.name, 1.0))

@@ -369,6 +369,9 @@ def summarize_cross_loads(
         rows: list[ProjectLoad] = []
         everything: list[tuple[Project, list[Span]]] = []
         per_day: list[tuple[str, list[float]]] = []
+        # 平均は、その人がどこかのプロジェクトで稼働する日だけで数える(他のメンバーの稼働日で薄めない)
+        mine = [open_days[(id(p), name)] for p in projects if (id(p), name) in open_days]
+        own = [i for i, day in enumerate(days) if any(day in opened for opened in mine)]
         for project, spans in per_project:
             if name not in {m.name for m in project.members}:
                 continue
@@ -376,18 +379,19 @@ def summarize_cross_loads(
             everything.append((project, items))
             # 自分が稼働しない日は、タスクの期間が通っても数えない
             totals = [peak if day in open_days[(id(project), name)] else 0.0 for peak, day in zip(_day_totals(items, days), days)]
-            stats = _stats_of(totals)
+            stats = _stats_of([totals[i] for i in own])
             rows.append(ProjectLoad(project.name, stats.average, stats.peak))
             per_day.append((project.name, totals))
         overall = [
             _day_peak([span for p, items in everything if day in open_days[(id(p), name)] for span in items], day)
             for day in days
         ]
+
         day_rows = [
             DayLoad(day, overall[i], [ProjectPeak(title, totals[i]) for title, totals in per_day if totals[i] > 0])
             for i, day in enumerate(days)
         ]
-        loads[name] = CrossLoad(_stats_of(overall), rows, day_rows)
+        loads[name] = CrossLoad(_stats_of([overall[i] for i in own]), rows, day_rows)
     return loads
 
 

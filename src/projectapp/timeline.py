@@ -22,6 +22,7 @@ class Scale(StrEnum):
 
 MIN_COLUMNS = {Scale.DAY: 42, Scale.WEEK: 26, Scale.MONTH: 12}
 MAX_WORKDAYS = 3650  # 約14年分。誤入力で計算が長引くのを防ぐ
+CAPACITY_EPSILON = 1e-9  # 工数の消化の比較の許容差[h](約3.6µs)
 
 
 @dataclass(frozen=True)
@@ -365,8 +366,8 @@ def _calc_end(
             if speed <= 0:
                 continue
             capacity = speed * (right - left).total_seconds() / 3600
-            if remaining <= capacity:
-                return left + timedelta(hours=remaining / speed)
+            if remaining <= capacity + CAPACITY_EPSILON:  # 浮動小数の丸めで、ちょうど枠の終わりで終わる工数が翌日に回らない
+                return min(left + timedelta(hours=remaining / speed), right)
             remaining -= capacity
         day += timedelta(days=1)
         cursor = datetime.combine(day, time.min)

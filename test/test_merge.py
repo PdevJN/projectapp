@@ -421,3 +421,11 @@ def test_work_days_of_a_deleted_member_are_dropped() -> None:
     ours = proj(members=[])
     theirs = proj(members=[mem(wd("2026-10-17"))])
     assert merge_projects(base, ours, theirs).project.members == []
+
+
+def test_member_work_day_conflict_is_labelled_with_the_member_and_date() -> None:
+    base = proj(members=[mem(wd("2026-10-17"))])
+    ours = proj(members=[mem(wd("2026-10-17", 17))])
+    theirs = proj(members=[mem(wd("2026-10-17", 18))])
+    (conflict,) = merge_projects(base, ours, theirs).conflicts
+    assert conflict.label == "甲: 2026-10-17"
