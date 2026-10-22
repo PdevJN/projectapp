@@ -230,7 +230,6 @@ class Project:
     parameters: list[Parameter] = field(default_factory=list)  # 相対比率のパラメータ(プロジェクト共通)
     categories: list[Category] = field(default_factory=list)  # カテゴリ(プロジェクト共通。「未定」は含まない)
     events: list[Event] = field(default_factory=list)  # イベント(プロジェクト共通。並びが色の優先順で、後ろが勝つ)
-    work_days: list[WorkDay] = field(default_factory=list)  # 稼働日の上書き(プロジェクト共通。日付の昇順)
 
     def all_tasks(self) -> list[Task]:
         """セクションなしのタスク、続いて各セクションを深さ優先で(そのタスク → そのサブセクション)。"""

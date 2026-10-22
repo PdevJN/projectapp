@@ -2,14 +2,14 @@ from datetime import date, time
 
 import pytest
 
-from projectapp.models import Project, WorkDay
+from projectapp.models import Member, WorkDay
 from projectapp.workdays import sort_work_days, validate_work_days, work_day_map
 
 
 def test_work_day_defaults_to_a_rest_day_marker_of_none() -> None:
     rest = WorkDay(date(2026, 10, 12))
     assert rest.start is None and rest.end is None
-    assert Project("p").work_days == []
+    assert Member("m").work_days == []
 
 
 def test_validate_accepts_windows_and_rests() -> None:

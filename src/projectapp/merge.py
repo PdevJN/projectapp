@@ -197,17 +197,13 @@ def _categories(project: Project) -> dict[str, Record]:
     }
 
 
-def _work_days(project: Project) -> dict[str, Record]:
-    # 開始と終了は組で意味を持つ(両方 None=休み)ので、1 項目として比べる
-    return {w.day.isoformat(): {"window": (w.start, w.end)} for w in project.work_days}
-
-
 def _show_window(name: str, value: Any) -> str:
     start, end = value
     return "休み" if start is None else f"{start:%H:%M}〜{end:%H:%M}"
 
 
 def _member_work_days(project: Project) -> dict[str, Record]:
+    # 開始と終了は組で意味を持つ(両方 None=休み)ので、1 項目として比べる
     return {f"{m.id}:{w.day.isoformat()}": {"window": (w.start, w.end)} for m in project.members for w in m.work_days}
 
 
@@ -287,9 +283,6 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
     members = merger.collection("member", MEMBER_LABELS, _members(base), _members(ours), _members(theirs))
     categories = merger.collection("category", CATEGORY_LABELS, _categories(base), _categories(ours), _categories(theirs))
     events = merger.collection("event", EVENT_LABELS, _events(base), _events(ours), _events(theirs))
-    work_days = merger.collection(
-        "work_day", WORK_DAY_LABELS, _work_days(base), _work_days(ours), _work_days(theirs), _show_window
-    )
     member_days = merger.collection(
         "work_day",
         WORK_DAY_LABELS,
@@ -401,9 +394,6 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
             for key, r in categories.items()
         ],
         events=sort_events([Event(r["start"], r["end"], r["text"], r["color"], id=key) for key, r in events.items()]),
-        work_days=sort_work_days(
-            [WorkDay(date.fromisoformat(key), *r["window"]) for key, r in work_days.items()]
-        ),
         parameters=[Parameter(key, [Level(n, v) for n, v in r["levels"]]) for key, r in parameters.items()],
         url_templates=[UrlTemplate(key, r["pattern"]) for key, r in templates.items()],
     )

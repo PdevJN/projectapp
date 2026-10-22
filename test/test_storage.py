@@ -1843,28 +1843,11 @@ def test_an_icon_with_a_huge_declared_size_is_rejected_on_load_with_a_value_erro
         load_project(path)
 
 
-def test_work_days_round_trip_and_are_saved_in_date_order() -> None:
-    project = Project(
-        "p",
-        work_days=[
-            WorkDay(date(2026, 10, 17), time(13), time(16)),
-            WorkDay(date(2026, 10, 12)),
-        ],
-    )
-    raw = json.loads(dumps_project(project))
-    assert raw["version"] == 8
-    assert raw["work_days"][0] == {"day": "2026-10-12", "start": None, "end": None}
-    assert raw["work_days"][1] == {"day": "2026-10-17", "start": "13:00:00", "end": "16:00:00"}
-    loaded = parse_project(dumps_project(project), "p")
-    assert [w.day for w in loaded.work_days] == [date(2026, 10, 12), date(2026, 10, 17)]
-    assert loaded.work_days[0].start is None and loaded.work_days[1].end == time(16)
-
-
-def test_files_without_work_days_load_as_empty() -> None:
+def test_a_top_level_work_days_key_is_not_written_or_read() -> None:
     raw = json.loads(dumps_project(Project("p")))
-    raw["version"] = 7
-    del raw["work_days"]
-    assert parse_project(json.dumps(raw), "p").work_days == []
+    assert "work_days" not in raw
+    raw["work_days"] = [{"day": "2026-10-17", "start": "13:00:00", "end": "16:00:00"}]
+    assert not hasattr(parse_project(json.dumps(raw), "p"), "work_days")
 
 
 @pytest.mark.parametrize(

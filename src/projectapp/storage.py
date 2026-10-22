@@ -105,7 +105,6 @@ def _check_unique_ids(project: Project) -> None:
 def _dump(project: Project) -> dict[str, Any]:
     """ファイルに書く辞書。担当者は名前ではなくメンバー id で指す。メンバーにいない名前は、メンバーを補う(実行時のプロジェクトは変えない)。"""
     data: dict[str, Any] = {"version": FORMAT_VERSION, **asdict(project)}
-    data["work_days"] = [asdict(row) for row in sort_work_days(project.work_days)]
     for saved, member in zip(data["members"], project.members):
         saved["work_days"] = [asdict(row) for row in sort_work_days(member.work_days)]
     ids: dict[str, str] = {}
@@ -872,7 +871,6 @@ def parse_project(text: str, name: str) -> Project:
         parameters=_parameters(raw.get("parameters")),
         categories=_categories(raw.get("categories")) if ctx.version >= 3 else [],
         events=_events(raw.get("events")) if ctx.version >= 4 else [],
-        work_days=_work_days(raw.get("work_days")) if ctx.version >= 8 else [],
     )
     known = {m.name for m in project.members}
     for task in project.all_tasks():  # 古いファイルの自由入力の担当者を、メンバーとして補う
