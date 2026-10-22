@@ -97,7 +97,7 @@ from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
-from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Event, Member, Project, Section, SectionPath, Task, TaskKind, new_id
+from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Event, Member, Project, Section, SectionPath, Task, TaskKind, WorkDay, new_id
 from projectapp.workdays import work_day_map
 from projectapp.preview import (
     LARGE_IMAGE_MESSAGE,
@@ -557,6 +557,8 @@ class MainView:
             on_categories=self.apply_categories,
             events=self.project.events,
             on_events=self.apply_events,
+            work_days=self.project.work_days,
+            on_work_days=self.apply_work_days,
             used_ids=self.project.used_ids(),
             base_date=self.project.base_date,
             on_base_date=self.apply_base_date,
@@ -981,6 +983,11 @@ class MainView:
     def apply_events(self, events: list[Event]) -> None:
         """イベントの編集を反映する。保存はしない(編集中の判定に入る)。"""
         self.project.events = events
+        self.after_edit()
+
+    def apply_work_days(self, work_days: list[WorkDay]) -> None:
+        """稼働日の上書きを反映する。保存はしない(編集中の判定に入る)。"""
+        self.project.work_days = work_days
         self.after_edit()
 
     def save_project_clicked(self) -> None:

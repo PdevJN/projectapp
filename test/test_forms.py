@@ -7,11 +7,13 @@ import projectapp.models as models
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.models import Event
+from projectapp.models import Event, WorkDay
 from projectapp.categories import COLOR_HEX, COLOR_LABELS, COLORS, CategoryEdit
 from projectapp.forms import (
     CategoryRow,
     EventRow,
+    WorkDayRow,
+    build_work_day_list,
     build_category_edit,
     LevelRow,
     MemberRow,
@@ -2033,3 +2035,117 @@ def test_a_summary_cannot_be_made_from_a_form() -> None:
         make(None, kind=TaskKind.SUMMARY)
     with pytest.raises(ValueError, match="まとめ"):
         make(Task("x"), kind=TaskKind.SUMMARY)
+
+
+WORK_TODAY = date(2026, 10, 1)
+
+
+def test_build_work_day_list_parses_shortcuts_sorts_and_skips_empty_rows() -> None:
+    rows = [
+        WorkDayRow("10/18", "930", "12", False),
+        WorkDayRow("2026-10-17", "13:00", "16:00", False),
+        WorkDayRow("", "", "", False),  # 完全に空の行は無視
+        WorkDayRow("10/12", "", "", True),  # 休みは時刻を見ない
+    ]
+    built = build_work_day_list(rows, WORK_TODAY)
+    assert [w.day for w in built] == [date(2026, 10, 12), date(2026, 10, 17), date(2026, 10, 18)]
+    assert built[0].start is None and built[0].end is None
+    assert (built[1].start, built[1].end) == (time(13), time(16))
+    assert (built[2].start, built[2].end) == (time(9, 30), time(12))
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        WorkDayRow("abc", "9", "10", False),  # 日付が読めない
+        WorkDayRow("10/17", "", "10", False),  # 開始が空
+        WorkDayRow("10/17", "9", "", False),  # 終了が空
+        WorkDayRow("10/17", "25", "10", False),  # 時刻が範囲外
+        WorkDayRow("10/17", "12", "9", False),  # 開始 > 終了
+        WorkDayRow("10/17", "9", "9", False),  # 開始 = 終了
+    ],
+)
+def test_build_work_day_list_rejects_bad_rows(row: WorkDayRow) -> None:
+    with pytest.raises(ValueError):
+        build_work_day_list([row], WORK_TODAY)
+
+
+def test_build_work_day_list_rejects_a_duplicate_date() -> None:
+    with pytest.raises(ValueError, match="重複"):
+        build_work_day_list([WorkDayRow("10/17", "9", "10", False), WorkDayRow("2026-10-17", "", "", True)], WORK_TODAY)
+
+
+def mount_work_day_settings(work_days: list[WorkDay], applied: list[int], received: list[list[WorkDay]]) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5,
+                time(9, 0),
+                lambda h, s, m: applied.append(1),
+                work_days=work_days,
+                on_work_days=received.append,
+            ),
+        )
+
+
+async def test_adding_a_work_day_applies_it(user: User) -> None:
+    applied: list[int] = []
+    received: list[list[WorkDay]] = []
+    mount_work_day_settings([], applied, received)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-workday-add").click()
+    await asyncio.sleep(0.2)
+    user.find(marker="settings-workday-0-day").type("2026-10-17")
+    user.find(marker="settings-workday-0-start").type("13")
+    user.find(marker="settings-workday-0-end").type("16")
+    user.find(marker="settings-apply").click()
+    assert applied == [1]
+    assert received == [[WorkDay(date(2026, 10, 17), time(13), time(16))]]
+
+
+async def test_the_rest_checkbox_ignores_times_and_disables_the_time_inputs(user: User) -> None:
+    received: list[list[WorkDay]] = []
+    mount_work_day_settings([], [], received)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-workday-add").click()
+    await asyncio.sleep(0.2)
+    user.find(marker="settings-workday-0-day").type("2026-10-17")
+    user.find(marker="settings-workday-0-rest").click()
+    await asyncio.sleep(0.2)  # 行の描き直しを待つ
+    assert not user.find(marker="settings-workday-0-start").elements.pop().enabled
+    user.find(marker="settings-apply").click()
+    assert received == [[WorkDay(date(2026, 10, 17))]]
+
+
+async def test_a_work_day_without_times_or_rest_keeps_the_dialog_and_calls_nothing(user: User) -> None:
+    applied: list[int] = []
+    received: list[list[WorkDay]] = []
+    mount_work_day_settings([], applied, received)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-workday-add").click()
+    await asyncio.sleep(0.2)
+    user.find(marker="settings-workday-0-day").type("2026-10-17")
+    user.find(marker="settings-apply").click()
+    await user.should_see("開始と終了を時刻で入力してください")
+    assert applied == [] and received == []
+
+
+async def test_removing_a_work_day_applies_the_rest_and_unchanged_ones_are_not_reapplied(user: User) -> None:
+    a = WorkDay(date(2026, 10, 17), time(13), time(16))
+    b = WorkDay(date(2026, 10, 18))
+    received: list[list[WorkDay]] = []
+    mount_work_day_settings([a, b], [], received)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-apply").click()
+    assert received == []  # 変えていなければ呼ばない
+    user.find("open").click()
+    user.find(marker="settings-workday-0-remove").click()
+    await asyncio.sleep(0.2)
+    user.find(marker="settings-apply").click()
+    assert received == [[b]]

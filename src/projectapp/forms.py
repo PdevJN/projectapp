@@ -11,7 +11,7 @@ from typing import Any
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
-from projectapp.dateinput import parse_date_input
+from projectapp.dateinput import parse_date_input, parse_time_input
 from projectapp.avatar import avatar
 from projectapp.events import color_hex, normalize_color, sort_events, validate_events
 from projectapp.icons import is_valid_icon
@@ -60,10 +60,12 @@ from projectapp.models import (
     TaskKind,
     TaskUrl,
     UrlTemplate,
+    WorkDay,
     has_control_char,
     is_hex_color,
     new_id,
 )
+from projectapp.workdays import sort_work_days, validate_work_days
 from projectapp.ratios import ParameterEdit, ratio_detail, remap_levels, validate_parameters
 from projectapp.urls import TemplateEdit, resolve, validate_templates
 
@@ -496,6 +498,40 @@ def build_event_list(rows: list[EventRow], taken: Collection[str], today: date) 
 
 def event_key(e: Event) -> tuple:
     return (e.id, e.start, e.end, e.text, e.color)
+
+
+@dataclass
+class WorkDayRow:
+    day: str
+    start: str
+    end: str
+    rest: bool
+
+
+def build_work_day_list(rows: list[WorkDayRow], today: date) -> list[WorkDay]:
+    """入力の行を検証して、日付の昇順の一覧にする。完全に空の行は無視する。休みの行は時刻を見ない。"""
+    built: list[WorkDay] = []
+    for row in rows:
+        if not row.rest and not any(t.strip() for t in (row.day, row.start, row.end)):
+            continue
+        day = parse_date_input(row.day, today, roll_forward=False)
+        if day is None:
+            raise ValueError("稼働日の日付を入力してください(例: 2026-10-17、10/17)")
+        if row.rest:
+            built.append(WorkDay(date.fromisoformat(day)))
+            continue
+        start, end = parse_time_input(row.start), parse_time_input(row.end)
+        if start is None or end is None:
+            raise ValueError(
+                f"稼働日 {day} の開始と終了を時刻で入力してください(例: 13:00、930)。休みなら「休み」にチェックしてください"
+            )
+        built.append(WorkDay(date.fromisoformat(day), time.fromisoformat(start), time.fromisoformat(end)))
+    validate_work_days(built)
+    return sort_work_days(built)
+
+
+def work_day_key(w: WorkDay) -> tuple:
+    return (w.day, w.start, w.end)
 
 
 # 色の名前(ラベル)→ 色コード(Vue の式)。NiceGUI の select は、選択肢の value に番号(0〜9)を渡すので、色名では引けない。名前は一意
@@ -989,11 +1025,13 @@ def open_settings_dialog(
     on_categories: Callable[[CategoryEdit], object] | None = None,
     events: list[Event] | None = None,
     on_events: Callable[[list[Event]], object] | None = None,
+    work_days: list[WorkDay] | None = None,
+    on_work_days: Callable[[list[WorkDay]], object] | None = None,
     used_ids: Collection[str] = (),
     base_date: date | None = None,
     on_base_date: Callable[[date], object] | None = None,
 ) -> None:
-    card_width = "w-[30rem] max-w-full" if categories is None and events is None else "w-[46rem] max-w-full"
+    card_width = "w-[30rem] max-w-full" if categories is None and events is None and work_days is None else "w-[46rem] max-w-full"
     with disposable(ui.dialog()) as dialog, ui.card().classes(card_width):
         ui.label("稼働時間の設定").classes("text-h6")
         hours = ui.number(
@@ -1238,6 +1276,57 @@ def open_settings_dialog(
 
             event_table()
             ui.button("イベントを追加", icon="add", on_click=add_event).props("flat dense").mark("settings-event-add")
+        work_rows = [
+            WorkDayRow(
+                w.day.isoformat(),
+                w.start.strftime("%H:%M") if w.start else "",
+                w.end.strftime("%H:%M") if w.end else "",
+                w.start is None,
+            )
+            for w in work_days or []
+        ]
+        if work_days is not None:
+            ui.label("稼働日の上書き").classes("text-caption text-grey")
+            ui.label("日付ごとに、稼働の時間帯(開始〜終了)か休みを決めます。土日祝を稼働にしたり、平日を休みにできます").classes(
+                "text-caption text-grey"
+            )
+
+            @ui.refreshable
+            def work_day_table() -> None:
+                with ui.column().classes("w-full gap-1"):
+                    for n, wrow in enumerate(work_rows):
+                        with ui.row().classes("w-full items-center no-wrap gap-2"):
+                            ui.input(
+                                "日付", value=wrow.day, on_change=lambda e, r=wrow: setattr(r, "day", e.value or "")
+                            ).classes("w-36").mark(f"settings-workday-{n}-day")
+                            for label, name in (("開始", "start"), ("終了", "end")):
+                                field = ui.input(
+                                    label,
+                                    value=getattr(wrow, name),
+                                    on_change=lambda e, r=wrow, k=name: setattr(r, k, e.value or ""),
+                                ).classes("w-24").mark(f"settings-workday-{n}-{name}")
+                                field.set_enabled(not wrow.rest)
+                            ui.checkbox(
+                                "休み", value=wrow.rest, on_change=lambda e, r=wrow: toggle_rest(r, bool(e.value))
+                            ).mark(f"settings-workday-{n}-rest")
+                            ui.button(icon="delete", on_click=lambda _e, r=wrow: remove_work_day(r)).props(
+                                "flat dense color=negative"
+                            ).mark(f"settings-workday-{n}-remove")
+
+            def toggle_rest(wrow: WorkDayRow, value: bool) -> None:
+                wrow.rest = value
+                work_day_table.refresh()
+
+            def add_work_day() -> None:
+                work_rows.append(WorkDayRow("", "", "", False))
+                work_day_table.refresh()
+
+            def remove_work_day(wrow: WorkDayRow) -> None:
+                work_rows.remove(wrow)
+                work_day_table.refresh()
+
+            work_day_table()
+            ui.button("稼働日を追加", icon="add", on_click=add_work_day).props("flat dense").mark("settings-workday-add")
         error = ui.label("").classes("text-negative").mark("settings-error")
         pending: dict[str, Any] = {}
         with ui.dialog() as confirm, ui.card():
@@ -1275,12 +1364,18 @@ def open_settings_dialog(
                 return None
             return build_event_list(event_rows, used_ids, date.today())
 
+        def build_work_days() -> list[WorkDay] | None:
+            if work_days is None:
+                return None
+            return build_work_day_list(work_rows, date.today())
+
         def commit(
             result: tuple[float, time],
             edit: TemplateEdit | None,
             cedit: CategoryEdit | None,
             elist: list[Event] | None,
             base: date | None,
+            wlist: list[WorkDay] | None = None,
         ) -> None:
             on_apply(*result, ActualMode(mode.value))
             if base is not None and on_base_date is not None:
@@ -1291,11 +1386,13 @@ def open_settings_dialog(
                 on_categories(cedit)
             if elist is not None and on_events is not None and [event_key(e) for e in elist] != [event_key(e) for e in events or []]:
                 on_events(elist)
+            if wlist is not None and on_work_days is not None and [work_day_key(w) for w in wlist] != [work_day_key(w) for w in work_days or []]:
+                on_work_days(wlist)
             dialog.close()
 
         def confirm_delete() -> None:
             confirm.close()
-            commit(pending["result"], pending["edit"], pending["cedit"], pending["elist"], pending["base"])
+            commit(pending["result"], pending["edit"], pending["cedit"], pending["elist"], pending["base"], pending["wlist"])
 
         def apply() -> None:
             try:
@@ -1303,6 +1400,7 @@ def open_settings_dialog(
                 edit = build_edit()
                 cedit = build_categories()
                 elist = build_events()
+                wlist = build_work_days()
                 base = build_base_date(base_input.value or "", date.today()) if base_input else None
             except ValueError as exc:
                 error.set_text(str(exc))
@@ -1317,11 +1415,11 @@ def open_settings_dialog(
             if tasks:
                 messages.append(f"削除するカテゴリを使っているタスクが{tasks}件あります。未定に戻ります。")
             if messages:
-                pending.update(result=result, edit=edit, cedit=cedit, elist=elist, base=base)
+                pending.update(result=result, edit=edit, cedit=cedit, elist=elist, base=base, wlist=wlist)
                 confirm_text.set_text("\n".join(messages))
                 confirm.open()
                 return
-            commit(result, edit, cedit, elist, base)
+            commit(result, edit, cedit, elist, base, wlist)
 
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")
