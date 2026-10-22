@@ -2,7 +2,8 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from projectapp.models import Assignee, Actual, Level, Member, Parameter, Project, Section, Status, Task
+from projectapp.models import Assignee, Actual, Level, Member, Parameter, Project, Section, Status, Task, WorkDay
+from projectapp.workdays import work_day_map
 from projectapp.timeline import (
     Schedule,
     PROGRESS_TOLERANCE,
@@ -16,6 +17,8 @@ from projectapp.timeline import (
     build_columns,
     Overload,
     calc_end,
+    day_hours,
+    day_window,
     clip_overloads,
     assignees_rate,
     counted_assignees,
@@ -944,3 +947,80 @@ def test_bar_end_keeps_the_planned_end_unless_done_with_an_actual_end() -> None:
     project = Project("p", tasks=[running, no_end])
     assert Schedule(project, {}).bar_end(running) == datetime(2026, 10, 7, 18)
     assert Schedule(project, {}).bar_end(no_end) == datetime(2026, 10, 7, 18)
+
+
+SAT = date(2026, 10, 17)  # 土曜
+FRI = date(2026, 10, 16)
+MON = date(2026, 10, 12)  # スポーツの日(祝日の想定で使う)
+HOLIDAYS = {MON: "スポーツの日"}  # 10/12(月)だけが祝日。10/19(月)は通常の稼働日
+OPEN = time(9)
+SAT_AFTERNOON = work_day_map([WorkDay(SAT, time(13), time(16))])
+
+
+def end(start: datetime, effort: float, work_days=None) -> datetime | None:  # noqa: ANN001
+    return calc_end(start, effort, 6.5, OPEN, HOLIDAYS, work_days)
+
+
+def test_day_window_default_override_and_rest() -> None:
+    assert day_window(FRI, 6.5, OPEN, HOLIDAYS) == (datetime(2026, 10, 16, 9), datetime(2026, 10, 16, 15, 30))
+    assert day_window(SAT, 6.5, OPEN, HOLIDAYS) is None
+    assert day_window(SAT, 6.5, OPEN, HOLIDAYS, SAT_AFTERNOON) == (datetime(2026, 10, 17, 13), datetime(2026, 10, 17, 16))
+    rest = work_day_map([WorkDay(FRI)])
+    assert day_window(FRI, 6.5, OPEN, HOLIDAYS, rest) is None
+    working_holiday = work_day_map([WorkDay(MON, time(10), time(12))])
+    assert day_window(MON, 6.5, OPEN, HOLIDAYS, working_holiday) == (datetime(2026, 10, 12, 10), datetime(2026, 10, 12, 12))
+
+
+def test_day_hours_and_is_workday_follow_overrides() -> None:
+    assert day_hours(FRI, 6.5, HOLIDAYS) == 6.5
+    assert day_hours(SAT, 6.5, HOLIDAYS) == 0
+    assert day_hours(SAT, 6.5, HOLIDAYS, SAT_AFTERNOON) == 3
+    assert is_workday(SAT, HOLIDAYS) is False and is_workday(SAT, HOLIDAYS, SAT_AFTERNOON) is True
+    assert is_workday(FRI, HOLIDAYS, work_day_map([WorkDay(FRI)])) is False
+    assert is_workday(MON, HOLIDAYS, work_day_map([WorkDay(MON, time(9), time(10))])) is True
+
+
+def test_effort_overflows_the_friday_slot_into_the_saturday_window() -> None:
+    # 金曜 9:00〜15:30 の 6.5h を使い切り、残り 2h は土曜 13:00 から
+    assert end(datetime(2026, 10, 16, 9), 8.5, SAT_AFTERNOON) == datetime(2026, 10, 17, 15)
+    # 土曜の枠は 3h。9.5h なら土曜 16:00 ちょうどで終わる
+    assert end(datetime(2026, 10, 16, 9), 9.5, SAT_AFTERNOON) == datetime(2026, 10, 17, 16)
+    # 10h なら残り 0.5h は日曜を飛ばして月曜(10/19)9:30
+    assert end(datetime(2026, 10, 16, 9), 10, SAT_AFTERNOON) == datetime(2026, 10, 19, 9, 30)
+
+
+def test_without_overrides_the_result_is_unchanged() -> None:
+    assert end(datetime(2026, 10, 16, 9), 8.5) == end(datetime(2026, 10, 16, 9), 8.5, {})
+    assert end(datetime(2026, 10, 16, 9), 8.5) == datetime(2026, 10, 19, 11)  # 金曜 6.5h、残り 2h は土日を飛ばして月曜 9:00 から
+
+
+@pytest.mark.parametrize(
+    ("start", "expected"),
+    [
+        (datetime(2026, 10, 17, 10), datetime(2026, 10, 17, 14)),  # 枠の前から始まる → 枠の開始(13:00)から 1h
+        (datetime(2026, 10, 17, 14), datetime(2026, 10, 17, 15)),  # 枠の途中から
+        (datetime(2026, 10, 17, 16), datetime(2026, 10, 19, 10)),  # 枠の終了ちょうど → 次に枠のある日(月曜 10/19)の 9:00 から 1h
+        (datetime(2026, 10, 17, 18), datetime(2026, 10, 19, 10)),  # 枠の後
+    ],
+)
+def test_start_before_inside_at_the_end_of_and_after_the_window(start: datetime, expected: datetime) -> None:
+    assert end(start, 1, SAT_AFTERNOON) == expected
+
+
+def test_a_rest_weekday_is_skipped_and_a_working_holiday_is_used() -> None:
+    rest_friday = work_day_map([WorkDay(FRI)])
+    assert end(datetime(2026, 10, 16, 9), 1, rest_friday) == datetime(2026, 10, 19, 10)  # 金曜が休み、土日も枠なし → 月曜 10/19
+    working_monday = work_day_map([WorkDay(MON, time(10), time(12))])
+    assert end(datetime(2026, 10, 10, 9), 1, working_monday) == datetime(2026, 10, 12, 11)  # 土曜開始 → 月曜(稼働に上書き)の 10:00 から 1h
+
+
+def test_invalid_effort_still_returns_none_with_overrides() -> None:
+    assert end(datetime(2026, 10, 16, 9), 0, SAT_AFTERNOON) is None
+    assert end(datetime(2026, 10, 16, 9), float("nan"), SAT_AFTERNOON) is None
+
+
+def test_the_schedule_uses_the_projects_work_days() -> None:
+    task = Task("t", planned_start=datetime(2026, 10, 16, 9), effort_hours=8.5, id="t1")
+    project = Project("p", tasks=[task], work_days=[WorkDay(SAT, time(13), time(16))])
+    assert Schedule(project, {}).end(task) == datetime(2026, 10, 17, 15)
+    assert Schedule(Project("p", tasks=[task]), {}).end(task) == datetime(2026, 10, 19, 11)

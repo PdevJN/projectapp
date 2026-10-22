@@ -98,6 +98,7 @@ from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
 from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Event, Member, Project, Section, SectionPath, Task, TaskKind, new_id
+from projectapp.workdays import work_day_map
 from projectapp.preview import (
     LARGE_IMAGE_MESSAGE,
     NOT_NATIVE_MESSAGE,
@@ -1104,6 +1105,7 @@ class MainView:
             work_start=self.project.work_start,
             daily_hours=self.project.daily_hours,
             holidays=self.holidays,
+            work_days=work_day_map(self.project.work_days),
             members=self.project.members,
             actual_mode=self.project.actual_mode,
             **self.link_args(None),
@@ -1116,6 +1118,7 @@ class MainView:
             work_start=self.project.work_start,
             daily_hours=self.project.daily_hours,
             holidays=self.holidays,
+            work_days=work_day_map(self.project.work_days),
             members=self.project.members,
             actual_mode=self.project.actual_mode,
             **self.link_args(None),
@@ -1129,6 +1132,7 @@ class MainView:
             work_start=self.project.work_start,
             daily_hours=self.project.daily_hours,
             holidays=self.holidays,
+            work_days=work_day_map(self.project.work_days),
             members=self.project.members,
             actual_mode=self.project.actual_mode,
             on_delete=lambda: self.delete_task(path, task_index),

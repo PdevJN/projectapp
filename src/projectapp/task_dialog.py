@@ -2,7 +2,7 @@
 
 import html
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time
 
@@ -60,6 +60,7 @@ from projectapp.models import (
     TaskKind,
     TaskUrl,
     UrlTemplate,
+    WorkDay,
     has_control_char,
 )
 from projectapp.ratios import effective_ratio
@@ -245,10 +246,12 @@ class DateTimeFields:
         daily_hours: float,
         holidays: dict[date, str],
         rate: float = 1.0,
+        work_days: Mapping[date, WorkDay] | None = None,
     ) -> None:
         default_start, default_end = default_times(work_start)
         self._defaults = {"start": default_start, "end": default_end, "deadline": default_end}
         self._work_start, self._daily_hours, self._holidays = work_start, daily_hours, holidays
+        self._work_days = work_days
         self.effort = task.effort_hours
         self._rate = rate
         self.first_row = ui.row().classes("w-full no-wrap gap-4")
@@ -389,6 +392,7 @@ class DateTimeFields:
             self._holidays,
             deadline,
             self._rate,
+            self._work_days,
         )
 
     def start_text(self) -> str:
@@ -832,6 +836,7 @@ def open_task_dialog(
     holidays: dict[date, str] | None = None,
     members: list[Member] | None = None,
     actual_mode: ActualMode = ActualMode.SIMPLE,
+    work_days: Mapping[date, WorkDay] | None = None,
     link_options: dict[str, str] | None = None,
     finish_of: Callable[[str], datetime | None] | None = None,
     url_templates: list[UrlTemplate] | None = None,
@@ -897,7 +902,7 @@ def open_task_dialog(
         hover = [full if full != label else "" for full, label in zip(full_labels, category_options.values())]
         category.add_slot("option", category_option_template(hover))
         category.add_slot("selected-item", category_selected_template(hover))
-        fields = DateTimeFields(initial, work_start, daily_hours, holidays or {}, initial_rate)
+        fields = DateTimeFields(initial, work_start, daily_hours, holidays or {}, initial_rate, work_days)
         with fields.second_row:
             effort = EffortField(initial.effort_hours, daily_hours, STANDARD_WORK_HOURS)
         assignee_fields = AssigneeFields(initial.assignees, member_list, lambda: refresh_conversion())
@@ -1128,7 +1133,7 @@ def open_task_dialog(
                 return
             new_rate = assignees_rate(result.assignees, member_list)
             new_end = (
-                reviewed_end(result, initial_rate, new_rate, daily_hours, work_start, holidays or {}, now())
+                reviewed_end(result, initial_rate, new_rate, daily_hours, work_start, holidays or {}, now(), work_days)
                 if task is not None and needs_review(result, initial_rate, new_rate)
                 else None
             )
