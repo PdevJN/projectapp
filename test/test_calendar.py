@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import date, time
 from pathlib import Path
 
 import httpx
@@ -8,11 +8,14 @@ import pytest
 from projectapp.calendar import (
     DayKind,
     day_kind,
+    effective_kind,
     load_cache,
     parse_holidays_csv,
     refresh_holidays,
     save_cache,
+    work_day_note,
 )
+from projectapp.models import WorkDay
 
 HEADER = "国民の祝日・休日月日,国民の祝日・休日名称\n"
 CSV = (HEADER + "2026/1/1,元日\n2026/1/12,成人の日\n").encode("cp932")
@@ -77,3 +80,32 @@ async def test_refresh_non_csv_is_not_saved(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         await refresh_holidays(tmp_path, transport_returning(200, b"<html>oops</html>"))
     assert not (tmp_path / "holidays.json").exists()
+
+
+def test_effective_kind_follows_overrides() -> None:
+    holidays = {date(2026, 10, 12): "スポーツの日"}
+    sat, fri, mon = date(2026, 10, 17), date(2026, 10, 16), date(2026, 10, 12)
+    days = {
+        sat: WorkDay(sat, time(13), time(16)),
+        fri: WorkDay(fri),
+        mon: WorkDay(mon, time(10), time(12)),
+    }
+    assert effective_kind(sat, holidays, days) is DayKind.WEEKDAY  # 土曜を稼働にすると平日の色
+    assert effective_kind(fri, holidays, days) is DayKind.REST
+    assert effective_kind(mon, holidays, days) is DayKind.WEEKDAY  # 祝日を稼働にする
+    assert effective_kind(sat, holidays, None) is DayKind.SATURDAY
+    assert effective_kind(date(2026, 10, 18), holidays, days) is DayKind.SUNDAY
+
+
+def test_work_day_note() -> None:
+    holidays = {date(2026, 10, 12): "スポーツの日"}
+    days = {
+        date(2026, 10, 17): WorkDay(date(2026, 10, 17), time(13), time(16)),
+        date(2026, 10, 16): WorkDay(date(2026, 10, 16)),
+        date(2026, 10, 12): WorkDay(date(2026, 10, 12), time(10), time(12)),
+    }
+    assert work_day_note(date(2026, 10, 17), holidays, days) == "稼働 13:00〜16:00"
+    assert work_day_note(date(2026, 10, 16), holidays, days) == "休み"
+    assert work_day_note(date(2026, 10, 12), holidays, days) == "稼働 10:00〜12:00(祝日: スポーツの日)"
+    assert work_day_note(date(2026, 10, 13), holidays, days) is None
+    assert work_day_note(date(2026, 10, 13), holidays, None) is None

@@ -1,7 +1,7 @@
 import asyncio
 import re
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 import pytest
 from nicegui import ui
@@ -81,6 +81,7 @@ from projectapp.models import (
     TaskKind,
     TaskUrl,
     UrlTemplate,
+    WorkDay,
 )
 from projectapp.timeline import ProgressState, Scale
 
@@ -3327,3 +3328,48 @@ async def test_the_link_menu_uses_the_compact_menu_class(user: User) -> None:
     menu = item.parent_slot.parent
     assert isinstance(menu, ui.menu)
     assert "app-context-menu" in menu.classes
+
+
+def test_header_cell_html_adds_a_title_and_a_mark_only_with_a_note() -> None:
+    column = Column(date(2026, 10, 17), date(2026, 10, 18), "10/17")
+    plain = header_cell_html(column, 40, weekday=True)
+    assert "title=" not in plain and "inset 0 -3px" not in plain
+    noted = header_cell_html(column, 40, weekday=True, note="稼働 13:00〜16:00")
+    assert 'title="稼働 13:00〜16:00"' in noted and "inset 0 -3px 0 #f57c00" in noted
+    assert 'title="&lt;b&gt;"' in header_cell_html(column, 40, weekday=True, note="<b>")  # エスケープ
+
+
+async def test_day_scale_background_follows_work_day_overrides(user: User) -> None:
+    project = sample_project()  # 基準日 10/5(月)。42 列で土曜 6・日曜 6
+    project.work_days = [WorkDay(date(2026, 10, 10), time(13), time(16)), WorkDay(date(2026, 10, 7))]
+    mount(project)
+    await user.open("/")
+    html = user.find(marker="stripes").elements.pop().content
+    assert html.count(KIND_COLORS[DayKind.SATURDAY]) == 5  # 10/10(土)は稼働なので平日の色
+    assert html.count(KIND_COLORS[DayKind.SUNDAY]) == 6
+    assert html.count(KIND_COLORS[DayKind.REST]) == 1  # 10/7(水)の休み
+
+
+async def test_overridden_days_get_a_note_on_the_day_header(user: User) -> None:
+    project = sample_project()
+    project.work_days = [WorkDay(date(2026, 10, 10), time(13), time(16)), WorkDay(date(2026, 10, 7))]
+    mount(project)
+    await user.open("/")
+    content = user.find(marker="label-row-cells").elements.pop().content
+    assert 'data-col="2026-10-10" title="稼働 13:00〜16:00"' in content
+    assert 'data-col="2026-10-07" title="休み"' in content
+    assert content.count("title=") == 2  # 上書きのない日には付けない
+
+
+async def test_no_notes_in_the_week_scale(user: User) -> None:
+    project = sample_project()
+    project.work_days = [WorkDay(date(2026, 10, 10), time(13), time(16))]
+    mount(project)
+    await user.open("/")
+    user.find(kind=ui.toggle).elements.pop().set_value(Scale.WEEK)
+    for _ in range(10):  # 描き直しを待つ
+        content = user.find(marker="label-row-cells").elements.pop().content
+        if f"width:{COLUMN_WIDTH_PX[Scale.WEEK]}px" in content:
+            break
+        await asyncio.sleep(0.1)
+    assert "title=" not in content

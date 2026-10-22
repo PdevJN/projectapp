@@ -3,12 +3,14 @@
 import csv
 import io
 import json
+from collections.abc import Mapping
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
 
 import httpx
 
+from projectapp.models import WorkDay
 from projectapp.storage import BASE_DIR
 
 HOLIDAYS_URL = "https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv"
@@ -21,6 +23,7 @@ class DayKind(StrEnum):
     SATURDAY = "土曜"
     SUNDAY = "日曜"
     HOLIDAY = "祝日"
+    REST = "休み"  # 稼働日の上書きで休みにした日
 
 
 def parse_holidays_csv(raw: bytes) -> dict[date, str]:
@@ -47,6 +50,26 @@ def day_kind(day: date, holidays: dict[date, str]) -> DayKind:
     if day.weekday() == 6:
         return DayKind.SUNDAY
     return DayKind.WEEKDAY
+
+
+def effective_kind(
+    day: date, holidays: dict[date, str], work_days: Mapping[date, WorkDay] | None = None
+) -> DayKind:
+    """背景の種類。稼働日の上書きがあれば、稼働は平日、休みは REST。なければ土日祝の判定。"""
+    if work_days and day in work_days:
+        return DayKind.WEEKDAY if work_days[day].start is not None else DayKind.REST
+    return day_kind(day, holidays)
+
+
+def work_day_note(
+    day: date, holidays: dict[date, str], work_days: Mapping[date, WorkDay] | None = None
+) -> str | None:
+    """日付ヘッダーのマウスオーバー。上書きがあるときだけ(`稼働 13:00〜16:00`・`休み`。祝日なら名前を添える)。"""
+    if not work_days or day not in work_days:
+        return None
+    row = work_days[day]
+    text = "休み" if row.start is None or row.end is None else f"稼働 {row.start:%H:%M}〜{row.end:%H:%M}"
+    return f"{text}(祝日: {holidays[day]})" if day in holidays else text
 
 
 def load_cache(base_dir: Path = BASE_DIR) -> dict[date, str] | None:
