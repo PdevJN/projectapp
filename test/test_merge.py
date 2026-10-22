@@ -407,5 +407,24 @@ def test_work_days_conflict_when_both_change_the_same_field_of_a_date() -> None:
     ours = proj(work_days=[wd("2026-10-17", 17)])
     theirs = proj(work_days=[wd("2026-10-17", 18)])
     result = merge_projects(base, ours, theirs)
-    assert [(c.kind, c.key, c.field) for c in result.conflicts] == [("work_day", "2026-10-17", "終了")]
+    assert [(c.kind, c.key, c.field) for c in result.conflicts] == [("work_day", "2026-10-17", "時間帯")]
     assert result.project.work_days[0].end == time(17)
+
+
+def test_work_day_window_is_one_item_so_a_rest_choice_never_leaves_half_a_window() -> None:
+    base = proj(work_days=[wd("2026-10-17")])
+    ours = proj(work_days=[WorkDay(date(2026, 10, 17))])  # 休みにした
+    theirs = proj(work_days=[wd("2026-10-17", 18)])  # 終了を変えた
+    result = merge_projects(base, ours, theirs, {("work_day", "2026-10-17", "時間帯"): THEIRS})
+    (conflict,) = result.conflicts
+    assert (conflict.ours, conflict.theirs) == ("休み", "13:00〜18:00")
+    assert result.project.work_days == [wd("2026-10-17", 18)]
+    assert merge_projects(base, ours, theirs).project.work_days == [WorkDay(date(2026, 10, 17))]
+
+
+def test_work_day_start_and_end_changed_on_different_sides_conflict_instead_of_collapsing() -> None:
+    base = proj(work_days=[wd("2026-10-17")])
+    ours = proj(work_days=[WorkDay(date(2026, 10, 17), time(13), time(17))])
+    theirs = proj(work_days=[WorkDay(date(2026, 10, 17), time(17), time(19))])
+    result = merge_projects(base, ours, theirs)
+    assert [(c.kind, c.field) for c in result.conflicts] == [("work_day", "時間帯")]

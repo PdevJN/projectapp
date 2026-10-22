@@ -359,24 +359,29 @@ def summarize_cross_loads(
     projects: list[Project], period: Period, holidays: dict[date, str], member: str | None = None
 ) -> dict[str, CrossLoad]:
     """複数のプロジェクトを重ねた負荷。同じ名前のメンバーを同一人物とみなす。"""
-    days = sorted({day for p in projects for day in _workdays(period, holidays, work_day_map(p.work_days))})
+    open_days = {id(p): set(_workdays(period, holidays, work_day_map(p.work_days))) for p in projects}
+    days = sorted(set().union(*open_days.values())) if projects else []
     per_project = [(project, _member_spans(project, holidays, member)) for project in projects]
     names = dict.fromkeys(m.name for p in projects for m in p.members if member is None or m.name == member)
     loads: dict[str, CrossLoad] = {}
     for name in names:
         rows: list[ProjectLoad] = []
-        everything: list[Span] = []
+        everything: list[tuple[Project, list[Span]]] = []
         per_day: list[tuple[str, list[float]]] = []
         for project, spans in per_project:
             if name not in {m.name for m in project.members}:
                 continue
             items = spans.get(name, [])
-            everything += items
-            totals = _day_totals(items, days)
+            everything.append((project, items))
+            # 自分が稼働しない日は、タスクの期間が通っても数えない
+            totals = [peak if day in open_days[id(project)] else 0.0 for peak, day in zip(_day_totals(items, days), days)]
             stats = _stats_of(totals)
             rows.append(ProjectLoad(project.name, stats.average, stats.peak))
             per_day.append((project.name, totals))
-        overall = _day_totals(everything, days)
+        overall = [
+            _day_peak([span for p, items in everything if day in open_days[id(p)] for span in items], day)
+            for day in days
+        ]
         day_rows = [
             DayLoad(day, overall[i], [ProjectPeak(title, totals[i]) for title, totals in per_day if totals[i] > 0])
             for i, day in enumerate(days)

@@ -475,6 +475,8 @@ def _work_days(value: Any) -> list[WorkDay]:
                 times.append(None)
             elif isinstance(text, str):
                 try:
+                    if not _CLOCK.fullmatch(text):
+                        raise ValueError(text)
                     times.append(time.fromisoformat(text))
                 except ValueError:
                     raise ValueError(f"稼働日の{key}の形式が正しくありません: {text!r}") from None
@@ -483,6 +485,9 @@ def _work_days(value: Any) -> list[WorkDay]:
         rows.append(WorkDay(day, times[0], times[1]))
     validate_work_days(rows)
     return sort_work_days(rows)
+
+
+_CLOCK = re.compile(r"\d{2}:\d{2}(:00)?")  # 時刻は HH:MM か HH:MM:00(秒未満・タイムゾーンは不可)
 
 
 def _kind(value: Any) -> TaskKind:

@@ -180,7 +180,7 @@ CATEGORY_LABELS = {"name": "名前", "kind": "種別", "expiry_date": "有効期
 PARAMETER_LABELS = {"levels": "段階"}
 TEMPLATE_LABELS = {"pattern": "URLの型"}
 EVENT_LABELS = {"start": "開始日", "end": "終了日", "text": "文字列", "color": "色"}
-WORK_DAY_LABELS = {"start": "開始", "end": "終了"}
+WORK_DAY_LABELS = {"window": "時間帯"}
 SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間", "work_start": "始業時刻", "actual_mode": "実績の記録方式"}
 
 
@@ -198,7 +198,13 @@ def _categories(project: Project) -> dict[str, Record]:
 
 
 def _work_days(project: Project) -> dict[str, Record]:
-    return {w.day.isoformat(): {"start": w.start, "end": w.end} for w in project.work_days}
+    # 開始と終了は組で意味を持つ(両方 None=休み)ので、1 項目として比べる
+    return {w.day.isoformat(): {"window": (w.start, w.end)} for w in project.work_days}
+
+
+def _show_window(name: str, value: Any) -> str:
+    start, end = value
+    return "休み" if start is None else f"{start:%H:%M}〜{end:%H:%M}"
 
 
 def _events(project: Project) -> dict[str, Record]:
@@ -278,7 +284,7 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
     categories = merger.collection("category", CATEGORY_LABELS, _categories(base), _categories(ours), _categories(theirs))
     events = merger.collection("event", EVENT_LABELS, _events(base), _events(ours), _events(theirs))
     work_days = merger.collection(
-        "work_day", WORK_DAY_LABELS, _work_days(base), _work_days(ours), _work_days(theirs)
+        "work_day", WORK_DAY_LABELS, _work_days(base), _work_days(ours), _work_days(theirs), _show_window
     )
     parameters = merger.collection("parameter", PARAMETER_LABELS, _parameters(base), _parameters(ours), _parameters(theirs))
     templates = merger.collection("url_template", TEMPLATE_LABELS, _templates(base), _templates(ours), _templates(theirs))
@@ -375,7 +381,7 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
         ],
         events=sort_events([Event(r["start"], r["end"], r["text"], r["color"], id=key) for key, r in events.items()]),
         work_days=sort_work_days(
-            [WorkDay(date.fromisoformat(key), r["start"], r["end"]) for key, r in work_days.items()]
+            [WorkDay(date.fromisoformat(key), *r["window"]) for key, r in work_days.items()]
         ),
         parameters=[Parameter(key, [Level(n, v) for n, v in r["levels"]]) for key, r in parameters.items()],
         url_templates=[UrlTemplate(key, r["pattern"]) for key, r in templates.items()],

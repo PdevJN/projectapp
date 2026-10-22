@@ -753,3 +753,17 @@ def test_cross_load_columns_are_the_union_of_each_projects_workdays() -> None:
     days = [d.day for d in loads["田中"].days]
     assert date(2026, 10, 17) in days and date(2026, 10, 18) not in days
     assert days == sorted(days)
+
+
+def test_cross_load_ignores_a_project_on_days_it_does_not_work() -> None:
+    def proj(name: str, alloc: float, start: datetime, end: datetime, work_days: list[WorkDay]) -> Project:
+        task = Task("t", planned_start=start, planned_end=end, planned_end_manual=True)
+        task.assignees = [Assignee("田中", alloc)]
+        return Project(name, members=[Member("田中")], tasks=[task], work_days=work_days)
+
+    b = proj("B", 1.0, datetime(2026, 10, 16, 9), datetime(2026, 10, 19, 17), [])
+    a = proj("A", 0.3, datetime(2026, 10, 17, 13), datetime(2026, 10, 17, 16), [WorkDay(date(2026, 10, 17), time(13), time(16))])
+    load = summarize_cross_loads([a, b], Period(date(2026, 10, 12), date(2026, 10, 18)), {})["田中"]
+    saturday = next(d for d in load.days if d.day == date(2026, 10, 17))
+    assert saturday.total == pytest.approx(0.3)  # B は土曜に稼働しないので数えない
+    assert [p.project for p in saturday.by_project] == ["A"]
