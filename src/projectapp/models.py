@@ -8,7 +8,7 @@ import secrets
 import unicodedata
 from enum import StrEnum
 
-FORMAT_VERSION = 7  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン)
+FORMAT_VERSION = 8  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き)
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -126,6 +126,15 @@ class Event:
 
 
 @dataclass
+class WorkDay:
+    """日付ごとの稼働の上書き(プロジェクト共通)。start・end がともに None なら休み。"""
+
+    day: date
+    start: time | None = None
+    end: time | None = None  # 同じ日の 23:59 まで。start より後
+
+
+@dataclass
 class Actual:
     """実績の1区間。endがNoneのときは進行中。"""
 
@@ -220,6 +229,7 @@ class Project:
     parameters: list[Parameter] = field(default_factory=list)  # 相対比率のパラメータ(プロジェクト共通)
     categories: list[Category] = field(default_factory=list)  # カテゴリ(プロジェクト共通。「未定」は含まない)
     events: list[Event] = field(default_factory=list)  # イベント(プロジェクト共通。並びが色の優先順で、後ろが勝つ)
+    work_days: list[WorkDay] = field(default_factory=list)  # 稼働日の上書き(プロジェクト共通。日付の昇順)
 
     def all_tasks(self) -> list[Task]:
         """セクションなしのタスク、続いて各セクションを深さ優先で(そのタスク → そのサブセクション)。"""

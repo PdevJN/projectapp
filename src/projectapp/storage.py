@@ -51,10 +51,12 @@ from projectapp.models import (
     TaskKind,
     TaskUrl,
     UrlTemplate,
+    WorkDay,
     new_id,
     tidy_task_name,
     walk_sections,
 )
+from projectapp.workdays import sort_work_days, validate_work_days
 from projectapp.urls import validate_templates, validate_urls
 
 BASE_DIR = Path.home() / ".projectapp"
@@ -103,6 +105,7 @@ def _check_unique_ids(project: Project) -> None:
 def _dump(project: Project) -> dict[str, Any]:
     """ファイルに書く辞書。担当者は名前ではなくメンバー id で指す。メンバーにいない名前は、メンバーを補う(実行時のプロジェクトは変えない)。"""
     data: dict[str, Any] = {"version": FORMAT_VERSION, **asdict(project)}
+    data["work_days"] = [asdict(row) for row in sort_work_days(project.work_days)]
     ids: dict[str, str] = {}
     for member in data["members"]:
         ids.setdefault(member["name"], member["id"])  # 同名は最初の 1 件を指す(読込が残すのも最初の 1 件)
@@ -449,6 +452,37 @@ def _events(value: Any) -> list[Event]:
         events.append(Event(dates[0], dates[1], text.strip(), normalized, _entity_id(raw.get("id"), "イベント")))
     validate_events(events)
     return events
+
+
+def _work_days(value: Any) -> list[WorkDay]:
+    """稼働日の上書き(version 8)。キーがない・null は空。形・時刻・重複の不正は ValueError。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("稼働日の上書きがリストではありません")
+    rows: list[WorkDay] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            raise ValueError("稼働日の上書きの形式が正しくありません")
+        try:
+            day = _iso_date(raw.get("day"), "日付")
+        except ValueError as exc:
+            raise ValueError(str(exc).replace("イベントの", "稼働日の")) from None
+        times: list[time | None] = []
+        for key in ("start", "end"):
+            text = raw.get(key)
+            if text is None:
+                times.append(None)
+            elif isinstance(text, str):
+                try:
+                    times.append(time.fromisoformat(text))
+                except ValueError:
+                    raise ValueError(f"稼働日の{key}の形式が正しくありません: {text!r}") from None
+            else:
+                raise ValueError(f"稼働日の{key}が文字列ではありません: {text!r}")
+        rows.append(WorkDay(day, times[0], times[1]))
+    validate_work_days(rows)
+    return sort_work_days(rows)
 
 
 def _kind(value: Any) -> TaskKind:
@@ -830,6 +864,7 @@ def parse_project(text: str, name: str) -> Project:
         parameters=_parameters(raw.get("parameters")),
         categories=_categories(raw.get("categories")) if ctx.version >= 3 else [],
         events=_events(raw.get("events")) if ctx.version >= 4 else [],
+        work_days=_work_days(raw.get("work_days")) if ctx.version >= 8 else [],
     )
     known = {m.name for m in project.members}
     for task in project.all_tasks():  # 古いファイルの自由入力の担当者を、メンバーとして補う
