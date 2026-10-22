@@ -206,6 +206,39 @@ def delete_section(project: Project, path: SectionPath) -> list[Task]:
     return moved
 
 
+def move_section(project: Project, path: SectionPath, to_index: int) -> bool:
+    """セクションを、同じ親の一覧の to_index の位置へ移す。範囲外・同じ位置なら何もせず False。"""
+    if not path or (len(path) > 1 and section_at(project, path[:-1]) is None):
+        return False
+    siblings = _sections_list(project, path)
+    index = path[-1]
+    if not (0 <= index < len(siblings) and 0 <= to_index < len(siblings)) or index == to_index:
+        return False
+    siblings.insert(to_index, siblings.pop(index))
+    return True
+
+
+def reorder_collapsed(
+    collapsed: set[SectionPath], parent: SectionPath, src: int, dst: int
+) -> set[SectionPath]:
+    """兄弟の src を dst へ移したぶん、折りたたみのパスを付け替える(子孫は動かしたセクションに付く)。"""
+    result: set[SectionPath] = set()
+    depth = len(parent)
+    for path in collapsed:
+        if len(path) <= depth or path[:depth] != parent:
+            result.add(path)
+            continue
+        number = path[depth]
+        if number == src:
+            number = dst
+        elif src < number <= dst:
+            number -= 1
+        elif dst <= number < src:
+            number += 1
+        result.add((*parent, number, *path[depth + 1 :]))
+    return result
+
+
 def remap_collapsed(
     collapsed: set[SectionPath], parent: SectionPath, index: int, delta: int
 ) -> set[SectionPath]:
@@ -302,3 +335,14 @@ def parse_shift(args: object) -> tuple[Position, int] | None:
     if position is None or days is None or abs(days) > MAX_SHIFT_DAYS:
         return None
     return position, days
+
+
+def parse_section_move(args: object) -> tuple[SectionPath, SectionPath] | None:
+    """セクションのドロップ。両方がセクションのパスで、同じ親の兄弟のときだけ通す。"""
+    if not isinstance(args, dict):
+        return None
+    src = parse_section(args.get("src"))
+    dst = parse_section(args.get("dst"))
+    if not src or not dst or src[:-1] != dst[:-1]:
+        return None
+    return src, dst
