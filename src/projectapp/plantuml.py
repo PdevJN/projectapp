@@ -121,11 +121,19 @@ def build_plantuml(
         "saturday are closed",
         "sunday are closed",
     ]
-    head += [
-        f"{day.isoformat()} is closed"
-        for day in sorted(holidays)
-        if p_start <= day <= p_end and day.weekday() < 5
-    ]
+    work = {row.day: row for row in project.work_days if p_start <= row.day <= p_end}
+    closed = {day for day in holidays if p_start <= day <= p_end and day.weekday() < 5}
+    opened: set[date] = set()
+    for day, row in work.items():
+        if row.start is None:
+            if day.weekday() < 5:
+                closed.add(day)
+        else:
+            closed.discard(day)
+            if day.weekday() >= 5:
+                opened.add(day)
+    head += [f"{day.isoformat()} is closed" for day in sorted(closed)]
+    head += [f"{day.isoformat()} is open" for day in sorted(opened)]
 
     event_lines: list[str] = []
     if show_events:

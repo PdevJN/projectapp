@@ -1,14 +1,14 @@
 import os
 import shutil
 import subprocess
-from datetime import date, datetime
+from datetime import date, datetime, time
 from pathlib import Path
 
 import pytest
 
 from projectapp.filtering import TaskFilter
 from projectapp.gantt import STATUS_COLORS as GANTT_STATUS_COLORS
-from projectapp.models import Actual, Assignee, Event, Project, Section, Status, Task, TaskKind
+from projectapp.models import Actual, Assignee, Event, Project, Section, Status, Task, TaskKind, WorkDay
 from projectapp.plantuml import (
     OVERDUE_COLOR,
     PLANTUML_FILE_TYPES,
@@ -290,6 +290,7 @@ def rendered_svgs() -> dict[Scale, str]:
         sections=[Section("開発", [second, dup], [Section("運用", [cp])])],
         events=[Event(date(2026, 10, 19), date(2026, 10, 30), "繁忙期", "lightpink", id="e1"),
                 Event(date(2026, 10, 23), date(2026, 10, 23), "本番", "red", id="e2")],
+        work_days=[WorkDay(date(2026, 10, 17), time(13), time(16)), WorkDay(date(2026, 10, 14))],
     )
     scales = [Scale.DAY, Scale.WEEK, Scale.MONTH]
     texts = [build(project, holidays={date(2026, 10, 12): "祝日"}, scale=s, now=datetime(2026, 10, 20)).text for s in scales]
@@ -348,3 +349,28 @@ def test_exported_assignees_read_back_through_the_importer() -> None:
     text = build(Project("p", tasks=[t])).text
     back = parse_plantuml(text, "戻し").project.all_tasks()[0]
     assert [(a.name, round(a.allocation, 2)) for a in back.assignees] == [("田中", 0.6), ("鈴木", 1.0)]
+
+
+def test_work_day_overrides_open_weekends_and_close_weekdays() -> None:
+    project = Project(
+        "p",
+        work_days=[
+            WorkDay(date(2026, 10, 17), time(13), time(16)),
+            WorkDay(date(2026, 10, 14)),
+            WorkDay(date(2026, 10, 12), time(10), time(12)),
+            WorkDay(date(2026, 11, 7), time(9), time(12)),
+            WorkDay(date(2026, 10, 18)),
+        ],
+    )
+    out = lines(project, holidays={date(2026, 10, 12): "スポーツの日"})
+    assert "2026-10-17 is open" in out
+    assert "2026-10-14 is closed" in out
+    assert "2026-10-12 is closed" not in out
+    assert "2026-11-07 is open" not in out
+    assert "2026-10-18 is closed" not in out and "2026-10-18 is open" not in out
+    assert out.count("2026-10-14 is closed") == 1
+
+
+def test_no_overrides_leave_the_closed_lines_unchanged() -> None:
+    out = lines(Project("p"), holidays={date(2026, 10, 13): "祝"})
+    assert [line for line in out if "is closed" in line or "is open" in line] == ["2026-10-13 is closed"]

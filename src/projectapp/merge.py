@@ -24,8 +24,10 @@ from projectapp.models import (
     Task,
     TaskKind,
     UrlTemplate,
+    WorkDay,
 )
 from projectapp.storage import dumps_project, parse_project
+from projectapp.workdays import sort_work_days
 
 OURS = "ours"
 THEIRS = "theirs"
@@ -37,7 +39,7 @@ _MISSING = object()
 
 @dataclass(frozen=True, eq=False)
 class Conflict:
-    kind: str  # task・section・member・category・event・parameter・url_template・setting
+    kind: str  # task・section・member・category・event・work_day・parameter・url_template・setting
     key: str  # id(パラメータ・テンプレートは名前)
     label: str  # 画面に出す名前
     field: str  # 画面に出す項目名。削除と変更の衝突は`DELETED`
@@ -178,6 +180,7 @@ CATEGORY_LABELS = {"name": "名前", "kind": "種別", "expiry_date": "有効期
 PARAMETER_LABELS = {"levels": "段階"}
 TEMPLATE_LABELS = {"pattern": "URLの型"}
 EVENT_LABELS = {"start": "開始日", "end": "終了日", "text": "文字列", "color": "色"}
+WORK_DAY_LABELS = {"start": "開始", "end": "終了"}
 SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間", "work_start": "始業時刻", "actual_mode": "実績の記録方式"}
 
 
@@ -192,6 +195,10 @@ def _categories(project: Project) -> dict[str, Record]:
         c.id: {"name": c.name, "kind": c.kind, "expiry_date": c.expiry_date, "color": c.color, "prj_code": c.prj_code}
         for c in project.categories
     }
+
+
+def _work_days(project: Project) -> dict[str, Record]:
+    return {w.day.isoformat(): {"start": w.start, "end": w.end} for w in project.work_days}
 
 
 def _events(project: Project) -> dict[str, Record]:
@@ -270,6 +277,9 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
     members = merger.collection("member", MEMBER_LABELS, _members(base), _members(ours), _members(theirs))
     categories = merger.collection("category", CATEGORY_LABELS, _categories(base), _categories(ours), _categories(theirs))
     events = merger.collection("event", EVENT_LABELS, _events(base), _events(ours), _events(theirs))
+    work_days = merger.collection(
+        "work_day", WORK_DAY_LABELS, _work_days(base), _work_days(ours), _work_days(theirs)
+    )
     parameters = merger.collection("parameter", PARAMETER_LABELS, _parameters(base), _parameters(ours), _parameters(theirs))
     templates = merger.collection("url_template", TEMPLATE_LABELS, _templates(base), _templates(ours), _templates(theirs))
     seen: set[str] = set()  # 同名で id の違うメンバーは、読み直すと片方が捨てられるので、名前を変えて両方残す
@@ -364,6 +374,9 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
             for key, r in categories.items()
         ],
         events=sort_events([Event(r["start"], r["end"], r["text"], r["color"], id=key) for key, r in events.items()]),
+        work_days=sort_work_days(
+            [WorkDay(date.fromisoformat(key), r["start"], r["end"]) for key, r in work_days.items()]
+        ),
         parameters=[Parameter(key, [Level(n, v) for n, v in r["levels"]]) for key, r in parameters.items()],
         url_templates=[UrlTemplate(key, r["pattern"]) for key, r in templates.items()],
     )

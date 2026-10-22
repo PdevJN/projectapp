@@ -16,6 +16,7 @@ from projectapp.models import (
     Section,
     Task,
     UrlTemplate,
+    WorkDay,
 )
 
 
@@ -383,3 +384,28 @@ def test_format_value_shortens_an_image_data_uri(icon: str) -> None:
 
     text = format_value(icon)
     assert text.startswith("画像(") and "data:" not in text and len(text) < 30
+
+
+def wd(day: str, end: int = 16) -> WorkDay:
+    return WorkDay(date.fromisoformat(day), time(13), time(end))
+
+
+def test_work_days_merge_by_date() -> None:
+    base = proj(work_days=[wd("2026-10-17")])
+    ours = proj(work_days=[wd("2026-10-17"), wd("2026-10-18", 12)])
+    theirs = proj(work_days=[wd("2026-10-17", 17)])
+    result = merge_projects(base, ours, theirs)
+    assert result.conflicts == []
+    assert [(w.day, w.end) for w in result.project.work_days] == [
+        (date(2026, 10, 17), time(17)),
+        (date(2026, 10, 18), time(12)),
+    ]
+
+
+def test_work_days_conflict_when_both_change_the_same_field_of_a_date() -> None:
+    base = proj(work_days=[wd("2026-10-17")])
+    ours = proj(work_days=[wd("2026-10-17", 17)])
+    theirs = proj(work_days=[wd("2026-10-17", 18)])
+    result = merge_projects(base, ours, theirs)
+    assert [(c.kind, c.key, c.field) for c in result.conflicts] == [("work_day", "2026-10-17", "終了")]
+    assert result.project.work_days[0].end == time(17)
