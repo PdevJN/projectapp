@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import datetime
 
 import pytest
@@ -6,7 +7,7 @@ from nicegui.testing import User
 from projectapp import arrange
 from projectapp.gantt import ViewOptions
 from projectapp.linkgraph import validate_links
-from projectapp.models import Actual, Project, Section, Task, TaskKind, walk_sections
+from projectapp.models import Actual, Project, Section, SectionPath, Task, TaskKind, walk_sections
 from test_gantt import mount_chart, mount_with
 
 
@@ -153,3 +154,115 @@ async def test_pressing_outside_closes_both_menus(user: User) -> None:
     js = charts[0].menu_close_js()
     assert f"getElement({charts[0].menu.id}).hide()" in js  # type: ignore[union-attr]
     assert f"getElement({charts[0].section_menu.id}).hide()" in js  # type: ignore[union-attr]
+
+
+def three_roots() -> Project:
+    """root に A・B・C。A の中にサブセクション x・y・z(z の中に孫 w)。"""
+    return Project(
+        "p",
+        sections=[
+            Section(
+                "A",
+                [Task("ta", id="ta")],
+                [Section("x", id="x"), Section("y", id="y"), Section("z", [], [Section("w", id="w")], id="z")],
+                id="A",
+            ),
+            Section("B", [Task("tb", id="tb")], id="B"),
+            Section("C", id="C"),
+        ],
+    )
+
+
+def names(sections: list[Section]) -> list[str]:
+    return [s.name for s in sections]
+
+
+@pytest.mark.parametrize(
+    ("path", "to_index", "expected"),
+    [
+        ((0,), 2, ["B", "C", "A"]),  # 先頭を末尾へ
+        ((2,), 0, ["C", "A", "B"]),  # 末尾を先頭へ
+        ((0,), 1, ["B", "A", "C"]),
+        ((1,), 0, ["B", "A", "C"]),
+    ],
+)
+def test_move_section_reorders_the_roots(path: SectionPath, to_index: int, expected: list[str]) -> None:
+    project = three_roots()
+    assert arrange.move_section(project, path, to_index) is True
+    assert names(project.sections) == expected
+
+
+def test_move_section_reorders_subsections_and_keeps_contents_and_ids() -> None:
+    project = three_roots()
+    assert arrange.move_section(project, (0, 0), 2) is True
+    parent = project.sections[0]
+    assert names(parent.sections) == ["y", "z", "x"]
+    assert [s.id for s in parent.sections] == ["y", "z", "x"]
+    assert [t.name for t in parent.tasks] == ["ta"]
+    assert names(parent.sections[1].sections) == ["w"]  # 孫は z に付いたまま
+
+
+def test_move_section_reorders_a_third_level_section() -> None:
+    project = Project("p", sections=[Section("A", [], [Section("B", [], [Section("c1"), Section("c2")])])])
+    assert arrange.move_section(project, (0, 0, 1), 0) is True
+    assert names(project.sections[0].sections[0].sections) == ["c2", "c1"]
+
+
+@pytest.mark.parametrize(
+    ("path", "to_index"),
+    [((1,), 1), ((0,), 3), ((0,), -1), ((5,), 0), ((), 0), ((0, 9), 0), ((9, 0), 0), ((0, 0), 3)],
+)
+def test_move_section_returns_false_and_changes_nothing_for_a_noop_or_bad_target(path: SectionPath, to_index: int) -> None:
+    project = three_roots()
+    before = deepcopy(project)
+    assert arrange.move_section(project, path, to_index) is False
+    assert project == before
+
+
+@pytest.mark.parametrize(
+    ("paths", "parent", "src", "dst", "expected"),
+    [
+        ({(0,), (1,), (2,)}, (), 0, 2, {(2,), (0,), (1,)}),  # 先頭を末尾へ: 動かした分は 2 に、間は 1 つ前へ
+        ({(2,)}, (), 2, 0, {(0,)}),  # 末尾を先頭へ
+        ({(1,)}, (), 0, 2, {(0,)}),  # 間の兄弟は 1 つ前へ
+        ({(1,)}, (), 2, 0, {(2,)}),  # 間の兄弟は 1 つ後ろへ
+        ({(3,)}, (), 0, 2, {(3,)}),  # 範囲の外は変えない
+        ({(0, 1, 0), (0, 2)}, (0,), 1, 2, {(0, 2, 0), (0, 1)}),  # 子孫は動かしたセクションに付いていく
+        ({(1, 0), (2,)}, (0,), 0, 1, {(1, 0), (2,)}),  # 別の親は変えない
+        ({(0,)}, (), 1, 1, {(0,)}),  # 同じ位置は何も変えない
+    ],
+)
+def test_reorder_collapsed_follows_the_moved_sections(
+    paths: set[SectionPath], parent: SectionPath, src: int, dst: int, expected: set[SectionPath]
+) -> None:
+    assert arrange.reorder_collapsed(paths, parent, src, dst) == expected
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        ({"src": "0", "dst": "2"}, ((0,), (2,))),
+        ({"src": "0.1", "dst": "0.2"}, ((0, 1), (0, 2))),
+        ({"src": "0.1.2", "dst": "0.1.0"}, ((0, 1, 2), (0, 1, 0))),
+        ({"src": "0", "dst": "0.1"}, None),  # 親が違う
+        ({"src": "0.1", "dst": "1.1"}, None),
+        ({"src": "top", "dst": "0"}, None),  # root(タスク側)は動かせない
+        ({"src": "0", "dst": "top"}, None),
+        ({"src": "0", "dst": 2}, None),
+        ({"src": "x", "dst": "0"}, None),
+        ({"src": "0"}, None),
+        ("0", None),
+        (None, None),
+    ],
+)
+def test_parse_section_move_accepts_only_siblings(args: object, expected: tuple[SectionPath, SectionPath] | None) -> None:
+    assert arrange.parse_section_move(args) == expected
+
+
+def test_collapsed_ids_and_paths_round_trip_through_a_reorder() -> None:
+    project = three_roots()
+    ids = arrange.collapsed_ids(project, {(0,), (0, 2, 0), (9,)})  # 存在しないパスは無視する
+    assert ids == {"A", "w"}
+    arrange.move_section(project, (0,), 2)  # A が末尾へ
+    assert arrange.collapsed_paths(project, ids) == {(2,), (2, 2, 0)}
+    assert arrange.collapsed_paths(project, {"gone"}) == set()

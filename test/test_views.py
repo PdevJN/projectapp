@@ -1,3 +1,4 @@
+from copy import deepcopy
 import asyncio
 import gc
 import json
@@ -3576,6 +3577,57 @@ async def open_nested_view(user: User, tmp_path: Path) -> MainView:
     view.project.tasks = [Task("r0")]
     view.gantt.set_project(view.project)
     return view
+
+
+async def open_two_sections_view(user: User, tmp_path: Path) -> MainView:
+    view = await open_nested_view(user, tmp_path)
+    view.project.sections.append(Section("兄弟", [Task("s0")]))
+    view.gantt.set_project(view.project)
+    view.history.clear()
+    view.committed = deepcopy(view.project)
+    return view
+
+
+async def test_move_section_reorders_marks_dirty_and_undoes_in_one_step(user: User, tmp_path: Path) -> None:
+    view = await open_two_sections_view(user, tmp_path)
+    view.move_section((1,), (0,))
+    assert [s.name for s in view.project.sections] == ["兄弟", "親"]
+    assert view.is_dirty()
+    view.undo()
+    assert [s.name for s in view.project.sections] == ["親", "兄弟"]
+    view.redo()
+    assert [s.name for s in view.project.sections] == ["兄弟", "親"]
+
+
+async def test_move_section_carries_the_collapsed_state_with_the_section(user: User, tmp_path: Path) -> None:
+    view = await open_two_sections_view(user, tmp_path)
+    view.gantt.collapsed.update({(0,), (0, 0)})  # 親とその子が折りたたみ
+    view.move_section((0,), (1,))
+    assert [s.name for s in view.project.sections] == ["兄弟", "親"]
+    assert view.gantt.collapsed == {(1,), (1, 0)}
+
+
+async def test_undo_and_redo_keep_the_collapsed_state_on_the_same_section(user: User, tmp_path: Path) -> None:
+    view = await open_two_sections_view(user, tmp_path)
+    view.gantt.collapsed.update({(0,), (0, 0)})  # 親とその子が折りたたみ
+    view.move_section((0,), (1,))
+    assert view.gantt.collapsed == {(1,), (1, 0)}
+    view.undo()
+    assert [s.name for s in view.project.sections] == ["親", "兄弟"]
+    assert view.gantt.collapsed == {(0,), (0, 0)}  # 折りたたみは親に付いて戻る(兄弟が閉じない)
+    view.redo()
+    assert view.gantt.collapsed == {(1,), (1, 0)}
+
+
+async def test_move_section_ignores_other_parents_and_noops_without_a_history_step(user: User, tmp_path: Path) -> None:
+    view = await open_two_sections_view(user, tmp_path)
+    before = deepcopy(view.project)
+    view.move_section((1,), (0, 0))  # 親が違う
+    view.move_section((0,), (0,))  # 同じ位置
+    view.move_section((0,), (9,))  # 範囲外
+    view.move_section((), (0,))
+    assert view.project == before
+    assert len(view.history.undo_stack) == 0
 
 
 async def test_a_task_is_saved_into_a_nested_section(user: User, tmp_path: Path) -> None:
