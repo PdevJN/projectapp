@@ -12,7 +12,7 @@ from projectapp import arrange
 from projectapp.avatar import avatar
 from projectapp.browser import open_url as default_open_url
 from projectapp.arrange import Position, section_key
-from projectapp.calendar import DayKind, effective_kind, work_day_note
+from projectapp.calendar import DayKind, day_kind, member_notes
 from projectapp.forms import task_name_error
 from projectapp.events import assign_lanes, cell_colors, color_hex, column_span
 from projectapp.categories import by_id, chip_text
@@ -50,7 +50,6 @@ from projectapp.timeline import (
     progress_state,
     year_bands,
 )
-from projectapp.workdays import work_day_map
 
 NAME_WIDTH_PROPS = (  # JS が範囲と掴み場所の幅を読む。定義元は Python の定数
     f"data-chart-content data-name-min={MIN_NAME_WIDTH_PX} data-name-max={MAX_NAME_WIDTH_PX}"
@@ -62,13 +61,13 @@ KIND_COLORS = {
     DayKind.SATURDAY: "rgba(66, 165, 245, 0.18)",
     DayKind.SUNDAY: "rgba(244, 143, 177, 0.22)",
     DayKind.HOLIDAY: "rgba(129, 199, 132, 0.28)",
-    DayKind.REST: "rgba(158, 158, 158, 0.25)",  # 平日を休みにした日。土日祝のどれとも区別できる灰色
 }
 BAND_HEIGHT_PX = 22  # 年・月の帯の高さ
 HEADER_HEIGHT_PX = 44  # 日次の日付と(曜日)の2段
 WEEKDAYS = "月火水木金土日"
 DEADLINE_MARKER_HALF_PX = 6  # 「◆」の幅の半分。締切の位置が目印の中心に来るようにずらす
 CHECKPOINT_MARKER_PX = 20  # チェックポイントの ◆ の大きさ(締切の小さな ◆ より大きい)
+WORKMARK_HEIGHT_PX = 4  # 担当者の稼働日の上書きの印の高さ
 DEADLINE_COLOR = "#f57c00"  # 赤は予定超過の背景と競合するので使わない
 OVERLOAD_STRIPES = (  # 割り当て合計が100%を超える期間の縞。タスクの色に依存しないよう白と黒の半透明を重ねる
     "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 4px, rgba(0,0,0,0.35) 4px 8px)"
@@ -292,18 +291,15 @@ def fill_percent(task: Task) -> int | None:
     return percent
 
 
-def header_cell_html(column: Column, width: int, weekday: bool, note: str | None = None) -> str:
-    """見出しの 1 列ぶん(日付、日次は曜日も)の HTML。内容は日付のみで、念のためエスケープする。
-    note(稼働日の上書きの説明)があれば、マウスオーバーと、下端の橙の印を付ける。"""
+def header_cell_html(column: Column, width: int, weekday: bool) -> str:
+    """見出しの 1 列ぶん(日付、日次は曜日も)の HTML。内容は日付のみで、念のためエスケープする。"""
     lines = [column.label]
     if weekday:
         lines.append(f"（{WEEKDAYS[column.start.weekday()]}）")
     inner = "".join(f"<div>{html.escape(line)}</div>" for line in lines)
-    title = f' title="{html.escape(note, quote=True)}"' if note else ""
-    mark = f";box-shadow:inset 0 -3px 0 {DEADLINE_COLOR}" if note else ""
     return (
-        f'<div class="text-caption" data-col="{column.start.isoformat()}"{title}'
-        f' style="width:{width}px;display:flex;flex-direction:column;align-items:center{mark}">'
+        f'<div class="text-caption" data-col="{column.start.isoformat()}"'
+        f' style="width:{width}px;display:flex;flex-direction:column;align-items:center">'
         f"{inner}</div>"
     )
 
@@ -382,7 +378,6 @@ class GanttChart:
         self.category_lookup: dict[str, Category] = {}
         self.icon_lookup: dict[str, str] = {}
         self.schedule = Schedule(project, holidays)
-        self.work_days = work_day_map(project.work_days)
         self.links_html: ui.html | None = None
         self.link_layout: tuple[list[Column], int] | None = None
         self.scale = Scale.DAY
@@ -957,7 +952,6 @@ class GanttChart:
         self.tasks_by_id = self.project.task_map()
         self.parents = parent_map(self.project)
         self.schedule = Schedule(self.project, self.holidays)
-        self.work_days = work_day_map(self.project.work_days)
         columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
         self.overloads = overallocations(self.project, self.holidays)
         self.category_lookup = by_id(self.project.categories)
@@ -1040,11 +1034,27 @@ class GanttChart:
             " pointer-events: none"
         ).mark("gridlines")
 
+    def work_day_strip(
+        self, key: int | str, ti: int, notes: dict[date, str], columns: list[Column], width: int
+    ) -> None:
+        """日次の行の下端に、担当者が稼働日を上書きした日の印(橙)を出す。内容は日付と、メンバー名・時刻(エスケープする)。"""
+        cells = "".join(
+            f'<div title="{html.escape(notes[c.start], quote=True)}" style="width:{width}px;height:100%;'
+            f'background:{DEADLINE_COLOR};pointer-events:auto"></div>'
+            if c.start in notes
+            else f'<div style="width:{width}px"></div>'
+            for c in columns
+        )
+        ui.html(f'<div style="display:flex;height:100%">{cells}</div>', sanitize=False).style(
+            f"position: absolute; left: var(--name-w); bottom: 0; height: {WORKMARK_HEIGHT_PX}px;"
+            " pointer-events: none"
+        ).mark(f"workmark-{key}-{ti}")
+
     def stripes(self, columns: list[Column], width: int, top: int) -> None:
         """日次スケールの土日祝の背景。内容は定数と日付のみで利用者の入力を含まない。"""
         cells = "".join(
             f'<div style="width:{width}px;background:'
-            f'{KIND_COLORS.get(effective_kind(column.start, self.holidays, self.work_days), "transparent")}">'
+            f'{KIND_COLORS.get(day_kind(column.start, self.holidays), "transparent")}">'
             "</div>"
             for column in columns
         )
@@ -1149,10 +1159,7 @@ class GanttChart:
             # 列ごとに要素を作ると、描画の大半を占めるので、日付と曜日は 1 つの HTML にまとめる(格子線・縞と同じ)
             day = self.view_scale is Scale.DAY
             cells = "".join(
-                header_cell_html(
-                    column, width, weekday=day,
-                    note=work_day_note(column.start, self.holidays, self.work_days) if day else None,
-                )
+                header_cell_html(column, width, weekday=day)
                 for column in columns
             )
             ui.html(f'<div style="display:flex">{cells}</div>', sanitize=False).style(
@@ -1310,6 +1317,8 @@ class GanttChart:
             if summary:  # 棒の代わりに、子の期間を覆う細い帯を出す
                 self.summary_band(path, key, ti, task, columns, width)
                 return row
+            if self.view_scale is Scale.DAY and (notes := member_notes(task, self.project, self.holidays)):
+                self.work_day_strip(key, ti, notes, columns, width)
             start = self.schedule.start(task)
             end = self.schedule.bar_end(task)
             span = bar_span(start, end, columns)

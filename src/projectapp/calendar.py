@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-from projectapp.models import WorkDay
+from projectapp.models import Project, Task, WorkDay
 from projectapp.storage import BASE_DIR
 
 HOLIDAYS_URL = "https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv"
@@ -23,7 +23,6 @@ class DayKind(StrEnum):
     SATURDAY = "土曜"
     SUNDAY = "日曜"
     HOLIDAY = "祝日"
-    REST = "休み"  # 稼働日の上書きで休みにした日
 
 
 def parse_holidays_csv(raw: bytes) -> dict[date, str]:
@@ -52,15 +51,6 @@ def day_kind(day: date, holidays: dict[date, str]) -> DayKind:
     return DayKind.WEEKDAY
 
 
-def effective_kind(
-    day: date, holidays: dict[date, str], work_days: Mapping[date, WorkDay] | None = None
-) -> DayKind:
-    """背景の種類。稼働日の上書きがあれば、稼働は平日、休みは REST。なければ土日祝の判定。"""
-    if work_days and day in work_days:
-        return DayKind.WEEKDAY if work_days[day].start is not None else DayKind.REST
-    return day_kind(day, holidays)
-
-
 def work_day_note(
     day: date, holidays: dict[date, str], work_days: Mapping[date, WorkDay] | None = None
 ) -> str | None:
@@ -70,6 +60,22 @@ def work_day_note(
     row = work_days[day]
     text = "休み" if row.start is None or row.end is None else f"稼働 {row.start:%H:%M}〜{row.end:%H:%M}"
     return f"{text}(祝日: {holidays[day]})" if day in holidays else text
+
+
+def member_notes(task: Task, project: Project, holidays: dict[date, str]) -> dict[date, str]:
+    """担当者が上書きした日 → 説明(`田中: 稼働 13:00〜16:00`)。複数なら ` / ` で結ぶ。メンバーでない担当者は数えない。"""
+    by_name = {m.name: m for m in project.members}
+    notes: dict[date, list[str]] = {}
+    for assignee in task.assignees:
+        member = by_name.get(assignee.name)
+        if member is None:
+            continue
+        days = {row.day: row for row in member.work_days}
+        for day in days:
+            text = work_day_note(day, holidays, days)
+            if text:
+                notes.setdefault(day, []).append(f"{member.name}: {text}")
+    return {day: " / ".join(lines) for day, lines in notes.items()}
 
 
 def load_cache(base_dir: Path = BASE_DIR) -> dict[date, str] | None:
