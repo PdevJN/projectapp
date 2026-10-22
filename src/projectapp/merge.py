@@ -207,6 +207,10 @@ def _show_window(name: str, value: Any) -> str:
     return "休み" if start is None else f"{start:%H:%M}〜{end:%H:%M}"
 
 
+def _member_work_days(project: Project) -> dict[str, Record]:
+    return {f"{m.id}:{w.day.isoformat()}": {"window": (w.start, w.end)} for m in project.members for w in m.work_days}
+
+
 def _events(project: Project) -> dict[str, Record]:
     return {e.id: {"start": e.start, "end": e.end, "text": e.text, "color": e.color} for e in project.events}
 
@@ -286,6 +290,14 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
     work_days = merger.collection(
         "work_day", WORK_DAY_LABELS, _work_days(base), _work_days(ours), _work_days(theirs), _show_window
     )
+    member_days = merger.collection(
+        "work_day",
+        WORK_DAY_LABELS,
+        _member_work_days(base),
+        _member_work_days(ours),
+        _member_work_days(theirs),
+        _show_window,
+    )
     parameters = merger.collection("parameter", PARAMETER_LABELS, _parameters(base), _parameters(ours), _parameters(theirs))
     templates = merger.collection("url_template", TEMPLATE_LABELS, _templates(base), _templates(ours), _templates(theirs))
     seen: set[str] = set()  # 同名で id の違うメンバーは、読み直すと片方が捨てられるので、名前を変えて両方残す
@@ -364,6 +376,17 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
 
     root_tasks, root_sections = build(None)
 
+    built_members = [
+        Member(r["name"], r["ratio"], dict(r["levels"]), id=key, icon=r["icon"]) for key, r in members.items()
+    ]
+    by_id = {m.id: m for m in built_members}
+    for key, r in member_days.items():
+        member_id, day = key.split(":", 1)
+        if member_id in by_id:  # 削除されたメンバーの上書きは捨てる
+            by_id[member_id].work_days.append(WorkDay(date.fromisoformat(day), *r["window"]))
+    for member in built_members:
+        member.work_days = sort_work_days(member.work_days)
+
     project = Project(
         name=ours.name,
         tasks=root_tasks,
@@ -372,9 +395,7 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
         daily_hours=settings["daily_hours"],
         work_start=settings["work_start"],
         actual_mode=settings["actual_mode"],
-        members=[
-            Member(r["name"], r["ratio"], dict(r["levels"]), id=key, icon=r["icon"]) for key, r in members.items()
-        ],
+        members=built_members,
         categories=[
             Category(r["name"], r["kind"], r["expiry_date"], r["color"], r["prj_code"], id=key)
             for key, r in categories.items()

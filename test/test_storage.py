@@ -1824,7 +1824,7 @@ def test_an_invalid_icon_is_rejected_on_load(tmp_path: Path, value: object) -> N
 def test_a_member_added_for_an_unknown_assignee_is_saved_with_an_empty_icon(tmp_path: Path) -> None:
     project = Project("demo", sections=[Section("s", [Task("t", assignees=[Assignee("丙", 1.0)])])])
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["members"] == [{"name": "丙", "ratio": 1.0, "levels": {}, "id": raw["members"][0]["id"], "icon": ""}]
+    assert raw["members"] == [{"name": "丙", "ratio": 1.0, "levels": {}, "id": raw["members"][0]["id"], "icon": "", "work_days": []}]
 
 
 def test_an_icon_with_a_huge_declared_size_is_rejected_on_load_with_a_value_error(tmp_path: Path) -> None:
@@ -1883,7 +1883,30 @@ def test_files_without_work_days_load_as_empty() -> None:
     ],
 )
 def test_bad_work_days_are_rejected(rows: object) -> None:
-    raw = json.loads(dumps_project(Project("p")))
-    raw["work_days"] = rows
+    raw = json.loads(dumps_project(Project("p", members=[Member("甲", id="m1")])))
+    raw["members"][0]["work_days"] = rows
     with pytest.raises(ValueError):
         parse_project(json.dumps(raw), "p")
+
+
+def test_member_work_days_round_trip_in_date_order() -> None:
+    member = Member(
+        "甲",
+        id="m1",
+        work_days=[WorkDay(date(2026, 10, 18)), WorkDay(date(2026, 10, 17), time(13), time(16))],
+    )
+    text = dumps_project(Project("p", members=[member]))
+    saved = json.loads(text)["members"][0]["work_days"]
+    assert saved == [
+        {"day": "2026-10-17", "start": "13:00:00", "end": "16:00:00"},
+        {"day": "2026-10-18", "start": None, "end": None},
+    ]
+    loaded = parse_project(text, "p").members[0].work_days
+    assert loaded == [WorkDay(date(2026, 10, 17), time(13), time(16)), WorkDay(date(2026, 10, 18))]
+
+
+def test_members_without_work_days_load_as_empty() -> None:
+    raw = json.loads(dumps_project(Project("p", members=[Member("甲", id="m1")])))
+    raw["version"] = 7
+    del raw["members"][0]["work_days"]
+    assert parse_project(json.dumps(raw), "p").members[0].work_days == []

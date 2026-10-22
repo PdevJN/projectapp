@@ -106,6 +106,8 @@ def _dump(project: Project) -> dict[str, Any]:
     """ファイルに書く辞書。担当者は名前ではなくメンバー id で指す。メンバーにいない名前は、メンバーを補う(実行時のプロジェクトは変えない)。"""
     data: dict[str, Any] = {"version": FORMAT_VERSION, **asdict(project)}
     data["work_days"] = [asdict(row) for row in sort_work_days(project.work_days)]
+    for saved, member in zip(data["members"], project.members):
+        saved["work_days"] = [asdict(row) for row in sort_work_days(member.work_days)]
     ids: dict[str, str] = {}
     for member in data["members"]:
         ids.setdefault(member["name"], member["id"])  # 同名は最初の 1 件を指す(読込が残すのも最初の 1 件)
@@ -117,7 +119,7 @@ def _dump(project: Project) -> dict[str, Any]:
             if name not in ids:
                 ids[name] = new_id(taken)
                 taken.add(ids[name])
-                data["members"].append({"name": name, "ratio": 1.0, "levels": {}, "id": ids[name], "icon": ""})
+                data["members"].append({"name": name, "ratio": 1.0, "levels": {}, "id": ids[name], "icon": "", "work_days": []})
             refs.append({"member": ids[name], "allocation": assignee["allocation"]})
         task["assignees"] = refs
     return data
@@ -758,6 +760,7 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
         ratio = _number_in_range(raw.get("ratio", 1.0), MIN_RATIO, MAX_RATIO, "相対比率")
         levels = _member_levels(raw.get("levels"))
         icon = _icon(raw.get("icon")) if ctx.version >= 7 else ""
+        work_days = _work_days(raw.get("work_days")) if ctx.version >= 8 else []
         member_id = None
         if ctx.version >= 2:
             member_id = _entity_id(raw.get("id"), "メンバー")
@@ -769,7 +772,7 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
         if not name or name in seen:
             continue
         seen.add(name)
-        member = Member(name, ratio, levels, icon=icon)
+        member = Member(name, ratio, levels, icon=icon, work_days=work_days)
         if member_id is not None:
             member.id = member_id
         members.append(member)

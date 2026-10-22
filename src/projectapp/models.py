@@ -82,12 +82,22 @@ class ActualMode(StrEnum):
 
 
 @dataclass
+class WorkDay:
+    """日付ごとの稼働の上書き(プロジェクト共通)。start・end がともに None なら休み。"""
+
+    day: date
+    start: time | None = None
+    end: time | None = None  # 同じ日の 23:59 まで。start より後
+
+
+@dataclass
 class Member:
     name: str
     ratio: float = 1.0  # 基本比率(1.0 = 100%)。相対比率 = 基本比率 + 選んだ段階の判定値の合計
     levels: dict[str, str] = field(default_factory=dict)  # パラメータ名 → 選んだ段階名
     id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する(担当者はこの id で指す)
     icon: str = ""  # アイコン(128×128 の PNG の data URI)。空はアイコンなし
+    work_days: list[WorkDay] = field(default_factory=list)  # 稼働日の上書き(日付の昇順。このメンバーだけに効く)
 
 
 @dataclass
@@ -123,15 +133,6 @@ class Event:
     text: str
     color: str = "gray"  # events.CSS_COLORS のどれか(小文字)
     id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する
-
-
-@dataclass
-class WorkDay:
-    """日付ごとの稼働の上書き(プロジェクト共通)。start・end がともに None なら休み。"""
-
-    day: date
-    start: time | None = None
-    end: time | None = None  # 同じ日の 23:59 まで。start より後
 
 
 @dataclass
