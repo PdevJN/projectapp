@@ -2,7 +2,7 @@
 
 実装前の要望を、背景・今の仕組み・影響の見込み・決めたい点とともに書き留める。番号は、`.claude/MEMORY.md` の「今後の要望」と同じ(一覧の正本は`MEMORY.md`)。着手するときは、`docs/superpowers/specs/`に設計を書く。これまでの対応の実績は、[`request-history.md`](request-history.md)。
 
-## 要望 30: 土日の稼働時間を登録できるようにする(2026-10-11 に受領。実装済み。設計は`docs/superpowers/specs/2026-10-22-work-days-design.md`)
+## 要望 30: 土日の稼働時間を登録できるようにする(2026-10-11 に受領。実装済み(メンバーごと)。設計は`docs/superpowers/specs/2026-10-23-member-work-days-design.md`)
 
 ### 要望
 遅延が出たとき、土日のどちらかを稼働に使うことがある。たとえば、土曜に 3 時間だけ稼働する、という使い方を、完了予定の算出に反映したい。

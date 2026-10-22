@@ -48,7 +48,7 @@
 | 29 | カテゴリ機能 | 完了 | 2026-10-11 | `category` | PR #4(75126f7。2026-10-11) | テスト 2,099 件。ファイル形式 version 3 |
 | 30 | 土日の稼働時間の登録 | 未着手 | 2026-10-11 | — | — | [`requests.md`](requests.md) |
 | 31 | 複数プロジェクトの並行稼働の負荷をダッシュボードで見る | 未着手 | 2026-10-11 | — | — | [`requests.md`](requests.md) |
-| 30 | 土日の稼働時間の登録(稼働日の上書き) | 実装済み・実機確認待ち | 2026-10-11 | [設計](superpowers/specs/2026-10-22-work-days-design.md)・[計画](superpowers/plans/2026-10-22-work-days.md) | `feature/work-days`(未マージ) | version 8。`workdays.py`。日ごとの枠で`calc_end`を回す |
+| 30 | 土日の稼働時間の登録(稼働日の上書き) | 実装済み・実機確認待ち | 2026-10-11 | [設計](superpowers/specs/2026-10-23-member-work-days-design.md)・[計画](superpowers/plans/2026-10-23-member-work-days.md) | `feature/work-days`(未マージ) | メンバーごとの上書き(2026-10-23 に作り直し)。version 8。`workdays.py`。担当者の枠を重ねて`calc_end`を回す |
 | 32 | 実績があるタスクのメンバーを付け替えるとき、工数の再算定を選べるようにする | 完了 | 2026-10-11 | [設計](superpowers/specs/2026-10-21-reassign-recalc-design.md)・[計画](superpowers/plans/2026-10-21-reassign-recalc.md) | PR #60(ab64f36。2026-10-21) | 完了予定だけを見直す(工数は書き換えない)。手指定で保存。`reassign.py`。[`requests.md`](requests.md) |
 | 33 | タスクの分解(新しいセクションにまとめるかを選べる) | 完了(PR #42。ee724a6。2026-10-18。テスト 2,979 件) | 2026-10-11 | [設計](superpowers/specs/2026-10-18-task-decompose-design.md)・[計画](superpowers/plans/2026-10-18-task-decompose.md) | — | 元のタスクは種別`まとめ`として残す。編集ダイアログの`分解…`から。折りたたみができる |
 | 34 | 工数があるとき、完了予定を手で指定していても、算出値を参考値として出す | 完了(PR #31。`develop`へマージ済み) | 2026-10-11 | チャットで承認(bounded) | a998e14(2026-10-18) | `forms.end_gap_hint`。算出値の欄を残し、ヒントに日数差。テスト 2,837 件。実機確認済み。[`requests.md`](requests.md) |
