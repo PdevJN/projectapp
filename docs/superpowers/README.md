@@ -49,3 +49,4 @@
 | 2026-10-17 | 元に戻す・やり直し | [設計](specs/2026-10-17-undo-redo-design.md) | [計画](plans/2026-10-17-undo-redo.md) | 要望 36 | PR #24(89b058d。2026-10-17) | — |
 | 2026-10-18 | タスクの分解(まとめ) | [設計](specs/2026-10-18-task-decompose-design.md) | [計画](plans/2026-10-18-task-decompose.md) | 要望 33 | PR #42(ee724a6。2026-10-18) | — |
 | 2026-10-18 | ダッシュボードのメンバー絞り込みと内訳 | [設計](specs/2026-10-18-dashboard-member-filter-design.md) | [計画](plans/2026-10-18-dashboard-member-filter.md) | 要望 43 | PR #53(3a2cabf。2026-10-18) | — |
+| 2026-10-22 | セクションの並べ替え(ドラッグ) | [設計](specs/2026-10-22-section-move-design.md) | [計画](plans/2026-10-22-section-move.md) | — | 未マージ(`feature/section-move`) | — |
