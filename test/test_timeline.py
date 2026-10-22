@@ -17,6 +17,8 @@ from projectapp.timeline import (
     build_columns,
     Overload,
     calc_end,
+    Worker,
+    crew_of,
     day_hours,
     day_window,
     clip_overloads,
@@ -958,7 +960,8 @@ SAT_AFTERNOON = work_day_map([WorkDay(SAT, time(13), time(16))])
 
 
 def end(start: datetime, effort: float, work_days=None) -> datetime | None:  # noqa: ANN001
-    return calc_end(start, effort, 6.5, OPEN, HOLIDAYS, work_days)
+    crew = [Worker(1.0, work_days)] if work_days is not None else None
+    return calc_end(start, effort, 6.5, OPEN, HOLIDAYS, crew)
 
 
 def test_day_window_default_override_and_rest() -> None:
@@ -1019,8 +1022,52 @@ def test_invalid_effort_still_returns_none_with_overrides() -> None:
     assert end(datetime(2026, 10, 16, 9), float("nan"), SAT_AFTERNOON) is None
 
 
-def test_the_schedule_uses_the_projects_work_days() -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 16, 9), effort_hours=8.5, id="t1")
-    project = Project("p", tasks=[task], work_days=[WorkDay(SAT, time(13), time(16))])
-    assert Schedule(project, {}).end(task) == datetime(2026, 10, 17, 15)
-    assert Schedule(Project("p", tasks=[task]), {}).end(task) == datetime(2026, 10, 19, 11)
+def test_the_schedule_uses_the_assignees_work_days() -> None:
+    task = Task("t", planned_start=datetime(2026, 10, 16, 9), effort_hours=8.5, id="t1", assignees=[Assignee("甲", 1.0)])
+    kou = Member("甲", work_days=[WorkDay(SAT, time(13), time(16))])
+    assert Schedule(Project("p", tasks=[task], members=[kou]), {}).end(task) == datetime(2026, 10, 17, 15)
+    assert Schedule(Project("p", tasks=[task], members=[Member("甲")]), {}).end(task) == datetime(2026, 10, 19, 11)
+    # 担当者がいないタスクは通常のカレンダー
+    bare = Task("u", planned_start=datetime(2026, 10, 16, 9), effort_hours=8.5, id="t2")
+    assert Schedule(Project("p", tasks=[bare], members=[kou]), {}).end(bare) == datetime(2026, 10, 19, 11)
+
+
+def test_two_workers_with_the_same_calendar_match_the_summed_rate() -> None:
+    one = calc_end(datetime(2026, 10, 12, 9), 9.0, 6.5, OPEN, {}, [Worker(1.5)])
+    assert calc_end(datetime(2026, 10, 12, 9), 9.0, 6.5, OPEN, {}, [Worker(1.0), Worker(0.5)]) == one
+
+
+def test_only_the_worker_who_works_on_the_override_day_burns_effort() -> None:
+    a = Worker(1.0, SAT_AFTERNOON)
+    b = Worker(1.0)
+    # 金曜 9:00 から 8h: 2 人で 4h → 13:00 に終わり、土曜は使わない
+    assert calc_end(datetime(2026, 10, 16, 9), 8.0, 6.5, OPEN, {}, [a, b]) == datetime(2026, 10, 16, 13)
+    # 30h: 金曜 13h → 残り 17h。土曜は A だけが 13–16 の 3h → 残り 14h。月曜は 2 人で 13h → 残り 1h は火曜の 0.5h 後
+    assert calc_end(datetime(2026, 10, 16, 9), 30.0, 6.5, OPEN, {}, [a, b]) == datetime(2026, 10, 20, 9, 30)
+    # A に土曜の上書きがなければ、残り 4h を火曜の 2h で終える
+    assert calc_end(datetime(2026, 10, 16, 9), 30.0, 6.5, OPEN, {}, [Worker(1.0), b]) == datetime(2026, 10, 20, 11)
+
+
+def test_shifted_windows_are_stacked_by_time() -> None:
+    a = Worker(1.0, work_day_map([WorkDay(SAT, time(9), time(12))]))
+    b = Worker(1.0, work_day_map([WorkDay(SAT, time(10), time(15))]))
+    # 9–10 は A だけ 1h、10–12 は 2 人で 4h(計 5h)、残り 2h は B だけの 12–14
+    assert calc_end(datetime(2026, 10, 17, 0), 7.0, 6.5, OPEN, {}, [a, b]) == datetime(2026, 10, 17, 14)
+
+
+def test_a_rest_day_for_every_worker_is_skipped() -> None:
+    rest = work_day_map([WorkDay(date(2026, 10, 19))])
+    assert calc_end(datetime(2026, 10, 19, 9), 1.0, 6.5, OPEN, {}, [Worker(1.0, rest)]) == datetime(2026, 10, 20, 10)
+
+
+def test_no_crew_uses_the_default_calendar() -> None:
+    expected = datetime(2026, 10, 19, 15)  # 金曜 0.5h + 月曜 6h
+    assert calc_end(datetime(2026, 10, 16, 15), 6.5, 6.5, OPEN, {}) == expected
+    assert calc_end(datetime(2026, 10, 16, 15), 6.5, 6.5, OPEN, {}, []) == expected
+
+
+def test_crew_of_skips_unknown_assignees_and_carries_member_calendars() -> None:
+    m = Member("甲", 1.0, id="m1", work_days=[WorkDay(SAT, time(13), time(16))])
+    crew = crew_of([Assignee("甲", 0.5), Assignee("乙", 1.0)], [m])
+    assert [w.rate for w in crew] == [0.5]
+    assert SAT in crew[0].days

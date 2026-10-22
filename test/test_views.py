@@ -3737,22 +3737,23 @@ async def test_apply_categories_updates_the_project_and_resets_removed_categorie
     assert view.is_dirty()  # 保存はしない(編集中の判定に入る)
 
 
-async def test_apply_work_days_marks_the_project_dirty_and_the_end_date_follows(user: User, tmp_path: Path) -> None:
+async def test_apply_members_with_work_days_marks_dirty_and_the_end_date_follows(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.base_date = date(2026, 10, 12)
-    task = Task("t", planned_start=datetime(2026, 10, 16, 9), effort_hours=8.5, id="t1")
+    view.project.members = [Member("甲", id="m1")]
+    task = Task("t", planned_start=datetime(2026, 10, 16, 9), effort_hours=8.5, id="t1", assignees=[Assignee("甲", 1.0)])
     view.project.tasks = [task]
     view.gantt.set_project(view.project)
     view.snapshot = asdict(view.project)
     view.committed = deepcopy(view.project)
-    before = Schedule(view.project, {}).end(task)
-    assert before == datetime(2026, 10, 19, 11)
-    view.apply_work_days([WorkDay(date(2026, 10, 17), time(13), time(16))])
-    assert view.project.work_days == [WorkDay(date(2026, 10, 17), time(13), time(16))]
+    assert Schedule(view.project, {}).end(task) == datetime(2026, 10, 19, 11)
+    work = [WorkDay(date(2026, 10, 17), time(13), time(16))]
+    view.apply_members([Member("甲", id="m1", work_days=work)], {})
+    assert view.project.members[0].work_days == work
     assert Schedule(view.project, {}).end(task) == datetime(2026, 10, 17, 15)
     assert view.is_dirty()
     view.undo()
-    assert view.project.work_days == []
+    assert view.project.members[0].work_days == []
 
 
 async def test_apply_events_marks_the_project_dirty_and_redraws(user: User, tmp_path: Path) -> None:

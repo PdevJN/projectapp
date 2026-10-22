@@ -2,7 +2,7 @@
 
 import html
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time
 
@@ -60,12 +60,12 @@ from projectapp.models import (
     TaskKind,
     TaskUrl,
     UrlTemplate,
-    WorkDay,
     has_control_char,
 )
 from projectapp.ratios import effective_ratio
 from projectapp.reassign import needs_review, reviewed_end
-from projectapp.timeline import assignees_rate, combine_rate, computed_end, effort_days
+from projectapp.timeline import Worker, assignees_rate, combine_rate, computed_end, crew_of, effort_days
+from projectapp.workdays import work_day_map
 from projectapp.urls import resolve
 
 # 赤は「予定超過」の背景色と意味が競合するため、優先度には使わない
@@ -245,15 +245,13 @@ class DateTimeFields:
         work_start: time,
         daily_hours: float,
         holidays: dict[date, str],
-        rate: float = 1.0,
-        work_days: Mapping[date, WorkDay] | None = None,
+        crew: Sequence[Worker] = (),
     ) -> None:
         default_start, default_end = default_times(work_start)
         self._defaults = {"start": default_start, "end": default_end, "deadline": default_end}
         self._work_start, self._daily_hours, self._holidays = work_start, daily_hours, holidays
-        self._work_days = work_days
         self.effort = task.effort_hours
-        self._rate = rate
+        self._crew = list(crew)
         self.first_row = ui.row().classes("w-full no-wrap gap-4")
         with self.first_row:
             self.start_day, self.start_time, self.use_start_time, _ = self._column(
@@ -348,8 +346,8 @@ class DateTimeFields:
             return self._time(key).value or ""
         return self._defaults[key].strftime("%H:%M")
 
-    def set_rate(self, rate: float) -> None:
-        self._rate = rate
+    def set_crew(self, crew: Sequence[Worker]) -> None:
+        self._crew = list(crew)
         self._refresh_end()
 
     def set_effort(self, value: float | None) -> None:
@@ -391,8 +389,7 @@ class DateTimeFields:
             self._work_start,
             self._holidays,
             deadline,
-            self._rate,
-            self._work_days,
+            crew=self._crew,
         )
 
     def start_text(self) -> str:
@@ -836,7 +833,6 @@ def open_task_dialog(
     holidays: dict[date, str] | None = None,
     members: list[Member] | None = None,
     actual_mode: ActualMode = ActualMode.SIMPLE,
-    work_days: Mapping[date, WorkDay] | None = None,
     link_options: dict[str, str] | None = None,
     finish_of: Callable[[str], datetime | None] | None = None,
     url_templates: list[UrlTemplate] | None = None,
@@ -902,7 +898,9 @@ def open_task_dialog(
         hover = [full if full != label else "" for full, label in zip(full_labels, category_options.values())]
         category.add_slot("option", category_option_template(hover))
         category.add_slot("selected-item", category_selected_template(hover))
-        fields = DateTimeFields(initial, work_start, daily_hours, holidays or {}, initial_rate, work_days)
+        fields = DateTimeFields(
+            initial, work_start, daily_hours, holidays or {}, crew_of(initial.assignees, member_list)
+        )
         with fields.second_row:
             effort = EffortField(initial.effort_hours, daily_hours, STANDARD_WORK_HOURS)
         assignee_fields = AssigneeFields(initial.assignees, member_list, lambda: refresh_conversion())
@@ -911,7 +909,7 @@ def open_task_dialog(
         def refresh_conversion(_event: object = None) -> None:
             chosen = assignee_fields.chosen()
             rate = sum(combine_rate(m.ratio, f) for m, f in chosen) if chosen else 1.0
-            fields.set_rate(rate)
+            fields.set_crew([Worker(combine_rate(m.ratio, f), work_day_map(m.work_days)) for m, f in chosen])
             days = effort_days(effort.value or 0.0, rate, daily_hours) if chosen else None
             if not chosen or days is None:
                 conversion.set_text("")
@@ -1133,7 +1131,7 @@ def open_task_dialog(
                 return
             new_rate = assignees_rate(result.assignees, member_list)
             new_end = (
-                reviewed_end(result, initial_rate, new_rate, daily_hours, work_start, holidays or {}, now(), work_days)
+                reviewed_end(result, initial_rate, new_rate, daily_hours, work_start, holidays or {}, now(), crew_of(result.assignees, member_list))
                 if task is not None and needs_review(result, initial_rate, new_rate)
                 else None
             )
