@@ -352,6 +352,7 @@ class GanttActions:
     copy_section: Callable[[SectionPath], object] = lambda path: None
     rename_section: Callable[[SectionPath], object] = lambda path: None
     delete_section: Callable[[SectionPath], object] = lambda path: None
+    move_section: Callable[[SectionPath, SectionPath], object] = lambda src, dst: None  # 元, 落とした先の見出し(同じ親)
     # 名前の入力行で確定した、名前だけのタスクの追加(セクションのパス, 挿入位置, 名前)
     add_named_task: Callable[[SectionPath, int, str], object] = lambda path, index, name: None
 
@@ -440,6 +441,14 @@ class GanttChart:
             src, dst, copy = parsed
             self.actions.move_task(src, self.after_folded_children(dst), copy)
 
+    def handle_move_section(self, args: object) -> None:
+        """セクションの見出しのドロップを受ける。絞り込み中・読み取り専用・同じ親でない・不正な値は無視する。"""
+        if self.task_filter.active or self.options.read_only:
+            return
+        parsed = arrange.parse_section_move(args)
+        if parsed is not None and all(arrange.valid_section(self.project, p) for p in parsed):
+            self.actions.move_section(*parsed)
+
     def after_folded_children(self, dst: arrange.Position) -> arrange.Position:
         """折りたたんだまとめの隠れた子のあいだには置けないので、その後ろへ送る。"""
         if not self.collapsed_summaries or self.options.read_only or not arrange.has_list(self.project, dst):
@@ -484,6 +493,10 @@ class GanttChart:
     def remap_collapsed(self, parent: SectionPath, index: int, delta: int) -> None:
         """セクションの挿入・削除で番号がずれたぶん、折りたたみの状態を付け替える(再描画は呼び出し側)。"""
         self.collapsed = arrange.remap_collapsed(self.collapsed, parent, index, delta)
+
+    def reorder_collapsed(self, parent: SectionPath, src: int, dst: int) -> None:
+        """セクションの並べ替えで番号がずれたぶん、折りたたみの状態を付け替える(再描画は呼び出し側)。"""
+        self.collapsed = arrange.reorder_collapsed(self.collapsed, parent, src, dst)
 
     def toggle_section(self, path: SectionPath) -> None:
         """セクションの折りたたみを切り替える。描き直さず、行の表示と矢印だけを変える。"""
@@ -734,6 +747,7 @@ class GanttChart:
         ui.add_css(EVENT_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
+        ui.on("chart_move_section", lambda e: self.handle_move_section(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
         ui.on("chart_name_width", lambda e: self.handle_name_width(e.args))
         self.build_menu()
@@ -1146,7 +1160,8 @@ class GanttChart:
         view = self.section_views[path] = SectionView()
         indent = 12 * (len(path) - 1)
         header = ui.row().classes("items-center no-wrap gap-2").style(ROW_STYLE)
-        header.props(self.drag_props("section", key, count=len(section.tasks)))
+        parent_key = section_key(path[:-1])
+        header.props(self.drag_props("section", key, count=len(section.tasks), parent=parent_key))
         header.mark(f"section-{key}")
         self.section_menu_on_right_click(header, path)
         header.set_visibility(not hidden)
@@ -1159,6 +1174,8 @@ class GanttChart:
                 f"width: var(--name-w); overflow: hidden; align-self: stretch;"
                 f" padding-left: {indent}px; {sticky_left(STICKY_Z_NAME)}"
             )
+            if not self.options.read_only and not self.task_filter.active:  # つかんで動かせるのは、絞り込みなし・編集時だけ
+                name.props(f"draggable=true data-section-handle data-si={key} data-parent={parent_key}")
             with name.mark(f"section-name-{key}"):
                 if not self.options.read_only:
                     arrow = ARROW_COLLAPSED if collapsed else ARROW_EXPANDED

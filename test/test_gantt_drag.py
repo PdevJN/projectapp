@@ -10,7 +10,7 @@ from nicegui.testing import User
 
 from header_cells import settles, should_see_column
 from projectapp.filtering import TaskFilter
-from projectapp.gantt import GanttChart
+from projectapp.gantt import GanttChart, ViewOptions
 from projectapp.gantt_drag import CHART_DRAG_JS
 from projectapp.models import Project, Section, Task
 from projectapp.timeline import Scale
@@ -116,6 +116,75 @@ def test_the_script_is_valid_javascript(tmp_path: Path) -> None:
 
 def test_the_script_emits_the_events_the_python_side_listens_to() -> None:
     assert 'emitEvent("chart_move"' in CHART_DRAG_JS
+
+
+async def test_section_name_cells_are_draggable_handles_with_their_parent(user: User) -> None:
+    mount(project_with_top())
+    await user.open("/")
+    name = props_of(user, "section-name-0")
+    assert name["draggable"] == "true"
+    assert "data-section-handle" in name
+    assert (name["data-si"], name["data-parent"]) == ("0", "top")
+    assert props_of(user, "section-0")["data-parent"] == "top"  # 落とし先の見出しも親を持つ
+
+
+async def test_nested_section_headers_know_their_parent(user: User) -> None:
+    project = Project("demo", base_date=BASE, sections=[Section("親", [], [Section("子", [])])])
+    mount(project)
+    await user.open("/")
+    assert props_of(user, "section-name-0.0")["data-parent"] == "0"
+    assert props_of(user, "section-0.0")["data-parent"] == "0"
+
+
+async def test_no_section_drag_attributes_while_filtering(user: User) -> None:
+    _, charts = mount(project_with_top())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="設計"))
+    await user.should_not_see(marker="task-top-0")  # 描画し直しを待つ
+    name = props_of(user, "section-name-0")
+    assert "draggable" not in name
+    assert "data-section-handle" not in name
+
+
+async def test_handle_move_section_passes_sibling_drops_to_the_action(user: User) -> None:
+    recorder, charts = mount(project_with_top())
+    await user.open("/")
+    charts[0].handle_move_section({"src": "0", "dst": "1"})
+    assert recorder.events == [("move_section", ((0,), (1,)))]
+
+
+async def test_handle_move_section_ignores_bad_events_other_parents_and_filtering(user: User) -> None:
+    recorder, charts = mount(project_with_top())
+    await user.open("/")
+    charts[0].handle_move_section({"src": "0", "dst": "0.1"})  # 親が違う
+    charts[0].handle_move_section({"src": "x", "dst": "1"})
+    charts[0].handle_move_section(None)
+    charts[0].set_filter(TaskFilter(query="設計"))
+    charts[0].handle_move_section({"src": "0", "dst": "1"})
+    assert recorder.events == []
+
+
+async def test_handle_move_section_is_ignored_in_read_only(user: User) -> None:
+    recorder, charts = mount(project_with_top())
+    await user.open("/")
+    charts[0].set_options(ViewOptions(read_only=True))
+    await user.should_not_see(marker="section-toggle-0")  # 読み取り専用で描き直されるのを待つ
+    charts[0].handle_move_section({"src": "0", "dst": "1"})
+    assert recorder.events == []
+    assert "draggable" not in props_of(user, "section-name-0")
+
+
+def test_reorder_collapsed_follows_the_moved_sections() -> None:
+    chart = GanttChart(project_with_top(), {}, Recorder().actions)
+    chart.collapsed = {(0,), (1, 0)}
+    chart.reorder_collapsed((), 0, 1)
+    assert chart.collapsed == {(1,), (0, 0)}
+
+
+def test_the_script_has_the_section_drag_pieces() -> None:
+    assert 'emitEvent("chart_move_section"' in CHART_DRAG_JS
+    assert "application/x-gantt-section" in CHART_DRAG_JS
+    assert "data-section-handle" in CHART_DRAG_JS
 
 
 def test_the_script_has_the_name_width_pieces() -> None:

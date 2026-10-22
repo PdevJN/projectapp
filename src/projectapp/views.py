@@ -252,6 +252,7 @@ class MainView:
                 copy_section=self.copy_section,
                 rename_section=self.rename_section,
                 delete_section=self.confirm_delete_section,
+                move_section=self.move_section,
                 add_named_task=self.add_named_task,
             ),
             name_width=load_name_width(base_dir),
@@ -1211,6 +1212,14 @@ class MainView:
         self.after_edit()
         tail = f"(タスク {len(moved)} 件は、セクションなしへ移しました)" if moved else ""
         ui.notify(f"セクション「{name}」を削除しました{tail}")
+
+    def move_section(self, src: SectionPath, dst: SectionPath) -> None:
+        """セクションを、同じ親の dst の位置へ動かす。親が違う・変化なしなら何もしない(履歴も積まない)。"""
+        if not src or not dst or src[:-1] != dst[:-1]:
+            return
+        if arrange.move_section(self.project, src, dst[-1]):
+            self.gantt.reorder_collapsed(src[:-1], src[-1], dst[-1])
+            self.after_edit()
 
     def apply_decompose(
         self, path: SectionPath, index: int, parts: list[Part], chain: bool, new_section: bool

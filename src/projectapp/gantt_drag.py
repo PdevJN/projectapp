@@ -30,6 +30,8 @@ CHART_DRAG_JS = """
   window.__ganttDragInstalled = true;
   const section = (value) => value;  // data-si のキー(top・0・0.1)をそのまま送る
   const ROW_TYPE = "application/x-gantt-row";  // 自分が始めた drag かを見分ける
+  const SECTION_TYPE = "application/x-gantt-section";  // セクションの見出しの drag
+  let sectionSource = null;  // {si, parent}
   let source = null;
   let resize = null;  // 名前の欄の幅の調整中の状態
   let resizeClick = false;  // 幅の調整を終えた直後の click(編集ダイアログを開かせない)
@@ -41,6 +43,12 @@ CHART_DRAG_JS = """
   const cssScale = () => parseFloat(document.body.style.zoom) || 1;
 
   const isRowDrag = (event) => Array.from((event.dataTransfer || {}).types || []).includes(ROW_TYPE);
+  const isSectionDrag = (event) => Array.from((event.dataTransfer || {}).types || []).includes(SECTION_TYPE);
+  const sectionTarget = (event) => {  // 同じ親の、別の見出しだけ落とせる
+    const el = event.target.closest ? event.target.closest('[data-drop="section"]') : null;
+    const ok = el && sectionSource && el.dataset.parent === sectionSource.parent && el.dataset.si !== sectionSource.si;
+    return ok ? el : null;
+  };
   const clearMarks = () => {
     document.querySelectorAll(".drop-before, .drop-after, .drop-into").forEach((el) => {
       el.classList.remove("drop-before", "drop-after", "drop-into");
@@ -55,6 +63,14 @@ CHART_DRAG_JS = """
   document.addEventListener("dragstart", (event) => {
     if (resize) {  // 幅の調整中は、欄の drag(行の移動)を始めない
       event.preventDefault();
+      return;
+    }
+    const sectionHandle = event.target.closest ? event.target.closest("[data-section-handle]") : null;
+    if (sectionHandle) {
+      sectionSource = { si: sectionHandle.dataset.si, parent: sectionHandle.dataset.parent };
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(SECTION_TYPE, "1");
+      event.dataTransfer.setData("text/plain", sectionHandle.textContent || "");
       return;
     }
     const handle = event.target.closest ? event.target.closest("[data-drag-handle]") : null;
@@ -95,9 +111,31 @@ CHART_DRAG_JS = """
     emitEvent("chart_move", message);
   });
 
+  document.addEventListener("dragover", (event) => {
+    if (!sectionSource || !isSectionDrag(event)) return;
+    clearMarks();
+    const el = sectionTarget(event);
+    if (!el) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    el.classList.add("drop-into");
+  });
+
+  document.addEventListener("drop", (event) => {
+    if (!sectionSource || !isSectionDrag(event)) return;
+    const el = sectionTarget(event);
+    if (!el) return;
+    event.preventDefault();
+    const message = { src: sectionSource.si, dst: el.dataset.si };
+    clearMarks();
+    sectionSource = null;
+    emitEvent("chart_move_section", message);
+  });
+
   document.addEventListener("dragend", () => {
     clearMarks();
     source = null;
+    sectionSource = null;
   });
 
   // バーの横移動。1日分の列幅に吸着し、放したときに日数だけを送る。
