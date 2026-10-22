@@ -3501,8 +3501,8 @@ async def test_the_members_dialog_is_a_table_whose_columns_follow_the_parameters
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    # アイコン・名前・相対比率・削除
-    assert len(grid_columns(user)) == 4
+    # アイコン・名前・相対比率・稼働日・削除
+    assert len(grid_columns(user)) == 5
 
 
 async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path) -> None:
@@ -3511,8 +3511,8 @@ async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path)
     view.project.parameters.append(Parameter("専門性", [Level("高", 0.1)]))
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    # アイコン・名前・基本比率・経験・専門性・相対比率・削除
-    assert len(grid_columns(user)) == 7
+    # アイコン・名前・基本比率・経験・専門性・相対比率・稼働日・削除
+    assert len(grid_columns(user)) == 8
     assert user.find(marker="member-header-level-1").elements.pop().text == "専門性"
 
 
@@ -3527,7 +3527,7 @@ async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(user: U
     grid = user.find(marker="member-grid").elements.pop()
     assert "min-width" in grid._style  # 列を押しつぶさない
     assert grid_columns(user)[1] == "7rem"  # 名前の列は、列の数にかかわらず固定(狭くも広くもならない)
-    assert len(grid_columns(user)) == 3 + 7 + 2
+    assert len(grid_columns(user)) == 3 + 7 + 3
 
 
 async def test_the_table_inputs_have_no_floating_labels(user: User, tmp_path: Path) -> None:
@@ -3546,15 +3546,15 @@ async def test_the_name_column_is_a_narrow_fixed_width_with_or_without_parameter
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    assert grid_columns(user) == ["6rem", "7rem", "7rem", "3rem"]  # アイコン・名前・相対比率・削除
+    assert grid_columns(user) == ["6rem", "7rem", "7rem", "7rem", "3rem"]  # アイコン・名前・相対比率・稼働日・削除
 
 
 async def test_the_dialog_width_follows_the_columns_without_the_old_wide_name(user: User, tmp_path: Path) -> None:
     from projectapp.forms import member_table_min_rem
 
-    # アイコン 6rem + 名前 7rem + 比率 7rem + 削除 3rem + 列の間隔。以前の名前 12rem 以上の幅ではない
-    assert member_table_min_rem(0, False) == 6 + 7 + 7 + 3 + 2 * 4
-    assert member_table_min_rem(2, True) == 6 + 7 + 7 + 9 * 2 + 11 + 3 + 2 * 7
+    # アイコン 6rem + 名前 7rem + 比率 7rem + 稼働日 7rem + 削除 3rem + 列の間隔。以前の名前 12rem 以上の幅ではない
+    assert member_table_min_rem(0, False) == 6 + 7 + 7 + 7 + 3 + 2 * 5
+    assert member_table_min_rem(2, True) == 6 + 7 + 7 + 9 * 2 + 11 + 7 + 3 + 2 * 8
 
 
 async def test_the_member_table_uses_14px_controls(user: User, tmp_path: Path) -> None:
@@ -4748,3 +4748,48 @@ async def test_double_click_and_enter_adds_a_named_task_below_and_it_can_be_undo
     await user.should_not_see(marker="quick-add-input")
     view.undo()
     assert [t.name for t in view.project.sections[0].tasks] == ["実装"]
+
+
+async def test_member_work_days_are_edited_in_a_sub_dialog_and_applied_with_the_tab(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("甲", 1.0, {}, "m1")]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="member-workday-open-0").click()
+    await user.should_see(marker="member-workday-add")
+    user.find(marker="member-workday-add").click()
+    await user.should_see(marker="member-workday-0-day")
+    user.find(marker="member-workday-0-day").type("2026-10-17")
+    user.find(marker="member-workday-0-start").type("13")
+    user.find(marker="member-workday-0-end").type("16")
+    user.find(marker="member-workday-close").click()
+    await settle()
+    assert user.find(marker="members-dirty").elements.pop().text == "●"  # 未適用の編集がある
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members[0].work_days == [WorkDay(date(2026, 10, 17), time(13), time(16))])
+    assert view.is_dirty()
+
+
+async def test_a_rest_work_day_disables_the_time_inputs_and_a_bad_window_shows_the_error(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("甲", 1.0, {}, "m1")]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="member-workday-open-0").click()
+    await user.should_see(marker="member-workday-add")
+    user.find(marker="member-workday-add").click()
+    await user.should_see(marker="member-workday-0-day")
+    user.find(marker="member-workday-0-day").type("2026-10-17")
+    user.find(marker="member-workday-0-rest").click()
+    await settle()
+    assert not user.find(marker="member-workday-0-start").elements.pop().enabled
+    user.find(marker="member-workday-0-rest").click()  # 休みを外して、開始 > 終了にする
+    await settle()
+    user.find(marker="member-workday-0-start").type("16")
+    user.find(marker="member-workday-0-end").type("13")
+    user.find(marker="member-workday-close").click()
+    await settle()
+    user.find(marker="member-apply").click()
+    await settle()
+    assert "甲" in user.find(marker="member-error").elements.pop().text
+    assert view.project.members[0].work_days == []

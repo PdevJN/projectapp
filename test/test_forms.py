@@ -10,6 +10,11 @@ from nicegui.testing import User
 from projectapp.models import Event, WorkDay
 from projectapp.categories import COLOR_HEX, COLOR_LABELS, COLORS, CategoryEdit
 from projectapp.forms import (
+    MEMBER_ICON_COLUMN_REM,
+    MEMBER_NAME_COLUMN_REM,
+    MEMBER_RATIO_COLUMN_REM,
+    member_columns,
+    member_table_min_rem,
     CategoryRow,
     EventRow,
     WorkDayRow,
@@ -2075,77 +2080,15 @@ def test_build_work_day_list_rejects_a_duplicate_date() -> None:
         build_work_day_list([WorkDayRow("10/17", "9", "10", False), WorkDayRow("2026-10-17", "", "", True)], WORK_TODAY)
 
 
-def mount_work_day_settings(work_days: list[WorkDay], applied: list[int], received: list[list[WorkDay]]) -> None:
-    @ui.page("/")
-    def index() -> None:
-        ui.button(
-            "open",
-            on_click=lambda: open_settings_dialog(
-                6.5,
-                time(9, 0),
-                lambda h, s, m: applied.append(1),
-                work_days=work_days,
-                on_work_days=received.append,
-            ),
-        )
+def test_build_members_carries_work_day_rows_and_prefixes_errors_with_the_name() -> None:
+    row = MemberRow("甲", "甲", 100.0, work_days=[WorkDayRow("10/17", "13", "16", False), WorkDayRow("10/18", "", "", True)])
+    members, _ = build_members([row], ["甲"], lambda name: 0, today=WORK_TODAY)
+    assert members[0].work_days == [WorkDay(date(2026, 10, 17), time(13), time(16)), WorkDay(date(2026, 10, 18))]
+    bad = MemberRow("甲", "甲", 100.0, work_days=[WorkDayRow("10/17", "16", "13", False)])
+    with pytest.raises(ValueError, match="甲"):
+        build_members([bad], ["甲"], lambda name: 0, today=WORK_TODAY)
 
 
-async def test_adding_a_work_day_applies_it(user: User) -> None:
-    applied: list[int] = []
-    received: list[list[WorkDay]] = []
-    mount_work_day_settings([], applied, received)
-    await user.open("/")
-    user.find("open").click()
-    user.find(marker="settings-workday-add").click()
-    await asyncio.sleep(0.2)
-    user.find(marker="settings-workday-0-day").type("2026-10-17")
-    user.find(marker="settings-workday-0-start").type("13")
-    user.find(marker="settings-workday-0-end").type("16")
-    user.find(marker="settings-apply").click()
-    assert applied == [1]
-    assert received == [[WorkDay(date(2026, 10, 17), time(13), time(16))]]
-
-
-async def test_the_rest_checkbox_ignores_times_and_disables_the_time_inputs(user: User) -> None:
-    received: list[list[WorkDay]] = []
-    mount_work_day_settings([], [], received)
-    await user.open("/")
-    user.find("open").click()
-    user.find(marker="settings-workday-add").click()
-    await asyncio.sleep(0.2)
-    user.find(marker="settings-workday-0-day").type("2026-10-17")
-    user.find(marker="settings-workday-0-rest").click()
-    await asyncio.sleep(0.2)  # 行の描き直しを待つ
-    assert not user.find(marker="settings-workday-0-start").elements.pop().enabled
-    user.find(marker="settings-apply").click()
-    assert received == [[WorkDay(date(2026, 10, 17))]]
-
-
-async def test_a_work_day_without_times_or_rest_keeps_the_dialog_and_calls_nothing(user: User) -> None:
-    applied: list[int] = []
-    received: list[list[WorkDay]] = []
-    mount_work_day_settings([], applied, received)
-    await user.open("/")
-    user.find("open").click()
-    user.find(marker="settings-workday-add").click()
-    await asyncio.sleep(0.2)
-    user.find(marker="settings-workday-0-day").type("2026-10-17")
-    user.find(marker="settings-apply").click()
-    await user.should_see("開始と終了を時刻で入力してください")
-    assert applied == [] and received == []
-
-
-async def test_removing_a_work_day_applies_the_rest_and_unchanged_ones_are_not_reapplied(user: User) -> None:
-    a = WorkDay(date(2026, 10, 17), time(13), time(16))
-    b = WorkDay(date(2026, 10, 18))
-    received: list[list[WorkDay]] = []
-    mount_work_day_settings([a, b], [], received)
-    await user.open("/")
-    user.find("open").click()
-    user.find(marker="settings-apply").click()
-    assert received == []  # 変えていなければ呼ばない
-    user.find("open").click()
-    user.find(marker="settings-workday-0-remove").click()
-    await asyncio.sleep(0.2)
-    user.find(marker="settings-apply").click()
-    assert received == [[b]]
+def test_member_columns_include_the_work_days_column() -> None:
+    assert len(member_columns(0, False)) == 5  # アイコン・名前・比率・稼働日・削除
+    assert member_table_min_rem(0, False) > MEMBER_ICON_COLUMN_REM + MEMBER_NAME_COLUMN_REM + MEMBER_RATIO_COLUMN_REM

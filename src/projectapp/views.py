@@ -557,8 +557,6 @@ class MainView:
             on_categories=self.apply_categories,
             events=self.project.events,
             on_events=self.apply_events,
-            work_days=self.project.work_days,
-            on_work_days=self.apply_work_days,
             used_ids=self.project.used_ids(),
             base_date=self.project.base_date,
             on_base_date=self.apply_base_date,
@@ -983,11 +981,6 @@ class MainView:
     def apply_events(self, events: list[Event]) -> None:
         """イベントの編集を反映する。保存はしない(編集中の判定に入る)。"""
         self.project.events = events
-        self.after_edit()
-
-    def apply_work_days(self, work_days: list[WorkDay]) -> None:
-        """稼働日の上書きを反映する。保存はしない(編集中の判定に入る)。"""
-        self.project.work_days = work_days
         self.after_edit()
 
     def save_project_clicked(self) -> None:
