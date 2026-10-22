@@ -1,13 +1,14 @@
 """ダッシュボードの集計。NiceGUI に依存しない純粋関数。"""
 
 from calendar import monthrange
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from math import isfinite
 from typing import NamedTuple
 
-from projectapp.models import Project, Status, Task, TaskKind
+from projectapp.models import Project, Status, Task, TaskKind, WorkDay
 from projectapp.timeline import (
     OVERLOAD_EPSILON,
     Schedule,
@@ -15,9 +16,11 @@ from projectapp.timeline import (
     counted_assignees,
     counted_span,
     current_progress,
+    day_hours,
     is_overdue,
     is_workday,
 )
+from projectapp.workdays import work_day_map
 
 
 class PeriodKind(StrEnum):
@@ -286,8 +289,10 @@ class DueRow:
     overdue: bool
 
 
-def _workdays(period: Period, holidays: dict[date, str]) -> list[date]:
-    return [day for day in period.days() if is_workday(day, holidays)]
+def _workdays(
+    period: Period, holidays: dict[date, str], work_days: Mapping[date, WorkDay] | None = None
+) -> list[date]:
+    return [day for day in period.days() if is_workday(day, holidays, work_days)]
 
 
 def _covers(start: datetime, end: datetime, day: date) -> bool:
@@ -341,7 +346,7 @@ def _load_stats(items: list[Span], days: list[date]) -> LoadStats:
 def summarize_loads(
     project: Project, period: Period, holidays: dict[date, str], member: str | None = None
 ) -> dict[str, LoadStats]:
-    days = _workdays(period, holidays)
+    days = _workdays(period, holidays, work_day_map(project.work_days))
     spans = _member_spans(project, holidays, member)
     return {
         entry.name: _load_stats(spans.get(entry.name, []), days)
@@ -354,7 +359,7 @@ def summarize_cross_loads(
     projects: list[Project], period: Period, holidays: dict[date, str], member: str | None = None
 ) -> dict[str, CrossLoad]:
     """複数のプロジェクトを重ねた負荷。同じ名前のメンバーを同一人物とみなす。"""
-    days = _workdays(period, holidays)
+    days = sorted({day for p in projects for day in _workdays(period, holidays, work_day_map(p.work_days))})
     per_project = [(project, _member_spans(project, holidays, member)) for project in projects]
     names = dict.fromkeys(m.name for p in projects for m in p.members if member is None or m.name == member)
     loads: dict[str, CrossLoad] = {}
@@ -402,19 +407,20 @@ def summarize_workload(
     names = [member.name for member in project.members]
     planned = {name: 0.0 for name in (*names, UNASSIGNED)}
     actual = {name: 0.0 for name in (*names, UNASSIGNED)}
-    days = _workdays(period, holidays)
+    work_days = work_day_map(project.work_days)
+    days = _workdays(period, holidays, work_days)
     low, high = period.bounds()
     schedule = Schedule(project, holidays)
     for task in _tasks(project, member):
         start, end = schedule.start(task), schedule.end(task)
-        count = (
-            sum(1 for day in days if _covers(start, end, day))
+        hours = (
+            sum(day_hours(day, project.daily_hours, holidays, work_days) for day in days if _covers(start, end, day))
             if start is not None and end is not None and end > start
-            else 0
+            else 0.0
         )
         for key, allocation, share in _shares(task, names):
-            if count and isfinite(allocation):
-                planned[key] += allocation * project.daily_hours * count
+            if hours and isfinite(allocation):
+                planned[key] += allocation * hours
             for interval in task.actuals:
                 seconds = (min(interval.end or now, high) - max(interval.start, low)).total_seconds()
                 if seconds > 0:
