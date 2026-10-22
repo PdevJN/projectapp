@@ -255,3 +255,12 @@ def test_reorder_collapsed_follows_the_moved_sections(paths, parent, src, dst, e
 )
 def test_parse_section_move_accepts_only_siblings(args, expected) -> None:  # noqa: ANN001
     assert arrange.parse_section_move(args) == expected
+
+
+def test_collapsed_ids_and_paths_round_trip_through_a_reorder() -> None:
+    project = three_roots()
+    ids = arrange.collapsed_ids(project, {(0,), (0, 2, 0), (9,)})  # 存在しないパスは無視する
+    assert ids == {"A", "w"}
+    arrange.move_section(project, (0,), 2)  # A が末尾へ
+    assert arrange.collapsed_paths(project, ids) == {(2,), (2, 2, 0)}
+    assert arrange.collapsed_paths(project, {"gone"}) == set()

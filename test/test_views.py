@@ -3607,6 +3607,18 @@ async def test_move_section_carries_the_collapsed_state_with_the_section(user: U
     assert view.gantt.collapsed == {(1,), (1, 0)}
 
 
+async def test_undo_and_redo_keep_the_collapsed_state_on_the_same_section(user: User, tmp_path: Path) -> None:
+    view = await open_two_sections_view(user, tmp_path)
+    view.gantt.collapsed.update({(0,), (0, 0)})  # 親とその子が折りたたみ
+    view.move_section((0,), (1,))
+    assert view.gantt.collapsed == {(1,), (1, 0)}
+    view.undo()
+    assert [s.name for s in view.project.sections] == ["親", "兄弟"]
+    assert view.gantt.collapsed == {(0,), (0, 0)}  # 折りたたみは親に付いて戻る(兄弟が閉じない)
+    view.redo()
+    assert view.gantt.collapsed == {(1,), (1, 0)}
+
+
 async def test_move_section_ignores_other_parents_and_noops_without_a_history_step(user: User, tmp_path: Path) -> None:
     view = await open_two_sections_view(user, tmp_path)
     before = deepcopy(view.project)

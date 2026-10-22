@@ -16,6 +16,7 @@ from projectapp.models import (
     Task,
     TaskKind,
     new_id,
+    walk_sections,
 )
 from projectapp.summary import children_of
 
@@ -237,6 +238,16 @@ def reorder_collapsed(
             number += 1
         result.add((*parent, number, *path[depth + 1 :]))
     return result
+
+
+def collapsed_ids(project: Project, collapsed: set[SectionPath]) -> set[str]:
+    """折りたたんだセクションの id(存在しないパスは無視する)。元に戻す・やり直しで状態を引き継ぐのに使う。"""
+    return {section.id for path, section in walk_sections(project.sections) if path in collapsed}
+
+
+def collapsed_paths(project: Project, ids: set[str]) -> set[SectionPath]:
+    """id のセクションのパス(いまのプロジェクトにないものは落とす)。"""
+    return {path for path, section in walk_sections(project.sections) if section.id in ids}
 
 
 def remap_collapsed(

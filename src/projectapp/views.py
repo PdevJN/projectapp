@@ -343,8 +343,10 @@ class MainView:
         self.committed = deepcopy(self.project)
 
     def restore(self, project: Project) -> None:
-        """Undo・Redo で取り出した状態に差し替えて描き直す。折りたたみ・絞り込み・スクロールは、プロジェクトの外なので変えない。"""
+        """Undo・Redo で取り出した状態に差し替えて描き直す。折りたたみはセクションの id で引き継ぎ、絞り込み・スクロールは変えない。"""
+        folded = arrange.collapsed_ids(self.project, self.gantt.collapsed)
         self.project = project
+        self.gantt.collapsed = arrange.collapsed_paths(project, folded)
         self.committed = deepcopy(project)
         self.gantt.set_project(self.project)
 
