@@ -708,10 +708,9 @@ def test_planned_hours_use_the_hours_of_each_workday() -> None:
     """土曜を 3h 稼働にすると、その日にかかるタスクの予定が 3h × 割り当て率 増える。"""
     project = Project(
         "p",
-        members=[Member("田中", 1.0, id="m1")],
+        members=[Member("田中", 1.0, id="m1", work_days=[WorkDay(date(2026, 10, 17), time(13), time(16))])],
         tasks=[Task("t", planned_start=datetime(2026, 10, 16, 9), planned_end=datetime(2026, 10, 18, 9),
                     assignees=[Assignee("田中", 1.0)], id="t1")],
-        work_days=[WorkDay(date(2026, 10, 17), time(13), time(16))],
     )
     period = Period(date(2026, 10, 12), date(2026, 10, 18))
     rows = summarize_workload(project, period, datetime(2026, 10, 18), {})
@@ -733,10 +732,9 @@ def test_a_rest_weekday_is_not_a_workday_for_the_load() -> None:
     def project(work_days: list[WorkDay]) -> Project:
         return Project(
             "p",
-            members=[Member("田中", 1.0, id="m1")],
+            members=[Member("田中", 1.0, id="m1", work_days=work_days)],
             tasks=[Task("t", planned_start=datetime(2026, 10, 14, 9), planned_end=datetime(2026, 10, 14, 18),
                         assignees=[Assignee("田中", 1.0)], id="t1")],  # 水曜だけのタスク
-            work_days=work_days,
         )
 
     period = Period(date(2026, 10, 12), date(2026, 10, 16))  # 月〜金
@@ -745,8 +743,7 @@ def test_a_rest_weekday_is_not_a_workday_for_the_load() -> None:
 
 
 def test_cross_load_columns_are_the_union_of_each_projects_workdays() -> None:
-    a = Project("A", members=[Member("田中", 1.0, id="a1")],
-                work_days=[WorkDay(date(2026, 10, 17), time(9), time(12))])  # A だけ土曜が稼働
+    a = Project("A", members=[Member("田中", 1.0, id="a1", work_days=[WorkDay(date(2026, 10, 17), time(9), time(12))])])  # A だけ土曜が稼働
     b = Project("B", members=[Member("田中", 1.0, id="b1")])
     period = Period(date(2026, 10, 12), date(2026, 10, 18))
     loads = summarize_cross_loads([a, b], period, {})
@@ -759,7 +756,7 @@ def test_cross_load_ignores_a_project_on_days_it_does_not_work() -> None:
     def proj(name: str, alloc: float, start: datetime, end: datetime, work_days: list[WorkDay]) -> Project:
         task = Task("t", planned_start=start, planned_end=end, planned_end_manual=True)
         task.assignees = [Assignee("田中", alloc)]
-        return Project(name, members=[Member("田中")], tasks=[task], work_days=work_days)
+        return Project(name, members=[Member("田中", work_days=work_days)], tasks=[task])
 
     b = proj("B", 1.0, datetime(2026, 10, 16, 9), datetime(2026, 10, 19, 17), [])
     a = proj("A", 0.3, datetime(2026, 10, 17, 13), datetime(2026, 10, 17, 16), [WorkDay(date(2026, 10, 17), time(13), time(16))])
@@ -767,3 +764,35 @@ def test_cross_load_ignores_a_project_on_days_it_does_not_work() -> None:
     saturday = next(d for d in load.days if d.day == date(2026, 10, 17))
     assert saturday.total == pytest.approx(0.3)  # B は土曜に稼働しないので数えない
     assert [p.project for p in saturday.by_project] == ["A"]
+
+
+def test_load_counts_only_the_members_own_workdays() -> None:
+    sat = WorkDay(date(2026, 10, 17), time(9), time(12))
+    task = Task("t", planned_start=datetime(2026, 10, 16, 9), planned_end=datetime(2026, 10, 19, 17), planned_end_manual=True)
+    task.assignees = [Assignee("甲", 1.0), Assignee("乙", 1.0)]
+    project = Project("p", members=[Member("甲", work_days=[sat]), Member("乙")], tasks=[task])
+    period = Period(date(2026, 10, 12), date(2026, 10, 18))
+    loads = summarize_loads(project, period, {})
+    assert loads["甲"].peak == pytest.approx(1.0)
+    # 土曜を稼働日に数える甲は 6 日、乙は 5 日。平均 = 負荷のある日(金・土 / 金) ÷ 日数
+    assert loads["甲"].average == pytest.approx(2 / 6) and loads["乙"].average == pytest.approx(1 / 5)
+    cross = summarize_cross_loads([project], period, {})
+    assert next(d for d in cross["甲"].days if d.day == date(2026, 10, 17)).total == pytest.approx(1.0)
+    assert next(d for d in cross["乙"].days if d.day == date(2026, 10, 17)).total == 0.0  # 乙は土曜に稼働しない
+
+
+def test_planned_hours_use_each_members_calendar() -> None:
+    sat = WorkDay(date(2026, 10, 17), time(9), time(12))
+    task = Task("t", planned_start=datetime(2026, 10, 17, 9), planned_end=datetime(2026, 10, 17, 17), planned_end_manual=True)
+    task.assignees = [Assignee("甲", 1.0), Assignee("乙", 1.0)]
+    project = Project("p", members=[Member("甲", work_days=[sat]), Member("乙")], tasks=[task])
+    rows = {r.name: r.planned_hours for r in summarize_workload(project, Period(date(2026, 10, 12), date(2026, 10, 18)), NOW, {})}
+    assert rows["甲"] == pytest.approx(3.0)  # 土曜 9–12
+    assert rows["乙"] == pytest.approx(0.0)
+
+
+def test_unassigned_planned_hours_use_the_default_calendar() -> None:
+    task = Task("t", planned_start=datetime(2026, 10, 16, 9), planned_end=datetime(2026, 10, 17, 17), planned_end_manual=True)
+    project = Project("p", tasks=[task])
+    rows = {r.name: r.planned_hours for r in summarize_workload(project, Period(date(2026, 10, 12), date(2026, 10, 18)), NOW, {})}
+    assert rows[UNASSIGNED] == pytest.approx(project.daily_hours)  # 金曜だけ

@@ -346,10 +346,9 @@ def _load_stats(items: list[Span], days: list[date]) -> LoadStats:
 def summarize_loads(
     project: Project, period: Period, holidays: dict[date, str], member: str | None = None
 ) -> dict[str, LoadStats]:
-    days = _workdays(period, holidays, work_day_map(project.work_days))
     spans = _member_spans(project, holidays, member)
     return {
-        entry.name: _load_stats(spans.get(entry.name, []), days)
+        entry.name: _load_stats(spans.get(entry.name, []), _workdays(period, holidays, work_day_map(entry.work_days)))
         for entry in project.members
         if member is None or entry.name == member
     }
@@ -359,8 +358,10 @@ def summarize_cross_loads(
     projects: list[Project], period: Period, holidays: dict[date, str], member: str | None = None
 ) -> dict[str, CrossLoad]:
     """複数のプロジェクトを重ねた負荷。同じ名前のメンバーを同一人物とみなす。"""
-    open_days = {id(p): set(_workdays(period, holidays, work_day_map(p.work_days))) for p in projects}
-    days = sorted(set().union(*open_days.values())) if projects else []
+    open_days = {
+        (id(p), m.name): set(_workdays(period, holidays, work_day_map(m.work_days))) for p in projects for m in p.members
+    }
+    days = sorted(set().union(*open_days.values())) if open_days else []
     per_project = [(project, _member_spans(project, holidays, member)) for project in projects]
     names = dict.fromkeys(m.name for p in projects for m in p.members if member is None or m.name == member)
     loads: dict[str, CrossLoad] = {}
@@ -374,12 +375,12 @@ def summarize_cross_loads(
             items = spans.get(name, [])
             everything.append((project, items))
             # 自分が稼働しない日は、タスクの期間が通っても数えない
-            totals = [peak if day in open_days[id(project)] else 0.0 for peak, day in zip(_day_totals(items, days), days)]
+            totals = [peak if day in open_days[(id(project), name)] else 0.0 for peak, day in zip(_day_totals(items, days), days)]
             stats = _stats_of(totals)
             rows.append(ProjectLoad(project.name, stats.average, stats.peak))
             per_day.append((project.name, totals))
         overall = [
-            _day_peak([span for p, items in everything if day in open_days[id(p)] for span in items], day)
+            _day_peak([span for p, items in everything if day in open_days[(id(p), name)] for span in items], day)
             for day in days
         ]
         day_rows = [
@@ -412,20 +413,25 @@ def summarize_workload(
     names = [member.name for member in project.members]
     planned = {name: 0.0 for name in (*names, UNASSIGNED)}
     actual = {name: 0.0 for name in (*names, UNASSIGNED)}
-    work_days = work_day_map(project.work_days)
-    days = _workdays(period, holidays, work_days)
+    calendars = {m.name: work_day_map(m.work_days) for m in project.members}
+    tables: dict[str, list[tuple[date, float]]] = {}
+
+    def table(key: str) -> list[tuple[date, float]]:
+        """担当者(未割当は通常カレンダー)の、期間の稼働日と稼働時間。"""
+        if key not in tables:
+            cal = calendars.get(key)
+            rows = ((day, day_hours(day, project.daily_hours, holidays, cal)) for day in period.days())
+            tables[key] = [(day, hours) for day, hours in rows if hours > 0]
+        return tables[key]
+
     low, high = period.bounds()
     schedule = Schedule(project, holidays)
     for task in _tasks(project, member):
         start, end = schedule.start(task), schedule.end(task)
-        hours = (
-            sum(day_hours(day, project.daily_hours, holidays, work_days) for day in days if _covers(start, end, day))
-            if start is not None and end is not None and end > start
-            else 0.0
-        )
+        scheduled = start is not None and end is not None and end > start
         for key, allocation, share in _shares(task, names):
-            if hours and isfinite(allocation):
-                planned[key] += allocation * hours
+            if scheduled and start is not None and end is not None and isfinite(allocation):
+                planned[key] += allocation * sum(h for day, h in table(key) if _covers(start, end, day))
             for interval in task.actuals:
                 seconds = (min(interval.end or now, high) - max(interval.start, low)).total_seconds()
                 if seconds > 0:
