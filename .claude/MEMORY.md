@@ -23,7 +23,7 @@
 - 学んだこと(進め方): ブランチを切り替えたと書いたのに、切り替えていなかった(実機確認の結果が別のブランチのものになりかけた)。実機確認を頼む前に、`git branch --show-current`の出力を見る。コマンドを`;`でつなぐと、テストが落ちてもコミットまで進む。`&&`でつなぐ。起動直後にコンボを開くまで約 1 分かかったが、`develop`・右クリック入りのブランチ・Chrome の計測のどれでも再現せず、一時的なものと判断した(再発したら、起動直後か・他の重い処理がないか・ネットワークを記録する)。
 - 2026-10-18 夜: タスクのリンクのアイコン(番号のない要望)を PR #48 で`develop`へマージ済み。名前欄のチップの末尾に`link`アイコン(`GanttChart.link_icon`、マーカー`task-link-<key>-<ti>`)。1 件はクリックで開き、複数はメニュー(`app-context-menu`で右クリックと同じ余白)。読み取り専用・チップがオフでは出さない。開くのは`open_url`(`GanttChart(open_url=)`で差し替え)。`CLAUDE.md`の「左クリックでは何も起きない」に、このアイコンの例外を追記した。
 - 学んだこと(進め方・今回): ① 「業務再開」で`.claude/MEMORY.md`を読まずに始めた。② `develop`に直接コミットした(`.claude/BRANCH.md`は git-flow。`feature/*`を切る)。ローカルだけだったので`feature/link-icon`へ移し、`develop`を`origin/develop`へ戻して PR にした。最初に`git branch --show-current`を見て、`develop`なら`feature/*`を切る。③ `ty check`を走らせていなかった(RULE)。④ この環境のシェルは GitHub の認証が通らず`git push`が失敗する。ユーザーが`! git push -u origin <branch>`で押し、PR の作成・マージは`gh`でできる(上のメモの`gh auth git-credential`の方法も試す価値あり)。
-- 2026-10-22: セクションの並べ替え(ドラッグ。番号のない要望)を`feature/section-move`で実装。設計書`2026-10-22-section-move-design.md`・計画`2026-10-22-section-move.md`(native 方式)。同じ親の中だけ。テスト 3,269 件と`ty check`が通る。実機確認と PR は未了。
+- 2026-10-22: セクションの並べ替え(ドラッグ。番号のない要望)を`feature/section-move`で実装。設計書`2026-10-22-section-move-design.md`・計画`2026-10-22-section-move.md`(native 方式)。同じ親の中だけ。レビューの Minor 4 件も対応済み(元に戻す・やり直しで折りたたみをセクションの id で引き継ぐ・見出しに grab カーソル・ボタンからはドラッグを始めない・テストの型ヒント)。テスト 3,273 件と`ty check`が通る。実機確認と PR は未了。
 - 次: 未着手の要望(5・24・30・31・35・39・40・44〜46)から、ユーザーが選ぶ。
 
 

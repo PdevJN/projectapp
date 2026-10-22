@@ -7,7 +7,7 @@ from nicegui.testing import User
 from projectapp import arrange
 from projectapp.gantt import ViewOptions
 from projectapp.linkgraph import validate_links
-from projectapp.models import Actual, Project, Section, Task, TaskKind, walk_sections
+from projectapp.models import Actual, Project, Section, SectionPath, Task, TaskKind, walk_sections
 from test_gantt import mount_chart, mount_with
 
 
@@ -186,7 +186,7 @@ def names(sections: list[Section]) -> list[str]:
         ((1,), 0, ["B", "A", "C"]),
     ],
 )
-def test_move_section_reorders_the_roots(path, to_index, expected) -> None:  # noqa: ANN001
+def test_move_section_reorders_the_roots(path: SectionPath, to_index: int, expected: list[str]) -> None:
     project = three_roots()
     assert arrange.move_section(project, path, to_index) is True
     assert names(project.sections) == expected
@@ -212,7 +212,7 @@ def test_move_section_reorders_a_third_level_section() -> None:
     ("path", "to_index"),
     [((1,), 1), ((0,), 3), ((0,), -1), ((5,), 0), ((), 0), ((0, 9), 0), ((9, 0), 0), ((0, 0), 3)],
 )
-def test_move_section_returns_false_and_changes_nothing_for_a_noop_or_bad_target(path, to_index) -> None:  # noqa: ANN001
+def test_move_section_returns_false_and_changes_nothing_for_a_noop_or_bad_target(path: SectionPath, to_index: int) -> None:
     project = three_roots()
     before = deepcopy(project)
     assert arrange.move_section(project, path, to_index) is False
@@ -232,7 +232,9 @@ def test_move_section_returns_false_and_changes_nothing_for_a_noop_or_bad_target
         ({(0,)}, (), 1, 1, {(0,)}),  # 同じ位置は何も変えない
     ],
 )
-def test_reorder_collapsed_follows_the_moved_sections(paths, parent, src, dst, expected) -> None:  # noqa: ANN001
+def test_reorder_collapsed_follows_the_moved_sections(
+    paths: set[SectionPath], parent: SectionPath, src: int, dst: int, expected: set[SectionPath]
+) -> None:
     assert arrange.reorder_collapsed(paths, parent, src, dst) == expected
 
 
@@ -253,7 +255,7 @@ def test_reorder_collapsed_follows_the_moved_sections(paths, parent, src, dst, e
         (None, None),
     ],
 )
-def test_parse_section_move_accepts_only_siblings(args, expected) -> None:  # noqa: ANN001
+def test_parse_section_move_accepts_only_siblings(args: object, expected: tuple[SectionPath, SectionPath] | None) -> None:
     assert arrange.parse_section_move(args) == expected
 
 

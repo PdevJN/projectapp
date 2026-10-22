@@ -11,7 +11,7 @@ from nicegui.testing import User
 from header_cells import settles, should_see_column
 from projectapp.filtering import TaskFilter
 from projectapp.gantt import GanttChart, ViewOptions
-from projectapp.gantt_drag import CHART_DRAG_JS
+from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS
 from projectapp.models import Project, Section, Task
 from projectapp.timeline import Scale
 from test_gantt import BASE, Recorder
@@ -185,6 +185,58 @@ def test_the_script_has_the_section_drag_pieces() -> None:
     assert 'emitEvent("chart_move_section"' in CHART_DRAG_JS
     assert "application/x-gantt-section" in CHART_DRAG_JS
     assert "data-section-handle" in CHART_DRAG_JS
+
+
+def test_section_handles_show_a_grab_cursor() -> None:
+    assert "[data-section-handle] { cursor: grab; }" in CHART_DRAG_CSS
+
+
+SECTION_DRAG_SIM = """
+const handlers = {};
+global.document = {
+  addEventListener: (type, fn) => (handlers[type] = handlers[type] || []).push(fn),
+  body: { style: {} }, querySelectorAll: () => [], querySelector: () => null,
+};
+global.window = {};
+global.emitEvent = () => {};
+require(process.argv[2]);
+const node = (tag, parent, attrs = {}) => ({
+  tag, parent, attrs, dataset: { si: "0", parent: "top" },
+  closest(selector) {
+    for (let e = this; e; e = e.parent) {
+      if (selector === "button" ? e.tag === "button" : selector === "[data-section-handle]" && "data-section-handle" in e.attrs) return e;
+    }
+    return null;
+  },
+});
+const handle = node("div", null, { "data-section-handle": "" });
+const button = node("button", handle);
+const label = node("div", handle);
+const startDrag = (pressed) => {
+  handlers.pointerdown.forEach((fn) => fn({ target: pressed, button: 0 }));
+  const result = { prevented: false, data: [] };
+  const dataTransfer = { setData: (type) => result.data.push(type) };
+  handlers.dragstart.forEach((fn) => fn({ target: handle, dataTransfer, preventDefault: () => { result.prevented = true; } }));
+  return result;
+};
+console.log(JSON.stringify({ onButton: startDrag(button), onLabel: startDrag(label) }));
+"""
+
+
+def test_a_section_drag_does_not_start_from_a_button(tmp_path: Path) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node がないので動きを確かめない")
+    script = tmp_path / "drag.js"
+    script.write_text("global.window = global.window || {};\n" + CHART_DRAG_JS, encoding="utf-8")
+    sim = tmp_path / "sim.js"
+    sim.write_text(SECTION_DRAG_SIM, encoding="utf-8")
+    result = subprocess.run([node, str(sim), str(script)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    outcome = json.loads(result.stdout)
+    assert outcome["onButton"] == {"prevented": True, "data": []}  # 矢印・追加のボタンからは始めない
+    assert outcome["onLabel"]["prevented"] is False
+    assert "application/x-gantt-section" in outcome["onLabel"]["data"]
 
 
 def test_the_script_has_the_name_width_pieces() -> None:

@@ -22,6 +22,7 @@ CHART_DRAG_CSS = """
 .drop-after > .gantt-sticky { box-shadow: inset 0 -3px 0 0 #1976d2; }
 .drop-into > .gantt-sticky { box-shadow: inset 2px 2px 0 0 #1976d2, inset 0 -2px 0 0 #1976d2; }
 [data-drag-handle] { cursor: grab; }
+[data-section-handle] { cursor: grab; }
 """
 
 CHART_DRAG_JS = """
@@ -32,6 +33,7 @@ CHART_DRAG_JS = """
   const ROW_TYPE = "application/x-gantt-row";  // 自分が始めた drag かを見分ける
   const SECTION_TYPE = "application/x-gantt-section";  // セクションの見出しの drag
   let sectionSource = null;  // {si, parent}
+  let pressedButton = false;  // 直前に押したのが、見出しの中のボタンか(ボタンからはドラッグを始めない)
   let source = null;
   let resize = null;  // 名前の欄の幅の調整中の状態
   let resizeClick = false;  // 幅の調整を終えた直後の click(編集ダイアログを開かせない)
@@ -67,6 +69,10 @@ CHART_DRAG_JS = """
     }
     const sectionHandle = event.target.closest ? event.target.closest("[data-section-handle]") : null;
     if (sectionHandle) {
+      if (pressedButton) {
+        event.preventDefault();
+        return;
+      }
       sectionSource = { si: sectionHandle.dataset.si, parent: sectionHandle.dataset.parent };
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData(SECTION_TYPE, "1");
@@ -110,6 +116,10 @@ CHART_DRAG_JS = """
     source = null;
     emitEvent("chart_move", message);
   });
+
+  document.addEventListener("pointerdown", (event) => {
+    pressedButton = !!(event.target.closest && event.target.closest("button"));
+  }, true);
 
   document.addEventListener("dragover", (event) => {
     if (!sectionSource || !isSectionDrag(event)) return;
