@@ -1,6 +1,6 @@
 # 作業記録
 
-最終更新: 2026-10-24(`develop`は PR #78(`--mode both`の廃止)まで。`feature/shift-dblclick-section`(要望 53)は PR 待ち。テスト 3,415 件が通る。過去の最終更新と「現在の状況」の経緯は`docs/work-log.md`)
+最終更新: 2026-10-24(`develop`は PR #78(`--mode both`の廃止)まで。`feature/shift-dblclick-section`(要望 53)は PR 待ち。テスト 3,426 件が通る。過去の最終更新と「現在の状況」の経緯は`docs/work-log.md`)
 
 ## 現在の状況
 
