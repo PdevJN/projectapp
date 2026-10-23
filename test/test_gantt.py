@@ -1,7 +1,7 @@
 import asyncio
 import re
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 import pytest
 from nicegui import ui
@@ -81,6 +81,7 @@ from projectapp.models import (
     TaskKind,
     TaskUrl,
     UrlTemplate,
+    WorkDay,
 )
 from projectapp.timeline import ProgressState, Scale
 
@@ -3327,3 +3328,44 @@ async def test_the_link_menu_uses_the_compact_menu_class(user: User) -> None:
     menu = item.parent_slot.parent
     assert isinstance(menu, ui.menu)
     assert "app-context-menu" in menu.classes
+
+
+def test_header_cell_html_has_no_title_or_override_mark() -> None:
+    column = Column(date(2026, 10, 17), date(2026, 10, 18), "10/17")
+    plain = header_cell_html(column, 40, weekday=True)
+    assert "title=" not in plain and "inset 0 -3px" not in plain
+
+
+def member_project() -> Project:
+    task = Task("設計", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12), assignees=[Assignee("甲", 1.0)])
+    members = [Member("甲", work_days=[WorkDay(date(2026, 10, 10), time(13), time(16)), WorkDay(date(2026, 10, 7))])]
+    return Project("demo", base_date=BASE, members=members, sections=[Section("開発", [task, Task("未設定")])])
+
+
+async def test_assignees_overrides_get_a_mark_on_the_task_row(user: User) -> None:
+    mount(member_project())
+    await user.open("/")
+    content = user.find(marker="workmark-0-0").elements.pop().content
+    assert 'title="甲: 稼働 13:00〜16:00"' in content and 'title="甲: 休み"' in content
+    assert content.count("title=") == 2
+    await user.should_not_see(marker="workmark-0-1")  # 担当者のいないタスクには出ない
+
+
+async def test_day_header_and_background_ignore_member_overrides(user: User) -> None:
+    mount(member_project())
+    await user.open("/")
+    assert "title=" not in user.find(marker="label-row-cells").elements.pop().content
+    html = user.find(marker="stripes").elements.pop().content
+    assert html.count(KIND_COLORS[DayKind.SATURDAY]) == 6 and html.count(KIND_COLORS[DayKind.SUNDAY]) == 6
+
+
+async def test_no_work_day_mark_in_the_week_scale(user: User) -> None:
+    mount(member_project())
+    await user.open("/")
+    user.find(kind=ui.toggle).elements.pop().set_value(Scale.WEEK)
+    for _ in range(10):  # 描き直しを待つ
+        content = user.find(marker="label-row-cells").elements.pop().content
+        if f"width:{COLUMN_WIDTH_PX[Scale.WEEK]}px" in content:
+            break
+        await asyncio.sleep(0.1)
+    await user.should_not_see(marker="workmark-0-0")

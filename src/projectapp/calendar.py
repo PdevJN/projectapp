@@ -3,12 +3,14 @@
 import csv
 import io
 import json
+from collections.abc import Mapping
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
 
 import httpx
 
+from projectapp.models import Project, Task, WorkDay
 from projectapp.storage import BASE_DIR
 
 HOLIDAYS_URL = "https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv"
@@ -47,6 +49,33 @@ def day_kind(day: date, holidays: dict[date, str]) -> DayKind:
     if day.weekday() == 6:
         return DayKind.SUNDAY
     return DayKind.WEEKDAY
+
+
+def work_day_note(
+    day: date, holidays: dict[date, str], work_days: Mapping[date, WorkDay] | None = None
+) -> str | None:
+    """日付ヘッダーのマウスオーバー。上書きがあるときだけ(`稼働 13:00〜16:00`・`休み`。祝日なら名前を添える)。"""
+    if not work_days or day not in work_days:
+        return None
+    row = work_days[day]
+    text = "休み" if row.start is None or row.end is None else f"稼働 {row.start:%H:%M}〜{row.end:%H:%M}"
+    return f"{text}(祝日: {holidays[day]})" if day in holidays else text
+
+
+def member_notes(task: Task, project: Project, holidays: dict[date, str]) -> dict[date, str]:
+    """担当者が上書きした日 → 説明(`田中: 稼働 13:00〜16:00`)。複数なら ` / ` で結ぶ。メンバーでない担当者は数えない。"""
+    by_name = {m.name: m for m in project.members}
+    notes: dict[date, list[str]] = {}
+    for assignee in task.assignees:
+        member = by_name.get(assignee.name)
+        if member is None:
+            continue
+        days = {row.day: row for row in member.work_days}
+        for day in days:
+            text = work_day_note(day, holidays, days)
+            if text:
+                notes.setdefault(day, []).append(f"{member.name}: {text}")
+    return {day: " / ".join(lines) for day, lines in notes.items()}
 
 
 def load_cache(base_dir: Path = BASE_DIR) -> dict[date, str] | None:

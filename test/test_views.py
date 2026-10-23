@@ -19,7 +19,7 @@ from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.handoff import JSON_FILE_TYPES
 from projectapp.categories import CategoryEdit
-from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, Section, Task, TaskKind, TaskUrl, UrlTemplate
+from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, Section, Task, TaskKind, TaskUrl, UrlTemplate, WorkDay
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
@@ -28,7 +28,7 @@ from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.plantuml import PLANTUML_FILE_TYPES
 from projectapp.puml_import import PLANTUML_OPEN_FILE_TYPES
 from projectapp.dashboard import PeriodKind
-from projectapp.timeline import Scale, effective_end, visible_range
+from projectapp.timeline import Scale, Schedule, effective_end, visible_range
 from projectapp.gantt import ViewOptions
 from projectapp.forms import MEMBER_TABLE_CSS
 from projectapp.config import load_custom_theme, load_theme, save_custom_theme
@@ -3501,8 +3501,8 @@ async def test_the_members_dialog_is_a_table_whose_columns_follow_the_parameters
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    # アイコン・名前・相対比率・削除
-    assert len(grid_columns(user)) == 4
+    # アイコン・名前・相対比率・稼働日・削除
+    assert len(grid_columns(user)) == 5
 
 
 async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path) -> None:
@@ -3511,8 +3511,8 @@ async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path)
     view.project.parameters.append(Parameter("専門性", [Level("高", 0.1)]))
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    # アイコン・名前・基本比率・経験・専門性・相対比率・削除
-    assert len(grid_columns(user)) == 7
+    # アイコン・名前・基本比率・経験・専門性・相対比率・稼働日・削除
+    assert len(grid_columns(user)) == 8
     assert user.find(marker="member-header-level-1").elements.pop().text == "専門性"
 
 
@@ -3524,10 +3524,24 @@ async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(user: U
     await user.should_see(marker="member-grid")
     scroll = user.find(marker="member-scroll").elements.pop()
     assert scroll._style["overflow-x"] == "auto"  # パラメータが多くて広がっても、横にスクロールできる
+    assert scroll._style["flex-shrink"] == "0"  # タブの flex の中で縮んで、行が 1 行しか見えなくならない
     grid = user.find(marker="member-grid").elements.pop()
     assert "min-width" in grid._style  # 列を押しつぶさない
     assert grid_columns(user)[1] == "7rem"  # 名前の列は、列の数にかかわらず固定(狭くも広くもならない)
-    assert len(grid_columns(user)) == 3 + 7 + 2
+    assert len(grid_columns(user)) == 3 + 7 + 3
+
+
+async def test_the_table_area_grows_with_the_rows(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    params_view_setup(view)
+    await open_members_parameters(user)
+    await user.should_see(marker="member-grid")
+    before = int(user.find(marker="member-scroll").elements.pop()._style["min-height"].removesuffix("px"))
+    user.find(marker="member-add").click()
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-2")
+    after = int(user.find(marker="member-scroll").elements.pop()._style["min-height"].removesuffix("px"))
+    assert after - before == 2 * 40  # 追加した 2 行ぶん(行 36px + 間隔 4px)
 
 
 async def test_the_table_inputs_have_no_floating_labels(user: User, tmp_path: Path) -> None:
@@ -3546,15 +3560,15 @@ async def test_the_name_column_is_a_narrow_fixed_width_with_or_without_parameter
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    assert grid_columns(user) == ["6rem", "7rem", "7rem", "3rem"]  # アイコン・名前・相対比率・削除
+    assert grid_columns(user) == ["6rem", "7rem", "7rem", "7rem", "3rem"]  # アイコン・名前・相対比率・稼働日・削除
 
 
 async def test_the_dialog_width_follows_the_columns_without_the_old_wide_name(user: User, tmp_path: Path) -> None:
     from projectapp.forms import member_table_min_rem
 
-    # アイコン 6rem + 名前 7rem + 比率 7rem + 削除 3rem + 列の間隔。以前の名前 12rem 以上の幅ではない
-    assert member_table_min_rem(0, False) == 6 + 7 + 7 + 3 + 2 * 4
-    assert member_table_min_rem(2, True) == 6 + 7 + 7 + 9 * 2 + 11 + 3 + 2 * 7
+    # アイコン 6rem + 名前 7rem + 比率 7rem + 稼働日 7rem + 削除 3rem + 列の間隔。以前の名前 12rem 以上の幅ではない
+    assert member_table_min_rem(0, False) == 6 + 7 + 7 + 7 + 3 + 2 * 5
+    assert member_table_min_rem(2, True) == 6 + 7 + 7 + 9 * 2 + 11 + 7 + 3 + 2 * 8
 
 
 async def test_the_member_table_uses_14px_controls(user: User, tmp_path: Path) -> None:
@@ -3735,6 +3749,25 @@ async def test_apply_categories_updates_the_project_and_resets_removed_categorie
     assert view.project.categories == [keep]
     assert [t.category_id for t in view.project.all_tasks()] == [keep.id, None]
     assert view.is_dirty()  # 保存はしない(編集中の判定に入る)
+
+
+async def test_apply_members_with_work_days_marks_dirty_and_the_end_date_follows(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.base_date = date(2026, 10, 12)
+    view.project.members = [Member("甲", id="m1")]
+    task = Task("t", planned_start=datetime(2026, 10, 16, 9), effort_hours=8.5, id="t1", assignees=[Assignee("甲", 1.0)])
+    view.project.tasks = [task]
+    view.gantt.set_project(view.project)
+    view.snapshot = asdict(view.project)
+    view.committed = deepcopy(view.project)
+    assert Schedule(view.project, {}).end(task) == datetime(2026, 10, 19, 11)
+    work = [WorkDay(date(2026, 10, 17), time(13), time(16))]
+    view.apply_members([Member("甲", id="m1", work_days=work)], {})
+    assert view.project.members[0].work_days == work
+    assert Schedule(view.project, {}).end(task) == datetime(2026, 10, 17, 15)
+    assert view.is_dirty()
+    view.undo()
+    assert view.project.members[0].work_days == []
 
 
 async def test_apply_events_marks_the_project_dirty_and_redraws(user: User, tmp_path: Path) -> None:
@@ -4729,3 +4762,76 @@ async def test_double_click_and_enter_adds_a_named_task_below_and_it_can_be_undo
     await user.should_not_see(marker="quick-add-input")
     view.undo()
     assert [t.name for t in view.project.sections[0].tasks] == ["実装"]
+
+
+async def test_member_work_days_are_edited_in_a_sub_dialog_and_applied_with_the_tab(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("甲", 1.0, {}, "m1")]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="member-workday-open-0").click()
+    await user.should_see(marker="member-workday-add")
+    user.find(marker="member-workday-add").click()
+    await user.should_see(marker="member-workday-0-day")
+    user.find(marker="member-workday-0-day").type("2026-10-17")
+    user.find(marker="member-workday-0-start").type("13")
+    user.find(marker="member-workday-0-end").type("16")
+    user.find(marker="member-workday-close").click()
+    await settle()
+    assert user.find(marker="members-dirty").elements.pop().text == "●"  # 未適用の編集がある
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members[0].work_days == [WorkDay(date(2026, 10, 17), time(13), time(16))])
+    assert view.is_dirty()
+
+
+async def test_a_rest_work_day_disables_the_time_inputs_and_a_bad_window_shows_the_error(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("甲", 1.0, {}, "m1")]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="member-workday-open-0").click()
+    await user.should_see(marker="member-workday-add")
+    user.find(marker="member-workday-add").click()
+    await user.should_see(marker="member-workday-0-day")
+    user.find(marker="member-workday-0-day").type("2026-10-17")
+    user.find(marker="member-workday-0-rest").click()
+    await settle()
+    assert not user.find(marker="member-workday-0-start").elements.pop().enabled
+    user.find(marker="member-workday-0-rest").click()  # 休みを外して、開始 > 終了にする
+    await settle()
+    user.find(marker="member-workday-0-start").type("16")
+    user.find(marker="member-workday-0-end").type("13")
+    user.find(marker="member-workday-close").click()
+    await settle()
+    user.find(marker="member-apply").click()
+    await settle()
+    assert "甲" in user.find(marker="member-error").elements.pop().text
+    assert view.project.members[0].work_days == []
+
+
+async def test_work_day_inputs_have_calendar_and_time_pickers(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("甲", 1.0, {}, "m1")]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="member-workday-open-0").click()
+    await user.should_see(marker="member-workday-add")
+    user.find(marker="member-workday-add").click()
+    for field in ("day", "start", "end"):
+        await user.should_see(marker=f"open-member-workday-0-{field}-picker")
+    def picker_open() -> bool:
+        element = user.find(marker="member-workday-0-start-picker").elements.pop()
+        while not isinstance(element, ui.dialog):
+            element = element.parent_slot.parent
+        return element.value
+
+    user.find(marker="member-workday-0-rest").click()  # 休みのあいだは、時刻の選択を開かない
+    await settle()
+    user.find(marker="open-member-workday-0-start-picker").click()
+    await settle()
+    assert not picker_open()
+    user.find(marker="member-workday-0-rest").click()
+    await settle()
+    user.find(marker="open-member-workday-0-start-picker").click()
+    await settle()
+    assert picker_open()

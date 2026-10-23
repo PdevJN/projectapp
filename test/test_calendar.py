@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import date, time
 from pathlib import Path
 
 import httpx
@@ -12,7 +12,10 @@ from projectapp.calendar import (
     parse_holidays_csv,
     refresh_holidays,
     save_cache,
+    member_notes,
+    work_day_note,
 )
+from projectapp.models import Assignee, Member, Project, Task, WorkDay
 
 HEADER = "国民の祝日・休日月日,国民の祝日・休日名称\n"
 CSV = (HEADER + "2026/1/1,元日\n2026/1/12,成人の日\n").encode("cp932")
@@ -77,3 +80,34 @@ async def test_refresh_non_csv_is_not_saved(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         await refresh_holidays(tmp_path, transport_returning(200, b"<html>oops</html>"))
     assert not (tmp_path / "holidays.json").exists()
+
+
+def test_work_day_note() -> None:
+    holidays = {date(2026, 10, 12): "スポーツの日"}
+    days = {
+        date(2026, 10, 17): WorkDay(date(2026, 10, 17), time(13), time(16)),
+        date(2026, 10, 16): WorkDay(date(2026, 10, 16)),
+        date(2026, 10, 12): WorkDay(date(2026, 10, 12), time(10), time(12)),
+    }
+    assert work_day_note(date(2026, 10, 17), holidays, days) == "稼働 13:00〜16:00"
+    assert work_day_note(date(2026, 10, 16), holidays, days) == "休み"
+    assert work_day_note(date(2026, 10, 12), holidays, days) == "稼働 10:00〜12:00(祝日: スポーツの日)"
+    assert work_day_note(date(2026, 10, 13), holidays, days) is None
+    assert work_day_note(date(2026, 10, 13), holidays, None) is None
+
+
+def test_member_notes_list_each_assignees_override_by_day() -> None:
+    sat = date(2026, 10, 17)
+    a = Member("田中", work_days=[WorkDay(sat, time(13), time(16))])
+    b = Member("鈴木", work_days=[WorkDay(sat), WorkDay(date(2026, 10, 12))])
+    task = Task("t", assignees=[Assignee("田中", 1.0), Assignee("鈴木", 1.0)])
+    project = Project("p", members=[a, b], tasks=[task])
+    notes = member_notes(task, project, {date(2026, 10, 12): "スポーツの日"})
+    assert notes[sat] == "田中: 稼働 13:00〜16:00 / 鈴木: 休み"
+    assert notes[date(2026, 10, 12)] == "鈴木: 休み(祝日: スポーツの日)"
+
+
+def test_member_notes_ignore_non_members_and_unassigned_tasks() -> None:
+    project = Project("p", members=[Member("田中", work_days=[WorkDay(date(2026, 10, 17))])])
+    assert member_notes(Task("t"), project, {}) == {}
+    assert member_notes(Task("t", assignees=[Assignee("他", 1.0)]), project, {}) == {}

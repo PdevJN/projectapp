@@ -24,8 +24,10 @@ from projectapp.models import (
     Task,
     TaskKind,
     UrlTemplate,
+    WorkDay,
 )
 from projectapp.storage import dumps_project, parse_project
+from projectapp.workdays import sort_work_days
 
 OURS = "ours"
 THEIRS = "theirs"
@@ -37,7 +39,7 @@ _MISSING = object()
 
 @dataclass(frozen=True, eq=False)
 class Conflict:
-    kind: str  # task・section・member・category・event・parameter・url_template・setting
+    kind: str  # task・section・member・category・event・work_day・parameter・url_template・setting
     key: str  # id(パラメータ・テンプレートは名前)
     label: str  # 画面に出す名前
     field: str  # 画面に出す項目名。削除と変更の衝突は`DELETED`
@@ -108,6 +110,7 @@ class _Merger:
     def __init__(self, choices: Choices | None) -> None:
         self.choices = choices or {}
         self.conflicts: list[Conflict] = []
+        self.titles: dict[str, str] = {}  # 記録の鍵 → 画面に出す名前(名前の項目がない記録用)
 
     def pick(self, conflict: Conflict) -> str:
         self.conflicts.append(conflict)
@@ -127,7 +130,7 @@ class _Merger:
         if ours is None and theirs is None:
             return None
         shown = ours or theirs or base or {}
-        label = str(shown.get("name") or shown.get("text") or key)
+        label = str(shown.get("name") or shown.get("text") or self.titles.get(key) or key)
         if base is None:
             if ours is None:
                 return theirs
@@ -178,6 +181,7 @@ CATEGORY_LABELS = {"name": "名前", "kind": "種別", "expiry_date": "有効期
 PARAMETER_LABELS = {"levels": "段階"}
 TEMPLATE_LABELS = {"pattern": "URLの型"}
 EVENT_LABELS = {"start": "開始日", "end": "終了日", "text": "文字列", "color": "色"}
+WORK_DAY_LABELS = {"window": "時間帯"}
 SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間", "work_start": "始業時刻", "actual_mode": "実績の記録方式"}
 
 
@@ -192,6 +196,16 @@ def _categories(project: Project) -> dict[str, Record]:
         c.id: {"name": c.name, "kind": c.kind, "expiry_date": c.expiry_date, "color": c.color, "prj_code": c.prj_code}
         for c in project.categories
     }
+
+
+def _show_window(name: str, value: Any) -> str:
+    start, end = value
+    return "休み" if start is None else f"{start:%H:%M}〜{end:%H:%M}"
+
+
+def _member_work_days(project: Project) -> dict[str, Record]:
+    # 開始と終了は組で意味を持つ(両方 None=休み)ので、1 項目として比べる
+    return {f"{m.id}:{w.day.isoformat()}": {"window": (w.start, w.end)} for m in project.members for w in m.work_days}
 
 
 def _events(project: Project) -> dict[str, Record]:
@@ -270,6 +284,18 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
     members = merger.collection("member", MEMBER_LABELS, _members(base), _members(ours), _members(theirs))
     categories = merger.collection("category", CATEGORY_LABELS, _categories(base), _categories(ours), _categories(theirs))
     events = merger.collection("event", EVENT_LABELS, _events(base), _events(ours), _events(theirs))
+    for source in (theirs, ours):  # 自分の名前を優先する
+        for member in source.members:
+            for row in member.work_days:
+                merger.titles[f"{member.id}:{row.day.isoformat()}"] = f"{member.name}: {row.day.isoformat()}"
+    member_days = merger.collection(
+        "work_day",
+        WORK_DAY_LABELS,
+        _member_work_days(base),
+        _member_work_days(ours),
+        _member_work_days(theirs),
+        _show_window,
+    )
     parameters = merger.collection("parameter", PARAMETER_LABELS, _parameters(base), _parameters(ours), _parameters(theirs))
     templates = merger.collection("url_template", TEMPLATE_LABELS, _templates(base), _templates(ours), _templates(theirs))
     seen: set[str] = set()  # 同名で id の違うメンバーは、読み直すと片方が捨てられるので、名前を変えて両方残す
@@ -348,6 +374,17 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
 
     root_tasks, root_sections = build(None)
 
+    built_members = [
+        Member(r["name"], r["ratio"], dict(r["levels"]), id=key, icon=r["icon"]) for key, r in members.items()
+    ]
+    by_id = {m.id: m for m in built_members}
+    for key, r in member_days.items():
+        member_id, day = key.split(":", 1)
+        if member_id in by_id:  # 削除されたメンバーの上書きは捨てる
+            by_id[member_id].work_days.append(WorkDay(date.fromisoformat(day), *r["window"]))
+    for member in built_members:
+        member.work_days = sort_work_days(member.work_days)
+
     project = Project(
         name=ours.name,
         tasks=root_tasks,
@@ -356,9 +393,7 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
         daily_hours=settings["daily_hours"],
         work_start=settings["work_start"],
         actual_mode=settings["actual_mode"],
-        members=[
-            Member(r["name"], r["ratio"], dict(r["levels"]), id=key, icon=r["icon"]) for key, r in members.items()
-        ],
+        members=built_members,
         categories=[
             Category(r["name"], r["kind"], r["expiry_date"], r["color"], r["prj_code"], id=key)
             for key, r in categories.items()

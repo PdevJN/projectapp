@@ -1,9 +1,10 @@
 """担当の付け替えで換算率が変わったときの、完了予定の見直し(純粋関数。NiceGUI に依存しない)。"""
 
+from collections.abc import Sequence
 from datetime import date, datetime, time
 
 from projectapp.models import Status, Task, TaskKind
-from projectapp.timeline import calc_end, combine_rate
+from projectapp.timeline import Worker, calc_end, combine_rate
 
 RATE_TOLERANCE = 1e-9  # 換算率が変わったとみなす差
 
@@ -41,10 +42,11 @@ def reviewed_end(
     work_start: time,
     holidays: dict[date, str],
     now: datetime,
+    crew: Sequence[Worker] | None = None,
 ) -> datetime | None:
     """残りの工数(工数 − 消化分)を新換算率で割り当てた完了予定。残りがない・算出できないときは None。"""
     remaining = task.effort_hours - consumed_hours(task, old_rate)
     if remaining <= 0:
         return None
     start = max(now, task.planned_start) if task.planned_start else now
-    return calc_end(start, remaining / combine_rate(new_rate, 1.0), daily_hours, work_start, holidays)
+    return calc_end(start, remaining, daily_hours, work_start, holidays, list(crew) if crew else [Worker(combine_rate(new_rate, 1.0))])

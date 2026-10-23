@@ -7,11 +7,18 @@ import projectapp.models as models
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.models import Event
+from projectapp.models import Event, WorkDay
 from projectapp.categories import COLOR_HEX, COLOR_LABELS, COLORS, CategoryEdit
 from projectapp.forms import (
+    MEMBER_ICON_COLUMN_REM,
+    MEMBER_NAME_COLUMN_REM,
+    MEMBER_RATIO_COLUMN_REM,
+    member_columns,
+    member_table_min_rem,
     CategoryRow,
     EventRow,
+    WorkDayRow,
+    build_work_day_list,
     build_category_edit,
     LevelRow,
     MemberRow,
@@ -2033,3 +2040,55 @@ def test_a_summary_cannot_be_made_from_a_form() -> None:
         make(None, kind=TaskKind.SUMMARY)
     with pytest.raises(ValueError, match="まとめ"):
         make(Task("x"), kind=TaskKind.SUMMARY)
+
+
+WORK_TODAY = date(2026, 10, 1)
+
+
+def test_build_work_day_list_parses_shortcuts_sorts_and_skips_empty_rows() -> None:
+    rows = [
+        WorkDayRow("10/18", "930", "12", False),
+        WorkDayRow("2026-10-17", "13:00", "16:00", False),
+        WorkDayRow("", "", "", False),  # 完全に空の行は無視
+        WorkDayRow("10/12", "", "", True),  # 休みは時刻を見ない
+    ]
+    built = build_work_day_list(rows, WORK_TODAY)
+    assert [w.day for w in built] == [date(2026, 10, 12), date(2026, 10, 17), date(2026, 10, 18)]
+    assert built[0].start is None and built[0].end is None
+    assert (built[1].start, built[1].end) == (time(13), time(16))
+    assert (built[2].start, built[2].end) == (time(9, 30), time(12))
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        WorkDayRow("abc", "9", "10", False),  # 日付が読めない
+        WorkDayRow("10/17", "", "10", False),  # 開始が空
+        WorkDayRow("10/17", "9", "", False),  # 終了が空
+        WorkDayRow("10/17", "25", "10", False),  # 時刻が範囲外
+        WorkDayRow("10/17", "12", "9", False),  # 開始 > 終了
+        WorkDayRow("10/17", "9", "9", False),  # 開始 = 終了
+    ],
+)
+def test_build_work_day_list_rejects_bad_rows(row: WorkDayRow) -> None:
+    with pytest.raises(ValueError):
+        build_work_day_list([row], WORK_TODAY)
+
+
+def test_build_work_day_list_rejects_a_duplicate_date() -> None:
+    with pytest.raises(ValueError, match="重複"):
+        build_work_day_list([WorkDayRow("10/17", "9", "10", False), WorkDayRow("2026-10-17", "", "", True)], WORK_TODAY)
+
+
+def test_build_members_carries_work_day_rows_and_prefixes_errors_with_the_name() -> None:
+    row = MemberRow("甲", "甲", 100.0, work_days=[WorkDayRow("10/17", "13", "16", False), WorkDayRow("10/18", "", "", True)])
+    members, _ = build_members([row], ["甲"], lambda name: 0, today=WORK_TODAY)
+    assert members[0].work_days == [WorkDay(date(2026, 10, 17), time(13), time(16)), WorkDay(date(2026, 10, 18))]
+    bad = MemberRow("甲", "甲", 100.0, work_days=[WorkDayRow("10/17", "16", "13", False)])
+    with pytest.raises(ValueError, match="甲"):
+        build_members([bad], ["甲"], lambda name: 0, today=WORK_TODAY)
+
+
+def test_member_columns_include_the_work_days_column() -> None:
+    assert len(member_columns(0, False)) == 5  # アイコン・名前・比率・稼働日・削除
+    assert member_table_min_rem(0, False) > MEMBER_ICON_COLUMN_REM + MEMBER_NAME_COLUMN_REM + MEMBER_RATIO_COLUMN_REM

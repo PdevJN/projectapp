@@ -51,10 +51,12 @@ from projectapp.models import (
     TaskKind,
     TaskUrl,
     UrlTemplate,
+    WorkDay,
     new_id,
     tidy_task_name,
     walk_sections,
 )
+from projectapp.workdays import sort_work_days, validate_work_days
 from projectapp.urls import validate_templates, validate_urls
 
 BASE_DIR = Path.home() / ".projectapp"
@@ -103,6 +105,8 @@ def _check_unique_ids(project: Project) -> None:
 def _dump(project: Project) -> dict[str, Any]:
     """ファイルに書く辞書。担当者は名前ではなくメンバー id で指す。メンバーにいない名前は、メンバーを補う(実行時のプロジェクトは変えない)。"""
     data: dict[str, Any] = {"version": FORMAT_VERSION, **asdict(project)}
+    for saved, member in zip(data["members"], project.members):
+        saved["work_days"] = [asdict(row) for row in sort_work_days(member.work_days)]
     ids: dict[str, str] = {}
     for member in data["members"]:
         ids.setdefault(member["name"], member["id"])  # 同名は最初の 1 件を指す(読込が残すのも最初の 1 件)
@@ -114,7 +118,7 @@ def _dump(project: Project) -> dict[str, Any]:
             if name not in ids:
                 ids[name] = new_id(taken)
                 taken.add(ids[name])
-                data["members"].append({"name": name, "ratio": 1.0, "levels": {}, "id": ids[name], "icon": ""})
+                data["members"].append({"name": name, "ratio": 1.0, "levels": {}, "id": ids[name], "icon": "", "work_days": []})
             refs.append({"member": ids[name], "allocation": assignee["allocation"]})
         task["assignees"] = refs
     return data
@@ -451,6 +455,42 @@ def _events(value: Any) -> list[Event]:
     return events
 
 
+def _work_days(value: Any) -> list[WorkDay]:
+    """稼働日の上書き(version 8)。キーがない・null は空。形・時刻・重複の不正は ValueError。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("稼働日の上書きがリストではありません")
+    rows: list[WorkDay] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            raise ValueError("稼働日の上書きの形式が正しくありません")
+        try:
+            day = _iso_date(raw.get("day"), "日付")
+        except ValueError as exc:
+            raise ValueError(str(exc).replace("イベントの", "稼働日の")) from None
+        times: list[time | None] = []
+        for key in ("start", "end"):
+            text = raw.get(key)
+            if text is None:
+                times.append(None)
+            elif isinstance(text, str):
+                try:
+                    if not _CLOCK.fullmatch(text):
+                        raise ValueError(text)
+                    times.append(time.fromisoformat(text))
+                except ValueError:
+                    raise ValueError(f"稼働日の{key}の形式が正しくありません: {text!r}") from None
+            else:
+                raise ValueError(f"稼働日の{key}が文字列ではありません: {text!r}")
+        rows.append(WorkDay(day, times[0], times[1]))
+    validate_work_days(rows)
+    return sort_work_days(rows)
+
+
+_CLOCK = re.compile(r"\d{2}:\d{2}(:00)?")  # 時刻は HH:MM か HH:MM:00(秒未満・タイムゾーンは不可)
+
+
 def _kind(value: Any) -> TaskKind:
     """タスクの種別。キーがない・null は通常。不正は ValueError(開けませんでした)。"""
     if value is None:
@@ -719,6 +759,7 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
         ratio = _number_in_range(raw.get("ratio", 1.0), MIN_RATIO, MAX_RATIO, "相対比率")
         levels = _member_levels(raw.get("levels"))
         icon = _icon(raw.get("icon")) if ctx.version >= 7 else ""
+        work_days = _work_days(raw.get("work_days")) if ctx.version >= 8 else []
         member_id = None
         if ctx.version >= 2:
             member_id = _entity_id(raw.get("id"), "メンバー")
@@ -730,7 +771,7 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
         if not name or name in seen:
             continue
         seen.add(name)
-        member = Member(name, ratio, levels, icon=icon)
+        member = Member(name, ratio, levels, icon=icon, work_days=work_days)
         if member_id is not None:
             member.id = member_id
         members.append(member)

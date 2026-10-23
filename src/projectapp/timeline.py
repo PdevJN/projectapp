@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from itertools import groupby
 from math import ceil, isfinite
 
-from projectapp.models import Assignee, Member, Parameter, Project, Status, Task, TaskKind
+from projectapp.models import Assignee, Member, Parameter, Project, Status, Task, TaskKind, WorkDay
 from projectapp.ratios import effective_ratio
 from projectapp.summary import children_of
+from projectapp.workdays import work_day_map
 
 class Scale(StrEnum):
     DAY = "日次"
@@ -21,6 +22,15 @@ class Scale(StrEnum):
 
 MIN_COLUMNS = {Scale.DAY: 42, Scale.WEEK: 26, Scale.MONTH: 12}
 MAX_WORKDAYS = 3650  # 約14年分。誤入力で計算が長引くのを防ぐ
+CAPACITY_EPSILON = 1e-9  # 工数の消化の比較の許容差[h](約3.6µs)
+
+
+@dataclass(frozen=True)
+class Worker:
+    """完了予定の算出に使う担当者 1 人。rate は換算率(相対比率 × 割り当て率)、days は日付 → 稼働日の上書き。"""
+
+    rate: float = 1.0
+    days: Mapping[date, WorkDay] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -266,16 +276,46 @@ def month_bands(columns: list[Column]) -> list[Band]:
     )
 
 
-def is_workday(day: date, holidays: dict[date, str]) -> bool:
-    """月〜金で祝日でない日。"""
+def _default_open(day: date, holidays: dict[date, str]) -> bool:
+    """上書きがないときの稼働日: 月〜金で祝日でない日。"""
     return day.weekday() < 5 and day not in holidays
 
 
-def _next_workday(day: date, holidays: dict[date, str]) -> date:
-    day += timedelta(days=1)
-    while not is_workday(day, holidays):
-        day += timedelta(days=1)
-    return day
+def is_workday(day: date, holidays: dict[date, str], work_days: Mapping[date, WorkDay] | None = None) -> bool:
+    """稼働日か。稼働日の上書きがあればそれ(休みは稼働日でない)、なければ月〜金で祝日でない日。"""
+    if work_days and day in work_days:
+        return work_days[day].start is not None
+    return _default_open(day, holidays)
+
+
+def day_window(
+    day: date,
+    daily_hours: float,
+    work_start: time,
+    holidays: dict[date, str],
+    work_days: Mapping[date, WorkDay] | None = None,
+) -> tuple[datetime, datetime] | None:
+    """その日の稼働の枠(開始, 終了)。枠がない日(休み・土日祝)は None。上書きがあれば、その日の枠を置き換える。"""
+    if work_days and day in work_days:
+        row = work_days[day]
+        if row.start is None or row.end is None:
+            return None
+        return datetime.combine(day, row.start), datetime.combine(day, row.end)
+    if not _default_open(day, holidays):
+        return None
+    opens = datetime.combine(day, work_start)
+    return opens, opens + timedelta(hours=daily_hours)
+
+
+def day_hours(
+    day: date,
+    daily_hours: float,
+    holidays: dict[date, str],
+    work_days: Mapping[date, WorkDay] | None = None,
+) -> float:
+    """その日の稼働時間[h]。枠がなければ 0。"""
+    window = day_window(day, daily_hours, time.min, holidays, work_days)
+    return (window[1] - window[0]).total_seconds() / 3600 if window else 0.0
 
 
 def calc_end(
@@ -284,18 +324,22 @@ def calc_end(
     daily_hours: float,
     work_start: time,
     holidays: dict[date, str],
+    crew: Sequence[Worker] | None = None,
 ) -> datetime | None:
-    """稼働日の稼働枠(始業から連続daily_hours時間)に工数を割り当てた終了日時。
+    """基準の人の工数を、担当者全員の稼働の枠(その人の上書き、なければ始業から稼働可能時間)に割り当てた終了日時。
 
+    枠が重なる時刻は、稼働中の担当者の換算率の合計で工数を消化する。crew が空なら換算率1の1人。
     工数が不正(NaN・inf・0以下・稼働日数の上限超え)、daily_hoursが0以下・24超、
     または日付が範囲を超えるときは、例外にせずNoneを返す。
     """
+    workers = list(crew) if crew else [Worker()]
+    total = sum(w.rate for w in workers)
     if not isfinite(effort_hours) or effort_hours <= 0 or not 0 < daily_hours <= 24:
         return None
-    if effort_hours > daily_hours * MAX_WORKDAYS:
+    if not isfinite(total) or total <= 0 or effort_hours / total > daily_hours * MAX_WORKDAYS:
         return None
     try:
-        return _calc_end(start, effort_hours, daily_hours, work_start, holidays)
+        return _calc_end(start, effort_hours, daily_hours, work_start, holidays, workers)
     except OverflowError:
         return None
 
@@ -306,20 +350,27 @@ def _calc_end(
     daily_hours: float,
     work_start: time,
     holidays: dict[date, str],
+    workers: list[Worker],
 ) -> datetime:
-    slot = timedelta(hours=daily_hours)
-    day = start.date()
-    if is_workday(day, holidays) and start < datetime.combine(day, work_start) + slot:
-        cursor = max(start, datetime.combine(day, work_start))
-    else:
-        cursor = datetime.combine(_next_workday(day, holidays), work_start)
-    remaining = timedelta(hours=effort_hours)
+    remaining = effort_hours
+    day, cursor = start.date(), start
     while True:
-        available = datetime.combine(cursor.date(), work_start) + slot - cursor
-        if remaining <= available:
-            return cursor + remaining
-        remaining -= available
-        cursor = datetime.combine(_next_workday(cursor.date(), holidays), work_start)
+        windows = [
+            (w.rate, window)
+            for w in workers
+            if (window := day_window(day, daily_hours, work_start, holidays, w.days)) is not None
+        ]
+        points = sorted({max(p, cursor) for _, window in windows for p in window})
+        for left, right in zip(points, points[1:]):
+            speed = sum(rate for rate, (opens, closes) in windows if opens <= left and right <= closes)
+            if speed <= 0:
+                continue
+            capacity = speed * (right - left).total_seconds() / 3600
+            if remaining <= capacity + CAPACITY_EPSILON:  # 浮動小数の丸めで、ちょうど枠の終わりで終わる工数が翌日に回らない
+                return min(left + timedelta(hours=remaining / speed), right)
+            remaining -= capacity
+        day += timedelta(days=1)
+        cursor = datetime.combine(day, time.min)
 
 
 def combine_rate(ratio: float, allocation: float) -> float:
@@ -328,18 +379,27 @@ def combine_rate(ratio: float, allocation: float) -> float:
     return rate if isfinite(rate) and rate > 0 else 1.0
 
 
-def assignees_rate(
+def crew_of(
     assignees: list[Assignee], members: list[Member], parameters: list[Parameter] | None = None
-) -> float:
-    """担当者全員の換算率(相対比率 × 割り当て率)の合計。相対比率は、パラメータを反映した実効比率。
-    メンバーにいない担当者は数えない。誰も数えられなければ 1.0(換算しない)。"""
+) -> list[Worker]:
+    """担当者を算出用の Worker にする。相対比率は、パラメータを反映した実効比率。メンバーにいない担当者は入れない。"""
     by_name = {m.name: m for m in members}
     chosen = parameters or []
-    rates = [
-        combine_rate(effective_ratio(by_name[a.name], chosen), a.allocation)
+    return [
+        Worker(
+            combine_rate(effective_ratio(by_name[a.name], chosen), a.allocation),
+            work_day_map(by_name[a.name].work_days),
+        )
         for a in assignees
         if a.name in by_name
     ]
+
+
+def assignees_rate(
+    assignees: list[Assignee], members: list[Member], parameters: list[Parameter] | None = None
+) -> float:
+    """担当者全員の換算率(相対比率 × 割り当て率)の合計。誰も数えられなければ 1.0(換算しない)。"""
+    rates = [w.rate for w in crew_of(assignees, members, parameters)]
     return sum(rates) if rates else 1.0
 
 
@@ -364,12 +424,12 @@ def computed_end(
     holidays: dict[date, str],
     deadline: datetime | None = None,
     rate: float = 1.0,
+    crew: Sequence[Worker] | None = None,
 ) -> datetime | None:
     """手入力を使わない完了予定。工数を換算率で割って算出し、算出できなければ締切、締切もなければ開始予定の1日後。"""
     if start is not None and effort_hours > 0:
-        end = calc_end(
-            start, effort_hours / combine_rate(rate, 1.0), daily_hours, work_start, holidays
-        )
+        workers = list(crew) if crew else [Worker(combine_rate(rate, 1.0))]
+        end = calc_end(start, effort_hours, daily_hours, work_start, holidays, workers)
         if end is not None:
             return end
     if deadline is not None:
@@ -400,7 +460,7 @@ def _own_end(
         project.work_start,
         holidays,
         task.deadline,
-        conversion_rate(task, project),
+        crew=crew_of(task.assignees, project.members, project.parameters),
     )
 
 

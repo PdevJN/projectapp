@@ -11,7 +11,7 @@ from typing import Any
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
-from projectapp.dateinput import parse_date_input
+from projectapp.dateinput import parse_date_input, parse_time_input
 from projectapp.avatar import avatar
 from projectapp.events import color_hex, normalize_color, sort_events, validate_events
 from projectapp.icons import is_valid_icon
@@ -60,10 +60,12 @@ from projectapp.models import (
     TaskKind,
     TaskUrl,
     UrlTemplate,
+    WorkDay,
     has_control_char,
     is_hex_color,
     new_id,
 )
+from projectapp.workdays import sort_work_days, validate_work_days
 from projectapp.ratios import ParameterEdit, ratio_detail, remap_levels, validate_parameters
 from projectapp.urls import TemplateEdit, resolve, validate_templates
 
@@ -498,6 +500,81 @@ def event_key(e: Event) -> tuple:
     return (e.id, e.start, e.end, e.text, e.color)
 
 
+@dataclass
+class WorkDayRow:
+    day: str
+    start: str
+    end: str
+    rest: bool
+
+
+def build_work_day_list(rows: list[WorkDayRow], today: date) -> list[WorkDay]:
+    """入力の行を検証して、日付の昇順の一覧にする。完全に空の行は無視する。休みの行は時刻を見ない。"""
+    built: list[WorkDay] = []
+    for row in rows:
+        if not row.rest and not any(t.strip() for t in (row.day, row.start, row.end)):
+            continue
+        day = parse_date_input(row.day, today, roll_forward=False)
+        if day is None:
+            raise ValueError("稼働日の日付を入力してください(例: 2026-10-17、10/17)")
+        if row.rest:
+            built.append(WorkDay(date.fromisoformat(day)))
+            continue
+        start, end = parse_time_input(row.start), parse_time_input(row.end)
+        if start is None or end is None:
+            raise ValueError(
+                f"稼働日 {day} の開始と終了を時刻で入力してください(例: 13:00、930)。休みなら「休み」にチェックしてください"
+            )
+        built.append(WorkDay(date.fromisoformat(day), time.fromisoformat(start), time.fromisoformat(end)))
+    validate_work_days(built)
+    return sort_work_days(built)
+
+
+def work_day_editor(rows: list[WorkDayRow], marker: str) -> None:
+    """稼働日の上書きの行(日付 / 開始 / 終了 / 休み / 削除)と追加ボタン。rows をその場で書き換える。"""
+
+    from projectapp.task_dialog import add_picker, date_normalizer  # task_dialog が forms を使うので、呼ぶときに読む
+
+    @ui.refreshable
+    def table() -> None:
+        with ui.column().classes("w-full gap-1"):
+            for n, wrow in enumerate(rows):
+                with ui.row().classes("w-full items-center no-wrap gap-2"):
+                    day_input = ui.input(
+                        "日付", value=wrow.day, on_change=lambda e, r=wrow: setattr(r, "day", e.value or "")
+                    ).classes("w-40").mark(f"{marker}-{n}-day")
+                    add_picker(day_input, ui.date, "event", f"{marker}-{n}-day", "%Y-%m-%d", date_normalizer(False))
+                    for label, name in (("開始", "start"), ("終了", "end")):
+                        field_input = ui.input(
+                            label,
+                            value=getattr(wrow, name),
+                            on_change=lambda e, r=wrow, k=name: setattr(r, k, e.value or ""),
+                        ).classes("w-28").mark(f"{marker}-{n}-{name}")
+                        add_picker(field_input, ui.time, "access_time", f"{marker}-{n}-{name}", "%H:%M", parse_time_input)
+                        field_input.set_enabled(not wrow.rest)
+                    ui.checkbox("休み", value=wrow.rest, on_change=lambda e, r=wrow: toggle(r, bool(e.value))).mark(
+                        f"{marker}-{n}-rest"
+                    )
+                    ui.button(icon="delete", on_click=lambda _e, r=wrow: remove(r)).props(
+                        "flat dense color=negative"
+                    ).mark(f"{marker}-{n}-remove")
+
+    def toggle(wrow: WorkDayRow, value: bool) -> None:
+        wrow.rest = value
+        table.refresh()
+
+    def remove(wrow: WorkDayRow) -> None:
+        rows.remove(wrow)
+        table.refresh()
+
+    def add() -> None:
+        rows.append(WorkDayRow("", "", "", False))
+        table.refresh()
+
+    table()
+    ui.button("稼働日を追加", icon="add", on_click=add).props("flat dense").mark(f"{marker}-add")
+
+
 # 色の名前(ラベル)→ 色コード(Vue の式)。NiceGUI の select は、選択肢の value に番号(0〜9)を渡すので、色名では引けない。名前は一意
 _COLOR_MAP = "{" + ",".join(f"'{COLOR_LABELS[color]}':'{code}'" for color, code in COLOR_HEX.items()) + "}"
 _COLOR_DOT = f'<q-icon name="circle" size="xs" :style="{{ color: ({_COLOR_MAP})[props.opt.label] }}" />'
@@ -604,6 +681,7 @@ class MemberRow:
     levels: dict[str, str] = field(default_factory=dict)  # パラメータ名 → 選んだ段階名
     id: str | None = None  # 開いた時点のメンバーの id。新しい行は None(適用で新しい id を振る)
     icon: str = ""  # アイコン(data URI)。空はアイコンなし
+    work_days: list[WorkDayRow] = field(default_factory=list)  # 稼働日の上書きの入力行
 
 
 def build_members(
@@ -612,6 +690,7 @@ def build_members(
     assigned: Callable[[str], int],
     parameters: list[Parameter] | None = None,
     taken: Collection[str] = (),
+    today: date | None = None,
 ) -> tuple[list[Member], dict[str, str]]:
     """ダイアログの行を検証して、メンバー一覧と、改名の対応({旧: 新})を返す。`taken` は、プロジェクトにある id(新しい行の id がこれと重ならない)。"""
     members: list[Member] = []
@@ -635,9 +714,13 @@ def build_members(
         levels = {p: lv for p, lv in row.levels.items() if lv in existing.get(p, set())}
         if row.icon and not is_valid_icon(row.icon):
             raise ValueError(f"アイコンが正しくありません: {name}")
+        try:
+            work_days = build_work_day_list(row.work_days, today or date.today())
+        except ValueError as exc:
+            raise ValueError(f"{name}: {exc}") from None
         member_id = row.id or new_id(used)
         used.add(member_id)
-        members.append(Member(name, round(ratio / 100, 4), levels, member_id, row.icon))
+        members.append(Member(name, round(ratio / 100, 4), levels, member_id, row.icon, work_days))
         if row.original is not None and row.original != name:
             renames[row.original] = name
     kept = {row.original for row in rows if row.original is not None}
@@ -1474,8 +1557,12 @@ MEMBER_NAME_COLUMN_REM = 7  # 名前の列(固定。列の数や画面の幅で�
 MEMBER_RATIO_COLUMN_REM = 7
 MEMBER_LEVEL_COLUMN_REM = 9
 MEMBER_EFFECTIVE_COLUMN_REM = 11
+MEMBER_WORK_DAYS_COLUMN_REM = 7
 MEMBER_DELETE_COLUMN_REM = 3
 MEMBER_ROW_HEIGHT_PX = 36
+MEMBER_ROW_GAP_PX = 4  # 行の間隔(gap-y-1)
+MEMBER_HEADER_HEIGHT_PX = 20  # 見出しの行(12px の文字)
+MEMBER_SCROLLBAR_ROOM_PX = 24  # 横スクロールバー(約 15px)の余裕
 # メンバーの表の中のコントロールを 14px にそろえる(入力・選択の文字、プルダウンの項目、実効比率)。見出しは 12px のまま
 MEMBER_TABLE_CSS = f"""
 .member-table .q-field__native, .member-table .q-field__input, .member-table .q-field__label {{ font-size: 14px; line-height: 20px; }}
@@ -1492,8 +1579,14 @@ def member_columns(level_count: int, with_effective: bool) -> list[str]:
     columns += [f"{MEMBER_LEVEL_COLUMN_REM}rem"] * level_count
     if with_effective:
         columns.append(f"{MEMBER_EFFECTIVE_COLUMN_REM}rem")
+    columns.append(f"{MEMBER_WORK_DAYS_COLUMN_REM}rem")
     columns.append(f"{MEMBER_DELETE_COLUMN_REM}rem")
     return columns
+
+
+def member_scroll_min_height_px(row_count: int) -> int:
+    """表を囲む枠の最小の高さ(px)。見出し 1 行 + 行数ぶん + 横スクロールバーの余裕。"""
+    return MEMBER_HEADER_HEIGHT_PX + row_count * (MEMBER_ROW_HEIGHT_PX + MEMBER_ROW_GAP_PX) + MEMBER_SCROLLBAR_ROOM_PX
 
 
 def member_table_min_rem(level_count: int, with_effective: bool) -> int:
@@ -1504,8 +1597,9 @@ def member_table_min_rem(level_count: int, with_effective: bool) -> int:
         + MEMBER_RATIO_COLUMN_REM
         + MEMBER_LEVEL_COLUMN_REM * level_count
         + (MEMBER_EFFECTIVE_COLUMN_REM if with_effective else 0)
+        + MEMBER_WORK_DAYS_COLUMN_REM
         + MEMBER_DELETE_COLUMN_REM
-        + 2 * (4 + level_count + (1 if with_effective else 0))  # 列の間隔(gap 0.5rem)の概算
+        + 2 * (5 + level_count + (1 if with_effective else 0))  # 列の間隔(gap 0.5rem)の概算
     )
 
 
@@ -1530,9 +1624,21 @@ def members_panel(
     """メンバーの編集(タブの中身)。1 行が 1 人の表(名前・基本比率・パラメータごとの段階・実効比率・削除)。
     適用してもダイアログは閉じず、プロジェクトの今のメンバーから行を作り直す。"""
 
+    def work_day_rows(member: Member) -> list[WorkDayRow]:
+        return [
+            WorkDayRow(
+                w.day.isoformat(),
+                w.start.strftime("%H:%M") if w.start else "",
+                w.end.strftime("%H:%M") if w.end else "",
+                w.start is None,
+            )
+            for w in member.work_days
+        ]
+
     def to_rows() -> list[MemberRow]:
         return [
-            MemberRow(m.name, m.name, round(m.ratio * 100, 2), dict(m.levels), m.id, m.icon) for m in get_members()
+            MemberRow(m.name, m.name, round(m.ratio * 100, 2), dict(m.levels), m.id, m.icon, work_day_rows(m))
+            for m in get_members()
         ]
 
     rows = to_rows()
@@ -1555,8 +1661,12 @@ def members_panel(
         chosen_parameters, with_effective, columns, min_rem = layout()
         if not rows:
             ui.label("メンバーがいません").classes("text-grey")
-        # 横に伸びる(パラメータが多い)ときは、表だけを横にスクロールさせる
-        with ui.element("div").classes("w-full").style("overflow-x: auto").mark("member-scroll"):
+        # 横に伸びる(パラメータが多い)ときは、表だけを横にスクロールさせる。
+        # タブの中身は flex の縦並びで、overflow を持つ枠は縮められる(1 行ぶんまで潰れる)ので、縮めない。
+        # 行を足した直後に高さが追従しないことがあるため、行数から必要な高さを下限として与える
+        with ui.element("div").classes("w-full").style(
+            f"overflow-x: auto; flex-shrink: 0; min-height: {member_scroll_min_height_px(len(rows))}px"
+        ).mark("member-scroll"):
             with ui.grid(columns=" ".join(columns)).classes("member-table items-center gap-x-2 gap-y-1").style(
                 f"min-width: {min_rem}rem"
             ).mark("member-grid"):
@@ -1570,6 +1680,7 @@ def members_panel(
                     ui.label(parameter.name).classes(f"{header} ellipsis").mark(f"member-header-level-{p}")
                 if with_effective:
                     ui.label("相対比率").classes(header).mark("member-header-effective")
+                ui.label("稼働日").classes(header).mark("member-header-workdays")
                 ui.label("")
                 for index, row in enumerate(rows):
                     effective: list[ui.label] = []  # 行の実効比率のラベル(各入力の変更で更新する)
@@ -1632,6 +1743,10 @@ def members_panel(
                             .classes("text-grey member-effective")
                             .mark(f"member-effective-{index}")
                         )
+                    ui.button(
+                        f"稼働日({len(row.work_days)})" if row.work_days else "稼働日",
+                        on_click=lambda r=row: open_work_days(r),
+                    ).props("flat dense no-caps").mark(f"member-workday-open-{index}")
                     ui.button(icon="delete", on_click=lambda r=row: remove(r)).props(
                         "flat dense round"
                     ).mark(f"member-delete-{index}")
@@ -1639,6 +1754,17 @@ def members_panel(
     def remove(row: MemberRow) -> None:
         rows.remove(row)
         table.refresh()
+
+    def open_work_days(row: MemberRow) -> None:
+        with ui.dialog() as sub, ui.card().classes("w-[40rem] max-w-full"):
+            ui.label(f"{row.name or '(名前なし)'} の稼働日の上書き").classes("text-subtitle1")
+            ui.label("日付ごとに、稼働の時間帯(開始〜終了)か休みを決めます。土日祝を稼働にしたり、平日を休みにできます").classes(
+                "text-caption text-grey"
+            )
+            work_day_editor(row.work_days, "member-workday")
+            ui.button("閉じる", on_click=sub.close).mark("member-workday-close")
+        sub.on("hide", table.refresh)
+        sub.open()
 
     async def choose_icon(row: MemberRow) -> None:
         assert pick_icon is not None
@@ -1654,8 +1780,6 @@ def members_panel(
     def add() -> None:
         rows.append(MemberRow(None, "", 100.0))
         table.refresh()
-
-
     table()
     ui.button("メンバーを追加", icon="add", on_click=add).props("flat").mark("member-add")
     error = ui.label("").classes("text-negative").mark("member-error")

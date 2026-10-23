@@ -97,7 +97,8 @@ from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
-from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Event, Member, Project, Section, SectionPath, Task, TaskKind, new_id
+from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Event, Member, Project, Section, SectionPath, Task, TaskKind, WorkDay, new_id
+from projectapp.workdays import work_day_map
 from projectapp.preview import (
     LARGE_IMAGE_MESSAGE,
     NOT_NATIVE_MESSAGE,

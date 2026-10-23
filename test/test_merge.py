@@ -16,6 +16,7 @@ from projectapp.models import (
     Section,
     Task,
     UrlTemplate,
+    WorkDay,
 )
 
 
@@ -383,3 +384,48 @@ def test_format_value_shortens_an_image_data_uri(icon: str) -> None:
 
     text = format_value(icon)
     assert text.startswith("画像(") and "data:" not in text and len(text) < 30
+
+
+def wd(day: str, end: int = 16) -> WorkDay:
+    return WorkDay(date.fromisoformat(day), time(13), time(end))
+
+
+def mem(*days: WorkDay) -> Member:
+    return Member("甲", 1.0, id="m1", work_days=list(days))
+
+
+def test_member_work_days_merge_by_member_and_date() -> None:
+    base = proj(members=[mem(wd("2026-10-17"))])
+    ours = proj(members=[mem(wd("2026-10-17"), wd("2026-10-18", 12))])
+    theirs = proj(members=[mem(wd("2026-10-17", 17))])
+    result = merge_projects(base, ours, theirs)
+    assert result.conflicts == []
+    assert [(w.day, w.end) for w in result.project.members[0].work_days] == [
+        (date(2026, 10, 17), time(17)),
+        (date(2026, 10, 18), time(12)),
+    ]
+
+
+def test_member_work_day_window_is_one_item() -> None:
+    base = proj(members=[mem(wd("2026-10-17"))])
+    ours = proj(members=[mem(WorkDay(date(2026, 10, 17)))])
+    theirs = proj(members=[mem(wd("2026-10-17", 18))])
+    result = merge_projects(base, ours, theirs, {("work_day", "m1:2026-10-17", "時間帯"): THEIRS})
+    (conflict,) = result.conflicts
+    assert (conflict.ours, conflict.theirs) == ("休み", "13:00〜18:00")
+    assert result.project.members[0].work_days == [wd("2026-10-17", 18)]
+
+
+def test_work_days_of_a_deleted_member_are_dropped() -> None:
+    base = proj(members=[mem(wd("2026-10-17"))])
+    ours = proj(members=[])
+    theirs = proj(members=[mem(wd("2026-10-17"))])
+    assert merge_projects(base, ours, theirs).project.members == []
+
+
+def test_member_work_day_conflict_is_labelled_with_the_member_and_date() -> None:
+    base = proj(members=[mem(wd("2026-10-17"))])
+    ours = proj(members=[mem(wd("2026-10-17", 17))])
+    theirs = proj(members=[mem(wd("2026-10-17", 18))])
+    (conflict,) = merge_projects(base, ours, theirs).conflicts
+    assert conflict.label == "甲: 2026-10-17"

@@ -26,6 +26,7 @@ from projectapp.models import (
     TaskKind,
     TaskUrl,
     UrlTemplate,
+    WorkDay,
     walk_sections,
 )
 from projectapp.timeline import Scale, build_columns
@@ -33,9 +34,11 @@ from projectapp.storage import (
     ExternalChange,
     backup_file,
     check_external_change,
+    dumps_project,
     file_digest,
     list_project_files,
     load_project,
+    parse_project,
     save_project,
     validate_name,
 )
@@ -1304,7 +1307,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 7
+    assert raw["version"] == FORMAT_VERSION == 8
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1372,7 +1375,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 7
+    assert raw["version"] == FORMAT_VERSION == 8
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -1821,7 +1824,7 @@ def test_an_invalid_icon_is_rejected_on_load(tmp_path: Path, value: object) -> N
 def test_a_member_added_for_an_unknown_assignee_is_saved_with_an_empty_icon(tmp_path: Path) -> None:
     project = Project("demo", sections=[Section("s", [Task("t", assignees=[Assignee("丙", 1.0)])])])
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["members"] == [{"name": "丙", "ratio": 1.0, "levels": {}, "id": raw["members"][0]["id"], "icon": ""}]
+    assert raw["members"] == [{"name": "丙", "ratio": 1.0, "levels": {}, "id": raw["members"][0]["id"], "icon": "", "work_days": []}]
 
 
 def test_an_icon_with_a_huge_declared_size_is_rejected_on_load_with_a_value_error(tmp_path: Path) -> None:
@@ -1838,3 +1841,55 @@ def test_an_icon_with_a_huge_declared_size_is_rejected_on_load_with_a_value_erro
     write_member_icon(path, "data:image/png;base64," + base64.b64encode(raw).decode())
     with pytest.raises(ValueError, match="アイコン"):
         load_project(path)
+
+
+def test_a_top_level_work_days_key_is_not_written_or_read() -> None:
+    raw = json.loads(dumps_project(Project("p")))
+    assert "work_days" not in raw
+    raw["work_days"] = [{"day": "2026-10-17", "start": "13:00:00", "end": "16:00:00"}]
+    assert not hasattr(parse_project(json.dumps(raw), "p"), "work_days")
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        "x",  # リストでない
+        [1],  # 行が辞書でない
+        [{"day": "10/17", "start": None, "end": None}],  # 日付の形式
+        [{"day": "2026-10-17", "start": "13:00:00", "end": None}],  # 片方だけ
+        [{"day": "2026-10-17", "start": "16:00:00", "end": "13:00:00"}],  # 開始 > 終了
+        [{"day": "2026-10-17", "start": 9, "end": 10}],  # 時刻が文字列でない
+        [{"day": "2026-10-17", "start": "13:00+09:00", "end": "16:00+09:00"}],  # タイムゾーン付き
+        [{"day": "2026-10-17", "start": "13:00:00.5", "end": "16:00:00"}],  # 秒未満
+        [{"day": "2026-10-17", "start": "1300", "end": "1600"}],  # 省略形
+        [{"day": "2026-10-17", "start": None, "end": None}, {"day": "2026-10-17", "start": None, "end": None}],  # 重複
+    ],
+)
+def test_bad_work_days_are_rejected(rows: object) -> None:
+    raw = json.loads(dumps_project(Project("p", members=[Member("甲", id="m1")])))
+    raw["members"][0]["work_days"] = rows
+    with pytest.raises(ValueError):
+        parse_project(json.dumps(raw), "p")
+
+
+def test_member_work_days_round_trip_in_date_order() -> None:
+    member = Member(
+        "甲",
+        id="m1",
+        work_days=[WorkDay(date(2026, 10, 18)), WorkDay(date(2026, 10, 17), time(13), time(16))],
+    )
+    text = dumps_project(Project("p", members=[member]))
+    saved = json.loads(text)["members"][0]["work_days"]
+    assert saved == [
+        {"day": "2026-10-17", "start": "13:00:00", "end": "16:00:00"},
+        {"day": "2026-10-18", "start": None, "end": None},
+    ]
+    loaded = parse_project(text, "p").members[0].work_days
+    assert loaded == [WorkDay(date(2026, 10, 17), time(13), time(16)), WorkDay(date(2026, 10, 18))]
+
+
+def test_members_without_work_days_load_as_empty() -> None:
+    raw = json.loads(dumps_project(Project("p", members=[Member("甲", id="m1")])))
+    raw["version"] = 7
+    del raw["members"][0]["work_days"]
+    assert parse_project(json.dumps(raw), "p").members[0].work_days == []

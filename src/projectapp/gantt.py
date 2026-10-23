@@ -12,7 +12,7 @@ from projectapp import arrange
 from projectapp.avatar import avatar
 from projectapp.browser import open_url as default_open_url
 from projectapp.arrange import Position, section_key
-from projectapp.calendar import DayKind, day_kind
+from projectapp.calendar import DayKind, day_kind, member_notes
 from projectapp.forms import task_name_error
 from projectapp.events import assign_lanes, cell_colors, color_hex, column_span
 from projectapp.categories import by_id, chip_text
@@ -67,6 +67,7 @@ HEADER_HEIGHT_PX = 44  # 日次の日付と(曜日)の2段
 WEEKDAYS = "月火水木金土日"
 DEADLINE_MARKER_HALF_PX = 6  # 「◆」の幅の半分。締切の位置が目印の中心に来るようにずらす
 CHECKPOINT_MARKER_PX = 20  # チェックポイントの ◆ の大きさ(締切の小さな ◆ より大きい)
+WORKMARK_HEIGHT_PX = 4  # 担当者の稼働日の上書きの印の高さ
 DEADLINE_COLOR = "#f57c00"  # 赤は予定超過の背景と競合するので使わない
 OVERLOAD_STRIPES = (  # 割り当て合計が100%を超える期間の縞。タスクの色に依存しないよう白と黒の半透明を重ねる
     "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 4px, rgba(0,0,0,0.35) 4px 8px)"
@@ -1033,6 +1034,22 @@ class GanttChart:
             " pointer-events: none"
         ).mark("gridlines")
 
+    def work_day_strip(
+        self, key: int | str, ti: int, notes: dict[date, str], columns: list[Column], width: int
+    ) -> None:
+        """日次の行の下端に、担当者が稼働日を上書きした日の印(橙)を出す。内容は日付と、メンバー名・時刻(エスケープする)。"""
+        cells = "".join(
+            f'<div title="{html.escape(notes[c.start], quote=True)}" style="width:{width}px;height:100%;'
+            f'background:{DEADLINE_COLOR};pointer-events:auto"></div>'
+            if c.start in notes
+            else f'<div style="width:{width}px"></div>'
+            for c in columns
+        )
+        ui.html(f'<div style="display:flex;height:100%">{cells}</div>', sanitize=False).style(
+            f"position: absolute; left: var(--name-w); bottom: 0; height: {WORKMARK_HEIGHT_PX}px;"
+            " pointer-events: none"
+        ).mark(f"workmark-{key}-{ti}")
+
     def stripes(self, columns: list[Column], width: int, top: int) -> None:
         """日次スケールの土日祝の背景。内容は定数と日付のみで利用者の入力を含まない。"""
         cells = "".join(
@@ -1141,7 +1158,10 @@ class GanttChart:
             self.header_spacer("label-row-spacer")
             # 列ごとに要素を作ると、描画の大半を占めるので、日付と曜日は 1 つの HTML にまとめる(格子線・縞と同じ)
             day = self.view_scale is Scale.DAY
-            cells = "".join(header_cell_html(column, width, weekday=day) for column in columns)
+            cells = "".join(
+                header_cell_html(column, width, weekday=day)
+                for column in columns
+            )
             ui.html(f'<div style="display:flex">{cells}</div>', sanitize=False).style(
                 "flex: none"
             ).mark("label-row-cells")
@@ -1297,6 +1317,8 @@ class GanttChart:
             if summary:  # 棒の代わりに、子の期間を覆う細い帯を出す
                 self.summary_band(path, key, ti, task, columns, width)
                 return row
+            if self.view_scale is Scale.DAY and (notes := member_notes(task, self.project, self.holidays)):
+                self.work_day_strip(key, ti, notes, columns, width)
             start = self.schedule.start(task)
             end = self.schedule.bar_end(task)
             span = bar_span(start, end, columns)

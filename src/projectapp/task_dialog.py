@@ -2,7 +2,7 @@
 
 import html
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time
 
@@ -64,7 +64,8 @@ from projectapp.models import (
 )
 from projectapp.ratios import effective_ratio
 from projectapp.reassign import needs_review, reviewed_end
-from projectapp.timeline import assignees_rate, combine_rate, computed_end, effort_days
+from projectapp.timeline import Worker, assignees_rate, combine_rate, computed_end, crew_of, effort_days
+from projectapp.workdays import work_day_map
 from projectapp.urls import resolve
 
 # 赤は「予定超過」の背景色と意味が競合するため、優先度には使わない
@@ -204,14 +205,14 @@ def add_picker(
     normalize: Callable[[str], str | None] | None = None,
 ) -> None:
     """入力欄の右端のアイコンで、選択部品のダイアログを開く。小さな画面でも切れない。
-    normalize があれば、欄を離れたときに省略形を直す。"""
+    normalize があれば、欄を離れたときに省略形を直す。入力欄が無効のあいだは開かない。"""
     if normalize is not None:
         field.on("blur", lambda _e: normalize_field(field, normalize))
     with ui.dialog() as picker, ui.card():
         bind_picker(picker_factory().mark(f"{key}-picker"), field, fmt)
         ui.button("OK", on_click=picker.close).mark(f"{key}-picker-ok")
     with field.add_slot("append"):
-        ui.icon(icon).classes("cursor-pointer").on("click", picker.open).mark(
+        ui.icon(icon).classes("cursor-pointer").on("click", lambda: picker.open() if field.enabled else None).mark(
             f"open-{key}-picker"
         )
 
@@ -244,13 +245,13 @@ class DateTimeFields:
         work_start: time,
         daily_hours: float,
         holidays: dict[date, str],
-        rate: float = 1.0,
+        crew: Sequence[Worker] = (),
     ) -> None:
         default_start, default_end = default_times(work_start)
         self._defaults = {"start": default_start, "end": default_end, "deadline": default_end}
         self._work_start, self._daily_hours, self._holidays = work_start, daily_hours, holidays
         self.effort = task.effort_hours
-        self._rate = rate
+        self._crew = list(crew)
         self.first_row = ui.row().classes("w-full no-wrap gap-4")
         with self.first_row:
             self.start_day, self.start_time, self.use_start_time, _ = self._column(
@@ -345,8 +346,8 @@ class DateTimeFields:
             return self._time(key).value or ""
         return self._defaults[key].strftime("%H:%M")
 
-    def set_rate(self, rate: float) -> None:
-        self._rate = rate
+    def set_crew(self, crew: Sequence[Worker]) -> None:
+        self._crew = list(crew)
         self._refresh_end()
 
     def set_effort(self, value: float | None) -> None:
@@ -388,7 +389,7 @@ class DateTimeFields:
             self._work_start,
             self._holidays,
             deadline,
-            self._rate,
+            crew=self._crew,
         )
 
     def start_text(self) -> str:
@@ -846,7 +847,9 @@ def open_task_dialog(
     initial = task or Task("")
     is_summary = initial.kind is TaskKind.SUMMARY  # まとめは、名前・カテゴリ・優先度・リンクだけを編集する
     # 換算には、パラメータを反映した実効比率を使う(以降は、このコピーだけを見る)
-    member_list = [Member(m.name, effective_ratio(m, parameters or [])) for m in members or []]
+    member_list = [
+        Member(m.name, effective_ratio(m, parameters or []), work_days=list(m.work_days)) for m in members or []
+    ]
     for assignee in initial.assignees:  # 一覧にいない担当者も、保存で失わない(相対比率は 100% とみなす)
         if all(m.name != assignee.name for m in member_list):
             member_list.append(Member(assignee.name, 1.0))
@@ -897,7 +900,9 @@ def open_task_dialog(
         hover = [full if full != label else "" for full, label in zip(full_labels, category_options.values())]
         category.add_slot("option", category_option_template(hover))
         category.add_slot("selected-item", category_selected_template(hover))
-        fields = DateTimeFields(initial, work_start, daily_hours, holidays or {}, initial_rate)
+        fields = DateTimeFields(
+            initial, work_start, daily_hours, holidays or {}, crew_of(initial.assignees, member_list)
+        )
         with fields.second_row:
             effort = EffortField(initial.effort_hours, daily_hours, STANDARD_WORK_HOURS)
         assignee_fields = AssigneeFields(initial.assignees, member_list, lambda: refresh_conversion())
@@ -906,7 +911,7 @@ def open_task_dialog(
         def refresh_conversion(_event: object = None) -> None:
             chosen = assignee_fields.chosen()
             rate = sum(combine_rate(m.ratio, f) for m, f in chosen) if chosen else 1.0
-            fields.set_rate(rate)
+            fields.set_crew([Worker(combine_rate(m.ratio, f), work_day_map(m.work_days)) for m, f in chosen])
             days = effort_days(effort.value or 0.0, rate, daily_hours) if chosen else None
             if not chosen or days is None:
                 conversion.set_text("")
@@ -1128,7 +1133,7 @@ def open_task_dialog(
                 return
             new_rate = assignees_rate(result.assignees, member_list)
             new_end = (
-                reviewed_end(result, initial_rate, new_rate, daily_hours, work_start, holidays or {}, now())
+                reviewed_end(result, initial_rate, new_rate, daily_hours, work_start, holidays or {}, now(), crew_of(result.assignees, member_list))
                 if task is not None and needs_review(result, initial_rate, new_rate)
                 else None
             )
