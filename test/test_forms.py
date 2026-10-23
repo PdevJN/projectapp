@@ -2092,3 +2092,15 @@ def test_build_members_carries_work_day_rows_and_prefixes_errors_with_the_name()
 def test_member_columns_include_the_work_days_column() -> None:
     assert len(member_columns(0, False)) == 5  # アイコン・名前・比率・稼働日・削除
     assert member_table_min_rem(0, False) > MEMBER_ICON_COLUMN_REM + MEMBER_NAME_COLUMN_REM + MEMBER_RATIO_COLUMN_REM
+
+
+def test_build_task_takes_the_parameters_and_keeps_them_when_omitted() -> None:
+    made = make(parameters=["P", "P", "Q"])
+    assert made.parameters == ["P", "Q"]
+    assert make(made).parameters == ["P", "Q"]  # 引数がなければ引き継ぐ
+    assert make(made, parameters=[]).parameters == []  # 空を渡せば外す
+
+
+def test_build_task_clears_the_parameters_of_a_checkpoint() -> None:
+    made = make(kind=TaskKind.CHECKPOINT, deadline="2026-10-09T17:00", status=Status.NOT_STARTED, parameters=["P"])
+    assert made.parameters == []

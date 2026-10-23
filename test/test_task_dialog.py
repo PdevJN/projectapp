@@ -2573,3 +2573,63 @@ async def test_choosing_an_assignee_recomputes_the_end_with_their_work_days(user
     with user.client:
         user.find(marker="task-assignee").elements.pop().set_value("田中")
     assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-10 15:30"
+
+
+PYTHON_JAVA = [Parameter("Python", [Level("上級", 0.5)]), Parameter("Java", [Level("初級", -0.5)])]
+SKILLED = Member("田中", 1.0, {"Python": "上級", "Java": "初級"})  # 全合計は 100%
+
+
+async def test_the_parameter_select_saves_the_choice(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, parameters=PYTHON_JAVA)
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="task-parameters").elements.pop().set_value(["Python"])
+    user.find(marker="task-name").type("a")
+    user.find(marker="task-save").click()
+    assert saved[0].parameters == ["Python"]
+
+
+async def test_the_parameter_select_starts_with_the_attached_ones_and_hides_unregistered_names(user: User) -> None:
+    mount_dialog(Task("a", parameters=["Java", "ない"]), [], parameters=PYTHON_JAVA)
+    await open_dialog(user)
+    assert user.find(marker="task-parameters").elements.pop().value == ["Java"]
+
+
+async def test_no_parameter_select_without_registered_parameters_and_the_attached_ones_are_kept(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("a", parameters=["P"]), saved, parameters=[])
+    await open_dialog(user)
+    await user.should_not_see(marker="task-parameters")
+    user.find(marker="task-save").click()
+    assert saved[0].parameters == ["P"]
+
+
+async def test_the_parameter_select_is_only_in_the_full_layout(user: User) -> None:
+    mount_dialog(None, [], parameters=PYTHON_JAVA, layout="schedule")
+    await open_dialog(user)
+    await user.should_not_see(marker="task-parameters")
+
+
+async def test_the_conversion_follows_the_chosen_parameters(user: User) -> None:
+    task = Task("a", effort_hours=13.0, assignees=[Assignee("田中", 1.0)])
+    mount_dialog(task, [], members=[SKILLED], parameters=PYTHON_JAVA)
+    await open_dialog(user)
+    conversion = user.find(marker="task-conversion").elements.pop()
+    assert conversion.text.startswith("換算率 100%")
+    with user.client:
+        user.find(marker="task-parameters").elements.pop().set_value(["Python"])
+    assert conversion.text.startswith("換算率 150%") and "Pythonを反映" in conversion.text
+
+
+async def test_changing_the_parameters_of_a_task_with_progress_asks_for_a_review(user: User) -> None:
+    saved: list[Task] = []
+    task = reassign_task(assignees=[Assignee("田中", 1.0)])
+    mount_dialog(task, saved, members=[SKILLED], parameters=PYTHON_JAVA, now=lambda: REASSIGN_NOW)
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="task-parameters").elements.pop().set_value(["Python"])
+    user.find(marker="task-save").click()
+    await user.should_see(marker="reassign-text")
+    assert "担当またはパラメータの変更で" in user.find(marker="reassign-text").elements.pop().text
+    assert saved == []

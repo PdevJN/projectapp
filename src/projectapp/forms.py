@@ -196,6 +196,7 @@ def _build_checkpoint(
         assignees=[],
         actuals=[],
         progress=None,
+        parameters=[],
         category_id=category_id,
         predecessors=_links(base, predecessors, linkable_ids),
         urls=base.urls if urls is None else urls,
@@ -280,6 +281,7 @@ def build_task(
     kind: TaskKind = TaskKind.NORMAL,
     urls: list[TaskUrl] | None = None,
     assignees: list[tuple[str, float | None]] | None = None,
+    parameters: list[str] | None = None,
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。`progress` はタスクの進捗度。"""
     clean = name.strip()
@@ -346,6 +348,7 @@ def build_task(
         category_id=category_id,
         predecessors=links,
         urls=base.urls if urls is None else urls,
+        parameters=list(dict.fromkeys(base.parameters if parameters is None else parameters)),
     )
 
 
