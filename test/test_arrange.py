@@ -434,3 +434,12 @@ def test_insert_named_task_after_a_summary_goes_behind_its_children() -> None:
     arrange.insert_named_task(project, position, "新規")
     assert names(project.sections[0].tasks) == ["まとめ", "c0", "c1", "新規", "z"]
     assert parent.children == [k.id for k in kids]  # 新しいタスクは子にならない
+
+
+def test_copying_a_task_keeps_its_parameters_as_an_independent_list() -> None:
+    project = Project("p", sections=[Section("s", [Task("a", id="a", parameters=["P"])])])
+    arrange.copy_task(project, ((0,), 0), ((0,), 1))
+    original, copied = project.sections[0].tasks
+    assert copied.parameters == ["P"]
+    copied.parameters.append("Q")
+    assert original.parameters == ["P"]

@@ -99,6 +99,7 @@ def _plain_copy(original: Task, task_id: str, name: str) -> Task:
         predecessors=[],
         actuals=[],
         assignees=[replace(a) for a in original.assignees],
+        parameters=list(original.parameters),
         urls=[replace(u, values=dict(u.values)) for u in original.urls],
     )
 
