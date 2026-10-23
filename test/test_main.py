@@ -2,11 +2,17 @@
 
 import pytest
 
-from projectapp.main import LaunchOptions, parse_args, run_kwargs
+import socket
+
+from projectapp.main import LaunchOptions, parse_args, port_available, run_kwargs
 
 
 def test_default_is_native() -> None:
     assert parse_args([]) == LaunchOptions(mode="native", port=8080)
+
+
+def test_both_mode() -> None:
+    assert parse_args(["--mode", "both"]) == LaunchOptions(mode="both", port=8080)
 
 
 def test_web_mode_and_port() -> None:
@@ -17,6 +23,22 @@ def test_web_mode_and_port() -> None:
 def test_invalid_arguments_are_rejected(argv: list[str]) -> None:
     with pytest.raises(SystemExit):
         parse_args(argv)
+
+
+def test_both_run_kwargs_is_native_on_a_fixed_local_port() -> None:
+    kwargs = run_kwargs(LaunchOptions(mode="both", port=9000))
+    assert kwargs == {"native": True, "host": "127.0.0.1", "port": 9000}
+
+
+def test_port_available() -> None:
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        assert not port_available(busy.getsockname()[1])
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        free = probe.getsockname()[1]
+    assert port_available(free)
 
 
 def test_native_run_kwargs() -> None:
