@@ -1,8 +1,10 @@
 # 作業記録
 
-最終更新: 2026-10-24(`develop`は PR #78(`--mode both`の廃止)まで。`feature/shift-dblclick-section`(要望 53)は PR 待ち。テスト 3,426 件が通る。過去の最終更新と「現在の状況」の経緯は`docs/work-log.md`)
+最終更新: 2026-10-24(`develop`は PR #78(`--mode both`の廃止)まで。`feature/task-parameters`(要望 51)は実装済み・実機確認待ち。過去の最終更新と「現在の状況」の経緯は`docs/work-log.md`)
 
 ## 現在の状況
+
+**2026-10-24(要望 51): タスクのパラメータを`feature/task-parameters`で実装(PR 待ち・実機確認待ち)。`Task.parameters`(version 9)。付けたタスクの相対比率=`基本比率 + 付けたパラメータの判定値の合計`、付けないタスクは全合計のまま。`ratios.effective_ratio(…, only)`・`timeline.crew_of(…, only)`。ダイアログは`すべて`レイアウトの`task-parameters`欄(チャートのチップなし)。改名は追従、削除は外す(確認にタスク件数)。マージ済みブランチ(リモートの`feature/work-days`など)は削除済み。次は要望 52(分解でパラメータ)か 50・44〜46。**
 
 **2026-10-24(さらに続き): PR #78 で`--mode both`を廃止(起動は`native`〔既定〕と`web`だけ。`port_available`も削除)。要望 53(Shift + ダブルクリックでセクションを作る)を`feature/shift-dblclick-section`で実装し、実機確認済み。親のセクションの子の末尾に作る(見出しとタスクの行=サブセクション、root と末尾の追加行=最上位。3 階層目は通知して出さない)。`GanttActions.add_named_section`・`GanttChart.quick_section`・`row_slots(quick_section=)`。ダブルクリックの JS は`emit(e.shiftKey)`で Shift を渡す〔テストは`trigger("dblclick", args=True)`〕。未着手は 5・24・35・39・40・44〜46・48・50〜52。**
 
