@@ -53,3 +53,22 @@ def test_web_run_kwargs_binds_to_localhost_and_opens_browser() -> None:
     assert kwargs["host"] == "127.0.0.1"
     assert kwargs["port"] == 9000
     assert kwargs["show"] is True
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["--mode"], "--mode には値を指定してください(native / both / web)"),
+        (["--mode", "lan"], "--mode の値が正しくありません: 'lan'(native / both / web)"),
+        (["--port"], "--port には値を指定してください"),
+        (["--port", "x"], "--port の値が正しくありません: 'x'"),
+        (["--port", "0"], "--port の値が正しくありません: '0'(1〜65535 で指定してください)"),
+        (["--host", "0.0.0.0"], "不明な引数です: --host"),
+    ],
+)
+def test_error_messages_are_japanese(argv: list[str], expected: str, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(argv)
+    err = capsys.readouterr().err
+    assert f"projectapp: エラー: {expected}" in err
+    assert "usage:" in err
