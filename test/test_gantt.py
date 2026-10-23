@@ -112,6 +112,7 @@ class Recorder:
             delete_section=lambda path: self.events.append(("delete_section", (path,))),
             move_section=lambda src, dst: self.events.append(("move_section", (src, dst))),
             add_named_task=lambda path, index, name: self.events.append(("add_named_task", (path, index, name))),
+            add_named_section=lambda parent, name: self.events.append(("add_named_section", (parent, name))),
         )
 
 

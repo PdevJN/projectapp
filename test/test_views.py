@@ -4768,6 +4768,28 @@ async def test_double_click_and_enter_adds_a_named_task_below_and_it_can_be_undo
     assert [t.name for t in view.project.sections[0].tasks] == ["実装"]
 
 
+async def test_shift_double_click_and_enter_adds_a_named_section_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    user.find(marker="task-0-0").trigger("dblclick", args=True)
+    await user.should_see(marker="quick-add-input")
+    user.find(marker="quick-add-input").trigger("keydown.enter", args="新しい節")
+    assert [s.name for s in view.project.sections[0].sections] == ["新しい節"]
+    assert view.is_dirty()
+    await user.should_see("新しい節")
+    await user.should_not_see(marker="quick-add-input")
+    view.undo()
+    assert view.project.sections[0].sections == []
+
+
+async def test_shift_double_click_on_the_end_row_adds_a_top_level_section(user: User, tmp_path: Path) -> None:
+    view = await open_context_menu_on_the_only_task(user, tmp_path)
+    count = len(view.project.sections)
+    user.find(marker="top-end").trigger("dblclick", args=True)
+    await user.should_see(marker="quick-add-input")
+    user.find(marker="quick-add-input").trigger("keydown.enter", args="最上位")
+    assert [s.name for s in view.project.sections][count:] == ["最上位"]
+
+
 async def test_member_work_days_are_edited_in_a_sub_dialog_and_applied_with_the_tab(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("甲", 1.0, {}, "m1")]

@@ -216,3 +216,17 @@ def test_the_quick_add_row_in_the_root_and_in_an_empty_position() -> None:
 def test_no_quick_add_row_when_filtering_or_read_only() -> None:
     assert all(s.kind != "quick-add" for s in row_slots(project(), TaskFilter(query="a"), set(), False, ROW, ADD, quick_add=((0,), 1)))
     assert all(s.kind != "quick-add" for s in row_slots(project(), TaskFilter(), set(), True, ROW, ADD, quick_add=((0,), 1)))
+
+
+def test_the_section_input_row_takes_a_slot_after_the_last_child_of_its_parent() -> None:
+    def kinds(parent: tuple[int, ...]) -> list[tuple[str, tuple[int, ...]]]:
+        slots = row_slots(nested_project(), TaskFilter(), set(), False, ROW, ADD, quick_section=parent)
+        return [(s.kind, s.path) for s in slots]
+
+    inside = kinds((0,))
+    assert inside.count(("quick-add", (0,))) == 1
+    after_children = inside.index(("quick-add", (0,)))
+    assert inside[after_children - 1][1][:1] == (0,) and len(inside[after_children - 1][1]) >= 2  # 最後のサブセクションの中身の後ろ
+    assert kinds(())[-1] == ("quick-add", ())  # 最上位は、最後のセクションの後ろ
+    assert all(s.kind != "quick-add" for s in row_slots(nested_project(), TaskFilter(query="g"), set(), False, ROW, ADD, quick_section=(0,)))
+    assert all(s.kind != "quick-add" for s in row_slots(nested_project(), TaskFilter(), set(), True, ROW, ADD, quick_section=(0,)))

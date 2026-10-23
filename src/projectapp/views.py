@@ -256,6 +256,7 @@ class MainView:
                 delete_section=self.confirm_delete_section,
                 move_section=self.move_section,
                 add_named_task=self.add_named_task,
+                add_named_section=self.add_named_section,
             ),
             name_width=load_name_width(base_dir),
         )
@@ -1201,6 +1202,13 @@ class MainView:
         """名前だけの通常タスクを、セクション(root は ())の index 番目に作る(名前の入力行の確定)。"""
         arrange.insert_named_task(self.project, (path, index), name)
         self.after_edit()
+
+    def add_named_section(self, parent: SectionPath, name: str) -> None:
+        """名前だけのセクションを、親(最上位は ())の子の末尾に作る(名前の入力行の確定)。"""
+        if parent:
+            self.save_subsection(parent, name)
+        else:
+            self.save_section(name)
 
     def confirm_delete_task(self, path: SectionPath, index: int) -> None:
         """確認してから、タスクを削除する。"""

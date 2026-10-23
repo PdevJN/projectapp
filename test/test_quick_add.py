@@ -141,3 +141,94 @@ async def test_the_read_only_chart_has_no_double_click(user: User) -> None:
         element = user.find(marker=marker).elements.pop()
         assert not any(listener.type == "dblclick" for listener in element._event_listeners.values())
     await user.should_not_see(marker="top-end")
+
+
+# Shift + ダブルクリックは、タスクの代わりにセクション(親のセクションの子の末尾)の入力行を出す
+
+def nested_project() -> Project:
+    deep = Section("深", [Task("底", id="d")])
+    mid = Section("中", [Task("中身", id="m")], sections=[deep])
+    return Project("demo", base_date=date(2026, 10, 5), sections=[Section("上", [Task("上身", id="u")], sections=[mid])], tasks=[Task("直下", id="t")])
+
+
+async def shift_double_click(user: User, marker: str) -> None:
+    user.find(marker=marker).trigger("dblclick", args=True)  # args は e.shiftKey
+    await user.should_see(marker=INPUT)
+
+
+async def test_shift_double_click_on_a_section_header_adds_a_subsection_at_its_end(user: User) -> None:
+    _, recorder = mount_chart(nested_project())
+    await user.open("/")
+    await shift_double_click(user, "section-0")
+    user.find(marker=INPUT).trigger("keydown.enter", args="新")
+    assert recorder.events == [("add_named_section", ((0,), "新"))]
+    await user.should_not_see(marker=INPUT)
+
+
+async def test_shift_double_click_on_a_task_adds_a_subsection_to_its_section(user: User) -> None:
+    _, recorder = mount_chart(nested_project())
+    await user.open("/")
+    await shift_double_click(user, "task-0.0-0")
+    user.find(marker=INPUT).trigger("keydown.enter", args="新")
+    assert recorder.events == [("add_named_section", ((0, 0), "新"))]
+
+
+async def test_shift_double_click_on_a_root_task_or_the_end_row_adds_a_top_level_section(user: User) -> None:
+    _, recorder = mount_chart(nested_project())
+    await user.open("/")
+    await shift_double_click(user, "task-top-0")
+    user.find(marker=INPUT).trigger("keydown.enter", args="一")
+    await user.should_not_see(marker=INPUT)
+    await shift_double_click(user, "top-end")
+    user.find(marker=INPUT).trigger("keydown.enter", args="二")
+    assert recorder.events == [("add_named_section", ((), "一")), ("add_named_section", ((), "二"))]
+
+
+async def test_shift_double_click_in_a_third_level_section_is_refused_with_a_notice(user: User) -> None:
+    _, recorder = mount_chart(nested_project())
+    await user.open("/")
+    for marker in ("section-0.0.0", "task-0.0.0-0"):
+        user.find(marker=marker).trigger("dblclick", args=True)
+        await user.should_see("サブセクションは 3 階層までです")
+    await user.should_not_see(marker=INPUT)
+    assert recorder.events == []
+
+
+async def test_a_section_input_rejects_invalid_names_and_cancels_with_escape(user: User) -> None:
+    _, recorder = mount_chart(nested_project())
+    await user.open("/")
+    await shift_double_click(user, "section-0")
+    user.find(marker=INPUT).trigger("keydown.enter", args="   ")
+    await user.should_see(marker="quick-add-error")
+    assert recorder.events == []
+    user.find(marker=INPUT).trigger("keydown.escape")
+    await user.should_not_see(marker=INPUT)
+    assert recorder.events == []
+
+
+async def test_the_section_input_and_the_task_input_are_never_open_together(user: User) -> None:
+    _, recorder = mount_chart(nested_project())
+    await user.open("/")
+    await shift_double_click(user, "section-0")
+    user.find(marker="task-top-0").trigger("dblclick")
+    await user.should_see(marker=INPUT)
+    assert len(user.find(marker=INPUT).elements) == 1
+    user.find(marker=INPUT).trigger("keydown.enter", args="タスク")
+    assert recorder.events == [("add_named_task", ((), 1, "タスク"))]
+
+
+async def test_shift_double_click_with_an_active_filter_refuses_with_a_notice(user: User) -> None:
+    charts, recorder = mount_chart(nested_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="上"))
+    user.find(marker="section-0").trigger("dblclick", args=True)
+    await user.should_see("絞り込みを解除してください")
+    await user.should_not_see(marker=INPUT)
+
+
+async def test_shift_double_click_on_a_collapsed_section_opens_it(user: User) -> None:
+    charts, _ = mount_chart(nested_project())
+    await user.open("/")
+    charts[0].toggle_section((0,))
+    await shift_double_click(user, "section-0")
+    assert (0,) not in charts[0].collapsed
