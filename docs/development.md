@@ -4,7 +4,7 @@
 
 | モジュール | 役割 |
 |---|---|
-| `main.py` | エントリポイント(NiceGUI + pywebview。静的ファイルの登録) |
+| `main.py` | エントリポイント(NiceGUI + pywebview。静的ファイルの登録)。起動オプション `--mode native|web`・`--port`(`parse_args`・`run_kwargs`。Web は `127.0.0.1` 固定) |
 | `views.py` | メイン画面(ヘッダー〔メニュー 5 つ(ファイル・プロジェクト・エクスポート・Git・ヘルプ)・プロジェクトの切り替え・ダッシュボード・テーマのメニュー。プロジェクト名はヘッダーの外の `title_box`。`header` / `header_menu`(項目は `MenuItem`: 文言・アイコン・操作・マーカー・キー。`menu_entry` が左のアイコンと右端のキーを足す)/ `theme_menu`。配色とフォントは `HEADER_CSS`〕・チャート領域・ヘルプのダイアログ・プレビューとダッシュボードの出入り・画像の保存・担当者向けファイルの書き出し) |
 | `calendar.py` | 祝日の取得・キャッシュ(`holidays.json`)と日付種別の判定 |
 | `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出(`Worker`・`crew_of`・`calc_end(crew)`)、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`・`assignees_rate`・`counted_assignees`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |

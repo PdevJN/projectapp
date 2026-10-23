@@ -13,10 +13,12 @@ uv sync
 ## 起動
 
 ```bash
-uv run projectapp
+uv run projectapp                       # アプリ(既定)
+uv run projectapp --mode web            # Web(ブラウザ。http://127.0.0.1:8080)
+uv run projectapp --mode web --port 9000
 ```
 
-pywebview によるネイティブウィンドウが起動する。ファイル保存・フォルダ選択のダイアログを使う機能(画像・PlantUML の保存、担当者向けファイルの書き出し、PlantUML の取り込み、格納先の変更)は、ネイティブウィンドウでだけ使える。
+既定は、pywebview によるネイティブウィンドウで起動する。`--mode web` は、既定のブラウザで開く(このマシンの `127.0.0.1` だけで待ち受け、LAN には出ない。認証はない)。ファイル保存・フォルダ選択のダイアログを使う機能(画像・PlantUML の保存、担当者向けファイルの書き出し、PlantUML の取り込み、格納先の変更)は、ネイティブウィンドウでだけ使える(Web では通知で断る)。
 
 ## 主な機能
 

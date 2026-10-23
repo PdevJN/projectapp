@@ -4,6 +4,8 @@
 
 ## 現在の状況
 
+**2026-10-24(続き): 要望 49(起動方法をアプリと Web に分ける)を`feature/launch-mode`で実装。`--mode native|web`・`--port`、Web は`127.0.0.1`固定。要望 50(読み取り専用モード)を未着手で記録。**
+
 **2026-10-24: PR #73(プレビューの出力選択。実機確認済み)を`develop`へマージ済み(cc1c799)。要望 48(PlantUML の超過見えの通知を、プロジェクトのオプションで切り替える)を`docs/requests.md`に記録(未着手)。次は、要望 44〜46(メンバーの休暇・不在)の設計から。**
 
 - 出力選択: `selection.py`(`excluded` の判定。純粋関数)・`PreviewSettings.excluded`・`ViewOptions.selectable`/`excluded`/`hide_excluded`/`on_select`・`TaskFilter.exclude`(画像の書き出しの間、外した行を既存の絞り込みで省く)。`save_image` は描き直し(バックグラウンド)を `await asyncio.sleep(0)` で進めてから撮り、`CAPTURE_JS` も `requestAnimationFrame` を 2 回待つ。
