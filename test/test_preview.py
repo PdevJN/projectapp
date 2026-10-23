@@ -18,7 +18,8 @@ from projectapp.timeline import Scale
 def test_settings_become_read_only_view_options() -> None:
     settings = PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK, show_chips=False, show_alerts=True)
     assert settings.to_options() == ViewOptions(
-        period=(date(2026, 10, 1), date(2026, 10, 31)), scale=Scale.WEEK, show_chips=False, show_alerts=True, read_only=True
+        period=(date(2026, 10, 1), date(2026, 10, 31)), scale=Scale.WEEK, show_chips=False, show_alerts=True, read_only=True,
+        selectable=True,
     )
 
 
@@ -146,3 +147,17 @@ def test_fit_scale_uses_the_name_width() -> None:
     exact = PREVIEW_COMFORT_WIDTH_PX - COLUMN_WIDTH_PX[Scale.DAY] * day_columns  # 日次が、ちょうど収まる幅
     assert fit_scale(project, {}, None, Scale.DAY, exact) is Scale.DAY
     assert fit_scale(project, {}, None, Scale.DAY, exact + 1) is Scale.WEEK  # 1px 広いと、収まらず週次
+
+
+def test_nothing_is_excluded_by_default() -> None:
+    assert PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK).excluded == frozenset()
+
+
+def test_excluded_ids_and_the_callback_reach_the_options() -> None:
+    picks: list = []
+    settings = PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK, excluded=frozenset({"a"}))
+    options = settings.to_options(lambda ids, checked: picks.append((ids, checked)))
+    assert options.selectable and options.excluded == frozenset({"a"})
+    assert options.on_select is not None
+    options.on_select(["a"], True)
+    assert picks == [(["a"], True)]

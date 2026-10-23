@@ -242,3 +242,7 @@ def test_the_capture_skips_web_font_embedding_so_it_leaves_the_live_stylesheets_
 def test_capture_uses_the_body_background_for_the_custom_theme() -> None:
     assert "document.body.classList.contains('app-custom')" in CAPTURE_JS
     assert "(dark || custom) ? getComputedStyle(document.body).backgroundColor : '#ffffff'" in CAPTURE_JS
+
+
+def test_capture_waits_for_the_last_redraw_before_taking_the_picture() -> None:
+    assert "requestAnimationFrame" in CAPTURE_JS

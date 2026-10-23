@@ -78,7 +78,7 @@ from projectapp.handoff import (
     write_json,
 )
 from projectapp.handoff import default_filename as handoff_filename
-from projectapp.plantuml import PLANTUML_FILE_TYPES, build_plantuml, write_text
+from projectapp.plantuml import PLANTUML_FILE_TYPES, build_plantuml, day_overload_notice, write_text
 from projectapp.plantuml import default_filename as plantuml_filename
 from projectapp.puml_import import (
     PLANTUML_OPEN_FILE_TYPES,
@@ -99,6 +99,7 @@ from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions
 from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Event, Member, Project, Section, SectionPath, Task, TaskKind, WorkDay, new_id
 from projectapp.workdays import work_day_map
+from projectapp.selection import set_checked
 from projectapp.preview import (
     LARGE_IMAGE_MESSAGE,
     NOT_NATIVE_MESSAGE,
@@ -258,7 +259,9 @@ class MainView:
             ),
             name_width=load_name_width(base_dir),
         )
-        self.preview_bar = PreviewBar(self.on_preview_change, self.exit_preview, self.save_image, self.save_plantuml)
+        self.preview_bar = PreviewBar(
+            self.on_preview_change, self.exit_preview, self.save_image, self.save_plantuml, self.on_select_all
+        )
         self.dashboard_view = DashboardView(
             self.close_dashboard,
             self.change_dashboard_period,
@@ -792,11 +795,28 @@ class MainView:
             self.preview_bar.set_warning(None)
             self.preview_bar.set_save_enabled(False)
             return
-        self.preview = PreviewSettings(start, end, scale, chips, alerts, events)
+        self.preview = PreviewSettings(start, end, scale, chips, alerts, events, self.preview.excluded)
         self.apply_preview(self.preview)
 
+    def selectable_ids(self) -> list[str]:
+        """出力の選択の対象になる全タスクの id(まとめ自身は除く)。"""
+        return [t.id for t in self.project.all_tasks() if t.kind is not TaskKind.SUMMARY]
+
+    def select_in_preview(self, ids: list[str], checked: bool) -> None:
+        """プレビューで、ids を出力する・しないにする。保存中は撮っている画面を変えない。"""
+        if self.preview is None or self.saving:
+            return
+        excluded = set_checked(self.preview.excluded, ids, checked)
+        self.preview = replace(self.preview, excluded=excluded)
+        self.apply_preview(self.preview)
+
+    def on_select_all(self, checked: bool) -> None:
+        self.select_in_preview(self.selectable_ids(), checked)
+
     def apply_preview(self, settings: PreviewSettings) -> None:
-        self.gantt.set_options(settings.to_options())
+        self.gantt.set_options(settings.to_options(self.select_in_preview))
+        ids = self.selectable_ids()
+        self.preview_bar.set_selection(sum(1 for i in ids if i not in settings.excluded), len(ids))
         self.preview_bar.set_error(None)
         available = self.exporter.available
         self.preview_bar.set_save_enabled(available and not self.saving)
@@ -811,12 +831,18 @@ class MainView:
         """プレビューを画像にして、選んだ場所へ保存する。失敗しても、プレビューに留まる。"""
         if self.preview is None or self.saving or not self.exporter.available:
             return
+        if self.preview.excluded and len(self.preview.excluded) >= len(self.selectable_ids()):
+            ui.notify("出力するタスクがありません", type="warning")
+            return
         self.saving = True
         self.preview_bar.set_save_enabled(False)
         if self.zoom != 100:
             self.run_js(zoom_js(100))  # 倍率をかけたままだと、画像の大きさがずれる
         try:
             ratio = export_pixel_ratio(self.gantt.content_width())
+            if self.preview.excluded:  # チェックを外した行とチェックボックスは、撮る間だけ描かない
+                self.gantt.set_options(replace(self.preview.to_options(), selectable=False, hide_excluded=True))
+                await asyncio.sleep(0)  # 描き直し(バックグラウンドで走る)を先に進めてから撮る
             try:
                 data = await self.exporter.capture(ratio)
             except ExportError as exc:
@@ -836,6 +862,8 @@ class MainView:
             if self.zoom != 100:
                 self.run_js(zoom_js(self.zoom))
             if self.preview is not None:
+                if self.preview.excluded:
+                    self.gantt.set_options(self.preview.to_options(self.select_in_preview))
                 self.preview_bar.set_save_enabled(self.exporter.available)
 
     async def save_plantuml(self) -> None:
@@ -853,6 +881,7 @@ class MainView:
             show_chips=settings.show_chips,
             show_alerts=settings.show_alerts,
             show_events=settings.show_events,
+            excluded=settings.excluded,
         )
         if result.task_count == 0:
             ui.notify("出力できるタスクがありません", type="warning")
@@ -870,6 +899,8 @@ class MainView:
                 return
             note = f"(期間の外などで {result.skipped} 件を省きました)" if result.skipped else ""
             ui.notify(f"保存しました{note}")
+            if (warning := day_overload_notice(result.day_overloads)) is not None:
+                ui.notify(warning, type="warning", timeout=10000)
         finally:
             self.saving = False
             if self.preview is not None:

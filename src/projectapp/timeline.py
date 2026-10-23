@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
@@ -202,11 +202,13 @@ def counted_span(
     return start, end
 
 
-def overallocations(project: Project, holidays: dict[date, str]) -> list[Overload]:
-    """同じ担当者の、期間が重なるタスクの割り当て率の合計が100%を超える期間。"""
+def overallocations(
+    project: Project, holidays: dict[date, str], tasks: Iterable[Task] | None = None
+) -> list[Overload]:
+    """同じ担当者の、期間が重なるタスクの割り当て率の合計が100%を超える期間。tasks を渡すと、それだけを数える。"""
     spans: dict[str, list[tuple[datetime, datetime, float]]] = {}
     schedule = Schedule(project, holidays)
-    for task in project.all_tasks():
+    for task in project.all_tasks() if tasks is None else tasks:
         counted = counted_span(task, project, holidays, schedule)
         if counted is not None:
             for assignee in counted_assignees(task, project):

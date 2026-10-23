@@ -9,6 +9,7 @@ from nicegui import ui
 from projectapp.config import DEFAULT_NAME_WIDTH_PX
 from projectapp.gantt import COLUMN_WIDTH_PX, ViewOptions
 from projectapp.models import MAX_YEAR, MIN_YEAR, Project
+from projectapp.selection import CheckState, toggled
 from projectapp.task_dialog import add_picker
 from projectapp.timeline import Scale, build_columns
 
@@ -31,8 +32,9 @@ class PreviewSettings:
     show_chips: bool = True
     show_alerts: bool = True
     show_events: bool = True
+    excluded: frozenset[str] = frozenset()  # PlantUML と画像に出さないタスクの id(チェックを外したもの)
 
-    def to_options(self) -> ViewOptions:
+    def to_options(self, on_select: Callable[[list[str], bool], object] | None = None) -> ViewOptions:
         return ViewOptions(
             period=(self.start, self.end),
             scale=self.scale,
@@ -40,6 +42,9 @@ class PreviewSettings:
             show_alerts=self.show_alerts,
             show_events=self.show_events,
             read_only=True,
+            selectable=True,
+            excluded=self.excluded,
+            on_select=on_select,
         )
 
 
@@ -93,9 +98,13 @@ class PreviewBar:
         on_back: Callable[[], object],
         on_save: Callable[[], object],
         on_save_plantuml: Callable[[], object],
+        on_select_all: Callable[[bool], object] = lambda checked: None,
     ) -> None:
         self.on_change, self.on_back, self.on_save = on_change, on_back, on_save
         self.on_save_plantuml = on_save_plantuml
+        self.on_select_all = on_select_all
+        self.select_state: CheckState | None = None
+        self.syncing = False
         self.box: ui.column | None = None
 
     def build(self) -> None:
@@ -111,6 +120,8 @@ class PreviewBar:
                     "preview-alerts"
                 )
                 self.events = ui.checkbox("イベント", value=True).mark("preview-events")
+                self.select_all = ui.checkbox("すべて選択", value=True).mark("preview-select-all")
+                self.select_count = ui.label("").classes("text-caption").mark("preview-select-count")
                 ui.button("戻る", icon="arrow_back", on_click=lambda: self.on_back()).props(
                     "flat"
                 ).mark("preview-back")
@@ -126,6 +137,22 @@ class PreviewBar:
         self.box = box
         for widget in (self.start, self.end, self.scale, self.chips, self.alerts, self.events):
             widget.on_value_change(lambda _event: self.on_change())
+        self.select_all.on_value_change(self.on_select_all_changed)
+
+    def on_select_all_changed(self, _event: object) -> None:
+        if not self.syncing and self.select_state is not None:
+            self.on_select_all(toggled(self.select_state))
+
+    def set_selection(self, selected: int, total: int) -> None:
+        """出力するタスクの数を表す。「すべて選択」は、全部で ON・全部外れで OFF・混在で中間。"""
+        state = CheckState.ON if selected == total else CheckState.OFF if selected == 0 else CheckState.MIXED
+        self.select_state = state
+        self.syncing = True  # 値を入れ直すときは、通知しない
+        try:
+            self.select_all.set_value(None if state is CheckState.MIXED else state is CheckState.ON)
+        finally:
+            self.syncing = False
+        self.select_count.set_text(f"{selected} / {total} 件を出力")
 
     def show(self, settings: PreviewSettings) -> None:
         """初期値を入れて出す。値を入れる間は、変更の通知を出さない。"""

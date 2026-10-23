@@ -360,3 +360,89 @@ def test_member_work_days_do_not_change_the_closed_lines() -> None:
 def test_no_overrides_leave_the_closed_lines_unchanged() -> None:
     out = lines(Project("p"), holidays={date(2026, 10, 13): "祝"})
     assert [line for line in out if "is closed" in line or "is open" in line] == ["2026-10-13 is closed"]
+
+
+def test_unselected_tasks_are_not_emitted_and_not_counted_as_skipped() -> None:
+    a = task("残す", "2026-10-13T09:00", "2026-10-14T18:00")
+    b = task("外す", "2026-10-15T09:00", "2026-10-16T18:00")
+    result = build(Project("p", tasks=[a, b]), excluded=frozenset({b.id}))
+    assert "[外す]" not in result.text
+    assert "[残す] as [T1] starts 2026-10-13 and ends 2026-10-14" in result.text
+    assert (result.task_count, result.skipped) == (1, 0)
+
+
+def test_a_section_with_every_task_unselected_has_no_divider() -> None:
+    a = task("甲", "2026-10-13T09:00", "2026-10-14T18:00")
+    b = task("乙", "2026-10-15T09:00", "2026-10-16T18:00")
+    project = Project("p", sections=[Section("A", tasks=[a]), Section("B", tasks=[b])])
+    out = lines(project, excluded=frozenset({a.id}))
+    assert "-- A --" not in out and "-- B --" in out
+
+
+def test_arrows_to_or_from_an_unselected_task_are_dropped() -> None:
+    a = task("先", "2026-10-13T09:00", "2026-10-14T18:00")
+    b = task("後", "2026-10-15T09:00", "2026-10-16T18:00", predecessors=[a.id])
+    out = lines(Project("p", tasks=[a, b]), excluded=frozenset({a.id}))
+    assert not any("->" in line for line in out)
+
+
+def test_nothing_is_excluded_by_default() -> None:
+    a = task("甲", "2026-10-13T09:00", "2026-10-14T18:00")
+    assert build(Project("p", tasks=[a])).task_count == 1
+
+
+def two_tasks_for(name: str, first: tuple[str, str], second: tuple[str, str], allocation: float = 0.6) -> Project:
+    def make(label: str, span: tuple[str, str]) -> Task:
+        return task(label, span[0], span[1], assignees=[Assignee(name, allocation)])
+
+    return Project("p", members=[Member(name)], tasks=[make("前", first), make("後", second)])
+
+
+def test_a_same_day_handover_is_reported_because_plantuml_counts_whole_days() -> None:
+    project = two_tasks_for("田中", ("2026-10-13T09:00", "2026-10-14T12:00"), ("2026-10-14T13:00", "2026-10-15T18:00"))
+    assert build(project).day_overloads == (("田中", date(2026, 10, 14)),)
+
+
+def test_a_real_overlap_is_not_reported_because_the_app_already_flags_it() -> None:
+    project = two_tasks_for("田中", ("2026-10-13T09:00", "2026-10-15T18:00"), ("2026-10-14T09:00", "2026-10-16T18:00"))
+    assert build(project).day_overloads == ()
+
+
+def test_a_finished_task_that_overlaps_counts_in_plantuml_but_not_in_the_app() -> None:
+    project = two_tasks_for("田中", ("2026-10-13T09:00", "2026-10-15T18:00"), ("2026-10-14T09:00", "2026-10-16T18:00"))
+    project.tasks[0].status = Status.DONE  # アプリは終了したタスクを数えない。PlantUML は描く
+    days = {d for _, d in build(project).day_overloads}
+    assert days == {date(2026, 10, 14), date(2026, 10, 15)}
+
+
+def test_nothing_is_reported_when_the_day_total_stays_within_100_percent() -> None:
+    project = two_tasks_for(
+        "田中", ("2026-10-13T09:00", "2026-10-14T12:00"), ("2026-10-14T13:00", "2026-10-15T18:00"), allocation=0.5
+    )
+    assert build(project).day_overloads == ()
+
+
+def test_nothing_is_reported_without_the_chips_because_no_assignee_is_emitted() -> None:
+    project = two_tasks_for("田中", ("2026-10-13T09:00", "2026-10-14T12:00"), ("2026-10-14T13:00", "2026-10-15T18:00"))
+    assert build(project, show_chips=False).day_overloads == ()
+
+
+def test_an_unselected_task_is_not_counted_in_the_report() -> None:
+    project = two_tasks_for("田中", ("2026-10-13T09:00", "2026-10-14T12:00"), ("2026-10-14T13:00", "2026-10-15T18:00"))
+    assert build(project, excluded=frozenset({project.tasks[1].id})).day_overloads == ()
+
+
+def test_closed_days_are_not_counted() -> None:
+    project = two_tasks_for("田中", ("2026-10-16T09:00", "2026-10-17T12:00"), ("2026-10-17T13:00", "2026-10-19T18:00"))
+    assert build(project).day_overloads == ()  # 重なる 10/17 は土曜(休み)
+
+
+def test_the_notice_lists_up_to_three_person_days_and_counts_the_rest() -> None:
+    from projectapp.plantuml import day_overload_notice
+
+    assert day_overload_notice(()) is None
+    items = tuple(("田中", date(2026, 10, d)) for d in (14, 15, 16, 19, 20))
+    text = day_overload_notice(items)
+    assert text is not None
+    assert "日単位" in text and "田中 10/14、田中 10/15、田中 10/16" in text and "ほか 2 件" in text
+    assert "ほか" not in (day_overload_notice(items[:3]) or "")
