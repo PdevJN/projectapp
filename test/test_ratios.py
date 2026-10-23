@@ -200,3 +200,30 @@ def test_remap_levels_does_not_change_its_argument() -> None:
     levels = {"a": "x"}
     remap_levels(levels, edit)
     assert levels == {"a": "x"}
+
+
+def test_only_the_named_parameters_are_added() -> None:
+    member = Member("a", 1.0, {"経験": "上級", "専門": "低"})
+    assert effective_ratio(member, PARAMETERS, only=["経験"]) == pytest.approx(1.2)
+    assert effective_ratio(member, PARAMETERS, only=["専門"]) == pytest.approx(0.9)
+    detail = ratio_detail(member, PARAMETERS, only=["経験"])
+    assert detail.adjustments == [("経験", "上級", 0.2)]
+    assert detail.raw == pytest.approx(1.2)
+
+
+def test_no_or_empty_only_means_every_parameter() -> None:
+    member = Member("a", 1.0, {"経験": "上級", "専門": "低"})
+    assert effective_ratio(member, PARAMETERS, only=None) == pytest.approx(1.1)
+    assert effective_ratio(member, PARAMETERS, only=[]) == pytest.approx(1.1)
+
+
+def test_a_named_parameter_without_a_chosen_level_adds_nothing() -> None:
+    member = Member("a", 1.0, {"経験": "上級"})  # 専門は未選択
+    assert effective_ratio(member, PARAMETERS, only=["専門"]) == pytest.approx(1.0)
+
+
+def test_unregistered_names_are_ignored_and_the_result_is_still_clamped() -> None:
+    member = Member("a", 2.9, {"経験": "上級"})
+    assert effective_ratio(member, PARAMETERS, only=["ない"]) == pytest.approx(2.9)
+    big = [Parameter("経験", [Level("上級", 0.5)])]
+    assert effective_ratio(member, big, only=["経験"]) == pytest.approx(3.0)  # 3.4 を 300% に丸める

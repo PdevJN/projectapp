@@ -3,6 +3,7 @@
 相対比率 = 基本比率 + 選んだ段階の判定値の合計。10〜300% に丸めて使う。
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from math import isfinite
 
@@ -18,10 +19,14 @@ class RatioDetail:
     clamped: bool  # 範囲に丸めたか
 
 
-def ratio_detail(member: Member, parameters: list[Parameter]) -> RatioDetail:
-    """メンバーの相対比率の内訳。存在しないパラメータ・段階への選択は、判定値 0% として数えない。"""
+def ratio_detail(member: Member, parameters: list[Parameter], only: Collection[str] | None = None) -> RatioDetail:
+    """メンバーの相対比率の内訳。存在しないパラメータ・段階への選択は、判定値 0% として数えない。
+    only があれば、その名前のパラメータだけ足す(None か空は全パラメータ。タスクに付けたパラメータの指定)。"""
+    counted = set(only) if only else None
     adjustments: list[tuple[str, str, float]] = []
     for parameter in parameters:
+        if counted is not None and parameter.name not in counted:
+            continue
         chosen = member.levels.get(parameter.name)
         level = next((lv for lv in parameter.levels if lv.name == chosen), None) if chosen is not None else None
         if level is not None:
@@ -32,9 +37,9 @@ def ratio_detail(member: Member, parameters: list[Parameter]) -> RatioDetail:
     return RatioDetail(member.ratio, adjustments, raw, ratio, ratio != raw)
 
 
-def effective_ratio(member: Member, parameters: list[Parameter]) -> float:
+def effective_ratio(member: Member, parameters: list[Parameter], only: Collection[str] | None = None) -> float:
     """計算に使う相対比率。"""
-    return ratio_detail(member, parameters).ratio
+    return ratio_detail(member, parameters, only).ratio
 
 
 @dataclass(frozen=True)

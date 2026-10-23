@@ -187,6 +187,7 @@ class Task:
     urls: list[TaskUrl] = field(default_factory=list)  # 関連する URL(チケット・資料など)
     progress: int | None = None  # タスクの進捗度(0〜100%)。進捗度の入力はこの 1 つだけ
     children: list[str] = field(default_factory=list)  # まとめの子のタスクの id(まとめだけが持つ)
+    parameters: list[str] = field(default_factory=list)  # 付けたパラメータの名前。空は付けない(相対比率は全パラメータの合計)
 
     @property
     def assignee_names(self) -> list[str]:

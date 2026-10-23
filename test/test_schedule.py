@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from projectapp.models import Assignee, Actual, Member, Project, Status, Task
+from projectapp.models import Assignee, Actual, Level, Member, Parameter, Project, Status, Task
 from projectapp.timeline import (
     Schedule,
     counted_span,
@@ -195,3 +195,13 @@ def test_visible_range_includes_the_pushed_end() -> None:
     b = task("b", "a", planned_start=MON, effort_hours=1)
     _, end = visible_range(project(a, b), HOLIDAYS)
     assert end >= date(2026, 10, 20)
+
+
+def test_a_task_with_parameters_uses_only_those_levels_for_its_end() -> None:
+    parameters = [Parameter("Python", [Level("上級", 0.5)]), Parameter("Java", [Level("初級", -0.5)])]
+    member = Member("田中", 1.0, {"Python": "上級", "Java": "初級"})  # 全合計は 100%
+    plain = task("a", planned_start=MON, effort_hours=13.0, assignees=[Assignee("田中", 1.0)])
+    tagged = task("b", planned_start=MON, effort_hours=13.0, assignees=[Assignee("田中", 1.0)], parameters=["Python"])
+    proj = Project("p", members=[member], parameters=parameters, tasks=[plain, tagged], daily_hours=6.5)
+    assert effective_end(plain, proj, HOLIDAYS) == datetime(2026, 10, 6, 15, 30)  # 100%: 13h = 2 日(6.5h × 2)
+    assert effective_end(tagged, proj, HOLIDAYS) == datetime(2026, 10, 6, 11, 10)  # 150%: 8.667h = 6.5h + 2h10m
