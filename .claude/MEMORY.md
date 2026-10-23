@@ -1,8 +1,10 @@
 # 作業記録
 
-最終更新: 2026-10-24(`develop`は PR #75(最後の機能。起動方法をアプリ・Web・両方から選ぶ)まで、それ以降は記録だけの PR。テスト 3,417 件が通る。過去の最終更新と「現在の状況」の経緯は`docs/work-log.md`)
+最終更新: 2026-10-24(`develop`は PR #78(`--mode both`の廃止)まで。`feature/shift-dblclick-section`(要望 53)は PR 待ち。テスト 3,426 件が通る。過去の最終更新と「現在の状況」の経緯は`docs/work-log.md`)
 
 ## 現在の状況
+
+**2026-10-24(さらに続き): PR #78 で`--mode both`を廃止(起動は`native`〔既定〕と`web`だけ。`port_available`も削除)。要望 53(Shift + ダブルクリックでセクションを作る)を`feature/shift-dblclick-section`で実装し、実機確認済み。親のセクションの子の末尾に作る(見出しとタスクの行=サブセクション、root と末尾の追加行=最上位。3 階層目は通知して出さない)。`GanttActions.add_named_section`・`GanttChart.quick_section`・`row_slots(quick_section=)`。ダブルクリックの JS は`emit(e.shiftKey)`で Shift を渡す〔テストは`trigger("dblclick", args=True)`〕。未着手は 5・24・35・39・40・44〜46・48・50〜52。**
 
 **2026-10-24(続き): 要望 49(起動方法をアプリと Web に分ける)を PR #75(9391aa0)で`develop`へマージ済み。エラー文は日本語(`JapaneseParser`)。`--mode`なしの起動は実機確認済み、`--mode both`は私の環境で HTTP 200 を確認(ユーザーの環境では未確認)。`--mode native|both|web`(既定 native)・`--port`、Web は`127.0.0.1`固定。要望 50(読み取り専用モード)を未着手で記録。次は、要望 50 か 44〜46(メンバーの休暇・不在)の設計から。**
 

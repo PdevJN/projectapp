@@ -13,7 +13,7 @@ from projectapp.avatar import avatar
 from projectapp.browser import open_url as default_open_url
 from projectapp.arrange import Position, section_key
 from projectapp.calendar import DayKind, day_kind, member_notes
-from projectapp.forms import task_name_error
+from projectapp.forms import section_name_error, task_name_error
 from projectapp.events import assign_lanes, cell_colors, color_hex, column_span
 from projectapp.categories import by_id, chip_text
 from projectapp.config import (
@@ -227,8 +227,9 @@ ROW_STYLE = f"height: {ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRI
 ADD_ROW_STYLE = f"height: {ADD_ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
 # IME の変換確定の Enter は無視する。Safari 系は確定時に isComposing が偽でも keyCode が 229 になる
 SEARCH_ENTER_JS = "(e) => { if (!e.isComposing && e.keyCode !== 229) emit(e.target.value); }"
-# ダブルクリックで入力行を出す。ボタン・リンク・入力欄と、印の付いた要素(まとめの名前)の上では出さない
-QUICK_ADD_JS = "(e) => { if (!e.target.closest('button, a, input, [data-no-quick-add]')) emit(); }"
+# ダブルクリックで入力行を出す(Shift を押していればセクション用。押したかを渡す)。
+# ボタン・リンク・入力欄と、印の付いた要素(まとめの名前)の上では出さない
+QUICK_ADD_JS = "(e) => { if (!e.target.closest('button, a, input, [data-no-quick-add]')) emit(e.shiftKey); }"
 SCROLLBAR_ROOM_PX = 16  # 横スクロールバーの分の余白。WebKit は高さ auto にバーの厚みを含めない
 # チャートの枠は縦横ともここでスクロールする。高さの上限は、画面の高さから、上のヘッダー
 # (1 行のメニュー・ツールバー・ページの余白)の分を引いた値(固定の見積もり。実機で合わせる)
@@ -361,6 +362,8 @@ class GanttActions:
     move_section: Callable[[SectionPath, SectionPath], object] = lambda src, dst: None  # 元, 落とした先の見出し(同じ親)
     # 名前の入力行で確定した、名前だけのタスクの追加(セクションのパス, 挿入位置, 名前)
     add_named_task: Callable[[SectionPath, int, str], object] = lambda path, index, name: None
+    # 名前の入力行で確定した、名前だけのセクションの追加(親のセクションのパス。最上位は (), 名前)
+    add_named_section: Callable[[SectionPath, str], object] = lambda parent, name: None
 
 
 class GanttChart:
@@ -391,6 +394,7 @@ class GanttChart:
         self.scroll_box: ui.element | None = None
         self.task_filter = TaskFilter()
         self.quick_add: Position | None = None  # 名前の入力行を出している位置。保存しない
+        self.quick_section: SectionPath | None = None  # セクションの入力行を、子の末尾に出す親のパス(最上位は ())。保存しない
         self.quick_row: ui.element | None = None
         self.collapsed: set[SectionPath] = set()  # 折りたたんだセクションのパス。保存しない
         self.section_views: dict[SectionPath, SectionView] = {}  # 描画中のセクションの部品
@@ -411,7 +415,7 @@ class GanttChart:
     def set_project(self, project: Project) -> None:
         """条件は保つ。担当者がメンバーからいなくなったときだけ、担当者の指定を外す。"""
         self.project = project
-        self.quick_add = None  # 番号がずれるので、開いている入力行は閉じる
+        self.quick_add = self.quick_section = None  # 番号がずれるので、開いている入力行は閉じる
         names = {member.name for member in project.members}
         if self.task_filter.assignee not in (None, *names):
             self.task_filter = replace(self.task_filter, assignee=None)
@@ -669,6 +673,7 @@ class GanttChart:
             ADD_ROW_HEIGHT_PX,
             self.collapsed_summaries,
             self.quick_add,
+            self.quick_section,
         )
 
     def link_bars(self, columns: list[Column], width: int) -> dict[str, Bar]:
@@ -894,8 +899,36 @@ class GanttChart:
             ui.notify("絞り込みを解除してください")
             return
         self.collapsed.discard(path)
-        self.quick_add = (path, index)
+        self.quick_add, self.quick_section = (path, index), None
         self.render.refresh()
+
+    def open_quick_section(self, parent: SectionPath) -> None:
+        """セクションの名前の入力行を、親のセクション(最上位は ())の子の末尾に出す。折りたたんだ親は開く。"""
+        if self.options.read_only:
+            return
+        if self.task_filter.active:
+            ui.notify("絞り込みを解除してください")
+            return
+        if len(parent) >= MAX_SECTION_DEPTH:
+            ui.notify(f"サブセクションは {MAX_SECTION_DEPTH} 階層までです")
+            return
+        self.collapsed.discard(parent)
+        self.quick_add, self.quick_section = None, parent
+        self.render.refresh()
+
+    def double_clicked_task(self, path: SectionPath, ti: int, shift: object) -> None:
+        """タスクの名前の欄のダブルクリック。Shift ならそのセクションの子の末尾にセクションを、なければ直下にタスクを作る。"""
+        if shift:
+            self.open_quick_section(path)
+        else:
+            self.open_quick_add_after(path, ti)
+
+    def double_clicked_section(self, path: SectionPath, shift: object) -> None:
+        """セクションの見出し・末尾の追加行(root は ())のダブルクリック。Shift ならその子の末尾にセクションを、なければタスクを作る。"""
+        if shift:
+            self.open_quick_section(path)
+        else:
+            self.open_quick_add_at_end(path)
 
     def open_quick_add_after(self, path: SectionPath, ti: int) -> None:
         """タスクの直下(まとめは子の後ろ)に出す。"""
@@ -908,24 +941,28 @@ class GanttChart:
 
     def close_quick_add(self) -> None:
         """入力行を閉じる。描き直さず、行を消して矢印だけ作り直す。"""
-        row, self.quick_row, self.quick_add = self.quick_row, None, None
+        row, self.quick_row, self.quick_add, self.quick_section = self.quick_row, None, None, None
         if row is not None and not row.is_deleted:
             row.delete()
         self.update_links()
 
     def submit_quick_add(self, text: object, error: ui.label) -> None:
         name = str(text or "").strip()
-        if message := task_name_error(name):
+        if message := (section_name_error if self.quick_section is not None else task_name_error)(name):
             error.set_text(message)
             error.set_visibility(True)
+            return
+        if self.quick_section is not None:
+            parent, _ = self.quick_section, self.close_quick_add()
+            self.actions.add_named_section(parent, name)
             return
         if self.quick_add is None:
             return
         (path, index), _ = self.quick_add, self.close_quick_add()
         self.actions.add_named_task(path, index, name)
 
-    def quick_add_row(self, path: SectionPath, hidden: bool = False) -> None:
-        """名前を入れる入力行。名前の欄の中に入力欄を置き、Enter で確定、Esc かフォーカスを外すと取り消す。"""
+    def quick_add_row(self, path: SectionPath, hidden: bool = False, section: bool = False) -> None:
+        """名前を入れる入力行(section ならセクションの名前。path はその親)。名前の欄の中に入力欄を置き、Enter で確定、Esc かフォーカスを外すと取り消す。"""
         row = ui.row().classes("items-center no-wrap gap-0").style(ROW_STYLE).mark("quick-add-row")
         row.set_visibility(not hidden)
         self.quick_row = row
@@ -936,7 +973,8 @@ class GanttChart:
                 f" align-self: stretch; {sticky_left(STICKY_Z_NAME)}"
             )
             with cell:
-                field = ui.input(placeholder="タスク名(Enter で作成・Esc で取り消し)").classes("grow")
+                label = "セクション名" if section else "タスク名"
+                field = ui.input(placeholder=f"{label}(Enter で作成・Esc で取り消し)").classes("grow")
                 field.props("dense outlined autofocus").mark("quick-add-input")
             error = ui.label("").classes("text-negative text-caption").style("padding-left: 8px")
             error.set_visibility(False)
@@ -949,6 +987,11 @@ class GanttChart:
         """入力行が、このセクションの index 番目に出ているなら描く。"""
         if self.quick_add == (path, index):
             self.quick_add_row(path, hidden)
+
+    def quick_section_here(self, parent: SectionPath, hidden: bool = False) -> None:
+        """セクションの入力行が、この親の子の末尾に出ているなら描く。"""
+        if self.quick_section == parent:
+            self.quick_add_row(parent, hidden, section=True)
 
     @property
     def selecting(self) -> bool:
@@ -1005,6 +1048,7 @@ class GanttChart:
             self.top_add_row()
             for index, section in enumerate(self.project.sections):
                 self.section_rows((index,), section, columns, width)
+            self.quick_section_here(())
             self.bottom_add_row()
 
     def no_match_message(self) -> None:
@@ -1036,7 +1080,7 @@ class GanttChart:
             return
         row, cell = self.add_row("top-end")
         row.props(self.drag_props("top-end", "top", count=len(self.project.tasks)))
-        row.on("dblclick", lambda: self.open_quick_add_at_end(()), js_handler=QUICK_ADD_JS)
+        row.on("dblclick", lambda e: self.double_clicked_section((), e.args), js_handler=QUICK_ADD_JS)
         with cell:
             ui.button("タスク追加", icon="add_task", on_click=self.actions.add_top_task).props(
                 "flat dense size=sm"
@@ -1212,7 +1256,7 @@ class GanttChart:
         self.section_menu_on_right_click(header, path)
         header.set_visibility(not hidden)
         if not self.options.read_only:
-            header.on("dblclick", lambda path=path: self.open_quick_add_at_end(path), js_handler=QUICK_ADD_JS)
+            header.on("dblclick", lambda e, path=path: self.double_clicked_section(path, e.args), js_handler=QUICK_ADD_JS)
         view.header = header
         with header:
             name = ui.row().classes("items-center no-wrap gap-2 gantt-sticky" + self.resize_classes())
@@ -1264,6 +1308,7 @@ class GanttChart:
             self.section_rows(child_path, child, columns, width, hidden or effective)
             if child_path in self.section_views:
                 view.children.append(child_path)
+        self.quick_section_here(path, hidden)
 
     def task_row(
         self, path: SectionPath, ti: int, task: Task, columns: list[Column], width: int
@@ -1304,7 +1349,7 @@ class GanttChart:
             cell.style(cell_style)
             cell.mark(f"task-{key}-{ti}")
             if not self.options.read_only:
-                cell.on("dblclick", lambda path=path, ti=ti: self.open_quick_add_after(path, ti), js_handler=QUICK_ADD_JS)
+                cell.on("dblclick", lambda e, path=path, ti=ti: self.double_clicked_task(path, ti, e.args), js_handler=QUICK_ADD_JS)
             if not self.task_filter.active and not self.options.read_only:
                 cell.props(f"draggable=true data-drag-handle data-si={key} data-ti={ti}")
             with cell:

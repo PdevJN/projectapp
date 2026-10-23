@@ -32,13 +32,15 @@ def row_slots(
     add_height: int,
     collapsed_summaries: Collection[str] = frozenset(),
     quick_add: tuple[SectionPath, int] | None = None,
+    quick_section: SectionPath | None = None,
 ) -> list[RowSlot]:
     """gantt.render が描く行の並び。描画と矢印の計算の、両方がこの並びを使う。
     折りたたんだまとめの子の行は shown=False。絞り込み中と読み取り専用では、まとめの折りたたみを無視する。
-    quick_add は、名前を入れる入力行の位置(セクションのパス, 番号)。絞り込み中と読み取り専用では出さない。"""
+    quick_add は、名前を入れる入力行の位置(セクションのパス, 番号)。quick_section は、セクションの名前を入れる入力行を、
+    子の末尾に出す親のセクションのパス(最上位は ())。どちらも絞り込み中と読み取り専用では出さない。"""
     slots: list[RowSlot] = []
     if read_only or task_filter.active:
-        quick_add = None
+        quick_add = quick_section = None
     by_id = project.task_map()
     folded = hidden_by_summary(project, collapsed_summaries) if not task_filter.active and not read_only else set()
     if quick_add == ((), 0):
@@ -52,8 +54,11 @@ def row_slots(
         slots.append(RowSlot("top-add", (), None, None, True, add_height))
     for index, section in enumerate(project.sections):
         _section_slots(
-            slots, section, (index,), task_filter, collapsed, read_only, False, row_height, by_id, folded, quick_add
+            slots, section, (index,), task_filter, collapsed, read_only, False, row_height, by_id, folded, quick_add,
+            quick_section,
         )
+    if quick_section == ():
+        slots.append(RowSlot("quick-add", (), None, None, True, row_height))
     return slots
 
 
@@ -69,6 +74,7 @@ def _section_slots(
     by_id: Mapping[str, Task],
     folded: Collection[str],
     quick_add: tuple[SectionPath, int] | None,
+    quick_section: SectionPath | None,
 ) -> None:
     """セクションの見出し・タスク・サブセクションの行を足す。hidden は、親のどれかが折りたたまれている。"""
     if task_filter.active and not section_has_match(section, task_filter, by_id):
@@ -89,8 +95,10 @@ def _section_slots(
     for index, child in enumerate(section.sections):
         _section_slots(
             slots, child, (*path, index), task_filter, collapsed, read_only, hidden or own_collapsed, row_height,
-            by_id, folded, quick_add,
+            by_id, folded, quick_add, quick_section,
         )
+    if quick_section == path:
+        slots.append(RowSlot("quick-add", path, None, None, not hidden, row_height))
 
 
 def row_centers(slots: list[RowSlot], top: float) -> dict[str, float]:
