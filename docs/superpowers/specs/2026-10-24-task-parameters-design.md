@@ -29,14 +29,14 @@
 
 ## 計算(`ratios.py`・`timeline.py`)
 
-- `effective_ratio(member, parameters, only=None)` と `ratio_detail(member, parameters, only=None)` に`only: Collection[str] | None`を足す。`None` は今までどおり全パラメータの合計。リストが渡されたときは、その名前のパラメータだけを足す(メンバーが段階を選んでいなければ判定値 0%)。丸めは今と同じ。
+- `effective_ratio(member, parameters, only=None)` と `ratio_detail(member, parameters, only=None)` に`only: Collection[str] | None`を足す。`None` か空は今までどおり全パラメータの合計。名前のリストが渡されたときは、その名前のパラメータだけを足す(メンバーが段階を選んでいなければ判定値 0%)。丸めは今と同じ。
 - `crew_of(assignees, members, parameters, only=None)`・`assignees_rate(...)` も `only` を受け取り、`conversion_rate(task, project)` は `task.parameters` が空でなければそれを渡す。空なら `None`(全合計)。完了予定の算出(`Schedule`)・ダイアログの参考値・`handoff.py` の見積もり・`reassign.py` は、すべて `conversion_rate` と `crew_of` を通るので、呼び出し元は`task`を渡すだけでよい(`crew_of` を呼ぶ箇所は、`task.parameters` を渡す形に直す)。
 - ダッシュボードは割り当て率で数えて相対比率を使わないので、変更しない。
 
 ## ダイアログ(`task_dialog.py`)
 
 - `すべて`レイアウトに、`パラメータ`の複数選択(`ui.select`・`multiple`・`use-chips`)を置く。選択肢は`project.parameters` の名前。登録されたパラメータが 0 件のときは、欄を出さない。追加・編集のどちらでも付けられる。`予定・実績`レイアウトでは隠し、値は保持する(隠した項目と同じ扱い)。
-- 換算率の内訳(`task-conversion` のラベル)は、パラメータを付けたタスクでは、メンバーごとの内訳に付けたパラメータの判定値を出す。例: `換算率 150%(田中: 基本100% + Python+50%)→ 8h は約 0.9日分`。付けないタスクは今の表示。
+- 換算率の内訳(`task-conversion` のラベル)は、パラメータを付けたタスクでは、メンバーごとの内訳に付けたパラメータの判定値を出す。例: `換算率 150%(田中 150%×100%・Pythonを反映)→ 8h は約 0.9日分`(今の内訳の書き方に、反映したパラメータの名前を添える)。付けないタスクは今の表示。
 - 比率が変わりうる編集(パラメータの付け替え)は、担当の付け替え(要望 32)と同じ条件(既存タスクで、工数があり、状態が`終了`でなく、実績か進捗度がある)で、完了予定の見直しの確認を出す。換算率が変わるかどうかの判定が、今は担当者の比較だけなので、パラメータの比較も含める。
 
 ## 周辺の挙動
