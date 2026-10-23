@@ -44,6 +44,7 @@ async () => {
   const dark = document.body.classList.contains('body--dark');
   const custom = document.body.classList.contains('app-custom');
   const bg = (dark || custom) ? getComputedStyle(document.body).backgroundColor : '#ffffff';
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));  // 直前の描き直しの反映を待つ
   const style = document.createElement('style');
   style.textContent = __CSS__;
   document.head.appendChild(style);

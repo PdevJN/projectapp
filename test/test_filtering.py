@@ -104,3 +104,27 @@ def test_section_has_match_looks_at_the_whole_subtree() -> None:
 def test_section_has_match_with_an_inactive_filter_is_true() -> None:
     assert section_has_match(tree_section(), TaskFilter())
     assert section_has_match(Section("空"), TaskFilter())  # 条件がなければ、空のセクションも出す
+
+
+def test_excluded_ids_make_the_filter_active_and_never_match() -> None:
+    a, b = Task("甲"), Task("乙")
+    task_filter = TaskFilter(exclude=frozenset({a.id}))
+    assert task_filter.active
+    assert not matches(a, task_filter)
+    assert matches(b, task_filter)
+
+
+def test_a_summary_with_every_child_excluded_does_not_match() -> None:
+    from projectapp.models import TaskKind
+
+    c1, c2 = Task("c1"), Task("c2")
+    s = Task("s", kind=TaskKind.SUMMARY, children=[c1.id, c2.id])
+    by_id = {t.id: t for t in (c1, c2, s)}
+    assert matches(s, TaskFilter(exclude=frozenset({c1.id})), by_id)
+    assert not matches(s, TaskFilter(exclude=frozenset({c1.id, c2.id})), by_id)
+
+
+def test_a_section_whose_tasks_are_all_excluded_has_no_match() -> None:
+    a = Task("甲")
+    section = Section("A", tasks=[a])
+    assert not section_has_match(section, TaskFilter(exclude=frozenset({a.id})))

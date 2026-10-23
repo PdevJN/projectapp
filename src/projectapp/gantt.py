@@ -27,6 +27,7 @@ from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
 from projectapp.models import ID_KEY, MAX_SECTION_DEPTH, URL_KEY, Category, Event, Priority, Project, Section, SectionPath, Status, Task, TaskKind, TaskUrl
+from projectapp.selection import CheckState, check_state, task_ids_of, toggled
 from projectapp.urls import resolve
 from projectapp.summary import children_of, parent_map, summary_progress, summary_status
 from projectapp.timeline import (
@@ -153,6 +154,10 @@ class ViewOptions:
     show_alerts: bool = True  # 予定超過の赤みと、割り当て超過の縞
     show_events: bool = True  # イベントの帯とセルの色
     read_only: bool = False  # 編集の部品・クリック・ドラッグをなくす
+    selectable: bool = False  # 行と見出しの先頭に、出力のチェックボックスを出す(読み取り専用のときだけ)
+    excluded: frozenset[str] = frozenset()  # チェックを外したタスクの id。薄く描く
+    hide_excluded: bool = False  # 外したタスクを描かない(画像の書き出し用。チェックボックスも出さない)
+    on_select: Callable[[list[str], bool], object] | None = None  # チェックの変更(対象のタスク id, 出力するか)
 
 
 # 名前の右のチップ。名前だけが縮み、チップは縮めない
@@ -630,6 +635,7 @@ class GanttChart:
         """表示の設定を変えて、描き直す。描画のスケールが変わるときは、横のスクロールを先頭へ戻す。"""
         before = self.view_scale
         self.options = options
+        self.task_filter = replace(self.task_filter, exclude=options.excluded if options.hide_excluded else frozenset())
         if self.toolbar is not None:
             self.toolbar.set_visibility(not options.read_only)
         self.render.refresh()
@@ -944,6 +950,26 @@ class GanttChart:
         if self.quick_add == (path, index):
             self.quick_add_row(path, hidden)
 
+    @property
+    def selecting(self) -> bool:
+        return self.options.selectable and self.options.read_only and not self.options.hide_excluded
+
+    def selection_box(self, marker: str, ids: list[str]) -> None:
+        """出力のチェックボックス。一部だけ出力のとき(中間)に押すと、全部を出力にする。"""
+        state = check_state(ids, self.options.excluded)
+        value = None if state is CheckState.MIXED else state is CheckState.ON  # 中間は None
+        box = ui.checkbox(value=value)
+        box.props("dense").classes("shrink-0").mark(marker)
+        if state is None:
+            box.props("disable")
+            return
+
+        def pick(_: object, ids: list[str] = ids, checked: bool = toggled(state)) -> None:
+            if self.options.on_select is not None:
+                self.options.on_select(ids, checked)
+
+        box.on_value_change(pick)
+
     @ui.refreshable_method
     def render(self) -> None:
         self.section_views = {}
@@ -1197,6 +1223,8 @@ class GanttChart:
             if not self.options.read_only and not self.task_filter.active:  # つかんで動かせるのは、絞り込みなし・編集時だけ
                 name.props(f"draggable=true data-section-handle data-si={key} data-parent={parent_key}")
             with name.mark(f"section-name-{key}"):
+                if self.selecting:
+                    self.selection_box(f"select-section-{key}", task_ids_of(section, self.tasks_by_id))
                 if not self.options.read_only:
                     arrow = ARROW_COLLAPSED if collapsed else ARROW_EXPANDED
                     view.arrow = ui.button(
@@ -1250,6 +1278,9 @@ class GanttChart:
             finished = summary_status(children_of(task, self.tasks_by_id)) is Status.DONE
         if overdue:
             style += f"; background: {OVERDUE_COLOR}"
+        ids = task_ids_of(task, self.tasks_by_id)
+        if self.selecting and ids and all(i in self.options.excluded for i in ids):
+            style += "; opacity: 0.4"  # 出力しない行は薄く描く
         row = ui.row().classes("items-center no-wrap gap-0").style(style)
         row.props(self.drag_props("row", key, ti=ti)).mark(f"row-{key}-{ti}")
         self.menu_on_right_click(row, path, ti)
@@ -1277,6 +1308,8 @@ class GanttChart:
             if not self.task_filter.active and not self.options.read_only:
                 cell.props(f"draggable=true data-drag-handle data-si={key} data-ti={ti}")
             with cell:
+                if self.selecting:
+                    self.selection_box(f"select-task-{key}-{ti}", ids)
                 if summary and not self.options.read_only:
                     view = self.summary_views[task.id] = SummaryView()
                     folded = task.id in self.collapsed_summaries

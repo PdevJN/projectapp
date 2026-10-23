@@ -1531,6 +1531,7 @@ class FakeExporter:
         self.open_path = open_path
         self.asked_open: list[tuple[str, ...]] = []
         self.captured: list[float] = []
+        self.on_capture: Callable[[], object] | None = None  # 撮る瞬間に呼ぶ(描画の状態を調べる)
         self.asked: list[str] = []
         self.asked_types: list[tuple[str, ...]] = []
 
@@ -1540,6 +1541,8 @@ class FakeExporter:
 
     async def capture(self, pixel_ratio: float) -> bytes:
         self.captured.append(pixel_ratio)
+        if self.on_capture is not None:
+            self.on_capture()
         if self.error is not None:
             raise self.error
         return PNG_BYTES
@@ -1665,6 +1668,7 @@ async def open_preview(
     if extra is not None:
         view.save_task((), None, extra)
     user.find(marker="export-preview").click()
+    await user.should_see(marker="task-top-0")
     return view
 
 
@@ -4835,3 +4839,118 @@ async def test_work_day_inputs_have_calendar_and_time_pickers(user: User, tmp_pa
     user.find(marker="open-member-workday-0-start-picker").click()
     await settle()
     assert picker_open()
+
+
+def task_box(user: User) -> ui.checkbox:
+    return user.find(marker="select-task-top-0").elements.pop()
+
+
+async def test_the_preview_starts_with_everything_selected(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    assert view.preview is not None and view.preview.excluded == frozenset()
+    assert task_box(user).value is True
+    assert user.find(marker="preview-select-all").elements.pop().value is True
+    assert user.find(marker="preview-select-count").elements.pop().text == "1 / 1 件を出力"
+
+
+async def test_unchecking_a_task_excludes_it_and_updates_the_select_all_box(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter(), extra=Task("実装"))
+    ids = [t.id for t in view.project.tasks]
+    task_box(user).set_value(False)
+    assert view.preview is not None and view.preview.excluded == frozenset({ids[0]})
+    assert user.find(marker="preview-select-all").elements.pop().value is None  # 中間
+    assert user.find(marker="preview-select-count").elements.pop().text == "1 / 2 件を出力"
+
+
+async def test_the_select_all_box_unchecks_and_rechecks_every_task(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter(), extra=Task("実装"))
+    user.find(marker="preview-select-all").elements.pop().set_value(False)
+    assert view.preview is not None and view.preview.excluded == {t.id for t in view.project.tasks}
+    assert user.find(marker="preview-select-all").elements.pop().value is False
+    user.find(marker="preview-select-all").elements.pop().set_value(True)
+    assert view.preview.excluded == frozenset()
+
+
+async def test_the_selection_survives_changing_the_preview_settings(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    task_box(user).set_value(False)
+    user.find(marker="preview-scale").elements.pop().set_value("週次")
+    assert view.preview is not None and len(view.preview.excluded) == 1
+
+
+async def test_a_new_preview_starts_with_everything_selected_again(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    task_box(user).set_value(False)
+    view.exit_preview()
+    view.enter_preview()
+    assert view.preview is not None and view.preview.excluded == frozenset()
+
+
+async def test_save_plantuml_leaves_out_the_unchecked_tasks(user: User, tmp_path: Path) -> None:
+    target = tmp_path / "chart.puml"
+    view = await open_preview(user, tmp_path, FakeExporter(path=target), extra=Task("外す", planned_start=datetime(2026, 10, 8, 9), planned_end=datetime(2026, 10, 9, 18)))
+    user.find(marker="select-task-top-1").elements.pop().set_value(False)
+    view.snapshot = asdict(view.project)  # open_preview がタスクを足すので、保存の直前を基準にする
+    user.find(marker="preview-plantuml").click()
+    assert await wait_until(lambda: target.exists())
+    text = target.read_text(encoding="utf-8")
+    assert "[設計]" in text and "[外す]" not in text
+    assert view.preview is not None and not view.is_dirty()
+
+
+async def test_save_plantuml_with_every_task_unchecked_writes_nothing(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=tmp_path / "chart.puml")
+    await open_preview(user, tmp_path, exporter)
+    task_box(user).set_value(False)
+    user.find(marker="preview-plantuml").click()
+    await user.should_see("出力できるタスクがありません")
+    assert exporter.asked == []
+
+
+async def test_save_image_leaves_out_the_unchecked_rows_and_restores_them(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=tmp_path / "chart.png")
+    view = await open_preview(user, tmp_path, exporter, extra=Task("実装"))
+    seen: list[tuple[int, int]] = []
+    exporter.on_capture = lambda: seen.append(
+        (len(view.gantt.task_rows), sum("select-task-top-0" in e._markers for e in view.gantt.client.elements.values()))
+    )
+    user.find(marker="select-task-top-1").elements.pop().set_value(False)
+    user.find(marker="preview-save").click()
+    assert await wait_until(lambda: (tmp_path / "chart.png").exists())
+    assert seen == [(1, 0)]  # 撮る間は、外した行もチェックボックスもない
+    assert await wait_until(lambda: len(view.gantt.task_rows) == 2)
+    await user.should_see(marker="select-task-top-1")  # 撮ったあとは、もとに戻る
+    assert view.preview is not None and len(view.preview.excluded) == 1
+
+
+async def test_save_image_with_every_task_unchecked_notifies_and_captures_nothing(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=tmp_path / "chart.png")
+    await open_preview(user, tmp_path, exporter)
+    task_box(user).set_value(False)
+    user.find(marker="preview-save").click()
+    await user.should_see("出力するタスクがありません")
+    assert exporter.captured == [] and exporter.asked == []
+
+
+async def test_save_plantuml_warns_when_a_same_day_handover_looks_over_100_percent(user: User, tmp_path: Path) -> None:
+    target = tmp_path / "chart.puml"
+    members = [Member("田中")]
+    a = Task("前", planned_start=datetime(2026, 10, 13, 9), planned_end=datetime(2026, 10, 14, 12), assignees=[Assignee("田中", 0.6)])
+    b = Task("後", planned_start=datetime(2026, 10, 14, 13), planned_end=datetime(2026, 10, 15, 18), assignees=[Assignee("田中", 0.6)])
+    view = await open_preview(user, tmp_path, FakeExporter(path=target), extra=a)
+    view.project.members = members
+    view.save_task((), None, b)
+    view.snapshot = asdict(view.project)
+    user.find(marker="preview-plantuml").click()
+    assert await wait_until(lambda: target.exists())
+    await user.should_see("田中 10/14")
+    await user.should_see("保存しました")
+
+
+async def test_save_plantuml_shows_no_overload_warning_normally(user: User, tmp_path: Path) -> None:
+    target = tmp_path / "chart.puml"
+    await open_preview(user, tmp_path, FakeExporter(path=target))
+    user.find(marker="preview-plantuml").click()
+    assert await wait_until(lambda: target.exists())
+    await user.should_see("保存しました")
+    await user.should_not_see("日単位")

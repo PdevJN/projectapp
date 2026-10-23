@@ -10,8 +10,16 @@ from pathlib import Path
 
 from projectapp.events import color_hex
 from projectapp.filtering import TaskFilter, matches, section_has_match
-from projectapp.models import Project, Section, Status, Task, TaskKind
-from projectapp.timeline import Scale, Schedule, current_progress, effective_end, effective_start, is_overdue
+from projectapp.models import Assignee, Project, Section, Status, Task, TaskKind
+from projectapp.timeline import (
+    Scale,
+    Schedule,
+    current_progress,
+    effective_end,
+    effective_start,
+    is_overdue,
+    overallocations,
+)
 
 PLANTUML_FILE_TYPES = ("PlantUML ファイル (*.puml)",)
 UNSAFE_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
@@ -31,6 +39,17 @@ class PlantUml:
     text: str
     task_count: int  # 出したタスク(チェックポイントを含む)の数
     skipped: int  # 期間の外・日程なしで出さなかったタスクの数(絞り込みで除いたものは数えない)
+    # PlantUML は日単位で集計するので、100% 超の赤に見えるが、アプリの時刻での判定では超過でない(担当者, 日)
+    day_overloads: tuple[tuple[str, date], ...] = ()
+
+
+def day_overload_notice(items: tuple[tuple[str, date], ...]) -> str | None:
+    """日単位の集計で 100% 超に見える(担当者, 日)の通知。なければ None。先頭の 3 件を示し、残りは件数にする。"""
+    if not items:
+        return None
+    shown = "、".join(f"{name} {day.month}/{day.day}" for name, day in items[:3])
+    more = f" ほか {len(items) - 3} 件" if len(items) > 3 else ""
+    return f"PlantUML は日単位で集計するため、100% 超に見える日があります(実際の予定では超過していません): {shown}{more}"
 
 
 def default_filename(project_name: str, today: date) -> str:
@@ -76,13 +95,39 @@ def _resource(name: str) -> str:
     return name.replace("{", "(").replace("}", ")").replace(":", "：")
 
 
+def _percent(a: Assignee) -> int:
+    return max(1, min(100, round(a.allocation * 100))) if isfinite(a.allocation) else 100
+
+
 def _assignees(task: Task) -> str:
     """` on {田中:60%} {鈴木}`。割り当て率が 100% なら省く。担当なしは空。"""
     parts = []
     for a in task.assignees:
-        percent = max(1, min(100, round(a.allocation * 100))) if isfinite(a.allocation) else 100
+        percent = _percent(a)
         parts.append(f"{{{_resource(a.name)}}}" if percent == 100 else f"{{{_resource(a.name)}:{percent}%}}")
     return f" on {' '.join(parts)}" if parts else ""
+
+
+def _day_overloads(
+    project: Project, holidays: dict[date, str], drawn: list[Task], days: dict[str, tuple[date, date]]
+) -> tuple[tuple[str, date], ...]:
+    """PlantUML が(日単位の合計で)100% 超に描くが、アプリの時刻での判定では超過でない(担当者, 日)。"""
+    totals: dict[tuple[str, date], int] = {}
+    for task in drawn:
+        first, last = days[task.id]
+        for offset in range((last - first).days + 1):
+            day = first + timedelta(days=offset)
+            if day.weekday() >= 5 or day in holidays:
+                continue  # 休みの日は、PlantUML が枠を使わない
+            for a in task.assignees:
+                key = (a.name, day)
+                totals[key] = totals.get(key, 0) + _percent(a)
+    real: set[tuple[str, date]] = set()
+    for over in overallocations(project, holidays, drawn):
+        for offset in range((over.end - timedelta(microseconds=1)).date().toordinal() - over.start.date().toordinal() + 1):
+            real.add((over.member, over.start.date() + timedelta(days=offset)))
+    flagged = [key for key, total in totals.items() if total > 100 and key not in real]
+    return tuple(sorted(flagged, key=lambda key: (key[1], key[0])))
 
 
 def build_plantuml(
@@ -96,6 +141,7 @@ def build_plantuml(
     show_chips: bool = True,
     show_alerts: bool = True,
     show_events: bool = True,
+    excluded: frozenset[str] = frozenset(),
 ) -> PlantUml:
     """プレビューの設定で見えるガントチャートを、PlantUML のテキストにする。プロジェクトは変えない。"""
     p_start, p_end = period
@@ -103,6 +149,7 @@ def build_plantuml(
     used: set[str] = set()
     aliases: dict[str, str] = {}  # タスクの id → 別名(T1, T2, ...)。出したものだけ
     order: list[Task] = []
+    drawn_days: dict[str, tuple[date, date]] = {}  # 出したタスクの id → PlantUML に渡した日付の範囲(含む)
     skipped = 0
 
     def unique(label: str) -> str:
@@ -147,6 +194,8 @@ def build_plantuml(
         nonlocal skipped
         if task.kind is TaskKind.SUMMARY:
             return  # 親子の構文がなく、帯を出すと子と二重になる。親子は区切り(セクション)で表す
+        if task.id in excluded:
+            return  # 利用者がチェックを外した。省いた件数には数えない
         start = effective_start(task, project, holidays, schedule)
         if start is None:
             skipped += 1
@@ -160,6 +209,7 @@ def build_plantuml(
         label = unique(_safe(task.name))
         aliases[task.id] = alias
         order.append(task)
+        drawn_days[task.id] = (first, last)
         if task.kind is TaskKind.CHECKPOINT:
             target.append(f"[{label}] as [{alias}] happens on {first.isoformat()}")
         else:
@@ -213,8 +263,9 @@ def build_plantuml(
             alias = source_alias(pid)
             if alias is not None and pid != task.id:
                 arrows.append(f"[{alias}] -> [{aliases[task.id]}]")
+    day_overloads = _day_overloads(project, holidays, order, drawn_days) if show_chips else ()
     lines = [*head, *root_body]
     if event_lines:
         lines += [f"-- {EVENT_SECTION} --", *event_lines]
     lines += [*section_body, *arrows, "@endgantt"]
-    return PlantUml("\n".join(lines) + "\n", len(aliases), skipped)
+    return PlantUml("\n".join(lines) + "\n", len(aliases), skipped, day_overloads)

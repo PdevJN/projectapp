@@ -1,6 +1,7 @@
 import asyncio
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import date, datetime, time
 
 import pytest
@@ -3369,3 +3370,103 @@ async def test_no_work_day_mark_in_the_week_scale(user: User) -> None:
             break
         await asyncio.sleep(0.1)
     await user.should_not_see(marker="workmark-0-0")
+
+
+def mount_selectable(
+    excluded_names: tuple[str, ...] = (), picks: list | None = None
+) -> tuple[list[GanttChart], list[Task]]:
+    tasks = [
+        Task("甲", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12)),
+        Task("乙", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12)),
+    ]
+    project = Project("demo", base_date=BASE, sections=[Section("開発", tasks), Section("試験", [Task("丙")])])
+    charts: list[GanttChart] = []
+
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(project, {}, Recorder().actions, now=lambda: datetime(2026, 10, 1))
+        chart.options = ViewOptions(
+            read_only=True,
+            selectable=True,
+            excluded=frozenset(t.id for t in project.all_tasks() if t.name in excluded_names),
+            on_select=(lambda ids, checked: picks.append((ids, checked))) if picks is not None else None,
+        )
+        charts.append(chart)
+        chart.build()
+
+    return charts, tasks
+
+
+def checkbox(user: User, marker: str) -> ui.checkbox:
+    return user.find(marker=marker).elements.pop()
+
+
+async def test_no_checkboxes_unless_selectable(user: User) -> None:
+    mount_with(sample_project(), ViewOptions(read_only=True))
+    await user.open("/")
+    await user.should_not_see(marker="select-task-0-0")
+    await user.should_not_see(marker="select-section-0")
+
+
+async def test_selectable_chart_has_a_checked_checkbox_on_each_task_and_section(user: User) -> None:
+    mount_selectable()
+    await user.open("/")
+    for marker in ("select-task-0-0", "select-task-0-1", "select-task-1-0", "select-section-0", "select-section-1"):
+        assert checkbox(user, marker).value is True
+
+
+async def test_an_excluded_task_is_unchecked_and_its_section_is_mixed(user: User) -> None:
+    mount_selectable(("乙",))
+    await user.open("/")
+    assert checkbox(user, "select-task-0-0").value is True
+    assert checkbox(user, "select-task-0-1").value is False
+    assert checkbox(user, "select-section-0").value is None  # 中間
+    assert checkbox(user, "select-section-1").value is True
+
+
+async def test_an_excluded_task_row_is_dimmed(user: User) -> None:
+    mount_selectable(("乙",))
+    await user.open("/")
+    assert "opacity" not in user.find(marker="row-0-0").elements.pop()._style
+    assert user.find(marker="row-0-1").elements.pop()._style["opacity"] == "0.4"
+
+
+async def test_a_section_with_every_task_excluded_is_unchecked(user: User) -> None:
+    mount_selectable(("甲", "乙"))
+    await user.open("/")
+    assert checkbox(user, "select-section-0").value is False
+
+
+async def test_clicking_a_task_checkbox_reports_its_id_and_the_new_state(user: User) -> None:
+    picks: list = []
+    _, tasks = mount_selectable(picks=picks)
+    await user.open("/")
+    checkbox(user, "select-task-0-0").set_value(False)
+    assert picks == [([tasks[0].id], False)]
+
+
+async def test_clicking_a_section_checkbox_reports_all_its_tasks(user: User) -> None:
+    picks: list = []
+    _, tasks = mount_selectable(picks=picks)
+    await user.open("/")
+    checkbox(user, "select-section-0").set_value(False)
+    assert picks == [([tasks[0].id, tasks[1].id], False)]
+
+
+async def test_clicking_a_mixed_section_checks_everything(user: User) -> None:
+    picks: list = []
+    _, tasks = mount_selectable(("乙",), picks=picks)
+    await user.open("/")
+    checkbox(user, "select-section-0").set_value(False)  # 中間から押すと、値に関わらず全部を出力にする
+    assert picks == [([tasks[0].id, tasks[1].id], True)]
+
+
+async def test_hide_excluded_removes_the_rows_checkboxes_and_empty_sections(user: User) -> None:
+    charts, _ = mount_selectable(("乙", "丙"))
+    await user.open("/")
+    charts[0].set_options(replace(charts[0].options, hide_excluded=True))
+    await user.should_see(marker="task-0-0")
+    await user.should_not_see(marker="task-0-1")
+    await user.should_not_see(marker="section-name-1")
+    await user.should_not_see(marker="select-task-0-0")
+    await user.should_not_see(marker="select-section-0")
