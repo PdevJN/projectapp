@@ -1,8 +1,14 @@
 # 作業記録
 
-最終更新: 2026-10-23(`develop`は PR #71(最後の機能。要望 30: メンバーごとの稼働日の上書き)まで、それ以降は記録だけの PR。テスト 3,355 件が通る。過去の最終更新と「現在の状況」の経緯は`docs/work-log.md`)
+最終更新: 2026-10-24(`develop`は PR #73(最後の機能。プレビューの出力選択と PlantUML の超過見えの通知)まで、それ以降は記録だけの PR。テスト 3,399 件が通る。過去の最終更新と「現在の状況」の経緯は`docs/work-log.md`)
 
 ## 現在の状況
+
+**2026-10-24: PR #73(プレビューの出力選択。実機確認済み)を`develop`へマージ済み(cc1c799)。要望 48(PlantUML の超過見えの通知を、プロジェクトのオプションで切り替える)を`docs/requests.md`に記録(未着手)。次は、要望 44〜46(メンバーの休暇・不在)の設計から。**
+
+- 出力選択: `selection.py`(`excluded` の判定。純粋関数)・`PreviewSettings.excluded`・`ViewOptions.selectable`/`excluded`/`hide_excluded`/`on_select`・`TaskFilter.exclude`(画像の書き出しの間、外した行を既存の絞り込みで省く)。`save_image` は描き直し(バックグラウンド)を `await asyncio.sleep(0)` で進めてから撮り、`CAPTURE_JS` も `requestAnimationFrame` を 2 回待つ。
+- PlantUML の超過見え: PlantUML は担当者ごとの割り当てを日単位で足し、100% 超を赤く描く。アプリは時刻で判定し、終了したタスクを数えないので、同じ日の別の時間帯に続くタスクや終了タスクの重なりが、100% 超に見える。`PlantUml.day_overloads` と `day_overload_notice` で、保存後に警告する(出力は変えない)。実際に描画して確かめた(`java` と `/usr/local/lib/plantuml.jar`)。
+- 学んだこと: `@ui.refreshable_method` の直前にメソッドを挿すと、デコレーターが別のメソッドに付く(`selecting` が常に真になった)。`refresh()` はバックグラウンドで走るので、直後の状態を見るテスト・撮影は、一度譲る。
 
 **2026-10-23 時点: `develop` は PR #71(要望 30: メンバーごとの稼働日の上書き。実機確認済み)まで。機能の `feature/*` はマージ済み(リモートの`feature/work-days`は未削除)。未着手の要望は 5・24・35・39・40・44〜46**
 
