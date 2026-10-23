@@ -99,9 +99,13 @@ def remap_levels(levels: dict[str, str], edit: ParameterEdit) -> dict[str, str]:
 
 
 def apply_parameter_edit(project: Project, edit: ParameterEdit) -> None:
-    """定義を置き換え、全メンバーの選択を更新する。"""
+    """定義を置き換え、全メンバーの選択とタスクに付けたパラメータを更新する。"""
     for member in project.members:
         member.levels = remap_levels(member.levels, edit)
+    for task in project.all_tasks():
+        # 対応表にない名前(登録外)は触らない。改名は新しい名前に、削除(None)は外す
+        renamed = (edit.parameter_map.get(name, name) for name in task.parameters)
+        task.parameters = list(dict.fromkeys(name for name in renamed if name is not None))
     project.parameters = edit.parameters
 
 
@@ -120,3 +124,21 @@ def deletion_impacts(project: Project, edit: ParameterEdit) -> list[tuple[str, i
                 if count:
                     impacts.append((f"「{old_parameter}」の「{old_level}」", count))
     return impacts
+
+
+def task_deletion_impacts(project: Project, edit: ParameterEdit) -> list[tuple[str, int]]:
+    """パラメータの削除で外れるタスクの数(パラメータの定義の順)。数が 0 のものは含めない。"""
+    impacts: list[tuple[str, int]] = []
+    for old_parameter, new_parameter in edit.parameter_map.items():
+        if new_parameter is None:
+            count = sum(1 for t in project.all_tasks() if old_parameter in t.parameters)
+            if count:
+                impacts.append((f"「{old_parameter}」", count))
+    return impacts
+
+
+def impact_lines(project: Project, edit: ParameterEdit) -> list[str]:
+    """削除の確認ダイアログに出す行。メンバーの選択、続いてタスクに付けたもの。"""
+    members = [f"{label}を選んでいるメンバーが{count}人います" for label, count in deletion_impacts(project, edit)]
+    tasks = [f"{label}を付けているタスクが{count}件あります" for label, count in task_deletion_impacts(project, edit)]
+    return members + tasks

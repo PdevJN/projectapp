@@ -1421,7 +1421,7 @@ class ParametersPanel:
 
 def parameters_panel(
     get_parameters: Callable[[], list[Parameter]],
-    impacts: Callable[[ParameterEdit], list[tuple[str, int]]],
+    impacts: Callable[[ParameterEdit], list[str]],
     on_apply: Callable[[ParameterEdit], object],
     on_applied: Callable[[ParameterEdit], object],
 ) -> ParametersPanel:
@@ -1526,8 +1526,7 @@ def parameters_panel(
         if affected:
             pending["edit"] = edit
             confirm_text.set_text(
-                "\n".join(f"{label}を選んでいるメンバーが{count}人います" for label, count in affected)
-                + "\n削除すると、その選択は外れて判定値 0% になります"
+                "\n".join(affected) + "\n削除すると、その選択は外れます(メンバーは判定値 0%、タスクはパラメータなしになります)"
             )
             confirm.open()
             return
@@ -1815,7 +1814,7 @@ def open_members_parameters_dialog(
     assigned: Callable[[str], int],
     on_apply_members: Callable[[list[Member], dict[str, str]], object],
     get_parameters: Callable[[], list[Parameter]],
-    impacts: Callable[[ParameterEdit], list[tuple[str, int]]],
+    impacts: Callable[[ParameterEdit], list[str]],
     on_apply_parameters: Callable[[ParameterEdit], object],
     get_taken: Callable[[], Collection[str]],
     pick_icon: Callable[[], Awaitable[str | None]] | None = None,

@@ -2,14 +2,16 @@
 
 import pytest
 
-from projectapp.models import Level, Member, Parameter, Project
+from projectapp.models import Level, Member, Parameter, Project, Task
 from projectapp.ratios import (
     ParameterEdit,
     apply_parameter_edit,
     deletion_impacts,
     effective_ratio,
+    impact_lines,
     ratio_detail,
     remap_levels,
+    task_deletion_impacts,
     validate_parameters,
 )
 
@@ -227,3 +229,29 @@ def test_unregistered_names_are_ignored_and_the_result_is_still_clamped() -> Non
     assert effective_ratio(member, PARAMETERS, only=["ない"]) == pytest.approx(2.9)
     big = [Parameter("経験", [Level("上級", 0.5)])]
     assert effective_ratio(member, big, only=["経験"]) == pytest.approx(3.0)  # 3.4 を 300% に丸める
+
+
+def test_renaming_follows_in_tasks_and_deleting_removes_the_name() -> None:
+    project = project_with(Member("a", 1.0), parameters=PARAMETERS)
+    project.tasks.append(Task("t", parameters=["経験", "専門", "ない"]))
+    new = [Parameter("スキル", [Level("初級", -0.2)])]
+    edit = edit_of(new, {"経験": "スキル", "専門": None}, {"経験": {"初級": "初級"}})
+    apply_parameter_edit(project, edit)
+    assert project.tasks[0].parameters == ["スキル", "ない"]  # 改名は追従、削除は外す、登録外は触らない
+
+
+def test_task_deletion_impacts_count_tasks_per_deleted_parameter() -> None:
+    project = project_with(Member("a", 1.0), parameters=PARAMETERS)
+    project.tasks += [Task("x", parameters=["専門"]), Task("y", parameters=["専門", "経験"]), Task("z", parameters=["経験"])]
+    edit = edit_of([EXPERIENCE], {"経験": "経験", "専門": None}, {"経験": {"初級": "初級", "中級": "中級", "上級": "上級"}})
+    assert task_deletion_impacts(project, edit) == [("「専門」", 2)]
+
+
+def test_impact_lines_list_members_then_tasks() -> None:
+    project = project_with(Member("a", 1.0, {"専門": "高"}), parameters=PARAMETERS)
+    project.tasks.append(Task("x", parameters=["専門"]))
+    edit = edit_of([EXPERIENCE], {"経験": "経験", "専門": None}, {"経験": {"初級": "初級", "中級": "中級", "上級": "上級"}})
+    assert impact_lines(project, edit) == [
+        "「専門」を選んでいるメンバーが1人います",
+        "「専門」を付けているタスクが1件あります",
+    ]
