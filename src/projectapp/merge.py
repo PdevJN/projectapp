@@ -228,7 +228,7 @@ TASK_LABELS = {
     "name": "名前", "planned_start": "開始予定", "effort_hours": "工数", "priority": "優先度", "status": "状態",
     "color": "色", "assignees": "担当", "predecessors": "先行", "deadline": "締切", "planned_end": "完了予定",
     "planned_end_manual": "完了予定を手で指定", "actuals": "実績", "progress": "進捗度", "category_id": "カテゴリ", "kind": "種別",
-    "urls": "リンク", "children": "子", "parent": "所属",
+    "urls": "リンク", "children": "子", "parameters": "パラメータ", "parent": "所属",
 }
 SECTION_LABELS = {"name": "名前", "parent": "所属"}
 
