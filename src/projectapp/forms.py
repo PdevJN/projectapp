@@ -1560,6 +1560,9 @@ MEMBER_EFFECTIVE_COLUMN_REM = 11
 MEMBER_WORK_DAYS_COLUMN_REM = 7
 MEMBER_DELETE_COLUMN_REM = 3
 MEMBER_ROW_HEIGHT_PX = 36
+MEMBER_ROW_GAP_PX = 4  # 行の間隔(gap-y-1)
+MEMBER_HEADER_HEIGHT_PX = 20  # 見出しの行(12px の文字)
+MEMBER_SCROLLBAR_ROOM_PX = 24  # 横スクロールバー(約 15px)の余裕
 # メンバーの表の中のコントロールを 14px にそろえる(入力・選択の文字、プルダウンの項目、実効比率)。見出しは 12px のまま
 MEMBER_TABLE_CSS = f"""
 .member-table .q-field__native, .member-table .q-field__input, .member-table .q-field__label {{ font-size: 14px; line-height: 20px; }}
@@ -1579,6 +1582,11 @@ def member_columns(level_count: int, with_effective: bool) -> list[str]:
     columns.append(f"{MEMBER_WORK_DAYS_COLUMN_REM}rem")
     columns.append(f"{MEMBER_DELETE_COLUMN_REM}rem")
     return columns
+
+
+def member_scroll_min_height_px(row_count: int) -> int:
+    """表を囲む枠の最小の高さ(px)。見出し 1 行 + 行数ぶん + 横スクロールバーの余裕。"""
+    return MEMBER_HEADER_HEIGHT_PX + row_count * (MEMBER_ROW_HEIGHT_PX + MEMBER_ROW_GAP_PX) + MEMBER_SCROLLBAR_ROOM_PX
 
 
 def member_table_min_rem(level_count: int, with_effective: bool) -> int:
@@ -1653,8 +1661,12 @@ def members_panel(
         chosen_parameters, with_effective, columns, min_rem = layout()
         if not rows:
             ui.label("メンバーがいません").classes("text-grey")
-        # 横に伸びる(パラメータが多い)ときは、表だけを横にスクロールさせる
-        with ui.element("div").classes("w-full").style("overflow-x: auto").mark("member-scroll"):
+        # 横に伸びる(パラメータが多い)ときは、表だけを横にスクロールさせる。
+        # タブの中身は flex の縦並びで、overflow を持つ枠は縮められる(1 行ぶんまで潰れる)ので、縮めない。
+        # 行を足した直後に高さが追従しないことがあるため、行数から必要な高さを下限として与える
+        with ui.element("div").classes("w-full").style(
+            f"overflow-x: auto; flex-shrink: 0; min-height: {member_scroll_min_height_px(len(rows))}px"
+        ).mark("member-scroll"):
             with ui.grid(columns=" ".join(columns)).classes("member-table items-center gap-x-2 gap-y-1").style(
                 f"min-width: {min_rem}rem"
             ).mark("member-grid"):
@@ -1768,8 +1780,6 @@ def members_panel(
     def add() -> None:
         rows.append(MemberRow(None, "", 100.0))
         table.refresh()
-
-
     table()
     ui.button("メンバーを追加", icon="add", on_click=add).props("flat").mark("member-add")
     error = ui.label("").classes("text-negative").mark("member-error")

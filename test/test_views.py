@@ -3524,10 +3524,24 @@ async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(user: U
     await user.should_see(marker="member-grid")
     scroll = user.find(marker="member-scroll").elements.pop()
     assert scroll._style["overflow-x"] == "auto"  # パラメータが多くて広がっても、横にスクロールできる
+    assert scroll._style["flex-shrink"] == "0"  # タブの flex の中で縮んで、行が 1 行しか見えなくならない
     grid = user.find(marker="member-grid").elements.pop()
     assert "min-width" in grid._style  # 列を押しつぶさない
     assert grid_columns(user)[1] == "7rem"  # 名前の列は、列の数にかかわらず固定(狭くも広くもならない)
     assert len(grid_columns(user)) == 3 + 7 + 3
+
+
+async def test_the_table_area_grows_with_the_rows(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    params_view_setup(view)
+    await open_members_parameters(user)
+    await user.should_see(marker="member-grid")
+    before = int(user.find(marker="member-scroll").elements.pop()._style["min-height"].removesuffix("px"))
+    user.find(marker="member-add").click()
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-2")
+    after = int(user.find(marker="member-scroll").elements.pop()._style["min-height"].removesuffix("px"))
+    assert after - before == 2 * 40  # 追加した 2 行ぶん(行 36px + 間隔 4px)
 
 
 async def test_the_table_inputs_have_no_floating_labels(user: User, tmp_path: Path) -> None:
