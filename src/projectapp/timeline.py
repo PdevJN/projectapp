@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
@@ -27,10 +27,13 @@ CAPACITY_EPSILON = 1e-9  # 工数の消化の比較の許容差[h](約3.6µs)
 
 @dataclass(frozen=True)
 class Worker:
-    """完了予定の算出に使う担当者 1 人。rate は換算率(相対比率 × 割り当て率)、days は日付 → 稼働日の上書き。"""
+    """完了予定の算出に使う担当者 1 人。rate は換算率(相対比率 × 割り当て率)、days は日付 → 稼働日の上書き。
+    name と allocation は、担当者向けの見積もりでの按分に使う(比較には使わない)。"""
 
     rate: float = 1.0
     days: Mapping[date, WorkDay] = field(default_factory=dict)
+    name: str = field(default="", compare=False)
+    allocation: float = field(default=1.0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -320,6 +323,32 @@ def day_hours(
     return (window[1] - window[0]).total_seconds() / 3600 if window else 0.0
 
 
+def week_index(start: date, day: date, count: int) -> int:
+    """開始の日から 7 日(暦日)ごとの週の添字(0 が第1週)。最後の週より後は最後の週。開始より前は第1週。"""
+    return min(max((day - start).days, 0) // 7, count - 1)
+
+
+def crew_on(task: Task, start: date, day: date) -> list[Assignee]:
+    """その日の担当者。週ごとに分けないタスクは assignees。start は実効の開始の日。"""
+    if not task.weekly_crew:
+        return task.assignees
+    return task.weekly_crew[week_index(start, day, len(task.weekly_crew))]
+
+
+def _crews(
+    effort_hours: float, daily_hours: float, crew: Sequence[Worker] | None, weeks: Sequence[Sequence[Worker]] | None
+) -> list[list[Worker]] | None:
+    """算出に使う週ごとの担当(週ごとに分けないときは 1 週ぶん)。算出できない入力は None。
+    担当者のいない週は換算率 1 の 1 人。工数の上限の判定は、最も遅い週(換算率の合計が最小)で行う。"""
+    crews = [list(week) or [Worker()] for week in weeks] if weeks else [list(crew) if crew else [Worker()]]
+    total = min(sum(w.rate for w in c) for c in crews)
+    if not isfinite(effort_hours) or effort_hours <= 0 or not 0 < daily_hours <= 24:
+        return None
+    if not isfinite(total) or total <= 0 or effort_hours / total > daily_hours * MAX_WORKDAYS:
+        return None
+    return crews
+
+
 def calc_end(
     start: datetime,
     effort_hours: float,
@@ -327,23 +356,74 @@ def calc_end(
     work_start: time,
     holidays: dict[date, str],
     crew: Sequence[Worker] | None = None,
+    weeks: Sequence[Sequence[Worker]] | None = None,
 ) -> datetime | None:
     """基準の人の工数を、担当者全員の稼働の枠(その人の上書き、なければ始業から稼働可能時間)に割り当てた終了日時。
 
     枠が重なる時刻は、稼働中の担当者の換算率の合計で工数を消化する。crew が空なら換算率1の1人。
+    weeks があれば、start の日から 7 日ごとにその週の担当者で消化する(最後の週は以降も続く。crew は使わない)。
     工数が不正(NaN・inf・0以下・稼働日数の上限超え)、daily_hoursが0以下・24超、
     または日付が範囲を超えるときは、例外にせずNoneを返す。
     """
-    workers = list(crew) if crew else [Worker()]
-    total = sum(w.rate for w in workers)
-    if not isfinite(effort_hours) or effort_hours <= 0 or not 0 < daily_hours <= 24:
-        return None
-    if not isfinite(total) or total <= 0 or effort_hours / total > daily_hours * MAX_WORKDAYS:
+    crews = _crews(effort_hours, daily_hours, crew, weeks)
+    if crews is None:
         return None
     try:
-        return _calc_end(start, effort_hours, daily_hours, work_start, holidays, workers)
+        return _calc_end(start, effort_hours, daily_hours, work_start, holidays, crews)
     except OverflowError:
         return None
+
+
+def consumed_slices(
+    start: datetime,
+    effort_hours: float,
+    daily_hours: float,
+    work_start: time,
+    holidays: dict[date, str],
+    crew: Sequence[Worker] | None = None,
+    weeks: Sequence[Sequence[Worker]] | None = None,
+) -> list[tuple[datetime, datetime, list[Worker]]]:
+    """工数を消化する区間(左, 右, その区間で稼働している担当者)。算出できないときは空。"""
+    crews = _crews(effort_hours, daily_hours, crew, weeks)
+    if crews is None:
+        return []
+    try:
+        return list(_consume(start, effort_hours, daily_hours, work_start, holidays, crews))
+    except OverflowError:
+        return []
+
+
+def _consume(
+    start: datetime,
+    effort_hours: float,
+    daily_hours: float,
+    work_start: time,
+    holidays: dict[date, str],
+    crews: list[list[Worker]],
+) -> Iterator[tuple[datetime, datetime, list[Worker]]]:
+    remaining = effort_hours
+    day, cursor = start.date(), start
+    while True:
+        workers = crews[week_index(start.date(), day, len(crews))]
+        windows = [
+            (w, window)
+            for w in workers
+            if (window := day_window(day, daily_hours, work_start, holidays, w.days)) is not None
+        ]
+        points = sorted({max(p, cursor) for _, window in windows for p in window})
+        for left, right in zip(points, points[1:]):
+            active = [w for w, (opens, closes) in windows if opens <= left and right <= closes]
+            speed = sum(w.rate for w in active)
+            if speed <= 0:
+                continue
+            capacity = speed * (right - left).total_seconds() / 3600
+            if remaining <= capacity + CAPACITY_EPSILON:  # 浮動小数の丸めで、ちょうど枠の終わりで終わる工数が翌日に回らない
+                yield left, min(left + timedelta(hours=remaining / speed), right), active
+                return
+            remaining -= capacity
+            yield left, right, active
+        day += timedelta(days=1)
+        cursor = datetime.combine(day, time.min)
 
 
 def _calc_end(
@@ -352,27 +432,12 @@ def _calc_end(
     daily_hours: float,
     work_start: time,
     holidays: dict[date, str],
-    workers: list[Worker],
+    crews: list[list[Worker]],
 ) -> datetime:
-    remaining = effort_hours
-    day, cursor = start.date(), start
-    while True:
-        windows = [
-            (w.rate, window)
-            for w in workers
-            if (window := day_window(day, daily_hours, work_start, holidays, w.days)) is not None
-        ]
-        points = sorted({max(p, cursor) for _, window in windows for p in window})
-        for left, right in zip(points, points[1:]):
-            speed = sum(rate for rate, (opens, closes) in windows if opens <= left and right <= closes)
-            if speed <= 0:
-                continue
-            capacity = speed * (right - left).total_seconds() / 3600
-            if remaining <= capacity + CAPACITY_EPSILON:  # 浮動小数の丸めで、ちょうど枠の終わりで終わる工数が翌日に回らない
-                return min(left + timedelta(hours=remaining / speed), right)
-            remaining -= capacity
-        day += timedelta(days=1)
-        cursor = datetime.combine(day, time.min)
+    end = start
+    for _, end, _ in _consume(start, effort_hours, daily_hours, work_start, holidays, crews):
+        pass
+    return end
 
 
 def combine_rate(ratio: float, allocation: float) -> float:
@@ -394,6 +459,8 @@ def crew_of(
         Worker(
             combine_rate(effective_ratio(by_name[a.name], chosen, only), a.allocation),
             work_day_map(by_name[a.name].work_days),
+            a.name,
+            a.allocation,
         )
         for a in assignees
         if a.name in by_name
@@ -415,6 +482,11 @@ def conversion_rate(task: Task, project: Project) -> float:
     return assignees_rate(task.assignees, project.members, project.parameters, task.parameters)
 
 
+def weekly_crews(task: Task, project: Project) -> list[list[Worker]]:
+    """週ごとの担当を算出用の Worker にしたもの(パラメータを反映)。週ごとに分けないタスクは空。"""
+    return [crew_of(week, project.members, project.parameters, task.parameters) for week in task.weekly_crew]
+
+
 def effort_days(effort_hours: float, rate: float, daily_hours: float) -> float | None:
     """基準の人の工数(h)を、換算率と稼働可能時間で日数にする。使えない値はNone。"""
     if not isfinite(effort_hours) or effort_hours <= 0:
@@ -433,11 +505,12 @@ def computed_end(
     deadline: datetime | None = None,
     rate: float = 1.0,
     crew: Sequence[Worker] | None = None,
+    weeks: Sequence[Sequence[Worker]] | None = None,
 ) -> datetime | None:
     """手入力を使わない完了予定。工数を換算率で割って算出し、算出できなければ締切、締切もなければ開始予定の1日後。"""
     if start is not None and effort_hours > 0:
         workers = list(crew) if crew else [Worker(combine_rate(rate, 1.0))]
-        end = calc_end(start, effort_hours, daily_hours, work_start, holidays, workers)
+        end = calc_end(start, effort_hours, daily_hours, work_start, holidays, workers, weeks)
         if end is not None:
             return end
     if deadline is not None:
@@ -469,6 +542,7 @@ def _own_end(
         holidays,
         task.deadline,
         crew=crew_of(task.assignees, project.members, project.parameters, task.parameters),
+        weeks=weekly_crews(task, project) or None,
     )
 
 
