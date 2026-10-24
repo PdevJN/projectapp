@@ -190,6 +190,22 @@ def counted_assignees(task: Task, project: Project) -> list[Assignee]:
     return [a for a in task.assignees if a.name in names]
 
 
+def crew_pieces(task: Task, start: datetime, end: datetime) -> list[tuple[datetime, datetime, list[Assignee]]]:
+    """[start, end) を、担当者の組み合わせごとの区間に切る。週ごとに分けないタスクは、全体で 1 区間。
+    週ごとのタスクは、start の日から 7 日ごと(0 時)に切り、最後の週の担当は end まで続く。"""
+    if not task.weekly_crew:
+        return [(start, end, task.assignees)]
+    pieces: list[tuple[datetime, datetime, list[Assignee]]] = []
+    last = len(task.weekly_crew) - 1
+    for week, crew in enumerate(task.weekly_crew):
+        left = start if week == 0 else datetime.combine(start.date() + timedelta(days=7 * week), time.min)
+        right = end if week == last else datetime.combine(start.date() + timedelta(days=7 * (week + 1)), time.min)
+        left, right = max(left, start), min(right, end)
+        if left < right:
+            pieces.append((left, right, crew))
+    return pieces
+
+
 def counted_span(
     task: Task, project: Project, holidays: dict[date, str], schedule: Schedule | None = None
 ) -> tuple[datetime, datetime] | None:
@@ -205,6 +221,17 @@ def counted_span(
     return start, end
 
 
+def counted_pieces(
+    task: Task, project: Project, holidays: dict[date, str], schedule: Schedule | None = None
+) -> list[tuple[datetime, datetime, list[Assignee]]]:
+    """割り当ての合計に数えるタスクの区間と、その区間の担当者(メンバーにいる人だけ)。数えないタスクは空。"""
+    span = counted_span(task, project, holidays, schedule)
+    if span is None:
+        return []
+    names = {m.name for m in project.members}
+    return [(left, right, [a for a in crew if a.name in names]) for left, right, crew in crew_pieces(task, *span)]
+
+
 def overallocations(
     project: Project, holidays: dict[date, str], tasks: Iterable[Task] | None = None
 ) -> list[Overload]:
@@ -212,10 +239,9 @@ def overallocations(
     spans: dict[str, list[tuple[datetime, datetime, float]]] = {}
     schedule = Schedule(project, holidays)
     for task in project.all_tasks() if tasks is None else tasks:
-        counted = counted_span(task, project, holidays, schedule)
-        if counted is not None:
-            for assignee in counted_assignees(task, project):
-                spans.setdefault(assignee.name, []).append((*counted, assignee.allocation))
+        for left, right, crew in counted_pieces(task, project, holidays, schedule):
+            for assignee in crew:
+                spans.setdefault(assignee.name, []).append((left, right, assignee.allocation))
     result: list[Overload] = []
     for name, items in spans.items():
         points = sorted({p for start, end, _ in items for p in (start, end)})
@@ -245,17 +271,20 @@ def clip_overloads(
     schedule: Schedule | None = None,
 ) -> list[Overload]:
     """そのタスクの期間に重なる超過区間を、タスクの期間に切り詰めて返す。"""
-    counted = counted_span(task, project, holidays, schedule)
-    if counted is None:
-        return []
-    start, end = counted
+    pieces = counted_pieces(task, project, holidays, schedule)
     clipped: list[Overload] = []
     for overload in overloads:
-        if overload.member not in task.assignee_names:
-            continue
-        left, right = max(overload.start, start), min(overload.end, end)
-        if left < right:
-            clipped.append(replace(overload, start=left, end=right))
+        for start, end, crew in pieces:
+            if overload.member not in {a.name for a in crew}:
+                continue
+            left, right = max(overload.start, start), min(overload.end, end)
+            if left >= right:
+                continue
+            item = replace(overload, start=left, end=right)
+            if clipped and clipped[-1].member == item.member and clipped[-1].end == item.start and clipped[-1].total == item.total:
+                clipped[-1] = replace(clipped[-1], end=item.end)  # 週の境目で切れた同じ超過は、1 本の縞にする
+            else:
+                clipped.append(item)
     return clipped
 
 

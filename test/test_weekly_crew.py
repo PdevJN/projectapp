@@ -2,13 +2,18 @@ from datetime import date, datetime, time
 
 import pytest
 
-from projectapp.models import Assignee, Member, Project, Task, union_assignees
+from projectapp.models import Assignee, Member, Project, Status, Task, union_assignees
 from projectapp.timeline import (
+    Overload,
     Worker,
     calc_end,
+    clip_overloads,
     consumed_slices,
+    counted_pieces,
     crew_on,
+    crew_pieces,
     effective_end,
+    overallocations,
     week_index,
     weekly_crews,
 )
@@ -121,3 +126,63 @@ def test_consumed_slices_cover_the_whole_effort() -> None:
     worked = sum(((right - left).total_seconds() / 3600) * sum(w.rate for w in active) for left, right, active in slices)
     assert worked == pytest.approx(40.0)
     assert consumed_slices(WED, 0.0, 6.5, OPEN, HOLIDAYS, weeks=[workers(1.0)]) == []
+
+
+def test_crew_pieces_cut_at_midnight_every_seven_days_from_the_start() -> None:
+    a, b = Assignee("田中"), Assignee("鈴木")
+    task = weekly_task("w", [[a], [b]])
+    end = datetime(2026, 10, 20, 15, 30)
+    assert crew_pieces(task, WED, end) == [(WED, datetime(2026, 10, 14), [a]), (datetime(2026, 10, 14), end, [b])]
+
+
+def test_crew_pieces_stop_where_the_task_ends() -> None:
+    a, b, c = Assignee("田中"), Assignee("鈴木"), Assignee("田中", 0.5)
+    task = weekly_task("w", [[a], [b], [c]])
+    end = datetime(2026, 10, 10, 12)  # 第1週の中で終わる
+    assert crew_pieces(task, WED, end) == [(WED, end, [a])]
+    later = datetime(2026, 10, 16, 12)  # 第2週の中で終わる
+    assert [crew for _, _, crew in crew_pieces(task, WED, later)] == [[a], [b]]
+
+
+def test_crew_pieces_of_a_plain_task_is_one_piece() -> None:
+    a = Assignee("田中")
+    end = datetime(2026, 10, 20)
+    assert crew_pieces(Task("p", assignees=[a]), WED, end) == [(WED, end, [a])]
+
+
+def overload_project() -> Project:
+    first, second = Assignee("田中"), Assignee("鈴木")
+    # 田中は第1週、鈴木は第2週にこのタスクを担当する(工数 65h は 1 人で 10/20 15:30 まで)
+    t1 = weekly_task("t1", [[first], [second]], planned_start=WED, effort_hours=65.0)
+    end = datetime(2026, 10, 20, 15, 30)
+    t2 = Task("t2", id="t2", planned_start=WED, planned_end=end, assignees=[Assignee("田中", 0.5)])
+    t3 = Task("t3", id="t3", planned_start=WED, planned_end=end, assignees=[Assignee("鈴木", 0.5)])
+    return project_of(t1, t2, t3)
+
+
+def test_overloads_are_counted_per_week_of_the_crew() -> None:
+    proj = overload_project()
+    boundary = datetime(2026, 10, 14)
+    assert overallocations(proj, HOLIDAYS) == [
+        Overload("田中", WED, boundary, 1.5),
+        Overload("鈴木", boundary, datetime(2026, 10, 20, 15, 30), 1.5),
+    ]
+
+
+def test_clip_overloads_keeps_only_the_weeks_of_the_member() -> None:
+    proj = overload_project()
+    overloads = overallocations(proj, HOLIDAYS)
+    t1, t2, t3 = proj.tasks
+    assert clip_overloads(t1, proj, HOLIDAYS, overloads) == overloads  # t1 は 2 人が各週に入る
+    assert clip_overloads(t2, proj, HOLIDAYS, overloads) == [overloads[0]]  # 田中は第1週だけ超過
+    assert clip_overloads(t3, proj, HOLIDAYS, overloads) == [overloads[1]]
+
+
+def test_counted_pieces_skip_non_members_and_uncounted_tasks() -> None:
+    proj = overload_project()
+    ghost = weekly_task("g", [[Assignee("佐藤")], [Assignee("佐藤"), Assignee("田中")]], planned_start=WED, effort_hours=65.0)
+    proj.tasks.append(ghost)
+    pieces = counted_pieces(ghost, proj, HOLIDAYS)
+    assert [[a.name for a in crew] for _, _, crew in pieces] == [[], ["田中"]]
+    finished = weekly_task("f", [[Assignee("田中")]], planned_start=WED, effort_hours=6.5, status=Status.DONE)
+    assert counted_pieces(finished, proj, HOLIDAYS) == []
