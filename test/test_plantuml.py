@@ -15,6 +15,7 @@ from projectapp.plantuml import (
     STATUS_COLORS,
     build_plantuml,
     default_filename,
+    weekly_crew_notice,
     write_text,
 )
 from projectapp.timeline import Scale
@@ -446,3 +447,14 @@ def test_the_notice_lists_up_to_three_person_days_and_counts_the_rest() -> None:
     assert text is not None
     assert "日単位" in text and "田中 10/14、田中 10/15、田中 10/16" in text and "ほか 2 件" in text
     assert "ほか" not in (day_overload_notice(items[:3]) or "")
+
+
+def test_weekly_tasks_are_counted_for_the_approximation_notice() -> None:
+    weeks = [[Assignee("田中")], [Assignee("鈴木")]]
+    weekly = task("a", "2026-10-12T09:00", "2026-10-20T17:00", assignees=[Assignee("田中"), Assignee("鈴木")], weekly_crew=weeks)
+    plain = task("b", "2026-10-12T09:00", "2026-10-14T17:00", assignees=[Assignee("田中")])
+    project = Project("p", members=[Member("田中"), Member("鈴木")], tasks=[weekly, plain])
+    assert build(project).weekly_tasks == 1
+    assert build(project, show_chips=False).weekly_tasks == 0  # 担当者を出さないときは近似にならない
+    assert weekly_crew_notice(1) == "週ごとの担当は近似で出力しました(1 件。和集合の担当者を、各人の最大の割り当て率で出しています)"
+    assert weekly_crew_notice(0) is None

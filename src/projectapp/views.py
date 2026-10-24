@@ -78,7 +78,7 @@ from projectapp.handoff import (
     write_json,
 )
 from projectapp.handoff import default_filename as handoff_filename
-from projectapp.plantuml import PLANTUML_FILE_TYPES, build_plantuml, day_overload_notice, write_text
+from projectapp.plantuml import PLANTUML_FILE_TYPES, build_plantuml, day_overload_notice, weekly_crew_notice, write_text
 from projectapp.plantuml import default_filename as plantuml_filename
 from projectapp.puml_import import (
     PLANTUML_OPEN_FILE_TYPES,
@@ -902,6 +902,8 @@ class MainView:
             ui.notify(f"保存しました{note}")
             if (warning := day_overload_notice(result.day_overloads)) is not None:
                 ui.notify(warning, type="warning", timeout=10000)
+            if (approx := weekly_crew_notice(result.weekly_tasks)) is not None:
+                ui.notify(approx, type="warning", timeout=10000)
         finally:
             self.saving = False
             if self.preview is not None:
@@ -969,7 +971,7 @@ class MainView:
         self.project.members = members
         if renames:
             for task in self.project.all_tasks():
-                for assignee in task.assignees:
+                for assignee in [*task.assignees, *(a for week in task.weekly_crew for a in week)]:
                     if assignee.name in renames:
                         assignee.name = renames[assignee.name]
         self.after_edit()

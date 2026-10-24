@@ -41,6 +41,8 @@ class PlantUml:
     skipped: int  # 期間の外・日程なしで出さなかったタスクの数(絞り込みで除いたものは数えない)
     # PlantUML は日単位で集計するので、100% 超の赤に見えるが、アプリの時刻での判定では超過でない(担当者, 日)
     day_overloads: tuple[tuple[str, date], ...] = ()
+    # 週ごとの担当を持つ出力したタスクの数(担当者を出したときだけ)。PlantUML は週ごとを表せず、和集合・最大の割り当て率の近似で出す
+    weekly_tasks: int = 0
 
 
 def day_overload_notice(items: tuple[tuple[str, date], ...]) -> str | None:
@@ -50,6 +52,13 @@ def day_overload_notice(items: tuple[tuple[str, date], ...]) -> str | None:
     shown = "、".join(f"{name} {day.month}/{day.day}" for name, day in items[:3])
     more = f" ほか {len(items) - 3} 件" if len(items) > 3 else ""
     return f"PlantUML は日単位で集計するため、100% 超に見える日があります(実際の予定では超過していません): {shown}{more}"
+
+
+def weekly_crew_notice(count: int) -> str | None:
+    """週ごとの担当を近似で出力したことの通知。なければ None。"""
+    if count <= 0:
+        return None
+    return f"週ごとの担当は近似で出力しました({count} 件。和集合の担当者を、各人の最大の割り当て率で出しています)"
 
 
 def default_filename(project_name: str, today: date) -> str:
@@ -268,4 +277,5 @@ def build_plantuml(
     if event_lines:
         lines += [f"-- {EVENT_SECTION} --", *event_lines]
     lines += [*section_body, *arrows, "@endgantt"]
-    return PlantUml("\n".join(lines) + "\n", len(aliases), skipped, day_overloads)
+    weekly_tasks = sum(1 for t in order if t.weekly_crew) if show_chips else 0
+    return PlantUml("\n".join(lines) + "\n", len(aliases), skipped, day_overloads, weekly_tasks)

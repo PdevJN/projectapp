@@ -2,9 +2,12 @@ from datetime import date, datetime, time
 
 import pytest
 
+from projectapp.arrange import _plain_copy
 from projectapp.dashboard import Period, _member_spans, summarize_workload
+from projectapp.decompose import decompose_block_reason
 from projectapp.handoff import build_todos
 from projectapp.models import Actual, Assignee, Member, Project, Status, Task, union_assignees
+from projectapp.reassign import needs_review
 from projectapp.timeline import (
     Overload,
     Worker,
@@ -235,3 +238,22 @@ def test_handoff_estimate_of_a_plain_task_is_unchanged() -> None:
     task = Task("p", id="p", planned_start=MON, effort_hours=13.0, assignees=[Assignee("田中", 0.5), Assignee("鈴木")])
     todos = build_todos(project_of(task), "田中", HOLIDAYS)
     assert todos.data["items"][0]["estimate_hours"] == pytest.approx(round(13.0 * 0.5 / 1.5, 2))  # 換算率の合計は 0.5 + 1.0。見積もりは小数 2 桁
+
+
+def test_a_copy_has_its_own_weekly_crew() -> None:
+    original = weekly_task("w", [[Assignee("田中")], [Assignee("鈴木", 0.5)]])
+    copy = _plain_copy(original, "new", "w(コピー)")
+    assert copy.weekly_crew == original.weekly_crew
+    copy.weekly_crew[0][0].allocation = 0.1
+    assert original.weekly_crew[0][0].allocation == 1.0
+
+
+def test_a_weekly_task_cannot_be_decomposed() -> None:
+    task = weekly_task("w", [[Assignee("田中")]])
+    reason = decompose_block_reason(project_of(task), task)
+    assert reason is not None and "週ごと" in reason
+
+
+def test_a_weekly_task_is_not_reviewed_when_the_rate_changes() -> None:
+    task = weekly_task("w", [[Assignee("田中")]], effort_hours=10.0, progress=50)
+    assert not needs_review(task, 1.0, 0.5)

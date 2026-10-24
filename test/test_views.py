@@ -19,7 +19,7 @@ from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.handoff import JSON_FILE_TYPES
 from projectapp.categories import CategoryEdit
-from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, Section, Task, TaskKind, TaskUrl, UrlTemplate, WorkDay
+from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, Section, Task, TaskKind, TaskUrl, UrlTemplate, WorkDay, union_assignees
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
@@ -3300,6 +3300,21 @@ async def test_renaming_a_member_renames_every_assignee_entry(user: User, tmp_pa
     view.project.tasks = [Task("t", assignees=[Assignee("A", 0.5), Assignee("B", 0.25)])]
     view.apply_members([Member("B"), Member("A")], {"A": "B", "B": "A"})  # 入れ替え
     assert view.project.tasks[0].assignees == [Assignee("B", 0.5), Assignee("A", 0.25)]
+
+
+async def test_renaming_a_member_renames_the_weekly_crew_too(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.project.members = [Member("A"), Member("B")]
+    weeks = [[Assignee("A", 0.5)], [Assignee("A", 0.5), Assignee("B", 0.25)]]
+    view.project.tasks = [Task("t", assignees=union_assignees(weeks), weekly_crew=weeks)]
+    view.apply_members([Member("A改"), Member("B")], {"A": "A改"})
+    task = view.project.tasks[0]
+    assert [[a.name for a in week] for week in task.weekly_crew] == [["A改"], ["A改", "B"]]
+    assert [a.name for a in task.assignees] == ["A改", "B"]
 
 
 async def test_saving_a_task_warns_for_each_overloaded_assignee(user: User, tmp_path: Path) -> None:

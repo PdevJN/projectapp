@@ -29,6 +29,7 @@ def needs_review(task: Task, old_rate: float, new_rate: float) -> bool:
         task.kind is TaskKind.NORMAL
         and task.effort_hours > 0
         and task.status is not Status.DONE
+        and not task.weekly_crew  # 週ごとのタスクは見直しの対象外(完了予定は自動算出のまま追従する)
         and bool(task.actuals or (task.progress or 0) >= 1)
         and abs(old_rate - new_rate) > RATE_TOLERANCE
     )
