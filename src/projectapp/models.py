@@ -1,6 +1,6 @@
 """プロジェクトのデータモデル。"""
 
-from collections.abc import Collection, Iterator
+from collections.abc import Collection, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 import re
@@ -8,7 +8,7 @@ import secrets
 import unicodedata
 from enum import StrEnum
 
-FORMAT_VERSION = 9  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ)
+FORMAT_VERSION = 10  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕)
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -18,6 +18,7 @@ MAX_SECTION_DEPTH = 3  # セクションの入れ子の上限(root 直下が 1 �
 SectionPath = tuple[int, ...]  # セクションの位置。root は ()、1 番目のセクションは (0,)、その 2 番目のサブセクションは (0, 1)
 MIN_LEVEL_VALUE, MAX_LEVEL_VALUE = -0.9, 2.9  # パラメータの段階の判定値(-90%〜+290%)
 MIN_ALLOCATION, MAX_ALLOCATION = 0.01, 1.0  # 割り当て率(1%〜100%)
+MAX_WEEKS = 52  # 週ごとの担当の週数の上限。誤入力で配列が際限なく伸びるのを防ぐ
 MIN_PROGRESS, MAX_PROGRESS = 0, 100  # 進捗度(%)
 MAX_PROJECT_CODE_LENGTH = 20  # PRJコードの最大文字数
 MAX_TASK_NAME_LENGTH = 50  # タスク名の最大文字数
@@ -167,6 +168,19 @@ class Assignee:
     allocation: float = 1.0  # 担当者の時間のうち、このタスクに使う割合(1.0 = 100%)
 
 
+def union_assignees(weeks: Sequence[Sequence[Assignee]]) -> list[Assignee]:
+    """全週の担当者の和集合(初出の順)。割り当て率は各人の最大値。元の週は書き換えない。"""
+    merged: dict[str, Assignee] = {}
+    for week in weeks:
+        for assignee in week:
+            seen = merged.get(assignee.name)
+            if seen is None:
+                merged[assignee.name] = Assignee(assignee.name, assignee.allocation)
+            elif assignee.allocation > seen.allocation:
+                seen.allocation = assignee.allocation
+    return list(merged.values())
+
+
 @dataclass
 class Task:
     name: str
@@ -188,6 +202,7 @@ class Task:
     progress: int | None = None  # タスクの進捗度(0〜100%)。進捗度の入力はこの 1 つだけ
     children: list[str] = field(default_factory=list)  # まとめの子のタスクの id(まとめだけが持つ)
     parameters: list[str] = field(default_factory=list)  # 付けたパラメータの名前。空は付けない(相対比率は全パラメータの合計)
+    weekly_crew: list[list[Assignee]] = field(default_factory=list)  # 週ごとの担当(添字が週。開始の日から 7 日ごと)。空は週ごとに分けない。分けるときの assignees は全週の和集合
 
     @property
     def assignee_names(self) -> list[str]:

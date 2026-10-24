@@ -9,6 +9,7 @@ import pytest
 from projectapp.config import load_theme, save_theme
 from projectapp.models import (
     FORMAT_VERSION,
+    MAX_WEEKS,
     Assignee,
     Actual,
     ActualMode,
@@ -1307,7 +1308,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 9
+    assert raw["version"] == FORMAT_VERSION == 10
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1375,7 +1376,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 9
+    assert raw["version"] == FORMAT_VERSION == 10
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -1895,11 +1896,11 @@ def test_members_without_work_days_load_as_empty() -> None:
     assert parse_project(json.dumps(raw), "p").members[0].work_days == []
 
 
-def test_task_parameters_round_trip_and_the_version_is_9(tmp_path: Path) -> None:
+def test_task_parameters_round_trip_and_the_version_is_10(tmp_path: Path) -> None:
     project = Project("p", parameters=[Parameter("Python", []), Parameter("Java", [])], tasks=[Task("a", parameters=["Python", "Java"])])
     path = save_project(project, tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 9
+    assert raw["version"] == FORMAT_VERSION == 10
     assert raw["tasks"][0]["parameters"] == ["Python", "Java"]
     assert load_project(path).tasks[0].parameters == ["Python", "Java"]
 
@@ -1931,3 +1932,73 @@ def test_summaries_and_checkpoints_lose_their_parameters_on_load(tmp_path: Path)
     path = save_project(Project("p", tasks=[summary, kid, checkpoint]), tmp_path)
     _rewrite(path, lambda d: [t.update(parameters=["P"]) for t in (d["tasks"][0], d["tasks"][2])])
     assert [t.parameters for t in load_project(path).tasks] == [[], [], []]
+
+
+def _weekly_project() -> Project:
+    first = [Assignee("田中")]
+    second = [Assignee("田中"), Assignee("鈴木", 0.5)]
+    task = Task("a", id="t1", assignees=[Assignee("田中"), Assignee("鈴木", 0.5)], weekly_crew=[first, second])
+    return Project("p", members=[Member("田中"), Member("鈴木")], tasks=[task])
+
+
+def test_format_version_is_ten() -> None:
+    assert FORMAT_VERSION == 10
+
+
+def test_weekly_crew_roundtrips_and_assignees_is_the_union(tmp_path: Path) -> None:
+    path = save_project(_weekly_project(), tmp_path)
+    loaded = load_project(path).tasks[0]
+    assert loaded.weekly_crew == [[Assignee("田中")], [Assignee("田中"), Assignee("鈴木", 0.5)]]
+    assert loaded.assignees == [Assignee("田中"), Assignee("鈴木", 0.5)]
+    saved = json.loads(path.read_text(encoding="utf-8"))["tasks"][0]["weekly_crew"]
+    assert [[ref["allocation"] for ref in week] for week in saved] == [[1.0], [1.0, 0.5]]
+    assert all("member" in ref for week in saved for ref in week)
+
+
+def test_the_union_wins_over_the_assignees_in_the_file(tmp_path: Path) -> None:
+    path = save_project(_weekly_project(), tmp_path)
+    _rewrite(path, lambda d: d["tasks"][0].update(assignees=[]))
+    assert load_project(path).tasks[0].assignees == [Assignee("田中"), Assignee("鈴木", 0.5)]
+
+
+def test_a_file_without_weekly_crew_loads_as_not_weekly(tmp_path: Path) -> None:
+    path = save_project(_weekly_project(), tmp_path)
+    _rewrite(path, lambda d: d["tasks"][0].pop("weekly_crew"))
+    task = load_project(path).tasks[0]
+    assert task.weekly_crew == []
+    assert task.assignees == [Assignee("田中"), Assignee("鈴木", 0.5)]
+
+
+def test_weekly_crew_in_an_older_version_is_not_read(tmp_path: Path) -> None:
+    path = save_project(_weekly_project(), tmp_path)
+    _rewrite(path, lambda d: d.update(version=9))
+    assert load_project(path).tasks[0].weekly_crew == []
+
+
+def _bad_weeks(data: dict) -> list[object]:
+    member = data["members"][0]["id"]
+    ref = {"member": member, "allocation": 1.0}
+    return [
+        [[]],  # 担当者のいない週
+        "x",
+        ["x"],
+        [[{"name": "田中", "allocation": 1.0}]],  # 旧キー name
+        [[{"member": "no-such-id", "allocation": 1.0}]],
+        [[ref, dict(ref)]],  # 同じ週に同じメンバー
+        [[{"member": member, "allocation": 2.0}]],  # 範囲外
+        [[ref] for _ in range(MAX_WEEKS + 1)],  # 上限超え
+    ]
+
+
+@pytest.mark.parametrize("index", range(8))
+def test_bad_weekly_crew_is_rejected(index: int, tmp_path: Path) -> None:
+    path = save_project(_weekly_project(), tmp_path)
+    _rewrite(path, lambda d: d["tasks"][0].update(weekly_crew=_bad_weeks(d)[index]))
+    with pytest.raises(ValueError):
+        load_project(path)
+
+
+def test_weekly_crew_is_dropped_for_a_checkpoint(tmp_path: Path) -> None:
+    task = Task("c", id="c1", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17), weekly_crew=[[Assignee("田中")]])
+    path = save_project(Project("p", members=[Member("田中")], tasks=[task]), tmp_path)
+    assert load_project(path).tasks[0].weekly_crew == []

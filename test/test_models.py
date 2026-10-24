@@ -64,3 +64,16 @@ def test_used_ids_collects_tasks_members_and_nested_sections() -> None:
     )
     assert project.used_ids() == expected
     assert len(expected) == 6 + 2 + 5
+
+
+def test_union_assignees_keeps_first_seen_order_and_the_largest_allocation() -> None:
+    from projectapp.models import Assignee, union_assignees
+
+    weeks = [
+        [Assignee("田中", 0.5)],
+        [Assignee("田中", 1.0), Assignee("鈴木", 0.25)],
+        [Assignee("鈴木", 0.75)],
+    ]
+    assert union_assignees(weeks) == [Assignee("田中", 1.0), Assignee("鈴木", 0.75)]
+    assert weeks[0][0].allocation == 0.5  # 元の週は書き換えない
+    assert union_assignees([]) == []
