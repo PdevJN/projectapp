@@ -142,6 +142,7 @@ def decompose(
                 deadline=task.deadline if n == len(parts) - 1 else None,
                 category_id=task.category_id,
                 urls=[replace(u, values=dict(u.values)) for u in task.urls],
+                parameters=list(task.parameters),
             )
         )
     tasks[index] = replace(
@@ -157,6 +158,7 @@ def decompose(
         predecessors=[],
         actuals=[],
         progress=None,
+        parameters=[],
         status=Status.NOT_STARTED,
     )
     if parent_section is not None:

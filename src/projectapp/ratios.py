@@ -3,6 +3,7 @@
 相対比率 = 基本比率 + 選んだ段階の判定値の合計。10〜300% に丸めて使う。
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from math import isfinite
 
@@ -18,10 +19,14 @@ class RatioDetail:
     clamped: bool  # 範囲に丸めたか
 
 
-def ratio_detail(member: Member, parameters: list[Parameter]) -> RatioDetail:
-    """メンバーの相対比率の内訳。存在しないパラメータ・段階への選択は、判定値 0% として数えない。"""
+def ratio_detail(member: Member, parameters: list[Parameter], only: Collection[str] | None = None) -> RatioDetail:
+    """メンバーの相対比率の内訳。存在しないパラメータ・段階への選択は、判定値 0% として数えない。
+    only があれば、その名前のパラメータだけ足す(None か空は全パラメータ。タスクに付けたパラメータの指定)。"""
+    counted = set(only) if only else None
     adjustments: list[tuple[str, str, float]] = []
     for parameter in parameters:
+        if counted is not None and parameter.name not in counted:
+            continue
         chosen = member.levels.get(parameter.name)
         level = next((lv for lv in parameter.levels if lv.name == chosen), None) if chosen is not None else None
         if level is not None:
@@ -32,9 +37,9 @@ def ratio_detail(member: Member, parameters: list[Parameter]) -> RatioDetail:
     return RatioDetail(member.ratio, adjustments, raw, ratio, ratio != raw)
 
 
-def effective_ratio(member: Member, parameters: list[Parameter]) -> float:
+def effective_ratio(member: Member, parameters: list[Parameter], only: Collection[str] | None = None) -> float:
     """計算に使う相対比率。"""
-    return ratio_detail(member, parameters).ratio
+    return ratio_detail(member, parameters, only).ratio
 
 
 @dataclass(frozen=True)
@@ -94,9 +99,13 @@ def remap_levels(levels: dict[str, str], edit: ParameterEdit) -> dict[str, str]:
 
 
 def apply_parameter_edit(project: Project, edit: ParameterEdit) -> None:
-    """定義を置き換え、全メンバーの選択を更新する。"""
+    """定義を置き換え、全メンバーの選択とタスクに付けたパラメータを更新する。"""
     for member in project.members:
         member.levels = remap_levels(member.levels, edit)
+    for task in project.all_tasks():
+        # 対応表にない名前(登録外)は触らない。改名は新しい名前に、削除(None)は外す
+        renamed = (edit.parameter_map.get(name, name) for name in task.parameters)
+        task.parameters = list(dict.fromkeys(name for name in renamed if name is not None))
     project.parameters = edit.parameters
 
 
@@ -115,3 +124,21 @@ def deletion_impacts(project: Project, edit: ParameterEdit) -> list[tuple[str, i
                 if count:
                     impacts.append((f"「{old_parameter}」の「{old_level}」", count))
     return impacts
+
+
+def task_deletion_impacts(project: Project, edit: ParameterEdit) -> list[tuple[str, int]]:
+    """パラメータの削除で外れるタスクの数(パラメータの定義の順)。数が 0 のものは含めない。"""
+    impacts: list[tuple[str, int]] = []
+    for old_parameter, new_parameter in edit.parameter_map.items():
+        if new_parameter is None:
+            count = sum(1 for t in project.all_tasks() if old_parameter in t.parameters)
+            if count:
+                impacts.append((f"「{old_parameter}」", count))
+    return impacts
+
+
+def impact_lines(project: Project, edit: ParameterEdit) -> list[str]:
+    """削除の確認ダイアログに出す行。メンバーの選択、続いてタスクに付けたもの。"""
+    members = [f"{label}を選んでいるメンバーが{count}人います" for label, count in deletion_impacts(project, edit)]
+    tasks = [f"{label}を付けているタスクが{count}件あります" for label, count in task_deletion_impacts(project, edit)]
+    return members + tasks

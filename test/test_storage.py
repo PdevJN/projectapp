@@ -1307,7 +1307,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 8
+    assert raw["version"] == FORMAT_VERSION == 9
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1375,7 +1375,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 8
+    assert raw["version"] == FORMAT_VERSION == 9
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -1893,3 +1893,41 @@ def test_members_without_work_days_load_as_empty() -> None:
     raw["version"] = 7
     del raw["members"][0]["work_days"]
     assert parse_project(json.dumps(raw), "p").members[0].work_days == []
+
+
+def test_task_parameters_round_trip_and_the_version_is_9(tmp_path: Path) -> None:
+    project = Project("p", parameters=[Parameter("Python", []), Parameter("Java", [])], tasks=[Task("a", parameters=["Python", "Java"])])
+    path = save_project(project, tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["version"] == FORMAT_VERSION == 9
+    assert raw["tasks"][0]["parameters"] == ["Python", "Java"]
+    assert load_project(path).tasks[0].parameters == ["Python", "Java"]
+
+
+def test_a_file_without_the_parameters_key_loads_as_none_attached(tmp_path: Path) -> None:
+    path = save_project(Project("p", tasks=[Task("a", parameters=["P"])]), tmp_path)
+    _rewrite(path, lambda d: d["tasks"][0].pop("parameters"))
+    assert load_project(path).tasks[0].parameters == []
+
+
+def test_unregistered_and_duplicate_parameter_names_are_kept_once(tmp_path: Path) -> None:
+    path = save_project(Project("p", tasks=[Task("a")]), tmp_path)
+    _rewrite(path, lambda d: d["tasks"][0].update(parameters=["ない", "ない", "ある"]))
+    assert load_project(path).tasks[0].parameters == ["ない", "ある"]
+
+
+@pytest.mark.parametrize("bad", ["Python", [1], [None], {"a": 1}])
+def test_a_malformed_parameters_value_is_rejected(tmp_path: Path, bad: object) -> None:
+    path = save_project(Project("p", tasks=[Task("a")]), tmp_path)
+    _rewrite(path, lambda d: d["tasks"][0].update(parameters=bad))
+    with pytest.raises(ValueError):
+        load_project(path)
+
+
+def test_summaries_and_checkpoints_lose_their_parameters_on_load(tmp_path: Path) -> None:
+    kid = Task("c", id="c")
+    summary = Task("まとめ", kind=TaskKind.SUMMARY, children=["c"])
+    checkpoint = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17))
+    path = save_project(Project("p", tasks=[summary, kid, checkpoint]), tmp_path)
+    _rewrite(path, lambda d: [t.update(parameters=["P"]) for t in (d["tasks"][0], d["tasks"][2])])
+    assert [t.parameters for t in load_project(path).tasks] == [[], [], []]

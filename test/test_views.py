@@ -3386,6 +3386,21 @@ async def test_deleting_a_used_level_asks_first_and_clears_the_selection(user: U
     assert [lv.name for lv in view.project.parameters[0].levels] == ["初級"]
 
 
+async def test_deleting_a_parameter_attached_to_tasks_asks_first_and_detaches_it(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
+    view.project.tasks = [Task("a", parameters=["経験", "ない"]), Task("b", parameters=["経験"])]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="parameter-delete-0").click()
+    user.find(marker="parameter-apply").click()
+    await user.should_see("「経験」を付けているタスクが2件あります")
+    assert view.project.tasks[0].parameters == ["経験", "ない"]  # まだ変わらない
+    user.find(marker="parameter-delete-confirm").click()
+    assert await wait_until(lambda: view.project.tasks[0].parameters == ["ない"])
+    assert view.project.tasks[1].parameters == []
+
+
 async def test_cancelling_the_delete_confirmation_keeps_everything(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]

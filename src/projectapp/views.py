@@ -126,7 +126,7 @@ from projectapp.task_dialog import open_task_dialog
 from projectapp.theme import BODY_CSS, CustomTheme, theme_js
 from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
 from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
-from projectapp.ratios import ParameterEdit, apply_parameter_edit, deletion_impacts
+from projectapp.ratios import ParameterEdit, apply_parameter_edit, impact_lines
 from projectapp.timeline import Schedule, build_columns, clip_overloads, overallocations, visible_range
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク", "custom": "カスタム"}
@@ -942,7 +942,7 @@ class MainView:
             assigned=self.assigned_count,
             on_apply_members=self.apply_members,
             get_parameters=lambda: self.project.parameters,
-            impacts=lambda edit: deletion_impacts(self.project, edit),
+            impacts=lambda edit: impact_lines(self.project, edit),
             on_apply_parameters=self.apply_parameters,
             get_taken=self.project.used_ids,
             pick_icon=self.pick_member_icon if self.exporter.available else None,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
@@ -382,14 +382,17 @@ def combine_rate(ratio: float, allocation: float) -> float:
 
 
 def crew_of(
-    assignees: list[Assignee], members: list[Member], parameters: list[Parameter] | None = None
+    assignees: list[Assignee],
+    members: list[Member],
+    parameters: list[Parameter] | None = None,
+    only: Collection[str] | None = None,
 ) -> list[Worker]:
-    """担当者を算出用の Worker にする。相対比率は、パラメータを反映した実効比率。メンバーにいない担当者は入れない。"""
+    """担当者を算出用の Worker にする。相対比率は、パラメータを反映した実効比率(only はタスクに付けたパラメータ)。メンバーにいない担当者は入れない。"""
     by_name = {m.name: m for m in members}
     chosen = parameters or []
     return [
         Worker(
-            combine_rate(effective_ratio(by_name[a.name], chosen), a.allocation),
+            combine_rate(effective_ratio(by_name[a.name], chosen, only), a.allocation),
             work_day_map(by_name[a.name].work_days),
         )
         for a in assignees
@@ -398,15 +401,18 @@ def crew_of(
 
 
 def assignees_rate(
-    assignees: list[Assignee], members: list[Member], parameters: list[Parameter] | None = None
+    assignees: list[Assignee],
+    members: list[Member],
+    parameters: list[Parameter] | None = None,
+    only: Collection[str] | None = None,
 ) -> float:
     """担当者全員の換算率(相対比率 × 割り当て率)の合計。誰も数えられなければ 1.0(換算しない)。"""
-    rates = [w.rate for w in crew_of(assignees, members, parameters)]
+    rates = [w.rate for w in crew_of(assignees, members, parameters, only)]
     return sum(rates) if rates else 1.0
 
 
 def conversion_rate(task: Task, project: Project) -> float:
-    return assignees_rate(task.assignees, project.members, project.parameters)
+    return assignees_rate(task.assignees, project.members, project.parameters, task.parameters)
 
 
 def effort_days(effort_hours: float, rate: float, daily_hours: float) -> float | None:
@@ -462,7 +468,7 @@ def _own_end(
         project.work_start,
         holidays,
         task.deadline,
-        crew=crew_of(task.assignees, project.members, project.parameters),
+        crew=crew_of(task.assignees, project.members, project.parameters, task.parameters),
     )
 
 

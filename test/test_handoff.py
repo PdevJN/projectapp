@@ -280,3 +280,10 @@ def test_the_estimate_follows_the_parameters() -> None:
     project = make_project(solo, members=[Member("田中", 1.0, {"経験": "上級"})])
     project.parameters = [Parameter("経験", [Level("上級", 0.5)])]
     assert build(project, "田中").data["items"][0]["estimate_hours"] == pytest.approx(10.0)  # 15 / 1.5
+
+
+def test_the_estimate_uses_the_ratio_of_the_task_parameters() -> None:
+    parameters = [Parameter("Python", [Level("上級", 0.5)])]
+    project = make_project(task(effort_hours=6.0, parameters=["Python"]), members=[Member("田中", 1.0, {"Python": "上級"})])
+    project.parameters = parameters
+    assert build(project).data["items"][0]["estimate_hours"] == 4.0  # 6h ÷ 150%

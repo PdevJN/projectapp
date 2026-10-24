@@ -846,14 +846,24 @@ def open_task_dialog(
 ) -> ui.dialog:
     initial = task or Task("")
     is_summary = initial.kind is TaskKind.SUMMARY  # まとめは、名前・カテゴリ・優先度・リンクだけを編集する
-    # 換算には、パラメータを反映した実効比率を使う(以降は、このコピーだけを見る)
+    raw_members = list(members or [])
+    chosen_parameters = list(initial.parameters)  # 付けたパラメータ(選択欄の値。空は全パラメータの合計)
+    # 換算には、付けたパラメータを反映した実効比率を使う(以降は、このコピーだけを見る)
     member_list = [
-        Member(m.name, effective_ratio(m, parameters or []), work_days=list(m.work_days)) for m in members or []
+        Member(m.name, effective_ratio(m, parameters or [], chosen_parameters), work_days=list(m.work_days))
+        for m in raw_members
     ]
     for assignee in initial.assignees:  # 一覧にいない担当者も、保存で失わない(相対比率は 100% とみなす)
         if all(m.name != assignee.name for m in member_list):
             member_list.append(Member(assignee.name, 1.0))
     initial_rate = assignees_rate(initial.assignees, member_list)
+
+    def reapply_ratios() -> None:
+        """付けたパラメータの選択が変わったとき、比率を作り直す(member_list は担当者の欄と共有なので、その場で書き換える)。"""
+        by_name = {m.name: m for m in raw_members}
+        for member in member_list:
+            if member.name in by_name:
+                member.ratio = effective_ratio(by_name[member.name], parameters or [], chosen_parameters)
     with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[44rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
         layout_toggle = ui.toggle(LAYOUT_LABELS, value=layout if layout in LAYOUT_LABELS else "all").mark(
@@ -900,6 +910,19 @@ def open_task_dialog(
         hover = [full if full != label else "" for full, label in zip(full_labels, category_options.values())]
         category.add_slot("option", category_option_template(hover))
         category.add_slot("selected-item", category_selected_template(hover))
+        parameter_select: ui.select | None = None
+        if parameters:
+            parameter_select = (
+                ui.select(
+                    [p.name for p in parameters],
+                    label="パラメータ(付けると、そのパラメータの判定値だけで相対比率を決める)",
+                    value=[name for name in initial.parameters if any(p.name == name for p in parameters)],
+                    multiple=True,
+                )
+                .props("use-chips")
+                .classes("w-full")
+                .mark("task-parameters")
+            )
         fields = DateTimeFields(
             initial, work_start, daily_hours, holidays or {}, crew_of(initial.assignees, member_list)
         )
@@ -917,13 +940,22 @@ def open_task_dialog(
                 conversion.set_text("")
                 return
             detail = " + ".join(f"{m.name} {m.ratio * 100:g}%×{f * 100:g}%" for m, f in chosen)
-            conversion.set_text(f"換算率 {rate * 100:g}%({detail})→ {effort.value:g}h は約 {days:.1f}日分")
+            tagged = f"・{'・'.join(chosen_parameters)}を反映" if chosen_parameters else ""
+            conversion.set_text(f"換算率 {rate * 100:g}%({detail}{tagged})→ {effort.value:g}h は約 {days:.1f}日分")
 
         def on_effort_change(value: float | None) -> None:
             fields.set_effort(value)
             refresh_conversion()
 
         effort.on_value_change(on_effort_change)
+        if parameter_select is not None:
+
+            def on_parameters_change(event: ValueChangeEventArguments) -> None:
+                chosen_parameters[:] = event.value or []
+                reapply_ratios()
+                refresh_conversion()
+
+            parameter_select.on_value_change(on_parameters_change)
         refresh_conversion()
         options = dict(link_options or {})
         kept = [pid for pid in initial.predecessors if pid in options]  # 候補にない参照は、欄に出さない
@@ -1042,6 +1074,7 @@ def open_task_dialog(
                 for widget in (
                     fields.first_row, fields.second_row, conversion, actual_box, progress_field.container,
                     assignee_fields.container, predecessors, push, status, hint, color, kind, kind_hint, layout_toggle,
+                    *([parameter_select] if parameter_select is not None else []),
                 ):
                     widget.set_visibility(False)
                 for widget in (category, priority_box, url_box):
@@ -1052,6 +1085,8 @@ def open_task_dialog(
             for widget in (fields.first_row, effort, conversion, actual_box, progress_field.container):
                 widget.set_visibility(normal)
             assignee_fields.container.set_visibility(full and normal)
+            if parameter_select is not None:
+                parameter_select.set_visibility(full and normal)
             for widget in (category, predecessors, priority_box, url_box, color):
                 widget.set_visibility(full)
             refresh_push()
@@ -1127,6 +1162,7 @@ def open_task_dialog(
                     actual_rows=actual_fields.rows() if isinstance(actual_fields, IntervalFields) else None,
                     progress=progress_field.value,
                     urls=build_urls(url_fields.rows(), templates),
+                    parameters=chosen_parameters if parameter_select is not None else None,
                 )
             except ValueError as exc:
                 error.set_text(str(exc))
@@ -1143,8 +1179,8 @@ def open_task_dialog(
                 return
             pending["task"], pending["end"] = result, new_end
             review_text.set_text(
-                f"担当の付け替えで、換算率が {initial_rate:.2f} → {new_rate:.2f} に変わります。\n"
-                f"残りの作業を新しい担当で見直すと、完了予定は {new_end:%Y-%m-%d %H:%M} です。"
+                f"担当またはパラメータの変更で、換算率が {initial_rate:.2f} → {new_rate:.2f} に変わります。\n"
+                f"残りの作業を新しい条件で見直すと、完了予定は {new_end:%Y-%m-%d %H:%M} です。"
             )
             review.open()
 

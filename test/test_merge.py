@@ -429,3 +429,23 @@ def test_member_work_day_conflict_is_labelled_with_the_member_and_date() -> None
     theirs = proj(members=[mem(wd("2026-10-17", 18))])
     (conflict,) = merge_projects(base, ours, theirs).conflicts
     assert conflict.label == "甲: 2026-10-17"
+
+
+def test_task_parameters_take_the_side_that_changed_them() -> None:
+    base = proj(tasks=[task("a", "t1")])
+    ours = proj(tasks=[task("a", "t1", parameters=["Python"])])
+    theirs = proj(tasks=[task("a", "t1", effort_hours=2.0)])
+    merged = merge_projects(base, ours, theirs)
+    assert merged.conflicts == []
+    assert (merged.project.tasks[0].parameters, merged.project.tasks[0].effort_hours) == (["Python"], 2.0)
+
+
+def test_task_parameters_changed_differently_are_one_conflict_named_parameters() -> None:
+    base = proj(tasks=[task("a", "t1")])
+    ours = proj(tasks=[task("a", "t1", parameters=["Python"])])
+    theirs = proj(tasks=[task("a", "t1", parameters=["Java"])])
+    result = merge_projects(base, ours, theirs)
+    (conflict,) = result.conflicts
+    assert (conflict.kind, conflict.field, conflict.ours, conflict.theirs) == ("task", "パラメータ", ["Python"], ["Java"])
+    assert result.project.tasks[0].parameters == ["Python"]
+    assert merge_projects(base, ours, theirs, {conflict.id: THEIRS}).project.tasks[0].parameters == ["Java"]

@@ -275,6 +275,7 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         progress=_task_progress(raw, ctx.version, legacy_progress),
         category_id=_category_id(raw.get("category_id")) if ctx.version >= 3 else None,
         children=_children(raw.get("children")) if ctx.version >= 6 else [],
+        parameters=_parameter_names(raw.get("parameters")),
     )
     if kind is TaskKind.CHECKPOINT:
         result = _checkpoint(task)
@@ -524,6 +525,7 @@ def _summary(task: Task) -> Task:
         progress=None,
         predecessors=[],
         status=Status.NOT_STARTED,
+        parameters=[],
     )
 
 
@@ -542,7 +544,18 @@ def _checkpoint(task: Task) -> Task:
         assignees=[],
         actuals=[],
         progress=None,
+        parameters=[],
     )
+
+
+def _parameter_names(value: Any) -> list[str]:
+    """タスクに付けたパラメータの名前。キーがない・null は空。配列でない・文字列以外は ValueError。重複は最初の 1 件を残す。
+    登録されていない名前も残す(計算で数えないだけ)。"""
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(name, str) for name in value):
+        raise ValueError("パラメータが文字列のリストではありません")
+    return list(dict.fromkeys(value))
 
 
 def _task_name(value: Any) -> str:

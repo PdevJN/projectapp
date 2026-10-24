@@ -196,6 +196,7 @@ def _build_checkpoint(
         assignees=[],
         actuals=[],
         progress=None,
+        parameters=[],
         category_id=category_id,
         predecessors=_links(base, predecessors, linkable_ids),
         urls=base.urls if urls is None else urls,
@@ -280,6 +281,7 @@ def build_task(
     kind: TaskKind = TaskKind.NORMAL,
     urls: list[TaskUrl] | None = None,
     assignees: list[tuple[str, float | None]] | None = None,
+    parameters: list[str] | None = None,
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。`progress` はタスクの進捗度。"""
     clean = name.strip()
@@ -346,6 +348,7 @@ def build_task(
         category_id=category_id,
         predecessors=links,
         urls=base.urls if urls is None else urls,
+        parameters=list(dict.fromkeys(base.parameters if parameters is None else parameters)),
     )
 
 
@@ -1421,7 +1424,7 @@ class ParametersPanel:
 
 def parameters_panel(
     get_parameters: Callable[[], list[Parameter]],
-    impacts: Callable[[ParameterEdit], list[tuple[str, int]]],
+    impacts: Callable[[ParameterEdit], list[str]],
     on_apply: Callable[[ParameterEdit], object],
     on_applied: Callable[[ParameterEdit], object],
 ) -> ParametersPanel:
@@ -1526,8 +1529,7 @@ def parameters_panel(
         if affected:
             pending["edit"] = edit
             confirm_text.set_text(
-                "\n".join(f"{label}を選んでいるメンバーが{count}人います" for label, count in affected)
-                + "\n削除すると、その選択は外れて判定値 0% になります"
+                "\n".join(affected) + "\n削除すると、その選択は外れます(メンバーは判定値 0%、タスクはパラメータなしになります)"
             )
             confirm.open()
             return
@@ -1815,7 +1817,7 @@ def open_members_parameters_dialog(
     assigned: Callable[[str], int],
     on_apply_members: Callable[[list[Member], dict[str, str]], object],
     get_parameters: Callable[[], list[Parameter]],
-    impacts: Callable[[ParameterEdit], list[tuple[str, int]]],
+    impacts: Callable[[ParameterEdit], list[str]],
     on_apply_parameters: Callable[[ParameterEdit], object],
     get_taken: Callable[[], Collection[str]],
     pick_icon: Callable[[], Awaitable[str | None]] | None = None,

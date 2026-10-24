@@ -8,7 +8,7 @@ import secrets
 import unicodedata
 from enum import StrEnum
 
-FORMAT_VERSION = 8  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き)
+FORMAT_VERSION = 9  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ)
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -187,6 +187,7 @@ class Task:
     urls: list[TaskUrl] = field(default_factory=list)  # 関連する URL(チケット・資料など)
     progress: int | None = None  # タスクの進捗度(0〜100%)。進捗度の入力はこの 1 つだけ
     children: list[str] = field(default_factory=list)  # まとめの子のタスクの id(まとめだけが持つ)
+    parameters: list[str] = field(default_factory=list)  # 付けたパラメータの名前。空は付けない(相対比率は全パラメータの合計)
 
     @property
     def assignee_names(self) -> list[str]:

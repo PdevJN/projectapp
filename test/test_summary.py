@@ -57,8 +57,8 @@ def project_with_summary() -> Project:
     )
 
 
-def test_version_is_8() -> None:
-    assert FORMAT_VERSION == 8
+def test_version_is_9() -> None:
+    assert FORMAT_VERSION == 9
 
 
 def test_a_summary_roundtrips_with_its_children(tmp_path: Path) -> None:
@@ -670,3 +670,14 @@ def test_task_name_error_matches_the_task_rules() -> None:
 
     assert task_name_error("ok") is None
     assert task_name_error("") and task_name_error("x" * 51) and task_name_error("a\nb")
+
+
+def test_decomposed_children_inherit_the_parameters_as_independent_lists_and_the_summary_has_none() -> None:
+    task = Task("元", id="t", effort_hours=8.0, parameters=["P"])
+    project = Project("p", sections=[Section("s", [task])])
+    decompose(project, (0,), 0, [Part("前", 4.0), Part("後", 4.0)])
+    summary, first, second = project.sections[0].tasks[:3]
+    assert summary.parameters == []
+    assert first.parameters == ["P"] and second.parameters == ["P"]
+    first.parameters.append("Q")
+    assert second.parameters == ["P"]
