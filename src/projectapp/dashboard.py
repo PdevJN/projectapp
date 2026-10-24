@@ -8,13 +8,14 @@ from enum import StrEnum
 from math import isfinite
 from typing import NamedTuple
 
-from projectapp.models import Project, Status, Task, TaskKind, WorkDay
+from projectapp.models import Assignee, Project, Status, Task, TaskKind, WorkDay
 from projectapp.timeline import (
     OVERLOAD_EPSILON,
     Schedule,
     actual_end,
-    counted_assignees,
-    counted_span,
+    counted_pieces,
+    crew_on,
+    crew_pieces,
     current_progress,
     day_hours,
     is_overdue,
@@ -320,10 +321,9 @@ def _member_spans(project: Project, holidays: dict[date, str], member: str | Non
     spans: dict[str, list[Span]] = {}
     schedule = Schedule(project, holidays)
     for task in _tasks(project, member):
-        counted = counted_span(task, project, holidays, schedule)
-        if counted is not None:
-            for assignee in counted_assignees(task, project):
-                spans.setdefault(assignee.name, []).append((*counted, assignee.allocation))
+        for left, right, crew in counted_pieces(task, project, holidays, schedule):
+            for assignee in crew:
+                spans.setdefault(assignee.name, []).append((left, right, assignee.allocation))
     return spans
 
 
@@ -395,19 +395,19 @@ def summarize_cross_loads(
     return loads
 
 
-def _shares(task: Task, names: list[str]) -> list[tuple[str, float, float]]:
+def _shares(assignees: list[Assignee], names: list[str]) -> list[tuple[str, float, float]]:
     """(集計先, 割り当て率, 実績の按分の比)。メンバーでない担当者と担当なしは「未割当」。"""
-    if not task.assignees:
+    if not assignees:
         return [(UNASSIGNED, 1.0, 1.0)]
-    total = sum(a.allocation for a in task.assignees)
+    total = sum(a.allocation for a in assignees)
     usable = isfinite(total) and total > 0
     return [
         (
             a.name if a.name in names else UNASSIGNED,
             a.allocation,
-            a.allocation / total if usable else 1 / len(task.assignees),
+            a.allocation / total if usable else 1 / len(assignees),
         )
-        for a in task.assignees
+        for a in assignees
     ]
 
 
@@ -432,14 +432,19 @@ def summarize_workload(
     schedule = Schedule(project, holidays)
     for task in _tasks(project, member):
         start, end = schedule.start(task), schedule.end(task)
-        scheduled = start is not None and end is not None and end > start
-        for key, allocation, share in _shares(task, names):
-            if scheduled and start is not None and end is not None and isfinite(allocation):
-                planned[key] += allocation * sum(h for day, h in table(key) if _covers(start, end, day))
-            for interval in task.actuals:
-                seconds = (min(interval.end or now, high) - max(interval.start, low)).total_seconds()
-                if seconds > 0:
-                    actual[key] += seconds / 3600 * share
+        if start is not None and end is not None and end > start:
+            for left, right, crew in crew_pieces(task, start, end):  # 週ごとのタスクは、週の区間ごとの担当者で数える
+                for key, allocation, _ in _shares(crew, names):
+                    if isfinite(allocation):
+                        planned[key] += allocation * sum(h for day, h in table(key) if _covers(left, right, day))
+        for interval in task.actuals:
+            seconds = (min(interval.end or now, high) - max(interval.start, low)).total_seconds()
+            if seconds <= 0:
+                continue
+            # 実績は、区間の開始の日の担当者で按分する(週ごとのタスクは、その週の担当者)
+            crew = crew_on(task, start.date(), interval.start.date()) if start is not None else task.assignees
+            for key, _, share in _shares(crew, names):
+                actual[key] += seconds / 3600 * share
     shown = [name for name in names if member is None or name == member]
     rows = [WorkloadRow(name, planned[name], actual[name]) for name in shown]
     if member is None and (planned[UNASSIGNED] or actual[UNASSIGNED]):

@@ -2,7 +2,9 @@ from datetime import date, datetime, time
 
 import pytest
 
-from projectapp.models import Assignee, Member, Project, Status, Task, union_assignees
+from projectapp.dashboard import Period, _member_spans, summarize_workload
+from projectapp.handoff import build_todos
+from projectapp.models import Actual, Assignee, Member, Project, Status, Task, union_assignees
 from projectapp.timeline import (
     Overload,
     Worker,
@@ -186,3 +188,50 @@ def test_counted_pieces_skip_non_members_and_uncounted_tasks() -> None:
     assert [[a.name for a in crew] for _, _, crew in pieces] == [[], ["田中"]]
     finished = weekly_task("f", [[Assignee("田中")]], planned_start=WED, effort_hours=6.5, status=Status.DONE)
     assert counted_pieces(finished, proj, HOLIDAYS) == []
+
+
+def split_project() -> Project:
+    # 10/5(月)〜10/19(月)。田中が第1週、鈴木が第2週以降
+    task = weekly_task(
+        "t",
+        [[Assignee("田中")], [Assignee("鈴木")]],
+        planned_start=MON,
+        planned_end=datetime(2026, 10, 19, 15, 30),
+        actuals=[Actual(datetime(2026, 10, 13, 9), datetime(2026, 10, 13, 11))],
+    )
+    return project_of(task)
+
+
+def test_member_spans_follow_the_weeks_of_the_crew() -> None:
+    spans = _member_spans(split_project(), HOLIDAYS, None)
+    boundary = datetime(2026, 10, 12)
+    assert spans == {
+        "田中": [(MON, boundary, 1.0)],
+        "鈴木": [(boundary, datetime(2026, 10, 19, 15, 30), 1.0)],
+    }
+
+
+def test_workload_plans_each_week_for_its_own_crew_and_splits_the_actual_by_the_week() -> None:
+    period = Period(date(2026, 10, 5), date(2026, 10, 25))
+    rows = {r.name: r for r in summarize_workload(split_project(), period, datetime(2026, 10, 20), HOLIDAYS)}
+    assert rows["田中"].planned_hours == pytest.approx(32.5)  # 10/5〜9 の 5 日
+    assert rows["鈴木"].planned_hours == pytest.approx(39.0)  # 10/12〜16 と 10/19 の 6 日
+    assert rows["田中"].actual_hours == pytest.approx(0.0)
+    assert rows["鈴木"].actual_hours == pytest.approx(2.0)  # 10/13 は第2週(鈴木)
+
+
+def test_handoff_estimates_each_member_from_the_weeks_they_work() -> None:
+    a, b = Assignee("田中"), Assignee("鈴木", 0.5)
+    task = weekly_task("t", [[a], [a, b]], planned_start=MON, effort_hours=50.0)
+    project = project_of(task)
+    # 第1週 32.5h は田中だけ。残り 17.5h は第2週の 田中+鈴木(0.5) で、10/12 に 9.75h、10/13 に 7.75h(= 5.1667h の稼働)
+    todos = build_todos(project, "田中", HOLIDAYS)
+    assert todos.data["items"][0]["estimate_hours"] == pytest.approx(44.17)
+    other = build_todos(project, "鈴木", HOLIDAYS)
+    assert other.data["items"][0]["estimate_hours"] == pytest.approx(5.83)  # 11.6667h の稼働 × 割り当て率 0.5
+
+
+def test_handoff_estimate_of_a_plain_task_is_unchanged() -> None:
+    task = Task("p", id="p", planned_start=MON, effort_hours=13.0, assignees=[Assignee("田中", 0.5), Assignee("鈴木")])
+    todos = build_todos(project_of(task), "田中", HOLIDAYS)
+    assert todos.data["items"][0]["estimate_hours"] == pytest.approx(round(13.0 * 0.5 / 1.5, 2))  # 換算率の合計は 0.5 + 1.0。見積もりは小数 2 桁
