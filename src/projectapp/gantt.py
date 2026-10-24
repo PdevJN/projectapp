@@ -41,6 +41,7 @@ from projectapp.timeline import (
     bar_span,
     build_columns,
     clip_overloads,
+    crew_pieces,
     current_progress,
     deadline_position,
     expected_progress,
@@ -166,6 +167,8 @@ CODE_CHIP_STYLE = (
     " border: 1px solid rgba(128, 128, 128, 0.6); border-radius: 8px"
 )
 MAX_ASSIGNEE_CHIPS = 3  # これを超える担当者は、「+n」のチップ 1 つにまとめる
+WEEK_CHIP_HEIGHT_PX = 12  # 棒の上の週ごとのチップの高さ
+MIN_WEEK_CHIP_TEXT_PX = 24  # 週ごとのチップに頭文字を出す最小の幅(これより狭いときは区切りだけ)
 ASSIGNEE_CHIP_STYLE = (
     "flex: none; width: 16px; height: 16px; line-height: 16px; text-align: center;"
     " font-size: 10px; border-radius: 50%; background: rgba(128, 128, 128, 0.3)"
@@ -287,6 +290,22 @@ ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メン�
 def planned_background(color: str) -> str:
     """予定の棒の背景。要素の opacity ではなく背景だけを半透明にし、中の縞は不透明のまま残す。"""
     return f"color-mix(in srgb, {color} {PLANNED_OPACITY * 100:g}%, transparent)"
+
+
+def week_chip_text(names: list[str], width_px: float, scale: Scale) -> str:
+    """棒の上の週ごとのチップの文字。日次で幅が足りるときだけ頭文字を出す(4 人目以降は +n)。"""
+    if scale is not Scale.DAY or width_px < MIN_WEEK_CHIP_TEXT_PX or not names:
+        return ""
+    rest = len(names) - MAX_ASSIGNEE_CHIPS
+    return "".join(name[0] for name in names[:MAX_ASSIGNEE_CHIPS]) + (f"+{rest}" if rest > 0 else "")
+
+
+def week_summary(task: Task) -> str:
+    """週ごとの担当の説明(マウスオーバー用)。週ごとに分けないタスクは空。"""
+    return "\n".join(
+        f"第{number}週: " + "、".join(f"{a.name} {round(a.allocation * 100)}%" for a in week)
+        for number, week in enumerate(task.weekly_crew, start=1)
+    )
 
 
 def fill_percent(task: Task) -> int | None:
@@ -1432,6 +1451,9 @@ class GanttChart:
                     self.progress_fill(key, ti, task, columns, end)
                     if self.options.show_alerts:
                         self.overload_stripes(key, ti, task, left, bar_width, columns, width)
+                    if self.options.show_chips and task.weekly_crew:
+                        assert start is not None and end is not None
+                        self.week_chips(key, ti, task, start, end, left, bar_width, columns, width)
                 mark_left = self.marker_left(task, columns, width, left * width + bar_width)
                 total = width * len(columns)
                 if self.options.period is None or mark_left <= total - MARK_WIDTH_PX:
@@ -1447,15 +1469,16 @@ class GanttChart:
             ui.label(chip_text(category)).classes("ellipsis code-chip").style(CODE_CHIP_STYLE).tooltip(
                 category.name
             ).mark(f"task-code-{key}-{ti}")
+        note = f"\n{summary}" if (summary := week_summary(task)) else ""
         for n, assignee in enumerate(task.assignees[:MAX_ASSIGNEE_CHIPS]):
             suffix = "" if n == 0 else f"-{n}"
             avatar(assignee.name, self.icon_lookup.get(assignee.name, ""), 16).tooltip(
-                f"{assignee.name} {round(assignee.allocation * 100)}%"
+                f"{assignee.name} {round(assignee.allocation * 100)}%{note}"
             ).mark(f"task-assignee-{key}-{ti}{suffix}")
         rest = task.assignees[MAX_ASSIGNEE_CHIPS:]
         if rest:
             ui.label(f"+{len(rest)}").style(ASSIGNEE_CHIP_STYLE).tooltip(
-                "\n".join(f"{a.name} {round(a.allocation * 100)}%" for a in rest)
+                "\n".join(f"{a.name} {round(a.allocation * 100)}%" for a in rest) + note
             ).mark(f"task-assignee-more-{key}-{ti}")
         if task.kind is TaskKind.SUMMARY:
             percent = summary_progress(children_of(task, self.tasks_by_id))
@@ -1648,6 +1671,39 @@ class GanttChart:
                 f" background: {ACTUAL_GAP_BACKGROUND}; user-select: none"
             ).classes(STATUS_CLASSES[task.status])
             gap.mark(f"actual-gap-{key}-{ti}-{n}")
+
+    def week_chips(
+        self,
+        key: int | str,
+        ti: int,
+        task: Task,
+        start: datetime,
+        end: datetime,
+        bar_left: float,
+        bar_width: float,
+        columns: list[Column],
+        width: int,
+    ) -> None:
+        """棒の上に、週ごと(実効の開始の日から 7 日ごと)の担当のチップを重ねる。2 つ目からは左端に区切り線を付ける。"""
+        pieces = crew_pieces(task, start, end)
+        for n, (left, right, crew) in enumerate(pieces):
+            origin, length = interval_span(left, right, columns)
+            left_px = max((origin - bar_left) * width, 0.0)
+            width_px = min(length * width, bar_width - left_px)
+            if width_px <= 0:
+                continue
+            divider = " border-left: 1px solid rgba(255,255,255,0.8);" if n else ""
+            chip = ui.label(week_chip_text([a.name for a in crew], width_px, self.view_scale)).style(
+                f"position: absolute; left: {left_px:.1f}px; width: {width_px:.1f}px; top: 0;"
+                f" height: {WEEK_CHIP_HEIGHT_PX}px; font-size: 10px; line-height: {WEEK_CHIP_HEIGHT_PX}px;"
+                f" color: #fff; background: rgba(0,0,0,0.3); padding-left: 3px; overflow: hidden;"
+                f" white-space: nowrap;{divider}"
+            )
+            last = n == len(pieces) - 1 and len(pieces) == len(task.weekly_crew)
+            title = f"第{n + 1}週{'以降' if last else ''}: " + "、".join(
+                f"{a.name} {round(a.allocation * 100)}%" for a in crew
+            )
+            chip.tooltip(title).mark(f"week-chip-{key}-{ti}-{n}")
 
     def overload_stripes(
         self,

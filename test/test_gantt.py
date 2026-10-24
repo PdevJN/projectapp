@@ -21,6 +21,8 @@ from projectapp.gantt import (
     STICKY_CSS,
     TRACK_SCROLL_JS,
     ViewOptions,
+    week_chip_text,
+    week_summary,
     ADD_ROW_HEIGHT_PX,
     LINK_CSS,
     ROW_HEIGHT_PX,
@@ -3471,3 +3473,63 @@ async def test_hide_excluded_removes_the_rows_checkboxes_and_empty_sections(user
     await user.should_not_see(marker="section-name-1")
     await user.should_not_see(marker="select-task-0-0")
     await user.should_not_see(marker="select-section-0")
+
+
+def weekly_chart_project() -> Project:
+    weeks = [[Assignee("田中")], [Assignee("鈴木", 0.5)]]
+    task = Task(
+        "週",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 19),
+        assignees=[Assignee("田中"), Assignee("鈴木", 0.5)],
+        weekly_crew=weeks,
+    )
+    return Project("demo", base_date=BASE, members=[Member("田中"), Member("鈴木")], tasks=[task])
+
+
+def test_week_chip_text_shows_initials_only_on_the_day_scale_with_room() -> None:
+    assert week_chip_text(["田中", "鈴木"], 200.0, Scale.DAY) == "田鈴"
+    assert week_chip_text(["田中", "鈴木", "佐藤", "高橋", "伊藤"], 200.0, Scale.DAY) == "田鈴佐+2"
+    assert week_chip_text(["田中"], 10.0, Scale.DAY) == ""  # 幅が足りない
+    assert week_chip_text(["田中"], 200.0, Scale.WEEK) == ""  # 週次・月次は区切りだけ
+    assert week_chip_text([], 200.0, Scale.DAY) == ""
+
+
+def test_week_summary_lists_each_week_for_the_hover() -> None:
+    task = Task("w", weekly_crew=[[Assignee("田中")], [Assignee("田中", 0.5), Assignee("鈴木")]])
+    assert week_summary(task) == "第1週: 田中 100%\n第2週: 田中 50%、鈴木 100%"
+    assert week_summary(Task("p", assignees=[Assignee("田中")])) == ""
+
+
+async def test_the_bar_carries_one_chip_per_week(user: User) -> None:
+    mount(weekly_chart_project())
+    await user.open("/")
+    first = user.find(marker="week-chip-top-0-0").elements.pop()
+    second = user.find(marker="week-chip-top-0-1").elements.pop()
+    # 10/5〜10/19 の棒。1 日 40px なので、第1週(10/5〜11)は左 0・幅 280、第2週は左 280・幅 280
+    assert (first._style["left"], first._style["width"]) == ("0.0px", "280.0px")
+    assert (second._style["left"], second._style["width"]) == ("280.0px", "280.0px")
+    assert (first.text, second.text) == ("田", "鈴")
+    assert "border-left" not in first._style and "border-left" in second._style  # 区切り線は 2 つ目から
+
+
+async def test_the_chips_follow_the_chip_option(user: User) -> None:
+    mount_with(weekly_chart_project(), ViewOptions(show_chips=False))
+    await user.open("/")
+    await user.should_not_see(marker="week-chip-top-0-0")
+
+
+async def test_a_plain_task_has_no_week_chips(user: User) -> None:
+    mount(overloaded_project())
+    await user.open("/")
+    await user.should_not_see(marker="week-chip-top-0-0")
+
+
+async def test_a_bar_that_ends_in_the_first_week_has_one_chip(user: User) -> None:
+    project = weekly_chart_project()
+    project.tasks[0].planned_end = datetime(2026, 10, 8)
+    mount(project)
+    await user.open("/")
+    await user.should_see(marker="week-chip-top-0-0")
+    await user.should_not_see(marker="week-chip-top-0-1")
+    assert user.find(marker="week-chip-top-0-0").elements.pop()._style["width"] == "120.0px"  # 3 日
