@@ -17,6 +17,7 @@ from projectapp.models import (
     Task,
     UrlTemplate,
     WorkDay,
+    union_assignees,
 )
 
 
@@ -449,3 +450,65 @@ def test_task_parameters_changed_differently_are_one_conflict_named_parameters()
     assert (conflict.kind, conflict.field, conflict.ours, conflict.theirs) == ("task", "パラメータ", ["Python"], ["Java"])
     assert result.project.tasks[0].parameters == ["Python"]
     assert merge_projects(base, ours, theirs, {conflict.id: THEIRS}).project.tasks[0].parameters == ["Java"]
+
+
+def two() -> list[Member]:
+    return [Member("甲", 1.0, id="m1"), Member("乙", 1.0, id="m2")]
+
+
+def weekly_task(*weeks: list[Assignee]) -> Task:
+    return task("a", "t1", assignees=union_assignees(weeks), weekly_crew=[list(w) for w in weeks])
+
+
+def week_names(t: Task) -> list[list[str]]:
+    return [[a.name for a in week] for week in t.weekly_crew]
+
+
+def test_a_weekly_crew_changed_by_one_side_is_taken() -> None:
+    base = proj(members=two(), tasks=[weekly_task([Assignee("甲")])])
+    theirs = proj(members=two(), tasks=[weekly_task([Assignee("甲")], [Assignee("甲"), Assignee("乙")])])
+    result = merge_projects(base, base, theirs)
+    assert result.conflicts == []
+    merged = result.project.tasks[0]
+    assert week_names(merged) == [["甲"], ["甲", "乙"]]
+    assert [a.name for a in merged.assignees] == ["甲", "乙"]
+
+
+def test_a_weekly_crew_changed_on_both_sides_is_one_conflict() -> None:
+    base = proj(members=two(), tasks=[weekly_task([Assignee("甲")])])
+    ours = proj(members=two(), tasks=[weekly_task([Assignee("甲")], [Assignee("乙")])])
+    theirs = proj(members=two(), tasks=[weekly_task([Assignee("甲")], [Assignee("甲"), Assignee("乙")])])
+    result = merge_projects(base, ours, theirs)
+    assert [c.field for c in result.conflicts] == ["週ごとの担当"]
+    assert week_names(result.project.tasks[0]) == [["甲"], ["乙"]]  # 既定は自分
+    chosen = merge_projects(base, ours, theirs, {result.conflicts[0].id: THEIRS}).project.tasks[0]
+    assert week_names(chosen) == [["甲"], ["甲", "乙"]]
+
+
+def test_a_week_emptied_by_a_deleted_member_takes_the_neighbouring_crew() -> None:
+    base = proj(members=two(), tasks=[weekly_task([Assignee("甲")], [Assignee("乙")])])
+    theirs = proj(members=[Member("甲", 1.0, id="m1")], tasks=[weekly_task([Assignee("甲")], [Assignee("乙")])])
+    result = merge_projects(base, base, theirs)
+    assert result.conflicts == []
+    assert week_names(result.project.tasks[0]) == [["甲"], ["甲"]]
+    assert any("担当者を外しました" in n and "第2週" in n for n in result.notes)
+    assert any("隣の週と同じ" in n and "第2週" in n for n in result.notes)
+
+
+def test_when_every_week_is_emptied_the_task_is_no_longer_weekly() -> None:
+    gone = weekly_task([Assignee("乙")], [Assignee("乙")])
+    base = proj(members=two(), tasks=[gone])
+    theirs = proj(members=[Member("甲", 1.0, id="m1")], tasks=[gone])
+    result = merge_projects(base, base, theirs)
+    merged = result.project.tasks[0]
+    assert merged.weekly_crew == [] and merged.assignees == []
+    assert any("週ごとの担当をすべて外しました" in n for n in result.notes)
+
+
+def test_turning_weekly_off_on_one_side_gives_the_plain_assignees() -> None:
+    base = proj(members=two(), tasks=[weekly_task([Assignee("甲")], [Assignee("乙")])])
+    ours = proj(members=two(), tasks=[task("a", "t1", assignees=[Assignee("甲", 0.5)])])
+    result = merge_projects(base, ours, base)
+    assert result.conflicts == []
+    merged = result.project.tasks[0]
+    assert merged.weekly_crew == [] and merged.assignees == [Assignee("甲", 0.5)]

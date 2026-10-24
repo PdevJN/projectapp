@@ -25,6 +25,7 @@ from projectapp.models import (
     TaskKind,
     UrlTemplate,
     WorkDay,
+    union_assignees,
 )
 from projectapp.storage import dumps_project, parse_project
 from projectapp.workdays import sort_work_days
@@ -228,7 +229,7 @@ TASK_LABELS = {
     "name": "名前", "planned_start": "開始予定", "effort_hours": "工数", "priority": "優先度", "status": "状態",
     "color": "色", "assignees": "担当", "predecessors": "先行", "deadline": "締切", "planned_end": "完了予定",
     "planned_end_manual": "完了予定を手で指定", "actuals": "実績", "progress": "進捗度", "category_id": "カテゴリ", "kind": "種別",
-    "urls": "リンク", "children": "子", "parameters": "パラメータ", "parent": "所属",
+    "urls": "リンク", "children": "子", "parameters": "パラメータ", "weekly_crew": "週ごとの担当", "parent": "所属",
 }
 SECTION_LABELS = {"name": "名前", "parent": "所属"}
 
@@ -253,8 +254,12 @@ def _flatten(project: Project) -> _Flat:
         flat.task_order[container] = [t.id for t in tasks]
         flat.section_order[container] = [s.id for s in sections]
         for t in tasks:
-            record: Record = {f.name: getattr(t, f.name) for f in fields(Task) if f.name not in ("id", "assignees")}
-            record["assignees"] = [(ids.get(a.name, a.name), a.allocation) for a in t.assignees]
+            record: Record = {
+                f.name: getattr(t, f.name) for f in fields(Task) if f.name not in ("id", "assignees", "weekly_crew")
+            }
+            # 週ごとのタスクの担当は週の表が正(和集合は持たない)なので、「担当」は空にして衝突させない
+            record["assignees"] = [] if t.weekly_crew else [(ids.get(a.name, a.name), a.allocation) for a in t.assignees]
+            record["weekly_crew"] = [[(ids.get(a.name, a.name), a.allocation) for a in week] for week in t.weekly_crew]
             record["parent"] = container
             flat.tasks[t.id] = record
         for s in sections:
@@ -271,6 +276,22 @@ def _member_names(*projects: Project) -> dict[str, str]:
         for member in project.members:
             names.setdefault(member.id, member.name)
     return names
+
+
+def _fill_empty_weeks(weeks: list[list[Assignee]]) -> tuple[list[list[Assignee]], list[int]]:
+    """担当者のいなくなった週を、前の週(なければ次の週)の担当にする。埋めた週の番号(1 始まり)も返す。
+    すべての週が空なら空のリスト(週ごとに分けない)。"""
+    if not any(weeks):
+        return [], []
+    result = [list(week) for week in weeks]
+    filled: list[int] = []
+    for index, week in enumerate(result):
+        if week:
+            continue
+        source = next((result[i] for i in range(index - 1, -1, -1) if result[i]), None) or next(w for w in result if w)
+        result[index] = [Assignee(a.name, a.allocation) for a in source]
+        filled.append(index + 1)
+    return result, filled
 
 
 def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choices | None = None) -> MergeResult:
@@ -316,6 +337,11 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
     def display(name: str, value: Any) -> Any:
         if name == "assignees":
             return [f"{shown.get(i, i)} {a:.0%}" for i, a in value]
+        if name == "weekly_crew":
+            return [
+                f"第{n}週: " + "、".join(f"{shown.get(i, i)} {a:.0%}" for i, a in week)
+                for n, week in enumerate(value, start=1)
+            ]
         return value
 
     sections = merger.collection("section", SECTION_LABELS, flats[0].sections, flats[1].sections, flats[2].sections)
@@ -338,8 +364,24 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
                 assignees.append(Assignee(names[member_id], allocation))
             else:
                 notes.append(f"担当者を外しました: 「{record['name']}」の{shown.get(member_id, member_id)}")
+        weeks: list[list[Assignee]] = []
+        for number, week in enumerate(record["weekly_crew"], start=1):
+            crew = []
+            for member_id, allocation in week:
+                if member_id in names:
+                    crew.append(Assignee(names[member_id], allocation))
+                else:
+                    notes.append(f"担当者を外しました: 「{record['name']}」の第{number}週の{shown.get(member_id, member_id)}")
+            weeks.append(crew)
+        weeks, filled = _fill_empty_weeks(weeks)
+        for number in filled:
+            notes.append(f"担当者がいなくなった週を、隣の週と同じにしました: 「{record['name']}」の第{number}週")
+        if record["weekly_crew"] and not weeks:
+            notes.append(f"週ごとの担当をすべて外しました: 「{record['name']}」")
         data = {
-            k: v for k, v in record.items() if k not in ("assignees", "parent", "predecessors", "category_id", "children")
+            k: v
+            for k, v in record.items()
+            if k not in ("assignees", "weekly_crew", "parent", "predecessors", "category_id", "children")
         }
         category = record["category_id"]
         if category is not None and category not in categories:
@@ -350,7 +392,13 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
         if data["kind"] is TaskKind.SUMMARY and not children:
             data["kind"] = TaskKind.NORMAL  # 子がいなくなったまとめは、通常タスクに戻す
         return Task(
-            id=key, assignees=assignees, predecessors=predecessors, category_id=category, children=children, **data
+            id=key,
+            assignees=union_assignees(weeks) if weeks else assignees,
+            weekly_crew=weeks,
+            predecessors=predecessors,
+            category_id=category,
+            children=children,
+            **data,
         )
 
     task_objects = {key: make_task(key, record) for key, record in tasks.items()}
