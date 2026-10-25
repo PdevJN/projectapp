@@ -52,5 +52,5 @@
 | 2026-10-22 | 稼働日の上書き(プロジェクト共通) | [設計](specs/2026-10-22-work-days-design.md) | [計画](plans/2026-10-22-work-days.md) | 要望 30 | 置き換え済み(未マージ) | — |
 | 2026-10-23 | 稼働日の上書き(メンバーごと) | [設計](specs/2026-10-23-member-work-days-design.md) | [計画](plans/2026-10-23-member-work-days.md) | 要望 30 | 未マージ(`feature/work-days`) | — |
 | 2026-10-22 | セクションの並べ替え(ドラッグ) | [設計](specs/2026-10-22-section-move-design.md) | [計画](plans/2026-10-22-section-move.md) | — | PR #68(806e31a。2026-10-22) | — |
-| 2026-10-25 | プレビューの操作部の見直し | [設計](specs/2026-10-25-preview-bar-design.md) | [計画](plans/2026-10-25-preview-bar.md) | 要望 63・64 | 未マージ(`feature/preview-bar`) | — |
-| 2026-10-25 | 期間欄の共通化・メインの表示期間・ダッシュボードの集計範囲 | [設計](specs/2026-10-25-period-field-design.md) | — | 要望 65・66 | 未マージ(`feature/period-field`。`feature/preview-bar` の上) | — |
+| 2026-10-25 | プレビューの操作部の見直し | [設計](specs/2026-10-25-preview-bar-design.md) | [計画](plans/2026-10-25-preview-bar.md) | 要望 63・64 | PR #87(b793bdb。2026-10-26) | — |
+| 2026-10-25 | 期間欄の共通化・メインの表示期間・ダッシュボードの集計範囲 | [設計](specs/2026-10-25-period-field-design.md) | — | 要望 65・66 | PR #88(02cdbe0。2026-10-26) | — |
