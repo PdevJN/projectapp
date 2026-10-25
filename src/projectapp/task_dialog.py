@@ -97,8 +97,9 @@ class EffortField:
         self._syncing = False
         self._callbacks: list[Callable[[float | None], object]] = []
         with ui.column().classes("flex-1 gap-0 min-w-0") as self.container:
+            ui.label("工数").classes("text-caption text-grey")  # 締切などの列と、見出しの高さをそろえる
             with ui.row().classes("w-full items-start no-wrap gap-2"):
-                self.number = ui.number("工数", value=hours, min=0).classes("flex-1 min-w-0").mark("task-effort")
+                self.number = ui.number("数値", value=hours, min=0).classes("flex-1 min-w-0").mark("task-effort")
                 self.unit = (
                     ui.select({u: u.value for u in EffortUnit}, value=EffortUnit.HOURS)
                     .classes("w-24")
@@ -265,7 +266,7 @@ class DateTimeFields:
         self.effort = task.effort_hours
         self._crew = list(crew)
         self._weeks = [list(week) for week in weeks]
-        self.first_row = ui.row().classes("w-full no-wrap gap-4")
+        self.first_row = ui.row().classes("w-full no-wrap items-start gap-4")
         with self.first_row:
             self.start_day, self.start_time, self.use_start_time, _ = self._column(
                 "開始予定",
@@ -280,7 +281,7 @@ class DateTimeFields:
                 needs_end_time(task.planned_end, work_start),
                 header=lambda: self._end_header(task.planned_end_manual),
             )
-        self.second_row = ui.row().classes("w-full no-wrap gap-4")
+        self.second_row = ui.row().classes("w-full no-wrap items-start gap-4")
         with self.second_row:
             self.deadline_day, self.deadline_time, self.use_deadline_time, _ = self._column(
                 "締切",
