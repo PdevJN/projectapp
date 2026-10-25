@@ -45,6 +45,7 @@ from projectapp.forms import (
     build_event_list,
     open_settings_dialog,
     open_stale_reference_dialog,
+    open_stale_snapshot_dialog,
     open_unsaved_dialog,
     parse_datetime,
     end_gap_hint,
@@ -2157,3 +2158,23 @@ async def test_the_settings_dialog_does_not_report_an_unchanged_reference_mode(u
     user.find("open").click()
     user.find(marker="settings-apply").click()
     assert applied == []
+
+
+async def test_the_stale_snapshot_dialog_names_the_targets_and_offers_three_choices(user: User) -> None:
+    done: list[str] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_stale_snapshot_dialog(
+                ["基盤", "共通"], "保存", lambda: done.append("update"), lambda: done.append("skip")
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    await user.should_see("「基盤」「共通」")
+    await user.should_see("更新して保存")
+    user.find(marker="snapshot-skip").click()
+    assert done == ["skip"]

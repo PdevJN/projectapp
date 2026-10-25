@@ -995,6 +995,27 @@ def open_stale_reference_dialog(name: str, on_update: Callable[[], object], on_s
     dialog.open()
 
 
+def open_stale_snapshot_dialog(
+    names: list[str], purpose: str, on_update: Callable[[], object], on_skip: Callable[[], object]
+) -> None:
+    """スナップショットが古い参照先があるときの確認(更新して続ける / 更新せず続ける / キャンセル)。`purpose` は続けたい操作(「保存」など)。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
+        ui.label("スナップショットが古くなっています").classes("text-h6")
+        ui.label(
+            f"{''.join(f'「{n}」' for n in names)}の参照値は、保存したあとに変わっています。更新しますか。"
+        )
+
+        def run(action: Callable[[], object]) -> None:
+            dialog.close()
+            action()
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark("snapshot-cancel")
+            ui.button(f"更新せず{purpose}", on_click=lambda: run(on_skip)).props("flat").mark("snapshot-skip")
+            ui.button(f"更新して{purpose}", on_click=lambda: run(on_update)).mark("snapshot-update")
+    dialog.open()
+
+
 def open_conflict_dialog(
     on_overwrite: Callable[[], object], on_save_as: Callable[[], object]
 ) -> None:

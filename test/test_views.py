@@ -33,6 +33,7 @@ from projectapp.gantt import ViewOptions
 from projectapp.forms import MEMBER_TABLE_CSS
 from projectapp.config import load_custom_theme, load_theme, save_custom_theme
 from projectapp.theme import DEFAULTS, CustomTheme
+from projectapp.reference import ReferenceResolver, take_snapshot
 from projectapp.views import HEADER_CSS, THEME_ICONS, MainView
 
 
@@ -5106,6 +5107,24 @@ def reference_setup(tmp_path: Path, mode: ReferenceMode = ReferenceMode.LIVE) ->
     return Project("本体", reference_mode=mode, tasks=[ref])
 
 
+def drop_dialog(user: User, marker: str) -> None:
+    """マーカーのボタンを含むダイアログを、画面から取り除く。"""
+    for element in list(user.find(marker=marker).elements):
+        node: ui.element | None = element
+        while node is not None and not isinstance(node, ui.dialog):
+            node = node.parent_slot.parent if node.parent_slot else None
+        if node is not None:
+            node.delete()
+
+
+def current_snapshot_setup(tmp_path: Path) -> None:
+    """スナップショットが参照先と同じ(古くない)本体を保存する。"""
+    project = reference_setup(tmp_path, ReferenceMode.SNAPSHOT)
+    resolver = ReferenceResolver(lambda: tmp_path, lambda: {})
+    project.tasks[0].ref_snapshot = take_snapshot(resolver, "基盤", datetime.now())
+    save_project(project, tmp_path)
+
+
 def stale_setup(tmp_path: Path) -> None:
     project = reference_setup(tmp_path, ReferenceMode.SNAPSHOT)
     project.tasks[0].ref_snapshot = ReferenceValue(planned_start=datetime(2026, 1, 1), planned_end=datetime(2026, 1, 2))
@@ -5129,7 +5148,9 @@ async def test_a_stale_snapshot_asks_before_opening_and_update_then_asks_to_save
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    view.request_open("本体")
+    with view.client:
+        view.request_open("本体")
+    user.find(marker="snapshot-skip").click()  # 開いたときの確認は、更新せず続ける
     with view.client:
         view.open_reference("ref")
     await user.should_see(marker="stale-update")
@@ -5146,7 +5167,9 @@ async def test_skipping_the_stale_dialog_opens_without_changing_the_snapshot(use
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    view.request_open("本体")
+    with view.client:
+        view.request_open("本体")
+    user.find(marker="snapshot-skip").click()  # 開いたときの確認は、更新せず続ける
     with view.client:
         view.open_reference("ref")
     user.find(marker="stale-skip").click()
@@ -5165,7 +5188,7 @@ async def test_a_missing_target_notifies_once_when_the_project_is_opened(user: U
 
 
 async def test_refreshing_a_snapshot_takes_the_current_value_and_marks_the_project_dirty(user: User, tmp_path: Path) -> None:
-    save_project(reference_setup(tmp_path, ReferenceMode.SNAPSHOT), tmp_path)
+    current_snapshot_setup(tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -5197,3 +5220,81 @@ async def test_the_preview_draws_the_reference_band_without_the_click_handler(us
     views[0].enter_preview()
     await user.should_see(marker="bar-top-0")
     assert "ref-link" not in user.find(marker="bar-top-0").elements.pop().classes  # 読み取り専用では、クリックで開かない
+
+
+async def test_opening_a_project_with_a_stale_snapshot_asks_and_update_refreshes_it(user: User, tmp_path: Path) -> None:
+    stale_setup(tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    with view.client:
+        view.request_open("本体")
+    await user.should_see(marker="snapshot-update")
+    user.find(marker="snapshot-update").click()
+    assert view.project.tasks[0].ref_snapshot.planned_start != datetime(2026, 1, 1)
+    assert view.is_dirty()
+
+
+async def test_opening_a_project_with_a_current_snapshot_does_not_ask(user: User, tmp_path: Path) -> None:
+    current_snapshot_setup(tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    with views[0].client:
+        views[0].request_open("本体")
+    await user.should_not_see(marker="snapshot-update")
+
+
+async def stale_view_with_task_edit(user: User, tmp_path: Path) -> tuple[MainView, Task]:
+    stale_setup(tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    with view.client:
+        view.request_open("本体")
+    user.find(marker="snapshot-skip").click()
+    drop_dialog(user, "snapshot-skip")  # 閉じた確認が残ると、次の確認のボタンと取り違える
+    return view, Task("本体の作業", planned_start=datetime(2026, 10, 5, 9), effort_hours=8.0)
+
+
+async def test_saving_a_task_with_a_stale_snapshot_asks_first(user: User, tmp_path: Path) -> None:
+    view, task = await stale_view_with_task_edit(user, tmp_path)
+    with view.client:
+        view.save_task((), None, task)
+    await user.should_see(marker="snapshot-update")
+    assert len(view.project.tasks) == 1  # 確認の前は保存しない
+    user.find(marker="snapshot-update").click()
+    assert [t.name for t in view.project.tasks] == ["基盤開発", "本体の作業"]
+    assert view.project.tasks[0].ref_snapshot.planned_start != datetime(2026, 1, 1)
+
+
+async def test_saving_without_updating_keeps_the_old_snapshot(user: User, tmp_path: Path) -> None:
+    view, task = await stale_view_with_task_edit(user, tmp_path)
+    with view.client:
+        view.save_task((), None, task)
+    user.find(marker="snapshot-skip").click()
+    assert len(view.project.tasks) == 2
+    assert view.project.tasks[0].ref_snapshot.planned_start == datetime(2026, 1, 1)
+
+
+async def test_cancelling_the_stale_snapshot_dialog_does_not_save(user: User, tmp_path: Path) -> None:
+    view, task = await stale_view_with_task_edit(user, tmp_path)
+    with view.client:
+        view.save_task((), None, task)
+    user.find(marker="snapshot-cancel").click()
+    assert len(view.project.tasks) == 1
+
+
+async def test_saving_a_task_with_a_current_snapshot_does_not_ask(user: User, tmp_path: Path) -> None:
+    current_snapshot_setup(tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    with view.client:
+        view.request_open("本体")
+        view.save_task((), None, Task("作業"))
+    await user.should_not_see(marker="snapshot-update")
+    assert len(view.project.tasks) == 2

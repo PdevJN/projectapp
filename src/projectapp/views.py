@@ -53,6 +53,7 @@ from projectapp.forms import (
     open_section_dialog,
     open_settings_dialog,
     open_stale_reference_dialog,
+    open_stale_snapshot_dialog,
     open_unsaved_dialog,
 )
 from projectapp import arrange
@@ -440,6 +441,8 @@ class MainView:
         self.gantt.reset_scroll()  # 別のプロジェクトは、先頭から見せる(編集後の再描画では動かさない)
         for name in missing_references(project, self.reference_resolver, datetime.now()):
             ui.notify(f"参照先のプロジェクトが見つかりません: {name}", type="warning")
+        if stale := self.stale_references():
+            open_stale_snapshot_dialog(stale, "続ける", self.refresh_stale_snapshots, lambda: None)
 
     def open_project_folder(self) -> None:
         """プロジェクトの格納フォルダを、ファイラで開く。開けなければ通知する。"""
@@ -1444,9 +1447,41 @@ class MainView:
         """セクション(パス)のタスク一覧。root は (): セクションに属さないタスク。"""
         return arrange.tasks_at(self.project, path)
 
+    def stale_references(self) -> list[str]:
+        """スナップショットが今の参照先と違う参照行の、参照先の名前(重複なし)。常に最新のときは空。"""
+        refs = build_references(self.project, self.reference_resolver, datetime.now())
+        tasks = self.project.task_map()
+        return list(dict.fromkeys(tasks[tid].ref_project for tid, ref in refs.items() if ref.stale))
+
+    def refresh_stale_snapshots(self, then: Callable[[], object] | None = None) -> None:
+        """古いスナップショットをすべて今の参照先の値に取り直す。`then` があれば、その中で再描画する(なければ描き直す)。"""
+        now = datetime.now()
+        refs = build_references(self.project, self.reference_resolver, now)
+        for task in self.project.all_tasks():
+            if task.kind is TaskKind.REFERENCE and refs.get(task.id) is not None and refs[task.id].stale:
+                taken = take_snapshot(self.reference_resolver, task.ref_project, now)
+                if taken is not None:
+                    task.ref_snapshot = taken
+        if then is None:
+            self.after_edit()
+        else:
+            then()
+
     def save_task(
         self, path: SectionPath, task_index: int | None, task: Task
     ) -> None:
+        """タスクを保存する。スナップショットが古い参照先があるときは、先に確認する(キャンセルなら保存しない)。"""
+        if stale := self.stale_references():
+            open_stale_snapshot_dialog(
+                stale,
+                "保存",
+                lambda: self.refresh_stale_snapshots(lambda: self.apply_task(path, task_index, task)),
+                lambda: self.apply_task(path, task_index, task),
+            )
+            return
+        self.apply_task(path, task_index, task)
+
+    def apply_task(self, path: SectionPath, task_index: int | None, task: Task) -> None:
         tasks = self.tasks_in(path)
         if task_index is None:
             if task.id in self.project.used_ids():
