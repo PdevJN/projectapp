@@ -22,6 +22,7 @@ from projectapp.summary import children_of
 
 Position = tuple[SectionPath, int]  # (セクションのパス。root は (), 番号)
 COPY_SUFFIX = "(コピー)"
+FIRST_CHILD_NAME = "子 1"  # まとめと一緒に作る、最初の子の名前
 MAX_SHIFT_DAYS = 3650
 _KEY = re.compile(r"(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){0,%d}" % (MAX_SECTION_DEPTH - 1))
 
@@ -123,6 +124,41 @@ def insert_named_task(project: Project, dst: Position, name: str) -> Task:
     task = Task(name, id=new_id(project.used_ids()))
     tasks_at(project, path).insert(index, task)
     return task
+
+
+def parent_of(project: Project, src: Position) -> Task | None:
+    """タスクが、まとめの子なら、そのまとめ(同じ一覧にいる)。子でなければ None。"""
+    path, index = src
+    tasks = tasks_at(project, path)
+    task = tasks[index]
+    return next((t for t in tasks if t.kind is TaskKind.SUMMARY and task.id in t.children), None)
+
+
+def insert_named_child(project: Project, dst: Position, name: str, parent_id: str) -> Task:
+    """名前だけの通常タスクを dst に挿入し、まとめ parent_id の子にする。直前が子ならその子の後ろ、そうでなければ子の末尾に入る。"""
+    path, index = dst
+    tasks = tasks_at(project, path)
+    parent = next((t for t in tasks if t.id == parent_id and t.kind is TaskKind.SUMMARY), None)
+    if parent is None:
+        raise ValueError("まとめが見つかりません")
+    before = tasks[index - 1].id if 0 < index <= len(tasks) else None
+    task = insert_named_task(project, dst, name)
+    at = parent.children.index(before) + 1 if before in parent.children else len(parent.children)
+    parent.children.insert(at, task.id)
+    return task
+
+
+def insert_named_summary(project: Project, dst: Position, name: str) -> Task:
+    """まとめを dst に挿入して返す。子のないまとめは通常タスクに戻るので、最初の子(「子 1」)を直後に一緒に作る。"""
+    path, index = dst
+    taken = project.used_ids()
+    child = Task(FIRST_CHILD_NAME, id=new_id(taken))
+    taken.add(child.id)
+    summary = Task(name, id=new_id(taken), kind=TaskKind.SUMMARY, children=[child.id])
+    tasks = tasks_at(project, path)
+    at = min(index, len(tasks))
+    tasks[at:at] = [summary, child]
+    return summary
 
 
 def copy_task(project: Project, src: Position, dst: Position) -> Task:

@@ -5087,9 +5087,61 @@ async def test_double_click_and_enter_adds_a_named_task_below_and_it_can_be_undo
     assert [t.name for t in view.project.sections[0].tasks] == ["実装"]
 
 
+async def open_a_summary_project(user: User, tmp_path: Path) -> MainView:
+    save_cache({}, tmp_path)
+    kids = [Task("子0", id="c0"), Task("子1", id="c1")]
+    summary = Task("まとめ", id="s", kind=TaskKind.SUMMARY, children=["c0", "c1"])
+    save_project(Project("束", sections=[Section("開発", [summary, *kids])]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "束")
+    assert await wait_until(lambda: view.path is not None)
+    await user.should_see(marker="task-0-0")
+    return view
+
+
+async def test_double_click_on_a_summary_adds_a_child_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
+    view = await open_a_summary_project(user, tmp_path)
+    user.find(marker="task-0-0").trigger("dblclick")
+    await user.should_see(marker="quick-add-input")
+    user.find(marker="quick-add-input").trigger("keydown.enter", args="追加の子")
+    tasks = view.project.sections[0].tasks
+    assert [t.name for t in tasks] == ["まとめ", "子0", "子1", "追加の子"]
+    assert tasks[0].children == ["c0", "c1", tasks[3].id]
+    assert view.is_dirty()
+    view.undo()
+    assert [t.name for t in view.project.sections[0].tasks] == ["まとめ", "子0", "子1"]
+    assert view.project.sections[0].tasks[0].children == ["c0", "c1"]
+
+
+async def test_ctrl_double_click_adds_a_summary_with_its_first_child_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
+    view = await open_a_summary_project(user, tmp_path)
+    user.find(marker="task-0-0").trigger("dblclick", args={"ctrl": True})
+    await user.should_see(marker="quick-add-input")
+    user.find(marker="quick-add-input").trigger("keydown.enter", args="新しいまとめ")
+    tasks = view.project.sections[0].tasks
+    assert [t.name for t in tasks] == ["まとめ", "子0", "子1", "新しいまとめ", "子 1"]
+    assert tasks[3].kind is TaskKind.SUMMARY and tasks[3].children == [tasks[4].id]
+    assert view.is_dirty()
+    view.undo()
+    assert [t.name for t in view.project.sections[0].tasks] == ["まとめ", "子0", "子1"]
+
+
+async def test_double_click_on_a_child_adds_a_sibling_child_below_it(user: User, tmp_path: Path) -> None:
+    view = await open_a_summary_project(user, tmp_path)
+    user.find(marker="task-0-1").trigger("dblclick")
+    await user.should_see(marker="quick-add-input")
+    user.find(marker="quick-add-input").trigger("keydown.enter", args="間")
+    tasks = view.project.sections[0].tasks
+    assert [t.name for t in tasks] == ["まとめ", "子0", "間", "子1"]
+    assert tasks[0].children == ["c0", tasks[2].id, "c1"]
+
+
 async def test_shift_double_click_and_enter_adds_a_named_section_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
     view = await open_context_menu_on_the_only_task(user, tmp_path)
-    user.find(marker="task-0-0").trigger("dblclick", args=True)
+    user.find(marker="task-0-0").trigger("dblclick", args={"shift": True})
     await user.should_see(marker="quick-add-input")
     user.find(marker="quick-add-input").trigger("keydown.enter", args="新しい節")
     assert [s.name for s in view.project.sections[0].sections] == ["新しい節"]
@@ -5103,7 +5155,7 @@ async def test_shift_double_click_and_enter_adds_a_named_section_and_it_can_be_u
 async def test_shift_double_click_on_the_end_row_adds_a_top_level_section(user: User, tmp_path: Path) -> None:
     view = await open_context_menu_on_the_only_task(user, tmp_path)
     count = len(view.project.sections)
-    user.find(marker="top-end").trigger("dblclick", args=True)
+    user.find(marker="top-end").trigger("dblclick", args={"shift": True})
     await user.should_see(marker="quick-add-input")
     user.find(marker="quick-add-input").trigger("keydown.enter", args="最上位")
     assert [s.name for s in view.project.sections][count:] == ["最上位"]

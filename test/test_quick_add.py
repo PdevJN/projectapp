@@ -54,12 +54,12 @@ async def test_a_root_task_adds_below_it_in_the_root(user: User) -> None:
     assert recorder.events == [("add_named_task", ((), 1, "新規"))]
 
 
-async def test_a_summary_row_adds_behind_its_children(user: User) -> None:
+async def test_a_summary_row_adds_a_child_at_the_end_of_its_children(user: User) -> None:
     _, recorder = mount_chart(quick_project())
     await user.open("/")
     await double_click(user, "task-2-0")
     user.find(marker=INPUT).trigger("keydown.enter", args="新規")
-    assert recorder.events == [("add_named_task", ((2,), 3, "新規"))]
+    assert recorder.events == [("add_named_child", ((2,), 3, "新規", "s"))]  # まとめの行は、子の末尾に子を作る
 
 
 async def test_the_section_header_adds_at_the_end_of_its_tasks_even_when_empty(user: User) -> None:
@@ -152,7 +152,7 @@ def nested_project() -> Project:
 
 
 async def shift_double_click(user: User, marker: str) -> None:
-    user.find(marker=marker).trigger("dblclick", args=True)  # args は e.shiftKey
+    user.find(marker=marker).trigger("dblclick", args={"shift": True})  # args は {shift, ctrl}
     await user.should_see(marker=INPUT)
 
 
@@ -188,7 +188,7 @@ async def test_shift_double_click_in_a_third_level_section_is_refused_with_a_not
     _, recorder = mount_chart(nested_project())
     await user.open("/")
     for marker in ("section-0.0.0", "task-0.0.0-0"):
-        user.find(marker=marker).trigger("dblclick", args=True)
+        user.find(marker=marker).trigger("dblclick", args={"shift": True})
         await user.should_see("サブセクションは 3 階層までです")
     await user.should_not_see(marker=INPUT)
     assert recorder.events == []
@@ -221,7 +221,7 @@ async def test_shift_double_click_with_an_active_filter_refuses_with_a_notice(us
     charts, recorder = mount_chart(nested_project())
     await user.open("/")
     charts[0].set_filter(TaskFilter(query="上"))
-    user.find(marker="section-0").trigger("dblclick", args=True)
+    user.find(marker="section-0").trigger("dblclick", args={"shift": True})
     await user.should_see("絞り込みを解除してください")
     await user.should_not_see(marker=INPUT)
 
@@ -232,3 +232,96 @@ async def test_shift_double_click_on_a_collapsed_section_opens_it(user: User) ->
     charts[0].toggle_section((0,))
     await shift_double_click(user, "section-0")
     assert (0,) not in charts[0].collapsed
+
+
+CTRL = {"ctrl": True}
+
+
+async def ctrl_double_click(user: User, marker: str) -> None:
+    user.find(marker=marker).trigger("dblclick", args=CTRL)
+    await user.should_see(marker=INPUT)
+
+
+async def test_double_click_on_a_child_adds_a_sibling_child_right_below_it(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "task-2-1")
+    user.find(marker=INPUT).trigger("keydown.enter", args="新")
+    assert recorder.events == [("add_named_child", ((2,), 2, "新", "s"))]
+
+
+async def test_ctrl_double_click_adds_a_summary_below_the_row_behind_a_summary_block(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await ctrl_double_click(user, "task-0-0")  # 通常のタスクの直下
+    user.find(marker=INPUT).trigger("keydown.enter", args="一")
+    await ctrl_double_click(user, "task-2-0")  # まとめは、子の後ろ
+    user.find(marker=INPUT).trigger("keydown.enter", args="二")
+    await ctrl_double_click(user, "task-2-1")  # 子の行は、まとめのブロックの後ろ(まとめの子にはならない)
+    user.find(marker=INPUT).trigger("keydown.enter", args="三")
+    assert recorder.events == [
+        ("add_named_summary", ((0,), 1, "一")),
+        ("add_named_summary", ((2,), 3, "二")),
+        ("add_named_summary", ((2,), 3, "三")),
+    ]
+
+
+async def test_ctrl_double_click_on_a_header_or_the_end_row_adds_a_summary_at_the_end(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await ctrl_double_click(user, "section-1")  # 空のセクション
+    user.find(marker=INPUT).trigger("keydown.enter", args="空")
+    await ctrl_double_click(user, "section-0")
+    user.find(marker=INPUT).trigger("keydown.enter", args="末")
+    await ctrl_double_click(user, "top-end")
+    user.find(marker=INPUT).trigger("keydown.enter", args="根")
+    assert recorder.events == [
+        ("add_named_summary", ((1,), 0, "空")),
+        ("add_named_summary", ((0,), 2, "末")),
+        ("add_named_summary", ((), 1, "根")),
+    ]
+
+
+async def test_the_summary_input_asks_for_a_summary_name(user: User) -> None:
+    mount_chart(quick_project())
+    await user.open("/")
+    await ctrl_double_click(user, "task-0-0")
+    field = user.find(marker=INPUT).elements.pop()
+    assert "まとめ名" in field.props["placeholder"]
+
+
+async def test_shift_wins_over_ctrl(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    user.find(marker="task-2-0").trigger("dblclick", args={"shift": True, "ctrl": True})
+    await user.should_see(marker=INPUT)
+    user.find(marker=INPUT).trigger("keydown.enter", args="束2")
+    assert recorder.events == [("add_named_section", ((2,), "束2"))]
+
+
+async def test_shift_on_a_summary_or_a_child_adds_a_section(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    for marker, name in (("task-2-0", "甲"), ("task-2-1", "乙")):
+        user.find(marker=marker).trigger("dblclick", args={"shift": True})
+        await user.should_see(marker=INPUT)
+        user.find(marker=INPUT).trigger("keydown.enter", args=name)
+    assert recorder.events == [("add_named_section", ((2,), "甲")), ("add_named_section", ((2,), "乙"))]
+
+
+async def test_adding_a_child_to_a_folded_summary_opens_it(user: User) -> None:
+    charts, _ = mount_chart(quick_project())
+    await user.open("/")
+    charts[0].collapsed_summaries.add("s")
+    charts[0].render.refresh()
+    await double_click(user, "task-2-0")
+    assert "s" not in charts[0].collapsed_summaries
+
+
+async def test_the_child_input_is_refused_while_filtering(user: User) -> None:
+    charts, recorder = mount_chart(quick_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="子"))
+    charts[0].double_clicked_task((2,), 1, {})
+    await user.should_see("絞り込みを解除してください")
+    assert recorder.events == []

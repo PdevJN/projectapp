@@ -436,6 +436,71 @@ def test_insert_named_task_after_a_summary_goes_behind_its_children() -> None:
     assert parent.children == [k.id for k in kids]  # 新しいタスクは子にならない
 
 
+def summary_project() -> tuple[Project, Task, list[Task]]:
+    kids = [Task("c0", id="c0"), Task("c1", id="c1")]
+    parent = Task("まとめ", id="s", kind=TaskKind.SUMMARY, children=[k.id for k in kids])
+    return Project("p", sections=[Section("A", [parent, *kids, Task("z", id="z")])]), parent, kids
+
+
+def test_parent_of_a_child_is_its_summary() -> None:
+    project, parent, _ = summary_project()
+    assert arrange.parent_of(project, ((0,), 1)) is parent
+    assert arrange.parent_of(project, ((0,), 2)) is parent
+    assert arrange.parent_of(project, ((0,), 0)) is None  # まとめ自身
+    assert arrange.parent_of(project, ((0,), 3)) is None  # 子でないタスク
+
+
+def test_insert_named_child_at_the_end_of_a_summary() -> None:
+    project, parent, _ = summary_project()
+    position = arrange.after_task(project, ((0,), 0))
+    child = arrange.insert_named_child(project, position, "新規", "s")
+    assert names(project.sections[0].tasks) == ["まとめ", "c0", "c1", "新規", "z"]
+    assert parent.children == ["c0", "c1", child.id]
+    assert child.kind is TaskKind.NORMAL and child.children == []
+
+
+def test_insert_named_child_right_below_a_child_goes_behind_that_child() -> None:
+    project, parent, _ = summary_project()
+    child = arrange.insert_named_child(project, ((0,), 2), "間", "s")  # c0 の直下
+    assert names(project.sections[0].tasks) == ["まとめ", "c0", "間", "c1", "z"]
+    assert parent.children == ["c0", child.id, "c1"]
+
+
+def test_insert_named_child_into_a_childless_summary_makes_the_first_child() -> None:
+    parent = Task("まとめ", id="s", kind=TaskKind.SUMMARY)
+    project = Project("p", sections=[Section("A", [parent, Task("z")])])
+    child = arrange.insert_named_child(project, arrange.after_task(project, ((0,), 0)), "新規", "s")
+    assert names(project.sections[0].tasks) == ["まとめ", "新規", "z"]
+    assert parent.children == [child.id]
+
+
+def test_insert_named_child_rejects_a_missing_or_non_summary_parent() -> None:
+    project, _, _ = summary_project()
+    with pytest.raises(ValueError):
+        arrange.insert_named_child(project, ((0,), 4), "x", "nope")
+    with pytest.raises(ValueError):
+        arrange.insert_named_child(project, ((0,), 4), "x", "z")  # まとめでない
+
+
+def test_insert_named_summary_makes_a_summary_with_one_child() -> None:
+    project = sample()
+    summary = arrange.insert_named_summary(project, ((0,), 1), "束")
+    tasks = project.sections[0].tasks
+    assert names(tasks) == ["a0", "束", "子 1", "a1", "a2"]
+    assert summary is tasks[1] and summary.kind is TaskKind.SUMMARY
+    assert summary.children == [tasks[2].id]
+    assert tasks[2].kind is TaskKind.NORMAL and tasks[2].children == []
+    assert len({t.id for t in project.all_tasks()}) == len(project.all_tasks())  # id は重ならない
+
+
+def test_insert_named_summary_into_an_empty_section_and_the_root() -> None:
+    project = sample()
+    arrange.insert_named_summary(project, ((1,), 0), "空の中")
+    arrange.insert_named_summary(project, ((), 2), "根")
+    assert names(project.sections[1].tasks) == ["空の中", "子 1"]
+    assert names(project.tasks) == ["t0", "t1", "根", "子 1"]
+
+
 def test_copying_a_task_keeps_its_parameters_as_an_independent_list() -> None:
     project = Project("p", sections=[Section("s", [Task("a", id="a", parameters=["P"])])])
     arrange.copy_task(project, ((0,), 0), ((0,), 1))
