@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from projectapp.models import Category, Project, Status, Task
-from projectapp.timeline import conversion_rate, effective_end, effective_start
+from projectapp.timeline import consumed_slices, conversion_rate, effective_end, effective_start, weekly_crews
 
 NAMESPACE = uuid.UUID("5b0f3c1e-8a42-4d6f-9e17-3c2a7d94b0e8")  # 決定的な id の元。変えると、書き出し直しの id が変わる
 JSON_FILE_TYPES = ("JSON ファイル (*.json)",)
@@ -59,11 +59,28 @@ def _schedule(task: Task, project: Project, holidays: dict[date, str]) -> tuple[
     return ("daily" if last.date() > anchor else "one_time"), anchor.isoformat()
 
 
-def _estimate_hours(task: Task, project: Project, member_name: str) -> float:
+def _estimate_hours(task: Task, project: Project, member_name: str, holidays: dict[date, str]) -> float:
     """担当者自身の時間での見積もり = 工数 × そのメンバーの割り当て率 ÷ 担当者全員の換算率の合計。
-    担当が 1 人なら 工数 ÷ 相対比率 と同じ。"""
+    担当が 1 人なら 工数 ÷ 相対比率 と同じ。週ごとのタスクは、工数を消化する区間のうち、そのメンバーが稼働した時間 × 割り当て率の合計。"""
     if not isfinite(task.effort_hours) or task.effort_hours <= 0:
         return 0.0
+    if task.weekly_crew and (start := effective_start(task, project, holidays)) is not None:
+        slices = consumed_slices(
+            start,
+            task.effort_hours,
+            project.daily_hours,
+            project.work_start,
+            holidays,
+            weeks=weekly_crews(task, project),
+        )
+        own = sum(
+            (right - left).total_seconds() / 3600 * worker.allocation
+            for left, right, active in slices
+            for worker in active
+            if worker.name == member_name
+        )
+        if own > 0:
+            return round(own, 2)
     mine = next((a for a in task.assignees if a.name == member_name), None)
     allocation = mine.allocation if mine is not None else 1.0
     return round(task.effort_hours * allocation / conversion_rate(task, project), 2)
@@ -97,7 +114,7 @@ def build_todos(project: Project, member_name: str, holidays: dict[date, str]) -
                 "name": task.name,
                 "schedule_type": schedule_type,
                 "anchor_date": anchor,
-                "estimate_hours": _estimate_hours(task, project, member_name),
+                "estimate_hours": _estimate_hours(task, project, member_name, holidays),
                 "category_id": category_id,
                 "done_date": None,
             }

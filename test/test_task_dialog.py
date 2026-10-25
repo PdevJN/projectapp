@@ -25,7 +25,7 @@ from projectapp.models import (
     UrlTemplate,
     WorkDay,
 )
-from projectapp.task_dialog import open_task_dialog
+from projectapp.task_dialog import open_task_dialog, open_week_crew_dialog
 
 
 def mount_dialog(
@@ -2633,3 +2633,103 @@ async def test_changing_the_parameters_of_a_task_with_progress_asks_for_a_review
     await user.should_see(marker="reassign-text")
     assert "担当またはパラメータの変更で" in user.find(marker="reassign-text").elements.pop().text
     assert saved == []
+
+
+WEEKS = [[Assignee("田中")], [Assignee("田中"), Assignee("鈴木", 0.5)]]
+
+
+def weekly_task_of(**kwargs) -> Task:
+    return Task("週", assignees=[Assignee("田中"), Assignee("鈴木", 0.5)], weekly_crew=[list(w) for w in WEEKS], **kwargs)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+async def test_the_conversion_lists_each_week(user: User) -> None:
+    mount_dialog(weekly_task_of(effort_hours=20.0), [], members=[TANAKA, SUZUKI])
+    await open_dialog(user)
+    text = user.find(marker="task-conversion").elements.pop().text
+    assert text == "換算率 第1週: 田中 120%×100% = 120% / 第2週: 田中 120%×100% + 鈴木 100%×50% = 170%"
+
+
+async def test_the_computed_end_follows_the_weeks(user: User) -> None:
+    a, b = Member("田中", 1.0), Member("鈴木", 1.0)
+    task = Task(
+        "週",
+        planned_start=datetime(2026, 10, 7, 9, 0),
+        effort_hours=40.0,
+        assignees=[Assignee("田中"), Assignee("鈴木")],
+        weekly_crew=[[Assignee("田中")], [Assignee("田中"), Assignee("鈴木")]],
+    )
+    mount_dialog(task, [], members=[a, b])
+    await open_dialog(user)
+    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-14 12:45"
+
+
+async def test_the_decompose_button_is_hidden_for_a_weekly_task(user: User) -> None:
+    mount_dialog(weekly_task_of(), [], members=[TANAKA, SUZUKI], on_decompose=lambda close: None)
+    await open_dialog(user)
+    await user.should_not_see(marker="task-decompose")
+
+
+def mount_week_dialog(crew: list[Assignee], saved: list[list[Assignee]]) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_week_crew_dialog(2, crew, [TANAKA, SUZUKI], saved.append)).mark("open")
+
+
+async def test_the_week_dialog_starts_from_that_weeks_crew_and_saves_the_edit(user: User) -> None:
+    saved: list[list[Assignee]] = []
+    mount_week_dialog([Assignee("田中", 0.5)], saved)
+    await open_dialog(user)
+    await user.should_see("第2週")
+    assert user.find(marker="week-edit-assignee").elements.pop().value == "田中"
+    assert user.find(marker="week-edit-allocation").elements.pop().value == 50
+    user.find(marker="week-edit-assignee-add").click()
+    await user.should_see(marker="week-edit-assignee-2")
+    with user.client:
+        user.find(marker="week-edit-assignee-2").elements.pop().set_value("鈴木")
+    user.find(marker="week-edit-save").click()
+    assert saved == [[Assignee("田中", 0.5), Assignee("鈴木", 1.0)]]
+
+
+async def test_the_week_dialog_needs_at_least_one_assignee(user: User) -> None:
+    saved: list[list[Assignee]] = []
+    mount_week_dialog([Assignee("田中")], saved)
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="week-edit-assignee").elements.pop().set_value("")
+    user.find(marker="week-edit-save").click()
+    assert "担当者を選んでください" in user.find(marker="week-edit-error").elements.pop().text
+    assert saved == []
+
+
+async def test_a_plain_task_has_no_weekly_switch_or_note(user: User) -> None:
+    mount_dialog(Task("通常", assignees=[Assignee("田中")]), [], members=[TANAKA, SUZUKI])
+    await open_dialog(user)
+    await user.should_see(marker="task-assignee")
+    await user.should_not_see(marker="task-weekly")
+    await user.should_not_see(marker="task-weekly-note")
+
+
+async def test_a_weekly_task_is_not_edited_here_and_saves_its_weeks_unchanged(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(weekly_task_of(), saved, members=[TANAKA, SUZUKI])
+    await open_dialog(user)
+    await user.should_see(marker="task-weekly-note")
+    await user.should_not_see(marker="task-assignee")
+    await user.should_not_see(marker="task-week-1-assignee")
+    user.find(marker="task-name").type("週2")
+    user.find(marker="task-save").click()
+    assert saved[0].weekly_crew == WEEKS
+    assert saved[0].assignees == [Assignee("田中"), Assignee("鈴木", 0.5)]
+

@@ -58,6 +58,8 @@ def decompose_block_reason(project: Project, task: Task) -> str | None:
     """そのタスクを分解できない理由。分解できるなら None。"""
     if task.kind is not TaskKind.NORMAL:
         return "通常のタスクだけ分解できます"
+    if task.weekly_crew:
+        return "週ごとに分けたタスクは分解できません"
     if task.actuals:
         return "実績のあるタスクは分解できません"
     if task.status is not Status.NOT_STARTED or task.progress is not None:

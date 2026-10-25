@@ -20,6 +20,8 @@ from projectapp.icons import is_valid_icon
 from projectapp.linkgraph import validate_links
 from projectapp.models import (
     FORMAT_VERSION,
+    MAX_WEEKS,
+    union_assignees,
     CHECKPOINT_STATUSES,
     ID_KEY,
     URL_KEY,
@@ -111,16 +113,21 @@ def _dump(project: Project) -> dict[str, Any]:
     for member in data["members"]:
         ids.setdefault(member["name"], member["id"])  # 同名は最初の 1 件を指す(読込が残すのも最初の 1 件)
     taken = project.used_ids()
-    for task in _task_dicts(data["tasks"], data["sections"]):
+
+    def refs_of(assignees: list[dict[str, Any]]) -> list[dict[str, Any]]:
         refs = []
-        for assignee in task["assignees"]:
+        for assignee in assignees:
             name = assignee["name"]
             if name not in ids:
                 ids[name] = new_id(taken)
                 taken.add(ids[name])
                 data["members"].append({"name": name, "ratio": 1.0, "levels": {}, "id": ids[name], "icon": "", "work_days": []})
             refs.append({"member": ids[name], "allocation": assignee["allocation"]})
-        task["assignees"] = refs
+        return refs
+
+    for task in _task_dicts(data["tasks"], data["sections"]):
+        task["assignees"] = refs_of(task["assignees"])
+        task["weekly_crew"] = [refs_of(week) for week in task["weekly_crew"]]
     return data
 
 
@@ -256,6 +263,8 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         deadline = _datetime(raw.get("deadline")) or legacy_end  # 明示された締切を優先
     kind = _kind(raw.get("kind"))
     actuals, legacy_progress = _actuals(raw.get("actuals"))
+    weekly = _weekly_crew(raw.get("weekly_crew"), ctx) if ctx.version >= 10 else []
+    assignees = union_assignees(weekly) if weekly else _assignees(raw, ctx)  # 週ごとのタスクの担当は週の表が正
     task = Task(
         name=_task_name(raw.get("name")),
         id=_task_id(raw.get("id")),
@@ -267,7 +276,8 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         priority=Priority(raw["priority"]),
         status=_status(raw["status"]),
         color=raw["color"],
-        assignees=_assignees(raw, ctx),
+        assignees=assignees,
+        weekly_crew=weekly,
         predecessors=_predecessors(raw.get("predecessors")),
         actuals=actuals,
         kind=kind,
@@ -526,6 +536,7 @@ def _summary(task: Task) -> Task:
         predecessors=[],
         status=Status.NOT_STARTED,
         parameters=[],
+        weekly_crew=[],
     )
 
 
@@ -545,6 +556,7 @@ def _checkpoint(task: Task) -> Task:
         actuals=[],
         progress=None,
         parameters=[],
+        weekly_crew=[],
     )
 
 
@@ -647,6 +659,25 @@ def _member_assignees(value: Any, names: dict[str, str]) -> list[Assignee]:
         seen.add(name)
         assignees.append(Assignee(name, _allocation(item.get("allocation", 1.0))))
     return assignees
+
+
+def _weekly_crew(value: Any, ctx: "_Context") -> list[list[Assignee]]:
+    """version 10 の週ごとの担当。各週は担当者の配列(形式は assignees と同じ)。担当者のいない週・上限超えは拒否する。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("週ごとの担当が配列ではありません")
+    if len(value) > MAX_WEEKS:
+        raise ValueError(f"週ごとの担当は{MAX_WEEKS}週までです")
+    weeks: list[list[Assignee]] = []
+    for week in value:
+        if not isinstance(week, list):
+            raise ValueError("週の担当が配列ではありません")
+        crew = _member_assignees(week, ctx.member_names)
+        if not crew:
+            raise ValueError("担当者のいない週があります")
+        weeks.append(crew)
+    return weeks
 
 
 def _assignees(raw: dict[str, Any], ctx: "_Context") -> list[Assignee]:

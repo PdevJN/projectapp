@@ -64,6 +64,7 @@ from projectapp.models import (
     has_control_char,
     is_hex_color,
     new_id,
+    union_assignees,
 )
 from projectapp.workdays import sort_work_days, validate_work_days
 from projectapp.ratios import ParameterEdit, ratio_detail, remap_levels, validate_parameters
@@ -194,6 +195,7 @@ def _build_checkpoint(
         status=status,
         color=color,
         assignees=[],
+        weekly_crew=[],
         actuals=[],
         progress=None,
         parameters=[],
@@ -283,7 +285,7 @@ def build_task(
     assignees: list[tuple[str, float | None]] | None = None,
     parameters: list[str] | None = None,
 ) -> Task:
-    """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。`progress` はタスクの進捗度。"""
+    """入力値からTaskを作る。編集時はフォームにない項目(週ごとの担当を含む)を引き継ぐ。`progress` はタスクの進捗度。"""
     clean = name.strip()
     if (message := task_name_error(clean)) is not None:
         raise ValueError(message)
@@ -322,6 +324,7 @@ def build_task(
     if uses_planned_end and start_at and end_at and end_at < start_at:
         raise ValueError("完了予定は開始予定以降の日時にしてください")
     assignee_list = _build_assignees(assignees or [])
+    weeks = [list(week) for week in base.weekly_crew]  # 週ごとの担当はダイアログでは直さない(棒のチップで直す)
     if actual_rows is not None:
         actuals = build_actual_intervals(actual_rows)
     elif len(base.actuals) > 1:
@@ -342,7 +345,8 @@ def build_task(
         priority=priority,
         status=status,
         color=color,
-        assignees=assignee_list,
+        assignees=union_assignees(weeks) if weeks else assignee_list,
+        weekly_crew=weeks,
         actuals=actuals,
         progress=task_progress,
         category_id=category_id,
