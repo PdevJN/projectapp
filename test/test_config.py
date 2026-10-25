@@ -182,27 +182,39 @@ def test_load_zoom_ignores_a_broken_value(tmp_path: Path) -> None:
     assert load_zoom(tmp_path) == 100
 
 
-def test_the_task_layout_defaults_to_all(tmp_path: Path) -> None:
-    from projectapp.config import load_task_layout
+def test_the_task_sections_default_to_none(tmp_path: Path) -> None:
+    from projectapp.config import load_task_sections
 
-    assert load_task_layout(tmp_path) == "all"
+    assert load_task_sections(tmp_path) is None
 
 
-def test_the_task_layout_round_trips_and_keeps_other_keys(tmp_path: Path) -> None:
-    from projectapp.config import load_task_layout, load_zoom, save_task_layout, save_zoom
+def test_the_task_sections_round_trip_and_keep_other_keys(tmp_path: Path) -> None:
+    from projectapp.config import load_task_sections, load_zoom, save_task_sections, save_zoom
 
     save_zoom(120, tmp_path)
-    save_task_layout("schedule", tmp_path)
-    assert load_task_layout(tmp_path) == "schedule"
+    save_task_sections(["related", "assignees"], tmp_path)
+    assert load_task_sections(tmp_path) == ["assignees", "related"]  # 節の順にそろえる
     assert load_zoom(tmp_path) == 120
+    save_task_sections([], tmp_path)
+    assert load_task_sections(tmp_path) == []  # 全部閉じた状態も保存できる
 
 
-@pytest.mark.parametrize("value", ["x", 1, None, True, ["all"]])
-def test_an_invalid_task_layout_falls_back_to_all(tmp_path: Path, value: object) -> None:
-    from projectapp.config import load_task_layout
+@pytest.mark.parametrize("value", ["assignees", 1, None, ["nope"], ["assignees", "basic"], [["assignees"]]])
+def test_invalid_task_sections_fall_back_to_none(tmp_path: Path, value: object) -> None:
+    from projectapp.config import load_task_sections
 
-    (tmp_path / "config.json").write_text(json.dumps({"task_layout": value}), encoding="utf-8")
-    assert load_task_layout(tmp_path) == "all"
+    (tmp_path / "config.json").write_text(json.dumps({"task_sections": value}), encoding="utf-8")
+    assert load_task_sections(tmp_path) is None
+
+
+def test_an_old_task_layout_is_ignored(tmp_path: Path) -> None:
+    from projectapp.config import load_task_sections, save_task_sections
+
+    (tmp_path / "config.json").write_text(json.dumps({"task_layout": "schedule"}), encoding="utf-8")
+    assert load_task_sections(tmp_path) is None
+    save_task_sections(["actuals"], tmp_path)
+    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["task_layout"] == "schedule"
+
 
 
 def test_project_dir_is_unset_by_default(tmp_path: Path) -> None:

@@ -10,7 +10,7 @@ from projectapp.storage import BASE_DIR
 from projectapp.theme import CustomTheme, custom_theme_to_dict, parse_custom_theme
 
 THEMES = ("auto", "light", "dark", "custom")
-TASK_LAYOUTS = ("all", "schedule")  # タスクのダイアログのレイアウト(すべて・予定と実績)
+TASK_SECTION_KEYS = ("assignees", "actuals", "related")  # タスクのダイアログの、折りたためる節(基本は常に開く)
 DEFAULT_NAME_WIDTH_PX = 200  # ガントチャートの名前の欄の幅
 MIN_NAME_WIDTH_PX = 120
 MAX_NAME_WIDTH_PX = 480
@@ -73,13 +73,16 @@ def save_custom_theme(theme: CustomTheme, base_dir: Path = BASE_DIR, select: boo
     update_config(updates, base_dir)
 
 
-def load_task_layout(base_dir: Path = BASE_DIR) -> str:
-    layout = read_config(base_dir).get("task_layout", "all")
-    return layout if isinstance(layout, str) and layout in TASK_LAYOUTS else "all"
+def load_task_sections(base_dir: Path = BASE_DIR) -> list[str] | None:
+    """開いている節のキー(節の順)。保存がない・不正(リストでない、未知のキーを含む)は None。"""
+    value = read_config(base_dir).get("task_sections")
+    if not isinstance(value, list) or any(key not in TASK_SECTION_KEYS for key in value):
+        return None
+    return [key for key in TASK_SECTION_KEYS if key in value]
 
 
-def save_task_layout(layout: str, base_dir: Path = BASE_DIR) -> None:
-    update_config({"task_layout": layout}, base_dir)
+def save_task_sections(keys: list[str], base_dir: Path = BASE_DIR) -> None:
+    update_config({"task_sections": [key for key in TASK_SECTION_KEYS if key in keys]}, base_dir)
 
 
 def load_name_width(base_dir: Path = BASE_DIR) -> int:
