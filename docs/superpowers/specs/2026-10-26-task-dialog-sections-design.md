@@ -1,6 +1,6 @@
 # タスクの追加・編集ダイアログの節の折りたたみの設計(要望 62)
 
-> **状態**: 実装済み(実機確認待ち)— 要望 62。現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を参照。要約は別マーカー(`task-section-{key}-summary`)ではなく、`ui.expansion` の `caption` プロパティに出す。
+> **状態**: 実装済み(PR #90。実機確認済み)— 要望 62。現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) を参照。要約は別マーカー(`task-section-{key}-summary`)ではなく、`ui.expansion` の `caption` プロパティに出す。
 
 ## 目的
 
