@@ -183,6 +183,7 @@ REFERENCE_CHIP_STYLE = (  # 文字入りのチップ(担当者の丸いチップ
     "flex: none; padding: 0 6px; font-size: 10px; line-height: 16px; white-space: nowrap;"
     " border-radius: 8px; background: rgba(128, 128, 128, 0.3)"
 )
+REFERENCE_MARK = "📅 "  # 参照行の名前の頭に付ける目印(表示だけ。名前には含めない)
 REFERENCE_CSS = ".ref-link { cursor: pointer; } .ref-link:hover { text-decoration: underline; }"
 OVERDUE_COLOR_SOLID = "rgba(239, 83, 80, 0.45)"  # 遅延のチップの背景(行の赤みより濃く)
 RED_BAR_COLOR = "#ef5350"  # 遅延のある参照先の帯の色
@@ -1487,7 +1488,7 @@ class GanttChart:
                         .classes("shrink-0")
                         .mark(f"summary-toggle-{key}-{ti}")
                     )
-                name = ui.label(task.name).classes("ellipsis").style(
+                name = ui.label(REFERENCE_MARK + task.name if task.kind is TaskKind.REFERENCE else task.name).classes("ellipsis").style(
                     f"flex: 1 1 0; min-width: 0; line-height: {ROW_HEIGHT_PX - 1}px"
                 )
                 if summary:

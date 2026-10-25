@@ -3806,3 +3806,10 @@ async def test_reference_chips_are_text_pills_not_the_16px_assignee_circle(user:
         style = user.find(marker=marker).elements.pop().style
         assert style.get("white-space") == "nowrap"
         assert "width" not in style  # 丸い担当者チップの固定幅だと、文字が見切れる
+
+
+async def test_a_reference_row_name_starts_with_the_calendar_mark_without_changing_the_name(user: User) -> None:
+    charts, _ = reference_chart(SPAN)
+    await user.open("/")
+    assert user.find(marker="task-name-top-0").elements.pop().text == "📅 基盤開発"
+    assert charts[0].project.tasks[0].name == "基盤開発"
