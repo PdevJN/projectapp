@@ -47,6 +47,7 @@ def mount_dialog(
     on_layout_change: Callable[[str], object] | None = None,
     on_decompose: Callable[[Callable[[], object]], object] | None = None,
     now: Callable[[], datetime] | None = None,
+    reference_choices: list[str] | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -70,6 +71,7 @@ def mount_dialog(
                 on_layout_change=on_layout_change,
                 on_decompose=on_decompose,
                 now=now or datetime.now,
+                reference_choices=reference_choices,
                 open_url=(lambda url: opened.append(url)) if opened is not None else default_open_url,
             ),
         )
@@ -2733,3 +2735,32 @@ async def test_a_weekly_task_is_not_edited_here_and_saves_its_weeks_unchanged(us
     assert saved[0].weekly_crew == WEEKS
     assert saved[0].assignees == [Assignee("田中"), Assignee("鈴木", 0.5)]
 
+
+
+async def test_the_dialog_saves_a_project_reference(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, reference_choices=["基盤", "共通"])
+    await open_dialog(user)
+    user.find(marker="task-kind").elements.pop().set_value(TaskKind.REFERENCE)
+    await user.should_see(marker="task-ref-project")
+    user.find(marker="task-name").type("基盤開発")
+    user.find(marker="task-ref-project").elements.pop().set_value("基盤")
+    user.find(marker="task-save").click()
+    assert [(t.kind, t.ref_project, t.name) for t in saved] == [(TaskKind.REFERENCE, "基盤", "基盤開発")]
+
+
+async def test_the_reference_kind_is_offered_only_with_choices(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    assert TaskKind.REFERENCE not in user.find(marker="task-kind").elements.pop().options
+
+
+async def test_a_reference_row_hides_the_normal_fields_and_keeps_its_missing_target(user: User) -> None:
+    saved: list[Task] = []
+    task = Task("基盤開発", kind=TaskKind.REFERENCE, ref_project="ない")
+    mount_dialog(task, saved, reference_choices=["基盤"])
+    await open_dialog(user)
+    assert user.find(marker="task-ref-project").elements.pop().value == "ない"  # 見つからない参照先も残す
+    await user.should_not_see(marker="task-effort")
+    user.find(marker="task-save").click()
+    assert saved[0].ref_project == "ない"

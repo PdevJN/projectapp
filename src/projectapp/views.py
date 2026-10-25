@@ -1141,6 +1141,9 @@ class MainView:
             "categories": self.project.categories,
             "layout": self.task_layout,
             "on_layout_change": self.set_task_layout,
+            "reference_choices": sorted(
+                p.stem for p in list_project_files(self.project_dir) if p.stem != self.current_name()
+            ),  # プロジェクト参照の参照先(自分を除く)
         }
 
     def add_task(self, path: SectionPath) -> None:

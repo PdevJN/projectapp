@@ -904,6 +904,7 @@ def open_task_dialog(
     on_layout_change: Callable[[str], object] | None = None,
     on_decompose: Callable[[Callable[[], object]], object] | None = None,
     now: Callable[[], datetime] = datetime.now,
+    reference_choices: list[str] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
     is_summary = initial.kind is TaskKind.SUMMARY  # まとめは、名前・カテゴリ・優先度・リンクだけを編集する
@@ -930,8 +931,15 @@ def open_task_dialog(
         layout_toggle = ui.toggle(LAYOUT_LABELS, value=layout if layout in LAYOUT_LABELS else "all").mark(
             "task-layout"
         )
-        kind = ui.toggle(  # まとめは分解でだけ作る(選択肢に出さない)。まとめの編集では、トグル自体を隠す
-            {k: k.value for k in TaskKind if k is not TaskKind.SUMMARY},
+        # まとめは分解でだけ作る(選択肢に出さない)。まとめの編集では、トグル自体を隠す。プロジェクト参照は、参照先の候補があるときだけ出す
+        offered = [
+            k
+            for k in TaskKind
+            if k is not TaskKind.SUMMARY
+            and (k is not TaskKind.REFERENCE or reference_choices is not None or initial.kind is TaskKind.REFERENCE)
+        ]
+        kind = ui.toggle(
+            {k: k.value for k in offered},
             value=TaskKind.NORMAL if is_summary else initial.kind,
         ).mark("task-kind")
         kind_hint = (
@@ -956,6 +964,13 @@ def open_task_dialog(
                 name.set_value(cleaned)
 
         name.on_value_change(replace_control_chars)
+        # 参照先。候補にいない今の参照先(見つからないファイル)も残して、保存で失わない
+        ref_choices = list(dict.fromkeys([*(reference_choices or []), *([initial.ref_project] if initial.ref_project else [])]))
+        ref_project = (
+            ui.select(ref_choices, value=initial.ref_project or None, label="参照先のプロジェクト")
+            .classes("w-full")
+            .mark("task-ref-project")
+        )
         # 先頭が未定(値は空文字。None は選択なしと区別できない)。名前が長いときだけ省略し、種別・PRJコードは残す。全文はマウスオーバーで出す
         category_options = {"": UNDECIDED, **{c.id: category_label(c) for c in categories or []}}
         category = (
@@ -1144,7 +1159,9 @@ def open_task_dialog(
             finally:
                 suggest["setting"] = False
             kind_hint.set_visibility(
-                checkpoint and initial.kind is TaskKind.NORMAL and has_normal_data
+                kind.value in (TaskKind.CHECKPOINT, TaskKind.REFERENCE)
+                and initial.kind is TaskKind.NORMAL
+                and has_normal_data
             )
             refresh_push()
 
@@ -1172,7 +1189,9 @@ def open_task_dialog(
                     widget.set_visibility(True)
                 return
             full = layout_toggle.value == "all"
-            normal = kind.value != TaskKind.CHECKPOINT
+            reference = kind.value == TaskKind.REFERENCE
+            normal = kind.value not in (TaskKind.CHECKPOINT, TaskKind.REFERENCE)
+            ref_project.set_visibility(reference)
             for widget in (fields.first_row, effort, conversion, actual_box, progress_field.container):
                 widget.set_visibility(normal)
             assignee_fields.container.set_visibility(full and normal and not weekly)
@@ -1181,6 +1200,11 @@ def open_task_dialog(
                 parameter_select.set_visibility(full and normal)
             for widget in (category, predecessors, priority_box, url_box, color):
                 widget.set_visibility(full)
+            for widget in (status, category, priority_box, url_box):  # プロジェクト参照は、状態・カテゴリ・優先度・リンクを持たない
+                if reference:
+                    widget.set_visibility(False)
+            if not reference:
+                status.set_visibility(True)
             refresh_push()
 
         kind.on_value_change(refresh_visibility)
@@ -1197,6 +1221,7 @@ def open_task_dialog(
                 kind.value,
                 category.value or "",
                 *fields.state(),
+                ref_project.value or "",
                 effort.value,
                 priority.value,
                 status.value,
@@ -1255,6 +1280,7 @@ def open_task_dialog(
                     progress=progress_field.value,
                     urls=build_urls(url_fields.rows(), templates),
                     parameters=chosen_parameters if parameter_select is not None else None,
+                    ref_project=ref_project.value or "",
                 )
             except ValueError as exc:
                 error.set_text(str(exc))

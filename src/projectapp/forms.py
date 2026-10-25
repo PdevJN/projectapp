@@ -157,6 +157,52 @@ def _links(
     return links
 
 
+def _build_reference(
+    base: Task,
+    name: str,
+    ref_project: str,
+    deadline: str,
+    color: str,
+    predecessors: list[str] | None,
+    linkable_ids: frozenset[str] | None,
+) -> Task:
+    """プロジェクト参照。参照先・締切(任意)・色・先行だけを検証し、使わない項目は空にする(隠した欄の入力は見ない)。
+    参照先を変えたときは、保存したスナップショットを捨てる。"""
+    if not ref_project.strip():
+        raise ValueError("参照先のプロジェクトを選んでください")
+    try:
+        deadline_at = parse_datetime(deadline)
+    except ValueError:
+        raise ValueError("日時の形式が正しくありません") from None
+    if deadline_at is not None and not MIN_YEAR <= deadline_at.year <= MAX_YEAR:
+        raise ValueError(f"年は{MIN_YEAR}〜{MAX_YEAR}の範囲で入力してください")
+    if not is_hex_color(color):
+        raise ValueError("色は#RRGGBBの形式で入力してください")
+    return replace(
+        base,
+        kind=TaskKind.REFERENCE,
+        name=name,
+        ref_project=ref_project,
+        ref_snapshot=base.ref_snapshot if base.ref_project == ref_project else None,
+        planned_start=None,
+        planned_end=None,
+        planned_end_manual=False,
+        deadline=deadline_at,
+        effort_hours=0.0,
+        priority=Priority.MEDIUM,
+        status=Status.NOT_STARTED,
+        color=color,
+        assignees=[],
+        weekly_crew=[],
+        actuals=[],
+        progress=None,
+        parameters=[],
+        category_id=None,
+        urls=[],
+        predecessors=_links(base, predecessors, linkable_ids),
+    )
+
+
 def _build_checkpoint(
     base: Task,
     name: str,
@@ -284,6 +330,7 @@ def build_task(
     urls: list[TaskUrl] | None = None,
     assignees: list[tuple[str, float | None]] | None = None,
     parameters: list[str] | None = None,
+    ref_project: str = "",
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目(週ごとの担当を含む)を引き継ぐ。`progress` はタスクの進捗度。"""
     clean = name.strip()
@@ -304,6 +351,8 @@ def build_task(
         return _build_checkpoint(
             base, clean, category_id, deadline, priority, status, color, predecessors, linkable_ids, urls
         )
+    if kind is TaskKind.REFERENCE:
+        return _build_reference(base, clean, ref_project, deadline, color, predecessors, linkable_ids)
     hours = effort_hours or 0.0
     manual = planned_end_manual and hours > 0
     uses_planned_end = hours <= 0 or manual
