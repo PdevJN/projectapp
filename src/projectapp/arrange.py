@@ -125,6 +125,28 @@ def insert_named_task(project: Project, dst: Position, name: str) -> Task:
     return task
 
 
+def parent_of(project: Project, src: Position) -> Task | None:
+    """タスクが、まとめの子なら、そのまとめ(同じ一覧にいる)。子でなければ None。"""
+    path, index = src
+    tasks = tasks_at(project, path)
+    task = tasks[index]
+    return next((t for t in tasks if t.kind is TaskKind.SUMMARY and task.id in t.children), None)
+
+
+def insert_named_child(project: Project, dst: Position, name: str, parent_id: str) -> Task:
+    """名前だけの通常タスクを dst に挿入し、まとめ parent_id の子にする。直前が子ならその子の後ろ、そうでなければ子の末尾に入る。"""
+    path, index = dst
+    tasks = tasks_at(project, path)
+    parent = next((t for t in tasks if t.id == parent_id and t.kind is TaskKind.SUMMARY), None)
+    if parent is None:
+        raise ValueError("まとめが見つかりません")
+    before = tasks[index - 1].id if 0 < index <= len(tasks) else None
+    task = insert_named_task(project, dst, name)
+    at = parent.children.index(before) + 1 if before in parent.children else len(parent.children)
+    parent.children.insert(at, task.id)
+    return task
+
+
 def copy_task(project: Project, src: Position, dst: Position) -> Task:
     """タスクを dst に複製する。まとめは、子も複製して直後に並べる(子同士の先行は複製へ付け替え、外への先行は外す)。"""
     original = tasks_at(project, src[0])[src[1]]

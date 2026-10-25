@@ -252,9 +252,12 @@ ROW_STYLE = f"height: {ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRI
 ADD_ROW_STYLE = f"height: {ADD_ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
 # IME の変換確定の Enter は無視する。Safari 系は確定時に isComposing が偽でも keyCode が 229 になる
 SEARCH_ENTER_JS = "(e) => { if (!e.isComposing && e.keyCode !== 229) emit(e.target.value); }"
-# ダブルクリックで入力行を出す(Shift を押していればセクション用。押したかを渡す)。
+# ダブルクリックで入力行を出す(Shift を押していればセクション用、Ctrl/Cmd ならまとめの子用。押したかを渡す)。
 # ボタン・リンク・入力欄と、印の付いた要素(まとめの名前)の上では出さない
-QUICK_ADD_JS = "(e) => { if (!e.target.closest('button, a, input, [data-no-quick-add]')) emit(e.shiftKey); }"
+QUICK_ADD_JS = (
+    "(e) => { if (!e.target.closest('button, a, input, [data-no-quick-add]'))"
+    " emit({shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey}); }"
+)
 SCROLLBAR_ROOM_PX = 16  # 横スクロールバーの分の余白。WebKit は高さ auto にバーの厚みを含めない
 # チャートの枠は縦横ともここでスクロールする。高さの上限は、画面の高さから、上のヘッダー
 # (1 行のメニュー・ツールバー・ページの余白)の分を引いた値(固定の見積もり。実機で合わせる)
@@ -307,6 +310,12 @@ setTimeout(() => {
 }, 50);
 """
 ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メンバー名は空にできない
+
+
+def held_keys(keys: object) -> tuple[bool, bool]:
+    """ダブルクリックで渡された、押していたキー({shift, ctrl})。渡されなければ、どちらも押していない。"""
+    held = keys if isinstance(keys, dict) else {}
+    return bool(held.get("shift")), bool(held.get("ctrl"))
 
 
 def reference_open_hint(task: Task) -> str:
@@ -452,6 +461,8 @@ class GanttActions:
     move_section: Callable[[SectionPath, SectionPath], object] = lambda src, dst: None  # 元, 落とした先の見出し(同じ親)
     # 名前の入力行で確定した、名前だけのタスクの追加(セクションのパス, 挿入位置, 名前)
     add_named_task: Callable[[SectionPath, int, str], object] = lambda path, index, name: None
+    # 同じく、まとめの子として作る追加(セクションのパス, 挿入位置, 名前, まとめのタスク id)
+    add_named_child: Callable[[SectionPath, int, str, str], object] = lambda path, index, name, parent: None
     # 名前の入力行で確定した、名前だけのセクションの追加(親のセクションのパス。最上位は (), 名前)
     add_named_section: Callable[[SectionPath, str], object] = lambda parent, name: None
     toggle_weeks: Callable[[SectionPath, int], object] = lambda path, ti: None  # 週ごとに分ける / やめる
@@ -495,6 +506,7 @@ class GanttChart:
         self.scroll_box: ui.element | None = None
         self.task_filter = TaskFilter()
         self.quick_add: Position | None = None  # 名前の入力行を出している位置。保存しない
+        self.quick_parent: str | None = None  # 入力行で作るタスクを、子にするまとめの id。なければ通常のタスク
         self.quick_section: SectionPath | None = None  # セクションの入力行を、子の末尾に出す親のパス(最上位は ())。保存しない
         self.quick_row: ui.element | None = None
         self.collapsed: set[SectionPath] = set()  # 折りたたんだセクションのパス。保存しない
@@ -519,7 +531,7 @@ class GanttChart:
     def set_project(self, project: Project) -> None:
         """条件は保つ。担当者がメンバーからいなくなったときだけ、担当者の指定を外す。"""
         self.project = project
-        self.quick_add = self.quick_section = None  # 番号がずれるので、開いている入力行は閉じる
+        self.quick_add = self.quick_section = self.quick_parent = None  # 番号がずれるので、開いている入力行は閉じる
         names = {member.name for member in project.members}
         if self.task_filter.assignee not in (None, *names):
             self.task_filter = replace(self.task_filter, assignee=None)
@@ -1104,15 +1116,17 @@ class GanttChart:
         js = f"(e) => {{ e.preventDefault(); getElement({self.menu.id}).show(e); emit(); }}"
         row.on("contextmenu", lambda path=path, ti=ti: self.open_menu(path, ti), js_handler=js)
 
-    def open_quick_add(self, path: SectionPath, index: int) -> None:
-        """名前の入力行を、セクション(root は ())の index 番目に出す。折りたたんだセクションは開く。"""
+    def open_quick_add(self, path: SectionPath, index: int, parent: str | None = None) -> None:
+        """名前の入力行を、セクション(root は ())の index 番目に出す。折りたたんだセクションは開く。parent があれば、そのまとめの子として作る(折りたたんだまとめも開く)。"""
         if self.options.read_only:
             return
         if self.task_filter.active:
             ui.notify("絞り込みを解除してください")
             return
         self.collapsed.discard(path)
-        self.quick_add, self.quick_section = (path, index), None
+        if parent is not None:
+            self.collapsed_summaries.discard(parent)
+        self.quick_add, self.quick_section, self.quick_parent = (path, index), None, parent
         self.render.refresh()
 
     def open_quick_section(self, parent: SectionPath) -> None:
@@ -1126,27 +1140,34 @@ class GanttChart:
             ui.notify(f"サブセクションは {MAX_SECTION_DEPTH} 階層までです")
             return
         self.collapsed.discard(parent)
-        self.quick_add, self.quick_section = None, parent
+        self.quick_add, self.quick_section, self.quick_parent = None, parent, None
         self.render.refresh()
 
-    def double_clicked_task(self, path: SectionPath, ti: int, shift: object) -> None:
-        """タスクの名前の欄のダブルクリック。Shift ならそのセクションの子の末尾にセクションを、なければ直下にタスクを作る。"""
+    def double_clicked_task(self, path: SectionPath, ti: int, keys: object) -> None:
+        """タスクの名前の欄のダブルクリック。Shift ならそのセクションの子の末尾にセクションを作る。
+        子の行なら、同じまとめの子を直下に、まとめの行は Ctrl/Cmd ならその子の末尾に、それ以外は直下に通常のタスクを作る。"""
+        shift, ctrl = held_keys(keys)
         if shift:
             self.open_quick_section(path)
         else:
-            self.open_quick_add_after(path, ti)
+            self.open_quick_add_after(path, ti, ctrl)
 
-    def double_clicked_section(self, path: SectionPath, shift: object) -> None:
+    def double_clicked_section(self, path: SectionPath, keys: object) -> None:
         """セクションの見出し・末尾の追加行(root は ())のダブルクリック。Shift ならその子の末尾にセクションを、なければタスクを作る。"""
-        if shift:
+        if held_keys(keys)[0]:
             self.open_quick_section(path)
         else:
             self.open_quick_add_at_end(path)
 
-    def open_quick_add_after(self, path: SectionPath, ti: int) -> None:
-        """タスクの直下(まとめは子の後ろ)に出す。"""
-        if arrange.has_task(self.project, (path, ti)):
-            self.open_quick_add(*arrange.after_task(self.project, (path, ti)))
+    def open_quick_add_after(self, path: SectionPath, ti: int, ctrl: bool = False) -> None:
+        """タスクの直下(まとめは子の後ろ)に出す。子の行なら同じまとめの子として、まとめの行は ctrl のとき子の末尾に作る。"""
+        if not arrange.has_task(self.project, (path, ti)):
+            return
+        task = arrange.tasks_at(self.project, path)[ti]
+        parent = arrange.parent_of(self.project, (path, ti))
+        if parent is None and ctrl and task.kind is TaskKind.SUMMARY:
+            parent = task
+        self.open_quick_add(*arrange.after_task(self.project, (path, ti)), parent.id if parent is not None else None)
 
     def open_quick_add_at_end(self, path: SectionPath) -> None:
         """セクション(root は ())のタスクの末尾に出す。"""
@@ -1154,7 +1175,7 @@ class GanttChart:
 
     def close_quick_add(self) -> None:
         """入力行を閉じる。描き直さず、行を消して矢印だけ作り直す。"""
-        row, self.quick_row, self.quick_add, self.quick_section = self.quick_row, None, None, None
+        row, self.quick_row, self.quick_add, self.quick_section, self.quick_parent = self.quick_row, None, None, None, None
         if row is not None and not row.is_deleted:
             row.delete()
         self.update_links()
@@ -1171,8 +1192,11 @@ class GanttChart:
             return
         if self.quick_add is None:
             return
-        (path, index), _ = self.quick_add, self.close_quick_add()
-        self.actions.add_named_task(path, index, name)
+        (path, index), parent, _ = self.quick_add, self.quick_parent, self.close_quick_add()
+        if parent is not None:
+            self.actions.add_named_child(path, index, name, parent)
+        else:
+            self.actions.add_named_task(path, index, name)
 
     def quick_add_row(self, path: SectionPath, hidden: bool = False, section: bool = False) -> None:
         """名前を入れる入力行(section ならセクションの名前。path はその親)。名前の欄の中に入力欄を置き、Enter で確定、Esc かフォーカスを外すと取り消す。"""
@@ -1182,8 +1206,8 @@ class GanttChart:
         with row:
             cell = ui.row().classes("items-center no-wrap gap-1 gantt-sticky" + self.resize_classes())
             cell.style(
-                f"width: var(--name-w); padding-left: {16 + 12 * max(len(path) - 1, 0)}px; padding-right: 4px;"
-                f" align-self: stretch; {sticky_left(STICKY_Z_NAME)}"
+                f"width: var(--name-w); padding-left: {16 + 12 * max(len(path) - 1, 0) + (SUMMARY_INDENT_PX if self.quick_parent else 0)}px;"
+                f" padding-right: 4px; align-self: stretch; {sticky_left(STICKY_Z_NAME)}"
             )
             with cell:
                 label = "セクション名" if section else "タスク名"

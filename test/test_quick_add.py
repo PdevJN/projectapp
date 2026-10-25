@@ -152,7 +152,7 @@ def nested_project() -> Project:
 
 
 async def shift_double_click(user: User, marker: str) -> None:
-    user.find(marker=marker).trigger("dblclick", args=True)  # args は e.shiftKey
+    user.find(marker=marker).trigger("dblclick", args={"shift": True})  # args は {shift, ctrl}
     await user.should_see(marker=INPUT)
 
 
@@ -188,7 +188,7 @@ async def test_shift_double_click_in_a_third_level_section_is_refused_with_a_not
     _, recorder = mount_chart(nested_project())
     await user.open("/")
     for marker in ("section-0.0.0", "task-0.0.0-0"):
-        user.find(marker=marker).trigger("dblclick", args=True)
+        user.find(marker=marker).trigger("dblclick", args={"shift": True})
         await user.should_see("サブセクションは 3 階層までです")
     await user.should_not_see(marker=INPUT)
     assert recorder.events == []
@@ -221,7 +221,7 @@ async def test_shift_double_click_with_an_active_filter_refuses_with_a_notice(us
     charts, recorder = mount_chart(nested_project())
     await user.open("/")
     charts[0].set_filter(TaskFilter(query="上"))
-    user.find(marker="section-0").trigger("dblclick", args=True)
+    user.find(marker="section-0").trigger("dblclick", args={"shift": True})
     await user.should_see("絞り込みを解除してください")
     await user.should_not_see(marker=INPUT)
 
@@ -232,3 +232,61 @@ async def test_shift_double_click_on_a_collapsed_section_opens_it(user: User) ->
     charts[0].toggle_section((0,))
     await shift_double_click(user, "section-0")
     assert (0,) not in charts[0].collapsed
+
+
+CTRL = {"ctrl": True}
+
+
+async def test_ctrl_double_click_on_a_summary_adds_a_child_at_the_end_of_its_children(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    user.find(marker="task-2-0").trigger("dblclick", args=CTRL)
+    await user.should_see(marker=INPUT)
+    user.find(marker=INPUT).trigger("keydown.enter", args="新")
+    assert recorder.events == [("add_named_child", ((2,), 3, "新", "s"))]
+    await user.should_not_see(marker=INPUT)
+
+
+async def test_double_click_on_a_child_adds_a_sibling_child_right_below_it(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "task-2-1")  # Ctrl なし
+    user.find(marker=INPUT).trigger("keydown.enter", args="新")
+    assert recorder.events == [("add_named_child", ((2,), 2, "新", "s"))]
+
+
+async def test_ctrl_double_click_on_a_plain_task_adds_a_plain_task(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    user.find(marker="task-0-0").trigger("dblclick", args=CTRL)
+    await user.should_see(marker=INPUT)
+    user.find(marker=INPUT).trigger("keydown.enter", args="新")
+    assert recorder.events == [("add_named_task", ((0,), 1, "新"))]
+
+
+async def test_shift_wins_over_ctrl_on_a_summary(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    user.find(marker="task-2-0").trigger("dblclick", args={"shift": True, "ctrl": True})
+    await user.should_see(marker=INPUT)
+    user.find(marker=INPUT).trigger("keydown.enter", args="束2")
+    assert recorder.events == [("add_named_section", ((2,), "束2"))]
+
+
+async def test_adding_a_child_to_a_folded_summary_opens_it(user: User) -> None:
+    charts, _ = mount_chart(quick_project())
+    await user.open("/")
+    charts[0].collapsed_summaries.add("s")
+    charts[0].render.refresh()
+    user.find(marker="task-2-0").trigger("dblclick", args=CTRL)
+    await user.should_see(marker=INPUT)
+    assert "s" not in charts[0].collapsed_summaries
+
+
+async def test_the_child_input_is_refused_while_filtering(user: User) -> None:
+    charts, recorder = mount_chart(quick_project())
+    await user.open("/")
+    charts[0].set_filter(TaskFilter(query="子"))
+    charts[0].double_clicked_task((2,), 1, {})
+    await user.should_see("絞り込みを解除してください")
+    assert recorder.events == []
