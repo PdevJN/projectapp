@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, datetime, time
 
 import pytest
 
@@ -13,8 +13,11 @@ from projectapp.models import (
     Parameter,
     Priority,
     Project,
+    ReferenceMode,
+    ReferenceValue,
     Section,
     Task,
+    TaskKind,
     UrlTemplate,
     WorkDay,
     union_assignees,
@@ -512,3 +515,28 @@ def test_turning_weekly_off_on_one_side_gives_the_plain_assignees() -> None:
     assert result.conflicts == []
     merged = result.project.tasks[0]
     assert merged.weekly_crew == [] and merged.assignees == [Assignee("甲", 0.5)]
+
+
+def test_reference_fields_are_merged_per_item() -> None:
+    ref = dict(kind=TaskKind.REFERENCE)
+    base = proj(tasks=[task("基盤開発", "r", ref_project="基盤", **ref)])
+    ours = proj(tasks=[task("基盤開発", "r", ref_project="基盤2", **ref)])  # 自分が参照先を変えた
+    theirs = proj(tasks=[task("基盤の開発", "r", ref_project="基盤", **ref)])  # 相手が名前を変えた
+    merged = merge_projects(base, ours, theirs)
+    assert merged.conflicts == []
+    result = merged.project.tasks[0]
+    assert (result.kind, result.ref_project, result.name) == (TaskKind.REFERENCE, "基盤2", "基盤の開発")
+
+
+def test_a_snapshot_changed_on_both_sides_is_a_conflict_with_a_readable_label() -> None:
+    def with_snapshot(day: int) -> Project:
+        value = ReferenceValue(planned_start=datetime(2026, 10, day), planned_end=datetime(2026, 10, 20))
+        return proj(tasks=[task("基盤開発", "r", kind=TaskKind.REFERENCE, ref_project="基盤", ref_snapshot=value)])
+
+    merged = merge_projects(with_snapshot(1), with_snapshot(2), with_snapshot(3))
+    assert [c.field for c in merged.conflicts] == ["スナップショット"]
+
+
+def test_the_reference_mode_merges_as_a_setting() -> None:
+    merged = merge_projects(proj(), proj(reference_mode=ReferenceMode.SNAPSHOT), proj())
+    assert merged.project.reference_mode is ReferenceMode.SNAPSHOT
