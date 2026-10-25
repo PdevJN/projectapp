@@ -4,6 +4,8 @@
 
 ## 現在の状況
 
+**2026-10-26(要望 62): タスクのダイアログの節の折りたたみを`feature/task-dialog-sections`で実装(実機確認待ち。PR 未)。節は基本・担当とパラメータ・実績と進捗・関連。開閉は`config.json`の`task_sections`、要約は`ui.expansion`の`caption`。`task_layout`は廃止(古い値は読み飛ばす)。純粋関数は`task_sections.py`、設計書`2026-10-26-task-dialog-sections-design.md`・計画`plans/2026-10-26-task-dialog-sections.md`。テスト 3,682 件通過。実機で確認すること: 新規は基本だけ開く/要約の表示/開閉の保存/区間の入力エラーで節が開く/チェックポイントで節が消える。**
+
 **2026-10-25(要望 55): 実績のあるタスクの分解を実装・実機確認済み(PR #82 で`develop`へマージ済み。`feature/settled-decompose`は削除済み)。実績か進捗度のあるタスクは、1 つ目の子を消し込み(終了・実績を引き継ぐ・工数=消化分)にし、残り(工数 − 消化分)を 2 つ目以降に割る(`decompose.settle`・`default_parts_settled`)。週ごとのタスクも分解できる(週ごとの担当は引き継がず、消し込みは全週・残りは今日の週の担当)。bounded で、設計書なし(`docs/requests.md`の要望 55)。**
 
 **2026-10-25(要望 54): タスクの週ごとの担当を実装・実機確認済み(PR #81 で`develop`へマージ済み。`feature/weekly-crew`)。`Task.weekly_crew`(version 10)。始める・やめるは行の右クリックメニュー(`MainView.toggle_weeks`)、棒の上の週のチップのクリックで 1 週だけ直す(`open_week_crew_dialog`)。ホバーは`第N週 9/21〜9/27`の見出し+担当+`⚠ 田中 最大120%`(「の割り当て」は使わない)。名前の欄の担当者チップは Shift を押している間だけ週ごとの担当を出す(`gantt.shift_tooltip`)。週のチップは縞より前に出し、アイコンのあるメンバーは丸い画像。後続の Minor 3 件は`docs/requests.md`の要望 54 に記録。**
