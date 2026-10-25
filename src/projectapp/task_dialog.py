@@ -25,6 +25,7 @@ from projectapp.forms import (
     ActualRow,
     UrlRow,
     bind_picker,
+    build_actuals,
     build_task,
     build_urls,
     compose_actual,
@@ -1318,6 +1319,18 @@ def open_task_dialog(
                 ui.button("見直さない", on_click=lambda: finish(False)).props("flat").mark("reassign-skip")
                 ui.button("編集に戻る", on_click=lambda: review.close()).props("flat").mark("reassign-back")
 
+        def error_section(message: str) -> str | None:
+            """エラーのある節。簡易方式の実績は文言が予定と同じことがあるので、実績の検証で同じ文言が出るかを確かめる。"""
+            if (key := section_of_error(message)) is not None:
+                return key
+            if intervals or is_summary or kind.value != TaskKind.NORMAL:
+                return None
+            try:
+                build_actuals(actual_fields.start_text(), actual_fields.end_text())
+            except ValueError as exc:
+                return "actuals" if str(exc) == message else None
+            return None
+
         def save() -> None:
             error.set_text("")
             try:
@@ -1347,7 +1360,7 @@ def open_task_dialog(
                 )
             except ValueError as exc:
                 error.set_text(str(exc))
-                if (key := section_of_error(str(exc))) is not None:
+                if (key := error_section(str(exc))) is not None:
                     open_section(key)
                 return
             new_rate = assignees_rate(result.assignees, member_list)

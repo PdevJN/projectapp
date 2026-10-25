@@ -2358,6 +2358,40 @@ async def test_an_error_in_a_closed_section_opens_it(user: User) -> None:
     await user.should_see("区間 1: 日付と時刻を両方入れてください")
 
 
+async def test_an_error_in_the_simple_actuals_opens_the_section(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    section_of(user, "actuals").set_value(True)
+    user.find(marker="task-actual-start-date").type("2026-10-05")  # 時刻がない
+    section_of(user, "actuals").set_value(False)
+    user.find(marker="task-save").click()
+    assert section_of(user, "actuals").value is True
+
+
+async def test_an_out_of_range_year_in_the_simple_actuals_opens_the_section(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    section_of(user, "actuals").set_value(True)
+    user.find(marker="task-actual-start-date").type("1999-10-05")
+    user.find(marker="task-actual-start-time").clear().type("09:00")
+    section_of(user, "actuals").set_value(False)
+    user.find(marker="task-save").click()
+    assert section_of(user, "actuals").value is True
+
+
+async def test_a_bad_link_opens_the_related_section(user: User) -> None:
+    mount_dialog(Task("a"), [])
+    await open_dialog(user)
+    section_of(user, "related").set_value(True)
+    user.find(marker="task-url-add").click()
+    user.find(marker="task-url-1-value").type("ftp://example.com")
+    section_of(user, "related").set_value(False)
+    user.find(marker="task-save").click()
+    assert section_of(user, "related").value is True
+
+
 async def test_opening_a_section_for_an_error_is_not_saved(user: User) -> None:
     changed: list[list[str]] = []
     mount_dialog(None, [], actual_mode=INTERVALS, on_sections_change=changed.append)

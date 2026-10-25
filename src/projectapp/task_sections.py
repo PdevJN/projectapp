@@ -7,8 +7,8 @@ TITLES = {"basic": "基本", "assignees": "担当・パラメータ", "actuals":
 MAX_SUMMARY_PEOPLE = 3
 ERROR_PREFIXES = {
     "actuals": ("実績", "区間", "進捗度"),
-    "assignees": ("担当",),
-    "related": ("先行", "色は", "URL", "ID", "テンプレート"),
+    "assignees": ("担当", "割り当て率"),
+    "related": ("先行", "色は", "リンク", "URL", "ID", "テンプレート"),
 }
 
 

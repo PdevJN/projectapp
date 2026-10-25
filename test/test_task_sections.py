@@ -80,5 +80,7 @@ def test_section_of_error() -> None:
     assert section_of_error("担当者が重複しています: 田中") == "assignees"
     assert section_of_error("先行タスクが正しくありません") == "related"
     assert section_of_error("色は#RRGGBBの形式で入力してください") == "related"
-    assert section_of_error("URL を入力してください") == "related"
+    assert section_of_error("リンク1行目: URL を入力してください") == "related"
+    assert section_of_error("リンク2行目: URL は http:// か https:// で始めてください") == "related"
+    assert section_of_error("割り当て率は1〜100%で入力してください") == "assignees"
     assert section_of_error("工数は0以上の数値で入力してください") is None

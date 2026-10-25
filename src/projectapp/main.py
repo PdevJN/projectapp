@@ -81,7 +81,7 @@ def main() -> None:
         MainView().build()
 
     register_static_files()
-    ui.run(title="projectapp", favicon=STATIC_DIR / "favicon.svg", reload=False, language="ja", **run_kwargs(options))
+    ui.run(title="プロジェクト", favicon=STATIC_DIR / "favicon.svg", reload=False, language="ja", **run_kwargs(options))
 
 
 if __name__ in {"__main__", "__mp_main__"}:
