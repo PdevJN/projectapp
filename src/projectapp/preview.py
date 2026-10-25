@@ -10,6 +10,7 @@ from projectapp.config import DEFAULT_NAME_WIDTH_PX
 from projectapp.gantt import COLUMN_WIDTH_PX, ViewOptions
 from projectapp.models import MAX_YEAR, MIN_YEAR, Project, ReferenceValue
 from projectapp.selection import CheckState, toggled
+from projectapp.task_dialog import date_normalizer, normalize_field
 from projectapp.timeline import Scale, build_columns
 
 PERIOD_ORDER_MESSAGE = "期間は、開始日が終了日以前になるように入れてください"
@@ -156,6 +157,8 @@ class PreviewBar:
                 self.start = ui.input("開始日").classes("w-40").mark("preview-start")
                 self.end = ui.input("終了日").classes("w-40").mark("preview-end")
                 add_range_picker(self.start, self.end)
+                for field in (self.start, self.end):  # 10/15・1015・20261015 を YYYY-MM-DD に整える
+                    field.on("blur", lambda _e, field=field: normalize_field(field, date_normalizer(False)))
                 self.scale = ui.toggle({s.value: s.value for s in Scale}).mark("preview-scale")
                 self.chips = ui.checkbox("チップと進捗", value=True).mark("preview-chips")
                 self.alerts = ui.checkbox("予定超過の赤みと割り当て超過の縞", value=True).mark(

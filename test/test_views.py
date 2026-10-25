@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from nicegui import ui
+from nicegui import events, ui
 from nicegui.testing import User
 
 from projectapp.config import load_project_dir, load_zoom, save_project_dir, save_zoom
@@ -1772,6 +1772,40 @@ async def test_the_preview_bar_has_a_view_row_and_an_output_row(user: User, tmp_
     # 2 段目: 出力の選択と、戻る・保存
     assert {"preview-select-all", "preview-select-count", "preview-back", "preview-save", "preview-plantuml"} <= output_row
     assert not {"preview-start", "preview-end", "preview-scale"} & output_row
+
+
+def blur(user: User, marker: str) -> None:
+    """入力欄を離れたときの処理(blur)を呼ぶ。User のシミュレーションには、フォーカスの移動がないため。"""
+    element = user.find(marker=marker).elements.pop()
+    for listener in element._event_listeners.values():
+        if listener.type == "blur":
+            events.handle_event(
+                listener.handler, events.GenericEventArguments(sender=element, client=element.client, args={})
+            )
+
+
+async def test_the_preview_period_fields_normalize_abbreviated_dates_on_blur(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("projectapp.task_dialog.today", lambda: date(2026, 10, 12))
+    view = await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="preview-start").clear().type("10/08")  # 過ぎた日でも翌年にしない
+    blur(user, "preview-start")
+    assert user.find(marker="preview-start").elements.pop().value == "2026-10-08"
+    user.find(marker="preview-end").clear().type("２０２６１２３１")  # 全角
+    blur(user, "preview-end")
+    assert user.find(marker="preview-end").elements.pop().value == "2026-12-31"
+    assert view.preview is not None
+    assert (view.preview.start, view.preview.end) == (date(2026, 10, 8), date(2026, 12, 31))
+
+
+async def test_the_preview_period_field_keeps_text_it_cannot_normalize(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="preview-start").clear().type("abc")
+    blur(user, "preview-start")
+    assert user.find(marker="preview-start").elements.pop().value == "abc"
+    assert "日付の形式が正しくありません" in user.find(marker="preview-error").elements.pop().text
+    assert view.preview is not None
 
 
 async def test_back_restores_the_header_toolbar_and_default_options(user: User, tmp_path: Path) -> None:
