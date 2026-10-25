@@ -123,6 +123,7 @@ class Recorder:
             move_section=lambda src, dst: self.events.append(("move_section", (src, dst))),
             add_named_task=lambda path, index, name: self.events.append(("add_named_task", (path, index, name))),
             add_named_child=lambda path, index, name, parent: self.events.append(("add_named_child", (path, index, name, parent))),
+            add_named_summary=lambda path, index, name: self.events.append(("add_named_summary", (path, index, name))),
             add_named_section=lambda parent, name: self.events.append(("add_named_section", (parent, name))),
             toggle_weeks=lambda path, ti: self.events.append(("toggle_weeks", (path, ti))),
             edit_week_crew=lambda path, ti, week: self.events.append(("edit_week_crew", (path, ti, week))),

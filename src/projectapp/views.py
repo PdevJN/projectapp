@@ -276,6 +276,7 @@ class MainView:
                 move_section=self.move_section,
                 add_named_task=self.add_named_task,
                 add_named_child=self.add_named_child,
+                add_named_summary=self.add_named_summary,
                 add_named_section=self.add_named_section,
                 toggle_weeks=self.toggle_weeks,
                 edit_week_crew=self.edit_week_crew,
@@ -1393,6 +1394,11 @@ class MainView:
     def add_named_child(self, path: SectionPath, index: int, name: str, parent_id: str) -> None:
         """名前だけの通常タスクを、まとめ(parent_id)の子として、index 番目に作る(名前の入力行の確定)。"""
         arrange.insert_named_child(self.project, (path, index), name, parent_id)
+        self.after_edit()
+
+    def add_named_summary(self, path: SectionPath, index: int, name: str) -> None:
+        """まとめを、最初の子と一緒に、セクション(root は ())の index 番目に作る(名前の入力行の確定)。"""
+        arrange.insert_named_summary(self.project, (path, index), name)
         self.after_edit()
 
     def add_named_section(self, parent: SectionPath, name: str) -> None:

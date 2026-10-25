@@ -482,6 +482,25 @@ def test_insert_named_child_rejects_a_missing_or_non_summary_parent() -> None:
         arrange.insert_named_child(project, ((0,), 4), "x", "z")  # まとめでない
 
 
+def test_insert_named_summary_makes_a_summary_with_one_child() -> None:
+    project = sample()
+    summary = arrange.insert_named_summary(project, ((0,), 1), "束")
+    tasks = project.sections[0].tasks
+    assert names(tasks) == ["a0", "束", "子 1", "a1", "a2"]
+    assert summary is tasks[1] and summary.kind is TaskKind.SUMMARY
+    assert summary.children == [tasks[2].id]
+    assert tasks[2].kind is TaskKind.NORMAL and tasks[2].children == []
+    assert len({t.id for t in project.all_tasks()}) == len(project.all_tasks())  # id は重ならない
+
+
+def test_insert_named_summary_into_an_empty_section_and_the_root() -> None:
+    project = sample()
+    arrange.insert_named_summary(project, ((1,), 0), "空の中")
+    arrange.insert_named_summary(project, ((), 2), "根")
+    assert names(project.sections[1].tasks) == ["空の中", "子 1"]
+    assert names(project.tasks) == ["t0", "t1", "根", "子 1"]
+
+
 def test_copying_a_task_keeps_its_parameters_as_an_independent_list() -> None:
     project = Project("p", sections=[Section("s", [Task("a", id="a", parameters=["P"])])])
     arrange.copy_task(project, ((0,), 0), ((0,), 1))

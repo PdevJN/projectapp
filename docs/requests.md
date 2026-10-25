@@ -506,8 +506,9 @@ PlantUML は日単位で担当者の割り当てを集計するので、同じ�
 分解したタスクに対して、あとからタスクを追加できるようにする。追加はダブルクリック。
 
 ### 決定
-- 子の行のダブルクリックは、同じまとめの子を、その子の直下に作る。
-- まとめの行は、`Shift`+`Cmd`(Windows・Linux は`Shift`+`Ctrl`)+ ダブルクリックで、子の末尾に作る。`Cmd`・`Ctrl`だけ、なしは今までどおり通常のタスク。まとめでない行の同じ操作は、`Shift`と同じくセクション。
-- 初めは`Ctrl`だけ、次に`Shift`+`Ctrl`にしたが、macOS の`Ctrl`+クリックは右クリック扱いで、行のメニューが開いて入力行が出ない・すぐ閉じた(2026-10-26)。`Cmd`なら通常のクリックなので、`Shift`+`Cmd`にした(`Ctrl`+クリックの対処は入れない)。
-- 作るのは通常タスクで、名前以外は既定値。折りたたんだまとめは開く。元に戻す 1 ステップ。
-- 実装: `arrange.parent_of`・`insert_named_child`、`GanttActions.add_named_child`、`GanttChart.quick_parent`・`held_keys`(ダブルクリックの JS が`{shift, ctrl}`を渡す)。
+- 子の行のダブルクリックは、同じまとめの子を、その子の直下に作る。まとめの行のダブルクリックは、子の末尾に子を作る。それ以外は今までどおり通常のタスク。
+- `Cmd`(Windows・Linux は`Ctrl`)+ ダブルクリックは、まとめを作る(タスクの代わり)。子のないまとめは通常タスクに戻る(`summary.revert_empty`)ので、最初の子`子 1`を一緒に作る。位置は行の直下(まとめ・子の行は、まとめのブロックの後ろ)。見出し・末尾の追加行は、セクションの末尾。
+- `Shift`+ダブルクリックは、どの行でもセクション(`Shift`が`Cmd`・`Ctrl`より優先)。
+- 経緯: 初めは`Ctrl`+ダブルクリックでまとめに子を足す案にしたが、macOS の`Ctrl`+クリックは右クリック扱いで、行のメニューが開いて入力行が出ない・すぐ閉じた(2026-10-26)。まとめへの子の追加は修飾キーなしにし、`Cmd`はまとめの作成に使う。
+- 作るのは通常タスク(まとめは名前以外が既定値)。元に戻す 1 ステップ。
+- 実装: `arrange.parent_of`・`insert_named_child`・`insert_named_summary`、`GanttActions.add_named_child`・`add_named_summary`、`GanttChart.quick_parent`・`quick_summary`・`held_keys`(ダブルクリックの JS が`{shift, ctrl}`を渡す)。

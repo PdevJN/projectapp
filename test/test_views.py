@@ -5102,18 +5102,31 @@ async def open_a_summary_project(user: User, tmp_path: Path) -> MainView:
     return view
 
 
-async def test_shift_ctrl_double_click_on_a_summary_adds_a_child_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
+async def test_double_click_on_a_summary_adds_a_child_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
     view = await open_a_summary_project(user, tmp_path)
-    user.find(marker="task-0-0").trigger("dblclick", args={"shift": True, "ctrl": True})
+    user.find(marker="task-0-0").trigger("dblclick")
     await user.should_see(marker="quick-add-input")
-    user.find(marker="quick-add-input").trigger("keydown.enter", args="孫でない子")
+    user.find(marker="quick-add-input").trigger("keydown.enter", args="追加の子")
     tasks = view.project.sections[0].tasks
-    assert [t.name for t in tasks] == ["まとめ", "子0", "子1", "孫でない子"]
+    assert [t.name for t in tasks] == ["まとめ", "子0", "子1", "追加の子"]
     assert tasks[0].children == ["c0", "c1", tasks[3].id]
     assert view.is_dirty()
     view.undo()
     assert [t.name for t in view.project.sections[0].tasks] == ["まとめ", "子0", "子1"]
     assert view.project.sections[0].tasks[0].children == ["c0", "c1"]
+
+
+async def test_ctrl_double_click_adds_a_summary_with_its_first_child_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
+    view = await open_a_summary_project(user, tmp_path)
+    user.find(marker="task-0-0").trigger("dblclick", args={"ctrl": True})
+    await user.should_see(marker="quick-add-input")
+    user.find(marker="quick-add-input").trigger("keydown.enter", args="新しいまとめ")
+    tasks = view.project.sections[0].tasks
+    assert [t.name for t in tasks] == ["まとめ", "子0", "子1", "新しいまとめ", "子 1"]
+    assert tasks[3].kind is TaskKind.SUMMARY and tasks[3].children == [tasks[4].id]
+    assert view.is_dirty()
+    view.undo()
+    assert [t.name for t in view.project.sections[0].tasks] == ["まとめ", "子0", "子1"]
 
 
 async def test_double_click_on_a_child_adds_a_sibling_child_below_it(user: User, tmp_path: Path) -> None:
