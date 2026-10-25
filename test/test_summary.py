@@ -67,8 +67,8 @@ def project_with_summary() -> Project:
     )
 
 
-def test_version_is_10() -> None:
-    assert FORMAT_VERSION == 10
+def test_version_is_11() -> None:
+    assert FORMAT_VERSION == 11
 
 
 def test_a_summary_roundtrips_with_its_children(tmp_path: Path) -> None:

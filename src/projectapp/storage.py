@@ -19,6 +19,9 @@ from projectapp.events import normalize_color, validate_events
 from projectapp.icons import is_valid_icon
 from projectapp.linkgraph import validate_links
 from projectapp.models import (
+    OverloadSpan,
+    ReferenceMode,
+    ReferenceValue,
     FORMAT_VERSION,
     MAX_WEEKS,
     union_assignees,
@@ -286,11 +289,15 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         category_id=_category_id(raw.get("category_id")) if ctx.version >= 3 else None,
         children=_children(raw.get("children")) if ctx.version >= 6 else [],
         parameters=_parameter_names(raw.get("parameters")),
+        ref_project=_ref_project(raw.get("ref_project")) if kind is TaskKind.REFERENCE else "",
+        ref_snapshot=_reference_value(raw.get("ref_snapshot")) if ctx.version >= 11 else None,
     )
     if kind is TaskKind.CHECKPOINT:
         result = _checkpoint(task)
     elif kind is TaskKind.SUMMARY:
         result = _summary(task)
+    elif kind is TaskKind.REFERENCE:
+        result = _reference(task)
     else:
         result = task
     if ctx.version < 3:
@@ -557,6 +564,97 @@ def _checkpoint(task: Task) -> Task:
         progress=None,
         parameters=[],
         weekly_crew=[],
+    )
+
+
+def _reference_mode(value: Any) -> ReferenceMode:
+    if value is None:
+        return ReferenceMode.LIVE
+    try:
+        return ReferenceMode(value)
+    except ValueError:
+        raise ValueError(f"参照の方式が正しくありません: {value!r}") from None
+
+
+def _ref_project(value: Any) -> str:
+    """参照先のファイル名。空・文字列以外・使えない文字は ValueError。"""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("参照先のプロジェクトが正しくありません")
+    if any(c in INVALID_NAME_CHARS or ord(c) < 32 or ord(c) == 127 for c in value):
+        raise ValueError("参照先のプロジェクトに使えない文字が含まれています")
+    return value
+
+
+def _optional_moment(value: Any, label: str) -> datetime | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"スナップショットの{label}が文字列ではありません")
+    return _datetime(value)
+
+
+def _reference_value(raw: Any) -> ReferenceValue | None:
+    """保存したスナップショットを読む。null・キーなしは None。形が崩れていれば ValueError。"""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("スナップショットが正しくありません")
+    try:
+        progress = raw.get("progress")
+        if progress is not None:
+            progress = _progress(progress, "スナップショットの進捗率")
+        delayed = raw.get("delayed", 0)
+        if isinstance(delayed, bool) or not isinstance(delayed, int) or delayed < 0:
+            raise ValueError("スナップショットの遅延の件数が正しくありません")
+        peak = raw.get("peak_load", 0.0)
+        if isinstance(peak, bool) or not isinstance(peak, int | float) or not isfinite(peak) or peak < 0:
+            raise ValueError("スナップショットの負荷が正しくありません")
+        spans = raw.get("overloads") or []
+        if not isinstance(spans, list):
+            raise ValueError("スナップショットの負荷の期間が正しくありません")
+        overloads = tuple(
+            OverloadSpan(
+                str(span["member"]),
+                _actual_moment(span["start"], "負荷の開始"),
+                _actual_moment(span["end"], "負荷の終了"),
+                float(span["total"]),
+            )
+            for span in spans
+        )
+        return ReferenceValue(
+            planned_start=_optional_moment(raw.get("planned_start"), "開始予定"),
+            planned_end=_optional_moment(raw.get("planned_end"), "完了予定"),
+            actual_start=_optional_moment(raw.get("actual_start"), "実績の開始"),
+            actual_end=_optional_moment(raw.get("actual_end"), "実績の終了"),
+            progress=progress,
+            finished=raw.get("finished") is True,
+            delayed=delayed,
+            peak_load=float(peak),
+            peak_member=str(raw.get("peak_member") or ""),
+            overloads=overloads,
+            taken_at=_optional_moment(raw.get("taken_at"), "取得日時"),
+        )
+    except (KeyError, TypeError) as exc:
+        raise ValueError(f"スナップショットが正しくありません: {exc}") from None
+
+
+def _reference(task: Task) -> Task:
+    """プロジェクト参照の使わない項目(日程・工数・担当・実績・進捗度・状態・カテゴリ・リンクなど)を空にして返す。"""
+    return replace(
+        task,
+        planned_start=None,
+        planned_end=None,
+        planned_end_manual=False,
+        effort_hours=0.0,
+        assignees=[],
+        weekly_crew=[],
+        actuals=[],
+        progress=None,
+        parameters=[],
+        status=Status.NOT_STARTED,
+        priority=Priority.MEDIUM,
+        category_id=None,
+        urls=[],
     )
 
 
@@ -915,7 +1013,16 @@ def parse_project(text: str, name: str) -> Project:
         parameters=_parameters(raw.get("parameters")),
         categories=_categories(raw.get("categories")) if ctx.version >= 3 else [],
         events=_events(raw.get("events")) if ctx.version >= 4 else [],
+        reference_mode=_reference_mode(raw.get("reference_mode")) if ctx.version >= 11 else ReferenceMode.LIVE,
     )
+    for task in project.all_tasks():
+        if task.kind is TaskKind.REFERENCE:
+            if task.ref_project == name:
+                raise ValueError(f"参照先が自分自身です: {task.name}")
+            if project.reference_mode is ReferenceMode.LIVE:
+                task.ref_snapshot = None  # 常に最新のプロジェクトは、スナップショットを持たない
+        else:
+            task.ref_snapshot = None
     known = {m.name for m in project.members}
     for task in project.all_tasks():  # 古いファイルの自由入力の担当者を、メンバーとして補う
         for assignee in task.assignees:

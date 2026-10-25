@@ -1308,7 +1308,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 10
+    assert raw["version"] == FORMAT_VERSION == 11
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1376,7 +1376,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 10
+    assert raw["version"] == FORMAT_VERSION == 11
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -1900,7 +1900,7 @@ def test_task_parameters_round_trip_and_the_version_is_10(tmp_path: Path) -> Non
     project = Project("p", parameters=[Parameter("Python", []), Parameter("Java", [])], tasks=[Task("a", parameters=["Python", "Java"])])
     path = save_project(project, tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 10
+    assert raw["version"] == FORMAT_VERSION == 11
     assert raw["tasks"][0]["parameters"] == ["Python", "Java"]
     assert load_project(path).tasks[0].parameters == ["Python", "Java"]
 
@@ -1941,8 +1941,8 @@ def _weekly_project() -> Project:
     return Project("p", members=[Member("田中"), Member("鈴木")], tasks=[task])
 
 
-def test_format_version_is_ten() -> None:
-    assert FORMAT_VERSION == 10
+def test_format_version_is_eleven() -> None:
+    assert FORMAT_VERSION == 11
 
 
 def test_weekly_crew_roundtrips_and_assignees_is_the_union(tmp_path: Path) -> None:
