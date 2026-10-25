@@ -5102,9 +5102,9 @@ async def open_a_summary_project(user: User, tmp_path: Path) -> MainView:
     return view
 
 
-async def test_ctrl_double_click_on_a_summary_adds_a_child_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
+async def test_shift_ctrl_double_click_on_a_summary_adds_a_child_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
     view = await open_a_summary_project(user, tmp_path)
-    user.find(marker="task-0-0").trigger("dblclick", args={"ctrl": True})
+    user.find(marker="task-0-0").trigger("dblclick", args={"shift": True, "ctrl": True})
     await user.should_see(marker="quick-add-input")
     user.find(marker="quick-add-input").trigger("keydown.enter", args="孫でない子")
     tasks = view.project.sections[0].tasks

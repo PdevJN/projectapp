@@ -507,6 +507,7 @@ PlantUML は日単位で担当者の割り当てを集計するので、同じ�
 
 ### 決定
 - 子の行のダブルクリックは、同じまとめの子を、その子の直下に作る。
-- まとめの行は、`Ctrl`(macOS は`Cmd`でも可)+ ダブルクリックで、子の末尾に作る。`Ctrl`なしは今までどおり通常のタスク。`Shift`(セクション)が優先。
+- まとめの行は、`Shift`+`Ctrl`(macOS は`Cmd`でも可)+ ダブルクリックで、子の末尾に作る。`Ctrl`だけ・なしは今までどおり通常のタスク。まとめでない行の`Shift`+`Ctrl`は、`Shift`と同じくセクション。
+- 初めは`Ctrl`だけにしたが、macOS の`Ctrl`+クリックは右クリック扱いで、行のメニューが開いて入力行がすぐ閉じた(2026-10-26)。メニューは`Ctrl`+クリックでは開かないようにし、操作は`Shift`+`Ctrl`にした。
 - 作るのは通常タスクで、名前以外は既定値。折りたたんだまとめは開く。元に戻す 1 ステップ。
 - 実装: `arrange.parent_of`・`insert_named_child`、`GanttActions.add_named_child`、`GanttChart.quick_parent`・`held_keys`(ダブルクリックの JS が`{shift, ctrl}`を渡す)。

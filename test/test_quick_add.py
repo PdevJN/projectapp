@@ -235,12 +235,13 @@ async def test_shift_double_click_on_a_collapsed_section_opens_it(user: User) ->
 
 
 CTRL = {"ctrl": True}
+SHIFT_CTRL = {"shift": True, "ctrl": True}
 
 
-async def test_ctrl_double_click_on_a_summary_adds_a_child_at_the_end_of_its_children(user: User) -> None:
+async def test_shift_ctrl_double_click_on_a_summary_adds_a_child_at_the_end_of_its_children(user: User) -> None:
     _, recorder = mount_chart(quick_project())
     await user.open("/")
-    user.find(marker="task-2-0").trigger("dblclick", args=CTRL)
+    user.find(marker="task-2-0").trigger("dblclick", args=SHIFT_CTRL)
     await user.should_see(marker=INPUT)
     user.find(marker=INPUT).trigger("keydown.enter", args="新")
     assert recorder.events == [("add_named_child", ((2,), 3, "新", "s"))]
@@ -255,19 +256,31 @@ async def test_double_click_on_a_child_adds_a_sibling_child_right_below_it(user:
     assert recorder.events == [("add_named_child", ((2,), 2, "新", "s"))]
 
 
-async def test_ctrl_double_click_on_a_plain_task_adds_a_plain_task(user: User) -> None:
+async def test_ctrl_double_click_on_a_plain_task_or_a_summary_adds_a_plain_task(user: User) -> None:
     _, recorder = mount_chart(quick_project())
     await user.open("/")
     user.find(marker="task-0-0").trigger("dblclick", args=CTRL)
     await user.should_see(marker=INPUT)
-    user.find(marker=INPUT).trigger("keydown.enter", args="新")
-    assert recorder.events == [("add_named_task", ((0,), 1, "新"))]
+    user.find(marker=INPUT).trigger("keydown.enter", args="一")
+    user.find(marker="task-2-0").trigger("dblclick", args=CTRL)  # Ctrl だけでは、まとめの子にならない
+    await user.should_see(marker=INPUT)
+    user.find(marker=INPUT).trigger("keydown.enter", args="二")
+    assert recorder.events == [("add_named_task", ((0,), 1, "一")), ("add_named_task", ((2,), 3, "二"))]
 
 
-async def test_shift_wins_over_ctrl_on_a_summary(user: User) -> None:
+async def test_shift_ctrl_on_a_plain_task_adds_a_section_like_shift(user: User) -> None:
     _, recorder = mount_chart(quick_project())
     await user.open("/")
-    user.find(marker="task-2-0").trigger("dblclick", args={"shift": True, "ctrl": True})
+    user.find(marker="task-0-0").trigger("dblclick", args=SHIFT_CTRL)
+    await user.should_see(marker=INPUT)
+    user.find(marker=INPUT).trigger("keydown.enter", args="節")
+    assert recorder.events == [("add_named_section", ((0,), "節"))]
+
+
+async def test_shift_on_a_summary_still_adds_a_section(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    user.find(marker="task-2-0").trigger("dblclick", args={"shift": True})
     await user.should_see(marker=INPUT)
     user.find(marker=INPUT).trigger("keydown.enter", args="束2")
     assert recorder.events == [("add_named_section", ((2,), "束2"))]
@@ -278,7 +291,7 @@ async def test_adding_a_child_to_a_folded_summary_opens_it(user: User) -> None:
     await user.open("/")
     charts[0].collapsed_summaries.add("s")
     charts[0].render.refresh()
-    user.find(marker="task-2-0").trigger("dblclick", args=CTRL)
+    user.find(marker="task-2-0").trigger("dblclick", args=SHIFT_CTRL)
     await user.should_see(marker=INPUT)
     assert "s" not in charts[0].collapsed_summaries
 

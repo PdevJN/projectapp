@@ -62,6 +62,7 @@ async def test_every_row_opens_the_shared_menu_on_right_click(user: User) -> Non
         handler = listeners[0].js_handler or ""
         assert "preventDefault" in handler
         assert ".show(e)" in handler and "qRef" not in handler  # QMenu は getElement が直接返す(qRef は無い)
+        assert "e.ctrlKey && e.button === 0" in handler  # macOS の Ctrl + クリックは、メニューを開かない(Ctrl + ダブルクリックの入力行が閉じる)
 
 
 async def test_read_only_rows_have_no_menu(user: User) -> None:

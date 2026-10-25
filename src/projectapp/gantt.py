@@ -252,7 +252,7 @@ ROW_STYLE = f"height: {ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRI
 ADD_ROW_STYLE = f"height: {ADD_ROW_HEIGHT_PX}px; position: relative; border-bottom: {GRID_BORDER}"
 # IME の変換確定の Enter は無視する。Safari 系は確定時に isComposing が偽でも keyCode が 229 になる
 SEARCH_ENTER_JS = "(e) => { if (!e.isComposing && e.keyCode !== 229) emit(e.target.value); }"
-# ダブルクリックで入力行を出す(Shift を押していればセクション用、Ctrl/Cmd ならまとめの子用。押したかを渡す)。
+# ダブルクリックで入力行を出す(Shift ならセクション用、Shift + Ctrl/Cmd ならまとめの子用。押したかを渡す)。
 # ボタン・リンク・入力欄と、印の付いた要素(まとめの名前)の上では出さない
 QUICK_ADD_JS = (
     "(e) => { if (!e.target.closest('button, a, input, [data-no-quick-add]'))"
@@ -310,6 +310,14 @@ setTimeout(() => {
 }, 50);
 """
 ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メンバー名は空にできない
+
+
+def context_menu_js(menu_id: int) -> str:
+    """右クリックでメニューを開く JS。macOS の Ctrl + クリックは右クリック扱いになるが、Ctrl + ダブルクリック(まとめの子の追加)を妨げないよう開かない。"""
+    return (
+        "(e) => { e.preventDefault(); if (e.ctrlKey && e.button === 0) return; "
+        f"getElement({menu_id}).show(e); emit(); }}"
+    )
 
 
 def held_keys(keys: object) -> tuple[bool, bool]:
@@ -1071,7 +1079,7 @@ class GanttChart:
         """セクションの見出しの右クリックで、セクションのメニューを、クリックした位置に開く。"""
         if self.options.read_only or self.section_menu is None:
             return
-        js = f"(e) => {{ e.preventDefault(); getElement({self.section_menu.id}).show(e); emit(); }}"
+        js = context_menu_js(self.section_menu.id)
         header.on("contextmenu", lambda path=path: self.open_section_menu(path), js_handler=js)
 
     def menu_close_js(self) -> str:
@@ -1113,7 +1121,7 @@ class GanttChart:
         """行の右クリックで共有メニューを、クリックした位置に開く。ブラウザ標準のメニューは出さない。"""
         if self.options.read_only or self.menu is None:
             return
-        js = f"(e) => {{ e.preventDefault(); getElement({self.menu.id}).show(e); emit(); }}"
+        js = context_menu_js(self.menu.id)
         row.on("contextmenu", lambda path=path, ti=ti: self.open_menu(path, ti), js_handler=js)
 
     def open_quick_add(self, path: SectionPath, index: int, parent: str | None = None) -> None:
@@ -1144,13 +1152,16 @@ class GanttChart:
         self.render.refresh()
 
     def double_clicked_task(self, path: SectionPath, ti: int, keys: object) -> None:
-        """タスクの名前の欄のダブルクリック。Shift ならそのセクションの子の末尾にセクションを作る。
-        子の行なら、同じまとめの子を直下に、まとめの行は Ctrl/Cmd ならその子の末尾に、それ以外は直下に通常のタスクを作る。"""
+        """タスクの名前の欄のダブルクリック。子の行なら同じまとめの子を直下に、まとめの行は Shift + Ctrl/Cmd ならその子の末尾に作る。
+        それ以外は、Shift ならそのセクションの子の末尾にセクションを、なければ直下に通常のタスクを作る。"""
         shift, ctrl = held_keys(keys)
-        if shift:
+        task = arrange.tasks_at(self.project, path)[ti] if arrange.has_task(self.project, (path, ti)) else None
+        if shift and ctrl and task is not None and task.kind is TaskKind.SUMMARY:
+            self.open_quick_add_after(path, ti, True)
+        elif shift:
             self.open_quick_section(path)
         else:
-            self.open_quick_add_after(path, ti, ctrl)
+            self.open_quick_add_after(path, ti)
 
     def double_clicked_section(self, path: SectionPath, keys: object) -> None:
         """セクションの見出し・末尾の追加行(root は ())のダブルクリック。Shift ならその子の末尾にセクションを、なければタスクを作る。"""
@@ -1159,13 +1170,13 @@ class GanttChart:
         else:
             self.open_quick_add_at_end(path)
 
-    def open_quick_add_after(self, path: SectionPath, ti: int, ctrl: bool = False) -> None:
-        """タスクの直下(まとめは子の後ろ)に出す。子の行なら同じまとめの子として、まとめの行は ctrl のとき子の末尾に作る。"""
+    def open_quick_add_after(self, path: SectionPath, ti: int, as_child: bool = False) -> None:
+        """タスクの直下(まとめは子の後ろ)に出す。子の行なら同じまとめの子として、まとめの行は as_child のとき子の末尾に作る。"""
         if not arrange.has_task(self.project, (path, ti)):
             return
         task = arrange.tasks_at(self.project, path)[ti]
         parent = arrange.parent_of(self.project, (path, ti))
-        if parent is None and ctrl and task.kind is TaskKind.SUMMARY:
+        if parent is None and as_child and task.kind is TaskKind.SUMMARY:
             parent = task
         self.open_quick_add(*arrange.after_task(self.project, (path, ti)), parent.id if parent is not None else None)
 
