@@ -10,7 +10,6 @@ from projectapp.config import DEFAULT_NAME_WIDTH_PX
 from projectapp.gantt import COLUMN_WIDTH_PX, ViewOptions
 from projectapp.models import MAX_YEAR, MIN_YEAR, Project, ReferenceValue
 from projectapp.selection import CheckState, toggled
-from projectapp.task_dialog import add_picker
 from projectapp.timeline import Scale, build_columns
 
 PERIOD_ORDER_MESSAGE = "期間は、開始日が終了日以前になるように入れてください"
@@ -100,8 +99,41 @@ def check_column_count(scale: Scale, count: int) -> str | None:
     return f"期間が長すぎます({scale.value}は最大{limit}{COLUMN_UNITS[scale]}。期間かスケールを変えてください)"
 
 
+def add_range_picker(start: ui.input, end: ui.input) -> None:
+    """期間の欄の右に、範囲カレンダーを開くアイコンを足す。OK で 2 つの欄に反映する。1 日だけ選んだ間は OK を押せない。"""
+    with ui.dialog() as dialog, ui.card():
+        picker = ui.date().props("range").mark("preview-range-picker")
+        ok = ui.button("OK").mark("preview-range-picker-ok")
+
+    def on_pick(_event: object = None) -> None:
+        ok.set_enabled(parse_range_value(picker.value) is not None)
+
+    def open_picker() -> None:
+        try:
+            current = validate_period(start.value or "", end.value or "")
+        except ValueError:
+            picker.set_value(None)  # 空・不正・開始が終了より後のときは、選択なしで開く
+        else:
+            picker.set_value({"from": current[0].isoformat(), "to": current[1].isoformat()})
+        on_pick()
+        dialog.open()
+
+    def apply() -> None:
+        chosen = parse_range_value(picker.value)
+        if chosen is None:
+            return
+        start.set_value(chosen[0])
+        end.set_value(chosen[1])
+        dialog.close()
+
+    picker.on_value_change(on_pick)
+    ok.on_click(apply)
+    with end.add_slot("append"):
+        ui.icon("date_range").classes("cursor-pointer").on("click", open_picker).mark("open-preview-range-picker")
+
+
 class PreviewBar:
-    """プレビューの上部のバー。期間・スケール・表示項目と、戻る・保存のボタン。"""
+    """プレビューの上部のバー。1 段目に期間・スケール・表示項目、2 段目に出力の選択と戻る・保存。"""
 
     def __init__(
         self,
@@ -122,17 +154,18 @@ class PreviewBar:
         with ui.column().classes("w-full gap-1") as box:
             with ui.row().classes("w-full items-center gap-4").mark("preview-bar"):
                 self.start = ui.input("開始日").classes("w-40").mark("preview-start")
-                add_picker(self.start, ui.date, "event", "preview-start", "%Y-%m-%d")
                 self.end = ui.input("終了日").classes("w-40").mark("preview-end")
-                add_picker(self.end, ui.date, "event", "preview-end", "%Y-%m-%d")
+                add_range_picker(self.start, self.end)
                 self.scale = ui.toggle({s.value: s.value for s in Scale}).mark("preview-scale")
                 self.chips = ui.checkbox("チップと進捗", value=True).mark("preview-chips")
                 self.alerts = ui.checkbox("予定超過の赤みと割り当て超過の縞", value=True).mark(
                     "preview-alerts"
                 )
                 self.events = ui.checkbox("イベント", value=True).mark("preview-events")
+            with ui.row().classes("w-full items-center gap-4").mark("preview-output"):
                 self.select_all = ui.checkbox("すべて選択", value=True).mark("preview-select-all")
                 self.select_count = ui.label("").classes("text-caption").mark("preview-select-count")
+                ui.space()
                 ui.button("戻る", icon="arrow_back", on_click=lambda: self.on_back()).props(
                     "flat"
                 ).mark("preview-back")

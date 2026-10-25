@@ -1704,6 +1704,76 @@ async def test_the_preview_starts_with_the_visible_range_and_the_current_scale(u
     assert user.find(marker="preview-scale").elements.pop().value == view.gantt.scale.value
 
 
+async def test_the_range_picker_applies_the_chosen_range_to_the_fields(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="open-preview-range-picker").click()
+    picker = user.find(marker="preview-range-picker").elements.pop()
+    assert "range" in picker._props  # 範囲選択のプロップ
+    picker.set_value({"from": "2026-10-01", "to": "2026-10-20"})
+    user.find(marker="preview-range-picker-ok").click()
+    assert user.find(marker="preview-start").elements.pop().value == "2026-10-01"
+    assert user.find(marker="preview-end").elements.pop().value == "2026-10-20"
+    assert view.preview is not None
+    assert (view.preview.start, view.preview.end) == (date(2026, 10, 1), date(2026, 10, 20))
+
+
+async def test_the_range_picker_does_not_apply_a_single_day_and_ok_is_disabled(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="open-preview-range-picker").click()
+    picker = user.find(marker="preview-range-picker").elements.pop()
+    picker.set_value("2026-10-09")  # 1 日だけ選んだ状態(to がない)
+    assert not user.find(marker="preview-range-picker-ok").elements.pop().enabled
+    picker.set_value({"from": "2026-10-09", "to": "2026-10-09"})  # 同じ日を 2 回押した 1 日の範囲
+    assert user.find(marker="preview-range-picker-ok").elements.pop().enabled
+    user.find(marker="preview-range-picker-ok").click()
+    assert view.preview is not None
+    assert (view.preview.start, view.preview.end) == (date(2026, 10, 9), date(2026, 10, 9))
+
+
+async def test_closing_the_range_picker_without_ok_keeps_the_fields(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+
+    def fields() -> tuple[str, str]:
+        return user.find(marker="preview-start").elements.pop().value, user.find(marker="preview-end").elements.pop().value
+
+    before = fields()
+    user.find(marker="open-preview-range-picker").click()
+    user.find(marker="preview-range-picker").elements.pop().set_value({"from": "2026-11-01", "to": "2026-11-30"})
+    ok = user.find(marker="preview-range-picker-ok").elements.pop()
+    dialog = ok.parent_slot.parent.parent_slot.parent  # ボタン → カード → ダイアログ
+    assert isinstance(dialog, ui.dialog)
+    dialog.close()  # OK を押さずに閉じる(外側のクリックや ESC と同じ)
+    assert fields() == before
+    assert view.preview is not None
+
+
+async def test_the_range_picker_opens_with_blank_or_invalid_fields(user: User, tmp_path: Path) -> None:
+    await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="preview-start").clear().type("abc")
+    user.find(marker="preview-end").clear()
+    user.find(marker="open-preview-range-picker").click()
+    picker = user.find(marker="preview-range-picker").elements.pop()
+    assert picker.value is None
+    assert not user.find(marker="preview-range-picker-ok").elements.pop().enabled
+
+
+async def test_the_preview_bar_has_a_view_row_and_an_output_row(user: User, tmp_path: Path) -> None:
+    await open_preview(user, tmp_path, FakeExporter())
+
+    def markers_under(marker: str) -> set[str]:
+        row = user.find(marker=marker).elements.pop()
+        return {m for child in row.descendants() for m in child._markers}
+
+    view_row = markers_under("preview-bar")
+    output_row = markers_under("preview-output")
+    # 1 段目: 期間・スケール・表示項目。保存・戻る・すべて選択は含まない
+    assert {"preview-start", "preview-end", "preview-scale", "preview-chips", "preview-alerts", "preview-events"} <= view_row
+    assert not {"preview-back", "preview-save", "preview-plantuml", "preview-select-all"} & view_row
+    # 2 段目: 出力の選択と、戻る・保存
+    assert {"preview-select-all", "preview-select-count", "preview-back", "preview-save", "preview-plantuml"} <= output_row
+    assert not {"preview-start", "preview-end", "preview-scale"} & output_row
+
+
 async def test_back_restores_the_header_toolbar_and_default_options(user: User, tmp_path: Path) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     user.find(marker="preview-back").click()
