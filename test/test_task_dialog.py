@@ -43,8 +43,8 @@ def mount_dialog(
     opened: list[str] | None = None,
     parameters: list[Parameter] | None = None,
     categories: list[Category] | None = None,
-    layout: str = "all",
-    on_layout_change: Callable[[str], object] | None = None,
+    sections: list[str] | None = None,
+    on_sections_change: Callable[[list[str]], object] | None = None,
     on_decompose: Callable[[Callable[[], object]], object] | None = None,
     now: Callable[[], datetime] | None = None,
     reference_choices: list[str] | None = None,
@@ -67,8 +67,8 @@ def mount_dialog(
                 url_templates=url_templates,
                 parameters=parameters,
                 categories=categories,
-                layout=layout,
-                on_layout_change=on_layout_change,
+                sections=sections,
+                on_sections_change=on_sections_change,
                 on_decompose=on_decompose,
                 now=now or datetime.now,
                 reference_choices=reference_choices,
@@ -1200,12 +1200,6 @@ async def test_the_task_progress_is_hidden_for_a_checkpoint_and_cleared_on_save(
     assert saved[0].kind is TaskKind.CHECKPOINT and saved[0].progress is None
 
 
-async def test_the_task_progress_stays_in_the_schedule_layout(user: User) -> None:
-    mount_dialog(Task("旧", progress=40), [], layout="schedule")
-    await open_dialog(user)
-    await user.should_see(marker="task-progress")
-
-
 async def test_changing_the_task_progress_counts_as_a_change_when_closing(user: User) -> None:
     mount_dialog(Task("旧"), [])
     await open_dialog(user)
@@ -2246,55 +2240,64 @@ def rich_task() -> Task:
     )
 
 
-HIDDEN_IN_SCHEDULE = [
-    "task-category",
-    "task-assignee",
-    "task-predecessors",
-    "priority-HIGH",
-    "task-url-add",
-    "task-color",
-]
-SHOWN_IN_SCHEDULE = [
-    "task-name",
-    "task-start-date",
-    "task-end-date",
-    "task-deadline-date",
-    "task-effort",
-    "task-actual-start-date",
-    "task-status",
-    "task-kind",
-]
+RICH_MEMBERS = {"link_options": {"p1": "先行"}, "categories": [Category("開発", id="c1")], "members": [Member("田中", 1.0)]}
 
 
-async def test_the_dialog_opens_in_the_layout_it_is_given(user: User) -> None:
-    mount_dialog(rich_task(), [], layout="schedule", link_options={"p1": "先行"}, categories=[Category("開発", id="c1")], members=[Member("田中", 1.0)])
+def section_of(user: User, key: str) -> ui.expansion:
+    return user.find(marker=f"task-section-{key}").elements.pop()
+
+
+async def test_a_new_task_opens_only_the_basic_fields(user: User) -> None:
+    mount_dialog(None, [], **RICH_MEMBERS)
     await open_dialog(user)
-    for marker in SHOWN_IN_SCHEDULE:
+    for key in ("assignees", "actuals", "related"):
+        assert section_of(user, key).value is False
+    for marker in ("task-name", "task-kind", "task-category", "task-start-date", "task-effort", "task-status"):
         await user.should_see(marker=marker)
-    for marker in HIDDEN_IN_SCHEDULE:
-        await user.should_not_see(marker=marker)
 
 
-async def test_the_toggle_switches_the_layout_and_reports_it(user: User) -> None:
-    changed: list[str] = []
-    mount_dialog(rich_task(), [], on_layout_change=changed.append, link_options={"p1": "先行"}, categories=[Category("開発", id="c1")], members=[Member("田中", 1.0)])
+async def test_an_edit_opens_the_sections_with_values(user: User) -> None:
+    mount_dialog(Task("a", progress=40, assignees=[Assignee("田中", 0.5)]), [], **RICH_MEMBERS)
     await open_dialog(user)
-    for marker in HIDDEN_IN_SCHEDULE:
-        await user.should_see(marker=marker)  # 既定は「すべて」
-    user.find(marker="task-layout").elements.pop().set_value("schedule")
-    for marker in HIDDEN_IN_SCHEDULE:
-        await user.should_not_see(marker=marker)
-    assert changed == ["schedule"]
-    user.find(marker="task-layout").elements.pop().set_value("all")
-    await user.should_see(marker="task-category")
-    assert changed == ["schedule", "all"]
+    assert section_of(user, "assignees").value is True
+    assert section_of(user, "actuals").value is True
+    assert section_of(user, "related").value is False
 
 
-async def test_hidden_fields_keep_their_values_through_a_schedule_save(user: User) -> None:
+async def test_a_saved_state_is_used_but_valued_sections_still_open(user: User) -> None:
+    mount_dialog(Task("a", progress=40), [], sections=["related"], **RICH_MEMBERS)
+    await open_dialog(user)
+    assert section_of(user, "related").value is True  # 保存した開閉
+    assert section_of(user, "actuals").value is True  # 値があるので開く
+    assert section_of(user, "assignees").value is False
+
+
+async def test_toggling_a_section_reports_the_open_sections(user: User) -> None:
+    changed: list[list[str]] = []
+    mount_dialog(None, [], on_sections_change=changed.append, **RICH_MEMBERS)
+    await open_dialog(user)
+    section_of(user, "related").set_value(True)
+    section_of(user, "assignees").set_value(True)
+    section_of(user, "related").set_value(False)
+    assert changed == [["related"], ["assignees", "related"], ["assignees"]]
+
+
+async def test_toggling_a_section_alone_is_not_a_change(user: User) -> None:
+    mount_dialog(rich_task(), [], **RICH_MEMBERS)
+    await open_dialog(user)
+    section_of(user, "related").set_value(False)
+    user.find(marker="task-cancel").click()
+    assert dialog_of(user).value is False
+    assert confirm_dialog_of(user).value is False
+
+
+async def test_closed_sections_keep_their_values_through_a_save(user: User) -> None:
     saved: list[Task] = []
     original = rich_task()
-    mount_dialog(original, saved, layout="schedule", link_options={"p1": "先行"}, categories=[Category("開発", id="c1")], members=[Member("田中", 1.0)])
+    mount_dialog(original, saved, sections=[], **RICH_MEMBERS)
     await open_dialog(user)
+    for key in ("assignees", "actuals", "related"):
+        section_of(user, key).set_value(False)
     user.find(marker="task-name").clear().type("改名")
     user.find(marker="task-save").click()
     result = saved[0]
@@ -2307,45 +2310,121 @@ async def test_hidden_fields_keep_their_values_through_a_schedule_save(user: Use
     assert result.urls == original.urls
 
 
-async def test_a_layout_switch_alone_is_not_a_change(user: User) -> None:
-    mount_dialog(rich_task(), [], link_options={"p1": "先行"}, categories=[Category("開発", id="c1")], members=[Member("田中", 1.0)])
+async def test_a_closed_section_shows_its_summary_in_the_header(user: User) -> None:
+    task = Task(
+        "a",
+        assignees=[Assignee("田中", 1.0), Assignee("鈴木", 0.5)],
+        progress=40,
+        predecessors=["p1"],
+        priority=Priority.HIGH,
+    )
+    mount_dialog(task, [], members=[Member("田中", 1.0), Member("鈴木", 1.0)], link_options={"p1": "先行"})
     await open_dialog(user)
-    user.find(marker="task-layout").elements.pop().set_value("schedule")
-    user.find(marker="task-cancel").click()
-    assert dialog_of(user).value is False  # 切り替えは、変更に数えない(確認なしで閉じる)
-    assert confirm_dialog_of(user).value is False
+    assert section_of(user, "assignees").props["caption"] == ""  # 開いている間は出さない
+    for key in ("assignees", "actuals", "related"):
+        section_of(user, key).set_value(False)
+    assert section_of(user, "assignees").props["caption"] == "田中 100%・鈴木 50%"
+    assert section_of(user, "actuals").props["caption"] == "進捗 40%"
+    assert section_of(user, "related").props["caption"] == "先行 1・優先度 高"
+    section_of(user, "actuals").set_value(True)
+    assert section_of(user, "actuals").props["caption"] == ""
 
 
-async def test_a_checkpoint_hides_the_normal_fields_in_every_layout(user: User) -> None:
-    mount_dialog(None, [], layout="schedule")
+async def test_an_empty_closed_section_has_no_summary(user: User) -> None:
+    mount_dialog(None, [], **RICH_MEMBERS)
+    await open_dialog(user)
+    for key in ("assignees", "actuals", "related"):
+        assert section_of(user, key).props["caption"] == ""
+
+
+async def test_the_summary_follows_edits_made_while_open(user: User) -> None:
+    mount_dialog(None, [], sections=["actuals"], **RICH_MEMBERS)
+    await open_dialog(user)
+    task_progress_input(user).set_value(70)
+    section_of(user, "actuals").set_value(False)
+    assert section_of(user, "actuals").props["caption"] == "進捗 70%"
+
+
+async def test_an_error_in_a_closed_section_opens_it(user: User) -> None:
+    mount_dialog(None, [], actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    section_of(user, "actuals").set_value(True)
+    user.find(marker="task-interval-add").click()
+    user.find(marker="task-interval-0-start-date").type("2026-10-05")  # 時刻がない
+    section_of(user, "actuals").set_value(False)
+    user.find(marker="task-save").click()
+    assert section_of(user, "actuals").value is True
+    await user.should_see("区間 1: 日付と時刻を両方入れてください")
+
+
+async def test_an_error_in_the_simple_actuals_opens_the_section(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    section_of(user, "actuals").set_value(True)
+    user.find(marker="task-actual-start-date").type("2026-10-05")  # 時刻がない
+    section_of(user, "actuals").set_value(False)
+    user.find(marker="task-save").click()
+    assert section_of(user, "actuals").value is True
+
+
+async def test_an_out_of_range_year_in_the_simple_actuals_opens_the_section(user: User) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    section_of(user, "actuals").set_value(True)
+    user.find(marker="task-actual-start-date").type("1999-10-05")
+    user.find(marker="task-actual-start-time").clear().type("09:00")
+    section_of(user, "actuals").set_value(False)
+    user.find(marker="task-save").click()
+    assert section_of(user, "actuals").value is True
+
+
+async def test_a_bad_link_opens_the_related_section(user: User) -> None:
+    mount_dialog(Task("a"), [])
+    await open_dialog(user)
+    section_of(user, "related").set_value(True)
+    user.find(marker="task-url-add").click()
+    user.find(marker="task-url-1-value").type("ftp://example.com")
+    section_of(user, "related").set_value(False)
+    user.find(marker="task-save").click()
+    assert section_of(user, "related").value is True
+
+
+async def test_opening_a_section_for_an_error_is_not_saved(user: User) -> None:
+    changed: list[list[str]] = []
+    mount_dialog(None, [], actual_mode=INTERVALS, on_sections_change=changed.append)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    section_of(user, "actuals").set_value(True)
+    user.find(marker="task-interval-add").click()
+    user.find(marker="task-interval-0-start-date").type("2026-10-05")
+    section_of(user, "actuals").set_value(False)
+    changed.clear()
+    user.find(marker="task-save").click()
+    assert changed == []
+
+
+async def test_a_checkpoint_hides_the_normal_sections(user: User) -> None:
+    mount_dialog(None, [], **RICH_MEMBERS)
     await open_dialog(user)
     user.find(marker="task-kind").elements.pop().set_value(TaskKind.CHECKPOINT)
-    for marker in ("task-start-date", "task-effort", "task-actual-start-date"):
+    for marker in ("task-start-date", "task-effort", "task-actual-start-date", "task-section-assignees", "task-section-actuals"):
         await user.should_not_see(marker=marker)
     await user.should_see(marker="task-deadline-date")
-    user.find(marker="task-layout").elements.pop().set_value("all")
-    for marker in ("task-start-date", "task-effort", "task-actual-start-date", "task-assignee-add"):
-        await user.should_not_see(marker=marker)
+    await user.should_see(marker="task-section-related")
     user.find(marker="task-kind").elements.pop().set_value(TaskKind.NORMAL)
-    await user.should_see(marker="task-effort")
-    await user.should_see(marker="task-assignee-add")
+    for marker in ("task-effort", "task-section-assignees", "task-section-actuals"):
+        await user.should_see(marker=marker)
 
 
-async def test_back_to_normal_in_the_schedule_layout_keeps_the_assignees_hidden(user: User) -> None:
-    mount_dialog(None, [], layout="schedule")
-    await open_dialog(user)
-    user.find(marker="task-kind").elements.pop().set_value(TaskKind.CHECKPOINT)
-    user.find(marker="task-kind").elements.pop().set_value(TaskKind.NORMAL)
-    await user.should_see(marker="task-effort")  # 通常の欄は戻る
-    await user.should_not_see(marker="task-assignee-add")  # レイアウトが隠す欄は、隠れたまま
-
-
-async def test_the_conversion_stays_visible_in_the_schedule_layout(user: User) -> None:
+async def test_the_conversion_is_shown_in_the_basic_fields(user: User) -> None:
     task = Task("a", effort_hours=13.0, assignees=[Assignee("田中", 0.5)])
-    mount_dialog(task, [], layout="schedule", members=[Member("田中", 0.5)])
+    mount_dialog(task, [], members=[Member("田中", 0.5)])
     await open_dialog(user)
-    await user.should_not_see(marker="task-assignee-add")  # 担当者の欄は隠れていても
-    conversion = user.find(marker="task-conversion").elements.pop()  # 算出値を動かす換算の説明は、見える
+    section_of(user, "assignees").set_value(False)
+    conversion = user.find(marker="task-conversion").elements.pop()
     assert "換算率" in conversion.text
 
 
@@ -2607,10 +2686,11 @@ async def test_no_parameter_select_without_registered_parameters_and_the_attache
     assert saved[0].parameters == ["P"]
 
 
-async def test_the_parameter_select_is_only_in_the_full_layout(user: User) -> None:
-    mount_dialog(None, [], parameters=PYTHON_JAVA, layout="schedule")
+async def test_the_parameter_select_is_in_the_assignees_section(user: User) -> None:
+    mount_dialog(None, [], parameters=PYTHON_JAVA, sections=["assignees"])
     await open_dialog(user)
-    await user.should_not_see(marker="task-parameters")
+    await user.should_see(marker="task-parameters")
+    assert section_of(user, "assignees").value is True
 
 
 async def test_the_conversion_follows_the_chosen_parameters(user: User) -> None:
