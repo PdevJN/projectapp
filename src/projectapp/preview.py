@@ -62,6 +62,16 @@ def validate_period(start_text: str, end_text: str) -> tuple[date, date]:
     return start, end
 
 
+def parse_range_value(value: object) -> tuple[str, str] | None:
+    """範囲カレンダーの値を (開始, 終了) にする。1 日だけ選んだとき・未選択のときは None(確定できない)。"""
+    if not isinstance(value, dict):
+        return None
+    first, last = value.get("from"), value.get("to")
+    if isinstance(first, str) and isinstance(last, str) and first and last:
+        return first, last
+    return None
+
+
 def fit_scale(
     project: Project,
     holidays: dict[date, str],

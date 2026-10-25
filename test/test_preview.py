@@ -10,6 +10,7 @@ from projectapp.preview import (
     PreviewSettings,
     check_column_count,
     fit_scale,
+    parse_range_value,
     validate_period,
 )
 from projectapp.timeline import Scale
@@ -161,3 +162,19 @@ def test_excluded_ids_and_the_callback_reach_the_options() -> None:
     assert options.on_select is not None
     options.on_select(["a"], True)
     assert picks == [(["a"], True)]
+
+
+def test_parse_range_value_reads_a_complete_range() -> None:
+    assert parse_range_value({"from": "2026-10-01", "to": "2026-10-31"}) == ("2026-10-01", "2026-10-31")
+
+
+def test_parse_range_value_accepts_the_same_day_as_a_range() -> None:
+    assert parse_range_value({"from": "2026-10-05", "to": "2026-10-05"}) == ("2026-10-05", "2026-10-05")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, "", "2026-10-05", {}, {"from": "2026-10-05"}, {"from": "2026-10-05", "to": ""}, {"to": "2026-10-05"}, 5],
+)
+def test_parse_range_value_rejects_an_incomplete_selection(value: object) -> None:
+    assert parse_range_value(value) is None
