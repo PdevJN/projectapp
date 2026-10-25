@@ -280,31 +280,13 @@ def built(existing: Task | None = None, **kwargs: object) -> Task:
     return build_task(existing, **{**values, **kwargs})  # type: ignore[arg-type]
 
 
-def test_build_task_makes_the_weeks_and_the_union() -> None:
-    rows = [[("田中", 100.0)], [("田中", 50.0), ("鈴木", 100.0)]]
-    task = built(weekly_crew=rows)
-    assert task.weekly_crew == [[Assignee("田中", 1.0)], [Assignee("田中", 0.5), Assignee("鈴木", 1.0)]]
-    assert task.assignees == [Assignee("田中", 1.0), Assignee("鈴木", 1.0)]
-
-
-def test_build_task_rejects_an_empty_week_and_a_duplicate_with_the_week_number() -> None:
-    with pytest.raises(ValueError, match="第2週"):
-        built(weekly_crew=[[("田中", 100.0)], [("", None)]])
-    with pytest.raises(ValueError, match="第1週"):
-        built(weekly_crew=[[("田中", 100.0), ("田中", 50.0)]])
-
-
-def test_build_task_rejects_too_many_weeks() -> None:
-    with pytest.raises(ValueError, match=str(MAX_WEEKS)):
-        built(weekly_crew=[[("田中", 100.0)] for _ in range(MAX_WEEKS + 1)])
-    assert len(built(weekly_crew=[[("田中", 100.0)] for _ in range(MAX_WEEKS)]).weekly_crew) == MAX_WEEKS
-
-
-def test_build_task_keeps_the_weeks_when_none_and_clears_them_when_empty() -> None:
+def test_build_task_keeps_the_weeks_of_an_existing_task() -> None:
+    """週ごとの担当はダイアログでは直さない。編集の保存では、既存の週をそのまま引き継ぐ。"""
     existing = weekly_task("w", [[Assignee("田中")], [Assignee("鈴木")]])
-    assert built(existing, assignees=[("田中", 100.0)]).weekly_crew == existing.weekly_crew
-    cleared = built(existing, assignees=[("田中", 100.0)], weekly_crew=[])
-    assert cleared.weekly_crew == [] and cleared.assignees == [Assignee("田中", 1.0)]
+    kept = built(existing, assignees=[("田中", 100.0), ("鈴木", 100.0)])
+    assert kept.weekly_crew == existing.weekly_crew
+    assert kept.assignees == [Assignee("田中", 1.0), Assignee("鈴木", 1.0)]  # 和集合
+    assert built(None, assignees=[("田中", 100.0)]).weekly_crew == []  # 新規は週ごとにしない
 
 
 def test_a_checkpoint_has_no_weekly_crew() -> None:

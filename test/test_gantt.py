@@ -21,6 +21,10 @@ from projectapp.gantt import (
     STICKY_CSS,
     TRACK_SCROLL_JS,
     ViewOptions,
+    crew_text,
+    SHIFT_HINT,
+    SHIFT_TOOLTIP_CSS,
+    SHIFT_TRACK_JS,
     week_chip_text,
     week_summary,
     ADD_ROW_HEIGHT_PX,
@@ -115,6 +119,8 @@ class Recorder:
             move_section=lambda src, dst: self.events.append(("move_section", (src, dst))),
             add_named_task=lambda path, index, name: self.events.append(("add_named_task", (path, index, name))),
             add_named_section=lambda parent, name: self.events.append(("add_named_section", (parent, name))),
+            toggle_weeks=lambda path, ti: self.events.append(("toggle_weeks", (path, ti))),
+            edit_week_crew=lambda path, ti, week: self.events.append(("edit_week_crew", (path, ti, week))),
         )
 
 
@@ -645,8 +651,8 @@ async def test_the_bar_tooltip_names_the_member_and_the_peak(user: User) -> None
     bar = user.find(marker="bar-top-0").elements.pop()
     tooltips = [c for c in bar.default_slot.children if isinstance(c, ui.tooltip)]
     assert len(tooltips) == 1
-    assert "田中 の割り当てが最大120%" in tooltips[0].text
-    assert "2026-10-07" in tooltips[0].text
+    assert "田中 最大120%" in tooltips[0].text
+    assert "10/7〜10/9" in tooltips[0].text
 
 
 async def test_the_bar_tooltip_names_each_overloaded_member_with_his_own_peak(user: User) -> None:
@@ -668,9 +674,23 @@ async def test_the_bar_tooltip_names_each_overloaded_member_with_his_own_peak(us
     tooltips = [c for c in bar.default_slot.children if isinstance(c, ui.tooltip)]
     assert len(tooltips) == 1
     text = tooltips[0].text
-    assert "田中 の割り当てが最大120%" in text  # 鈴木の 180% と取り違えない
-    assert "鈴木 の割り当てが最大180%" in text
-    assert "田中 の割り当てが最大180%" not in text
+    assert "田中 最大120%" in text  # 鈴木の 180% と取り違えない
+    assert "鈴木 最大180%" in text
+    assert "田中 最大180%" not in text
+
+
+async def test_the_overload_tooltip_wraps_every_three_members(user: User) -> None:
+    names = ["田中", "鈴木", "佐藤", "高橋"]
+    crew = [Assignee(name, 0.6) for name in names]
+    a = Task("A", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9), assignees=list(crew))
+    b = Task("B", planned_start=datetime(2026, 10, 7), planned_end=datetime(2026, 10, 12), assignees=list(crew))
+    mount(Project("demo", base_date=BASE, members=[Member(n) for n in names], tasks=[a, b]))
+    await user.open("/")
+    bar = user.find(marker="bar-top-0").elements.pop()
+    text = next(c for c in bar.default_slot.children if isinstance(c, ui.tooltip)).text
+    first, second = text.split("\n　")  # 4 人目は 2 行目に、全角空白で字下げして出る
+    assert first.count(" 最大") == 3 and "田中" in first and "佐藤" in first
+    assert second.count(" 最大") == 1 and "高橋" in second
 
 
 async def test_no_stripes_without_an_overload(user: User) -> None:
@@ -3491,7 +3511,9 @@ def test_week_chip_text_shows_initials_only_on_the_day_scale_with_room() -> None
     assert week_chip_text(["田中", "鈴木"], 200.0, Scale.DAY) == "田鈴"
     assert week_chip_text(["田中", "鈴木", "佐藤", "高橋", "伊藤"], 200.0, Scale.DAY) == "田鈴佐+2"
     assert week_chip_text(["田中"], 10.0, Scale.DAY) == ""  # 幅が足りない
-    assert week_chip_text(["田中"], 200.0, Scale.WEEK) == ""  # 週次・月次は区切りだけ
+    assert week_chip_text(["田中", "鈴木"], 200.0, Scale.WEEK) == "田鈴"  # 週次も、幅があれば頭文字を出す
+    assert week_chip_text(["田中"], 10.0, Scale.WEEK) == ""
+    assert week_chip_text(["田中"], 200.0, Scale.MONTH) == ""  # 月次は区切りだけ
     assert week_chip_text([], 200.0, Scale.DAY) == ""
 
 
@@ -3533,3 +3555,137 @@ async def test_a_bar_that_ends_in_the_first_week_has_one_chip(user: User) -> Non
     await user.should_see(marker="week-chip-top-0-0")
     await user.should_not_see(marker="week-chip-top-0-1")
     assert user.find(marker="week-chip-top-0-0").elements.pop()._style["width"] == "120.0px"  # 3 日
+
+
+async def test_clicking_a_week_chip_asks_to_edit_that_week(user: User) -> None:
+    recorder = mount(weekly_chart_project())
+    await user.open("/")
+    user.find(marker="week-chip-top-0-1").click()
+    assert recorder.events == [("edit_week_crew", ((), 0, 1))]
+
+
+async def test_week_chips_show_initials_on_the_week_scale(user: User) -> None:
+    mount_with(weekly_chart_project(), ViewOptions(scale=Scale.WEEK))
+    await user.open("/")
+    chips = [user.find(marker=f"week-chip-top-0-{n}").elements.pop() for n in (0, 1)]
+    assert [c.text for c in chips] == ["田", "鈴"]
+
+
+async def test_week_chips_do_not_edit_in_the_read_only_preview(user: User) -> None:
+    project = weekly_chart_project()
+    recorder = Recorder()
+
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(project, {}, recorder.actions, now=lambda: datetime(2026, 10, 1))
+        chart.options = ViewOptions(read_only=True)
+        chart.build()
+
+    await user.open("/")
+    user.find(marker="week-chip-top-0-0").click()
+    assert recorder.events == []
+
+
+def overloaded_weekly_project() -> Project:
+    project = weekly_chart_project()  # 田中が第1週(10/5〜11)に 100%
+    project.tasks.append(
+        Task(
+            "別",
+            planned_start=datetime(2026, 10, 6),
+            planned_end=datetime(2026, 10, 9),
+            assignees=[Assignee("田中", 0.5)],
+        )
+    )
+    return project
+
+
+async def test_week_chips_and_the_overload_tooltip_do_not_overlap(user: User) -> None:
+    mount(overloaded_weekly_project())
+    await user.open("/")
+    bar = user.find(marker="bar-top-0").elements.pop()
+    tips = [c for c in bar.default_slot.children if isinstance(c, ui.tooltip)]
+    own = [t for t in tips if "target" not in t.props]
+    assert not own  # 棒そのものには負荷のヒントを付けない(チップの上で重なるため)
+    chip = user.find(marker="week-chip-top-0-0").elements.pop()
+    chip_tip = next(t for t in tips if t.props.get("target") == f"#{chip.html_id}")
+    assert "第1週" in chip_tip.text and "田中 最大150%" in chip_tip.text  # チップの上でも負荷が分かる
+    area = user.find(marker="overload-tip-top-0").elements.pop()  # チップの行より下だけで、負荷の説明を出す
+    assert area._style["top"] == "12px"
+    assert "田中 最大150%" in [c for c in area.default_slot.children if isinstance(c, ui.tooltip)][0].text
+
+
+async def test_context_menu_toggles_weekly_crew_and_names_the_action(user: User) -> None:
+    charts, recorder = mount_chart(weekly_chart_project())
+    await user.open("/")
+    charts[0].open_menu((), 0)
+    assert user.find(marker="context-weeks-label").elements.pop().text == "週ごとをやめる"  # 週ごとのタスク
+    user.find(marker="context-weeks").click()
+    assert recorder.events == [("toggle_weeks", ((), 0))]
+
+
+async def test_context_menu_weeks_item_is_disabled_without_assignees(user: User) -> None:
+    charts, _ = mount_chart(top_project())
+    await user.open("/")
+    charts[0].open_menu((), 1)  # 担当者のいない通常タスク
+    item = user.find(marker="context-weeks").elements.pop()
+    assert user.find(marker="context-weeks-label").elements.pop().text == "週ごとに分ける"
+    assert item.props.get("disable") is True
+
+
+def test_crew_text_breaks_the_line_every_three_members() -> None:
+    crew = [Assignee(n) for n in "ABCDEFG"]
+    assert crew_text(crew) == "A 100%、B 100%、C 100%\n　D 100%、E 100%、F 100%\n　G 100%"
+    assert crew_text(crew[:3]) == "A 100%、B 100%、C 100%"  # 3 人までは 1 行
+    assert crew_text([]) == ""
+
+
+def test_week_summary_breaks_each_week_every_three_members() -> None:
+    task = Task("w", weekly_crew=[[Assignee(n) for n in "ABCD"], [Assignee("E")]])
+    assert week_summary(task) == "第1週: A 100%、B 100%、C 100%\n　D 100%\n第2週: E 100%"
+
+
+async def test_the_week_chip_hover_breaks_every_three_members(user: User) -> None:
+    project = weekly_chart_project()
+    project.tasks[0].weekly_crew[0] = [Assignee(n) for n in "ABCD"]
+    mount(project)
+    await user.open("/")
+    bar = user.find(marker="bar-top-0").elements.pop()
+    chip = user.find(marker="week-chip-top-0-0").elements.pop()
+    tip = next(t for t in bar.default_slot.children if isinstance(t, ui.tooltip) and t.props.get("target") == f"#{chip.html_id}")
+    assert tip.text.startswith("第1週 10/5〜10/11\nA 100%、B 100%、C 100%\n　D 100%")
+
+
+
+async def test_week_chip_shows_the_icon_image_for_members_who_have_one(user: User, icon: str) -> None:
+    project = weekly_chart_project()
+    project.tasks[0].weekly_crew[0] = [Assignee("田中"), Assignee("鈴木")]
+    project.members = [Member("田中", 1.0, icon=icon), Member("鈴木", 1.0)]
+    mount(project)
+    await user.open("/")
+    chip = user.find(marker="week-chip-top-0-0").elements.pop()
+    children = list(chip.default_slot.children)
+    assert children[0].tag == "img" and children[0]._props["src"] == icon  # アイコンのある人は画像
+    assert children[1].text == "鈴"  # ない人は頭文字のまま
+
+
+async def test_assignee_hover_shows_the_week_summary_only_while_shift_is_held(user: User) -> None:
+    project = weekly_chart_project()
+    mount(project)
+    await user.open("/")
+    who = chip(user, "task-assignee-top-0")
+    tip = next(
+        c
+        for c in who.parent_slot.children
+        if isinstance(c, ui.tooltip) and c.props.get("target") == f"#{who.html_id}"
+    )
+    plain, detail = (child for child in tip.default_slot.children)
+    assert "第1週" not in plain.text and plain.text.endswith(SHIFT_HINT)  # 普通は、その人の率と案内だけ
+    assert "第1週 10/5〜10/11: 田中 100%" in detail.text  # Shift で、週ごとの担当
+    assert "shift-held" in SHIFT_TOOLTIP_CSS and "shiftKey" in SHIFT_TRACK_JS
+
+
+async def test_assignee_hover_of_a_task_without_weeks_stays_plain(user: User) -> None:
+    project = project_with(Task("設計", assignees=[Assignee("山田太郎", 0.5)]))
+    mount(project)
+    await user.open("/")
+    assert tooltips_targeting(chip(user, "task-assignee-0-0")) == ["山田太郎 50%"]

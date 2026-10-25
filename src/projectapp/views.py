@@ -96,8 +96,8 @@ from projectapp.decompose import Part, can_make_section, decompose
 from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
-from projectapp.gantt import GanttActions, GanttChart, ViewOptions
-from projectapp.models import MAX_SECTION_DEPTH, ActualMode, Event, Member, Project, Section, SectionPath, Task, TaskKind, WorkDay, new_id
+from projectapp.gantt import GanttActions, GanttChart, ViewOptions, short_date
+from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, Section, SectionPath, Task, TaskKind, WorkDay, new_id, union_assignees
 from projectapp.workdays import work_day_map
 from projectapp.selection import set_checked
 from projectapp.preview import (
@@ -122,12 +122,21 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.summary import parent_map
-from projectapp.task_dialog import open_task_dialog
+from projectapp.task_dialog import open_task_dialog, open_week_crew_dialog
 from projectapp.theme import BODY_CSS, CustomTheme, theme_js
 from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
 from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
 from projectapp.ratios import ParameterEdit, apply_parameter_edit, impact_lines
-from projectapp.timeline import Schedule, build_columns, clip_overloads, overallocations, visible_range
+from projectapp.timeline import (
+    Schedule,
+    build_columns,
+    clip_overloads,
+    effective_end,
+    effective_start,
+    overallocations,
+    visible_range,
+    week_count,
+)
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク", "custom": "カスタム"}
 CUSTOM_COLORS_LABEL = "カスタムの色…"
@@ -257,6 +266,8 @@ class MainView:
                 move_section=self.move_section,
                 add_named_task=self.add_named_task,
                 add_named_section=self.add_named_section,
+                toggle_weeks=self.toggle_weeks,
+                edit_week_crew=self.edit_week_crew,
             ),
             name_width=load_name_width(base_dir),
         )
@@ -1200,6 +1211,47 @@ class MainView:
 
         open_name_dialog(apply, task_name_error, title="タスク名の変更", initial=task.name, label="タスク名")
 
+    def toggle_weeks(self, path: SectionPath, index: int) -> None:
+        """担当を週ごとに分ける(今の担当を、開始から完了までの全部の週に入れる)/ 週ごとをやめる(第1週の担当に戻す)。"""
+        task = self.tasks_in(path)[index]
+        if task.weekly_crew:
+            saved = replace(task, weekly_crew=[], assignees=list(task.weekly_crew[0]))
+        elif task.kind is TaskKind.NORMAL and task.assignees:
+            schedule = Schedule(self.project, self.holidays)
+            start = effective_start(task, self.project, self.holidays, schedule)
+            end = effective_end(task, self.project, self.holidays, schedule)
+            weeks = week_count(start, end) if start is not None and end is not None and end > start else 1
+            saved = replace(task, weekly_crew=[list(task.assignees) for _ in range(weeks)])
+        else:
+            ui.notify("担当者のいないタスクは、週ごとに分けられません")
+            return
+        self.tasks_in(path)[index] = saved
+        self.after_edit()
+
+    def edit_week_crew(self, path: SectionPath, index: int, week: int) -> None:
+        """週ごとのタスクの、1 週ぶんの担当だけを直す(ガントチャートのチップのクリック)。"""
+        task = self.tasks_in(path)[index]
+        if not task.weekly_crew or week >= MAX_WEEKS:
+            return
+        shown = task.weekly_crew[min(week, len(task.weekly_crew) - 1)]  # 定義した週より後は、最後の週の担当が続いている
+
+        def apply(crew: list[Assignee]) -> None:
+            weeks = [list(w) for w in task.weekly_crew]
+            while len(weeks) <= week:
+                weeks.append(list(weeks[-1]))  # 間の週は、直前の週のコピーで足す
+            weeks[week] = crew
+            saved = replace(task, weekly_crew=weeks, assignees=union_assignees(weeks))
+            self.tasks_in(path)[index] = saved
+            self.after_edit()
+            self.warn_overallocation(saved)
+
+        period = ""
+        schedule = Schedule(self.project, self.holidays)
+        if (start := effective_start(task, self.project, self.holidays, schedule)) is not None:
+            first = start.date() + timedelta(days=7 * week)
+            period = f"{short_date(first)}〜{short_date(first + timedelta(days=6))}"
+        open_week_crew_dialog(week + 1, shown, self.project.members, apply, period)
+
     def add_named_task(self, path: SectionPath, index: int, name: str) -> None:
         """名前だけの通常タスクを、セクション(root は ())の index 番目に作る(名前の入力行の確定)。"""
         arrange.insert_named_task(self.project, (path, index), name)
@@ -1344,7 +1396,7 @@ class MainView:
             peaks = [o.total for o in mine if o.member == name]
             if peaks:
                 ui.notify(
-                    f"{name} の割り当てが最大{round(max(peaks) * 100)}%になる期間があります",
+                    f"{name} 最大{round(max(peaks) * 100)}%になる期間があります",
                     type="warning",
                 )
 

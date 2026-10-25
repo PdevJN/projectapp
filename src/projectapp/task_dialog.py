@@ -20,6 +20,7 @@ from projectapp.dateinput import (
 )
 from projectapp.effortunits import PRESET_HOURS, EffortUnit, from_hours, reference_text, to_hours
 from projectapp.forms import (
+    _build_assignees,
     STANDARD_WORK_HOURS,
     ActualRow,
     UrlRow,
@@ -835,84 +836,36 @@ class AssigneeFields:
         return [(by_name[name], (percent or 100) / 100) for name, percent in self.rows() if name in by_name]
 
 
-class WeeklyCrewFields:
-    """週ごとの担当の節。1 週が 1 ブロックで、中は担当者の欄(AssigneeFields)。印は task-week-N-…(N は 1 始まり)。"""
+def open_week_crew_dialog(
+    number: int,
+    crew: list[Assignee],
+    members: list[Member],
+    on_save: Callable[[list[Assignee]], object],
+    period: str = "",
+) -> None:
+    """週ごとのタスクの、1 週ぶんの担当だけを直す小さなダイアログ(ガントチャートのチップのクリックで開く)。
+    タイトルは、チップのヒントの見出しと同じ「第N週 期間」。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
+        ui.label(f"第{number}週 {period}".rstrip()).classes("text-h6").mark("week-edit-title")
+        fields = AssigneeFields(crew, members, lambda: None, marker="week-edit")
+        error = ui.label("").classes("text-negative").mark("week-edit-error")
 
-    def __init__(self, weeks: list[list[Assignee]], members: list[Member], on_change: Callable[[], object]) -> None:
-        self.members = members
-        self.on_change = on_change
-        self.weeks: list[AssigneeFields] = []
-        self._removes: list[ui.button] = []
-        self.container = ui.column().classes("w-full gap-2")
-        with self.container:
-            ui.label("週ごとの担当(開始予定の日から 7 日ごと。最後の週の担当は、その後も続く)").classes(
-                "text-caption text-grey"
-            )
-            self.box = ui.column().classes("w-full gap-2")
-            self.add_button = (
-                ui.button("週を追加", icon="add", on_click=self._add_copy).props("flat dense").mark("task-week-add")
-            )
-        for week in weeks or [[]]:
-            self._add(week)
-        self._sync()
+        def save() -> None:
+            try:
+                chosen = _build_assignees(fields.rows())
+            except ValueError as exc:
+                error.set_text(str(exc))
+                return
+            if not chosen:
+                error.set_text("担当者を選んでください")
+                return
+            dialog.close()
+            on_save(chosen)
 
-    def _remover(self, number: int) -> Callable[[], None]:
-        return lambda: self._remove(number - 1)
-
-    def _add(self, assignees: list[Assignee]) -> None:
-        number = len(self.weeks) + 1
-        with self.box:
-            with ui.column().classes("w-full gap-1"):
-                with ui.row().classes("w-full items-center"):
-                    ui.label(f"第{number}週").classes("text-subtitle2")
-                    ui.space()
-                    remove = (
-                        ui.button(icon="delete", on_click=self._remover(number))
-                        .props("flat dense color=negative")
-                        .mark(f"task-week-{number}-remove")
-                    )
-                fields = AssigneeFields(assignees, self.members, self.on_change, marker=f"task-week-{number}")
-        self.weeks.append(fields)
-        self._removes.append(remove)
-
-    def _sync(self) -> None:
-        self.add_button.set_enabled(len(self.weeks) < MAX_WEEKS)
-        for remove in self._removes:
-            remove.set_visibility(len(self.weeks) > 1)
-
-    def _add_copy(self) -> None:
-        """直前の週の担当をコピーして、週を足す。"""
-        if len(self.weeks) >= MAX_WEEKS:
-            return
-        self._add(self.weeks[-1].assignee_list() if self.weeks else [])
-        self._sync()
-        self.on_change()
-
-    def _remove(self, index: int) -> None:
-        if len(self.weeks) <= 1:
-            return
-        weeks = self.crews()
-        del weeks[index]
-        self.reset(weeks)
-
-    def reset(self, weeks: list[list[Assignee]]) -> None:
-        """週のブロックを作り直す(番号を振り直すため)。"""
-        self.box.clear()
-        self.weeks.clear()
-        self._removes.clear()
-        for week in weeks or [[]]:
-            self._add(week)
-        self._sync()
-        self.on_change()
-
-    def crews(self) -> list[list[Assignee]]:
-        return [fields.assignee_list() for fields in self.weeks]
-
-    def rows(self) -> list[list[AssigneeRow]]:
-        return [fields.rows() for fields in self.weeks]
-
-    def state(self) -> tuple[tuple[AssigneeRow, ...], ...]:
-        return tuple(fields.state() for fields in self.weeks)
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat")
+            ui.button("保存", on_click=save).mark("week-edit-save")
+    dialog.open()
 
 
 def _title_table(hover: list[str]) -> str:
@@ -1041,17 +994,20 @@ def open_task_dialog(
         )
         with fields.second_row:
             effort = EffortField(initial.effort_hours, daily_hours, STANDARD_WORK_HOURS)
-        weekly_switch = ui.switch("週ごとに分ける", value=bool(initial.weekly_crew)).mark("task-weekly")
+        weekly = bool(initial.weekly_crew)  # 週ごとのタスクの担当は、ガントチャートの棒のチップをタップして直す(ここでは直さない)
         assignee_fields = AssigneeFields(initial.assignees, member_list, lambda: refresh_conversion())
-        weekly_fields = WeeklyCrewFields(
-            initial.weekly_crew or [initial.assignees], member_list, lambda: refresh_conversion()
-        )
+        weekly_note = ui.label(
+            "担当は週ごとに分けています。棒の上のチップをタップして直します(担当者: "
+            + "・".join(a.name for a in initial.assignees)
+            + ")"
+        ).classes("text-caption text-grey").mark("task-weekly-note")
         conversion = ui.label("").classes("text-caption text-grey").mark("task-conversion")
 
         def refresh_conversion(_event: object = None) -> None:
             tagged = f"・{'・'.join(chosen_parameters)}を反映" if chosen_parameters else ""
-            if weekly_switch.value:
-                weeks = [week.chosen() for week in weekly_fields.weeks]
+            if weekly:
+                by_name = {m.name: m for m in member_list}
+                weeks = [[(by_name[a.name], a.allocation) for a in week if a.name in by_name] for week in initial.weekly_crew]
                 fields.set_crew(
                     [],
                     [[Worker(combine_rate(m.ratio, f), work_day_map(m.work_days)) for m, f in week] for week in weeks],
@@ -1082,16 +1038,6 @@ def open_task_dialog(
 
         effort.on_value_change(on_effort_change)
 
-        def on_weekly_change(event: ValueChangeEventArguments) -> None:
-            if event.value:  # 今の担当を第1週にして始める
-                weekly_fields.reset([assignee_fields.assignee_list()])
-            else:  # 第1週の担当を、全期間の担当に戻す
-                first = weekly_fields.crews()[:1]
-                assignee_fields.set_assignees(first[0] if first else [])
-            refresh_visibility()
-            refresh_conversion()
-
-        weekly_switch.on_value_change(on_weekly_change)
         if parameter_select is not None:
 
             def on_parameters_change(event: ValueChangeEventArguments) -> None:
@@ -1217,7 +1163,7 @@ def open_task_dialog(
             if is_summary:
                 for widget in (
                     fields.first_row, fields.second_row, conversion, actual_box, progress_field.container,
-                    assignee_fields.container, weekly_switch, weekly_fields.container,
+                    assignee_fields.container, weekly_note,
                     predecessors, push, status, hint, color, kind, kind_hint, layout_toggle,
                     *([parameter_select] if parameter_select is not None else []),
                 ):
@@ -1229,10 +1175,8 @@ def open_task_dialog(
             normal = kind.value != TaskKind.CHECKPOINT
             for widget in (fields.first_row, effort, conversion, actual_box, progress_field.container):
                 widget.set_visibility(normal)
-            weekly = bool(weekly_switch.value)
-            weekly_switch.set_visibility(full and normal)
             assignee_fields.container.set_visibility(full and normal and not weekly)
-            weekly_fields.container.set_visibility(full and normal and weekly)
+            weekly_note.set_visibility(full and normal and weekly)
             if parameter_select is not None:
                 parameter_select.set_visibility(full and normal)
             for widget in (category, predecessors, priority_box, url_box, color):
@@ -1258,8 +1202,6 @@ def open_task_dialog(
                 status.value,
                 color.value,
                 assignee_fields.state(),
-                weekly_switch.value,
-                weekly_fields.state() if weekly_switch.value else (),
                 tuple(predecessors.value or []),
                 *actual_fields.state(),
                 *progress_field.state(),
@@ -1304,7 +1246,6 @@ def open_task_dialog(
                     status=Status(status.value),
                     color=color.value or initial.color,
                     assignees=assignee_fields.rows(),
-                    weekly_crew=weekly_fields.rows() if weekly_switch.value else [],
                     predecessors=merged_predecessors(),
                     kind=TaskKind.SUMMARY if is_summary else TaskKind(kind.value),
                     linkable_ids=frozenset(options) | frozenset(initial.predecessors),

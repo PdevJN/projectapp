@@ -40,7 +40,6 @@ from projectapp.models import (
     MAX_PROJECT_CODE_LENGTH,
     MAX_RATIO,
     MAX_TASK_NAME_LENGTH,
-    MAX_WEEKS,
     MAX_YEAR,
     MIN_ALLOCATION,
     MIN_LEVEL_VALUE,
@@ -251,22 +250,6 @@ def _build_assignees(rows: list[tuple[str, float | None]]) -> list[Assignee]:
     return result
 
 
-def _build_weekly_crew(weeks: list[list[tuple[str, float | None]]]) -> list[list[Assignee]]:
-    """週ごとの担当の入力を検証する。各週に担当者が最低 1 人で、週数は上限まで。エラーには週の番号を添える。"""
-    if len(weeks) > MAX_WEEKS:
-        raise ValueError(f"週は{MAX_WEEKS}週までです")
-    result: list[list[Assignee]] = []
-    for number, rows in enumerate(weeks, start=1):
-        try:
-            crew = _build_assignees(rows)
-        except ValueError as exc:
-            raise ValueError(f"第{number}週: {exc}") from None
-        if not crew:
-            raise ValueError(f"第{number}週に担当者を選んでください")
-        result.append(crew)
-    return result
-
-
 def task_name_error(clean: str) -> str | None:
     """タスク名(前後の空白を除いたもの)の不正な理由。問題なければ None。"""
     if not clean:
@@ -301,10 +284,8 @@ def build_task(
     urls: list[TaskUrl] | None = None,
     assignees: list[tuple[str, float | None]] | None = None,
     parameters: list[str] | None = None,
-    weekly_crew: list[list[tuple[str, float | None]]] | None = None,
 ) -> Task:
-    """入力値からTaskを作る。編集時はフォームにない項目を引き継ぐ。`progress` はタスクの進捗度。
-    `weekly_crew` は None なら既存のまま、空なら週ごとに分けない。"""
+    """入力値からTaskを作る。編集時はフォームにない項目(週ごとの担当を含む)を引き継ぐ。`progress` はタスクの進捗度。"""
     clean = name.strip()
     if (message := task_name_error(clean)) is not None:
         raise ValueError(message)
@@ -343,7 +324,7 @@ def build_task(
     if uses_planned_end and start_at and end_at and end_at < start_at:
         raise ValueError("完了予定は開始予定以降の日時にしてください")
     assignee_list = _build_assignees(assignees or [])
-    weeks = [list(week) for week in base.weekly_crew] if weekly_crew is None else _build_weekly_crew(weekly_crew)
+    weeks = [list(week) for week in base.weekly_crew]  # 週ごとの担当はダイアログでは直さない(棒のチップで直す)
     if actual_rows is not None:
         actuals = build_actual_intervals(actual_rows)
     elif len(base.actuals) > 1:

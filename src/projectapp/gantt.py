@@ -3,7 +3,7 @@
 import html
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 from nicegui import Client, context, ui
 from nicegui.events import ValueChangeEventArguments
@@ -26,7 +26,7 @@ from projectapp.decompose import decompose_block_reason
 from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
-from projectapp.models import ID_KEY, MAX_SECTION_DEPTH, URL_KEY, Category, Event, Priority, Project, Section, SectionPath, Status, Task, TaskKind, TaskUrl
+from projectapp.models import ID_KEY, MAX_SECTION_DEPTH, URL_KEY, Assignee, Category, Event, Priority, Project, Section, SectionPath, Status, Task, TaskKind, TaskUrl
 from projectapp.selection import CheckState, check_state, task_ids_of, toggled
 from projectapp.urls import resolve
 from projectapp.summary import children_of, parent_map, summary_progress, summary_status
@@ -41,9 +41,9 @@ from projectapp.timeline import (
     bar_span,
     build_columns,
     clip_overloads,
-    crew_pieces,
     current_progress,
     deadline_position,
+    effective_start,
     expected_progress,
     interval_span,
     is_overdue,
@@ -166,8 +166,12 @@ CODE_CHIP_STYLE = (
     "flex: none; max-width: 56px; padding: 0 6px; font-size: 10px; line-height: 16px;"
     " border: 1px solid rgba(128, 128, 128, 0.6); border-radius: 8px"
 )
+# 割り当て超過の縞の上でも頭文字が読めるように、チップの文字に黒い縁を付け、チップを縞より前に出す
+WEEK_CHIP_TEXT_SHADOW = "0 0 2px #000, 0 0 2px #000, 0 0 3px #000"
+HOVER_NAMES_PER_LINE = 3  # 週ごとの担当のマウスオーバーで、1 行に並べる人数
 MAX_ASSIGNEE_CHIPS = 3  # これを超える担当者は、「+n」のチップ 1 つにまとめる
 WEEK_CHIP_HEIGHT_PX = 12  # 棒の上の週ごとのチップの高さ
+WEEK_CHIP_ICON_PX = 10  # 週ごとのチップの中の、アイコン画像の大きさ
 MIN_WEEK_CHIP_TEXT_PX = 24  # 週ごとのチップに頭文字を出す最小の幅(これより狭いときは区切りだけ)
 ASSIGNEE_CHIP_STYLE = (
     "flex: none; width: 16px; height: 16px; line-height: 16px; text-align: center;"
@@ -293,19 +297,63 @@ def planned_background(color: str) -> str:
 
 
 def week_chip_text(names: list[str], width_px: float, scale: Scale) -> str:
-    """棒の上の週ごとのチップの文字。日次で幅が足りるときだけ頭文字を出す(4 人目以降は +n)。"""
-    if scale is not Scale.DAY or width_px < MIN_WEEK_CHIP_TEXT_PX or not names:
+    """棒の上の週ごとのチップの文字。日次・週次で幅が足りるときだけ頭文字を出す(4 人目以降は +n)。"""
+    if scale is Scale.MONTH or width_px < MIN_WEEK_CHIP_TEXT_PX or not names:
         return ""
     rest = len(names) - MAX_ASSIGNEE_CHIPS
     return "".join(name[0] for name in names[:MAX_ASSIGNEE_CHIPS]) + (f"+{rest}" if rest > 0 else "")
 
 
-def week_summary(task: Task) -> str:
-    """週ごとの担当の説明(マウスオーバー用)。週ごとに分けないタスクは空。"""
-    return "\n".join(
-        f"第{number}週: " + "、".join(f"{a.name} {round(a.allocation * 100)}%" for a in week)
-        for number, week in enumerate(task.weekly_crew, start=1)
-    )
+def crew_text(crew: list[Assignee], per_line: int = HOVER_NAMES_PER_LINE) -> str:
+    """担当者と割り当て率(マウスオーバー用)。per_line 人ごとに改行し、2 行目からは全角空白で字下げする。"""
+    names = [f"{a.name} {round(a.allocation * 100)}%" for a in crew]
+    return "\n　".join("、".join(names[i : i + per_line]) for i in range(0, len(names), per_line))
+
+
+def short_date(day: date) -> str:
+    """ヒント用の短い日付(9/21)。"""
+    return f"{day.month}/{day.day}"
+
+
+SHIFT_HINT = "Shift: 週ごとの担当"
+SHIFT_TOOLTIP_CSS = """
+.tip-plain, .tip-detail { white-space: pre-line; }
+.tip-detail { display: none; }
+body.shift-held .tip-plain { display: none; }
+body.shift-held .tip-detail { display: block; }
+"""
+# Shift を押している間だけ body に shift-held を付ける(ウィンドウを離れたとき・マウスの動きでも合わせ直す)
+SHIFT_TRACK_JS = """
+(() => {
+  const set = (on) => document.body && document.body.classList.toggle('shift-held', on);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Shift') set(true); });
+  document.addEventListener('keyup', (e) => { if (e.key === 'Shift') set(false); });
+  document.addEventListener('mousemove', (e) => set(e.shiftKey), { passive: true });
+  window.addEventListener('blur', () => set(false));
+})();
+"""
+
+
+def shift_tooltip(target: ui.element, plain: str, detail: str) -> None:
+    """マウスオーバーのヒント。detail があれば、Shift を押している間だけ detail に切り替える(普通は plain と、操作の案内)。"""
+    if not detail:
+        target.tooltip(plain)
+        return
+    with ui.tooltip().props(f'target="#{target.html_id}"'):
+        ui.label(f"{plain}\n{SHIFT_HINT}").classes("tip-plain")
+        ui.label(detail).classes("tip-detail")
+
+
+def week_summary(task: Task, start: date | None = None) -> str:
+    """週ごとの担当の説明(マウスオーバー用)。週ごとに分けないタスクは空。start(実効の開始の日)を渡すと、週の期間を添える。"""
+    lines = []
+    for number, week in enumerate(task.weekly_crew, start=1):
+        period = ""
+        if start is not None:
+            first = start + timedelta(days=7 * (number - 1))
+            period = f" {short_date(first)}〜{short_date(first + timedelta(days=6))}"
+        lines.append(f"第{number}週{period}: {crew_text(week)}")
+    return "\n".join(lines)
 
 
 def fill_percent(task: Task) -> int | None:
@@ -383,6 +431,8 @@ class GanttActions:
     add_named_task: Callable[[SectionPath, int, str], object] = lambda path, index, name: None
     # 名前の入力行で確定した、名前だけのセクションの追加(親のセクションのパス。最上位は (), 名前)
     add_named_section: Callable[[SectionPath, str], object] = lambda parent, name: None
+    toggle_weeks: Callable[[SectionPath, int], object] = lambda path, ti: None  # 週ごとに分ける / やめる
+    edit_week_crew: Callable[[SectionPath, int, int], object] = lambda path, ti, week: None  # 週ごとの担当の編集(0 始まり)
 
 
 class GanttChart:
@@ -421,6 +471,8 @@ class GanttChart:
         self.menu: ui.context_menu | None = None  # 右クリックの共有メニュー(1 つだけ。行ごとには作らない)
         self.menu_target: tuple[SectionPath, int] | None = None  # メニューを開いた行
         self.decompose_item: ui.menu_item | None = None
+        self.weeks_item: ui.menu_item | None = None
+        self.weeks_label: ui.label | None = None
         self.section_menu: ui.context_menu | None = None  # セクションの見出しの右クリックの共有メニュー
         self.section_menu_target: SectionPath | None = None
         self.summary_views: dict[str, SummaryView] = {}  # 描画中のまとめの部品
@@ -776,7 +828,9 @@ class GanttChart:
         ui.add_css(LINK_CSS)
         ui.add_css(CONTEXT_MENU_CSS)
         ui.add_css(EVENT_CSS)
+        ui.add_css(SHIFT_TOOLTIP_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
+        ui.add_head_html(f"<script>{SHIFT_TRACK_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_move_section", lambda e: self.handle_move_section(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
@@ -847,6 +901,10 @@ class GanttChart:
             self.decompose_item = ui.menu_item(
                 "分解…", on_click=act(lambda p, t: self.actions.decompose_task(p, t))
             ).mark("context-decompose")
+            with ui.menu_item(on_click=act(lambda p, t: self.actions.toggle_weeks(p, t))).mark("context-weeks") as item:
+                with ui.item_section():
+                    self.weeks_label = ui.label("週ごとに分ける").mark("context-weeks-label")  # 状態で文言を替える
+            self.weeks_item = item
             ui.menu_item("コピー", on_click=act(lambda p, t: self.actions.copy_task(p, t))).mark("context-copy")
             ui.menu_item("名前の変更", on_click=act(lambda p, t: self.actions.rename_task(p, t))).mark("context-rename")
             ui.separator()
@@ -900,6 +958,12 @@ class GanttChart:
         if self.decompose_item is None:
             return
         tasks = arrange.tasks_at(self.project, path) if arrange.has_list(self.project, (path, 0)) else []
+        if self.weeks_item is not None and self.weeks_label is not None:
+            task = tasks[ti] if ti < len(tasks) else None
+            weekly = task is not None and bool(task.weekly_crew)
+            can = task is not None and (weekly or (task.kind is TaskKind.NORMAL and bool(task.assignees)))
+            self.weeks_label.set_text("週ごとをやめる" if weekly else "週ごとに分ける")
+            self.weeks_item.props(add="" if can else "disable", remove="disable" if can else "")
         blocked = ti >= len(tasks) or decompose_block_reason(self.project, tasks[ti]) is not None
         self.decompose_item.props(add="disable" if blocked else "", remove="" if blocked else "disable")
 
@@ -1453,7 +1517,7 @@ class GanttChart:
                         self.overload_stripes(key, ti, task, left, bar_width, columns, width)
                     if self.options.show_chips and task.weekly_crew:
                         assert start is not None and end is not None
-                        self.week_chips(key, ti, task, start, end, left, bar_width, columns, width)
+                        self.week_chips(key, path, ti, task, start, end, left, bar_width, columns, width)
                 mark_left = self.marker_left(task, columns, width, left * width + bar_width)
                 total = width * len(columns)
                 if self.options.period is None or mark_left <= total - MARK_WIDTH_PX:
@@ -1469,17 +1533,18 @@ class GanttChart:
             ui.label(chip_text(category)).classes("ellipsis code-chip").style(CODE_CHIP_STYLE).tooltip(
                 category.name
             ).mark(f"task-code-{key}-{ti}")
-        note = f"\n{summary}" if (summary := week_summary(task)) else ""
+        begin = effective_start(task, self.project, self.holidays, self.schedule) if task.weekly_crew else None
+        detail = week_summary(task, begin.date() if begin else None)  # Shift を押しながらのとき、週ごとの担当を出す
         for n, assignee in enumerate(task.assignees[:MAX_ASSIGNEE_CHIPS]):
             suffix = "" if n == 0 else f"-{n}"
-            avatar(assignee.name, self.icon_lookup.get(assignee.name, ""), 16).tooltip(
-                f"{assignee.name} {round(assignee.allocation * 100)}%{note}"
-            ).mark(f"task-assignee-{key}-{ti}{suffix}")
+            who = avatar(assignee.name, self.icon_lookup.get(assignee.name, ""), 16)
+            shift_tooltip(who, f"{assignee.name} {round(assignee.allocation * 100)}%", detail)
+            who.mark(f"task-assignee-{key}-{ti}{suffix}")
         rest = task.assignees[MAX_ASSIGNEE_CHIPS:]
         if rest:
-            ui.label(f"+{len(rest)}").style(ASSIGNEE_CHIP_STYLE).tooltip(
-                "\n".join(f"{a.name} {round(a.allocation * 100)}%" for a in rest) + note
-            ).mark(f"task-assignee-more-{key}-{ti}")
+            more = ui.label(f"+{len(rest)}").style(ASSIGNEE_CHIP_STYLE)
+            shift_tooltip(more, "\n".join(f"{a.name} {round(a.allocation * 100)}%" for a in rest), detail)
+            more.mark(f"task-assignee-more-{key}-{ti}")
         if task.kind is TaskKind.SUMMARY:
             percent = summary_progress(children_of(task, self.tasks_by_id))
         else:
@@ -1675,6 +1740,7 @@ class GanttChart:
     def week_chips(
         self,
         key: int | str,
+        path: SectionPath,
         ti: int,
         task: Task,
         start: datetime,
@@ -1685,25 +1751,49 @@ class GanttChart:
         width: int,
     ) -> None:
         """棒の上に、週ごと(実効の開始の日から 7 日ごと)の担当のチップを重ねる。2 つ目からは左端に区切り線を付ける。"""
-        pieces = crew_pieces(task, start, end)
-        for n, (left, right, crew) in enumerate(pieces):
+        defined = len(task.weekly_crew)
+        n = 0
+        while (left := start if n == 0 else datetime.combine(start.date() + timedelta(days=7 * n), time.min)) < end:
+            # 定義した週より後も、7 日ごとに区切る(担当は最後の週のものが続く。タップすると、その週まで足して直せる)
+            right = min(datetime.combine(start.date() + timedelta(days=7 * (n + 1)), time.min), end)
+            crew = task.weekly_crew[min(n, defined - 1)]
+            n += 1
+            index = n - 1
             origin, length = interval_span(left, right, columns)
             left_px = max((origin - bar_left) * width, 0.0)
             width_px = min(length * width, bar_width - left_px)
             if width_px <= 0:
                 continue
-            divider = " border-left: 1px solid rgba(255,255,255,0.8);" if n else ""
-            chip = ui.label(week_chip_text([a.name for a in crew], width_px, self.view_scale)).style(
+            divider = " border-left: 1px solid rgba(255,255,255,0.8);" if index else ""
+            text = week_chip_text([a.name for a in crew], width_px, self.view_scale)
+            shown = crew[:MAX_ASSIGNEE_CHIPS]
+            with_icons = bool(text) and any(self.icon_lookup.get(a.name) for a in shown)
+            chip = ui.label("" if with_icons else text).style(
                 f"position: absolute; left: {left_px:.1f}px; width: {width_px:.1f}px; top: 0;"
                 f" height: {WEEK_CHIP_HEIGHT_PX}px; font-size: 10px; line-height: {WEEK_CHIP_HEIGHT_PX}px;"
                 f" color: #fff; background: rgba(0,0,0,0.3); padding-left: 3px; overflow: hidden;"
-                f" white-space: nowrap;{divider}"
+                f" white-space: nowrap; z-index: 1; text-shadow: {WEEK_CHIP_TEXT_SHADOW};{divider}"
             )
-            last = n == len(pieces) - 1 and len(pieces) == len(task.weekly_crew)
-            title = f"第{n + 1}週{'以降' if last else ''}: " + "、".join(
-                f"{a.name} {round(a.allocation * 100)}%" for a in crew
-            )
-            chip.tooltip(title).mark(f"week-chip-{key}-{ti}-{n}")
+            # 見出し(第N週 と期間)を 1 行にまとめ、担当、負荷の順に並べる。期間は見出しにあるので、負荷には付けない
+            last_day = (right - timedelta(microseconds=1)).date()
+            if with_icons:
+                # アイコンのある人は小さな丸い画像、ない人は頭文字(幅に合わせて、4 人目以降は +n)
+                chip.style("display: flex; align-items: center; gap: 2px")
+                with chip:
+                    for a in shown:
+                        if self.icon_lookup.get(a.name):
+                            avatar(a.name, self.icon_lookup[a.name], WEEK_CHIP_ICON_PX)
+                        else:
+                            ui.label(a.name[:1])
+                    if (rest := len(crew) - len(shown)) > 0:
+                        ui.label(f"+{rest}")
+            carried = f"(第{defined}週の担当が続く)" if index >= defined else ""
+            title = f"第{index + 1}週 {short_date(left.date())}〜{short_date(last_day)}{carried}\n{crew_text(crew)}"
+            if load := self.overload_text(task, (left, right)) if self.options.show_alerts else "":
+                title += f"\n⚠ {load}"
+            chip.tooltip(title).mark(f"week-chip-{key}-{ti}-{index}")
+            if not self.options.read_only:
+                chip.style("cursor: pointer").on("click", lambda _e, week=index: self.actions.edit_week_crew(path, ti, week))
 
     def overload_stripes(
         self,
@@ -1727,16 +1817,33 @@ class GanttChart:
                 f"position: absolute; left: {left_px:.1f}px; width: {width_px:.1f}px;"
                 f" top: 0; bottom: 0; background: {OVERLOAD_STRIPES}; pointer-events: none"
             ).mark(f"overload-{key}-{ti}-{n}")
-        if clipped:
-            lines: list[str] = []
-            for member in dict.fromkeys(o.member for o in clipped):  # 担当者ごとに、最大の率と期間を出す
-                mine = [o for o in clipped if o.member == member]
-                peak = round(max(o.total for o in mine) * 100)
-                lines.append(
-                    f"{member} の割り当てが最大{peak}%"
-                    f"({min(o.start for o in mine):%Y-%m-%d}〜{max(o.end for o in mine):%Y-%m-%d})"
-                )
-            ui.tooltip(" / ".join(lines))
+        if text := self.overload_text(task):
+            if self.options.show_chips and task.weekly_crew:
+                # 週のチップは棒の上端を覆う。棒そのものにマウスオーバーを付けると、チップの上で 2 つのヒントが重なるので、
+                # チップの行より下の領域にだけ付ける(チップのヒントには負荷の説明を足す)
+                with ui.element("div").style(
+                    f"position: absolute; left: 0; right: 0; top: {WEEK_CHIP_HEIGHT_PX}px; bottom: 0"
+                ).mark(f"overload-tip-{key}-{ti}"):
+                    ui.tooltip(text)
+            else:
+                ui.tooltip(text)
+
+    def overload_text(self, task: Task, within: tuple[datetime, datetime] | None = None) -> str:
+        """割り当て超過の説明(担当者ごとに最大の率と期間)。3 人ごとに改行し、2 行目からは全角空白で字下げする。超過がなければ空。
+
+        within(週のチップ用)を渡すと、その期間にかかる超過だけを数え、期間は見出しにあるので付けない。
+        """
+        clipped = clip_overloads(task, self.project, self.holidays, self.overloads, self.schedule)
+        if within is not None:
+            clipped = [o for o in clipped if o.start < within[1] and o.end > within[0]]
+        lines: list[str] = []
+        for member in dict.fromkeys(o.member for o in clipped):
+            mine = [o for o in clipped if o.member == member]
+            peak = round(max(o.total for o in mine) * 100)
+            span = "" if within else f"({short_date(min(o.start for o in mine).date())}〜{short_date(max(o.end for o in mine).date())})"
+            lines.append(f"{member} 最大{peak}%{span}")
+        per_line = HOVER_NAMES_PER_LINE
+        return "\n　".join(" / ".join(lines[i : i + per_line]) for i in range(0, len(lines), per_line))
 
     def checkpoint_marker(
         self, path: SectionPath, ti: int, task: Task, columns: list[Column], width: int

@@ -9,7 +9,7 @@ from enum import StrEnum
 from itertools import groupby
 from math import ceil, isfinite
 
-from projectapp.models import Assignee, Member, Parameter, Project, Status, Task, TaskKind, WorkDay
+from projectapp.models import MAX_WEEKS, Assignee, Member, Parameter, Project, Status, Task, TaskKind, WorkDay
 from projectapp.ratios import effective_ratio
 from projectapp.summary import children_of
 from projectapp.workdays import work_day_map
@@ -660,6 +660,12 @@ class Schedule:
         result = (start, _own_end(task, self.project, self.holidays, start))
         self._done[task.id] = result
         return result
+
+
+def week_count(start: datetime, end: datetime) -> int:
+    """開始の日(0 時)から完了までに含まれる週数(7 日ごと。1〜MAX_WEEKS)。"""
+    days = (end - datetime.combine(start.date(), time.min)).total_seconds() / 86400
+    return min(max(ceil(days / 7), 1), MAX_WEEKS)
 
 
 def effective_start(

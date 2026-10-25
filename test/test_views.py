@@ -4,7 +4,7 @@ import gc
 import json
 from collections.abc import Callable
 from dataclasses import asdict, replace
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import httpx
@@ -1238,7 +1238,7 @@ async def test_saving_a_task_that_overloads_the_assignee_warns(user: User, tmp_p
             assignees=[Assignee("田中", 0.6)],
         ),
     )
-    assert user.notify.contains("田中 の割り当てが最大120%")
+    assert user.notify.contains("田中 最大120%")
     assert len(view.project.tasks) == 2  # 警告しても保存はされる
 
 
@@ -1403,7 +1403,7 @@ async def test_shift_task_warns_when_the_assignee_goes_over_100_percent(
     second = Task("b", planned_start=datetime(2026, 10, 6, 9), effort_hours=6.5, assignees=[Assignee("田中")])
     view.project.tasks.extend([first, second])
     view.shift_task((), 1, -1)  # 同じ日に重なる(割り当て 100% + 100%)
-    await user.should_see("田中 の割り当てが最大200%になる期間があります")
+    await user.should_see("田中 最大200%になる期間があります")
 
 
 async def test_shift_task_stops_at_the_base_date(user: User, tmp_path: Path) -> None:
@@ -3335,8 +3335,8 @@ async def test_saving_a_task_warns_for_each_overloaded_assignee(user: User, tmp_
 
     view.save_task((), None, task("a", 5, 9))
     view.save_task((), None, task("b", 7, 12))
-    await user.should_see("田中 の割り当てが最大120%になる期間があります")
-    await user.should_see("鈴木 の割り当てが最大120%になる期間があります")
+    await user.should_see("田中 最大120%になる期間があります")
+    await user.should_see("鈴木 最大120%になる期間があります")
 
 
 async def test_the_parameters_dialog_adds_a_parameter_with_levels(user: User, tmp_path: Path) -> None:
@@ -4624,8 +4624,8 @@ async def test_decompose_without_chain_warns_about_the_overallocation(user: User
         Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=13.0, assignees=[Assignee("田中")])
     )
     view.apply_decompose((), 0, [Part("x", 6.5), Part("y", 6.5)], chain=False, new_section=False)
-    await user.should_see("田中 の割り当てが最大200%になる期間があります")
-    assert len([n for n in user.notify.messages if "田中 の割り当て" in n]) == 1  # 子の数だけ出さない
+    await user.should_see("田中 最大200%になる期間があります")
+    assert len([n for n in user.notify.messages if "田中 最大" in n]) == 1  # 子の数だけ出さない
 
 
 async def test_decompose_with_chain_does_not_warn(user: User, tmp_path: Path) -> None:
@@ -5006,3 +5006,95 @@ async def test_save_plantuml_shows_no_overload_warning_normally(user: User, tmp_
     assert await wait_until(lambda: target.exists())
     await user.should_see("保存しました")
     await user.should_not_see("日単位")
+
+
+async def test_editing_one_week_changes_only_that_week_and_the_union(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    weeks = [[Assignee("田中")], [Assignee("田中"), Assignee("鈴木")]]
+    task = Task(
+        "実装",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 19),
+        effort_hours=20.0,
+        assignees=[Assignee("田中"), Assignee("鈴木")],
+        weekly_crew=weeks,
+    )
+    project = Project("既存", members=[Member("田中"), Member("鈴木")], sections=[Section("開発", [task])])
+    save_project(project, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    await user.should_see(marker="task-0-0")
+    with user.client:
+        view.edit_week_crew((0,), 0, 1)
+    await user.should_see("第2週")
+    with user.client:
+        user.find(marker="week-edit-assignee-2").elements.pop().set_value("")
+    user.find(marker="week-edit-save").click()
+    after = view.project.sections[0].tasks[0]
+    assert after.weekly_crew == [[Assignee("田中")], [Assignee("田中")]]
+    assert after.assignees == [Assignee("田中")]  # 和集合に整う
+    assert view.is_dirty()
+
+
+async def test_editing_a_week_past_the_defined_ones_adds_the_weeks_in_between(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    weeks = [[Assignee("田中")], [Assignee("田中")]]
+    task = Task(
+        "実装",
+        planned_start=datetime.combine(date.today(), time.min),
+        planned_end=datetime.combine(date.today() + timedelta(days=21), time.min),  # 3 週ぶんの棒。第3週は定義がなく、最後の週の担当が続く
+        assignees=[Assignee("田中")],
+        weekly_crew=weeks,
+    )
+    project = Project(
+        "既存", base_date=date.today(), members=[Member("田中"), Member("鈴木")], sections=[Section("開発", [task])]
+    )
+    save_project(project, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    await user.should_see(marker="week-chip-0-0-2")
+    user.find(marker="week-chip-0-0-2").click()
+    await user.should_see("第3週")
+    user.find(marker="week-edit-assignee-add").click()
+    await user.should_see(marker="week-edit-assignee-2")
+    with user.client:
+        user.find(marker="week-edit-assignee-2").elements.pop().set_value("鈴木")
+    user.find(marker="week-edit-save").click()
+    after = view.project.sections[0].tasks[0]
+    assert after.weekly_crew == [[Assignee("田中")], [Assignee("田中")], [Assignee("田中"), Assignee("鈴木")]]
+    assert after.assignees == [Assignee("田中"), Assignee("鈴木")]
+
+
+async def test_toggle_weeks_splits_into_every_week_and_back(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    task = Task(
+        "実装",
+        planned_start=datetime.combine(date.today(), time.min),
+        planned_end=datetime.combine(date.today() + timedelta(days=15), time.min),
+        assignees=[Assignee("田中")],
+    )
+    project = Project(
+        "既存", base_date=date.today(), members=[Member("田中")], sections=[Section("開発", [task])]
+    )
+    save_project(project, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    view.toggle_weeks((0,), 0)
+    assert view.project.sections[0].tasks[0].weekly_crew == [[Assignee("田中")]] * 3  # 15 日 = 3 週
+    assert view.is_dirty()
+    view.project.sections[0].tasks[0].weekly_crew[0] = [Assignee("田中", 0.5)]
+    view.toggle_weeks((0,), 0)
+    back = view.project.sections[0].tasks[0]
+    assert (back.weekly_crew, back.assignees) == ([], [Assignee("田中", 0.5)])  # 第1週の担当が全期間の担当に戻る

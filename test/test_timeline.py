@@ -1081,3 +1081,14 @@ def test_crew_of_skips_unknown_assignees_and_carries_member_calendars() -> None:
 def test_an_effort_that_ends_exactly_at_the_close_stays_on_that_day(rate: float, effort: float, expected: datetime) -> None:
     # 浮動小数の丸めで、ちょうど終業で終わる工数が翌稼働日の始業に回らない
     assert calc_end(datetime(2026, 10, 19, 9), effort, 6.5, OPEN, {}, [Worker(rate)]) == expected
+
+
+def test_week_count_counts_seven_day_weeks_from_the_start_date() -> None:
+    from projectapp.timeline import week_count
+
+    start = datetime(2026, 10, 5, 9)
+    assert week_count(start, datetime(2026, 10, 12)) == 1  # 7 日ちょうど
+    assert week_count(start, datetime(2026, 10, 12, 1)) == 2
+    assert week_count(start, datetime(2026, 10, 23)) == 3
+    assert week_count(start, datetime(2026, 10, 5, 18)) == 1
+    assert week_count(start, datetime(2030, 1, 1)) == 52  # 上限
