@@ -3746,7 +3746,7 @@ async def test_the_reference_hover_says_it_opens_on_click_and_the_band_underline
     bar = user.find(marker="bar-top-0").elements.pop()
     text = tooltips_targeting(bar)[0]
     assert "基盤開発 10/5〜10/16" in text and "遅延 3 件" in text and "ピーク負荷 130%(田中)" in text
-    assert text.endswith("クリックすると開く")
+    assert text.endswith("クリックすると「基盤」プロジェクトを開く")
     assert "ref-link" in bar.classes
 
 
@@ -3813,3 +3813,10 @@ async def test_a_reference_row_name_starts_with_the_calendar_mark_without_changi
     await user.open("/")
     assert user.find(marker="task-name-top-0").elements.pop().text == "📅 基盤開発"
     assert charts[0].project.tasks[0].name == "基盤開発"
+
+
+async def test_the_reference_name_hover_says_which_project_opens(user: User) -> None:
+    reference_chart(SPAN)
+    await user.open("/")
+    name = user.find(marker="task-name-top-0").elements.pop()
+    assert tooltips_targeting(name) == ["クリックすると「基盤」プロジェクトを開く"]

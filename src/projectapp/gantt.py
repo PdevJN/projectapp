@@ -300,6 +300,11 @@ setTimeout(() => {
 ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メンバー名は空にできない
 
 
+def reference_open_hint(task: Task) -> str:
+    """参照行のマウスオーバーに添える、クリックで参照先のプロジェクトが表示される案内。"""
+    return f"クリックすると「{task.ref_project}」プロジェクトを開く"
+
+
 def planned_background(color: str) -> str:
     """予定の棒の背景。要素の opacity ではなく背景だけを半透明にし、中の縞は不透明のまま残す。"""
     return f"color-mix(in srgb, {color} {PLANNED_OPACITY * 100:g}%, transparent)"
@@ -1501,7 +1506,7 @@ class GanttChart:
                             js_handler="(e) => { e.stopPropagation(); emit(); }",
                         )
                 if task.kind is TaskKind.REFERENCE and not self.options.read_only:
-                    name.classes("ref-link").props("data-no-quick-add")
+                    name.classes("ref-link").props("data-no-quick-add").tooltip(reference_open_hint(task))
                     name.on(
                         "click",
                         lambda tid=task.id: self.actions.open_reference(tid),
@@ -1936,7 +1941,7 @@ class GanttChart:
         if ref.problem:
             lines.append(ref.problem)
         if not self.options.read_only:
-            lines.append("クリックすると開く")
+            lines.append(reference_open_hint(task))
         return "\n".join(lines)
 
     def reference_band(self, key: int | str, ti: int, task: Task, columns: list[Column], width: int) -> None:
