@@ -5298,3 +5298,35 @@ async def test_saving_a_task_with_a_current_snapshot_does_not_ask(user: User, tm
         view.save_task((), None, Task("作業"))
     await user.should_not_see(marker="snapshot-update")
     assert len(view.project.tasks) == 2
+
+
+async def test_a_project_opened_from_a_reference_has_a_link_back(user: User, tmp_path: Path) -> None:
+    save_project(reference_setup(tmp_path), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.request_open("本体")
+    await user.should_not_see(marker="back-to-origin")
+    with view.client:
+        view.open_reference("ref")
+    await user.should_see(marker="back-to-origin")
+    assert "本体に戻る" in user.find(marker="back-to-origin").elements.pop().text
+    with view.client:
+        view.return_to_origin()
+    assert view.current_name() == "本体"
+    await user.should_not_see(marker="back-to-origin")
+
+
+async def test_the_link_back_goes_away_when_another_project_is_opened(user: User, tmp_path: Path) -> None:
+    save_project(reference_setup(tmp_path), tmp_path)
+    save_project(Project("別"), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.request_open("本体")
+    with view.client:
+        view.open_reference("ref")
+    view.request_open("別")  # コンボなどからの切り替えは、参照からではない
+    assert view.origin is None

@@ -225,6 +225,8 @@ class MainView:
         self.run_js: Callable[..., Any] = ui.run_javascript  # テストで差し替える
         self.project = Project(NEW_PROJECT_NAME)
         self.files: dict[str, Path] = {p.stem: p for p in list_project_files(self.project_dir)}
+        self.origin: str | None = None  # 参照行のクリックで開いたときの、元のプロジェクト名(戻るリンク用。保存しない)
+        self.pending_origin: tuple[str, str] | None = None  # (元, 開く先)。開くのが確認で取りやめになったら、次の切り替えでは使わない
         self.path: Path | None = None
         self.digest: str | None = None  # 読み込み(保存)時のファイルの内容のハッシュ。外部変更の検知用
         self.read_git: Callable[[Path], GitState] = read_git_state  # テストで差し替える(本物の git を呼ばない)
@@ -430,6 +432,8 @@ class MainView:
 
     def show_project(self, project: Project, path: Path | None, digest: str | None = None) -> None:
         """別のプロジェクトに切り替える(開いたとき・新規作成のとき)。保存済みの状態から始める。"""
+        pending, self.pending_origin = self.pending_origin, None
+        self.origin = pending[0] if pending is not None and path is not None and path.stem == pending[1] else None
         self.path, self.project, self.digest = path, project, digest
         self.mark_clean()
         self.file_select.set_value(path.stem if path else None)
@@ -1078,11 +1082,22 @@ class MainView:
 
             def update_then_open() -> None:
                 self.refresh_snapshot(task)
-                self.request_open(name)
+                self.go_to_reference(name)
 
-            open_stale_reference_dialog(name, update_then_open, lambda: self.request_open(name))
+            open_stale_reference_dialog(name, update_then_open, lambda: self.go_to_reference(name))
             return
+        self.go_to_reference(name)
+
+    def go_to_reference(self, name: str) -> None:
+        """参照先を開く。開けたら、元のプロジェクトへ戻るリンクを出す。"""
+        current = self.current_name()
+        self.pending_origin = (current, name) if current else None
         self.request_open(name)
+
+    def return_to_origin(self) -> None:
+        """参照行から開いたプロジェクトから、元のプロジェクトへ戻る(未保存の編集があれば確認する)。"""
+        if self.origin is not None:
+            self.request_open(self.origin)
 
     def apply_templates(self, edit: TemplateEdit) -> None:
         """URL テンプレートの編集を反映する(削除分のリンクは URL に展開される)。保存はしない。"""
@@ -1918,6 +1933,10 @@ class MainView:
     @ui.refreshable_method
     def title(self) -> None:
         ui.label(self.project.name).classes("app-title")
+        if self.origin is not None and self.origin in self.files:  # 参照行から開いたときだけ
+            ui.button(f"{self.origin}に戻る", icon="arrow_back", on_click=self.return_to_origin).props(
+                "flat dense no-caps size=sm"
+            ).tooltip("参照した元のプロジェクトに戻る").mark("back-to-origin")
 
     @ui.refreshable_method
     def theme_menu(self) -> None:
