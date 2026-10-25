@@ -312,14 +312,6 @@ setTimeout(() => {
 ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メンバー名は空にできない
 
 
-def context_menu_js(menu_id: int) -> str:
-    """右クリックでメニューを開く JS。macOS の Ctrl + クリックは右クリック扱いになるが、Ctrl + ダブルクリック(まとめの子の追加)を妨げないよう開かない。"""
-    return (
-        "(e) => { e.preventDefault(); if (e.ctrlKey && e.button === 0) return; "
-        f"getElement({menu_id}).show(e); emit(); }}"
-    )
-
-
 def held_keys(keys: object) -> tuple[bool, bool]:
     """ダブルクリックで渡された、押していたキー({shift, ctrl})。渡されなければ、どちらも押していない。"""
     held = keys if isinstance(keys, dict) else {}
@@ -1079,7 +1071,7 @@ class GanttChart:
         """セクションの見出しの右クリックで、セクションのメニューを、クリックした位置に開く。"""
         if self.options.read_only or self.section_menu is None:
             return
-        js = context_menu_js(self.section_menu.id)
+        js = f"(e) => {{ e.preventDefault(); getElement({self.section_menu.id}).show(e); emit(); }}"
         header.on("contextmenu", lambda path=path: self.open_section_menu(path), js_handler=js)
 
     def menu_close_js(self) -> str:
@@ -1121,7 +1113,7 @@ class GanttChart:
         """行の右クリックで共有メニューを、クリックした位置に開く。ブラウザ標準のメニューは出さない。"""
         if self.options.read_only or self.menu is None:
             return
-        js = context_menu_js(self.menu.id)
+        js = f"(e) => {{ e.preventDefault(); getElement({self.menu.id}).show(e); emit(); }}"
         row.on("contextmenu", lambda path=path, ti=ti: self.open_menu(path, ti), js_handler=js)
 
     def open_quick_add(self, path: SectionPath, index: int, parent: str | None = None) -> None:
@@ -1152,11 +1144,12 @@ class GanttChart:
         self.render.refresh()
 
     def double_clicked_task(self, path: SectionPath, ti: int, keys: object) -> None:
-        """タスクの名前の欄のダブルクリック。子の行なら同じまとめの子を直下に、まとめの行は Shift + Ctrl/Cmd ならその子の末尾に作る。
+        """タスクの名前の欄のダブルクリック。子の行なら同じまとめの子を直下に(Shift + Ctrl/Cmd でも)、まとめの行は Shift + Ctrl/Cmd ならその子の末尾に作る。
         それ以外は、Shift ならそのセクションの子の末尾にセクションを、なければ直下に通常のタスクを作る。"""
         shift, ctrl = held_keys(keys)
         task = arrange.tasks_at(self.project, path)[ti] if arrange.has_task(self.project, (path, ti)) else None
-        if shift and ctrl and task is not None and task.kind is TaskKind.SUMMARY:
+        in_summary = task is not None and (task.kind is TaskKind.SUMMARY or arrange.parent_of(self.project, (path, ti)) is not None)
+        if shift and ctrl and in_summary:
             self.open_quick_add_after(path, ti, True)
         elif shift:
             self.open_quick_section(path)

@@ -268,6 +268,24 @@ async def test_ctrl_double_click_on_a_plain_task_or_a_summary_adds_a_plain_task(
     assert recorder.events == [("add_named_task", ((0,), 1, "一")), ("add_named_task", ((2,), 3, "二"))]
 
 
+async def test_shift_ctrl_double_click_on_a_child_adds_a_sibling_child(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    user.find(marker="task-2-1").trigger("dblclick", args=SHIFT_CTRL)
+    await user.should_see(marker=INPUT)
+    user.find(marker=INPUT).trigger("keydown.enter", args="新")
+    assert recorder.events == [("add_named_child", ((2,), 2, "新", "s"))]
+
+
+async def test_shift_on_a_child_still_adds_a_section(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    user.find(marker="task-2-1").trigger("dblclick", args={"shift": True})
+    await user.should_see(marker=INPUT)
+    user.find(marker=INPUT).trigger("keydown.enter", args="節")
+    assert recorder.events == [("add_named_section", ((2,), "節"))]
+
+
 async def test_shift_ctrl_on_a_plain_task_adds_a_section_like_shift(user: User) -> None:
     _, recorder = mount_chart(quick_project())
     await user.open("/")

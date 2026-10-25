@@ -139,7 +139,6 @@ async def test_every_section_header_opens_the_section_menu_on_right_click(user: 
         listeners = [l for l in header._event_listeners.values() if l.type == "contextmenu"]
         handler = listeners[0].js_handler or ""
         assert "preventDefault" in handler and ".show(e)" in handler
-        assert "e.ctrlKey && e.button === 0" in handler
 
 
 async def test_read_only_section_headers_have_no_menu(user: User) -> None:
