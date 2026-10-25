@@ -3797,3 +3797,12 @@ async def test_decompose_and_weeks_are_disabled_on_a_reference_row(user: User) -
     charts[0].open_menu((), 0)
     assert user.find(marker="context-decompose").elements.pop().props.get("disable") is True
     assert user.find(marker="context-weeks").elements.pop().props.get("disable") is True
+
+
+async def test_reference_chips_are_text_pills_not_the_16px_assignee_circle(user: User) -> None:
+    reference_chart(SPAN)
+    await user.open("/")
+    for marker in ("ref-delay-top-0", "ref-load-top-0"):
+        style = user.find(marker=marker).elements.pop().style
+        assert style.get("white-space") == "nowrap"
+        assert "width" not in style  # 丸い担当者チップの固定幅だと、文字が見切れる

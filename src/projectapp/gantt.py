@@ -179,7 +179,12 @@ ASSIGNEE_CHIP_STYLE = (
     " font-size: 10px; border-radius: 50%; background: rgba(128, 128, 128, 0.3)"
 )
 PROGRESS_TEXT_STYLE = "flex: none; font-size: 10px"
+REFERENCE_CHIP_STYLE = (  # 文字入りのチップ(担当者の丸いチップは文字が収まらない)。折り返さず、名前のほうを縮める
+    "flex: none; padding: 0 6px; font-size: 10px; line-height: 16px; white-space: nowrap;"
+    " border-radius: 8px; background: rgba(128, 128, 128, 0.3)"
+)
 REFERENCE_CSS = ".ref-link { cursor: pointer; } .ref-link:hover { text-decoration: underline; }"
+OVERDUE_COLOR_SOLID = "rgba(239, 83, 80, 0.45)"  # 遅延のチップの背景(行の赤みより濃く)
 RED_BAR_COLOR = "#ef5350"  # 遅延のある参照先の帯の色
 # 実績の区間の間(休んでいた期間)の点線。実績の棒の中央の高さに、1px の破線を引く
 ACTUAL_GAP_BACKGROUND = (
@@ -1903,11 +1908,11 @@ class GanttChart:
         if value is None:
             return
         if self.options.show_alerts and value.delayed:
-            ui.label(f"遅延 {value.delayed}件").style(ASSIGNEE_CHIP_STYLE + f" background: {OVERDUE_COLOR};").mark(
+            ui.label(f"遅延 {value.delayed}件").style(REFERENCE_CHIP_STYLE + f" background: {OVERDUE_COLOR_SOLID};").mark(
                 f"ref-delay-{key}-{ti}"
             )
         if self.options.show_alerts and value.peak_load > 1.0:
-            ui.label(f"負荷 {round(value.peak_load * 100)}%").style(ASSIGNEE_CHIP_STYLE).mark(f"ref-load-{key}-{ti}")
+            ui.label(f"負荷 {round(value.peak_load * 100)}%").style(REFERENCE_CHIP_STYLE).mark(f"ref-load-{key}-{ti}")
         if value.progress is not None:
             ui.label(f"{value.progress}%").style(PROGRESS_TEXT_STYLE).mark(f"task-progress-{key}-{ti}")
 
