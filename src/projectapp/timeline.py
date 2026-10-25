@@ -9,7 +9,7 @@ from enum import StrEnum
 from itertools import groupby
 from math import ceil, isfinite
 
-from projectapp.models import MAX_WEEKS, Assignee, Member, Parameter, Project, Status, Task, TaskKind, WorkDay
+from projectapp.models import MAX_WEEKS, Assignee, Member, Parameter, Project, ReferenceValue, Status, Task, TaskKind, WorkDay
 from projectapp.ratios import effective_ratio
 from projectapp.summary import children_of
 from projectapp.workdays import work_day_map
@@ -578,9 +578,15 @@ def _own_end(
 class Schedule:
     """タスクの id から、実効の開始・完了への対応。必要なものだけ算出して使い回す(保存しない)。"""
 
-    def __init__(self, project: Project, holidays: dict[date, str]) -> None:
+    def __init__(
+        self,
+        project: Project,
+        holidays: dict[date, str],
+        references: Mapping[str, ReferenceValue] | None = None,
+    ) -> None:
         self.project = project
         self.holidays = holidays
+        self.references: Mapping[str, ReferenceValue] = references or {}  # プロジェクト参照の行(タスクの id)ごとの参照値
         self._tasks = {task.id: task for task in project.all_tasks()}
         self._done: dict[str, tuple[datetime | None, datetime | None]] = {}
         self._active: set[str] = set()
@@ -602,6 +608,11 @@ class Schedule:
     def finish(self, pred: Task) -> datetime | None:
         """先行としての完了。終了済みで実績の終了があればその時刻、なければ実効の完了。
         まとめは、子の完了の最大(終了済みの子は実績の終了)。"""
+        if pred.kind is TaskKind.REFERENCE:  # 参照先がすべて終了していれば実績の終了、なければ完了予定
+            value = self.references.get(pred.id)
+            if value is None:
+                return None
+            return value.actual_end if value.finished and value.actual_end is not None else value.planned_end
         if pred.kind is TaskKind.SUMMARY:
             if pred.id in self._active:  # 循環(手編集のファイルなど)
                 return None
@@ -632,6 +643,11 @@ class Schedule:
             return self._done[task.id]
         if task.kind is TaskKind.CHECKPOINT:  # 締切に固定。先行で押し出さない
             result = (task.deadline, task.deadline)
+            self._done[task.id] = result
+            return result
+        if task.kind is TaskKind.REFERENCE:  # 参照先の全体の期間。自分の先行は持たない
+            value = self.references.get(task.id)
+            result = (value.planned_start, value.planned_end) if value is not None else (None, None)
             self._done[task.id] = result
             return result
         if task.kind is TaskKind.SUMMARY:  # 子の最小の開始と最大の完了。自分の先行は持たない
@@ -674,7 +690,7 @@ def effective_start(
     """実効の開始。先行がなければ開始予定。あれば、開始予定と先行の完了の遅いほう。チェックポイントは締切。"""
     if task.kind is TaskKind.CHECKPOINT:
         return task.deadline
-    if task.kind is TaskKind.SUMMARY:
+    if task.kind in (TaskKind.SUMMARY, TaskKind.REFERENCE):
         return (schedule or Schedule(project, holidays)).start(task)
     if schedule is None and not task.predecessors:
         return task.planned_start
@@ -688,7 +704,7 @@ def effective_end(
     チェックポイントは締切。"""
     if task.kind is TaskKind.CHECKPOINT:
         return task.deadline
-    if task.kind is TaskKind.SUMMARY:
+    if task.kind in (TaskKind.SUMMARY, TaskKind.REFERENCE):
         return (schedule or Schedule(project, holidays)).end(task)
     if schedule is None and not task.predecessors:
         return _own_end(task, project, holidays, task.planned_start)
@@ -718,6 +734,9 @@ def is_overdue(
     実績の終了がなければ、状態が「終了」でない間だけ、現在時刻と比べる。"""
     if task.kind is TaskKind.SUMMARY:
         return False  # 超過は子に出る
+    if task.kind is TaskKind.REFERENCE:  # 参照先の完了予定が、自分の締切を超えるときだけ
+        end = (schedule or Schedule(project, holidays)).end(task)
+        return task.deadline is not None and end is not None and end > task.deadline
     moment = actual_end(task)
     if moment is None:
         if task.status is Status.DONE:
@@ -764,7 +783,7 @@ def progress_state(
     if task.status is Status.DONE:
         late = is_overdue(task, project, holidays, now, schedule)
         return ProgressState.LATE_DONE if late else ProgressState.DONE
-    if task.kind is TaskKind.SUMMARY:
+    if task.kind in (TaskKind.SUMMARY, TaskKind.REFERENCE):
         return None
     percent = current_progress(task)
     start = effective_start(task, project, holidays, schedule)

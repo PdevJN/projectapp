@@ -74,3 +74,48 @@ def test_a_finished_project_reports_its_last_actual_end() -> None:
     )
     value = compute_reference(project, {}, NOW)
     assert value.finished is True and value.actual_end == D(10, 6) and value.progress == 100
+
+
+from projectapp.models import ReferenceValue
+from projectapp.timeline import Schedule, effective_end, effective_start, is_overdue, progress_state
+
+
+def ref_project(**kwargs: object) -> tuple[Project, Task]:
+    ref = Task("基盤", id="ref", kind=TaskKind.REFERENCE, ref_project="基盤", **kwargs)  # type: ignore[arg-type]
+    after = Task("後続", id="after", planned_start=D(10, 1), effort_hours=8.0, predecessors=["ref"])
+    return Project("p", daily_hours=8.0, tasks=[ref, after]), ref
+
+
+def test_a_reference_row_takes_its_span_from_the_reference_value() -> None:
+    project, ref = ref_project()
+    value = ReferenceValue(planned_start=D(10, 5), planned_end=D(10, 20, 17))
+    schedule = Schedule(project, {}, {"ref": value})
+    assert (schedule.start(ref), schedule.end(ref)) == (D(10, 5), D(10, 20, 17))
+    assert effective_start(ref, project, {}, schedule) == D(10, 5)
+    assert effective_end(ref, project, {}, schedule) == D(10, 20, 17)
+    assert Schedule(project, {}).start(ref) is None  # 参照値がなければ日程なし
+
+
+def test_a_successor_is_pushed_by_the_reference_end_or_the_actual_end_when_finished() -> None:
+    project, _ = ref_project()
+    after = project.tasks[1]
+    open_value = ReferenceValue(planned_start=D(10, 5), planned_end=D(10, 20, 17), actual_end=D(10, 19, 17))
+    assert Schedule(project, {}, {"ref": open_value}).start(after) == D(10, 20, 17)
+    done_value = ReferenceValue(planned_start=D(10, 5), planned_end=D(10, 20, 17), actual_end=D(10, 19, 17), finished=True)
+    assert Schedule(project, {}, {"ref": done_value}).start(after) == D(10, 19, 17)
+
+
+def test_a_reference_row_is_red_only_when_the_reference_end_passes_its_deadline() -> None:
+    project, ref = ref_project(deadline=D(10, 15, 17))
+    late = Schedule(project, {}, {"ref": ReferenceValue(planned_start=D(10, 5), planned_end=D(10, 20, 17))})
+    assert is_overdue(ref, project, {}, NOW, late)
+    ontime = Schedule(project, {}, {"ref": ReferenceValue(planned_start=D(10, 5), planned_end=D(10, 14, 17))})
+    assert not is_overdue(ref, project, {}, NOW, ontime)
+    assert progress_state(ref, project, {}, NOW, ontime) is None
+
+
+def test_reference_rows_are_left_out_of_the_dashboard_counts() -> None:
+    from projectapp.dashboard import _tasks
+
+    project, _ = ref_project()
+    assert [t.id for t in _tasks(project)] == ["after"]

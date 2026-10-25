@@ -98,7 +98,7 @@ def _tasks(project: Project, member: str | None = None) -> list[Task]:
     return [
         task
         for task in project.all_tasks()
-        if task.kind is not TaskKind.SUMMARY and (member is None or member in task.assignee_names)
+        if task.kind not in (TaskKind.SUMMARY, TaskKind.REFERENCE) and (member is None or member in task.assignee_names)
     ]
 
 
@@ -189,7 +189,7 @@ def summarize_member_progress(project: Project) -> list[MemberProgress]:
     names = {member.name for member in project.members}
     rows = [_member_row(m.name, [t for t in tasks if m.name in t.assignee_names]) for m in project.members]
     # 節目は担当を持てず、進捗の重みもないので、割り当て漏れには数えない
-    nobody = [t for t in tasks if t.kind is not TaskKind.CHECKPOINT and not names.intersection(t.assignee_names)]
+    nobody = [t for t in tasks if t.kind not in (TaskKind.CHECKPOINT, TaskKind.REFERENCE) and not names.intersection(t.assignee_names)]
     if nobody:
         rows.append(_member_row(UNASSIGNED, nobody))
     return rows
