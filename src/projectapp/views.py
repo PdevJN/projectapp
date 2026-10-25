@@ -876,9 +876,9 @@ class MainView:
             self.run_js(zoom_js(100))  # 倍率をかけたままだと、画像の大きさがずれる
         try:
             ratio = export_pixel_ratio(self.gantt.content_width())
-            if self.preview.excluded:  # チェックを外した行とチェックボックスは、撮る間だけ描かない
-                self.gantt.set_options(replace(self.preview.to_options(), selectable=False, hide_excluded=True))
-                await asyncio.sleep(0)  # 描き直し(バックグラウンドで走る)を先に進めてから撮る
+            # チェックを外した行とチェックボックスは、撮る間だけ描かない(全部チェックのままでも、チェックボックスは出さない)
+            self.gantt.set_options(replace(self.preview.to_options(), selectable=False, hide_excluded=True))
+            await asyncio.sleep(0)  # 描き直し(バックグラウンドで走る)を先に進めてから撮る
             try:
                 data = await self.exporter.capture(ratio)
             except ExportError as exc:
@@ -898,8 +898,7 @@ class MainView:
             if self.zoom != 100:
                 self.run_js(zoom_js(self.zoom))
             if self.preview is not None:
-                if self.preview.excluded:
-                    self.gantt.set_options(self.preview.to_options(self.select_in_preview))
+                self.gantt.set_options(self.preview.to_options(self.select_in_preview))
                 self.preview_bar.set_save_enabled(self.exporter.available)
 
     async def save_plantuml(self) -> None:

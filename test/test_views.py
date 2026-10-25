@@ -4976,6 +4976,19 @@ async def test_save_image_leaves_out_the_unchecked_rows_and_restores_them(user: 
     assert view.preview is not None and len(view.preview.excluded) == 1
 
 
+async def test_save_image_hides_the_checkboxes_even_when_nothing_is_unchecked(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=tmp_path / "chart.png")
+    view = await open_preview(user, tmp_path, exporter, extra=Task("実装"))
+    seen: list[tuple[int, int]] = []
+    exporter.on_capture = lambda: seen.append(
+        (len(view.gantt.task_rows), sum(any(m.startswith("select-") for m in e._markers) for e in view.gantt.client.elements.values()))
+    )
+    user.find(marker="preview-save").click()
+    assert await wait_until(lambda: (tmp_path / "chart.png").exists())
+    assert seen == [(2, 0)]  # 全部チェックのままでも、撮る間はチェックボックスを描かない
+    assert await wait_until(lambda: any("select-task-top-0" in e._markers for e in view.gantt.client.elements.values()))  # 撮ったあとは戻る
+
+
 async def test_save_image_with_every_task_unchecked_notifies_and_captures_nothing(user: User, tmp_path: Path) -> None:
     exporter = FakeExporter(path=tmp_path / "chart.png")
     await open_preview(user, tmp_path, exporter)
