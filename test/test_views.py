@@ -4090,23 +4090,40 @@ async def test_apply_events_marks_the_project_dirty_and_redraws(user: User, tmp_
     await user.should_see(marker="event-bar-e1")
 
 
-async def test_the_task_layout_is_loaded_and_saved(user: User, tmp_path: Path) -> None:
+async def test_the_task_sections_are_loaded_and_saved(user: User, tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text('{"task_sections": ["related"]}', encoding="utf-8")
+    view = await open_members_view(user, tmp_path)
+    assert view.task_sections == ["related"]
+    view.set_task_sections(["assignees", "actuals"])
+    assert view.task_sections == ["assignees", "actuals"]
+    saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["task_sections"]
+    assert saved == ["assignees", "actuals"]
+
+
+async def test_the_old_task_layout_does_not_break_the_view(user: User, tmp_path: Path) -> None:
     (tmp_path / "config.json").write_text('{"task_layout": "schedule"}', encoding="utf-8")
     view = await open_members_view(user, tmp_path)
-    assert view.task_layout == "schedule"
-    view.set_task_layout("all")
-    assert view.task_layout == "all"
-    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["task_layout"] == "all"
+    assert view.task_sections is None
 
 
-async def test_the_task_dialogs_get_the_saved_layout(user: User, tmp_path: Path) -> None:
-    (tmp_path / "config.json").write_text('{"task_layout": "schedule"}', encoding="utf-8")
+async def test_the_task_dialogs_get_the_saved_sections(user: User, tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text('{"task_sections": ["related"]}', encoding="utf-8")
     view = await open_members_view(user, tmp_path)
     with view.client:
         view.add_top_task()
-    await user.should_see(marker="task-layout")
-    assert user.find(marker="task-layout").elements.pop().value == "schedule"
-    await user.should_not_see(marker="task-color")
+    await user.should_see(marker="task-section-related")
+    assert user.find(marker="task-section-related").elements.pop().value is True
+    assert user.find(marker="task-section-actuals").elements.pop().value is False
+
+
+async def test_toggling_a_section_in_the_dialog_is_saved(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    with view.client:
+        view.add_top_task()
+    await user.should_see(marker="task-section-actuals")
+    user.find(marker="task-section-actuals").elements.pop().set_value(True)
+    assert view.task_sections == ["actuals"]
+    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["task_sections"] == ["actuals"]
 
 
 async def open_with_external_change(user: User, tmp_path: Path) -> MainView:

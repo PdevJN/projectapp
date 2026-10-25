@@ -40,6 +40,7 @@ from projectapp.forms import (
 )
 from projectapp.models import (
     CHECKPOINT_STATUSES,
+    DEFAULT_COLOR,
     DEFAULT_DAILY_HOURS,
     DEFAULT_WORK_START,
     ID_KEY,
@@ -66,6 +67,15 @@ from projectapp.models import (
 )
 from projectapp.ratios import effective_ratio
 from projectapp.reassign import needs_review, reviewed_end
+from projectapp.task_sections import (
+    FOLDABLE,
+    TITLES,
+    actuals_summary,
+    assignees_summary,
+    initial_open,
+    related_summary,
+    section_of_error,
+)
 from projectapp.timeline import Worker, assignees_rate, combine_rate, computed_end, crew_of, effort_days
 from projectapp.workdays import work_day_map
 from projectapp.urls import resolve
@@ -173,8 +183,6 @@ class PriorityChips:
             chip.props["text-color"] = filled_text if selected else PRIORITY_COLORS[priority]
             chip.update()
 
-
-LAYOUT_LABELS = {"schedule": "予定・実績", "all": "すべて"}
 
 # ESC だけをサーバーへ送る。日本語の変換中の ESC は、変換の取り消しなので送らない。
 # 伝播を止めて、Quasar に ESC の印を付けさせない(付くと、同じ ESC の keyup で、開いたばかりの確認ダイアログが閉じる)
@@ -900,8 +908,8 @@ def open_task_dialog(
     open_url: Callable[[str], object] = default_open_url,
     parameters: list[Parameter] | None = None,
     categories: list[Category] | None = None,
-    layout: str = "all",
-    on_layout_change: Callable[[str], object] | None = None,
+    sections: list[str] | None = None,
+    on_sections_change: Callable[[list[str]], object] | None = None,
     on_decompose: Callable[[Callable[[], object]], object] | None = None,
     now: Callable[[], datetime] = datetime.now,
     reference_choices: list[str] | None = None,
@@ -926,11 +934,9 @@ def open_task_dialog(
         for member in member_list:
             if member.name in by_name:
                 member.ratio = effective_ratio(by_name[member.name], parameters or [], chosen_parameters)
+    opened_sections = initial_open(task, sections)
     with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[44rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
-        layout_toggle = ui.toggle(LAYOUT_LABELS, value=layout if layout in LAYOUT_LABELS else "all").mark(
-            "task-layout"
-        )
         # まとめは分解でだけ作る(選択肢に出さない)。まとめの編集では、トグル自体を隠す。プロジェクト参照は、参照先の候補があるときだけ出す
         offered = [
             k
@@ -947,76 +953,87 @@ def open_task_dialog(
             .classes("text-caption text-grey")
             .mark("task-kind-hint")
         )
-        # 長い名前は折り返す(textarea を 1 行から伸ばす)。名前に改行は使えないので、Enter は無効にし、貼り付けた改行は空白にする
-        name = (
-            ui.textarea("名前", value=initial.name)
-            .props("autogrow rows=1")
-            .classes("w-full")
-            .on("keydown.enter.prevent", lambda: None)
-            .mark("task-name")
-        )
-
-        def replace_control_chars(event: ValueChangeEventArguments) -> None:
-            # 使えない文字は空白に替え、上限(文字数。ブラウザの maxlength は UTF-16 単位でずれる)で切る
-            text = event.value or ""
-            cleaned = "".join(" " if has_control_char(ch) else ch for ch in text)[:MAX_TASK_NAME_LENGTH]
-            if cleaned != text:
-                name.set_value(cleaned)
-
-        name.on_value_change(replace_control_chars)
-        # 参照先。候補にいない今の参照先(見つからないファイル)も残して、保存で失わない
-        ref_choices = list(dict.fromkeys([*(reference_choices or []), *([initial.ref_project] if initial.ref_project else [])]))
-        ref_project = (
-            ui.select(ref_choices, value=initial.ref_project or None, label="参照先のプロジェクト")
-            .classes("w-full")
-            .mark("task-ref-project")
-        )
-        # 先頭が未定(値は空文字。None は選択なしと区別できない)。名前が長いときだけ省略し、種別・PRJコードは残す。全文はマウスオーバーで出す
-        category_options = {"": UNDECIDED, **{c.id: category_label(c) for c in categories or []}}
-        category = (
-            ui.select(
-                category_options,
-                label="カテゴリ",
-                value=initial.category_id if initial.category_id in category_options else "",
+        basic_box = ui.column().classes("w-full")
+        section_boxes: dict[str, ui.expansion] = {}
+        for key in FOLDABLE:
+            section_boxes[key] = (
+                ui.expansion(TITLES[key], value=key in opened_sections)
+                .props("dense")
+                .classes("w-full border rounded")
+                .mark(f"task-section-{key}")
             )
-            .classes("w-full")
-            .mark("task-category")
-        )
-        full_labels = [UNDECIDED] + [category_full_label(c) for c in categories or []]
-        hover = [full if full != label else "" for full, label in zip(full_labels, category_options.values())]
-        category.add_slot("option", category_option_template(hover))
-        category.add_slot("selected-item", category_selected_template(hover))
-        parameter_select: ui.select | None = None
-        if parameters:
-            parameter_select = (
-                ui.select(
-                    [p.name for p in parameters],
-                    label="パラメータ(付けると、そのパラメータの判定値だけで相対比率を決める)",
-                    value=[name for name in initial.parameters if any(p.name == name for p in parameters)],
-                    multiple=True,
-                )
-                .props("use-chips")
+        with basic_box:
+            # 長い名前は折り返す(textarea を 1 行から伸ばす)。名前に改行は使えないので、Enter は無効にし、貼り付けた改行は空白にする
+            name = (
+                ui.textarea("名前", value=initial.name)
+                .props("autogrow rows=1")
                 .classes("w-full")
-                .mark("task-parameters")
+                .on("keydown.enter.prevent", lambda: None)
+                .mark("task-name")
             )
-        fields = DateTimeFields(
-            initial,
-            work_start,
-            daily_hours,
-            holidays or {},
-            crew_of(initial.assignees, member_list),
-            weeks=[crew_of(week, member_list) for week in initial.weekly_crew],
-        )
-        with fields.second_row:
-            effort = EffortField(initial.effort_hours, daily_hours, STANDARD_WORK_HOURS)
-        weekly = bool(initial.weekly_crew)  # 週ごとのタスクの担当は、ガントチャートの棒のチップをタップして直す(ここでは直さない)
-        assignee_fields = AssigneeFields(initial.assignees, member_list, lambda: refresh_conversion())
-        weekly_note = ui.label(
-            "担当は週ごとに分けています。棒の上のチップをタップして直します(担当者: "
-            + "・".join(a.name for a in initial.assignees)
-            + ")"
-        ).classes("text-caption text-grey").mark("task-weekly-note")
-        conversion = ui.label("").classes("text-caption text-grey").mark("task-conversion")
+
+            def replace_control_chars(event: ValueChangeEventArguments) -> None:
+                # 使えない文字は空白に替え、上限(文字数。ブラウザの maxlength は UTF-16 単位でずれる)で切る
+                text = event.value or ""
+                cleaned = "".join(" " if has_control_char(ch) else ch for ch in text)[:MAX_TASK_NAME_LENGTH]
+                if cleaned != text:
+                    name.set_value(cleaned)
+
+            name.on_value_change(replace_control_chars)
+            # 参照先。候補にいない今の参照先(見つからないファイル)も残して、保存で失わない
+            ref_choices = list(dict.fromkeys([*(reference_choices or []), *([initial.ref_project] if initial.ref_project else [])]))
+            ref_project = (
+                ui.select(ref_choices, value=initial.ref_project or None, label="参照先のプロジェクト")
+                .classes("w-full")
+                .mark("task-ref-project")
+            )
+            # 先頭が未定(値は空文字。None は選択なしと区別できない)。名前が長いときだけ省略し、種別・PRJコードは残す。全文はマウスオーバーで出す
+            category_options = {"": UNDECIDED, **{c.id: category_label(c) for c in categories or []}}
+            category = (
+                ui.select(
+                    category_options,
+                    label="カテゴリ",
+                    value=initial.category_id if initial.category_id in category_options else "",
+                )
+                .classes("w-full")
+                .mark("task-category")
+            )
+            full_labels = [UNDECIDED] + [category_full_label(c) for c in categories or []]
+            hover = [full if full != label else "" for full, label in zip(full_labels, category_options.values())]
+            category.add_slot("option", category_option_template(hover))
+            category.add_slot("selected-item", category_selected_template(hover))
+            fields = DateTimeFields(
+                initial,
+                work_start,
+                daily_hours,
+                holidays or {},
+                crew_of(initial.assignees, member_list),
+                weeks=[crew_of(week, member_list) for week in initial.weekly_crew],
+            )
+            with fields.second_row:
+                effort = EffortField(initial.effort_hours, daily_hours, STANDARD_WORK_HOURS)
+            weekly = bool(initial.weekly_crew)  # 週ごとのタスクの担当は、ガントチャートの棒のチップをタップして直す(ここでは直さない)
+            conversion = ui.label("").classes("text-caption text-grey").mark("task-conversion")
+        with section_boxes["assignees"]:
+            parameter_select: ui.select | None = None
+            if parameters:
+                parameter_select = (
+                    ui.select(
+                        [p.name for p in parameters],
+                        label="パラメータ(付けると、そのパラメータの判定値だけで相対比率を決める)",
+                        value=[name for name in initial.parameters if any(p.name == name for p in parameters)],
+                        multiple=True,
+                    )
+                    .props("use-chips")
+                    .classes("w-full")
+                    .mark("task-parameters")
+                )
+            assignee_fields = AssigneeFields(initial.assignees, member_list, lambda: refresh_conversion())
+            weekly_note = ui.label(
+                "担当は週ごとに分けています。棒の上のチップをタップして直します(担当者: "
+                + "・".join(a.name for a in initial.assignees)
+                + ")"
+            ).classes("text-caption text-grey").mark("task-weekly-note")
 
         def refresh_conversion(_event: object = None) -> None:
             tagged = f"・{'・'.join(chosen_parameters)}を反映" if chosen_parameters else ""
@@ -1062,54 +1079,14 @@ def open_task_dialog(
 
             parameter_select.on_value_change(on_parameters_change)
         refresh_conversion()
-        options = dict(link_options or {})
-        kept = [pid for pid in initial.predecessors if pid in options]  # 候補にない参照は、欄に出さない
-        predecessors = (
-            ui.select(options, label="先行タスク", value=kept, multiple=True)
-            .props("use-chips")
-            .classes("w-full")
-            .mark("task-predecessors")
-        )
-        push = ui.label("").classes("text-caption text-grey").mark("task-predecessors-hint")
-
-        def refresh_push(_event: object = None) -> None:
-            finishes = [
-                finish
-                for pid in predecessors.value or []
-                if finish_of is not None and (finish := finish_of(pid)) is not None
-            ]
-            try:
-                start_at = parse_datetime(fields.start_text())
-            except ValueError:
-                start_at = None
-            # チェックポイントは押し出されない(締切に固定)ので、ヒントを出さない
-            text = "" if kind.value == TaskKind.CHECKPOINT else push_hint(start_at, finishes)
-            push.set_text(text)
-            push.set_visibility(bool(text) and layout_toggle.value == "all")
-
-        predecessors.on_value_change(refresh_push)
-        refresh_push()
-
-        def merged_predecessors() -> list[str]:
-            """欄の値。候補にない既存の参照(通常はない)は、そのまま残す。"""
-            hidden = [pid for pid in initial.predecessors if pid not in options]
-            return [*(predecessors.value or []), *hidden]
-
-        with ui.column().classes("w-full gap-1") as priority_box:
-            priority = PriorityChips(initial.priority)
-        intervals = actual_mode is ActualMode.INTERVALS
-        with ui.column().classes("w-full") as actual_box:
-            actual_fields: ActualFields | IntervalFields = (
-                IntervalFields(initial) if intervals else ActualFields(initial)
+        with basic_box:
+            status = (
+                ui.select({s: s.value for s in Status}, label="状態", value=initial.status)
+                .classes("w-full")
+                .mark("task-status")
             )
-        progress_field = TaskProgressField(initial.progress)
-        status = (
-            ui.select({s: s.value for s in Status}, label="状態", value=initial.status)
-            .classes("w-full")
-            .mark("task-status")
-        )
-        hint = ui.label("").classes("text-caption text-grey").mark("task-status-hint")
-        hint.set_visibility(False)
+            hint = ui.label("").classes("text-caption text-grey").mark("task-status-hint")
+            hint.set_visibility(False)
         suggest = {"manual": False, "setting": False}
 
         def on_status_change(_event: object) -> None:
@@ -1118,6 +1095,14 @@ def open_task_dialog(
                 hint.set_visibility(False)
 
         status.on_value_change(on_status_change)
+
+        with section_boxes["actuals"]:
+            intervals = actual_mode is ActualMode.INTERVALS
+            with ui.column().classes("w-full") as actual_box:
+                actual_fields: ActualFields | IntervalFields = (
+                    IntervalFields(initial) if intervals else ActualFields(initial)
+                )
+            progress_field = TaskProgressField(initial.progress)
 
         def on_actual_change(_event: object = None) -> None:
             if suggest["manual"]:
@@ -1146,6 +1131,48 @@ def open_task_dialog(
             or initial.progress is not None
         )
 
+        templates = list(url_templates or [])
+        with section_boxes["related"]:
+            options = dict(link_options or {})
+            kept = [pid for pid in initial.predecessors if pid in options]  # 候補にない参照は、欄に出さない
+            predecessors = (
+                ui.select(options, label="先行タスク", value=kept, multiple=True)
+                .props("use-chips")
+                .classes("w-full")
+                .mark("task-predecessors")
+            )
+            push = ui.label("").classes("text-caption text-grey").mark("task-predecessors-hint")
+            with ui.column().classes("w-full gap-1") as priority_box:
+                priority = PriorityChips(initial.priority)
+            with ui.column().classes("w-full gap-1") as url_box:
+                url_fields = UrlFields(initial.urls, templates, open_url)
+            color = ui.color_input("色", value=initial.color, preview=True).classes("w-full").mark(
+                "task-color"
+            )
+
+        def refresh_push(_event: object = None) -> None:
+            finishes = [
+                finish
+                for pid in predecessors.value or []
+                if finish_of is not None and (finish := finish_of(pid)) is not None
+            ]
+            try:
+                start_at = parse_datetime(fields.start_text())
+            except ValueError:
+                start_at = None
+            # チェックポイントは押し出されない(締切に固定)ので、ヒントを出さない
+            text = "" if kind.value == TaskKind.CHECKPOINT else push_hint(start_at, finishes)
+            push.set_text(text)
+            push.set_visibility(bool(text))
+
+        predecessors.on_value_change(refresh_push)
+        refresh_push()
+
+        def merged_predecessors() -> list[str]:
+            """欄の値。候補にない既存の参照(通常はない)は、そのまま残す。"""
+            hidden = [pid for pid in initial.predecessors if pid not in options]
+            return [*(predecessors.value or []), *hidden]
+
         def apply_kind(_event: object = None) -> None:
             """チェックポイントでは、開始予定・完了予定・工数・担当・実績の欄を隠し、状態を 2 つにする。"""
             checkpoint = kind.value == TaskKind.CHECKPOINT
@@ -1167,51 +1194,87 @@ def open_task_dialog(
 
         kind.on_value_change(apply_kind)
         apply_kind()
-        templates = list(url_templates or [])
-        with ui.column().classes("w-full gap-1") as url_box:
-            url_fields = UrlFields(initial.urls, templates, open_url)
-        color = ui.color_input("色", value=initial.color, preview=True).classes("w-full").mark(
-            "task-color"
-        )
 
         def refresh_visibility(_event: object = None) -> None:
-            """欄の出し入れを 1 か所で決める(値は消さない)。チェックポイントでは通常の欄を隠し、レイアウトは付加的な欄を隠す。
-            換算の説明は、完了予定の算出値を動かすので、レイアウトに関わらず出す。"""
-            if is_summary:
+            """欄と節の出し入れを 1 か所で決める(値は消さない)。種別によって出す欄が変わり、欄が 1 つも出ない節は隠す。"""
+            if is_summary:  # まとめは、名前・カテゴリ・優先度・リンクだけ
                 for widget in (
-                    fields.first_row, fields.second_row, conversion, actual_box, progress_field.container,
-                    assignee_fields.container, weekly_note,
-                    predecessors, push, status, hint, color, kind, kind_hint, layout_toggle,
-                    *([parameter_select] if parameter_select is not None else []),
+                    fields.first_row, fields.second_row, conversion, status, hint, kind, kind_hint,
+                    predecessors, push, color, section_boxes["assignees"], section_boxes["actuals"],
                 ):
                     widget.set_visibility(False)
-                for widget in (category, priority_box, url_box):
+                for widget in (category, priority_box, url_box, section_boxes["related"]):
                     widget.set_visibility(True)
                 return
-            full = layout_toggle.value == "all"
             reference = kind.value == TaskKind.REFERENCE
             normal = kind.value not in (TaskKind.CHECKPOINT, TaskKind.REFERENCE)
             ref_project.set_visibility(reference)
             for widget in (fields.first_row, effort, conversion, actual_box, progress_field.container):
                 widget.set_visibility(normal)
-            assignee_fields.container.set_visibility(full and normal and not weekly)
-            weekly_note.set_visibility(full and normal and weekly)
+            assignee_fields.container.set_visibility(normal and not weekly)
+            weekly_note.set_visibility(normal and weekly)
             if parameter_select is not None:
-                parameter_select.set_visibility(full and normal)
-            for widget in (category, predecessors, priority_box, url_box, color):
-                widget.set_visibility(full)
-            for widget in (status, category, priority_box, url_box):  # プロジェクト参照は、状態・カテゴリ・優先度・リンクを持たない
-                if reference:
-                    widget.set_visibility(False)
-            if not reference:
-                status.set_visibility(True)
+                parameter_select.set_visibility(normal)
+            for widget in (category, status, priority_box, url_box):  # プロジェクト参照は、状態・カテゴリ・優先度・リンクを持たない
+                widget.set_visibility(not reference)
+            for widget in (predecessors, color):
+                widget.set_visibility(True)
+            section_boxes["assignees"].set_visibility(normal)
+            section_boxes["actuals"].set_visibility(normal)
+            section_boxes["related"].set_visibility(True)
             refresh_push()
 
         kind.on_value_change(refresh_visibility)
-        layout_toggle.on_value_change(refresh_visibility)
-        if on_layout_change is not None:
-            layout_toggle.on_value_change(lambda e: on_layout_change(e.value))
         refresh_visibility()
+
+        quiet = {"on": False}  # エラーで開いたときは、開閉の保存を呼ばない
+
+        def crew_summary() -> list[tuple[str, float]]:
+            if weekly:
+                return [(a.name, a.allocation) for a in initial.assignees]
+            return [(m.name, share) for m, share in assignee_fields.chosen()]
+
+        def caption_of(key: str) -> str:
+            try:
+                if key == "assignees":
+                    return assignees_summary(crew_summary(), len(chosen_parameters))
+                if key == "actuals":
+                    count = (
+                        len(actual_fields.rows())
+                        if isinstance(actual_fields, IntervalFields)
+                        else int(bool(actual_fields.start_text()))
+                    )
+                    value = progress_field.value
+                    return actuals_summary(count, intervals, None if value is None else int(value))
+                return related_summary(
+                    len(predecessors.value or []),
+                    len(url_fields.rows()),
+                    Priority(priority.value),
+                    (color.value or initial.color) != DEFAULT_COLOR,
+                )
+            except ValueError:  # 入力の途中(書式の誤り)は、要約を出さない
+                return ""
+
+        def refresh_captions(_event: object = None) -> None:
+            for key, box in section_boxes.items():
+                box.props["caption"] = "" if box.value else caption_of(key)
+                box.update()
+
+        def on_section_toggle(_event: object) -> None:
+            refresh_captions()
+            if on_sections_change is not None and not quiet["on"]:
+                on_sections_change([key for key in FOLDABLE if section_boxes[key].value])
+
+        def open_section(key: str) -> None:
+            quiet["on"] = True
+            try:
+                section_boxes[key].set_value(True)
+            finally:
+                quiet["on"] = False
+
+        for box in section_boxes.values():
+            box.on_value_change(on_section_toggle)
+        refresh_captions()
         error = ui.label("").classes("text-negative").mark("form-error")
 
         def current() -> tuple[object, ...]:
@@ -1284,6 +1347,8 @@ def open_task_dialog(
                 )
             except ValueError as exc:
                 error.set_text(str(exc))
+                if (key := section_of_error(str(exc))) is not None:
+                    open_section(key)
                 return
             new_rate = assignees_rate(result.assignees, member_list)
             new_end = (
