@@ -54,6 +54,7 @@ from projectapp.models import (
     Level,
     Member,
     Parameter,
+    ReferenceMode,
     Priority,
     Status,
     Task,
@@ -977,6 +978,23 @@ def open_unsaved_dialog(
     dialog.open()
 
 
+def open_stale_reference_dialog(name: str, on_update: Callable[[], object], on_skip: Callable[[], object]) -> None:
+    """スナップショットが古いときの、参照先を開く前の確認(更新して開く / 更新せず開く / キャンセル)。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
+        ui.label("スナップショットが古くなっています").classes("text-h6")
+        ui.label(f"「{name}」の参照値は、保存したあとに変わっています。更新してから開きますか。")
+
+        def run(action: Callable[[], object]) -> None:
+            dialog.close()
+            action()
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark("stale-cancel")
+            ui.button("更新せず開く", on_click=lambda: run(on_skip)).props("flat").mark("stale-skip")
+            ui.button("更新して開く", on_click=lambda: run(on_update)).mark("stale-update")
+    dialog.open()
+
+
 def open_conflict_dialog(
     on_overwrite: Callable[[], object], on_save_as: Callable[[], object]
 ) -> None:
@@ -1131,6 +1149,8 @@ def open_settings_dialog(
     used_ids: Collection[str] = (),
     base_date: date | None = None,
     on_base_date: Callable[[date], object] | None = None,
+    reference_mode: ReferenceMode = ReferenceMode.LIVE,
+    on_reference_mode: Callable[[ReferenceMode], object] | None = None,
 ) -> None:
     card_width = "w-[30rem] max-w-full" if categories is None and events is None else "w-[46rem] max-w-full"
     with disposable(ui.dialog()) as dialog, ui.card().classes(card_width):
@@ -1186,6 +1206,16 @@ def open_settings_dialog(
                     mode.set_value(ActualMode.INTERVALS.value)
 
             mode.on_value_change(keep_intervals)
+        reference = None
+        if on_reference_mode is not None:
+            ui.label("プロジェクト参照の方式").classes("text-caption text-grey")
+            reference = ui.toggle(
+                {ReferenceMode.LIVE.value: "常に最新", ReferenceMode.SNAPSHOT.value: "スナップショット"},
+                value=reference_mode.value,
+            ).mark("settings-reference-mode")
+            ui.label("スナップショットは、参照行の値を保存します(右クリックの「更新」で取り直す)").classes(
+                "text-caption text-grey"
+            )
         rows = [TemplateRow(t.name, t.name, t.pattern) for t in templates or []]
         if templates is not None:
             ui.label("URL テンプレート").classes("text-caption text-grey")
@@ -1424,6 +1454,8 @@ def open_settings_dialog(
             on_apply(*result, ActualMode(mode.value))
             if base is not None and on_base_date is not None:
                 on_base_date(base)
+            if reference is not None and on_reference_mode is not None and ReferenceMode(reference.value) is not reference_mode:
+                on_reference_mode(ReferenceMode(reference.value))
             if edit is not None and on_templates is not None and edit.templates != templates:
                 on_templates(edit)
             if cedit is not None and on_categories is not None and (cedit.categories != categories or cedit.removed_ids):  # Category の比較は id を見ないので、内容が同じ行の入れ直しも、削除として適用する

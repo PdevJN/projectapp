@@ -19,7 +19,7 @@ from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.handoff import JSON_FILE_TYPES
 from projectapp.categories import CategoryEdit
-from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, Section, Task, TaskKind, TaskUrl, UrlTemplate, WorkDay, union_assignees
+from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, ReferenceMode, ReferenceValue, Section, Task, TaskKind, TaskUrl, UrlTemplate, WorkDay, union_assignees
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
@@ -5098,3 +5098,91 @@ async def test_toggle_weeks_splits_into_every_week_and_back(user: User, tmp_path
     view.toggle_weeks((0,), 0)
     back = view.project.sections[0].tasks[0]
     assert (back.weekly_crew, back.assignees) == ([], [Assignee("田中", 0.5)])  # 第1週の担当が全期間の担当に戻る
+
+
+def reference_setup(tmp_path: Path, mode: ReferenceMode = ReferenceMode.LIVE) -> Project:
+    save_project(Project("基盤", tasks=[Task("x", planned_start=datetime(2026, 10, 5, 9), effort_hours=8.0)]), tmp_path)
+    ref = Task("基盤開発", id="ref", kind=TaskKind.REFERENCE, ref_project="基盤")
+    return Project("本体", reference_mode=mode, tasks=[ref])
+
+
+def stale_setup(tmp_path: Path) -> None:
+    project = reference_setup(tmp_path, ReferenceMode.SNAPSHOT)
+    project.tasks[0].ref_snapshot = ReferenceValue(planned_start=datetime(2026, 1, 1), planned_end=datetime(2026, 1, 2))
+    save_project(project, tmp_path)
+
+
+async def test_clicking_a_live_reference_opens_the_project(user: User, tmp_path: Path) -> None:
+    save_project(reference_setup(tmp_path), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.request_open("本体")
+    view.open_reference("ref")
+    assert view.current_name() == "基盤"
+
+
+async def test_a_stale_snapshot_asks_before_opening_and_update_then_asks_to_save(user: User, tmp_path: Path) -> None:
+    stale_setup(tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.request_open("本体")
+    with view.client:
+        view.open_reference("ref")
+    await user.should_see(marker="stale-update")
+    user.find(marker="stale-update").click()
+    await user.should_see(marker="unsaved-save")  # 更新で未保存になったので、続けて保存の確認
+    user.find(marker="unsaved-save").click()
+    assert view.current_name() == "基盤"
+    assert load_project(tmp_path / "本体.json").tasks[0].ref_snapshot.planned_start != datetime(2026, 1, 1)  # 更新した値が保存された
+
+
+async def test_skipping_the_stale_dialog_opens_without_changing_the_snapshot(user: User, tmp_path: Path) -> None:
+    stale_setup(tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.request_open("本体")
+    with view.client:
+        view.open_reference("ref")
+    user.find(marker="stale-skip").click()
+    assert view.current_name() == "基盤"
+    assert load_project(tmp_path / "本体.json").tasks[0].ref_snapshot.planned_start == datetime(2026, 1, 1)
+
+
+async def test_a_missing_target_notifies_once_when_the_project_is_opened(user: User, tmp_path: Path) -> None:
+    ref = Task("基盤開発", id="ref", kind=TaskKind.REFERENCE, ref_project="ない")
+    save_project(Project("本体", tasks=[ref]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    views[0].request_open("本体")
+    await user.should_see("参照先のプロジェクトが見つかりません: ない")
+
+
+async def test_refreshing_a_snapshot_takes_the_current_value_and_marks_the_project_dirty(user: User, tmp_path: Path) -> None:
+    save_project(reference_setup(tmp_path, ReferenceMode.SNAPSHOT), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.request_open("本体")
+    view.refresh_reference((), 0)
+    assert view.project.tasks[0].ref_snapshot is not None and view.is_dirty()
+
+
+async def test_switching_the_mode_takes_or_drops_the_snapshots(user: User, tmp_path: Path) -> None:
+    save_project(reference_setup(tmp_path), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.request_open("本体")
+    view.apply_reference_mode(ReferenceMode.SNAPSHOT)
+    assert view.project.tasks[0].ref_snapshot is not None
+    view.apply_reference_mode(ReferenceMode.LIVE)
+    assert view.project.tasks[0].ref_snapshot is None

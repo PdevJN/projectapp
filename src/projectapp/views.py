@@ -52,9 +52,11 @@ from projectapp.forms import (
     task_name_error,
     open_section_dialog,
     open_settings_dialog,
+    open_stale_reference_dialog,
     open_unsaved_dialog,
 )
 from projectapp import arrange
+from projectapp.reference import ReferenceResolver, build_references, missing_references, take_snapshot
 from projectapp.shortcuts import Screen, defers_to_inputs, help_entries, key_guard_js, label_for, resolve
 from projectapp.dashboard import CrossSummary, PeriodKind, period_for, summarize, summarize_cross_loads
 from projectapp.dashboard_view import DashboardView
@@ -97,7 +99,7 @@ from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, short_date
-from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, Section, SectionPath, Task, TaskKind, WorkDay, new_id, union_assignees
+from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, ReferenceMode, Section, SectionPath, Task, TaskKind, WorkDay, new_id, union_assignees
 from projectapp.workdays import work_day_map
 from projectapp.selection import set_checked
 from projectapp.preview import (
@@ -244,6 +246,7 @@ class MainView:
         cached = load_cache(base_dir)
         self.holidays: dict[date, str] = cached or {}
         self.needs_first_fetch = cached is None
+        self.reference_resolver = ReferenceResolver(lambda: self.project_dir, lambda: self.holidays)
         self.gantt = GanttChart(
             self.project,
             self.holidays,
@@ -268,8 +271,11 @@ class MainView:
                 add_named_section=self.add_named_section,
                 toggle_weeks=self.toggle_weeks,
                 edit_week_crew=self.edit_week_crew,
+                open_reference=self.open_reference,
+                refresh_reference=self.refresh_reference,
             ),
             name_width=load_name_width(base_dir),
+            references=lambda: build_references(self.project, self.reference_resolver, datetime.now()),
         )
         self.preview_bar = PreviewBar(
             self.on_preview_change, self.exit_preview, self.save_image, self.save_plantuml, self.on_select_all
@@ -432,6 +438,8 @@ class MainView:
         self.gantt.set_project(self.project)
         self.gantt.reset_filter()
         self.gantt.reset_scroll()  # 別のプロジェクトは、先頭から見せる(編集後の再描画では動かさない)
+        for name in missing_references(project, self.reference_resolver, datetime.now()):
+            ui.notify(f"参照先のプロジェクトが見つかりません: {name}", type="warning")
 
     def open_project_folder(self) -> None:
         """プロジェクトの格納フォルダを、ファイラで開く。開けなければ通知する。"""
@@ -575,6 +583,8 @@ class MainView:
             used_ids=self.project.used_ids(),
             base_date=self.project.base_date,
             on_base_date=self.apply_base_date,
+            reference_mode=self.project.reference_mode,
+            on_reference_mode=self.apply_reference_mode,
         )
 
     def multi_interval_count(self) -> int:
@@ -1012,6 +1022,56 @@ class MainView:
             return
         self.project.base_date = day
         self.after_edit()
+
+    def apply_reference_mode(self, mode: ReferenceMode) -> None:
+        """参照の方式を変える。スナップショットへは全参照行のスナップショットをそのとき取り、常に最新へは捨てる。保存はしない。"""
+        if mode is self.project.reference_mode:
+            return
+        now = datetime.now()
+        self.project.reference_mode = mode
+        for task in self.project.all_tasks():
+            if task.kind is TaskKind.REFERENCE:
+                task.ref_snapshot = (
+                    take_snapshot(self.reference_resolver, task.ref_project, now) if mode is ReferenceMode.SNAPSHOT else None
+                )
+        self.after_edit()
+
+    def refresh_reference(self, path: SectionPath, index: int) -> None:
+        """参照行のスナップショットを、今の参照先の値に取り直す(スナップショットの方式のときだけ)。"""
+        self.refresh_snapshot(self.tasks_in(path)[index])
+
+    def refresh_snapshot(self, task: Task) -> bool:
+        if task.kind is not TaskKind.REFERENCE or self.project.reference_mode is not ReferenceMode.SNAPSHOT:
+            return False
+        taken = take_snapshot(self.reference_resolver, task.ref_project, datetime.now())
+        if taken is None:
+            ui.notify(f"「{task.ref_project}」を読めないため、更新できません", type="warning")
+            return False
+        task.ref_snapshot = taken
+        self.after_edit()
+        ui.notify(f"「{task.name}」のスナップショットを更新しました")
+        return True
+
+    def open_reference(self, task_id: str) -> None:
+        """参照先のプロジェクトへ切り替える。スナップショットが古ければ先に更新の確認を出す(更新すると未保存になるので、続けて保存の確認が出る)。"""
+        task = self.project.task_map().get(task_id)
+        if task is None or task.kind is not TaskKind.REFERENCE:
+            return
+        self.files = {p.stem: p for p in list_project_files(self.project_dir)}
+        name = task.ref_project
+        if name not in self.files:
+            ui.notify(f"参照先のプロジェクトが見つかりません: {name}", type="warning")
+            return
+        ref = build_references(self.project, self.reference_resolver, datetime.now()).get(task_id)
+        if ref is not None and ref.stale:
+
+            def update_then_open() -> None:
+                self.refresh_snapshot(task)
+                self.request_open(name)
+
+            open_stale_reference_dialog(name, update_then_open, lambda: self.request_open(name))
+            return
+        self.request_open(name)
 
     def apply_templates(self, edit: TemplateEdit) -> None:
         """URL テンプレートの編集を反映する(削除分のリンクは URL に展開される)。保存はしない。"""

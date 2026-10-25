@@ -44,6 +44,7 @@ from projectapp.forms import (
     open_section_dialog,
     build_event_list,
     open_settings_dialog,
+    open_stale_reference_dialog,
     open_unsaved_dialog,
     parse_datetime,
     end_gap_hint,
@@ -53,6 +54,7 @@ from projectapp.forms import (
 from projectapp.models import (
     Actual,
     ActualMode,
+    ReferenceMode,
     Assignee,
     Category,
     Level,
@@ -2104,3 +2106,54 @@ def test_build_task_takes_the_parameters_and_keeps_them_when_omitted() -> None:
 def test_build_task_clears_the_parameters_of_a_checkpoint() -> None:
     made = make(kind=TaskKind.CHECKPOINT, deadline="2026-10-09T17:00", status=Status.NOT_STARTED, parameters=["P"])
     assert made.parameters == []
+
+
+async def test_the_settings_dialog_reports_a_changed_reference_mode(user: User) -> None:
+    applied: list[ReferenceMode] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda *a: None, reference_mode=ReferenceMode.LIVE, on_reference_mode=applied.append
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-reference-mode").elements.pop().set_value(ReferenceMode.SNAPSHOT.value)
+    user.find(marker="settings-apply").click()
+    assert applied == [ReferenceMode.SNAPSHOT]
+
+
+async def test_the_stale_reference_dialog_offers_update_skip_and_cancel(user: User) -> None:
+    done: list[str] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_stale_reference_dialog("基盤", lambda: done.append("update"), lambda: done.append("skip")))
+
+    await user.open("/")
+    for marker, expected in (("stale-update", ["update"]), ("stale-skip", ["update", "skip"]), ("stale-cancel", ["update", "skip"])):
+        user.find("open").click()
+        user.find(marker=marker).click()
+        assert done == expected
+
+
+async def test_the_settings_dialog_does_not_report_an_unchanged_reference_mode(user: User) -> None:
+    applied: list[ReferenceMode] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda *a: None, reference_mode=ReferenceMode.LIVE, on_reference_mode=applied.append
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-apply").click()
+    assert applied == []
