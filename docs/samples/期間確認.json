@@ -1,0 +1,310 @@
+{
+  "version": 11,
+  "name": "期間確認",
+  "base_date": "2026-09-14",
+  "daily_hours": 6.5,
+  "work_start": "09:00:00",
+  "members": [
+    {
+      "name": "田中",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "1c6e980b",
+      "icon": "",
+      "work_days": []
+    }
+  ],
+  "sections": [
+    {
+      "name": "期間 2026-10-01 〜 2026-10-31 の確認",
+      "tasks": [
+        {
+          "name": "[外・前] 9月だけのタスク",
+          "id": "7569da6c",
+          "planned_start": "2026-09-16T09:00:00",
+          "effort_hours": 0.0,
+          "priority": "中",
+          "status": "終了",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "1c6e980b",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": "2026-09-18T18:00:00",
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": 100,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[左端をまたぐ] 9/28〜10/3",
+          "id": "d8c4dda2",
+          "planned_start": "2026-09-28T09:00:00",
+          "effort_hours": 0.0,
+          "priority": "中",
+          "status": "実行中",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "1c6e980b",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": "2026-10-03T18:00:00",
+          "planned_end_manual": false,
+          "actuals": [
+            {
+              "start": "2026-09-28T09:00:00",
+              "end": "2026-09-30T18:00:00",
+              "progress": null
+            }
+          ],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": 50,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[ちょうど月初] 10/1〜10/1",
+          "id": "b8c604a1",
+          "planned_start": "2026-10-01T09:00:00",
+          "effort_hours": 0.0,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "1c6e980b",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": "2026-10-01T18:00:00",
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[中] 10/5〜10/9",
+          "id": "de4e1dff",
+          "planned_start": "2026-10-05T09:00:00",
+          "effort_hours": 0.0,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "1c6e980b",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": "2026-10-09T18:00:00",
+          "planned_end": "2026-10-09T18:00:00",
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[中] 10/20〜10/25",
+          "id": "f73161c0",
+          "planned_start": "2026-10-20T09:00:00",
+          "effort_hours": 0.0,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "1c6e980b",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": "2026-10-25T18:00:00",
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[ちょうど月末] 10/31〜10/31",
+          "id": "060602aa",
+          "planned_start": "2026-10-31T09:00:00",
+          "effort_hours": 0.0,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "1c6e980b",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": "2026-10-31T18:00:00",
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[右端をまたぐ] 10/29〜11/4",
+          "id": "fea0920d",
+          "planned_start": "2026-10-29T09:00:00",
+          "effort_hours": 0.0,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "1c6e980b",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": "2026-11-04T18:00:00",
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[外・後] 11月だけのタスク",
+          "id": "82e87dbe",
+          "planned_start": "2026-11-10T09:00:00",
+          "effort_hours": 0.0,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "1c6e980b",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": "2026-11-14T18:00:00",
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[外・遠い] 2027/1〜2027/2",
+          "id": "2e235a8a",
+          "planned_start": "2027-01-12T09:00:00",
+          "effort_hours": 0.0,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": "2027-02-05T18:00:00",
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        }
+      ],
+      "sections": [],
+      "id": "ae35a529"
+    }
+  ],
+  "tasks": [],
+  "actual_mode": "simple",
+  "url_templates": [],
+  "parameters": [],
+  "categories": [],
+  "events": [
+    {
+      "start": "2026-10-01",
+      "end": "2026-10-01",
+      "text": "月初",
+      "color": "orange",
+      "id": "556be4d1"
+    },
+    {
+      "start": "2026-10-31",
+      "end": "2026-10-31",
+      "text": "月末",
+      "color": "red",
+      "id": "749fc720"
+    }
+  ],
+  "reference_mode": "live"
+}
