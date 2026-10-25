@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from projectapp.models import Assignee, Actual, Level, Member, Parameter, Project, Section, Status, Task, WorkDay
+from projectapp.models import Assignee, Actual, Level, Member, Parameter, Project, ReferenceValue, Section, Status, Task, TaskKind, WorkDay
 from projectapp.workdays import work_day_map
 from projectapp.timeline import (
     Schedule,
@@ -355,6 +355,14 @@ def test_visible_range_uses_the_effective_end() -> None:
     task = Task("t", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0)  # 完了予定は 10/13 11:00
     first, last = visible_range(project_with(task))
     assert last == date(2026, 10, 14)
+
+
+def test_visible_range_covers_a_reference_row() -> None:
+    ref = Task("基盤", id="ref", kind=TaskKind.REFERENCE, ref_project="基盤")
+    value = ReferenceValue(planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 30, 17))
+    project = project_with(ref)
+    assert visible_range(project)[1] < date(2026, 10, 30)
+    assert visible_range(project, references={"ref": value})[1] == date(2026, 10, 31)
 
 
 def test_visible_range_survives_a_planned_end_before_the_start() -> None:

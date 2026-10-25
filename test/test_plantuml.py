@@ -8,7 +8,7 @@ import pytest
 
 from projectapp.filtering import TaskFilter
 from projectapp.gantt import STATUS_COLORS as GANTT_STATUS_COLORS
-from projectapp.models import Actual, Assignee, Event, Member, Project, Section, Status, Task, TaskKind, WorkDay
+from projectapp.models import Actual, Assignee, Event, Member, Project, ReferenceValue, Section, Status, Task, TaskKind, WorkDay
 from projectapp.plantuml import (
     OVERDUE_COLOR,
     PLANTUML_FILE_TYPES,
@@ -458,3 +458,32 @@ def test_weekly_tasks_are_counted_for_the_approximation_notice() -> None:
     assert build(project, show_chips=False).weekly_tasks == 0  # 担当者を出さないときは近似にならない
     assert weekly_crew_notice(1) == "週ごとの担当は近似で出力しました(1 件。和集合の担当者を、各人の最大の割り当て率で出しています)"
     assert weekly_crew_notice(0) is None
+
+
+REF_VALUE = ReferenceValue(
+    planned_start=datetime(2026, 10, 14, 9), planned_end=datetime(2026, 10, 20, 17), progress=45, delayed=2
+)
+
+
+def reference_project() -> Project:
+    ref = Task("基盤開発", id="ref", kind=TaskKind.REFERENCE, ref_project="基盤")
+    return Project("本体", base_date=date(2026, 10, 1), tasks=[ref])
+
+
+def test_a_reference_row_is_one_band_named_with_the_reference_mark() -> None:
+    result = build(reference_project(), references={"ref": REF_VALUE})
+    assert "[基盤開発(参照)] as [T1] starts 2026-10-14 and ends 2026-10-20" in result.text
+    assert f"[T1] is colored in {OVERDUE_COLOR}" in result.text  # 遅延があるので赤
+    assert "completed" not in result.text  # 進捗は出さない
+    assert result.task_count == 1
+
+
+def test_a_reference_row_without_delay_uses_the_not_started_color() -> None:
+    value = ReferenceValue(planned_start=REF_VALUE.planned_start, planned_end=REF_VALUE.planned_end)
+    result = build(reference_project(), references={"ref": value})
+    assert f"[T1] is colored in {STATUS_COLORS[Status.NOT_STARTED]}" in result.text
+
+
+def test_a_reference_row_without_a_value_is_skipped_and_counted() -> None:
+    result = build(reference_project())
+    assert result.task_count == 0 and result.skipped == 1

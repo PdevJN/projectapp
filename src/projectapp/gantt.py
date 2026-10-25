@@ -26,7 +26,8 @@ from projectapp.decompose import decompose_block_reason
 from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
-from projectapp.models import ID_KEY, MAX_SECTION_DEPTH, URL_KEY, Assignee, Category, Event, Priority, Project, Section, SectionPath, Status, Task, TaskKind, TaskUrl
+from projectapp.models import ID_KEY, MAX_SECTION_DEPTH, URL_KEY, Assignee, Category, Event, Priority, Project, ReferenceMode, ReferenceValue, Section, SectionPath, Status, Task, TaskKind, TaskUrl
+from projectapp.reference import Reference
 from projectapp.selection import CheckState, check_state, task_ids_of, toggled
 from projectapp.urls import resolve
 from projectapp.summary import children_of, parent_map, summary_progress, summary_status
@@ -178,6 +179,14 @@ ASSIGNEE_CHIP_STYLE = (
     " font-size: 10px; border-radius: 50%; background: rgba(128, 128, 128, 0.3)"
 )
 PROGRESS_TEXT_STYLE = "flex: none; font-size: 10px"
+REFERENCE_CHIP_STYLE = (  # 文字入りのチップ(担当者の丸いチップは文字が収まらない)。折り返さず、名前のほうを縮める
+    "flex: none; padding: 0 6px; font-size: 10px; line-height: 16px; white-space: nowrap;"
+    " border-radius: 8px; background: rgba(128, 128, 128, 0.3)"
+)
+REFERENCE_MARK = "📅 "  # 参照行の名前の頭に付ける目印(表示だけ。名前には含めない)
+REFERENCE_CSS = ".ref-link { cursor: pointer; } .ref-link:hover { text-decoration: underline; }"
+OVERDUE_COLOR_SOLID = "rgba(239, 83, 80, 0.45)"  # 遅延のチップの背景(行の赤みより濃く)
+RED_BAR_COLOR = "#ef5350"  # 遅延のある参照先の帯の色
 # 実績の区間の間(休んでいた期間)の点線。実績の棒の中央の高さに、1px の破線を引く
 ACTUAL_GAP_BACKGROUND = (
     f"repeating-linear-gradient(90deg, {STATUS_COLOR_VAR} 0 4px, transparent 4px 8px)"
@@ -289,6 +298,11 @@ setTimeout(() => {
 }, 50);
 """
 ALL_ASSIGNEES = ""  # 担当者の選択で「すべて」を表す値。メンバー名は空にできない
+
+
+def reference_open_hint(task: Task) -> str:
+    """参照行のマウスオーバーに添える、クリックで参照先のプロジェクトが表示される案内。"""
+    return f"クリックすると「{task.ref_project}」プロジェクトを開く"
 
 
 def planned_background(color: str) -> str:
@@ -433,6 +447,8 @@ class GanttActions:
     add_named_section: Callable[[SectionPath, str], object] = lambda parent, name: None
     toggle_weeks: Callable[[SectionPath, int], object] = lambda path, ti: None  # 週ごとに分ける / やめる
     edit_week_crew: Callable[[SectionPath, int, int], object] = lambda path, ti, week: None  # 週ごとの担当の編集(0 始まり)
+    open_reference: Callable[[str], object] = lambda task_id: None  # プロジェクト参照の行のクリック(タスクの id)
+    refresh_reference: Callable[[SectionPath, int], object] = lambda path, ti: None  # スナップショットの更新
 
 
 class GanttChart:
@@ -444,8 +460,11 @@ class GanttChart:
         now: Callable[[], datetime] = datetime.now,
         name_width: int = DEFAULT_NAME_WIDTH_PX,
         open_url: Callable[[str], object] = default_open_url,
+        references: Callable[[], dict[str, Reference]] = lambda: {},
     ) -> None:
         self.project = project
+        self.references_of = references
+        self.refs: dict[str, Reference] = {}  # 参照行の id → 参照。描画のたびに取り直す
         self.open_url = open_url
         self.holidays = holidays
         self.actions = actions
@@ -472,6 +491,7 @@ class GanttChart:
         self.menu_target: tuple[SectionPath, int] | None = None  # メニューを開いた行
         self.decompose_item: ui.menu_item | None = None
         self.weeks_item: ui.menu_item | None = None
+        self.refresh_item: ui.menu_item | None = None
         self.weeks_label: ui.label | None = None
         self.section_menu: ui.context_menu | None = None  # セクションの見出しの右クリックの共有メニュー
         self.section_menu_target: SectionPath | None = None
@@ -721,9 +741,15 @@ class GanttChart:
         """名前の欄の右端を、幅の調整の掴み場所にするクラス(先頭に空白)。読み取り専用では付けない。"""
         return "" if self.options.read_only else " gantt-name-resizable"
 
+    def reference_values(self) -> dict[str, ReferenceValue]:
+        """参照行(タスクの id)ごとの、表示に使う参照値。参照先が読めない行は含めない。"""
+        return {tid: ref.value for tid, ref in self.refs.items() if ref.value is not None}
+
     def content_width(self) -> int:
         """描画の全体の幅(px)。名前の列と、すべての列。画像の幅になる。"""
-        columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
+        columns = build_columns(
+            self.project, self.view_scale, self.holidays, self.options.period, self.reference_values()
+        )
         return self.name_width + COLUMN_WIDTH_PX[self.view_scale] * len(columns)
 
     def bar_visible(
@@ -828,6 +854,7 @@ class GanttChart:
         ui.add_css(LINK_CSS)
         ui.add_css(CONTEXT_MENU_CSS)
         ui.add_css(EVENT_CSS)
+        ui.add_css(REFERENCE_CSS)
         ui.add_css(SHIFT_TOOLTIP_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.add_head_html(f"<script>{SHIFT_TRACK_JS}</script>")
@@ -906,6 +933,11 @@ class GanttChart:
                     self.weeks_label = ui.label("週ごとに分ける").mark("context-weeks-label")  # 状態で文言を替える
             self.weeks_item = item
             ui.menu_item("コピー", on_click=act(lambda p, t: self.actions.copy_task(p, t))).mark("context-copy")
+            self.refresh_item = ui.menu_item(
+                "更新", on_click=act(lambda p, t: self.actions.refresh_reference(p, t))
+            ).mark("context-refresh")
+            with self.refresh_item:
+                ui.tooltip("参照の方式が「スナップショット」のときだけ更新できます")  # 押せないときの理由(押せるときも害はない)
             ui.menu_item("名前の変更", on_click=act(lambda p, t: self.actions.rename_task(p, t))).mark("context-rename")
             ui.separator()
             ui.menu_item("削除", on_click=act(lambda p, t: self.actions.delete_task(p, t))).props(
@@ -966,6 +998,12 @@ class GanttChart:
             self.weeks_item.props(add="" if can else "disable", remove="disable" if can else "")
         blocked = ti >= len(tasks) or decompose_block_reason(self.project, tasks[ti], self.holidays) is not None
         self.decompose_item.props(add="disable" if blocked else "", remove="" if blocked else "disable")
+        if self.refresh_item is not None:
+            task = tasks[ti] if ti < len(tasks) else None
+            is_reference = task is not None and task.kind is TaskKind.REFERENCE
+            can = is_reference and self.project.reference_mode is ReferenceMode.SNAPSHOT
+            self.refresh_item.set_visibility(is_reference)
+            self.refresh_item.props(add="" if can else "disable", remove="disable" if can else "")
 
     def menu_on_right_click(self, row: ui.element, path: SectionPath, ti: int) -> None:
         """行の右クリックで共有メニューを、クリックした位置に開く。ブラウザ標準のメニューは出さない。"""
@@ -1103,8 +1141,11 @@ class GanttChart:
         self.task_rows = {}
         self.tasks_by_id = self.project.task_map()
         self.parents = parent_map(self.project)
-        self.schedule = Schedule(self.project, self.holidays)
-        columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
+        self.refs = self.references_of()
+        self.schedule = Schedule(self.project, self.holidays, self.reference_values())
+        columns = build_columns(
+            self.project, self.view_scale, self.holidays, self.options.period, self.reference_values()
+        )
         self.overloads = overallocations(self.project, self.holidays)
         self.category_lookup = by_id(self.project.categories)
         self.icon_lookup = {m.name: m.icon for m in self.project.members if m.icon}
@@ -1452,7 +1493,7 @@ class GanttChart:
                         .classes("shrink-0")
                         .mark(f"summary-toggle-{key}-{ti}")
                     )
-                name = ui.label(task.name).classes("ellipsis").style(
+                name = ui.label(REFERENCE_MARK + task.name if task.kind is TaskKind.REFERENCE else task.name).classes("ellipsis").style(
                     f"flex: 1 1 0; min-width: 0; line-height: {ROW_HEIGHT_PX - 1}px"
                 )
                 if summary:
@@ -1464,6 +1505,13 @@ class GanttChart:
                             lambda tid=task.id: self.toggle_summary(tid),
                             js_handler="(e) => { e.stopPropagation(); emit(); }",
                         )
+                if task.kind is TaskKind.REFERENCE and not self.options.read_only:
+                    name.classes("ref-link").props("data-no-quick-add").tooltip(reference_open_hint(task))
+                    name.on(
+                        "click",
+                        lambda tid=task.id: self.actions.open_reference(tid),
+                        js_handler="(e) => { e.stopPropagation(); emit(); }",
+                    )
                 if finished:  # 終了したタスクは、名前に取り消し線を引く
                     name.style("text-decoration: line-through")
                 name.mark(f"task-name-{key}-{ti}")
@@ -1477,6 +1525,10 @@ class GanttChart:
                 return row
             if summary:  # 棒の代わりに、子の期間を覆う細い帯を出す
                 self.summary_band(path, key, ti, task, columns, width)
+                return row
+            if task.kind is TaskKind.REFERENCE:  # 参照先全体の帯だけ。自分の棒・実績は出さない(締切の目印だけ)
+                self.reference_band(key, ti, task, columns, width)
+                self.deadline_marker(path, ti, task, columns, width)
                 return row
             if self.view_scale is Scale.DAY and (notes := member_notes(task, self.project, self.holidays)):
                 self.work_day_strip(key, ti, notes, columns, width)
@@ -1528,6 +1580,9 @@ class GanttChart:
 
     def task_chips(self, key: int | str, ti: int, task: Task) -> None:
         """名前の右の、カテゴリ(PRJコード、なければ名前)・担当・進捗。空のものは出さない。名前の欄の枠の中で呼ぶ。"""
+        if task.kind is TaskKind.REFERENCE:
+            self.reference_chips(key, ti, task)
+            return
         category = self.category_lookup.get(task.category_id) if task.category_id else None
         if category is not None:
             ui.label(chip_text(category)).classes("ellipsis code-chip").style(CODE_CHIP_STYLE).tooltip(
@@ -1844,6 +1899,90 @@ class GanttChart:
             lines.append(f"{member} 最大{peak}%{span}")
         per_line = HOVER_NAMES_PER_LINE
         return "\n　".join(" / ".join(lines[i : i + per_line]) for i in range(0, len(lines), per_line))
+
+    def reference_chips(self, key: int | str, ti: int, task: Task) -> None:
+        """参照行の、名前の右のチップ: 遅延の件数・負荷のピーク・進捗・見つからない理由。名前の欄の枠の中で呼ぶ。"""
+        ref = self.refs.get(task.id)
+        if ref is None:
+            return
+        if ref.problem and ref.value is None:
+            ui.label("(参照先が見つかりません)").classes("text-caption text-grey").tooltip(ref.problem).mark(
+                f"ref-missing-{key}-{ti}"
+            )
+            return
+        value = ref.value
+        if value is None:
+            return
+        if self.options.show_alerts and value.delayed:
+            ui.label(f"遅延 {value.delayed}件").style(REFERENCE_CHIP_STYLE + f" background: {OVERDUE_COLOR_SOLID};").mark(
+                f"ref-delay-{key}-{ti}"
+            )
+        if self.options.show_alerts and value.peak_load > 1.0:
+            ui.label(f"負荷 {round(value.peak_load * 100)}%").style(REFERENCE_CHIP_STYLE).mark(f"ref-load-{key}-{ti}")
+        if value.progress is not None:
+            ui.label(f"{value.progress}%").style(PROGRESS_TEXT_STYLE).mark(f"task-progress-{key}-{ti}")
+
+    def reference_text(self, task: Task, ref: Reference) -> str:
+        """参照行の帯のマウスオーバー(細かなタスクは出さない)。"""
+        value = ref.value
+        assert value is not None
+        lines = [task.name]
+        if value.planned_start is not None and value.planned_end is not None:
+            lines[0] += f" {short_date(value.planned_start.date())}〜{short_date(value.planned_end.date())}"
+        if value.actual_start is not None:
+            tail = short_date(value.actual_end.date()) if value.actual_end is not None else ""
+            lines.append(f"実績 {short_date(value.actual_start.date())}〜{tail}")
+        lines.append(f"遅延 {value.delayed} 件")
+        lines.append(
+            f"ピーク負荷 {round(value.peak_load * 100)}%({value.peak_member})" if value.peak_load > 1.0 else "負荷の超過なし"
+        )
+        if ref.source is ReferenceMode.SNAPSHOT and value.taken_at is not None:
+            lines.append(f"スナップショット {short_date(value.taken_at.date())}" + (" (古い)" if ref.stale else ""))
+        if ref.problem:
+            lines.append(ref.problem)
+        if not self.options.read_only:
+            lines.append(reference_open_hint(task))
+        return "\n".join(lines)
+
+    def reference_band(self, key: int | str, ti: int, task: Task, columns: list[Column], width: int) -> None:
+        """参照先全体の予定の帯(進捗の塗りと、超過期間の縞)。参照値がなければ出さない。"""
+        ref = self.refs.get(task.id)
+        start, end = self.schedule.start(task), self.schedule.end(task)
+        span = bar_span(start, end, columns)
+        if ref is None or ref.value is None or span is None or not self.bar_visible(start, end, columns):
+            return
+        left, length = span
+        bar_width = max(length * width, MIN_BAR_PX)
+        late = self.options.show_alerts and ref.value.delayed > 0
+        bar = ui.element("div").style(
+            f"position: absolute; left: {from_name(left * width)}; width: {bar_width:.1f}px; top: {BAR_TOP_PX}px;"
+            f" height: {BAR_HEIGHT_PX}px; background: {planned_background(task.color if not late else RED_BAR_COLOR)};"
+            " border-radius: 4px; overflow: hidden; user-select: none"
+        )
+        bar.mark(f"bar-{key}-{ti}")
+        if not self.options.read_only:
+            bar.classes("ref-link").on(
+                "click",
+                lambda tid=task.id: self.actions.open_reference(tid),
+                js_handler="(e) => { e.stopPropagation(); emit(); }",
+            )
+        bar.tooltip(self.reference_text(task, ref))
+        with bar:
+            if ref.value.progress:
+                ui.element("div").style(
+                    f"position: absolute; left: 0; top: 0; bottom: 0; width: {ref.value.progress}%;"
+                    f" background: {task.color}; opacity: 0.6; pointer-events: none"
+                )
+            if self.options.show_alerts:
+                for n, over in enumerate(ref.value.overloads):
+                    origin, length_cols = interval_span(over.start, over.end, columns)
+                    left_px = max((origin - left) * width, 0.0)
+                    width_px = min(length_cols * width, bar_width - left_px)
+                    if width_px > 0:
+                        ui.element("div").style(
+                            f"position: absolute; left: {left_px:.1f}px; width: {width_px:.1f}px; top: 0; bottom: 0;"
+                            f" background: {OVERLOAD_STRIPES}; pointer-events: none"
+                        ).mark(f"overload-{key}-{ti}-{n}")
 
     def checkpoint_marker(
         self, path: SectionPath, ti: int, task: Task, columns: list[Column], width: int

@@ -52,9 +52,12 @@ from projectapp.forms import (
     task_name_error,
     open_section_dialog,
     open_settings_dialog,
+    open_stale_reference_dialog,
+    open_stale_snapshot_dialog,
     open_unsaved_dialog,
 )
 from projectapp import arrange
+from projectapp.reference import ReferenceResolver, build_references, missing_references, take_snapshot
 from projectapp.shortcuts import Screen, defers_to_inputs, help_entries, key_guard_js, label_for, resolve
 from projectapp.dashboard import CrossSummary, PeriodKind, period_for, summarize, summarize_cross_loads
 from projectapp.dashboard_view import DashboardView
@@ -97,7 +100,7 @@ from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, short_date
-from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, Section, SectionPath, Task, TaskKind, WorkDay, new_id, union_assignees
+from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, ReferenceMode, ReferenceValue, Section, SectionPath, Task, TaskKind, WorkDay, new_id, union_assignees
 from projectapp.workdays import work_day_map
 from projectapp.selection import set_checked
 from projectapp.preview import (
@@ -222,6 +225,8 @@ class MainView:
         self.run_js: Callable[..., Any] = ui.run_javascript  # テストで差し替える
         self.project = Project(NEW_PROJECT_NAME)
         self.files: dict[str, Path] = {p.stem: p for p in list_project_files(self.project_dir)}
+        self.origin: str | None = None  # 参照行のクリックで開いたときの、元のプロジェクト名(戻るリンク用。保存しない)
+        self.pending_origin: tuple[str, str] | None = None  # (元, 開く先)。開くのが確認で取りやめになったら、次の切り替えでは使わない
         self.path: Path | None = None
         self.digest: str | None = None  # 読み込み(保存)時のファイルの内容のハッシュ。外部変更の検知用
         self.read_git: Callable[[Path], GitState] = read_git_state  # テストで差し替える(本物の git を呼ばない)
@@ -244,6 +249,7 @@ class MainView:
         cached = load_cache(base_dir)
         self.holidays: dict[date, str] = cached or {}
         self.needs_first_fetch = cached is None
+        self.reference_resolver = ReferenceResolver(lambda: self.project_dir, lambda: self.holidays)
         self.gantt = GanttChart(
             self.project,
             self.holidays,
@@ -268,8 +274,11 @@ class MainView:
                 add_named_section=self.add_named_section,
                 toggle_weeks=self.toggle_weeks,
                 edit_week_crew=self.edit_week_crew,
+                open_reference=self.open_reference,
+                refresh_reference=self.refresh_reference,
             ),
             name_width=load_name_width(base_dir),
+            references=lambda: build_references(self.project, self.reference_resolver, datetime.now()),
         )
         self.preview_bar = PreviewBar(
             self.on_preview_change, self.exit_preview, self.save_image, self.save_plantuml, self.on_select_all
@@ -423,6 +432,8 @@ class MainView:
 
     def show_project(self, project: Project, path: Path | None, digest: str | None = None) -> None:
         """別のプロジェクトに切り替える(開いたとき・新規作成のとき)。保存済みの状態から始める。"""
+        pending, self.pending_origin = self.pending_origin, None
+        self.origin = pending[0] if pending is not None and path is not None and path.stem == pending[1] else None
         self.path, self.project, self.digest = path, project, digest
         self.mark_clean()
         self.file_select.set_value(path.stem if path else None)
@@ -432,6 +443,10 @@ class MainView:
         self.gantt.set_project(self.project)
         self.gantt.reset_filter()
         self.gantt.reset_scroll()  # 別のプロジェクトは、先頭から見せる(編集後の再描画では動かさない)
+        for name in missing_references(project, self.reference_resolver, datetime.now()):
+            ui.notify(f"参照先のプロジェクトが見つかりません: {name}", type="warning")
+        if stale := self.stale_references():
+            open_stale_snapshot_dialog(stale, "続ける", self.refresh_stale_snapshots, lambda: None)
 
     def open_project_folder(self) -> None:
         """プロジェクトの格納フォルダを、ファイラで開く。開けなければ通知する。"""
@@ -575,6 +590,8 @@ class MainView:
             used_ids=self.project.used_ids(),
             base_date=self.project.base_date,
             on_base_date=self.apply_base_date,
+            reference_mode=self.project.reference_mode,
+            on_reference_mode=self.apply_reference_mode,
         )
 
     def multi_interval_count(self) -> int:
@@ -765,13 +782,20 @@ class MainView:
         self.set_header_visible(True)
         self.gantt.set_visible(True)
 
+    def reference_values(self) -> dict[str, ReferenceValue]:
+        """参照行(タスクの id)ごとの参照値。読めない参照先は含めない。"""
+        refs = build_references(self.project, self.reference_resolver, datetime.now())
+        return {tid: ref.value for tid, ref in refs.items() if ref.value is not None}
+
     def enter_preview(self) -> None:
         """メイン画面を、プレビューモードに切り替える。初期値は、今の表示範囲と、今のスケール。"""
         if self.preview is not None or self.dashboard_kind is not None:
             return
-        start, end = visible_range(self.project, self.holidays)
+        start, end = visible_range(self.project, self.holidays, self.reference_values())
         period = (start, max(end - timedelta(days=1), start))  # タスクがないと、範囲が空になる。基準日の 1 日にする
-        scale = fit_scale(self.project, self.holidays, period, self.gantt.scale, self.gantt.name_width)
+        scale = fit_scale(
+            self.project, self.holidays, period, self.gantt.scale, self.gantt.name_width, self.reference_values()
+        )
         self.preview_notice = coarser_notice(scale, self.gantt.scale) if scale is not self.gantt.scale else None
         self.preview = PreviewSettings(start, period[1], scale)
         self.set_header_visible(False)
@@ -801,7 +825,7 @@ class MainView:
             self.preview_bar.set_warning(None)
             self.preview_bar.set_save_enabled(False)
             return
-        too_long = check_column_count(scale, len(build_columns(self.project, scale, self.holidays, (start, end))))
+        too_long = check_column_count(scale, len(build_columns(self.project, scale, self.holidays, (start, end), self.reference_values())))
         if too_long is not None:
             self.preview_bar.set_error(too_long)
             self.preview_bar.set_warning(None)
@@ -894,6 +918,7 @@ class MainView:
             show_alerts=settings.show_alerts,
             show_events=settings.show_events,
             excluded=settings.excluded,
+            references=self.reference_values(),
         )
         if result.task_count == 0:
             ui.notify("出力できるタスクがありません", type="warning")
@@ -1012,6 +1037,67 @@ class MainView:
             return
         self.project.base_date = day
         self.after_edit()
+
+    def apply_reference_mode(self, mode: ReferenceMode) -> None:
+        """参照の方式を変える。スナップショットへは全参照行のスナップショットをそのとき取り、常に最新へは捨てる。保存はしない。"""
+        if mode is self.project.reference_mode:
+            return
+        now = datetime.now()
+        self.project.reference_mode = mode
+        for task in self.project.all_tasks():
+            if task.kind is TaskKind.REFERENCE:
+                task.ref_snapshot = (
+                    take_snapshot(self.reference_resolver, task.ref_project, now) if mode is ReferenceMode.SNAPSHOT else None
+                )
+        self.after_edit()
+
+    def refresh_reference(self, path: SectionPath, index: int) -> None:
+        """参照行のスナップショットを、今の参照先の値に取り直す(スナップショットの方式のときだけ)。"""
+        self.refresh_snapshot(self.tasks_in(path)[index])
+
+    def refresh_snapshot(self, task: Task) -> bool:
+        if task.kind is not TaskKind.REFERENCE or self.project.reference_mode is not ReferenceMode.SNAPSHOT:
+            return False
+        taken = take_snapshot(self.reference_resolver, task.ref_project, datetime.now())
+        if taken is None:
+            ui.notify(f"「{task.ref_project}」を読めないため、更新できません", type="warning")
+            return False
+        task.ref_snapshot = taken
+        self.after_edit()
+        ui.notify(f"「{task.name}」のスナップショットを更新しました")
+        return True
+
+    def open_reference(self, task_id: str) -> None:
+        """参照先のプロジェクトへ切り替える。スナップショットが古ければ先に更新の確認を出す(更新すると未保存になるので、続けて保存の確認が出る)。"""
+        task = self.project.task_map().get(task_id)
+        if task is None or task.kind is not TaskKind.REFERENCE:
+            return
+        self.files = {p.stem: p for p in list_project_files(self.project_dir)}
+        name = task.ref_project
+        if name not in self.files:
+            ui.notify(f"参照先のプロジェクトが見つかりません: {name}", type="warning")
+            return
+        ref = build_references(self.project, self.reference_resolver, datetime.now()).get(task_id)
+        if ref is not None and ref.stale:
+
+            def update_then_open() -> None:
+                self.refresh_snapshot(task)
+                self.go_to_reference(name)
+
+            open_stale_reference_dialog(name, update_then_open, lambda: self.go_to_reference(name))
+            return
+        self.go_to_reference(name)
+
+    def go_to_reference(self, name: str) -> None:
+        """参照先を開く。開けたら、元のプロジェクトへ戻るリンクを出す。"""
+        current = self.current_name()
+        self.pending_origin = (current, name) if current else None
+        self.request_open(name)
+
+    def return_to_origin(self) -> None:
+        """参照行から開いたプロジェクトから、元のプロジェクトへ戻る(未保存の編集があれば確認する)。"""
+        if self.origin is not None:
+            self.request_open(self.origin)
 
     def apply_templates(self, edit: TemplateEdit) -> None:
         """URL テンプレートの編集を反映する(削除分のリンクは URL に展開される)。保存はしない。"""
@@ -1141,6 +1227,9 @@ class MainView:
             "categories": self.project.categories,
             "layout": self.task_layout,
             "on_layout_change": self.set_task_layout,
+            "reference_choices": sorted(
+                p.stem for p in list_project_files(self.project_dir) if p.stem != self.current_name()
+            ),  # プロジェクト参照の参照先(自分を除く)
         }
 
     def add_task(self, path: SectionPath) -> None:
@@ -1373,9 +1462,41 @@ class MainView:
         """セクション(パス)のタスク一覧。root は (): セクションに属さないタスク。"""
         return arrange.tasks_at(self.project, path)
 
+    def stale_references(self) -> list[str]:
+        """スナップショットが今の参照先と違う参照行の、参照先の名前(重複なし)。常に最新のときは空。"""
+        refs = build_references(self.project, self.reference_resolver, datetime.now())
+        tasks = self.project.task_map()
+        return list(dict.fromkeys(tasks[tid].ref_project for tid, ref in refs.items() if ref.stale))
+
+    def refresh_stale_snapshots(self, then: Callable[[], object] | None = None) -> None:
+        """古いスナップショットをすべて今の参照先の値に取り直す。`then` があれば、その中で再描画する(なければ描き直す)。"""
+        now = datetime.now()
+        refs = build_references(self.project, self.reference_resolver, now)
+        for task in self.project.all_tasks():
+            if task.kind is TaskKind.REFERENCE and refs.get(task.id) is not None and refs[task.id].stale:
+                taken = take_snapshot(self.reference_resolver, task.ref_project, now)
+                if taken is not None:
+                    task.ref_snapshot = taken
+        if then is None:
+            self.after_edit()
+        else:
+            then()
+
     def save_task(
         self, path: SectionPath, task_index: int | None, task: Task
     ) -> None:
+        """タスクを保存する。スナップショットが古い参照先があるときは、先に確認する(キャンセルなら保存しない)。"""
+        if stale := self.stale_references():
+            open_stale_snapshot_dialog(
+                stale,
+                "保存",
+                lambda: self.refresh_stale_snapshots(lambda: self.apply_task(path, task_index, task)),
+                lambda: self.apply_task(path, task_index, task),
+            )
+            return
+        self.apply_task(path, task_index, task)
+
+    def apply_task(self, path: SectionPath, task_index: int | None, task: Task) -> None:
         tasks = self.tasks_in(path)
         if task_index is None:
             if task.id in self.project.used_ids():
@@ -1812,6 +1933,10 @@ class MainView:
     @ui.refreshable_method
     def title(self) -> None:
         ui.label(self.project.name).classes("app-title")
+        if self.origin is not None and self.origin in self.files:  # 参照行から開いたときだけ
+            ui.button(f"{self.origin}に戻る", icon="arrow_back", on_click=self.return_to_origin).props(
+                "flat dense no-caps size=sm"
+            ).tooltip("参照した元のプロジェクトに戻る").mark("back-to-origin")
 
     @ui.refreshable_method
     def theme_menu(self) -> None:

@@ -183,7 +183,7 @@ PARAMETER_LABELS = {"levels": "段階"}
 TEMPLATE_LABELS = {"pattern": "URLの型"}
 EVENT_LABELS = {"start": "開始日", "end": "終了日", "text": "文字列", "color": "色"}
 WORK_DAY_LABELS = {"window": "時間帯"}
-SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間", "work_start": "始業時刻", "actual_mode": "実績の記録方式"}
+SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間", "work_start": "始業時刻", "actual_mode": "実績の記録方式", "reference_mode": "参照の方式"}
 
 
 def _members(project: Project) -> dict[str, Record]:
@@ -230,6 +230,7 @@ TASK_LABELS = {
     "color": "色", "assignees": "担当", "predecessors": "先行", "deadline": "締切", "planned_end": "完了予定",
     "planned_end_manual": "完了予定を手で指定", "actuals": "実績", "progress": "進捗度", "category_id": "カテゴリ", "kind": "種別",
     "urls": "リンク", "children": "子", "parameters": "パラメータ", "weekly_crew": "週ごとの担当", "parent": "所属",
+    "ref_project": "参照先", "ref_snapshot": "スナップショット",
 }
 SECTION_LABELS = {"name": "名前", "parent": "所属"}
 
@@ -441,6 +442,7 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
         daily_hours=settings["daily_hours"],
         work_start=settings["work_start"],
         actual_mode=settings["actual_mode"],
+        reference_mode=settings["reference_mode"],
         members=built_members,
         categories=[
             Category(r["name"], r["kind"], r["expiry_date"], r["color"], r["prj_code"], id=key)

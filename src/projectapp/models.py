@@ -1,14 +1,14 @@
 """プロジェクトのデータモデル。"""
 
 from collections.abc import Collection, Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time
 import re
 import secrets
 import unicodedata
 from enum import StrEnum
 
-FORMAT_VERSION = 10  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕)
+FORMAT_VERSION = 11  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕)
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -71,6 +71,7 @@ class Status(StrEnum):
 class TaskKind(StrEnum):
     NORMAL = "通常"
     CHECKPOINT = "チェックポイント"  # 締切だけを持つ節目。バーを持たず、◆ だけを出す
+    REFERENCE = "プロジェクト参照"  # 他のプロジェクトを参照する行。日程・進捗・遅延・負荷は参照先から出す(自分の工数・担当・実績は持たない)
     SUMMARY = "まとめ"  # 分解した子のタスクをまとめる親。日程・工数・進捗・状態は子から算出し、保存しない
 
 
@@ -181,6 +182,42 @@ def union_assignees(weeks: Sequence[Sequence[Assignee]]) -> list[Assignee]:
     return list(merged.values())
 
 
+class ReferenceMode(StrEnum):
+    LIVE = "live"  # 表示のたびに参照先を読む(保存しない)
+    SNAPSHOT = "snapshot"  # 参照行ごとに、参照値を保存して表示する
+
+
+@dataclass(frozen=True)
+class OverloadSpan:
+    """参照先の、担当者の割り当て合計が 100% を超える期間。total は期間内の合計の最大(1.0 = 100%)。"""
+
+    member: str
+    start: datetime
+    end: datetime
+    total: float
+
+
+@dataclass(frozen=True)
+class ReferenceValue:
+    """参照先のプロジェクト全体の値(細かなタスクは持たない)。スナップショットは、これと取得日時を保存する。"""
+
+    planned_start: datetime | None = None  # 全タスクの実効の開始の最小
+    planned_end: datetime | None = None  # 全タスクの完了予定の最大
+    actual_start: datetime | None = None  # 実績の区間の開始の最小
+    actual_end: datetime | None = None  # 実績の終了の最大。進行中の区間があれば None
+    progress: int | None = None  # 工数で重みづけした進捗率(0〜100)。数えるタスクがなければ None
+    finished: bool = False  # 数えるタスクがすべて終了
+    delayed: int = 0  # 予定超過(終了していない)のタスク数
+    peak_load: float = 0.0  # 割り当て合計のピーク(1.0 = 100%)。超過がなければ 0
+    peak_member: str = ""
+    overloads: tuple[OverloadSpan, ...] = ()
+    taken_at: datetime | None = None  # スナップショットを取った日時(保存した値だけ)
+
+    def same_as(self, other: "ReferenceValue") -> bool:
+        """取得日時を除いて同じ値か(スナップショットが古いかの判定)。"""
+        return replace(self, taken_at=None) == replace(other, taken_at=None)
+
+
 @dataclass
 class Task:
     name: str
@@ -202,6 +239,8 @@ class Task:
     progress: int | None = None  # タスクの進捗度(0〜100%)。進捗度の入力はこの 1 つだけ
     children: list[str] = field(default_factory=list)  # まとめの子のタスクの id(まとめだけが持つ)
     parameters: list[str] = field(default_factory=list)  # 付けたパラメータの名前。空は付けない(相対比率は全パラメータの合計)
+    ref_project: str = ""  # 参照先のプロジェクトのファイル名(拡張子なし)。プロジェクト参照だけが持つ
+    ref_snapshot: ReferenceValue | None = None  # 参照の方式がスナップショットのときの、保存した参照値
     weekly_crew: list[list[Assignee]] = field(default_factory=list)  # 週ごとの担当(添字が週。開始の日から 7 日ごと)。空は週ごとに分けない。分けるときの assignees は全週の和集合
 
     @property
@@ -246,6 +285,7 @@ class Project:
     parameters: list[Parameter] = field(default_factory=list)  # 相対比率のパラメータ(プロジェクト共通)
     categories: list[Category] = field(default_factory=list)  # カテゴリ(プロジェクト共通。「未定」は含まない)
     events: list[Event] = field(default_factory=list)  # イベント(プロジェクト共通。並びが色の優先順で、後ろが勝つ)
+    reference_mode: ReferenceMode = ReferenceMode.LIVE  # プロジェクト参照の方式
 
     def all_tasks(self) -> list[Task]:
         """セクションなしのタスク、続いて各セクションを深さ優先で(そのタスク → そのサブセクション)。"""

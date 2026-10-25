@@ -54,6 +54,7 @@ from projectapp.models import (
     Level,
     Member,
     Parameter,
+    ReferenceMode,
     Priority,
     Status,
     Task,
@@ -155,6 +156,52 @@ def _links(
     ):
         raise ValueError("先行タスクが正しくありません")
     return links
+
+
+def _build_reference(
+    base: Task,
+    name: str,
+    ref_project: str,
+    deadline: str,
+    color: str,
+    predecessors: list[str] | None,
+    linkable_ids: frozenset[str] | None,
+) -> Task:
+    """プロジェクト参照。参照先・締切(任意)・色・先行だけを検証し、使わない項目は空にする(隠した欄の入力は見ない)。
+    参照先を変えたときは、保存したスナップショットを捨てる。"""
+    if not ref_project.strip():
+        raise ValueError("参照先のプロジェクトを選んでください")
+    try:
+        deadline_at = parse_datetime(deadline)
+    except ValueError:
+        raise ValueError("日時の形式が正しくありません") from None
+    if deadline_at is not None and not MIN_YEAR <= deadline_at.year <= MAX_YEAR:
+        raise ValueError(f"年は{MIN_YEAR}〜{MAX_YEAR}の範囲で入力してください")
+    if not is_hex_color(color):
+        raise ValueError("色は#RRGGBBの形式で入力してください")
+    return replace(
+        base,
+        kind=TaskKind.REFERENCE,
+        name=name,
+        ref_project=ref_project,
+        ref_snapshot=base.ref_snapshot if base.ref_project == ref_project else None,
+        planned_start=None,
+        planned_end=None,
+        planned_end_manual=False,
+        deadline=deadline_at,
+        effort_hours=0.0,
+        priority=Priority.MEDIUM,
+        status=Status.NOT_STARTED,
+        color=color,
+        assignees=[],
+        weekly_crew=[],
+        actuals=[],
+        progress=None,
+        parameters=[],
+        category_id=None,
+        urls=[],
+        predecessors=_links(base, predecessors, linkable_ids),
+    )
 
 
 def _build_checkpoint(
@@ -284,6 +331,7 @@ def build_task(
     urls: list[TaskUrl] | None = None,
     assignees: list[tuple[str, float | None]] | None = None,
     parameters: list[str] | None = None,
+    ref_project: str = "",
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目(週ごとの担当を含む)を引き継ぐ。`progress` はタスクの進捗度。"""
     clean = name.strip()
@@ -304,6 +352,8 @@ def build_task(
         return _build_checkpoint(
             base, clean, category_id, deadline, priority, status, color, predecessors, linkable_ids, urls
         )
+    if kind is TaskKind.REFERENCE:
+        return _build_reference(base, clean, ref_project, deadline, color, predecessors, linkable_ids)
     hours = effort_hours or 0.0
     manual = planned_end_manual and hours > 0
     uses_planned_end = hours <= 0 or manual
@@ -928,6 +978,44 @@ def open_unsaved_dialog(
     dialog.open()
 
 
+def open_stale_reference_dialog(name: str, on_update: Callable[[], object], on_skip: Callable[[], object]) -> None:
+    """スナップショットが古いときの、参照先を開く前の確認(更新して開く / 更新せず開く / キャンセル)。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
+        ui.label("スナップショットが古くなっています").classes("text-h6")
+        ui.label(f"「{name}」の参照値は、保存したあとに変わっています。更新してから開きますか。")
+
+        def run(action: Callable[[], object]) -> None:
+            dialog.close()
+            action()
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark("stale-cancel")
+            ui.button("更新せず開く", on_click=lambda: run(on_skip)).props("flat").mark("stale-skip")
+            ui.button("更新して開く", on_click=lambda: run(on_update)).mark("stale-update")
+    dialog.open()
+
+
+def open_stale_snapshot_dialog(
+    names: list[str], purpose: str, on_update: Callable[[], object], on_skip: Callable[[], object]
+) -> None:
+    """スナップショットが古い参照先があるときの確認(更新して続ける / 更新せず続ける / キャンセル)。`purpose` は続けたい操作(「保存」など)。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
+        ui.label("スナップショットが古くなっています").classes("text-h6")
+        ui.label(
+            f"{''.join(f'「{n}」' for n in names)}の参照値は、保存したあとに変わっています。更新しますか。"
+        )
+
+        def run(action: Callable[[], object]) -> None:
+            dialog.close()
+            action()
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark("snapshot-cancel")
+            ui.button(f"更新せず{purpose}", on_click=lambda: run(on_skip)).props("flat").mark("snapshot-skip")
+            ui.button(f"更新して{purpose}", on_click=lambda: run(on_update)).mark("snapshot-update")
+    dialog.open()
+
+
 def open_conflict_dialog(
     on_overwrite: Callable[[], object], on_save_as: Callable[[], object]
 ) -> None:
@@ -1082,6 +1170,8 @@ def open_settings_dialog(
     used_ids: Collection[str] = (),
     base_date: date | None = None,
     on_base_date: Callable[[date], object] | None = None,
+    reference_mode: ReferenceMode = ReferenceMode.LIVE,
+    on_reference_mode: Callable[[ReferenceMode], object] | None = None,
 ) -> None:
     card_width = "w-[30rem] max-w-full" if categories is None and events is None else "w-[46rem] max-w-full"
     with disposable(ui.dialog()) as dialog, ui.card().classes(card_width):
@@ -1137,6 +1227,16 @@ def open_settings_dialog(
                     mode.set_value(ActualMode.INTERVALS.value)
 
             mode.on_value_change(keep_intervals)
+        reference = None
+        if on_reference_mode is not None:
+            ui.label("プロジェクト参照の方式").classes("text-caption text-grey")
+            reference = ui.toggle(
+                {ReferenceMode.LIVE.value: "常に最新", ReferenceMode.SNAPSHOT.value: "スナップショット"},
+                value=reference_mode.value,
+            ).mark("settings-reference-mode")
+            ui.label("スナップショットは、参照行の値を保存します(右クリックの「更新」で取り直す)").classes(
+                "text-caption text-grey"
+            )
         rows = [TemplateRow(t.name, t.name, t.pattern) for t in templates or []]
         if templates is not None:
             ui.label("URL テンプレート").classes("text-caption text-grey")
@@ -1375,6 +1475,8 @@ def open_settings_dialog(
             on_apply(*result, ActualMode(mode.value))
             if base is not None and on_base_date is not None:
                 on_base_date(base)
+            if reference is not None and on_reference_mode is not None and ReferenceMode(reference.value) is not reference_mode:
+                on_reference_mode(ReferenceMode(reference.value))
             if edit is not None and on_templates is not None and edit.templates != templates:
                 on_templates(edit)
             if cedit is not None and on_categories is not None and (cedit.categories != categories or cedit.removed_ids):  # Category の比較は id を見ないので、内容が同じ行の入れ直しも、削除として適用する

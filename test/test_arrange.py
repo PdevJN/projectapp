@@ -3,7 +3,7 @@ from dataclasses import replace
 from datetime import date, datetime
 
 from projectapp import arrange
-from projectapp.models import Actual, Assignee, Priority, Project, Section, Status, Task, TaskKind, TaskUrl
+from projectapp.models import Actual, Assignee, Priority, Project, ReferenceValue, Section, Status, Task, TaskKind, TaskUrl
 
 
 def names(tasks: list[Task]) -> list[str]:
@@ -443,3 +443,14 @@ def test_copying_a_task_keeps_its_parameters_as_an_independent_list() -> None:
     assert copied.parameters == ["P"]
     copied.parameters.append("Q")
     assert original.parameters == ["P"]
+
+
+def test_a_copied_reference_row_keeps_its_target_and_snapshot() -> None:
+    value = ReferenceValue(planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 6))
+    project = Project(
+        "p", tasks=[Task("基盤開発", id="r", kind=TaskKind.REFERENCE, ref_project="基盤", ref_snapshot=value)]
+    )
+    arrange.copy_task(project, ((), 0), ((), 1))
+    copy = project.tasks[1]
+    assert (copy.kind, copy.ref_project, copy.ref_snapshot) == (TaskKind.REFERENCE, "基盤", value)
+    assert copy.id != "r"

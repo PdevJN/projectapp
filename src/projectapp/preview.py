@@ -1,6 +1,6 @@
 """プレビューモードの設定と、上部のバー。切り替えと保存の流れは MainView が持つ。"""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 
@@ -8,7 +8,7 @@ from nicegui import ui
 
 from projectapp.config import DEFAULT_NAME_WIDTH_PX
 from projectapp.gantt import COLUMN_WIDTH_PX, ViewOptions
-from projectapp.models import MAX_YEAR, MIN_YEAR, Project
+from projectapp.models import MAX_YEAR, MIN_YEAR, Project, ReferenceValue
 from projectapp.selection import CheckState, toggled
 from projectapp.task_dialog import add_picker
 from projectapp.timeline import Scale, build_columns
@@ -68,10 +68,11 @@ def fit_scale(
     period: tuple[date, date] | None,
     scale: Scale,
     name_width: int = DEFAULT_NAME_WIDTH_PX,
+    references: Mapping[str, ReferenceValue] | None = None,
 ) -> Scale:
     """全期間の画像の幅が快適な幅に収まるまで、スケールを 1 段ずつ粗くする。細かくはしない。月次は、広くても月次。"""
     for candidate in COARSER[COARSER.index(scale) :]:
-        columns = build_columns(project, candidate, holidays, period)
+        columns = build_columns(project, candidate, holidays, period, references)
         if name_width + COLUMN_WIDTH_PX[candidate] * len(columns) <= PREVIEW_COMFORT_WIDTH_PX:
             return candidate
     return Scale.MONTH
