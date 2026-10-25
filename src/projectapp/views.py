@@ -59,7 +59,7 @@ from projectapp.forms import (
 from projectapp import arrange
 from projectapp.reference import ReferenceResolver, build_references, missing_references, take_snapshot
 from projectapp.shortcuts import Screen, defers_to_inputs, help_entries, key_guard_js, label_for, resolve
-from projectapp.dashboard import CrossSummary, Period, PeriodKind, custom_period_error, period_for, summarize, summarize_cross_loads
+from projectapp.dashboard import MAX_CUSTOM_DAYS, CrossSummary, Period, PeriodKind, custom_period_error, period_for, summarize, summarize_cross_loads
 from projectapp.dashboard_view import DashboardView
 from projectapp.portfolio import load_others
 from projectapp.export import (
@@ -444,6 +444,7 @@ class MainView:
         self.file_select.set_value(path.stem if path else None)
         self.title.refresh()
         self.gantt.reset_collapsed()  # 折りたたみは保存しない。別のプロジェクトは全展開から始める
+        self.gantt.set_period(None)  # 表示期間も、別のプロジェクトでは古い期間が何も映さないことがあるので自動に戻す
         self.reset_history()
         self.gantt.set_project(self.project)
         self.gantt.reset_filter()
@@ -774,10 +775,13 @@ class MainView:
     def change_dashboard_period(self, kind: PeriodKind) -> None:
         if self.dashboard_kind is None:
             return
-        if kind is PeriodKind.CUSTOM and self.dashboard_custom is None:
-            self.dashboard_custom = period_for(  # 直前に見ていた期間から始める
+        if kind is PeriodKind.CUSTOM:
+            previous = period_for(  # 直前に見ていた期間から始める
                 self.dashboard_kind, self.now().date(), self.project, self.holidays, self.dashboard_custom
             )
+            if custom_period_error(previous):  # 全期間が長いときは、終わりの側の上限の長さに切る
+                previous = Period(previous.end - timedelta(days=MAX_CUSTOM_DAYS - 1), previous.end)
+            self.dashboard_custom = previous
         self.dashboard_custom_error = ""
         self.dashboard_kind = kind
         self.refresh_dashboard()
@@ -789,13 +793,17 @@ class MainView:
         try:
             start, end = validate_period(*split_period(text))
         except ValueError as exc:
-            self.dashboard_custom_error = str(exc)
+            error, period = str(exc), None
         else:
             period = Period(start, end)
-            self.dashboard_custom_error = custom_period_error(period) or ""
-            if not self.dashboard_custom_error:
-                self.dashboard_custom = period
-        self.refresh_dashboard(sync_field=False)
+            error = custom_period_error(period) or ""
+            period = None if error else period
+        self.dashboard_custom_error = error
+        if period is not None and period != self.dashboard_custom:
+            self.dashboard_custom = period
+            self.refresh_dashboard(sync_field=False)  # 期間が変わったときだけ、集計し直す
+        else:
+            self.dashboard_view.set_custom_error(error)  # 入力の途中(不正・同じ期間)では、エラー表示だけを更新する
 
     def change_dashboard_member(self, name: str | None) -> None:
         if self.dashboard_kind is None:

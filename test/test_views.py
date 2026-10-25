@@ -27,7 +27,7 @@ from projectapp.decompose import Part
 from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.plantuml import PLANTUML_FILE_TYPES
 from projectapp.puml_import import PLANTUML_OPEN_FILE_TYPES
-from projectapp.dashboard import Period, PeriodKind
+from projectapp.dashboard import MAX_CUSTOM_DAYS, Period, PeriodKind, period_for
 from projectapp.preview import split_period
 from projectapp.timeline import Scale, Schedule, effective_end, visible_range
 from projectapp.gantt import ViewOptions
@@ -1850,6 +1850,23 @@ async def test_the_preview_period_field_keeps_text_it_cannot_normalize(user: Use
     assert view.preview is not None
 
 
+async def test_the_main_period_survives_editing_and_undo_but_resets_for_another_project(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    view.save_task((), None, planned_task())
+    view.gantt.set_period((date(2026, 10, 6), date(2026, 10, 9)))
+    view.save_task((), None, Task("もう一件"))  # 編集のたびに画面を描き直す
+    assert view.gantt.period == (date(2026, 10, 6), date(2026, 10, 9))
+    view.undo()
+    assert view.gantt.period == (date(2026, 10, 6), date(2026, 10, 9))
+    view.show_project(Project("別のプロジェクト"), None)  # 別のプロジェクトを開く
+    assert view.gantt.period is None
+
+
 async def test_the_preview_starts_from_the_main_period_when_one_is_set(user: User, tmp_path: Path) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
@@ -2657,6 +2674,49 @@ async def test_typing_a_custom_period_redraws_and_bad_input_keeps_the_previous_o
     assert "400" in user.find(marker="dashboard-period-error").elements.pop().text
     field.set_value("2026-10-05 〜 2026-10-11")
     assert user.find(marker="dashboard-period-error").elements.pop().text == ""
+
+
+async def test_bad_custom_input_does_not_recompute_the_dashboard(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-period")
+    user.find(marker="dashboard-period").elements.pop().set_value("指定")
+    field = user.find(marker="dashboard-period-field").elements.pop()
+    field.set_value("2026-10-01 〜 2026-10-31")
+    calls: list[object] = []
+    original = view.refresh_dashboard
+    monkeypatch.setattr(view, "refresh_dashboard", lambda *a, **k: (calls.append(1), original(*a, **k))[1])
+    field.set_value("2026-10-3")  # 入力の途中(不正)。集計し直さない
+    field.set_value("2026-10-01 〜 2026-10-31")  # 同じ期間に戻った。これも集計し直さない
+    assert calls == []
+    assert view.dashboard_custom == Period(date(2026, 10, 1), date(2026, 10, 31))
+    assert user.find(marker="dashboard-period-error").elements.pop().text == ""
+    field.set_value("2026-10-01 〜 2026-10-30")  # 変わったときだけ集計する
+    assert len(calls) == 1
+
+
+async def test_switching_to_custom_always_starts_from_the_previous_period_and_stays_within_the_limit(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-period")
+    toggle = user.find(marker="dashboard-period").elements.pop()
+    toggle.set_value("指定")
+    view.dashboard_view.custom_field.set_value("2026-10-01 〜 2026-10-31")
+    toggle.set_value("今月")
+    toggle.set_value("指定")
+    assert view.dashboard_custom == period_for(
+        PeriodKind.MONTH, view.now().date(), view.project, view.holidays
+    )  # 前回の指定ではなく、直前の今月
+    view.project.all_tasks()[0].planned_end = datetime(2030, 1, 1)  # 全期間が 400 日を超える
+    toggle.set_value("全期間")
+    toggle.set_value("指定")
+    assert view.dashboard_custom is not None
+    assert len(view.dashboard_custom.days()) <= MAX_CUSTOM_DAYS
+    assert view.dashboard_custom_error == ""
 
 
 async def test_the_custom_period_resets_when_the_dashboard_is_reopened(user: User, tmp_path: Path) -> None:

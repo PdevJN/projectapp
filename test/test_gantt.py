@@ -3876,7 +3876,7 @@ async def test_changing_the_scale_resets_a_period_that_becomes_too_long(user: Us
     user.notify.contains("期間が長すぎる")
 
 
-async def test_a_period_survives_the_preview_options_and_resets_with_a_new_project(user: User) -> None:
+async def test_a_period_survives_the_preview_options_and_a_redraw_of_the_same_project(user: User) -> None:
     charts, _ = mount_chart(sample_project())
     await user.open("/")
     chart = charts[0]
@@ -3886,9 +3886,9 @@ async def test_a_period_survives_the_preview_options_and_resets_with_a_new_proje
     assert chart.view_period == (date(2026, 10, 1), date(2026, 10, 3))
     chart.set_options(ViewOptions())  # 戻る
     assert chart.view_period == (date(2026, 10, 6), date(2026, 10, 8))
-    chart.set_project(sample_project())
-    assert chart.period is None
-    assert user.find(marker="chart-period").elements.pop().value in (None, "")
+    chart.set_project(sample_project())  # 編集のたびに呼ばれる。期間は保つ(別のプロジェクトへの切り替えは MainView が自動に戻す)
+    assert chart.period == (date(2026, 10, 6), date(2026, 10, 8))
+    assert user.find(marker="chart-period").elements.pop().value == "2026-10-06 〜 2026-10-08"
 
 
 async def test_the_chart_range_picker_sets_the_period(user: User) -> None:
@@ -3899,3 +3899,16 @@ async def test_the_chart_range_picker_sets_the_period(user: User) -> None:
     user.find(marker="chart-range-picker-ok").click()
     assert charts[0].period == (date(2026, 10, 6), date(2026, 10, 8))
     assert user.find(marker="chart-period").elements.pop().value == "2026-10-06 〜 2026-10-08"
+
+
+async def test_a_too_long_period_typed_at_a_fine_scale_is_applied_when_the_scale_gets_coarser(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    chart = charts[0]
+    field = user.find(marker="chart-period").elements.pop()
+    field.set_value("2026-01-01 〜 2029-12-31")  # 日次では長すぎる
+    assert chart.period is None
+    assert "期間が長すぎます" in user.find(marker="chart-period-error").elements.pop().text
+    chart.set_scale(Scale.MONTH)  # エラー文が勧めるとおり、スケールを粗くする
+    assert chart.period == (date(2026, 1, 1), date(2029, 12, 31))
+    assert user.find(marker="chart-period-error").elements.pop().text == ""

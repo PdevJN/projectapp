@@ -239,6 +239,11 @@ class DashboardView:
         if not self.syncing and self.on_custom_change is not None:
             self.on_custom_change(event.value or "")
 
+    def set_custom_error(self, text: str) -> None:
+        """`指定` の欄のエラー表示だけを更新する(集計し直さない)。"""
+        if self.custom_error is not None:
+            self.custom_error.set_text(text)
+
     def normalize_custom(self) -> None:
         """欄を離れたとき、両端の省略形を `YYYY-MM-DD` に整える。読めない値はそのまま。"""
         if self.custom_field is None:

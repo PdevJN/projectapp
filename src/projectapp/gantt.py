@@ -520,8 +520,6 @@ class GanttChart:
         """条件は保つ。担当者がメンバーからいなくなったときだけ、担当者の指定を外す。"""
         self.project = project
         self.quick_add = self.quick_section = None  # 番号がずれるので、開いている入力行は閉じる
-        self.period = None  # 別のプロジェクトでは、古い期間が何も映さないことがある
-        self.sync_period_input()
         names = {member.name for member in project.members}
         if self.task_filter.assignee not in (None, *names):
             self.task_filter = replace(self.task_filter, assignee=None)
@@ -724,6 +722,8 @@ class GanttChart:
             ui.notify("期間が長すぎるため、期間を自動に戻しました", type="warning")
             self.period = None  # 描き直しで固まるので、自動に戻す
             self.sync_period_input()
+        elif self.period_input is not None and self.period_error is not None and self.period_error.text:
+            self.on_period_changed(self.period_input.value)  # 長すぎて退けた欄の期間を、新しいスケールで評価し直す
         self.render.refresh()
         self.scroll_to_left()  # 列の幅が変わるので、横の位置は意味を持たない(縦は保つ)
 
