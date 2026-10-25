@@ -52,13 +52,15 @@ class Band:
 
 
 def visible_range(
-    project: Project, holidays: dict[date, str] | None = None
+    project: Project,
+    holidays: dict[date, str] | None = None,
+    references: Mapping[str, ReferenceValue] | None = None,
 ) -> tuple[date, date]:
     """基準日とバーを持つタスクから、表示範囲[開始日, 終了日)を返す。"""
     holidays = holidays or {}
     start = end = project.base_date
     tasks = project.all_tasks()
-    schedule = Schedule(project, holidays)
+    schedule = Schedule(project, holidays, references)
     for task in tasks:
         task_start, task_end = schedule.start(task), schedule.end(task)
         if task_start is None or task_end is None:
@@ -78,10 +80,11 @@ def build_columns(
     scale: Scale,
     holidays: dict[date, str] | None = None,
     period: tuple[date, date] | None = None,
+    references: Mapping[str, ReferenceValue] | None = None,
 ) -> list[Column]:
     """列を作る。period は [開始日, 終了日](終了日を含む)。None は、基準日とバーから決めた表示範囲。"""
     if period is None:
-        start, end = visible_range(project, holidays)
+        start, end = visible_range(project, holidays, references)
     else:
         if period[0] > period[1]:
             raise ValueError("期間の開始日が終了日より後です")

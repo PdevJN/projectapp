@@ -3,6 +3,7 @@
 import os
 import re
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from math import isfinite
@@ -10,7 +11,7 @@ from pathlib import Path
 
 from projectapp.events import color_hex
 from projectapp.filtering import TaskFilter, matches, section_has_match
-from projectapp.models import Assignee, Project, Section, Status, Task, TaskKind
+from projectapp.models import Assignee, Project, ReferenceValue, Section, Status, Task, TaskKind
 from projectapp.timeline import (
     Scale,
     Schedule,
@@ -151,10 +152,11 @@ def build_plantuml(
     show_alerts: bool = True,
     show_events: bool = True,
     excluded: frozenset[str] = frozenset(),
+    references: Mapping[str, ReferenceValue] | None = None,
 ) -> PlantUml:
     """プレビューの設定で見えるガントチャートを、PlantUML のテキストにする。プロジェクトは変えない。"""
     p_start, p_end = period
-    schedule = Schedule(project, holidays)
+    schedule = Schedule(project, holidays, references)
     used: set[str] = set()
     aliases: dict[str, str] = {}  # タスクの id → 別名(T1, T2, ...)。出したものだけ
     order: list[Task] = []
@@ -215,12 +217,18 @@ def build_plantuml(
             return
         first, last = max(first, p_start), min(last, p_end)
         alias = f"T{len(aliases) + 1}"
-        label = unique(_safe(task.name))
+        label = unique(_safe(f"{task.name}(参照)" if task.kind is TaskKind.REFERENCE else task.name))
         aliases[task.id] = alias
         order.append(task)
         drawn_days[task.id] = (first, last)
         if task.kind is TaskKind.CHECKPOINT:
             target.append(f"[{label}] as [{alias}] happens on {first.isoformat()}")
+        elif task.kind is TaskKind.REFERENCE:  # 参照先全体の 1 本の帯。担当者・進捗は出さない
+            target.append(f"[{label}] as [{alias}] starts {first.isoformat()} and ends {last.isoformat()}")
+            value = (references or {}).get(task.id)
+            late = show_alerts and value is not None and value.delayed > 0
+            target.append(f"[{alias}] is colored in {OVERDUE_COLOR if late else STATUS_COLORS[Status.NOT_STARTED]}")
+            return
         else:
             on = _assignees(task) if show_chips else ""
             target.append(f"[{label}] as [{alias}]{on} starts {first.isoformat()} and ends {last.isoformat()}")

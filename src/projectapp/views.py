@@ -99,7 +99,7 @@ from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, short_date
-from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, ReferenceMode, Section, SectionPath, Task, TaskKind, WorkDay, new_id, union_assignees
+from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, ReferenceMode, ReferenceValue, Section, SectionPath, Task, TaskKind, WorkDay, new_id, union_assignees
 from projectapp.workdays import work_day_map
 from projectapp.selection import set_checked
 from projectapp.preview import (
@@ -775,13 +775,20 @@ class MainView:
         self.set_header_visible(True)
         self.gantt.set_visible(True)
 
+    def reference_values(self) -> dict[str, ReferenceValue]:
+        """参照行(タスクの id)ごとの参照値。読めない参照先は含めない。"""
+        refs = build_references(self.project, self.reference_resolver, datetime.now())
+        return {tid: ref.value for tid, ref in refs.items() if ref.value is not None}
+
     def enter_preview(self) -> None:
         """メイン画面を、プレビューモードに切り替える。初期値は、今の表示範囲と、今のスケール。"""
         if self.preview is not None or self.dashboard_kind is not None:
             return
-        start, end = visible_range(self.project, self.holidays)
+        start, end = visible_range(self.project, self.holidays, self.reference_values())
         period = (start, max(end - timedelta(days=1), start))  # タスクがないと、範囲が空になる。基準日の 1 日にする
-        scale = fit_scale(self.project, self.holidays, period, self.gantt.scale, self.gantt.name_width)
+        scale = fit_scale(
+            self.project, self.holidays, period, self.gantt.scale, self.gantt.name_width, self.reference_values()
+        )
         self.preview_notice = coarser_notice(scale, self.gantt.scale) if scale is not self.gantt.scale else None
         self.preview = PreviewSettings(start, period[1], scale)
         self.set_header_visible(False)
@@ -811,7 +818,7 @@ class MainView:
             self.preview_bar.set_warning(None)
             self.preview_bar.set_save_enabled(False)
             return
-        too_long = check_column_count(scale, len(build_columns(self.project, scale, self.holidays, (start, end))))
+        too_long = check_column_count(scale, len(build_columns(self.project, scale, self.holidays, (start, end), self.reference_values())))
         if too_long is not None:
             self.preview_bar.set_error(too_long)
             self.preview_bar.set_warning(None)
@@ -904,6 +911,7 @@ class MainView:
             show_alerts=settings.show_alerts,
             show_events=settings.show_events,
             excluded=settings.excluded,
+            references=self.reference_values(),
         )
         if result.task_count == 0:
             ui.notify("出力できるタスクがありません", type="warning")

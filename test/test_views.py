@@ -5186,3 +5186,14 @@ async def test_switching_the_mode_takes_or_drops_the_snapshots(user: User, tmp_p
     assert view.project.tasks[0].ref_snapshot is not None
     view.apply_reference_mode(ReferenceMode.LIVE)
     assert view.project.tasks[0].ref_snapshot is None
+
+
+async def test_the_preview_draws_the_reference_band_without_the_click_handler(user: User, tmp_path: Path) -> None:
+    save_project(reference_setup(tmp_path), tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    views[0].request_open("本体")
+    views[0].enter_preview()
+    await user.should_see(marker="bar-top-0")
+    assert "ref-link" not in user.find(marker="bar-top-0").elements.pop().classes  # 読み取り専用では、クリックで開かない

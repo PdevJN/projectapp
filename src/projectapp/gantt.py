@@ -26,7 +26,7 @@ from projectapp.decompose import decompose_block_reason
 from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
-from projectapp.models import ID_KEY, MAX_SECTION_DEPTH, URL_KEY, Assignee, Category, Event, Priority, Project, ReferenceMode, Section, SectionPath, Status, Task, TaskKind, TaskUrl
+from projectapp.models import ID_KEY, MAX_SECTION_DEPTH, URL_KEY, Assignee, Category, Event, Priority, Project, ReferenceMode, ReferenceValue, Section, SectionPath, Status, Task, TaskKind, TaskUrl
 from projectapp.reference import Reference
 from projectapp.selection import CheckState, check_state, task_ids_of, toggled
 from projectapp.urls import resolve
@@ -730,9 +730,15 @@ class GanttChart:
         """名前の欄の右端を、幅の調整の掴み場所にするクラス(先頭に空白)。読み取り専用では付けない。"""
         return "" if self.options.read_only else " gantt-name-resizable"
 
+    def reference_values(self) -> dict[str, ReferenceValue]:
+        """参照行(タスクの id)ごとの、表示に使う参照値。参照先が読めない行は含めない。"""
+        return {tid: ref.value for tid, ref in self.refs.items() if ref.value is not None}
+
     def content_width(self) -> int:
         """描画の全体の幅(px)。名前の列と、すべての列。画像の幅になる。"""
-        columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
+        columns = build_columns(
+            self.project, self.view_scale, self.holidays, self.options.period, self.reference_values()
+        )
         return self.name_width + COLUMN_WIDTH_PX[self.view_scale] * len(columns)
 
     def bar_visible(
@@ -1125,10 +1131,10 @@ class GanttChart:
         self.tasks_by_id = self.project.task_map()
         self.parents = parent_map(self.project)
         self.refs = self.references_of()
-        self.schedule = Schedule(
-            self.project, self.holidays, {tid: ref.value for tid, ref in self.refs.items() if ref.value is not None}
+        self.schedule = Schedule(self.project, self.holidays, self.reference_values())
+        columns = build_columns(
+            self.project, self.view_scale, self.holidays, self.options.period, self.reference_values()
         )
-        columns = build_columns(self.project, self.view_scale, self.holidays, self.options.period)
         self.overloads = overallocations(self.project, self.holidays)
         self.category_lookup = by_id(self.project.categories)
         self.icon_lookup = {m.name: m.icon for m in self.project.members if m.icon}
