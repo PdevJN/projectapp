@@ -1,9 +1,13 @@
 """プロジェクト参照: 参照先のプロジェクト全体の値の算出と、参照先の読み込み。NiceGUI に依存しない。"""
 
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import date, datetime
+from pathlib import Path
 
 from projectapp.dashboard import _progress_weight
-from projectapp.models import OverloadSpan, Project, ReferenceValue, Status, Task, TaskKind
+from projectapp.models import OverloadSpan, Project, ReferenceMode, ReferenceValue, Status, Task, TaskKind
+from projectapp.storage import file_digest, load_project
 from projectapp.timeline import Schedule, is_overdue, overallocations
 
 COUNTED_KINDS = (TaskKind.NORMAL, TaskKind.CHECKPOINT)  # 数えるのは通常タスクと節目だけ(まとめは二重になり、参照行は循環のもと)
@@ -42,3 +46,66 @@ def compute_reference(project: Project, holidays: dict[date, str], now: datetime
         peak_member=peak.member if peak else "",
         overloads=overloads,
     )
+
+
+@dataclass(frozen=True)
+class Reference:
+    """参照行 1 つぶんの、表示に使う参照。value が None なら、帯・チップ・縞は出さない。"""
+
+    value: ReferenceValue | None
+    problem: str = ""  # 見つからない・読めない理由(正常は空)
+    source: ReferenceMode = ReferenceMode.LIVE
+    stale: bool = False  # スナップショットが、今の参照先の値と違う
+
+
+class ReferenceResolver:
+    """参照先のファイルを読んで、参照値にする。内容のハッシュと日付が同じ間は、同じ値を返す。"""
+
+    def __init__(self, project_dir: Callable[[], Path], holidays: Callable[[], dict[date, str]]) -> None:
+        self.project_dir = project_dir
+        self.holidays = holidays
+        self._cache: dict[str, tuple[tuple[str, date], ReferenceValue | None, str]] = {}
+
+    def live(self, name: str, now: datetime) -> tuple[ReferenceValue | None, str]:
+        path = self.project_dir() / f"{name}.json"
+        digest = file_digest(path)
+        if digest is None:
+            return None, f"「{name}.json」が格納先にありません"
+        key = (digest, now.date())  # 超過の判定が日付で変わるので、日付も鍵にする
+        cached = self._cache.get(name)
+        if cached is not None and cached[0] == key:
+            return cached[1], cached[2]
+        try:
+            value, problem = compute_reference(load_project(path), self.holidays(), now), ""
+        except Exception as exc:  # noqa: BLE001 他人のファイルの形の崩れで、画面を止めない
+            value, problem = None, f"「{name}.json」を読めません({exc or type(exc).__name__})"
+        self._cache[name] = (key, value, problem)
+        return value, problem
+
+
+def build_references(project: Project, resolver: ReferenceResolver, now: datetime) -> dict[str, Reference]:
+    """参照行(タスクの id)ごとの参照。常に最新は参照先を読み、スナップショットは保存した値で出す(古さも調べる)。"""
+    result: dict[str, Reference] = {}
+    for task in project.all_tasks():
+        if task.kind is not TaskKind.REFERENCE:
+            continue
+        live, problem = resolver.live(task.ref_project, now)
+        if project.reference_mode is ReferenceMode.SNAPSHOT:
+            saved = task.ref_snapshot
+            stale = live is not None and (saved is None or not saved.same_as(live))
+            result[task.id] = Reference(saved, problem, ReferenceMode.SNAPSHOT, stale)
+        else:
+            result[task.id] = Reference(live, problem, ReferenceMode.LIVE)
+    return result
+
+
+def take_snapshot(resolver: ReferenceResolver, name: str, now: datetime) -> ReferenceValue | None:
+    """今の参照先の値に取得日時を付けたスナップショット。取れなければ None。"""
+    value, _ = resolver.live(name, now)
+    return replace(value, taken_at=now) if value is not None else None
+
+
+def missing_references(project: Project, resolver: ReferenceResolver, now: datetime) -> list[str]:
+    """見つからない・読めない参照先のファイル名(重複なし・初出の順)。"""
+    names = dict.fromkeys(t.ref_project for t in project.all_tasks() if t.kind is TaskKind.REFERENCE)
+    return [name for name in names if resolver.live(name, now)[0] is None]

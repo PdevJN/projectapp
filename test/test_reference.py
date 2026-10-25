@@ -119,3 +119,79 @@ def test_reference_rows_are_left_out_of_the_dashboard_counts() -> None:
 
     project, _ = ref_project()
     assert [t.id for t in _tasks(project)] == ["after"]
+
+
+from pathlib import Path
+
+from projectapp.models import ReferenceMode
+from projectapp.reference import ReferenceResolver, build_references, missing_references, take_snapshot
+from projectapp.storage import save_project
+
+
+def resolver_for(folder: Path) -> ReferenceResolver:
+    return ReferenceResolver(lambda: folder, lambda: {})
+
+
+def referencing(mode: ReferenceMode = ReferenceMode.LIVE, **kwargs: object) -> Project:
+    ref = Task("基盤", id="ref", kind=TaskKind.REFERENCE, ref_project="基盤", **kwargs)  # type: ignore[arg-type]
+    return Project("p", reference_mode=mode, tasks=[ref])
+
+
+def test_a_live_reference_reads_the_file_and_caches_by_content(tmp_path: Path) -> None:
+    save_project(source(), tmp_path)
+    resolver = resolver_for(tmp_path)
+    value, problem = resolver.live("基盤", NOW)
+    assert problem == "" and value is not None and value.planned_start == D(10, 5)
+    again, _ = resolver.live("基盤", NOW)
+    assert again is value  # 内容が同じ間は、同じ値を返す
+    changed = source()
+    changed.tasks.append(Task("d", id="d", planned_start=D(12, 1), effort_hours=8.0))
+    save_project(changed, tmp_path)
+    after, _ = resolver.live("基盤", NOW)
+    assert after is not value and after is not None and after.planned_end != value.planned_end
+
+
+def test_a_missing_or_broken_file_gives_a_reason_not_an_error(tmp_path: Path) -> None:
+    resolver = resolver_for(tmp_path)
+    assert resolver.live("基盤", NOW) == (None, "「基盤.json」が格納先にありません")
+    (tmp_path / "基盤.json").write_text("{ not json", encoding="utf-8")
+    value, problem = resolver.live("基盤", NOW)
+    assert value is None and problem.startswith("「基盤.json」を読めません")
+
+
+def test_build_references_in_live_mode_uses_the_file(tmp_path: Path) -> None:
+    save_project(source(), tmp_path)
+    refs = build_references(referencing(), resolver_for(tmp_path), NOW)
+    assert refs["ref"].value is not None and refs["ref"].stale is False and refs["ref"].source is ReferenceMode.LIVE
+
+
+def test_build_references_in_snapshot_mode_uses_the_saved_value_and_flags_stale(tmp_path: Path) -> None:
+    save_project(source(), tmp_path)
+    resolver = resolver_for(tmp_path)
+    taken = take_snapshot(resolver, "基盤", NOW)
+    assert taken is not None and taken.taken_at == NOW
+    project = referencing(ReferenceMode.SNAPSHOT, ref_snapshot=taken)
+    fresh = build_references(project, resolver, NOW)["ref"]
+    assert fresh.value == taken and fresh.stale is False
+    project.tasks[0].ref_snapshot = ReferenceValue(planned_start=D(1, 1), planned_end=D(1, 2))
+    old = build_references(project, resolver, NOW)["ref"]
+    assert old.stale is True and old.value == project.tasks[0].ref_snapshot  # 保存した値のまま出す
+    empty = referencing(ReferenceMode.SNAPSHOT)
+    assert build_references(empty, resolver, NOW)["ref"].value is None  # スナップショットがなければ帯なし
+
+
+def test_snapshot_mode_keeps_the_saved_value_when_the_file_is_missing(tmp_path: Path) -> None:
+    saved = ReferenceValue(planned_start=D(10, 5), planned_end=D(10, 20), taken_at=NOW)
+    project = referencing(ReferenceMode.SNAPSHOT, ref_snapshot=saved)
+    ref = build_references(project, resolver_for(tmp_path), NOW)["ref"]
+    assert ref.value == saved and "格納先にありません" in ref.problem and ref.stale is False
+
+
+def test_missing_references_lists_each_file_once(tmp_path: Path) -> None:
+    project = Project("p", tasks=[
+        Task("a", id="a", kind=TaskKind.REFERENCE, ref_project="ない"),
+        Task("b", id="b", kind=TaskKind.REFERENCE, ref_project="ない"),
+        Task("c", id="c", kind=TaskKind.REFERENCE, ref_project="基盤"),
+    ])
+    save_project(source(), tmp_path)
+    assert missing_references(project, resolver_for(tmp_path), NOW) == ["ない"]
