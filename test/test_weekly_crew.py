@@ -4,7 +4,7 @@ import pytest
 
 from projectapp.arrange import _plain_copy
 from projectapp.dashboard import Period, _member_spans, summarize_workload
-from projectapp.decompose import decompose_block_reason
+from projectapp.decompose import Part, decompose, decompose_block_reason, settle
 from projectapp.handoff import build_todos
 from projectapp.forms import build_task
 from projectapp.models import (
@@ -261,10 +261,35 @@ def test_a_copy_has_its_own_weekly_crew() -> None:
     assert original.weekly_crew[0][0].allocation == 1.0
 
 
-def test_a_weekly_task_cannot_be_decomposed() -> None:
-    task = weekly_task("w", [[Assignee("田中")]])
-    reason = decompose_block_reason(project_of(task), task)
-    assert reason is not None and "週ごと" in reason
+def test_a_weekly_task_is_decomposed_into_plain_tasks_with_the_first_weeks_crew() -> None:
+    task = weekly_task(
+        "w", [[Assignee("田中")], [Assignee("鈴木", 0.5)]], planned_start=datetime(2026, 10, 5), effort_hours=10.0
+    )
+    project = project_of(task)
+    assert decompose_block_reason(project, task) is None
+    kids = decompose(project, (), 0, [Part("a", 5.0), Part("b", 5.0)])
+    assert [[x.name for x in k.assignees] for k in kids] == [["田中"], ["田中"]]  # 全員が第 1 週の担当
+    assert all(k.weekly_crew == [] for k in kids)
+    assert project.tasks[0].weekly_crew == [] and project.tasks[0].kind is TaskKind.SUMMARY
+
+
+def test_a_weekly_task_with_actuals_settles_with_the_whole_crew_and_continues_with_this_weeks_crew() -> None:
+    task = weekly_task(
+        "w",
+        [[Assignee("田中")], [Assignee("鈴木", 0.5)]],
+        planned_start=datetime(2026, 10, 5),
+        effort_hours=20.0,
+        status=Status.RUNNING,
+        actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12))],
+    )
+    project = project_of(task)
+    today = datetime(2026, 10, 13, 10)  # 開始から 8 日目 = 第 2 週
+    settled = settle(project, task, {}, today)
+    assert settled is not None and [a.name for a in settled.crew] == ["鈴木"]
+    kids = decompose(project, (), 0, [Part("済", settled.consumed), Part("a", 8.5), Part("b", 8.5)], today=today)
+    assert sorted(a.name for a in kids[0].assignees) == ["田中", "鈴木"]  # 消し込みは全週の担当
+    assert [[a.name for a in k.assignees] for k in kids[1:]] == [["鈴木"], ["鈴木"]]  # 残りは今日の週の担当
+    assert all(k.weekly_crew == [] for k in kids)
 
 
 def test_a_weekly_task_is_not_reviewed_when_the_rate_changes() -> None:

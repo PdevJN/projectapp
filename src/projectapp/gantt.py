@@ -964,7 +964,7 @@ class GanttChart:
             can = task is not None and (weekly or (task.kind is TaskKind.NORMAL and bool(task.assignees)))
             self.weeks_label.set_text("週ごとをやめる" if weekly else "週ごとに分ける")
             self.weeks_item.props(add="" if can else "disable", remove="disable" if can else "")
-        blocked = ti >= len(tasks) or decompose_block_reason(self.project, tasks[ti]) is not None
+        blocked = ti >= len(tasks) or decompose_block_reason(self.project, tasks[ti], self.holidays) is not None
         self.decompose_item.props(add="disable" if blocked else "", remove="" if blocked else "disable")
 
     def menu_on_right_click(self, row: ui.element, path: SectionPath, ti: int) -> None:
