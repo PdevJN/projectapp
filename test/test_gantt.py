@@ -72,6 +72,7 @@ from projectapp.gantt import (
     GanttChart,
     header_cell_html,
 )
+from projectapp.reference import Reference
 from projectapp.timeline import Column, build_columns
 from projectapp.models import (
     Assignee,
@@ -80,8 +81,11 @@ from projectapp.models import (
     Actual,
     Event,
     Member,
+    OverloadSpan,
     Priority,
     Project,
+    ReferenceMode,
+    ReferenceValue,
     Section,
     Status,
     Task,
@@ -121,7 +125,17 @@ class Recorder:
             add_named_section=lambda parent, name: self.events.append(("add_named_section", (parent, name))),
             toggle_weeks=lambda path, ti: self.events.append(("toggle_weeks", (path, ti))),
             edit_week_crew=lambda path, ti, week: self.events.append(("edit_week_crew", (path, ti, week))),
+            open_reference=lambda task_id: self.events.append(("open_reference", (task_id,))),
+            refresh_reference=lambda path, ti: self.events.append(("refresh_reference", (path, ti))),
         )
+
+    @property
+    def opened_references(self) -> list[object]:
+        return [args[0] for name, args in self.events if name == "open_reference"]
+
+    @property
+    def refreshed(self) -> list[object]:
+        return [args for name, args in self.events if name == "refresh_reference"]
 
 
 def sample_project() -> Project:
@@ -3689,3 +3703,97 @@ async def test_assignee_hover_of_a_task_without_weeks_stays_plain(user: User) ->
     mount(project)
     await user.open("/")
     assert tooltips_targeting(chip(user, "task-assignee-0-0")) == ["山田太郎 50%"]
+
+
+def reference_chart(
+    value: ReferenceValue | None, problem: str = "", *, mode: ReferenceMode = ReferenceMode.LIVE, stale: bool = False
+) -> tuple[list[GanttChart], Recorder]:
+    ref = Task("基盤開発", id="ref", kind=TaskKind.REFERENCE, ref_project="基盤")
+    project = Project("p", base_date=date(2026, 10, 1), reference_mode=mode, tasks=[ref])
+    refs = {"ref": Reference(value, problem, mode, stale)}
+    recorder = Recorder()
+    charts: list[GanttChart] = []
+
+    @ui.page("/")
+    def index() -> None:
+        charts.append(
+            GanttChart(project, {}, recorder.actions, now=lambda: datetime(2026, 10, 8), references=lambda: refs)
+        )
+        charts[0].build()
+
+    return charts, recorder
+
+
+SPAN = ReferenceValue(
+    planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 16, 17), progress=45, delayed=3,
+    peak_load=1.3, peak_member="田中",
+    overloads=(OverloadSpan("田中", datetime(2026, 10, 8, 9), datetime(2026, 10, 9, 17), 1.3),),
+)
+
+
+async def test_a_reference_row_draws_one_band_with_delay_and_load_chips(user: User) -> None:
+    reference_chart(SPAN)
+    await user.open("/")
+    await user.should_see(marker="bar-top-0")
+    assert "遅延 3件" in user.find(marker="ref-delay-top-0").elements.pop().text
+    assert "負荷 130%" in user.find(marker="ref-load-top-0").elements.pop().text
+    await user.should_see(marker="overload-top-0-0")  # 超過の期間に縞
+
+
+async def test_the_reference_hover_says_it_opens_on_click_and_the_band_underlines(user: User) -> None:
+    reference_chart(SPAN)
+    await user.open("/")
+    bar = user.find(marker="bar-top-0").elements.pop()
+    text = tooltips_targeting(bar)[0]
+    assert "基盤開発 10/5〜10/16" in text and "遅延 3 件" in text and "ピーク負荷 130%(田中)" in text
+    assert text.endswith("クリックすると開く")
+    assert "ref-link" in bar.classes
+
+
+async def test_clicking_the_band_or_the_name_opens_the_reference(user: User) -> None:
+    _, recorder = reference_chart(SPAN)
+    await user.open("/")
+    user.find(marker="bar-top-0").click()
+    user.find(marker="task-name-top-0").click()
+    assert recorder.opened_references == ["ref", "ref"]
+
+
+async def test_a_missing_reference_keeps_the_row_without_a_band(user: User) -> None:
+    reference_chart(None, "「基盤.json」が格納先にありません")
+    await user.open("/")
+    await user.should_not_see(marker="bar-top-0")
+    await user.should_see(marker="ref-missing-top-0")
+    assert "参照先が見つかりません" in user.find(marker="ref-missing-top-0").elements.pop().text
+
+
+async def test_a_snapshot_row_shows_the_saved_value_with_its_date(user: User) -> None:
+    saved = replace(SPAN, taken_at=datetime(2026, 10, 7, 10))
+    reference_chart(saved, mode=ReferenceMode.SNAPSHOT)
+    await user.open("/")
+    text = tooltips_targeting(user.find(marker="bar-top-0").elements.pop())[0]
+    assert "スナップショット 10/7" in text
+
+
+async def test_the_refresh_menu_item_is_only_enabled_for_snapshot_references(user: User) -> None:
+    charts, recorder = reference_chart(SPAN, mode=ReferenceMode.SNAPSHOT)
+    await user.open("/")
+    charts[0].open_menu((), 0)
+    item = user.find(marker="context-refresh").elements.pop()
+    assert not item.props.get("disable")
+    user.find(marker="context-refresh").click()
+    assert recorder.refreshed == [((), 0)]
+
+
+async def test_the_refresh_menu_item_is_disabled_for_live_references(user: User) -> None:
+    charts, _ = reference_chart(SPAN)
+    await user.open("/")
+    charts[0].open_menu((), 0)
+    assert user.find(marker="context-refresh").elements.pop().props.get("disable") is True
+
+
+async def test_decompose_and_weeks_are_disabled_on_a_reference_row(user: User) -> None:
+    charts, _ = reference_chart(SPAN)
+    await user.open("/")
+    charts[0].open_menu((), 0)
+    assert user.find(marker="context-decompose").elements.pop().props.get("disable") is True
+    assert user.find(marker="context-weeks").elements.pop().props.get("disable") is True
