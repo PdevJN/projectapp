@@ -59,7 +59,7 @@ from projectapp.forms import (
 from projectapp import arrange
 from projectapp.reference import ReferenceResolver, build_references, missing_references, take_snapshot
 from projectapp.shortcuts import Screen, defers_to_inputs, help_entries, key_guard_js, label_for, resolve
-from projectapp.dashboard import CrossSummary, PeriodKind, period_for, summarize, summarize_cross_loads
+from projectapp.dashboard import CrossSummary, Period, PeriodKind, custom_period_error, period_for, summarize, summarize_cross_loads
 from projectapp.dashboard_view import DashboardView
 from projectapp.portfolio import load_others
 from projectapp.export import (
@@ -111,6 +111,8 @@ from projectapp.preview import (
     check_column_count,
     coarser_notice,
     fit_scale,
+    format_period,
+    split_period,
     validate_period,
 )
 from projectapp.storage import (
@@ -215,6 +217,8 @@ class MainView:
         self.preview_notice: str | None = None  # スケールを粗くして開いたときのお知らせ。設定を変えたら消す
         self.now: Callable[[], datetime] = datetime.now  # テストで差し替える
         self.dashboard_kind: PeriodKind | None = None  # 開いているときの期間。保存しない
+        self.dashboard_custom: Period | None = None  # `指定` の期間。保存しない
+        self.dashboard_custom_error = ""  # `指定` の欄の入力が不正なときの、エラー文
         self.dashboard_member: str | None = None  # ダッシュボードで絞り込み中のメンバー。保存しない
         self.dashboard_cross = False  # 全プロジェクトを重ねるか。保存しない
         self.dashboard_excluded: set[str] = set()  # 重ねるのから外したプロジェクトの名前。保存しない
@@ -289,6 +293,7 @@ class MainView:
             self.change_dashboard_member,
             self.change_dashboard_cross,
             self.change_dashboard_project,
+            self.change_dashboard_custom,
         )
 
     @staticmethod
@@ -717,6 +722,8 @@ class MainView:
         if self.preview is not None or self.dashboard_kind is not None:
             return
         self.dashboard_kind = PeriodKind.WEEK
+        self.dashboard_custom = None
+        self.dashboard_custom_error = ""
         self.dashboard_member = None
         self.dashboard_cross = False
         self.dashboard_excluded = set()
@@ -724,11 +731,12 @@ class MainView:
         self.gantt.set_visible(False)
         self.refresh_dashboard()
 
-    def refresh_dashboard(self) -> None:
+    def refresh_dashboard(self, sync_field: bool = True) -> None:
+        """集計して描き直す。sync_field が偽のときは、`指定` の欄の文字を書き換えない(欄で入力している最中)。"""
         if self.dashboard_kind is None:
             return
         now = self.now()
-        period = period_for(self.dashboard_kind, now.date(), self.project, self.holidays)
+        period = period_for(self.dashboard_kind, now.date(), self.project, self.holidays, self.dashboard_custom)
         projects = [self.project]
         failures = []
         if self.dashboard_cross:
@@ -747,7 +755,9 @@ class MainView:
             data.cross = CrossSummary(loads, titles, self.dashboard_excluded & set(titles), failures)
             data.members = names
         icons = {m.name: m.icon for p in reversed(projects) for m in p.members if m.icon}
-        self.dashboard_view.show(data, self.dashboard_kind, icons)
+        # 入力が不正なあいだは、欄の文字を書き換えない(入力中の値を残す)
+        custom_text = format_period(period.start, period.end) if sync_field and not self.dashboard_custom_error else None
+        self.dashboard_view.show(data, self.dashboard_kind, icons, custom_text, self.dashboard_custom_error)
 
     def change_dashboard_cross(self, on: bool) -> None:
         if self.dashboard_kind is None:
@@ -764,8 +774,28 @@ class MainView:
     def change_dashboard_period(self, kind: PeriodKind) -> None:
         if self.dashboard_kind is None:
             return
+        if kind is PeriodKind.CUSTOM and self.dashboard_custom is None:
+            self.dashboard_custom = period_for(  # 直前に見ていた期間から始める
+                self.dashboard_kind, self.now().date(), self.project, self.holidays, self.dashboard_custom
+            )
+        self.dashboard_custom_error = ""
         self.dashboard_kind = kind
         self.refresh_dashboard()
+
+    def change_dashboard_custom(self, text: str) -> None:
+        """`指定` の期間の欄が変わった。不正・長すぎる値はエラーを出して、前の期間のままにする。"""
+        if self.dashboard_kind is not PeriodKind.CUSTOM:
+            return
+        try:
+            start, end = validate_period(*split_period(text))
+        except ValueError as exc:
+            self.dashboard_custom_error = str(exc)
+        else:
+            period = Period(start, end)
+            self.dashboard_custom_error = custom_period_error(period) or ""
+            if not self.dashboard_custom_error:
+                self.dashboard_custom = period
+        self.refresh_dashboard(sync_field=False)
 
     def change_dashboard_member(self, name: str | None) -> None:
         if self.dashboard_kind is None:

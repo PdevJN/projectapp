@@ -27,7 +27,7 @@ from projectapp.decompose import Part
 from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.plantuml import PLANTUML_FILE_TYPES
 from projectapp.puml_import import PLANTUML_OPEN_FILE_TYPES
-from projectapp.dashboard import PeriodKind
+from projectapp.dashboard import Period, PeriodKind
 from projectapp.preview import split_period
 from projectapp.timeline import Scale, Schedule, effective_end, visible_range
 from projectapp.gantt import ViewOptions
@@ -2623,6 +2623,53 @@ async def test_changing_the_period_redraws_with_the_new_period(user: User, tmp_p
     user.find(marker="dashboard-period").elements.pop().set_value("今月")
     assert view.dashboard_kind == PeriodKind.MONTH
     await user.should_see(marker="dashboard-due-1")  # 今月: 10/20 の締切も入る
+
+
+async def test_the_custom_period_starts_from_the_previous_period_and_shows_a_field(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-period")
+    field = view.dashboard_view.custom_field
+    assert field is not None and not field.visible  # 今週のあいだは出さない（非表示の要素は user.find に出ない）
+    user.find(marker="dashboard-period").elements.pop().set_value("指定")
+    assert view.dashboard_kind == PeriodKind.CUSTOM
+    assert view.dashboard_custom == Period(date(2026, 10, 5), date(2026, 10, 11))  # 直前の今週
+    assert field.visible and field.value == "2026-10-05 〜 2026-10-11"
+    user.find(marker="dashboard-period").elements.pop().set_value("今月")
+    assert not field.visible
+
+
+async def test_typing_a_custom_period_redraws_and_bad_input_keeps_the_previous_one(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-period")
+    user.find(marker="dashboard-period").elements.pop().set_value("指定")
+    field = user.find(marker="dashboard-period-field").elements.pop()
+    field.set_value("2026-10-01 〜 2026-10-31")
+    assert view.dashboard_custom == Period(date(2026, 10, 1), date(2026, 10, 31))
+    await user.should_see(marker="dashboard-due-1")  # 10/20 の締切も入る
+    field.set_value("2026-10-31 〜 2026-10-01")
+    assert view.dashboard_custom == Period(date(2026, 10, 1), date(2026, 10, 31))
+    assert "開始日が終了日以前" in user.find(marker="dashboard-period-error").elements.pop().text
+    assert field.value == "2026-10-31 〜 2026-10-01"  # 入力中の文字は書き換えない
+    field.set_value("2026-01-01 〜 2027-12-31")  # 長すぎる
+    assert view.dashboard_custom == Period(date(2026, 10, 1), date(2026, 10, 31))
+    assert "400" in user.find(marker="dashboard-period-error").elements.pop().text
+    field.set_value("2026-10-05 〜 2026-10-11")
+    assert user.find(marker="dashboard-period-error").elements.pop().text == ""
+
+
+async def test_the_custom_period_resets_when_the_dashboard_is_reopened(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-period")
+    user.find(marker="dashboard-period").elements.pop().set_value("指定")
+    user.find(marker="dashboard-period-field").elements.pop().set_value("2026-10-01 〜 2026-10-31")
+    user.find(marker="dashboard-back").click()
+    user.find(marker="open-dashboard").click()
+    assert view.dashboard_kind == PeriodKind.WEEK
+    assert view.dashboard_custom is None
+    assert view.dashboard_view.custom_field is not None and not view.dashboard_view.custom_field.visible
 
 
 async def test_the_member_filter_narrows_the_dashboard_and_resets_when_reopened(user: User, tmp_path: Path) -> None:

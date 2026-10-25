@@ -2,7 +2,7 @@
 
 import html
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
@@ -19,6 +19,7 @@ from projectapp.dashboard import (
 )
 from projectapp.gantt import STATUS_COLORS, STATUS_DARK_COLORS, WEEKDAYS
 from projectapp.models import Status
+from projectapp.periodfield import add_range_picker, normalize_period
 from projectapp.timeline import OVERLOAD_EPSILON
 
 TRACK_STYLE = (
@@ -173,7 +174,12 @@ class DashboardView:
         on_member_change: Callable[[str | None], object] | None = None,
         on_cross_change: Callable[[bool], object] | None = None,
         on_project_change: Callable[[str, bool], object] | None = None,
+        on_custom_change: Callable[[str], object] | None = None,
     ) -> None:
+        self.on_custom_change = on_custom_change
+        self.custom_field: ui.input | None = None
+        self.custom_box: ui.column | None = None
+        self.custom_error: ui.label | None = None
         self.on_back, self.on_change, self.on_member_change = on_back, on_change, on_member_change
         self.on_cross_change, self.on_project_change = on_cross_change, on_project_change
         self.cross_switch: ui.switch | None = None
@@ -197,6 +203,19 @@ class DashboardView:
                     value=PeriodKind.WEEK.value,
                     on_change=self.on_toggle,
                 ).mark("dashboard-period")
+                with ui.column().classes("gap-0") as custom_box:  # `指定` のときだけ出す期間欄
+                    self.custom_field = (
+                        ui.input(placeholder="2026-10-01 〜 2026-10-31", on_change=self.on_custom)
+                        .props("dense outlined")
+                        .style("width: 17rem")
+                        .mark("dashboard-period-field")
+                    )
+                    add_range_picker(self.custom_field, "dashboard-period")
+                    self.custom_field.on("blur", lambda _e: self.normalize_custom())
+                    self.custom_error = ui.label("").classes("text-negative text-caption").mark("dashboard-period-error")
+                self.custom_box = custom_box
+                custom_box.set_visibility(False)
+                self.custom_field.set_visibility(False)
                 self.member_select = (
                     ui.select({ALL_MEMBERS: "全員"}, value=ALL_MEMBERS, on_change=self.on_member)
                     .props("dense outlined options-dense")
@@ -216,6 +235,19 @@ class DashboardView:
         if not self.syncing:
             self.on_change(PeriodKind(event.value))
 
+    def on_custom(self, event: ValueChangeEventArguments) -> None:
+        if not self.syncing and self.on_custom_change is not None:
+            self.on_custom_change(event.value or "")
+
+    def normalize_custom(self) -> None:
+        """欄を離れたとき、両端の省略形を `YYYY-MM-DD` に整える。読めない値はそのまま。"""
+        if self.custom_field is None:
+            return
+        text = self.custom_field.value or ""
+        fixed = normalize_period(text, date.today()) if text.strip() else None
+        if fixed is not None and fixed != text:
+            self.custom_field.set_value(fixed)
+
     def on_member(self, event: ValueChangeEventArguments) -> None:
         if not self.syncing and self.on_member_change is not None:
             self.on_member_change(event.value or None)
@@ -228,9 +260,27 @@ class DashboardView:
         if not self.syncing and self.on_project_change is not None:
             self.on_project_change(name, included)
 
-    def show(self, data: Dashboard, kind: PeriodKind, icons: dict[str, str] | None = None) -> None:
+    def show(
+        self,
+        data: Dashboard,
+        kind: PeriodKind,
+        icons: dict[str, str] | None = None,
+        custom_text: str | None = None,
+        custom_error: str = "",
+    ) -> None:
+        """custom_text が None のときは、欄の文字(入力中の値)を書き換えない。"""
         self.icons = icons or {}
         self.data = data
+        if self.custom_box is not None and self.custom_field is not None and self.custom_error is not None:
+            self.custom_box.set_visibility(kind is PeriodKind.CUSTOM)
+            self.custom_field.set_visibility(kind is PeriodKind.CUSTOM)
+            if custom_text is not None and self.custom_field.value != custom_text:
+                self.syncing = True
+                try:
+                    self.custom_field.set_value(custom_text)
+                finally:
+                    self.syncing = False
+            self.custom_error.set_text(custom_error)
         if self.toggle is not None and self.toggle.value != kind.value:
             self.syncing = True
             try:
