@@ -38,19 +38,20 @@
 
 ## 期間の範囲カレンダー(要望 63)
 
-- 開始日・終了日の入力欄は残す。手入力で `YYYY-MM-DD` を書ける。
-- 欄ごとにあった 1 日選択のアイコンをやめ、2 つの欄の右に範囲選択のアイコンを 1 つ置く。
-- アイコンを押すと、`ui.date` を `range` プロップで開いたダイアログが出る。ドラッグまたは 2 回クリックで範囲を選び、`OK` で閉じて 2 つの欄に反映する。
+- 開始日・終了日の 2 つの欄は、1 つの期間欄(`2026-10-01 〜 2026-10-31`。区切りは波ダッシュ `〜`〔`~`・`～` も可〕。日付の `-` とは混ざらない)に統一する(実装後の変更。当初は 2 つの欄を残す設計だったが、見た目が統一されないため)。欄の右に範囲カレンダーのアイコンを置く。
+- アイコンを押すと、`ui.date` を `range` プロップで開いたダイアログが出る。ドラッグまたは 2 回クリックで範囲を選び、`OK` で欄に反映する。
 - 初期選択は、今の欄の期間。欄が空・不正なときは選択なしで開く。
-- `ui.date` の値は、範囲を選ぶと `{'from': …, 'to': …}`、1 日だけ選ぶと文字列になる。1 日だけのとき(`to` がないとき)は、`OK` を押せなくする。同じ日を 2 回押して 1 日の範囲にすることはできる(`from` と `to` が同じ値になる)。
-- 欄を離れたとき、`10/15`・`1015`・`20261015` の省略形を `YYYY-MM-DD` に整える。タスクの日付(`dateinput.parse_date_input`)と同じ規則を使う。年がないときは今年とし、過ぎた日でも翌年にしない(表示期間は過去を見るため)。整えられない文字は、そのまま残して検証でエラーにする。
+- Quasar の動き(`quasar.umd.js` の `onDayClick`、実装後に確認): 1 回目のクリックでは値を送らず `rangeStart` だけを出す。2 回目で `update:modelValue` のあとに `rangeEnd` を出す。値は範囲なら `{from, to}`、**同じ日を 2 回押すと日付の文字列**。範囲の中の日を最初に押すと、その範囲が消えて値が `null` になる。
+- これに合わせ、選んでいる途中(`rangeStart` から `rangeEnd` まで)は `OK` を押せなくする(前の範囲が黙って適用されるのを防ぐ)。`rangeEnd` と値の変更のたびに、値から判定し直す。文字列は 1 日の範囲として確定でき、`null`・`to` のない dict は確定できない。
+- 欄の手入力は残す。欄を離れたとき、両端の `10/15`・`1015`・`20261015`(全角も)を `YYYY-MM-DD` に整える(タスクの日付と同じ `dateinput.parse_date_input`。年がないときは今年とし、過ぎた日でも翌年にしない)。整えられない文字は書き換えず、検証でエラーにする。
 - 検証は変えない。`validate_period` と `check_column_count` のエラー・範囲外のタスクを期間の端で切る扱いも、今のままにする。
+- 欄は 1 つなので、`OK` での反映は 1 回の値の変更で済み、プレビューの描き直しも 1 回で終わる。
 
 ## コード構成
 
 - 変更は `preview.py` の `PreviewBar.build` が中心。`read()` の戻り値と `MainView` 側は変えない。
-- 範囲ダイアログは関数 `add_range_picker(start, end)` に切り出し、`preview.py` に置く。`task_dialog.add_picker` は他の画面で使うので変えない。
-- マーカーは `preview-start`・`preview-end`・`preview-scale`・`preview-chips`・`preview-alerts`・`preview-events`・`preview-select-all`・`preview-select-count`・`preview-back`・`preview-save`・`preview-plantuml`・`preview-error`・`preview-warning`・`preview-bar` を維持する。足すのは `open-preview-range-picker`・`preview-range-picker`・`preview-range-picker-ok`。廃止するのは `open-preview-start-picker`・`open-preview-end-picker`・`preview-start-picker`・`preview-end-picker`・`preview-start-picker-ok`・`preview-end-picker-ok`(テストで使っていれば置き換える)。
+- 範囲ダイアログは関数 `add_range_picker(field)` に切り出し、`preview.py` に置く。`task_dialog.add_picker` は他の画面で使うので変えない。
+- マーカーは `preview-period`・`preview-scale`・`preview-chips`・`preview-alerts`・`preview-events`・`preview-select-all`・`preview-select-count`・`preview-back`・`preview-save`・`preview-plantuml`・`preview-error`・`preview-warning`・`preview-bar` を維持する。足すのは `open-preview-range-picker`・`preview-range-picker`・`preview-range-picker-ok`。廃止するのは `open-preview-start-picker`・`open-preview-end-picker`・`preview-start-picker`・`preview-end-picker`・`preview-start-picker-ok`・`preview-end-picker-ok`(テストで使っていれば置き換える)。
 
 ## テスト
 
@@ -69,4 +70,4 @@
 ## 未決・実装前に確認すること
 
 - 省略形の整形(上記)は、要望の範囲を少し超える。不要なら外す。
-- `ui.date` の `range` の値の形(`from`・`to`)を、NiceGUI 3.18 の実機で確認する。
+- (確認済み)`ui.date` の `range` の値の形は上のとおり。

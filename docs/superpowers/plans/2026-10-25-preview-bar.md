@@ -1,5 +1,7 @@
 # プレビューの操作部の見直し Implementation Plan
 
+> **実装後の変更**: 開始日・終了日の 2 欄は 1 つの期間欄(`preview-period`)に統一し、最終レビューの指摘で範囲カレンダーの `OK` の制御を `rangeStart`/`rangeEnd` に変えた。以下のタスクの `add_range_picker(start, end)`・`preview-start`・`preview-end` は当初の案。現在の仕様は設計書を正とする。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** プレビューの上部のバーを「表示の設定」と「出力・戻る・保存」の 2 段に分け、期間を範囲カレンダー(ドラッグ)で選べるようにする。

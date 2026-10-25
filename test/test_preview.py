@@ -10,7 +10,9 @@ from projectapp.preview import (
     PreviewSettings,
     check_column_count,
     fit_scale,
+    normalize_period,
     parse_range_value,
+    split_period,
     validate_period,
 )
 from projectapp.timeline import Scale
@@ -172,9 +174,30 @@ def test_parse_range_value_accepts_the_same_day_as_a_range() -> None:
     assert parse_range_value({"from": "2026-10-05", "to": "2026-10-05"}) == ("2026-10-05", "2026-10-05")
 
 
+def test_parse_range_value_reads_a_single_day_string_as_a_one_day_range() -> None:
+    """Quasar は、同じ日を 2 回押すと {from, to} ではなく日付の文字列を返す。"""
+    assert parse_range_value("2026-10-05") == ("2026-10-05", "2026-10-05")
+
+
 @pytest.mark.parametrize(
     "value",
-    [None, "", "2026-10-05", {}, {"from": "2026-10-05"}, {"from": "2026-10-05", "to": ""}, {"to": "2026-10-05"}, 5],
+    [None, "", {}, {"from": "2026-10-05"}, {"from": "2026-10-05", "to": ""}, {"to": "2026-10-05"}, 5],
 )
 def test_parse_range_value_rejects_an_incomplete_selection(value: object) -> None:
     assert parse_range_value(value) is None
+
+
+def test_split_period_splits_on_the_wave_dash_and_not_on_the_date_hyphen() -> None:
+    assert split_period("2026-10-01 〜 2026-10-31") == ("2026-10-01", "2026-10-31")
+    assert split_period("2026-10-01~2026-10-31") == ("2026-10-01", "2026-10-31")
+    assert split_period("2026-10-01") == ("2026-10-01", "")
+    assert split_period("a 〜 b 〜 c") == ("a 〜 b 〜 c", "")
+    assert split_period("") == ("", "")
+
+
+def test_normalize_period_fixes_both_ends_and_rejects_unreadable_text() -> None:
+    today = date(2026, 10, 12)
+    assert normalize_period("10/08 〜 1231", today) == "2026-10-08 〜 2026-12-31"
+    assert normalize_period("20261001〜20261031", today) == "2026-10-01 〜 2026-10-31"
+    assert normalize_period("abc", today) is None
+    assert normalize_period("10/08", today) is None
