@@ -26,6 +26,15 @@ from projectapp.decompose import decompose_block_reason
 from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
+from projectapp.periodfield import (
+    PERIOD_SEPARATOR,
+    add_range_picker,
+    check_column_count,
+    format_period,
+    normalize_period,
+    split_period,
+    validate_period,
+)
 from projectapp.models import ID_KEY, MAX_SECTION_DEPTH, URL_KEY, Assignee, Category, Event, Priority, Project, ReferenceMode, ReferenceValue, Section, SectionPath, Status, Task, TaskKind, TaskUrl
 from projectapp.reference import Reference
 from projectapp.selection import CheckState, check_state, task_ids_of, toggled
@@ -478,6 +487,10 @@ class GanttChart:
         self.link_layout: tuple[list[Column], int] | None = None
         self.scale = Scale.DAY
         self.options = ViewOptions()
+        self.period: tuple[date, date] | None = None  # メインの表示期間。None は自動(基準日とバーから決める)。保存しない
+        self.period_input: ui.input | None = None
+        self.period_error: ui.label | None = None
+        self.syncing_period = False  # 欄を書き換えるあいだは、入力の変更として扱わない
         self.toolbar: ui.row | None = None
         self.scroll_box: ui.element | None = None
         self.task_filter = TaskFilter()
@@ -507,6 +520,8 @@ class GanttChart:
         """条件は保つ。担当者がメンバーからいなくなったときだけ、担当者の指定を外す。"""
         self.project = project
         self.quick_add = self.quick_section = None  # 番号がずれるので、開いている入力行は閉じる
+        self.period = None  # 別のプロジェクトでは、古い期間が何も映さないことがある
+        self.sync_period_input()
         names = {member.name for member in project.members}
         if self.task_filter.assignee not in (None, *names):
             self.task_filter = replace(self.task_filter, assignee=None)
@@ -705,8 +720,75 @@ class GanttChart:
 
     def set_scale(self, scale: Scale) -> None:
         self.scale = scale
+        if self.period is not None and self.period_error_text(self.period, scale) is not None:
+            ui.notify("期間が長すぎるため、期間を自動に戻しました", type="warning")
+            self.period = None  # 描き直しで固まるので、自動に戻す
+            self.sync_period_input()
         self.render.refresh()
         self.scroll_to_left()  # 列の幅が変わるので、横の位置は意味を持たない(縦は保つ)
+
+    @property
+    def view_period(self) -> tuple[date, date] | None:
+        """描画に使う期間。プレビューで指定されていればそれ、なければメインの期間(None は自動)。"""
+        return self.options.period or self.period
+
+    def period_error_text(self, period: tuple[date, date], scale: Scale) -> str | None:
+        """期間が列の数の上限を超えるときの、エラー文。"""
+        columns = build_columns(self.project, scale, self.holidays, period, self.reference_values())
+        return check_column_count(scale, len(columns))
+
+    def sync_period_input(self) -> None:
+        """メインの期間を欄に映す(エラーも消す)。欄の変更としては扱わない。"""
+        if self.period_input is None:
+            return
+        self.syncing_period = True
+        try:
+            self.period_input.set_value(format_period(*self.period) if self.period else "")
+        finally:
+            self.syncing_period = False
+        if self.period_error is not None:
+            self.period_error.set_text("")
+
+    def set_period(self, period: tuple[date, date] | None) -> None:
+        """メインの表示期間を変えて、描き直す(None は自動)。"""
+        if period == self.period:
+            return
+        self.period = period
+        self.sync_period_input()
+        self.render.refresh()
+        self.scroll_to_left()
+
+    def normalize_period_input(self) -> None:
+        """欄を離れたとき、両端の省略形(`10/15`・`1015`・`20261015`)を `YYYY-MM-DD` に整える。読めない値はそのまま。"""
+        if self.period_input is None:
+            return
+        text = self.period_input.value or ""
+        fixed = normalize_period(text, self.now().date()) if text.strip() else None
+        if fixed is not None and fixed != text:
+            self.period_input.set_value(fixed)
+
+    def on_period_changed(self, text: str | None) -> None:
+        """期間の欄が変わった。空は自動。不正・長すぎる値はエラーを出して、前の期間のままにする。"""
+        if self.syncing_period or self.period_error is None:
+            return
+        if not (text or "").strip():
+            self.period_error.set_text("")
+            if self.period is not None:
+                self.period = None
+                self.render.refresh()
+                self.scroll_to_left()
+            return
+        try:
+            period = validate_period(*split_period(text or ""))
+        except ValueError as exc:
+            self.period_error.set_text(str(exc))
+            return
+        message = self.period_error_text(period, self.view_scale)
+        self.period_error.set_text(message or "")
+        if message is None and period != self.period:
+            self.period = period
+            self.render.refresh()
+            self.scroll_to_left()
 
     @property
     def view_scale(self) -> Scale:
@@ -748,7 +830,7 @@ class GanttChart:
     def content_width(self) -> int:
         """描画の全体の幅(px)。名前の列と、すべての列。画像の幅になる。"""
         columns = build_columns(
-            self.project, self.view_scale, self.holidays, self.options.period, self.reference_values()
+            self.project, self.view_scale, self.holidays, self.view_period, self.reference_values()
         )
         return self.name_width + COLUMN_WIDTH_PX[self.view_scale] * len(columns)
 
@@ -756,7 +838,7 @@ class GanttChart:
         self, start: datetime | None, end: datetime | None, columns: list[Column]
     ) -> bool:
         """棒を描くか。期間を指定したときだけ、期間と重ならない棒を描かない(端に細い棒を出さない)。"""
-        if self.options.period is None or start is None or end is None:
+        if self.view_period is None or start is None or end is None:
             return True
         return in_range(start, end, columns)
 
@@ -872,6 +954,16 @@ class GanttChart:
                 value=self.scale,
                 on_change=lambda e: self.set_scale(Scale(e.value)),
             ).classes("shrink-0").mark("scale-toggle")
+            with ui.column().classes("gap-0 shrink-0"):  # 欄とエラーを縦に並べる(エラーが空のときは高さを取らない)
+                self.period_input = (
+                    ui.input(placeholder="表示期間(空は自動)", on_change=lambda e: self.on_period_changed(e.value))
+                    .props("clearable dense outlined")
+                    .style("width: 17rem")
+                    .mark("chart-period")
+                )
+                add_range_picker(self.period_input, "chart")
+                self.period_input.on("blur", lambda _e: self.normalize_period_input())
+                self.period_error = ui.label("").classes("text-negative text-caption").mark("chart-period-error")
             self.search_input = (
                 ui.input(
                     placeholder="タスク名で検索(Enterで確定)",
@@ -1144,7 +1236,7 @@ class GanttChart:
         self.refs = self.references_of()
         self.schedule = Schedule(self.project, self.holidays, self.reference_values())
         columns = build_columns(
-            self.project, self.view_scale, self.holidays, self.options.period, self.reference_values()
+            self.project, self.view_scale, self.holidays, self.view_period, self.reference_values()
         )
         self.overloads = overallocations(self.project, self.holidays)
         self.category_lookup = by_id(self.project.categories)
@@ -1572,7 +1664,7 @@ class GanttChart:
                         self.week_chips(key, path, ti, task, start, end, left, bar_width, columns, width)
                 mark_left = self.marker_left(task, columns, width, left * width + bar_width)
                 total = width * len(columns)
-                if self.options.period is None or mark_left <= total - MARK_WIDTH_PX:
+                if self.view_period is None or mark_left <= total - MARK_WIDTH_PX:
                     self.progress_marker(key, ti, task, state, mark_left, end)  # 期間の右端の外へは出さない
             self.actual_bars(path, ti, task, columns, width)
             self.deadline_marker(path, ti, task, columns, width)
@@ -1697,7 +1789,7 @@ class GanttChart:
     ) -> float | None:
         """切られた棒の、見えている部分に対する塗りの割合(%)。切られていない(または期間なし)なら None。"""
         start = self.schedule.start(task)
-        if self.options.period is None or start is None or end is None or end <= start:
+        if self.view_period is None or start is None or end is None or end <= start:
             return None
         begin = datetime.combine(columns[0].start, time.min)
         finish = datetime.combine(columns[-1].end, time.min)

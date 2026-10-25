@@ -1850,6 +1850,24 @@ async def test_the_preview_period_field_keeps_text_it_cannot_normalize(user: Use
     assert view.preview is not None
 
 
+async def test_the_preview_starts_from_the_main_period_when_one_is_set(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_preview(tmp_path, views, FakeExporter())
+    await user.open("/")
+    view = views[0]
+    view.project.base_date = date(2026, 10, 5)
+    view.save_task((), None, planned_task())
+    view.gantt.set_period((date(2026, 10, 6), date(2026, 10, 9)))
+    user.find(marker="export-preview").click()
+    await user.should_see(marker="task-top-0")
+    assert view.preview is not None
+    assert (view.preview.start, view.preview.end) == (date(2026, 10, 6), date(2026, 10, 9))
+    assert period_of(user) == ("2026-10-06", "2026-10-09")
+    user.find(marker="preview-back").click()
+    assert view.gantt.period == (date(2026, 10, 6), date(2026, 10, 9))  # メインの期間は、プレビューで変えても戻らない
+
+
 async def test_back_restores_the_header_toolbar_and_default_options(user: User, tmp_path: Path) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     user.find(marker="preview-back").click()

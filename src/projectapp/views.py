@@ -788,11 +788,15 @@ class MainView:
         return {tid: ref.value for tid, ref in refs.items() if ref.value is not None}
 
     def enter_preview(self) -> None:
-        """メイン画面を、プレビューモードに切り替える。初期値は、今の表示範囲と、今のスケール。"""
+        """メイン画面を、プレビューモードに切り替える。初期値は、メインの期間(指定があれば)か今の表示範囲と、今のスケール。"""
         if self.preview is not None or self.dashboard_kind is not None:
             return
-        start, end = visible_range(self.project, self.holidays, self.reference_values())
-        period = (start, max(end - timedelta(days=1), start))  # タスクがないと、範囲が空になる。基準日の 1 日にする
+        if self.gantt.period is not None:
+            period = self.gantt.period  # メインで期間を指定しているときは、それから始める
+            start = period[0]
+        else:
+            start, end = visible_range(self.project, self.holidays, self.reference_values())
+            period = (start, max(end - timedelta(days=1), start))  # タスクがないと、範囲が空になる。基準日の 1 日にする
         scale = fit_scale(
             self.project, self.holidays, period, self.gantt.scale, self.gantt.name_width, self.reference_values()
         )
