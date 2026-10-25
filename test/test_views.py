@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from nicegui import ui
+from nicegui import events, ui
 from nicegui.testing import User
 
 from projectapp.config import load_project_dir, load_zoom, save_project_dir, save_zoom
@@ -28,6 +28,7 @@ from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.plantuml import PLANTUML_FILE_TYPES
 from projectapp.puml_import import PLANTUML_OPEN_FILE_TYPES
 from projectapp.dashboard import PeriodKind
+from projectapp.preview import split_period
 from projectapp.timeline import Scale, Schedule, effective_end, visible_range
 from projectapp.gantt import ViewOptions
 from projectapp.forms import MEMBER_TABLE_CSS
@@ -1693,6 +1694,18 @@ async def test_the_preview_replaces_the_header_and_toolbar(user: User, tmp_path:
     await user.should_not_see(marker="add-task-top")
 
 
+def period_of(user: User) -> tuple[str, str]:
+    """プレビューの期間の欄を (開始, 終了) の文字列に分ける。"""
+    return split_period(user.find(marker="preview-period").elements.pop().value)
+
+
+def set_period(user: User, start: str | None = None, end: str | None = None) -> None:
+    """プレビューの期間の欄の、開始か終了だけを書き換える。"""
+    current_start, current_end = period_of(user)
+    text = f"{current_start if start is None else start} 〜 {current_end if end is None else end}"
+    user.find(marker="preview-period").clear().type(text)
+
+
 async def test_the_preview_starts_with_the_visible_range_and_the_current_scale(user: User, tmp_path: Path) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     settings = view.preview
@@ -1700,8 +1713,141 @@ async def test_the_preview_starts_with_the_visible_range_and_the_current_scale(u
     assert settings.start == date(2026, 10, 5)
     assert settings.end >= date(2026, 10, 7)
     assert settings.scale is view.gantt.scale
-    assert user.find(marker="preview-start").elements.pop().value == "2026-10-05"
+    assert period_of(user)[0] == "2026-10-05"
     assert user.find(marker="preview-scale").elements.pop().value == view.gantt.scale.value
+
+
+async def test_the_range_picker_applies_the_chosen_range_to_the_fields(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="open-preview-range-picker").click()
+    picker = user.find(marker="preview-range-picker").elements.pop()
+    assert "range" in picker._props  # 範囲選択のプロップ
+    picker.set_value({"from": "2026-10-01", "to": "2026-10-20"})
+    user.find(marker="preview-range-picker-ok").click()
+    assert period_of(user)[0] == "2026-10-01"
+    assert period_of(user)[1] == "2026-10-20"
+    assert view.preview is not None
+    assert (view.preview.start, view.preview.end) == (date(2026, 10, 1), date(2026, 10, 20))
+
+
+async def test_the_range_picker_applies_a_same_day_string_and_rejects_a_half_range(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="open-preview-range-picker").click()
+    picker = user.find(marker="preview-range-picker").elements.pop()
+    picker.set_value({"from": "2026-10-09"})  # to がない(来ない値だが、確定させない)
+    assert not user.find(marker="preview-range-picker-ok").elements.pop().enabled
+    picker.set_value("2026-10-09")  # 同じ日を 2 回押すと、Quasar は日付の文字列を返す = 1 日の範囲
+    assert user.find(marker="preview-range-picker-ok").elements.pop().enabled
+    user.find(marker="preview-range-picker-ok").click()
+    assert view.preview is not None
+    assert (view.preview.start, view.preview.end) == (date(2026, 10, 9), date(2026, 10, 9))
+
+
+async def test_ok_is_disabled_while_a_range_is_being_picked(user: User, tmp_path: Path) -> None:
+    """Quasar は 1 回目のクリックでは値を送らない(rangeStart だけ)。そのあいだ前の範囲を適用させない。"""
+    view = await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="open-preview-range-picker").click()
+    ok = user.find(marker="preview-range-picker-ok").elements.pop()
+    assert ok.enabled  # 欄の期間がそのまま選ばれている
+    emit(user, "preview-range-picker", "rangeStart", "2026/11/05")
+    assert not ok.enabled
+    picker = user.find(marker="preview-range-picker").elements.pop()
+    picker.set_value({"from": "2026-11-05", "to": "2026-11-12"})
+    emit(user, "preview-range-picker", "rangeEnd", {"from": "2026/11/05", "to": "2026/11/12"})
+    assert ok.enabled
+    user.find(marker="preview-range-picker-ok").click()
+    assert view.preview is not None
+    assert (view.preview.start, view.preview.end) == (date(2026, 11, 5), date(2026, 11, 12))
+
+
+async def test_picking_the_same_range_again_enables_ok_after_range_end(user: User, tmp_path: Path) -> None:
+    """値が変わらない選び直し(value の変更が起きない)でも、rangeEnd で OK を戻す。"""
+    await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="open-preview-range-picker").click()
+    ok = user.find(marker="preview-range-picker-ok").elements.pop()
+    emit(user, "preview-range-picker", "rangeStart", "2026/10/05")
+    assert not ok.enabled
+    emit(user, "preview-range-picker", "rangeEnd", {"from": "2026/10/05", "to": "2026/10/05"})
+    assert ok.enabled
+
+
+async def test_closing_the_range_picker_without_ok_keeps_the_fields(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+
+    def fields() -> tuple[str, str]:
+        return period_of(user)[0], period_of(user)[1]
+
+    before = fields()
+    user.find(marker="open-preview-range-picker").click()
+    user.find(marker="preview-range-picker").elements.pop().set_value({"from": "2026-11-01", "to": "2026-11-30"})
+    ok = user.find(marker="preview-range-picker-ok").elements.pop()
+    dialog = ok.parent_slot.parent.parent_slot.parent  # ボタン → カード → ダイアログ
+    assert isinstance(dialog, ui.dialog)
+    dialog.close()  # OK を押さずに閉じる(外側のクリックや ESC と同じ)
+    assert fields() == before
+    assert view.preview is not None
+
+
+async def test_the_range_picker_opens_with_blank_or_invalid_fields(user: User, tmp_path: Path) -> None:
+    await open_preview(user, tmp_path, FakeExporter())
+    set_period(user, start="abc")
+    user.find(marker="open-preview-range-picker").click()
+    picker = user.find(marker="preview-range-picker").elements.pop()
+    assert picker.value is None
+    assert not user.find(marker="preview-range-picker-ok").elements.pop().enabled
+
+
+async def test_the_preview_bar_has_a_view_row_and_an_output_row(user: User, tmp_path: Path) -> None:
+    await open_preview(user, tmp_path, FakeExporter())
+
+    def markers_under(marker: str) -> set[str]:
+        row = user.find(marker=marker).elements.pop()
+        return {m for child in row.descendants() for m in child._markers}
+
+    view_row = markers_under("preview-bar")
+    output_row = markers_under("preview-output")
+    # 1 段目: 期間・スケール・表示項目。保存・戻る・すべて選択は含まない
+    assert {"preview-period", "preview-scale", "preview-chips", "preview-alerts", "preview-events"} <= view_row
+    assert not {"preview-back", "preview-save", "preview-plantuml", "preview-select-all"} & view_row
+    # 2 段目: 出力の選択と、戻る・保存
+    assert {"preview-select-all", "preview-select-count", "preview-back", "preview-save", "preview-plantuml"} <= output_row
+    assert not {"preview-period", "preview-scale"} & output_row
+
+
+def emit(user: User, marker: str, event_type: str, args: object = None) -> None:
+    """要素のイベントのハンドラを呼ぶ。User のシミュレーションには、フォーカスの移動や Quasar のイベントがないため。"""
+    element = user.find(marker=marker).elements.pop()
+    for listener in element._event_listeners.values():
+        if listener.type == event_type:
+            events.handle_event(
+                listener.handler, events.GenericEventArguments(sender=element, client=element.client, args=args)
+            )
+
+
+def blur(user: User, marker: str) -> None:
+    """入力欄を離れたときの処理(blur)を呼ぶ。"""
+    emit(user, marker, "blur", {})
+
+
+async def test_the_preview_period_field_normalizes_abbreviated_dates_on_blur(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("projectapp.task_dialog.today", lambda: date(2026, 10, 12))
+    view = await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="preview-period").clear().type("10/08 〜 ２０２６１２３１")  # 過ぎた日でも翌年にしない・全角
+    blur(user, "preview-period")
+    assert user.find(marker="preview-period").elements.pop().value == "2026-10-08 〜 2026-12-31"
+    assert view.preview is not None
+    assert (view.preview.start, view.preview.end) == (date(2026, 10, 8), date(2026, 12, 31))
+
+
+async def test_the_preview_period_field_keeps_text_it_cannot_normalize(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    user.find(marker="preview-period").clear().type("abc")
+    blur(user, "preview-period")
+    assert user.find(marker="preview-period").elements.pop().value == "abc"
+    assert "日付の形式が正しくありません" in user.find(marker="preview-error").elements.pop().text
+    assert view.preview is not None
 
 
 async def test_back_restores_the_header_toolbar_and_default_options(user: User, tmp_path: Path) -> None:
@@ -1746,7 +1892,7 @@ async def test_the_filter_survives_the_preview_round_trip(user: User, tmp_path: 
 
 async def test_changing_the_settings_updates_the_chart(user: User, tmp_path: Path) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
-    user.find(marker="preview-start").clear().type("2026-10-06")
+    set_period(user, start="2026-10-06")
     assert view.gantt.options.period[0] == date(2026, 10, 6)
     user.find(marker="preview-chips").elements.pop().set_value(False)
     assert view.gantt.options.show_chips is False
@@ -1766,21 +1912,21 @@ async def test_unchecking_preview_events_turns_off_the_event_options(user: User,
 async def test_a_bad_period_disables_saving_and_shows_the_reason(user: User, tmp_path: Path) -> None:
     exporter = FakeExporter()
     await open_preview(user, tmp_path, exporter)
-    user.find(marker="preview-start").clear().type("2026-12-31")
-    user.find(marker="preview-end").clear().type("2026-10-01")
+    set_period(user, start="2026-12-31")
+    set_period(user, end="2026-10-01")
     await user.should_see("開始日が終了日以前")
     assert not user.find(marker="preview-save").elements.pop().enabled
-    user.find(marker="preview-end").clear().type("2027-01-31")
+    set_period(user, end="2027-01-31")
     assert user.find(marker="preview-save").elements.pop().enabled
     assert exporter.captured == []
 
 
 async def test_a_large_image_shows_a_warning_but_can_still_be_saved(user: User, tmp_path: Path) -> None:
     await open_preview(user, tmp_path, FakeExporter())
-    user.find(marker="preview-end").clear().type("2027-12-31")  # 日次で約 450 日 → 16,384px 超(上限 800 日の内側)
+    set_period(user, end="2027-12-31")  # 日次で約 450 日 → 16,384px 超(上限 800 日の内側)
     await user.should_see("縮小して保存されます")
     assert user.find(marker="preview-save").elements.pop().enabled
-    user.find(marker="preview-end").clear().type("2026-12-31")
+    set_period(user, end="2026-12-31")
     await user.should_not_see("縮小して保存されます")
 
 
@@ -1831,8 +1977,8 @@ async def test_save_plantuml_uses_the_preview_settings(user: User, tmp_path: Pat
 async def test_save_plantuml_with_no_tasks_notifies_and_writes_nothing(user: User, tmp_path: Path) -> None:
     exporter = FakeExporter(path=tmp_path / "chart.puml")
     view = await open_preview(user, tmp_path, exporter)
-    user.find(marker="preview-start").clear().type("2030-01-01")
-    user.find(marker="preview-end").clear().type("2030-01-31")  # 期間の外
+    set_period(user, start="2030-01-01")
+    set_period(user, end="2030-01-31")  # 期間の外
     user.find(marker="preview-plantuml").click()
     await user.should_see("出力できるタスクがありません")
     assert exporter.asked == [] and not list(tmp_path.glob("*.puml"))
@@ -1844,7 +1990,7 @@ async def test_save_plantuml_notes_skipped_tasks(user: User, tmp_path: Path) -> 
     far = Task("遠い", planned_start=datetime(2027, 6, 1, 9), planned_end=datetime(2027, 6, 2, 18))
     exporter = FakeExporter(path=target)
     await open_preview(user, tmp_path, exporter, extra=far)
-    user.find(marker="preview-end").clear().type("2026-12-31")
+    set_period(user, end="2026-12-31")
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: target.exists())
     await user.should_see("1 件を省きました")
@@ -1875,11 +2021,11 @@ async def test_the_plantuml_button_is_disabled_when_not_native(user: User, tmp_p
 async def test_the_plantuml_button_is_disabled_for_a_bad_period_and_back_on_when_fixed(user: User, tmp_path: Path) -> None:
     await open_preview(user, tmp_path, FakeExporter())
     assert user.find(marker="preview-plantuml").elements.pop().enabled
-    user.find(marker="preview-start").clear().type("2026-12-31")
-    user.find(marker="preview-end").clear().type("2026-10-01")
+    set_period(user, start="2026-12-31")
+    set_period(user, end="2026-10-01")
     await user.should_see("開始日が終了日以前")
     assert not user.find(marker="preview-plantuml").elements.pop().enabled
-    user.find(marker="preview-end").clear().type("2027-01-31")
+    set_period(user, end="2027-01-31")
     assert user.find(marker="preview-plantuml").elements.pop().enabled
 
 
@@ -1950,8 +2096,8 @@ async def test_the_default_exporter_is_unavailable_in_tests(user: User, tmp_path
 async def test_a_period_that_is_too_long_for_the_scale_is_rejected_without_redrawing(user: User, tmp_path: Path) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     before = view.gantt.options
-    user.find(marker="preview-start").clear().type("2000-01-01")
-    user.find(marker="preview-end").clear().type("2026-12-31")
+    set_period(user, start="2000-01-01")
+    set_period(user, end="2026-12-31")
     await user.should_see("期間が長すぎます")
     assert not user.find(marker="preview-save").elements.pop().enabled
     assert view.gantt.options.period != (date(2000, 1, 1), date(2026, 12, 31))  # 描き直していない
@@ -1962,8 +2108,8 @@ async def test_a_period_that_is_too_long_for_the_scale_is_rejected_without_redra
 async def test_the_same_long_period_is_allowed_at_a_coarser_scale(user: User, tmp_path: Path) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     user.find(marker="preview-scale").elements.pop().set_value("月次")
-    user.find(marker="preview-start").clear().type("2020-01-01")
-    user.find(marker="preview-end").clear().type("2026-12-31")
+    set_period(user, start="2020-01-01")
+    set_period(user, end="2026-12-31")
     assert view.gantt.options.period == (date(2020, 1, 1), date(2026, 12, 31))
     assert user.find(marker="preview-save").elements.pop().enabled
 
@@ -2023,7 +2169,7 @@ async def test_the_notice_goes_away_when_the_settings_are_changed(user: User, tm
 
 async def test_the_user_can_go_back_to_the_finer_scale_after_narrowing_the_period(user: User, tmp_path: Path) -> None:
     view = await open_preview(user, tmp_path, FakeExporter(), extra=next_year_task())
-    user.find(marker="preview-end").clear().type("2026-12-31")
+    set_period(user, end="2026-12-31")
     user.find(marker="preview-scale").elements.pop().set_value("日次")
     assert view.preview.scale.value == "日次"
     assert view.gantt.options.scale.value == "日次"
@@ -2045,8 +2191,8 @@ async def test_an_empty_project_opens_the_preview_with_a_one_day_period(user: Us
     user.find(marker="export-preview").click()
     assert view.preview is not None
     assert view.preview.start == view.preview.end == date(2026, 10, 5)  # タスクがない: 基準日の 1 日
-    assert user.find(marker="preview-start").elements.pop().value == "2026-10-05"
-    assert user.find(marker="preview-end").elements.pop().value == "2026-10-05"
+    assert period_of(user)[0] == "2026-10-05"
+    assert period_of(user)[1] == "2026-10-05"
     assert view.gantt.options.period == (date(2026, 10, 5), date(2026, 10, 5))
 
 
