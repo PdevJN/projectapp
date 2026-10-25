@@ -6,7 +6,17 @@ import pytest
 from projectapp.models import FORMAT_VERSION, Project, Section, Status, Task, TaskKind
 from projectapp.timeline import Schedule, effective_end, effective_start, is_overdue, progress_state
 from projectapp import arrange
-from projectapp.decompose import MAX_PARTS, Part, can_make_section, decompose, default_parts, split_effort
+from projectapp.decompose import (
+    MAX_PARTS,
+    Part,
+    can_make_section,
+    decompose,
+    decompose_block_reason,
+    default_parts,
+    default_parts_settled,
+    settle,
+    split_effort,
+)
 from projectapp.models import Actual, Assignee, Category, TaskUrl
 from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
 from projectapp.links import RowSlot, row_slots
@@ -374,11 +384,73 @@ def test_bad_parts_are_refused_without_changing_the_project(parts: list[Part]) -
     assert repr(project) == before
 
 
-def test_a_task_with_actuals_cannot_be_decomposed() -> None:
+NOW = D(2026, 10, 8, 10)
+
+
+def with_actuals(hours: int = 3) -> Project:
     project = decomposable()
-    project.sections[0].tasks[1].actuals = [Actual(D(2026, 10, 6, 9), D(2026, 10, 6, 12))]
-    with pytest.raises(ValueError, match="実績"):
-        decompose(project, (0,), 1, PARTS)
+    project.sections[0].tasks[1].actuals = [Actual(D(2026, 10, 6, 9), D(2026, 10, 6, 9 + hours))]
+    project.sections[0].tasks[1].status = Status.RUNNING
+    return project
+
+
+def test_a_task_with_actuals_is_settled_into_the_first_child_and_the_rest_is_split() -> None:
+    project = with_actuals()
+    parts = default_parts_settled(project.sections[0].tasks[1], settle(project, project.sections[0].tasks[1], {}, NOW), 3)
+    assert [(p.name, p.effort_hours) for p in parts] == [("実装 1", 3.0), ("実装 2", 3.5), ("実装 3", 3.5)]  # 残り 10 − 3 = 7h を 2 つに
+    kids = decompose(project, (0,), 1, parts, today=NOW)
+    done, second, third = kids
+    assert (done.status, done.effort_hours) == (Status.DONE, 3.0)
+    assert [(a.start, a.end) for a in done.actuals] == [(D(2026, 10, 6, 9), D(2026, 10, 6, 12))]
+    for kid in (second, third):
+        assert (kid.status, kid.actuals, kid.progress) == (Status.NOT_STARTED, [], None)
+    assert [k.effort_hours for k in kids] == [3.0, 3.5, 3.5]
+    assert sum(k.effort_hours for k in kids) == 10.0
+    assert [k.predecessors for k in kids] == [["pre"], [done.id], [second.id]]
+    summary_task = project.sections[0].tasks[1]
+    assert (summary_task.kind, summary_task.actuals, summary_task.assignees) == (TaskKind.SUMMARY, [], [])
+
+
+def test_the_settled_child_takes_the_consumed_hours_even_if_the_row_says_otherwise() -> None:
+    project = with_actuals()
+    kids = decompose(project, (0,), 1, [Part("済", 99.0), Part("a", 3.5), Part("b", 3.5)], today=NOW)
+    assert kids[0].effort_hours == 3.0
+
+
+def test_progress_alone_settles_the_consumed_share_without_actuals() -> None:
+    project = decomposable()
+    project.sections[0].tasks[1].progress = 40
+    settled = settle(project, project.sections[0].tasks[1], {}, NOW)
+    assert settled is not None and settled.consumed == 4.0
+    kids = decompose(project, (0,), 1, [Part("済", 4.0), Part("a", 3.0), Part("b", 3.0)], today=NOW)
+    assert (kids[0].status, kids[0].actuals, kids[0].effort_hours) == (Status.DONE, [], 4.0)
+
+
+def test_a_settled_task_needs_at_least_two_rows_besides_the_settled_one() -> None:
+    with pytest.raises(ValueError, match="3"):
+        decompose(with_actuals(), (0,), 1, [Part("済", 3.0), Part("a", 7.0)], today=NOW)
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda t: setattr(t, "status", Status.DONE), "終了"),
+        (lambda t: setattr(t, "effort_hours", 0.0), "工数"),
+        (lambda t: setattr(t, "assignees", []), "担当者"),
+        (lambda t: t.actuals.append(Actual(D(2026, 10, 7, 9))), "実行中"),
+        (lambda t: setattr(t, "effort_hours", 3.0), "残りの工数がない"),
+    ],
+)
+def test_a_task_with_actuals_that_cannot_be_settled_says_why(change, message: str) -> None:
+    project = with_actuals()
+    change(project.sections[0].tasks[1])
+    reason = decompose_block_reason(project, project.sections[0].tasks[1], {}, NOW)
+    assert reason is not None and message in reason
+
+
+def test_a_task_with_actuals_is_decomposable_when_it_can_be_settled() -> None:
+    project = with_actuals()
+    assert decompose_block_reason(project, project.sections[0].tasks[1], {}, NOW) is None
 
 
 @pytest.mark.parametrize("kind", [TaskKind.CHECKPOINT, TaskKind.SUMMARY])
@@ -621,10 +693,10 @@ def test_link_options_excludes_what_follows_the_parent_summary_for_a_child() -> 
     assert "d" not in link_options(project, project.tasks[1])
 
 
-@pytest.mark.parametrize("fields", [{"status": Status.RUNNING}, {"status": Status.DONE}, {"progress": 40}])
+@pytest.mark.parametrize("fields", [{"status": Status.RUNNING}, {"status": Status.DONE}, {"status": Status.DONE, "progress": 40}])
 def test_a_task_with_status_or_progress_cannot_be_decomposed(fields: dict[str, object]) -> None:
     project = Project("p", sections=[Section("s", [Task("a", id="a", effort_hours=4.0, **fields)])])  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="状態|進捗"):
+    with pytest.raises(ValueError, match="状態|進捗|終了"):
         decompose(project, (0,), 0, [Part("x", 2.0), Part("y", 2.0)])
     assert project.sections[0].tasks[0].kind is TaskKind.NORMAL
 

@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from nicegui import ui
 
-from projectapp.decompose import MAX_PARTS, Part, default_parts
+from projectapp.decompose import MAX_PARTS, Part, Settled, default_parts, default_parts_settled
 from projectapp.models import MAX_TASK_NAME_LENGTH, Task
 
 MIN_ROWS = 2
@@ -21,13 +21,27 @@ def open_decompose_dialog(
     task: Task,
     section_reason: str | None,
     on_apply: Callable[[list[Part], bool, bool], object],
+    settled: Settled | None = None,
 ) -> ui.dialog:
     """`on_apply(行, 連結する, 新しいセクションにまとめる)`。ValueError なら、閉じずにエラー欄へ出す。
-    `section_reason` は、新しいセクションにまとめられない理由(まとめられるなら None)。"""
-    rows = default_parts(task, MIN_ROWS)
+    `section_reason` は、新しいセクションにまとめられない理由(まとめられるなら None)。
+    `settled` があれば(実績・進捗度のあるタスク)、1 行目は消し込み(工数=消化分で固定)、残りは「工数 − 消化分」を割る。"""
+    min_rows = MIN_ROWS + 1 if settled else MIN_ROWS
+    rows = default_parts_settled(task, settled, min_rows) if settled else default_parts(task, MIN_ROWS)
     with ui.dialog().props("persistent") as dialog, ui.card().classes("w-[36rem] max-w-full"):
         ui.label(f"「{task.name}」を分解").classes("text-h6")
         ui.label("元のタスクは「まとめ」として残ります。").classes("text-caption text-grey")
+        if settled:
+            ui.label(
+                "1 行目は消し込みです(実績を引き継いで終了。工数は消化分で固定)。残りの工数を、2 行目以降に割ります。"
+            ).classes("text-caption text-grey").mark("decompose-settled-note")
+        if task.weekly_crew:
+            note = (
+                "週ごとの担当は引き継がれません。消し込みの行は全週の担当、残りの行は今日の週の担当になります。"
+                if settled
+                else "週ごとの担当は引き継がれません。全員が第1週の担当になります。"
+            )
+            ui.label(note).classes("text-caption text-warning").mark("decompose-weekly-note")
         box = ui.column().classes("w-full gap-1")
         total = ui.label("").classes("text-caption").mark("decompose-total")
         add = ui.button("行を足す", icon="add", on_click=lambda: add_row()).props("flat dense").mark("decompose-add")
@@ -56,7 +70,10 @@ def open_decompose_dialog(
                         effort = ui.number(value=part.effort_hours, min=0, step=0.5, suffix="h").props("dense")
                         effort.classes("w-28").mark(f"decompose-effort-{n}")
                         effort.on_value_change(lambda e, n=n: set_effort(n, e.value))
-                        if len(rows) > MIN_ROWS:
+                        if settled and n == 0:
+                            effort.set_enabled(False)
+                            ui.label("消し込み").classes("text-caption text-grey").mark("decompose-settled-0")
+                        elif len(rows) > min_rows:
                             ui.button(icon="close", on_click=lambda n=n: remove_row(n)).props(
                                 "flat dense round size=sm"
                             ).mark(f"decompose-remove-{n}")

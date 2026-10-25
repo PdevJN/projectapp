@@ -259,3 +259,27 @@ async def test_dropping_below_a_collapsed_summary_lands_after_its_hidden_childre
     user.find(marker="summary-toggle-0-0").click()  # 開いていれば、そのまま
     charts[0].handle_move({"src": ["top", 0], "dst": ["0", 1], "copy": False})
     assert recorder.events == [("move_task", (((), 0), ((0,), 1), False))]
+
+
+def mount_settled(task: Task, calls: list[tuple[list[Part], bool, bool]]) -> None:
+    from projectapp.decompose import Settled
+
+    @ui.page("/")
+    def page() -> None:
+        def apply(parts: list[Part], chain: bool, new_section: bool) -> None:
+            calls.append((parts, chain, new_section))
+
+        open_decompose_dialog(task, None, apply, Settled(3.0, []))
+
+
+async def test_the_settled_dialog_fixes_the_first_row_and_splits_the_rest(user: User) -> None:
+    calls: list[tuple[list[Part], bool, bool]] = []
+    mount_settled(Task("実装", effort_hours=10.0, weekly_crew=[[Assignee("田中")]]), calls)
+    await user.open("/")
+    await user.should_see(marker="decompose-settled-note")
+    await user.should_see(marker="decompose-weekly-note")
+    assert not user.find(marker="decompose-effort-0").elements.pop().enabled
+    assert [user.find(marker=f"decompose-effort-{n}").elements.pop().value for n in range(3)] == [3.0, 3.5, 3.5]
+    await user.should_not_see(marker="decompose-remove-1")  # 3 行より減らせない
+    user.find(marker="decompose-apply").click()
+    assert [(p.name, p.effort_hours) for p in calls[0][0]] == [("実装 1", 3.0), ("実装 2", 3.5), ("実装 3", 3.5)]
