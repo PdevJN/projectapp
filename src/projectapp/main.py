@@ -9,7 +9,7 @@ from typing import Any, Literal, NoReturn
 
 from nicegui import ui
 
-from projectapp.export import register_static_files
+from projectapp.export import STATIC_DIR, register_static_files
 from projectapp.views import MainView
 
 LOCAL_HOST = "127.0.0.1"  # Web 起動はこのマシンだけ(認証がないので LAN には出さない)
@@ -81,7 +81,7 @@ def main() -> None:
         MainView().build()
 
     register_static_files()
-    ui.run(title="projectapp", reload=False, language="ja", **run_kwargs(options))
+    ui.run(title="projectapp", favicon=STATIC_DIR / "favicon.svg", reload=False, language="ja", **run_kwargs(options))
 
 
 if __name__ in {"__main__", "__mp_main__"}:
