@@ -828,7 +828,19 @@ def test_done_without_an_actual_end_is_done_not_late_done() -> None:
 def test_period_sets_the_first_and_last_columns() -> None:
     columns = build_columns(Project("p", base_date=date(2026, 10, 5)), Scale.DAY, period=(date(2026, 10, 6), date(2026, 10, 8)))
     assert columns[0].start == date(2026, 10, 6)
-    assert len(columns) == 42  # 下限(MIN_COLUMNS)は守る
+    assert [c.start for c in columns] == [date(2026, 10, 6), date(2026, 10, 7), date(2026, 10, 8)]  # 期間の日数ちょうど(下限で足さない)
+
+
+def test_a_period_is_not_padded_to_the_minimum_columns_at_any_scale() -> None:
+    project = Project("p", base_date=date(2026, 10, 5))
+    period = (date(2026, 10, 1), date(2026, 10, 31))
+    days = build_columns(project, Scale.DAY, period=period)
+    assert (days[0].start, days[-1].start, len(days)) == (date(2026, 10, 1), date(2026, 10, 31), 31)
+    weeks = build_columns(project, Scale.WEEK, period=period)  # 週は月曜で区切る。期間にかかる週だけ
+    assert (weeks[0].start, weeks[-1].end, len(weeks)) == (date(2026, 9, 28), date(2026, 11, 2), 5)
+    months = build_columns(project, Scale.MONTH, period=period)
+    assert [c.start for c in months] == [date(2026, 10, 1)]
+    assert len(build_columns(project, Scale.DAY)) >= 42  # 自動のときは、これまでどおり下限まで足す
 
 
 def test_period_includes_the_end_date_beyond_the_minimum() -> None:
@@ -863,17 +875,17 @@ def test_a_one_day_period_is_allowed() -> None:
     assert columns[0].start == date(2026, 10, 8)
 
 
-def _period_columns() -> list:  # 10/6 から 42 日
+def _period_columns() -> list:  # 10/6〜10/8 の 3 日
     return build_columns(Project("p", base_date=date(2026, 10, 5)), Scale.DAY, period=(date(2026, 10, 6), date(2026, 10, 8)))
 
 
 def test_in_range_for_bars_inside_overlapping_and_outside() -> None:
-    cols = _period_columns()  # [10/6 0:00, 11/17 0:00)
+    cols = _period_columns()  # [10/6 0:00, 10/9 0:00)
     assert in_range(datetime(2026, 10, 7), datetime(2026, 10, 8), cols)
     assert in_range(datetime(2026, 10, 5, 12), datetime(2026, 10, 6, 12), cols)  # 左端をまたぐ
-    assert in_range(datetime(2026, 11, 16, 12), datetime(2026, 11, 18), cols)  # 右端をまたぐ
+    assert in_range(datetime(2026, 10, 8, 12), datetime(2026, 10, 10), cols)  # 右端をまたぐ
     assert not in_range(datetime(2026, 10, 1), datetime(2026, 10, 6), cols)  # 終了がちょうど左端
-    assert not in_range(datetime(2026, 11, 17), datetime(2026, 11, 20), cols)  # 開始がちょうど右端
+    assert not in_range(datetime(2026, 10, 9), datetime(2026, 10, 12), cols)  # 開始がちょうど右端
     assert not in_range(datetime(2026, 9, 1), datetime(2026, 9, 5), cols)
 
 
@@ -1100,3 +1112,25 @@ def test_week_count_counts_seven_day_weeks_from_the_start_date() -> None:
     assert week_count(start, datetime(2026, 10, 23)) == 3
     assert week_count(start, datetime(2026, 10, 5, 18)) == 1
     assert week_count(start, datetime(2030, 1, 1)) == 52  # 上限
+
+
+def test_the_sample_project_shows_exactly_the_period_and_clips_the_bars_at_its_edges() -> None:
+    """docs/samples/期間確認.json(手で開いて確認する用)を 2026-10-01 〜 2026-10-31 で描いたときの列と、描く棒。"""
+    from pathlib import Path
+
+    from projectapp.storage import load_project
+
+    project = load_project(Path(__file__).parent.parent / "docs" / "samples" / "期間確認.json")
+    columns = build_columns(project, Scale.DAY, period=(date(2026, 10, 1), date(2026, 10, 31)))
+    assert (columns[0].start, columns[-1].start, len(columns)) == (date(2026, 10, 1), date(2026, 10, 31), 31)
+    schedule = Schedule(project, {})
+    drawn = [
+        task.name
+        for task in project.all_tasks()
+        if (start := schedule.start(task)) is not None
+        and (end := schedule.end(task)) is not None
+        and in_range(start, end, columns)
+    ]
+    assert [name.split("]")[0] for name in drawn] == [
+        "[左端をまたぐ", "[ちょうど月初", "[中", "[中", "[ちょうど月末", "[右端をまたぐ",
+    ]  # 前の月・後の月・遠い月だけのタスクは描かない

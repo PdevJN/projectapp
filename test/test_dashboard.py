@@ -1,4 +1,4 @@
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 import pytest
 
@@ -8,6 +8,8 @@ from projectapp.dashboard import (
     MemberProgress,
     Period,
     PeriodKind,
+    MAX_CUSTOM_DAYS,
+    custom_period_error,
     period_for,
     summarize,
     summarize_cross_loads,
@@ -809,3 +811,28 @@ def test_cross_load_averages_count_only_the_persons_own_workdays() -> None:
     assert cross.total.average == pytest.approx(alone.average)  # 鈴木の土曜は、田中の平均を薄めない
     assert cross.by_project[0].average == pytest.approx(alone.average)
     assert next(d for d in cross.days if d.day == date(2026, 10, 24)).total == 0.0  # 列には出る
+
+
+def test_a_custom_period_is_used_as_given_and_falls_back_to_the_week_without_one() -> None:
+    custom = Period(date(2026, 10, 1), date(2026, 10, 31))
+    assert period_for(PeriodKind.CUSTOM, TODAY, project_of(), {}, custom) == custom
+    assert period_for(PeriodKind.CUSTOM, TODAY, project_of(), {}) == period_for(PeriodKind.WEEK, TODAY, project_of(), {})
+
+
+def test_custom_period_error_limits_the_length() -> None:
+    start = date(2026, 1, 1)
+    assert custom_period_error(Period(start, start + timedelta(days=MAX_CUSTOM_DAYS - 1))) is None
+    message = custom_period_error(Period(start, start + timedelta(days=MAX_CUSTOM_DAYS)))
+    assert message is not None and str(MAX_CUSTOM_DAYS) in message
+
+
+def test_the_team_progress_follows_a_custom_period_like_the_week_and_month() -> None:
+    inside = Task("中", planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 7, 9), effort_hours=4)
+    outside = Task("外", planned_start=datetime(2026, 12, 1, 9), planned_end=datetime(2026, 12, 2, 9), effort_hours=4)
+    project = project_of(inside, outside)
+    period = Period(date(2026, 10, 1), date(2026, 10, 31))
+    custom = summarize(project, period, NOW, {}, PeriodKind.CUSTOM)
+    assert custom.team.tasks[Status.NOT_STARTED] == ["中"]
+    assert custom.team.period == period
+    everything = summarize(project, period, NOW, {}, PeriodKind.ALL)
+    assert sorted(everything.team.tasks[Status.NOT_STARTED]) == ["中", "外"]

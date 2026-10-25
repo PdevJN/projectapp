@@ -82,7 +82,9 @@ def build_columns(
     period: tuple[date, date] | None = None,
     references: Mapping[str, ReferenceValue] | None = None,
 ) -> list[Column]:
-    """列を作る。period は [開始日, 終了日](終了日を含む)。None は、基準日とバーから決めた表示範囲。"""
+    """列を作る。period は [開始日, 終了日](終了日を含む)。None は、基準日とバーから決めた表示範囲で、最小の列数まで足す。
+    期間を指定したときは足さず、期間にかかる列だけにする(週は月曜、月は 1 日で区切る)。"""
+    pad = period is None
     if period is None:
         start, end = visible_range(project, holidays, references)
     else:
@@ -90,21 +92,21 @@ def build_columns(
             raise ValueError("期間の開始日が終了日より後です")
         start, end = period[0], period[1] + timedelta(days=1)
     if scale is Scale.WEEK:
-        return _week_columns(start, end)
+        return _week_columns(start, end, pad)
     if scale is Scale.MONTH:
-        return _month_columns(start, end)
-    return _day_columns(start, end)
+        return _month_columns(start, end, pad)
+    return _day_columns(start, end, pad)
 
 
-def _day_columns(start: date, end: date) -> list[Column]:
-    count = max((end - start).days, MIN_COLUMNS[Scale.DAY])
+def _day_columns(start: date, end: date, pad: bool = True) -> list[Column]:
+    count = max((end - start).days, MIN_COLUMNS[Scale.DAY] if pad else 1)
     days = (start + timedelta(days=i) for i in range(count))
     return [Column(d, d + timedelta(days=1), f"{d.day}") for d in days]
 
 
-def _week_columns(start: date, end: date) -> list[Column]:
+def _week_columns(start: date, end: date, pad: bool = True) -> list[Column]:
     monday = start - timedelta(days=start.weekday())
-    count = max(ceil((end - monday).days / 7), MIN_COLUMNS[Scale.WEEK])
+    count = max(ceil((end - monday).days / 7), MIN_COLUMNS[Scale.WEEK] if pad else 1)
     weeks = (monday + timedelta(weeks=i) for i in range(count))
     return [Column(d, d + timedelta(days=7), f"{d.day}~") for d in weeks]
 
@@ -114,12 +116,12 @@ def _add_months(day: date, months: int) -> date:
     return date(index // 12, index % 12 + 1, 1)
 
 
-def _month_columns(start: date, end: date) -> list[Column]:
+def _month_columns(start: date, end: date, pad: bool = True) -> list[Column]:
     first = start.replace(day=1)
     last = max(end - timedelta(days=1), first)
     count = (last.year - first.year) * 12 + last.month - first.month + 1
     columns: list[Column] = []
-    for i in range(max(count, MIN_COLUMNS[Scale.MONTH])):
+    for i in range(max(count, MIN_COLUMNS[Scale.MONTH] if pad else 1)):
         month = _add_months(first, i)
         columns.append(Column(month, _add_months(first, i + 1), f"{month.month}月"))
     return columns

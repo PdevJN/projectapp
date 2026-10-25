@@ -3820,3 +3820,95 @@ async def test_the_reference_name_hover_says_which_project_opens(user: User) -> 
     await user.open("/")
     name = user.find(marker="task-name-top-0").elements.pop()
     assert tooltips_targeting(name) == ["クリックすると「基盤」プロジェクトを開く"]
+
+
+async def test_the_period_field_limits_the_chart_to_the_typed_range_and_empty_means_auto(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    chart = charts[0]
+    assert chart.period is None
+    user.find(marker="chart-period").clear().type("2026-10-06 〜 2026-10-08")
+    assert chart.period == (date(2026, 10, 6), date(2026, 10, 8))
+    await should_see_column(user, "2026-10-06")
+    await should_not_see_column(user, "2026-10-05")
+    user.find(marker="chart-period").clear()
+    assert chart.period is None
+    await should_see_column(user, "2026-10-05")
+    assert user.find(marker="chart-period-error").elements.pop().text == ""
+
+
+async def test_the_period_field_reports_bad_input_and_keeps_the_previous_period(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    chart = charts[0]
+    field = user.find(marker="chart-period").elements.pop()
+    field.set_value("2026-10-06 〜 2026-10-08")
+    field.set_value("2026-10-09 〜 2026-10-01")  # 開始が終了より後(空にせず、直接置き換える)
+    assert chart.period == (date(2026, 10, 6), date(2026, 10, 8))
+    assert "開始日が終了日以前" in user.find(marker="chart-period-error").elements.pop().text
+    field.set_value("abc")
+    assert chart.period == (date(2026, 10, 6), date(2026, 10, 8))
+    assert "日付の形式が正しくありません" in user.find(marker="chart-period-error").elements.pop().text
+    field.set_value("2026-10-07 〜 2026-10-09")  # 直すとエラーが消える
+    assert chart.period == (date(2026, 10, 7), date(2026, 10, 9))
+    assert user.find(marker="chart-period-error").elements.pop().text == ""
+
+
+async def test_the_period_field_rejects_a_period_with_too_many_columns(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    chart = charts[0]
+    user.find(marker="chart-period").clear().type("2026-01-01 〜 2029-12-31")  # 日次で約 1,460 列(上限 800)
+    assert chart.period is None
+    assert "期間が長すぎます" in user.find(marker="chart-period-error").elements.pop().text
+
+
+async def test_changing_the_scale_resets_a_period_that_becomes_too_long(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    chart = charts[0]
+    chart.set_scale(Scale.MONTH)
+    user.find(marker="chart-period").clear().type("2026-01-01 〜 2029-12-31")  # 月次なら 48 列
+    assert chart.period == (date(2026, 1, 1), date(2029, 12, 31))
+    chart.set_scale(Scale.DAY)  # 日次では長すぎる
+    assert chart.period is None
+    assert user.find(marker="chart-period").elements.pop().value in (None, "")
+    user.notify.contains("期間が長すぎる")
+
+
+async def test_a_period_survives_the_preview_options_and_a_redraw_of_the_same_project(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    chart = charts[0]
+    chart.set_period((date(2026, 10, 6), date(2026, 10, 8)))
+    assert user.find(marker="chart-period").elements.pop().value == "2026-10-06 〜 2026-10-08"
+    chart.set_options(ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 3))))  # プレビュー
+    assert chart.view_period == (date(2026, 10, 1), date(2026, 10, 3))
+    chart.set_options(ViewOptions())  # 戻る
+    assert chart.view_period == (date(2026, 10, 6), date(2026, 10, 8))
+    chart.set_project(sample_project())  # 編集のたびに呼ばれる。期間は保つ(別のプロジェクトへの切り替えは MainView が自動に戻す)
+    assert chart.period == (date(2026, 10, 6), date(2026, 10, 8))
+    assert user.find(marker="chart-period").elements.pop().value == "2026-10-06 〜 2026-10-08"
+
+
+async def test_the_chart_range_picker_sets_the_period(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    user.find(marker="open-chart-range-picker").click()
+    user.find(marker="chart-range-picker").elements.pop().set_value({"from": "2026-10-06", "to": "2026-10-08"})
+    user.find(marker="chart-range-picker-ok").click()
+    assert charts[0].period == (date(2026, 10, 6), date(2026, 10, 8))
+    assert user.find(marker="chart-period").elements.pop().value == "2026-10-06 〜 2026-10-08"
+
+
+async def test_a_too_long_period_typed_at_a_fine_scale_is_applied_when_the_scale_gets_coarser(user: User) -> None:
+    charts, _ = mount_chart(sample_project())
+    await user.open("/")
+    chart = charts[0]
+    field = user.find(marker="chart-period").elements.pop()
+    field.set_value("2026-01-01 〜 2029-12-31")  # 日次では長すぎる
+    assert chart.period is None
+    assert "期間が長すぎます" in user.find(marker="chart-period-error").elements.pop().text
+    chart.set_scale(Scale.MONTH)  # エラー文が勧めるとおり、スケールを粗くする
+    assert chart.period == (date(2026, 1, 1), date(2029, 12, 31))
+    assert user.find(marker="chart-period-error").elements.pop().text == ""

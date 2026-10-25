@@ -28,6 +28,7 @@ class PeriodKind(StrEnum):
     WEEK = "今週"
     MONTH = "今月"
     ALL = "全期間"
+    CUSTOM = "指定"  # 日付で指定した期間(MainView.dashboard_custom)
 
 
 @dataclass(frozen=True)
@@ -43,7 +44,27 @@ class Period:
         return datetime.combine(self.start, time.min), datetime.combine(self.end + timedelta(days=1), time.min)
 
 
-def period_for(kind: PeriodKind, today: date, project: Project, holidays: dict[date, str]) -> Period:
+MAX_CUSTOM_DAYS = 400  # 指定できる期間の長さ(日数)。日ごとの推移の表が重くならないように
+
+
+def custom_period_error(period: Period) -> str | None:
+    """指定した期間が長すぎるときの、エラー文。"""
+    if len(period.days()) > MAX_CUSTOM_DAYS:
+        return f"期間が長すぎます(最大{MAX_CUSTOM_DAYS}日)"
+    return None
+
+
+def period_for(
+    kind: PeriodKind,
+    today: date,
+    project: Project,
+    holidays: dict[date, str],
+    custom: Period | None = None,
+) -> Period:
+    if kind is PeriodKind.CUSTOM and custom is not None:
+        return custom
+    if kind is PeriodKind.CUSTOM:  # 指定がまだないときは、今週
+        kind = PeriodKind.WEEK
     if kind is PeriodKind.WEEK:
         start = today - timedelta(days=today.weekday())
         return Period(start, start + timedelta(days=6))
