@@ -73,7 +73,7 @@ def build_tsv(project: Project, holidays: dict[date, str]) -> TsvExport:
                 task.assignees[0].name if task.assignees else "",
                 format_date(first) if first else "",
                 format_date(last) if last else "",
-                (last - first).days if first and last else "",
+                (last - first).days if first and last else 0,  # 日付がない行は 0(テンプレートと同じ)
                 f"{progress}%",
             )
         )

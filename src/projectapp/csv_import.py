@@ -218,7 +218,9 @@ class _Builder:
             days = sum(is_workday(start + timedelta(days=n), self.holidays) for n in range((end - start).days + 1))
             if 0 < days <= MAX_WORKDAYS:
                 task.effort_hours = days * project.daily_hours
-                return
+                if is_workday(end, self.holidays):
+                    return  # 完了予定は算出で期限の日の終業時刻になる
+                task.planned_end_manual = True  # 期限が休みの日: 算出だと直前の稼働日に縮むので、期限を手で指定する
         task.planned_end = datetime.combine(end, project.work_start) + timedelta(hours=project.daily_hours)
 
     def build(self) -> Project:

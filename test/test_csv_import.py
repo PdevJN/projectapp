@@ -67,6 +67,17 @@ def test_effort_is_workdays_times_daily_hours_and_the_end_matches_the_due_date()
     assert task_named(result, "1.6#プロジェクトの開始").effort_hours == 6.5  # 同じ日は 1 日
 
 
+def test_a_due_date_on_a_day_off_is_kept_as_a_manual_end_with_the_effort() -> None:
+    task = task_named(parse("a\tT\t\t2026-10-12\t2026-10-18\t\t"), "a#T")  # 月〜日。期限が日曜
+    assert (task.effort_hours, task.planned_end, task.planned_end_manual) == (32.5, datetime(2026, 10, 18, 15, 30), True)
+
+
+def test_a_due_date_on_a_holiday_is_kept_too() -> None:
+    result = parse_csv("タスクのタイトル\t開始日\t期限\nT\t2026-10-12\t2026-10-14", "h", {date(2026, 10, 14): "祝"})
+    task = task_named(result, "T")
+    assert (task.effort_hours, task.planned_end_manual) == (13.0, True)
+
+
 def test_holidays_are_not_counted_as_workdays() -> None:
     result = parse_csv(SAMPLE, "s", {date(2018, 3, 13): "休日"})
     assert task_named(result, "1.1#プロジェクト憲章").effort_hours == 19.5

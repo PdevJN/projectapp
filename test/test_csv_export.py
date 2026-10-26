@@ -77,7 +77,7 @@ def test_root_tasks_come_first_then_sections_depth_first() -> None:
 
 def test_a_task_without_dates_or_progress_leaves_the_dates_empty_and_writes_zero_percent() -> None:
     project = Project("p", tasks=[Task("設計")])
-    assert rows(build_tsv(project, {}).text)[3] == ["", "設計", "", "", "", "", "0%"]
+    assert rows(build_tsv(project, {}).text)[3] == ["", "設計", "", "", "", "0", "0%"]
 
 
 def test_a_done_task_without_a_progress_value_is_one_hundred_percent() -> None:
@@ -129,3 +129,9 @@ def test_write_tsv_adds_the_extension_and_writes_utf8_without_a_bom(tmp_path: Pa
 def test_two_blank_rows_follow_the_header_like_the_sample() -> None:
     lines = build_tsv(Project("p", tasks=[Task("a")]), {}).text.split("\n")
     assert lines[:3] == [HEADER, "\t" * 6, "\t" * 6] and lines[3].startswith("\ta\t")
+
+
+def test_a_due_date_on_a_sunday_survives_the_round_trip() -> None:
+    text = "タスクのタイトル\t開始日\t期限\t期間\nT\t2026-10-12\t2026-10-18\t6"
+    row = rows(build_tsv(parse_csv(text, "w", {}).project, {}).text)[3]
+    assert row[3:6] == ["26年 10月 12日", "26年 10月 18日", "6"]
