@@ -1975,15 +1975,18 @@ def open_members_parameters_dialog(
         fit_width()
         ui.timer(0.3, update_marks)
 
+        def close_dialog() -> None:
+            dialog.close()
+
         def close_after_apply() -> None:
             """変更のあるタブを、パラメータ → メンバーの順に確定して閉じる。エラーのタブは表示して閉じない。"""
 
             def apply_members() -> None:
                 if members.dirty():
                     tabs.set_value("members")
-                    members.apply(lambda: dialog.close())
+                    members.apply(close_dialog)
                 else:
-                    dialog.close()
+                    close_dialog()
 
             if parameters.dirty():
                 tabs.set_value("parameters")
