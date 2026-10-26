@@ -36,6 +36,18 @@ class History:
         self.undo_stack.append(deepcopy(current))
         return self.redo_stack.pop()
 
+    def snapshot(self) -> tuple[list[Project], list[Project]]:
+        """いまの Undo・Redo の中身を複製して返す(`rollback` で戻す)。"""
+        return deepcopy(list(self.undo_stack)), deepcopy(list(self.redo_stack))
+
+    def rollback(self, saved: tuple[list[Project], list[Project]]) -> None:
+        """`snapshot` を取った時点の Undo・Redo に戻す。渡した物は変えない。"""
+        undo, redo = deepcopy(saved)
+        self.undo_stack.clear()
+        self.undo_stack.extend(undo)
+        self.redo_stack.clear()
+        self.redo_stack.extend(redo)
+
     def clear(self) -> None:
         self.undo_stack.clear()
         self.redo_stack.clear()

@@ -1018,6 +1018,13 @@ class MainView:
         return True
 
     def open_members_parameters(self) -> None:
+        opened = deepcopy(self.project)  # 開いた時点。`キャンセル`の「すべて取り消す」で戻る
+        saved_history = self.history.snapshot()
+
+        def rollback() -> None:
+            self.restore(deepcopy(opened))
+            self.history.rollback(saved_history)
+
         open_members_parameters_dialog(
             get_members=lambda: self.project.members,
             assigned=self.assigned_count,
@@ -1027,6 +1034,8 @@ class MainView:
             on_apply_parameters=self.apply_parameters,
             get_taken=self.project.used_ids,
             pick_icon=self.pick_member_icon if self.exporter.available else None,
+            applied=lambda: self.project != opened,
+            rollback=rollback,
         )
 
     async def pick_member_icon(self) -> str | None:
