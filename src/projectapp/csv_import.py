@@ -24,7 +24,7 @@ from projectapp.models import (
 from projectapp.storage import dumps_project, parse_project
 from projectapp.timeline import MAX_WORKDAYS, is_workday
 
-CSV_OPEN_FILE_TYPES = ("CSV / TSV ファイル (*.csv;*.tsv)",)
+CSV_OPEN_FILE_TYPES = ("CSV TSV ファイル (*.csv;*.tsv)",)
 WBS_SEPARATOR = "#"  # WBS 番号とタイトルをつなぐ文字(書き出しでは、この最初の 1 文字で分ける)
 WBS_NUMBER = re.compile(r"\d+(?:\.\d+)*")
 TITLE_COLUMN = "タスクのタイトル"

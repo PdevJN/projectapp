@@ -199,7 +199,7 @@ def test_read_table_reads_utf8_with_bom_and_falls_back_to_shift_jis(tmp_path: Pa
 
 
 def test_the_open_dialog_lists_csv_and_tsv() -> None:
-    assert CSV_OPEN_FILE_TYPES == ("CSV / TSV ファイル (*.csv;*.tsv)",)
+    assert CSV_OPEN_FILE_TYPES == ("CSV TSV ファイル (*.csv;*.tsv)",)
 
 
 def test_summary_lists_the_counts_and_the_notes() -> None:
@@ -209,3 +209,22 @@ def test_summary_lists_the_counts_and_the_notes() -> None:
     text = summary(noisy)
     assert "読み飛ばした行 1 行" in text and "日程が求まらないタスク 1 件" in text
     assert "読めない完了率 1 件" in text and "セクションの行の値を取り込まなかった行 1 行" in text
+
+
+def test_every_file_dialog_filter_is_accepted_by_pywebview() -> None:
+    """説明文に `/` などを入れると、pywebview がダイアログを開く前に ValueError にする(実機で見つけた)。"""
+    from webview.util import parse_file_type
+
+    from projectapp.csv_export import TSV_FILE_TYPES
+    from projectapp.export import PNG_FILE_TYPES
+    from projectapp.handoff import JSON_FILE_TYPES
+    from projectapp.icons import ICON_FILE_TYPES
+    from projectapp.plantuml import PLANTUML_FILE_TYPES
+    from projectapp.puml_import import PLANTUML_OPEN_FILE_TYPES
+
+    for types in (
+        CSV_OPEN_FILE_TYPES, TSV_FILE_TYPES, PNG_FILE_TYPES, JSON_FILE_TYPES, ICON_FILE_TYPES,
+        PLANTUML_FILE_TYPES, PLANTUML_OPEN_FILE_TYPES,
+    ):
+        for file_type in types:
+            parse_file_type(file_type)
