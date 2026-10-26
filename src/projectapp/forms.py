@@ -1523,9 +1523,10 @@ def open_settings_dialog(
 
 @dataclass
 class ParametersPanel:
-    """パラメータのタブの操作。dirty は、未適用の編集があるか。"""
+    """パラメータのタブの操作。dirty は、未適用の編集があるか、apply は適用(続きの処理は、適用できたときだけ呼ぶ)。"""
 
     dirty: Callable[[], bool]
+    apply: Callable[[Callable[[], None] | None], None]
 
 
 def parameters_panel(
@@ -1605,6 +1606,7 @@ def parameters_panel(
     ui.button("パラメータを追加", icon="add", on_click=add_parameter).props("flat").mark("parameter-add")
     error = ui.label("").classes("text-negative").mark("parameter-error")
     pending: dict[str, ParameterEdit] = {}
+    after: dict[str, Callable[[], None] | None] = {"then": None}
     with ui.dialog() as confirm, ui.card():
         confirm_text = ui.label("").style("white-space: pre-line")
         with ui.row():
@@ -1613,18 +1615,20 @@ def parameters_panel(
                 "parameter-delete-confirm"
             )
 
-    def commit(edit: ParameterEdit) -> None:
+    def commit(edit: ParameterEdit, then: Callable[[], None] | None) -> None:
         on_apply(edit)
         on_applied(edit)
         rows[:] = to_rows()
         baseline[:] = deepcopy(rows)
         table.refresh()
+        if then is not None:
+            then()
 
     def confirm_apply() -> None:
         confirm.close()
-        commit(pending["edit"])
+        commit(pending["edit"], after["then"])
 
-    def apply() -> None:
+    def apply(then: Callable[[], None] | None = None) -> None:
         error.set_text("")
         try:
             edit = build_parameter_edit(rows, get_parameters())
@@ -1634,15 +1638,16 @@ def parameters_panel(
         affected = impacts(edit)
         if affected:
             pending["edit"] = edit
+            after["then"] = then
             confirm_text.set_text(
                 "\n".join(affected) + "\n削除すると、その選択は外れます(メンバーは判定値 0%、タスクはパラメータなしになります)"
             )
             confirm.open()
             return
-        commit(edit)
+        commit(edit, then)
 
-    ui.button("適用", on_click=apply).mark("parameter-apply")
-    return ParametersPanel(dirty=lambda: rows != baseline)
+    ui.button("適用", on_click=lambda: apply()).mark("parameter-apply")
+    return ParametersPanel(dirty=lambda: rows != baseline, apply=apply)
 
 
 def effective_ratio_text(row: MemberRow, parameters: list[Parameter]) -> str:
@@ -1719,6 +1724,7 @@ class MembersPanel:
     dirty: Callable[[], bool]
     min_rem: Callable[[], int]
     parameters_changed: Callable[[ParameterEdit], None]
+    apply: Callable[[Callable[[], None] | None], None]
 
 
 def members_panel(
@@ -1892,7 +1898,7 @@ def members_panel(
     ui.button("メンバーを追加", icon="add", on_click=add).props("flat").mark("member-add")
     error = ui.label("").classes("text-negative").mark("member-error")
 
-    def apply() -> None:
+    def apply(then: Callable[[], None] | None = None) -> None:
         try:
             result = build_members(rows, originals, assigned, current["parameters"], get_taken())
         except ValueError as exc:
@@ -1904,6 +1910,8 @@ def members_panel(
         baseline[:] = deepcopy(rows)
         originals[:] = [r.name for r in rows]
         table.refresh()
+        if then is not None:
+            then()
 
     def parameters_changed(edit: ParameterEdit) -> None:
         for row in (*rows, *baseline):  # 未適用の行も、適用済みの基準も、同じように写す(印が出ない)
@@ -1911,9 +1919,12 @@ def members_panel(
         current["parameters"] = list(get_parameters())
         table.refresh()
 
-    ui.button("適用", on_click=apply).mark("member-apply")
+    ui.button("適用", on_click=lambda: apply()).mark("member-apply")
     return MembersPanel(
-        dirty=lambda: rows != baseline, min_rem=lambda: layout()[3], parameters_changed=parameters_changed
+        dirty=lambda: rows != baseline,
+        min_rem=lambda: layout()[3],
+        parameters_changed=parameters_changed,
+        apply=apply,
     )
 
 
@@ -1927,8 +1938,11 @@ def open_members_parameters_dialog(
     on_apply_parameters: Callable[[ParameterEdit], object],
     get_taken: Callable[[], Collection[str]],
     pick_icon: Callable[[], Awaitable[str | None]] | None = None,
+    applied: Callable[[], bool] = lambda: False,
+    rollback: Callable[[], object] = lambda: None,
 ) -> None:
-    """メンバーとパラメータのダイアログ。タブごとに適用し、適用しても閉じない(キャンセルで閉じる)。"""
+    """メンバーとパラメータのダイアログ。`適用`はタブごとで閉じない。`閉じる`は変更のあるタブを確定して閉じ、
+    `キャンセル`は未適用の編集を捨てて閉じる(開いてから適用した分〔applied〕があれば、残すか rollback で戻すかを確認する)。"""
     with disposable(ui.dialog()) as dialog, ui.card() as card:
         ui.label("メンバーとパラメータ").classes("text-h6")
         with ui.tabs().mark("members-parameters-tabs") as tabs:
@@ -1960,7 +1974,52 @@ def open_members_parameters_dialog(
 
         fit_width()
         ui.timer(0.3, update_marks)
-        ui.button("キャンセル", on_click=dialog.close).props("flat").mark("members-parameters-cancel")
+
+        def close_after_apply() -> None:
+            """変更のあるタブを、パラメータ → メンバーの順に確定して閉じる。エラーのタブは表示して閉じない。"""
+
+            def apply_members() -> None:
+                if members.dirty():
+                    tabs.set_value("members")
+                    members.apply(lambda: dialog.close())
+                else:
+                    dialog.close()
+
+            if parameters.dirty():
+                tabs.set_value("parameters")
+                parameters.apply(apply_members)
+            else:
+                apply_members()
+
+        def rollback_and_close() -> None:
+            confirm.close()
+            rollback()
+            dialog.close()
+
+        def discard_unapplied_and_close() -> None:
+            confirm.close()
+            dialog.close()
+
+        with ui.dialog() as confirm, ui.card():
+            ui.label("このダイアログで適用した分があります。どこまで取り消しますか。")
+            with ui.row():
+                ui.button("戻る", on_click=confirm.close).props("flat").mark("members-parameters-cancel-back")
+                ui.button("適用しなかった分だけ取り消す", on_click=discard_unapplied_and_close).props("flat").mark(
+                    "members-parameters-cancel-unapplied"
+                )
+                ui.button("すべて取り消す", on_click=rollback_and_close).props("color=negative").mark(
+                    "members-parameters-cancel-all"
+                )
+
+        def cancel() -> None:
+            if applied():
+                confirm.open()
+            else:
+                dialog.close()
+
+        with ui.row().classes("w-full justify-end"):
+            ui.button("キャンセル", on_click=cancel).props("flat").mark("members-parameters-cancel")
+            ui.button("閉じる", on_click=close_after_apply).mark("members-parameters-close")
     dialog.open()
 
 

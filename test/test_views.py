@@ -5683,3 +5683,122 @@ async def test_the_link_back_goes_away_when_another_project_is_opened(user: User
         view.open_reference("ref")
     view.request_open("別")  # コンボなどからの切り替えは、参照からではない
     assert view.origin is None
+
+
+def members_dialog(user: User) -> ui.dialog:
+    return next(a for a in user.find(marker="members-parameters-panels").elements.pop().ancestors() if isinstance(a, ui.dialog))
+
+
+async def test_close_applies_both_tabs_and_closes(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    dialog = members_dialog(user)
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-0")
+    user.find(marker="member-name-0").type("田中")
+    user.find(marker="parameter-add").click()
+    await user.should_see(marker="parameter-name-0")
+    user.find(marker="parameter-name-0").type("経験")
+    user.find(marker="members-parameters-close").click()
+    assert await wait_until(lambda: not dialog.value)
+    assert [m.name for m in view.project.members] == ["田中"]
+    assert [p.name for p in view.project.parameters] == ["経験"]
+
+
+async def test_close_without_changes_just_closes(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    dialog = members_dialog(user)
+    user.find(marker="members-parameters-close").click()
+    assert not dialog.value
+    assert not view.is_dirty()
+
+
+async def test_close_with_an_error_stays_open_and_shows_the_tab(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    dialog = members_dialog(user)
+    user.find(marker="parameter-add").click()
+    await user.should_see(marker="parameter-name-0")  # 名前が空のまま
+    user.find(marker="members-parameters-close").click()
+    await user.should_see(marker="parameter-error")
+    assert dialog.value
+    assert view.project.parameters == []
+
+
+async def test_close_continues_after_the_parameter_delete_confirmation(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.parameters = [Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)])]
+    view.project.members = [Member("田中", 1.0, {"経験": "上級"})]
+    view.mark_clean()
+    await open_members_parameters(user)
+    dialog = members_dialog(user)
+    user.find(marker="level-delete-0-1").click()
+    user.find(marker="member-name-0").clear().type("田中太郎")
+    user.find(marker="members-parameters-close").click()
+    await user.should_see("「経験」の「上級」を選んでいるメンバーが1人います")
+    assert dialog.value
+    user.find(marker="parameter-delete-confirm").click()
+    assert await wait_until(lambda: not dialog.value)
+    assert view.project.members[0].name == "田中太郎"
+    assert view.project.members[0].levels == {}
+
+
+async def apply_one_member(user: User) -> None:
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-0")
+    user.find(marker="member-name-0").type("田中")
+    user.find(marker="member-apply").click()
+
+
+async def test_cancel_after_applying_asks_and_back_keeps_the_dialog(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    dialog = members_dialog(user)
+    await apply_one_member(user)
+    assert await wait_until(lambda: [m.name for m in view.project.members] == ["田中"])
+    user.find(marker="members-parameters-cancel").click()
+    await user.should_see(marker="members-parameters-cancel-back")
+    assert dialog.value
+    user.find(marker="members-parameters-cancel-back").click()
+    assert dialog.value
+    assert [m.name for m in view.project.members] == ["田中"]
+
+
+async def test_cancel_unapplied_only_keeps_what_was_applied(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    dialog = members_dialog(user)
+    await apply_one_member(user)
+    assert await wait_until(lambda: [m.name for m in view.project.members] == ["田中"])
+    user.find(marker="parameter-add").click()
+    await user.should_see(marker="parameter-name-0")
+    user.find(marker="parameter-name-0").type("未適用")
+    user.find(marker="members-parameters-cancel").click()
+    await user.should_see(marker="members-parameters-cancel-unapplied")
+    user.find(marker="members-parameters-cancel-unapplied").click()
+    assert not dialog.value
+    assert [m.name for m in view.project.members] == ["田中"]
+    assert view.project.parameters == []
+    assert view.history.can_undo()
+
+
+async def test_cancel_all_restores_the_project_and_history_at_opening(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.tasks = [Task("a")]
+    view.mark_clean()
+    view.history.record(Project("before", tasks=[]))
+    stacks = (list(view.history.undo_stack), list(view.history.redo_stack))
+    await open_members_parameters(user)
+    dialog = members_dialog(user)
+    await apply_one_member(user)
+    assert await wait_until(lambda: [m.name for m in view.project.members] == ["田中"])
+    assert view.is_dirty()
+    user.find(marker="members-parameters-cancel").click()
+    await user.should_see(marker="members-parameters-cancel-all")
+    user.find(marker="members-parameters-cancel-all").click()
+    assert not dialog.value
+    assert view.project.members == []
+    assert [t.name for t in view.project.tasks] == ["a"]
+    assert (list(view.history.undo_stack), list(view.history.redo_stack)) == stacks
+    assert not view.is_dirty()

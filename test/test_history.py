@@ -86,3 +86,25 @@ def test_clear_empties_both_sides():
     history.clear()
     assert not history.can_undo()
     assert not history.can_redo()
+
+
+def test_rollback_restores_the_stacks_recorded_by_snapshot():
+    history = History()
+    history.record(project_with("a"))
+    history.undo(project_with("a", "b"))  # redo に 1 件
+    saved = history.snapshot()
+    history.record(project_with("x"))
+    history.record(project_with("y"))
+    history.rollback(saved)
+    assert list(history.undo_stack) == []
+    assert list(history.redo_stack) == [project_with("a", "b")]
+
+
+def test_snapshot_is_not_changed_by_later_edits():
+    history = History()
+    history.record(project_with("a"))
+    saved = history.snapshot()
+    history.undo(project_with("a", "b"))
+    history.rollback(saved)
+    assert list(history.undo_stack) == [project_with("a")]
+    assert not history.can_redo()
