@@ -15,6 +15,7 @@ from projectapp.timeline import Schedule, effective_end, effective_start
 TSV_FILE_TYPES = ("TSV ファイル (*.tsv)",)
 HEADER = ("WBS 番号", "タスクのタイトル", "タスクオーナー", "開始日", "期限", "期間", "タスク完了率")
 EXTENSION = ".tsv"
+BLANK_ROWS = 2  # 見出しの次の空行(テンプレートのサンプルと同じ。タブだけの行)
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,8 @@ def build_tsv(project: Project, holidays: dict[date, str]) -> TsvExport:
     out = io.StringIO()
     writer = csv.writer(out, delimiter="\t", lineterminator="\n")
     writer.writerow(HEADER)
+    for _ in range(BLANK_ROWS):
+        writer.writerow([""] * len(HEADER))
     counts = {"tasks": 0, "sections": 0, "skipped": 0, "multiple": 0}
 
     def task_row(task: Task) -> None:

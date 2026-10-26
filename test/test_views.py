@@ -5885,7 +5885,7 @@ async def test_export_tsv_writes_the_file_without_touching_the_project(user: Use
     user.find(marker="export-tsv").click()
     assert await wait_until(target.exists)
     lines = target.read_text(encoding="utf-8").splitlines()
-    assert lines[1:] == ["1\t計画\t\t\t\t\t", "1.1\t設計\t田中\t26年 10月 13日\t26年 10月 15日\t2\t50%"]
+    assert lines[1:] == ["\t" * 6, "\t" * 6, "1\t計画\t\t\t\t\t", "1.1\t設計\t田中\t26年 10月 13日\t26年 10月 15日\t2\t50%"]
     assert exporter.asked == ["in.tsv"] and exporter.asked_types == [TSV_FILE_TYPES]
     assert view.is_dirty() == dirty
     await user.should_see("書き出しました(タスク 1 件、セクション 1 件)")
