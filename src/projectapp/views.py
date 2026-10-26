@@ -83,6 +83,10 @@ from projectapp.handoff import (
 from projectapp.handoff import default_filename as handoff_filename
 from projectapp.plantuml import PLANTUML_FILE_TYPES, build_plantuml, day_overload_notice, weekly_crew_notice, write_text
 from projectapp.plantuml import default_filename as plantuml_filename
+from projectapp.csv_export import TSV_FILE_TYPES, build_tsv, write_tsv
+from projectapp.csv_export import default_filename as tsv_filename
+from projectapp.csv_import import CSV_OPEN_FILE_TYPES, CsvImportError, parse_csv, read_table
+from projectapp.csv_import import summary as csv_import_summary
 from projectapp.puml_import import (
     PLANTUML_OPEN_FILE_TYPES,
     PlantUmlImportError,
@@ -476,17 +480,68 @@ class MainView:
 
     def request_import_plantuml(self) -> None:
         """PlantUML の取り込みを始める(ネイティブのみ)。編集中は、確認してからファイルを選ばせる。"""
+        self.request_import(self.pick_plantuml)
+
+    def request_import_csv(self) -> None:
+        """CSV・TSV の取り込みを始める(ネイティブのみ)。編集中は、確認してからファイルを選ばせる。"""
+        self.request_import(self.pick_csv)
+
+    def request_import(self, pick: Callable[[], None]) -> None:
         if not self.exporter.available:
             ui.notify(IMPORT_NOT_NATIVE_MESSAGE, type="warning")
             return
         if not self.is_dirty():
-            self.pick_plantuml()
+            pick()
             return
         open_unsaved_dialog(
-            on_save=lambda: self.save_then(self.pick_plantuml),
-            on_discard=self.pick_plantuml,
+            on_save=lambda: self.save_then(pick),
+            on_discard=pick,
             purpose="取り込み",
         )
+
+    def pick_csv(self) -> None:
+        """ファイル選択を始める(`pick_plantuml` と同じ理由で、タイマーは画面の直下に置く)。"""
+        with self.client:
+            ui.timer(0, self.import_csv, once=True)
+
+    async def import_csv(self) -> None:
+        """選んだ CSV・TSV から、保存前の新規プロジェクトを作る。失敗したら、通知だけして何も変えない。"""
+        path = await self.exporter.ask_open_path(CSV_OPEN_FILE_TYPES)
+        if path is None:
+            return
+        try:
+            result = parse_csv(read_table(path), path.stem, self.holidays)
+        except CsvImportError as exc:
+            ui.notify(f"取り込めませんでした: {exc}", type="negative")
+            return
+        self.show_project(result.project, None)
+        self.snapshot = asdict(Project(NEW_PROJECT_NAME))  # 空の新規とは別物なので、未保存の扱いにする
+        ui.notify(csv_import_summary(result))
+
+    async def export_tsv(self) -> None:
+        """通常タスクとセクションを TSV に書き出す。プロジェクトは変えない(保存も、変更扱いもしない)。"""
+        if not self.exporter.available:
+            ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
+            return
+        result = build_tsv(self.project, self.holidays)
+        if result.task_count == 0 and result.section_count == 0:
+            ui.notify("書き出せるタスクがありません", type="warning")
+            return
+        path = await self.exporter.ask_path(tsv_filename(self.project.name), TSV_FILE_TYPES)
+        if path is None:
+            return
+        try:
+            write_tsv(path, result.text)
+        except OSError as exc:
+            ui.notify(f"保存できませんでした: {exc}", type="negative")
+            return
+        notes = [
+            f"{result.skipped} 件(まとめ・節目・参照)は書き出していません" if result.skipped else "",
+            f"担当者が複数の {result.multiple_owners} 件は筆頭だけを書きました" if result.multiple_owners else "",
+        ]
+        detail = "、".join(note for note in notes if note)
+        head = f"書き出しました(タスク {result.task_count} 件、セクション {result.section_count} 件)"
+        ui.notify(head + (f"。{detail}" if detail else ""))
 
     def pick_plantuml(self) -> None:
         """ファイル選択を始める。確認ダイアログは閉じると消えるので、タイマーは画面の直下に置く。"""
@@ -1641,6 +1696,7 @@ class MainView:
                 [
                     MenuItem("開く", "folder_open", self.show_file_list, "file-open"),
                     MenuItem("PlantUML を取り込む", "upload_file", self.request_import_plantuml, "file-import-plantuml"),
+                    MenuItem("CSV を取り込む", "table_view", self.request_import_csv, "file-import-csv"),
                     MenuItem("新規プロジェクト作成", "note_add", self.request_new, "file-new"),
                     None,  # 水平線(開く・作る / 保存 / データの更新)
                     MenuItem("上書き保存", "save", self.save_project_clicked, "save-project"),
@@ -1665,6 +1721,7 @@ class MainView:
                 [
                     MenuItem("チャートプレビュー", "visibility", self.enter_preview, "export-preview"),
                     MenuItem("担当者へ書き出し", "ios_share", self.open_handoff, "export-handoff"),
+                    MenuItem("TSV として書き出す", "download", self.export_tsv, "export-tsv"),
                 ],
             )
             self.header_menu(
