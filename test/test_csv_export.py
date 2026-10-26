@@ -4,7 +4,7 @@ from pathlib import Path
 from projectapp.csv_export import (
     TSV_FILE_TYPES,
     build_tsv,
-    default_filename,
+    DEFAULT_FILENAME,
     format_date,
     split_name,
     write_tsv,
@@ -116,8 +116,7 @@ def test_a_title_with_a_tab_is_quoted() -> None:
 
 
 def test_the_default_filename_and_the_save_dialog_types() -> None:
-    assert default_filename("案件/A") == "案件_A.tsv"
-    assert default_filename("  ") == "gantt.tsv"
+    assert DEFAULT_FILENAME == "out.tsv"
     assert TSV_FILE_TYPES == ("TSV ファイル (*.tsv)",)
 
 

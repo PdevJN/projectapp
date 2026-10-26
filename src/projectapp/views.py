@@ -83,8 +83,8 @@ from projectapp.handoff import (
 from projectapp.handoff import default_filename as handoff_filename
 from projectapp.plantuml import PLANTUML_FILE_TYPES, build_plantuml, day_overload_notice, weekly_crew_notice, write_text
 from projectapp.plantuml import default_filename as plantuml_filename
+from projectapp.csv_export import DEFAULT_FILENAME as TSV_DEFAULT_FILENAME
 from projectapp.csv_export import TSV_FILE_TYPES, build_tsv, write_tsv
-from projectapp.csv_export import default_filename as tsv_filename
 from projectapp.csv_import import CSV_OPEN_FILE_TYPES, CsvImportError, parse_csv, read_table
 from projectapp.csv_import import summary as csv_import_summary
 from projectapp.puml_import import (
@@ -527,7 +527,7 @@ class MainView:
         if result.task_count == 0 and result.section_count == 0:
             ui.notify("書き出せるタスクがありません", type="warning")
             return
-        path = await self.exporter.ask_path(tsv_filename(self.project.name), TSV_FILE_TYPES)
+        path = await self.exporter.ask_path(TSV_DEFAULT_FILENAME, TSV_FILE_TYPES)
         if path is None:
             return
         try:

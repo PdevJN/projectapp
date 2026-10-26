@@ -7,7 +7,6 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from projectapp.csv_import import WBS_NUMBER, WBS_SEPARATOR
-from projectapp.export import UNSAFE_NAME_CHARS
 from projectapp.models import Project, Section, Status, Task, TaskKind
 from projectapp.plantuml import write_text
 from projectapp.timeline import Schedule, effective_end, effective_start
@@ -15,6 +14,7 @@ from projectapp.timeline import Schedule, effective_end, effective_start
 TSV_FILE_TYPES = ("TSV ファイル (*.tsv)",)
 HEADER = ("WBS 番号", "タスクのタイトル", "タスクオーナー", "開始日", "期限", "期間", "タスク完了率")
 EXTENSION = ".tsv"
+DEFAULT_FILENAME = "out.tsv"  # 保存ダイアログの既定のファイル名
 BLANK_ROWS = 2  # 見出しの次の空行(テンプレートのサンプルと同じ。タブだけの行)
 
 
@@ -92,12 +92,6 @@ def build_tsv(project: Project, holidays: dict[date, str]) -> TsvExport:
     for section in project.sections:
         section_rows(section)
     return TsvExport(out.getvalue(), counts["tasks"], counts["sections"], counts["skipped"], counts["multiple"])
-
-
-def default_filename(project_name: str) -> str:
-    """既定のファイル名 `<名前>.tsv`。ファイル名に使えない文字は `_` にする。"""
-    name = UNSAFE_NAME_CHARS.sub("_", project_name.strip()).lstrip(".")
-    return f"{name or 'gantt'}{EXTENSION}"
 
 
 def write_tsv(path: Path, text: str) -> Path:
