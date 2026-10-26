@@ -1696,7 +1696,11 @@ class MainView:
                 [
                     MenuItem("開く", "folder_open", self.show_file_list, "file-open"),
                     MenuItem("PlantUML を取り込む", "upload_file", self.request_import_plantuml, "file-import-plantuml"),
-                    MenuItem("CSV を取り込む", "table_view", self.request_import_csv, "file-import-csv"),
+                    *(  # ファイル選択はネイティブのみなので、Web では項目を出さない
+                        [MenuItem("CSV を取り込む", "table_view", self.request_import_csv, "file-import-csv")]
+                        if self.exporter.available
+                        else []
+                    ),
                     MenuItem("新規プロジェクト作成", "note_add", self.request_new, "file-new"),
                     None,  # 水平線(開く・作る / 保存 / データの更新)
                     MenuItem("上書き保存", "save", self.save_project_clicked, "save-project"),

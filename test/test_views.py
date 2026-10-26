@@ -5855,12 +5855,12 @@ async def test_import_csv_refuses_a_file_without_the_title_column(user: User, tm
     assert view.project.name == "新規プロジェクト" and not view.is_dirty()
 
 
-async def test_import_csv_needs_the_native_window(user: User, tmp_path: Path) -> None:
+async def test_the_csv_import_item_is_hidden_without_the_native_window(user: User, tmp_path: Path) -> None:
     exporter = FakeExporter(open_path=write_csv(tmp_path), available=False)
-    view = await open_for_import(user, tmp_path, exporter)
-    user.find(marker="file-import-csv").click()
-    await user.should_see("ネイティブウィンドウでのみ、取り込めます")
-    assert exporter.asked_open == [] and view.project.name == "新規プロジェクト"
+    await open_for_import(user, tmp_path, exporter)
+    await user.should_see(marker="file-import-plantuml")  # ほかの項目は出る
+    await user.should_not_see(marker="file-import-csv")
+    assert exporter.asked_open == []
 
 
 async def test_import_csv_asks_before_dropping_unsaved_edits(user: User, tmp_path: Path) -> None:
