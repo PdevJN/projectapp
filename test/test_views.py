@@ -12,6 +12,8 @@ import pytest
 from nicegui import events, ui
 from nicegui.testing import User
 
+from projectapp.csv_export import TSV_FILE_TYPES
+from projectapp.csv_import import CSV_OPEN_FILE_TYPES
 from projectapp.config import load_project_dir, load_zoom, save_project_dir, save_zoom
 from projectapp.calendar import DayKind, save_cache
 from projectapp.filtering import TaskFilter
@@ -2903,6 +2905,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     assert menu_items(user, "menu-file-items") == [
         ("開く", "file-open"),
         ("PlantUML を取り込む", "file-import-plantuml"),
+        ("CSV を取り込む", "file-import-csv"),
         ("新規プロジェクト作成", "file-new"),
         ("上書き保存", "save-project"),
         ("名前をつけて保存", "file-save-as"),
@@ -2914,14 +2917,15 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         ("メンバーとパラメータ", "open-members-parameters"),
         ("ダッシュボード", "menu-open-dashboard"),
     ]
-    assert menu_icons(user, "menu-file-items") == ["folder_open", "upload_file", "note_add", "save", "save_as", "drive_file_move", "event_repeat"]
+    assert menu_icons(user, "menu-file-items") == ["folder_open", "upload_file", "table_view", "note_add", "save", "save_as", "drive_file_move", "event_repeat"]
     assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
-    assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share"]
+    assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share", "download"]
     assert menu_icons(user, "menu-help-items") == ["keyboard"]
     assert menu_icons(user, "menu-theme-items") == ["brightness_auto", "light_mode", "dark_mode", "palette", "tune"]
     assert menu_items(user, "menu-export-items") == [
         ("チャートプレビュー", "export-preview"),
         ("担当者へ書き出し", "export-handoff"),
+        ("TSV として書き出す", "export-tsv"),
     ]
     assert menu_items(user, "menu-help-items") == [("ショートカットヘルプ", "help-shortcuts")]
     assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark"), ("カスタム", "theme-custom"), ("カスタムの色…", "theme-custom-settings")]
@@ -2931,7 +2935,7 @@ async def test_the_file_menu_separates_open_save_and_update(user: User, tmp_path
     await open_header_view(user, tmp_path)
     menu = user.find(marker="menu-file-items").elements.pop()
     kinds = ["sep" if isinstance(c, ui.separator) else "item" for c in menu.default_slot.children]
-    assert kinds == ["item", "item", "item", "sep", "item", "item", "sep", "item", "item"]
+    assert kinds == ["item", "item", "item", "item", "sep", "item", "item", "sep", "item", "item"]
 
 
 async def test_the_project_menu_dashboard_item_opens_the_dashboard(user: User, tmp_path: Path) -> None:
@@ -3297,8 +3301,8 @@ async def test_the_file_menu_separators_are_marked_and_the_holiday_update_is_las
     await open_header_view(user, tmp_path)
     menu = user.find(marker="menu-file-items").elements.pop()
     children = menu.default_slot.children
-    assert "menu-file-separator" in children[3]._markers and "menu-file-separator" in children[6]._markers
-    assert "file-change-dir" in children[7]._markers and "refresh-holidays" in children[8]._markers
+    assert "menu-file-separator" in children[4]._markers and "menu-file-separator" in children[7]._markers
+    assert "file-change-dir" in children[8]._markers and "refresh-holidays" in children[9]._markers
 
 
 async def test_templates_are_saved_with_the_project_and_mark_it_dirty(
@@ -5802,3 +5806,102 @@ async def test_cancel_all_restores_the_project_and_history_at_opening(user: User
     assert [t.name for t in view.project.tasks] == ["a"]
     assert (list(view.history.undo_stack), list(view.history.redo_stack)) == stacks
     assert not view.is_dirty()
+
+
+CSV_SAMPLE = "\n".join(
+    [
+        "WBS 番号\tタスクのタイトル\tタスクオーナー\t開始日\t期限\t期間\tタスク完了率",
+        "1\t計画\t\t\t\t\t",
+        "1.1\t設計\t田中\t26年 10月 13日\t26年 10月 15日\t2\t50%",
+    ]
+)
+
+
+def write_csv(tmp_path: Path, text: str = CSV_SAMPLE, name: str = "in.tsv") -> Path:
+    folder = tmp_path / "other"
+    folder.mkdir(exist_ok=True)
+    source = folder / name
+    source.write_text(text, encoding="utf-8")
+    return source
+
+
+async def test_import_csv_opens_an_unsaved_project(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=write_csv(tmp_path))
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-csv").click()
+    assert await wait_until(lambda: view.project.name == "in")
+    assert view.path is None and view.is_dirty()  # 保存前の新規。ファイルは作らない
+    assert [s.name for s in view.project.sections] == ["1#計画"]
+    assert [t.name for t in view.project.sections[0].tasks] == ["1.1#設計"]
+    assert [m.name for m in view.project.members] == ["田中"]
+    assert exporter.asked_open == [CSV_OPEN_FILE_TYPES]
+    await user.should_see("取り込みました(タスク 1 件、セクション 1 件、メンバー 1 人を作成)")
+    assert not [f for f in tmp_path.glob("*.json") if f.name != "holidays.json"]
+
+
+async def test_cancelling_the_csv_dialog_changes_nothing(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=None)
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-csv").click()
+    assert await wait_until(lambda: exporter.asked_open != [])
+    assert view.project.name == "新規プロジェクト" and not view.is_dirty()
+
+
+async def test_import_csv_refuses_a_file_without_the_title_column(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=write_csv(tmp_path, "名前\n田中"))
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-csv").click()
+    await user.should_see("取り込めませんでした")
+    assert view.project.name == "新規プロジェクト" and not view.is_dirty()
+
+
+async def test_the_csv_import_item_is_hidden_without_the_native_window(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=write_csv(tmp_path), available=False)
+    await open_for_import(user, tmp_path, exporter)
+    await user.should_see(marker="file-import-plantuml")  # ほかの項目は出る
+    await user.should_not_see(marker="file-import-csv")
+    assert exporter.asked_open == []
+
+
+async def test_import_csv_asks_before_dropping_unsaved_edits(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=write_csv(tmp_path))
+    view = await open_for_import(user, tmp_path, exporter)
+    view.save_section("追加")
+    user.find(marker="file-import-csv").click()
+    await user.should_see(marker="unsaved-discard")
+    assert exporter.asked_open == []
+    user.find(marker="unsaved-discard").click()
+    assert await wait_until(lambda: view.project.name == "in")
+
+
+async def test_export_tsv_writes_the_file_without_touching_the_project(user: User, tmp_path: Path) -> None:
+    target = tmp_path / "out" / "plan.tsv"
+    target.parent.mkdir()
+    exporter = FakeExporter(path=target, open_path=write_csv(tmp_path))
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-csv").click()
+    assert await wait_until(lambda: view.project.name == "in")
+    dirty = view.is_dirty()
+    user.find(marker="export-tsv").click()
+    assert await wait_until(target.exists)
+    lines = target.read_text(encoding="utf-8").splitlines()
+    assert lines[1:] == ["\t" * 6, "\t" * 6, "1\t計画\t\t\t\t\t", "1.1\t設計\t田中\t26年 10月 13日\t26年 10月 15日\t2\t50%"]
+    assert exporter.asked == ["out.tsv"] and exporter.asked_types == [TSV_FILE_TYPES]
+    assert view.is_dirty() == dirty
+    await user.should_see("書き出しました(タスク 1 件、セクション 1 件)")
+
+
+async def test_export_tsv_needs_something_to_write_and_the_native_window(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=tmp_path / "x.tsv")
+    await open_for_import(user, tmp_path, exporter)
+    user.find(marker="export-tsv").click()
+    await user.should_see("書き出せるタスクがありません")
+    assert exporter.asked == []
+
+
+async def test_export_tsv_needs_the_native_window(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=tmp_path / "x.tsv", available=False)
+    await open_for_import(user, tmp_path, exporter)
+    user.find(marker="export-tsv").click()
+    await user.should_see("ネイティブウィンドウでのみ、書き出せます")
+    assert exporter.asked == []
