@@ -152,6 +152,7 @@ def build_plantuml(
     show_alerts: bool = True,
     show_events: bool = True,
     show_today: bool = True,
+    today_color: str | None = None,
     excluded: frozenset[str] = frozenset(),
     references: Mapping[str, ReferenceValue] | None = None,
 ) -> PlantUml:
@@ -203,7 +204,7 @@ def build_plantuml(
             event_lines.append(f"[E{n}] is colored in {color_hex(e.color)}")
 
     if show_today and p_start <= now.date() <= p_end:
-        head.append(f"{now.date().isoformat()} is colored in red")  # PlantUML は線を引けないので、列を塗る
+        head.append(f"{now.date().isoformat()} is colored in {today_color or 'red'}")  # PlantUML は線を引けないので、列を塗る
 
     def emit(task: Task, target: list[str]) -> None:
         nonlocal skipped

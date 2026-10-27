@@ -44,7 +44,7 @@ from projectapp.preview import split_period
 from projectapp.timeline import Scale, Schedule, effective_end, visible_range
 from projectapp.gantt import ViewOptions
 from projectapp.forms import MEMBER_TABLE_CSS
-from projectapp.config import load_custom_theme, load_theme, save_custom_theme
+from projectapp.config import load_custom_theme, load_theme, load_today_color, save_custom_theme, save_today_color
 from projectapp.theme import DEFAULTS, CustomTheme
 from projectapp.reference import ReferenceResolver, take_snapshot
 from projectapp.views import HEADER_CSS, THEME_ICONS, MainView
@@ -2029,6 +2029,25 @@ async def test_save_plantuml_uses_the_preview_settings(user: User, tmp_path: Pat
     assert "printscale weekly" in text and "completed" not in text
 
 
+async def test_save_plantuml_passes_the_configured_today_color(user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from projectapp import views as views_module
+
+    seen: list[str | None] = []
+    real = views_module.build_plantuml
+
+    def spy(*args: object, **kwargs: object):
+        seen.append(kwargs.get("today_color"))  # type: ignore[arg-type]
+        return real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(views_module, "build_plantuml", spy)
+    save_today_color("#1e88e5", tmp_path)
+    target = tmp_path / "chart.puml"
+    await open_preview(user, tmp_path, FakeExporter(path=target))
+    user.find(marker="preview-plantuml").click()
+    assert await wait_until(lambda: target.exists())
+    assert seen == ["#1e88e5"]
+
+
 async def test_save_plantuml_with_no_tasks_notifies_and_writes_nothing(user: User, tmp_path: Path) -> None:
     exporter = FakeExporter(path=tmp_path / "chart.puml")
     view = await open_preview(user, tmp_path, exporter)
@@ -3216,14 +3235,14 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
     assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share", "download"]
     assert menu_icons(user, "menu-help-items") == ["keyboard"]
-    assert menu_icons(user, "menu-theme-items") == ["brightness_auto", "light_mode", "dark_mode", "palette", "tune"]
+    assert menu_icons(user, "menu-theme-items") == ["brightness_auto", "light_mode", "dark_mode", "palette", "tune", "event"]
     assert menu_items(user, "menu-export-items") == [
         ("チャートプレビュー", "export-preview"),
         ("担当者へ書き出し", "export-handoff"),
         ("TSV として書き出す", "export-tsv"),
     ]
     assert menu_items(user, "menu-help-items") == [("ショートカットヘルプ", "help-shortcuts")]
-    assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark"), ("カスタム", "theme-custom"), ("カスタムの色…", "theme-custom-settings")]
+    assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark"), ("カスタム", "theme-custom"), ("カスタムの色…", "theme-custom-settings"), ("今日の線の色…", "theme-today-color")]
 
 
 async def test_the_file_menu_separates_open_save_and_update(user: User, tmp_path: Path) -> None:
@@ -5077,6 +5096,63 @@ async def test_selecting_custom_settings_in_the_menu_opens_the_dialog(user: User
     await open_header_view(user, tmp_path)
     user.find(marker="theme-custom-settings").click()
     await user.should_see(marker="theme-apply")
+
+
+async def test_today_color_dialog_apply_saves_the_color_without_touching_the_theme(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    assert view.today_color is None
+    user.find(marker="theme-today-color").click()
+    user.find(marker="today-color").elements.pop().set_value("#1E88E5")
+    user.find(marker="today-apply").click()
+    assert view.today_color == "#1e88e5"
+    assert load_today_color(tmp_path) == "#1e88e5"
+    assert view.theme == "auto" and load_theme(tmp_path) == "auto"  # テーマは変えない
+
+
+async def test_today_color_dialog_cancel_keeps_the_saved_color(user: User, tmp_path: Path) -> None:
+    save_today_color("#1e88e5", tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    assert view.today_color == "#1e88e5"
+    user.find(marker="theme-today-color").click()
+    user.find(marker="today-color").elements.pop().set_value("#e53935")
+    user.find(marker="today-cancel").click()
+    assert view.today_color == "#1e88e5" and load_today_color(tmp_path) == "#1e88e5"
+
+
+async def test_today_color_dialog_reset_then_apply_returns_to_the_default(user: User, tmp_path: Path) -> None:
+    save_today_color("#1e88e5", tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    user.find(marker="theme-today-color").click()
+    user.find(marker="today-reset").click()
+    user.find(marker="today-apply").click()
+    assert view.today_color is None and load_today_color(tmp_path) is None
+
+
+async def test_today_color_apply_failure_notifies_and_keeps_saved_state(user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise OSError("読み取り専用")
+
+    monkeypatch.setattr("projectapp.views.save_today_color", fail)
+    user.find(marker="theme-today-color").click()
+    user.find(marker="today-color").elements.pop().set_value("#1e88e5")
+    user.find(marker="today-apply").click()
+    await user.should_see("今日の線の色を保存できませんでした")
+    assert view.today_color is None
+    await user.should_see(marker="today-apply")  # ダイアログは開いたまま
 
 
 def test_header_project_select_follows_the_header_text_color_and_keeps_the_defaults() -> None:

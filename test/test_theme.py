@@ -172,3 +172,28 @@ def test_both_warnings_can_appear_together() -> None:
     result = warnings(CustomTheme("light", "#5898d4", None, "#101010", "#202020"))
     assert len(result) == 2 and MISMATCH_MESSAGE in result
 
+
+
+def test_parse_today_color_reads_a_valid_color_and_lowercases() -> None:
+    from projectapp.theme import parse_today_color
+
+    assert parse_today_color("#1E88E5") == "#1e88e5"
+
+
+@pytest.mark.parametrize("value", [None, "", "red", "#12345", "#gggggg", 5, [], {}])
+def test_parse_today_color_reads_anything_else_as_unset(value: object) -> None:
+    from projectapp.theme import parse_today_color
+
+    assert parse_today_color(value) is None
+
+
+def test_today_color_js_sets_the_variable_on_the_body() -> None:
+    from projectapp.theme import today_color_js
+
+    assert today_color_js("#1e88e5") == 'document.body.style.setProperty("--today", "#1e88e5")'
+
+
+def test_today_color_js_none_removes_the_variable_so_the_default_returns() -> None:
+    from projectapp.theme import today_color_js
+
+    assert today_color_js(None) == 'document.body.style.removeProperty("--today")'

@@ -70,6 +70,18 @@ def parse_custom_theme(value: object) -> CustomTheme:
     )
 
 
+def parse_today_color(value: object) -> str | None:
+    """`config.json`の`today_color`の読み込み。`#RRGGBB`以外は未設定(既定の色)。"""
+    return normalize_hex(value)
+
+
+def today_color_js(color: str | None) -> str:
+    """今日の線の色(`--today`)を`body`に設定する JS。None は外して、既定(ライト・ダークで別)へ戻す。"""
+    if color is None:
+        return 'document.body.style.removeProperty("--today")'
+    return f"document.body.style.setProperty(\"--today\", {json.dumps(color)})"
+
+
 def custom_theme_to_dict(theme: CustomTheme) -> dict[str, str | None]:
     return asdict(theme)
 

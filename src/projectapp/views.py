@@ -24,6 +24,7 @@ from projectapp.config import (
     THEMES,
     check_project_dir,
     load_custom_theme,
+    load_today_color,
     load_dashboard_view_last,
     load_dashboard_views,
     load_project_dir,
@@ -33,6 +34,7 @@ from projectapp.config import (
     load_zoom,
     resolve_project_dir,
     save_custom_theme,
+    save_today_color,
     save_dashboard_view_last,
     save_dashboard_views,
     save_name_width,
@@ -151,8 +153,9 @@ from projectapp.storage import (
 )
 from projectapp.summary import parent_map
 from projectapp.task_dialog import open_task_dialog, open_week_crew_dialog
-from projectapp.theme import BODY_CSS, CustomTheme, theme_js
+from projectapp.theme import BODY_CSS, CustomTheme, theme_js, today_color_js
 from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
+from projectapp.theme_dialog import open_today_color_dialog as show_today_color_dialog
 from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
 from projectapp.ratios import ParameterEdit, apply_parameter_edit, impact_lines
 from projectapp.timeline import (
@@ -168,6 +171,7 @@ from projectapp.timeline import (
 
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク", "custom": "カスタム"}
 CUSTOM_COLORS_LABEL = "カスタムの色…"
+TODAY_COLOR_LABEL = "今日の線の色…"
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode", "custom": "palette"}
 
 
@@ -275,6 +279,7 @@ class MainView:
         self.committed = deepcopy(self.project)  # 最後に確定した状態。これと違えば、編集があったとみなして履歴に積む
         self.theme = load_theme(base_dir)
         self.custom_theme = load_custom_theme(base_dir)  # 保存済みのカスタムの色
+        self.today_color = load_today_color(base_dir)  # 今日の線の色。None は既定(テーマに従う)
         self.dark = ui.dark_mode()
         self.dark.value = self.dark_value(self.theme, self.custom_theme)
         cached = load_cache(base_dir)
@@ -383,6 +388,26 @@ class MainView:
         self.custom_theme = theme
         self.apply_theme("custom")
         self.theme_menu.refresh()
+        return True
+
+    def open_today_color_dialog(self) -> None:
+        """今日の線の色のダイアログ。色を変えると画面に反映し(プレビュー)、キャンセルで保存済みの色に戻す。"""
+        show_today_color_dialog(
+            self.today_color,
+            lambda color: self.run_js(today_color_js(color)),
+            self.apply_today_color,
+            lambda: self.run_js(today_color_js(self.today_color)),
+        )
+
+    def apply_today_color(self, color: str | None) -> bool:
+        """今日の線の色を保存する。失敗したら通知して False(保存済みの色は変えない)。"""
+        try:
+            save_today_color(color, self.base_dir)
+        except OSError:
+            ui.notify("今日の線の色を保存できませんでした", type="warning")
+            return False
+        self.today_color = color
+        self.run_js(today_color_js(color))
         return True
 
     def set_name_width(self, width: int) -> None:
@@ -1214,6 +1239,7 @@ class MainView:
             show_alerts=settings.show_alerts,
             show_events=settings.show_events,
             show_today=settings.show_today,
+            today_color=self.today_color,
             excluded=settings.excluded,
             references=self.reference_values(),
         )
@@ -1876,6 +1902,8 @@ class MainView:
         self.apply_select_popup()
         if self.theme == "custom":
             self.run_js(theme_js(self.custom_theme))
+        if self.today_color is not None:
+            self.run_js(today_color_js(self.today_color))
         ui.keyboard(on_key=self.on_plain_key)  # 入力欄・ボタンにフォーカスがあるときは、受けない
         ui.keyboard(on_key=self.on_modified_key, ignore=[])  # Ctrl/Cmd 付きだけは、入力欄でも受ける(Ctrl/Cmd+Z を除く)
         ui.keyboard(on_key=self.on_undo_key, ignore=["input", "select", "textarea"])  # Ctrl/Cmd+Z: 入力欄では文字の取り消し
@@ -2275,6 +2303,7 @@ class MainView:
                         item.props("active")
                 ui.separator().mark("theme-separator")
                 self.menu_entry(CUSTOM_COLORS_LABEL, "tune", self.open_theme_dialog, "theme-custom-settings")
+                self.menu_entry(TODAY_COLOR_LABEL, "event", self.open_today_color_dialog, "theme-today-color")
 
     def build_help_dialog(self) -> ui.dialog:
         """ショートカットヘルプのダイアログ(ヘルプメニューから開く)。"""

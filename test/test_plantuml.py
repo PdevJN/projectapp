@@ -513,3 +513,14 @@ def test_a_reference_row_without_delay_uses_the_not_started_color() -> None:
 def test_a_reference_row_without_a_value_is_skipped_and_counted() -> None:
     result = build(reference_project())
     assert result.task_count == 0 and result.skipped == 1
+
+
+def test_today_uses_the_configured_color_instead_of_red() -> None:
+    out = lines(Project("p"), now=TODAY, today_color="#1e88e5")
+    assert "2026-10-14 is colored in #1e88e5" in out
+    assert not any("is colored in red" in line for line in out)
+
+
+def test_the_configured_today_color_is_not_used_when_today_is_off() -> None:
+    out = lines(Project("p"), now=TODAY, today_color="#1e88e5", show_today=False)
+    assert not any("#1e88e5" in line for line in out)

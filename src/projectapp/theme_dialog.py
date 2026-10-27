@@ -16,13 +16,17 @@ COLOR_FIELDS = (
 )
 
 
-def color_field(label: str, value: str, on_change: Callable[[str | None], object], marker: str) -> ui.input:
-    """`#RRGGBB`の入力欄。右の色見本のボタンから、色の選択もできる。"""
+def color_field(
+    label: str, value: str, on_change: Callable[[str | None], object], marker: str, allow_empty: bool = False
+) -> ui.input:
+    """`#RRGGBB`の入力欄。右の色見本のボタンから、色の選択もできる。`allow_empty`なら空欄も正しい(既定の色)。"""
     field = ui.input(
         label,
         value=value,
         on_change=lambda e: on_change(e.value),
-        validation={INVALID_COLOR_MESSAGE: lambda v: normalize_hex(v or "") is not None},
+        validation={
+            INVALID_COLOR_MESSAGE: lambda v: (allow_empty and not v) or normalize_hex(v or "") is not None
+        },
     ).classes("w-full").mark(marker)
     with field.add_slot("append"):
         with ui.button(icon="colorize").props("flat round dense") as swatch:
@@ -140,4 +144,46 @@ def open_theme_dialog(
                 apply_button = ui.button("適用", on_click=apply).props("no-caps").mark("theme-apply")
         show_warnings()
         dialog.on_value_change(lambda e: None if e.value or applied else on_cancel())  # ESC・外側クリックも、値が偽になる
+    dialog.open()
+
+
+def open_today_color_dialog(
+    initial: str | None,
+    on_preview: Callable[[str | None], object],
+    on_apply: Callable[[str | None], bool],
+    on_cancel: Callable[[], object],
+) -> None:
+    """今日の線の色のダイアログ。空欄は既定の色(None)。色を変えるたびに`on_preview`を呼ぶ。
+    `適用`は`on_apply`が真のときだけ閉じる。適用せずに閉じたら`on_cancel`。"""
+    applied = False
+    current = initial
+
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[24rem] max-w-full"):
+        ui.label("今日の線の色").classes("text-h6")
+
+        def edit(value: str | None) -> None:
+            nonlocal current
+            text = (value or "").strip()
+            color = normalize_hex(text)
+            valid = color is not None or not text
+            apply_button.set_enabled(valid)
+            if valid:
+                current = color
+                on_preview(color)
+
+        field = color_field("色", initial or "", edit, "today-color", allow_empty=True)
+        ui.label("空欄は既定の色(ライトは赤、ダークは明るい赤)です").classes("text-caption text-grey")
+
+        def apply() -> None:
+            nonlocal applied
+            if on_apply(current):
+                applied = True
+                dialog.close()
+
+        with ui.row().classes("w-full justify-between"):
+            ui.button("既定に戻す", on_click=lambda: field.set_value("")).props("flat no-caps").mark("today-reset")
+            with ui.row():
+                ui.button("キャンセル", on_click=dialog.close).props("flat no-caps").mark("today-cancel")
+                apply_button = ui.button("適用", on_click=apply).props("no-caps").mark("today-apply")
+        dialog.on_value_change(lambda e: None if e.value or applied else on_cancel())
     dialog.open()
