@@ -8,7 +8,7 @@ from pathlib import Path
 
 from projectapp.dashboard_views import ViewSpec, views_from_config, views_to_config
 from projectapp.storage import BASE_DIR
-from projectapp.theme import CustomTheme, custom_theme_to_dict, parse_custom_theme
+from projectapp.theme import CustomTheme, custom_theme_to_dict, parse_custom_theme, parse_today_color
 
 THEMES = ("auto", "light", "dark", "custom")
 TASK_SECTION_KEYS = ("assignees", "actuals", "related")  # タスクのダイアログの、折りたためる節(基本は常に開く)
@@ -72,6 +72,16 @@ def save_custom_theme(theme: CustomTheme, base_dir: Path = BASE_DIR, select: boo
     if select:
         updates["theme"] = "custom"
     update_config(updates, base_dir)
+
+
+def load_today_color(base_dir: Path = BASE_DIR) -> str | None:
+    """今日の線の色(`#rrggbb`)。未設定・不正は None(既定の色)。"""
+    return parse_today_color(read_config(base_dir).get("today_color"))
+
+
+def save_today_color(color: str | None, base_dir: Path = BASE_DIR) -> None:
+    """None は既定に戻す(キーを消す代わりに null を書く)。"""
+    update_config({"today_color": color}, base_dir)
 
 
 def load_task_sections(base_dir: Path = BASE_DIR) -> list[str] | None:

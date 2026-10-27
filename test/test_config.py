@@ -356,3 +356,29 @@ def test_dashboard_views_default_to_empty_when_missing_or_unreadable(tmp_path: P
     (tmp_path / "config.json").write_text(json.dumps({"dashboard_views": 3, "dashboard_view_last": 4}), encoding="utf-8")
     assert load_dashboard_views(tmp_path) == []
     assert load_dashboard_view_last(tmp_path) is None
+
+
+def test_the_today_color_defaults_to_none(tmp_path: Path) -> None:
+    from projectapp.config import load_today_color
+
+    assert load_today_color(tmp_path) is None
+
+
+def test_the_today_color_round_trips_and_keeps_other_keys(tmp_path: Path) -> None:
+    from projectapp.config import load_today_color, save_today_color
+
+    save_theme("dark", tmp_path)
+    save_today_color("#1e88e5", tmp_path)
+    assert load_today_color(tmp_path) == "#1e88e5"
+    assert load_theme(tmp_path) == "dark"
+    save_today_color(None, tmp_path)  # 既定に戻す
+    assert load_today_color(tmp_path) is None
+    assert load_theme(tmp_path) == "dark"
+
+
+@pytest.mark.parametrize("value", ["red", 3, "#12", ["#ffffff"]])
+def test_an_invalid_today_color_is_read_as_none(tmp_path: Path, value: object) -> None:
+    from projectapp.config import load_today_color
+
+    (tmp_path / "config.json").write_text(json.dumps({"today_color": value}), encoding="utf-8")
+    assert load_today_color(tmp_path) is None
