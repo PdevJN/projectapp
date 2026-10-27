@@ -53,7 +53,6 @@ from projectapp.timeline import (
     clip_overloads,
     current_progress,
     deadline_position,
-    today_position,
     effective_start,
     expected_progress,
     interval_span,
@@ -61,6 +60,7 @@ from projectapp.timeline import (
     month_bands,
     overallocations,
     progress_state,
+    today_position,
     year_bands,
 )
 
@@ -288,6 +288,8 @@ SCROLL_RESET_JS = (
     "document.querySelector('[data-chart-scroll]')?.scrollTo({top: 0, left: 0});"
     " window.scrollTo({top: 0})"
 )
+
+
 def today_scroll_js(x: float, name_width: int) -> str:
     """今日の線が、名前の欄を除いたチャート領域の左から 1/4 の位置に来るよう、横にスクロールする。"""
     return (

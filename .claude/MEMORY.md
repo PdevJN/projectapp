@@ -4,7 +4,7 @@
 
 ## 現在の状況
 
-**2026-10-27(要望 71): ガントチャートの今日の線を実装(`feature/today-marker`。未マージ。設計書`2026-10-27-today-marker-design.md`、計画`plans/2026-10-27-today-marker.md`)。赤い縦線(日次=時刻、週次=日の真ん中、月次=列の真ん中)・`当日`ボタン・開いた直後だけ今日へスクロール・プレビューの`今日`・PlantUML の`is colored in red`。`timeline.today_position`・`GanttChart.today_line`/`scroll_on_open`。テスト 3,848 件と`ty check`通過。要望 40 は実機確認済み(PR #98・#99)。実機(ネイティブ)で確認済み(2026-10-27)。最終レビューは Critical・Important なし、Minor 4 件は未対応。要望 72(今日の線の色を設定で編集)を未着手で記録。**
+**2026-10-27(要望 71): ガントチャートの今日の線を実装(`feature/today-marker`。未マージ。設計書`2026-10-27-today-marker-design.md`、計画`plans/2026-10-27-today-marker.md`)。赤い縦線(日次=時刻、週次=日の真ん中、月次=列の真ん中)・`当日`ボタン・開いた直後だけ今日へスクロール・プレビューの`今日`・PlantUML の`is colored in red`。`timeline.today_position`・`GanttChart.today_line`/`scroll_on_open`。テスト 3,848 件と`ty check`通過。要望 40 は実機確認済み(PR #98・#99)。実機(ネイティブ)で確認済み(2026-10-27)。最終レビューは Critical・Important なし、Minor は 3 件修正済み・1 件(指定期間の外での PlantUML との差)は未対応。要望 72(今日の線の色を設定で編集)を未着手で記録。**
 
 **2026-10-27(要望 40): ダッシュボードのカスタムビューを実装し、PR #98(9b441c0)で`develop`へマージ済み(`feature/dashboard-views`はリモートに残っている。設計書`2026-10-27-dashboard-views-design.md`、計画`2026-10-27-dashboard-views.md`)。名前付きビューに、期間(`指定`は日付そのもの)・メンバー・`全プロジェクト`・カードの出し入れと順を保存(`config.json`の`dashboard_views`・`dashboard_view_last`)。`dashboard_views.py`(純粋関数)・`dashboard_drag.py`(JS)・`DashboardView`(ツールバー・編集モード)・`MainView`(状態と操作)。`●`は保存済みとの比較で出す。テスト 3,822 件と`ty check`通過。**実機(ネイティブ)で確認済み(2026-10-27。カードのドラッグ・ガントチャートへの干渉なし・開き直しで最後のビューが開く、すべて問題なし)。** 最終レビューの Important 2 件(壊れた`config.json`での保存系の例外、編集モードの持ち越し)は修正済み。見送った Minor: `指定`ビューの日付を捨てたときの`●`、同じビューの補う期間が今週になる、ドラッグの偽造イベントで隠れたカードが出る。相対的な期間は要望 70。次は、実機確認(結果次第で修正の PR)。**
 

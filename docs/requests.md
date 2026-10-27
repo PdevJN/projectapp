@@ -586,7 +586,7 @@ PlantUML は日単位で担当者の割り当てを集計するので、同じ�
 
 ## 要望 71: ガントチャートに、本日の日付の状態を表示する(2026-10-27 に受領)
 
-> **状態**: 実装済み(2026-10-27。ブランチ`feature/today-marker`。PR 番号は、マージ後に記録)。**実機(ネイティブ)で確認済み**(2026-10-27。線の見え方・`当日`・開いた直後のスクロール位置・画像・PlantUML)。最終レビューの Minor 4 件は未対応(指定期間の外で列の範囲内のときの PlantUML との差、E302 と import 順、`PreviewSettings`のキーワード渡し)。設計書`docs/superpowers/specs/2026-10-27-today-marker-design.md`、計画`docs/superpowers/plans/2026-10-27-today-marker.md`。テスト 3,848 件と`ty check`通過。
+> **状態**: 実装済み(2026-10-27。ブランチ`feature/today-marker`。PR 番号は、マージ後に記録)。**実機(ネイティブ)で確認済み**(2026-10-27。線の見え方・`当日`・開いた直後のスクロール位置・画像・PlantUML)。最終レビューの Minor のうち、E302・import 順・`PreviewSettings`のキーワード渡しは修正済み。未対応は、指定期間の外で列の範囲内のときの PlantUML との差(設計書どおり)。設計書`docs/superpowers/specs/2026-10-27-today-marker-design.md`、計画`docs/superpowers/plans/2026-10-27-today-marker.md`。テスト 3,848 件と`ty check`通過。
 
 ### 要望
 ガントチャートに、本日の日付がどこにあるかが分かる表示を出す。

@@ -1128,7 +1128,7 @@ class MainView:
             self.preview_bar.set_warning(None)
             self.preview_bar.set_save_enabled(False)
             return
-        self.preview = PreviewSettings(start, end, scale, chips, alerts, events, self.preview.excluded, today)
+        self.preview = PreviewSettings(start, end, scale, chips, alerts, events, self.preview.excluded, show_today=today)
         self.apply_preview(self.preview)
 
     def selectable_ids(self) -> list[str]:
