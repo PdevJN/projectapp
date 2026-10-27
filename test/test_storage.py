@@ -1308,7 +1308,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 12
+    assert raw["version"] == FORMAT_VERSION == 13
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1376,7 +1376,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 12
+    assert raw["version"] == FORMAT_VERSION == 13
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -1900,7 +1900,7 @@ def test_task_parameters_round_trip_and_the_version_is_10(tmp_path: Path) -> Non
     project = Project("p", parameters=[Parameter("Python", []), Parameter("Java", [])], tasks=[Task("a", parameters=["Python", "Java"])])
     path = save_project(project, tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 12
+    assert raw["version"] == FORMAT_VERSION == 13
     assert raw["tasks"][0]["parameters"] == ["Python", "Java"]
     assert load_project(path).tasks[0].parameters == ["Python", "Java"]
 
@@ -1942,7 +1942,7 @@ def _weekly_project() -> Project:
 
 
 def test_format_version_is_eleven() -> None:
-    assert FORMAT_VERSION == 12
+    assert FORMAT_VERSION == 13
 
 
 def test_weekly_crew_roundtrips_and_assignees_is_the_union(tmp_path: Path) -> None:
@@ -2027,3 +2027,46 @@ def test_a_non_boolean_plantuml_notice_option_is_refused(value: object) -> None:
     raw["plantuml_overload_notice"] = value
     with pytest.raises(ValueError, match="PlantUML の通知"):
         parse_project(json.dumps(raw), "p")
+
+
+def test_the_ratio_limits_round_trip_and_default_to_none() -> None:
+    project = Project("p", ratio_limit_upper=0.5, ratio_limit_lower=-0.5)
+    loaded = parse_project(dumps_project(project), "p")
+    assert (loaded.ratio_limit_upper, loaded.ratio_limit_lower) == (0.5, -0.5)
+    plain = parse_project(dumps_project(Project("p")), "p")
+    assert (plain.ratio_limit_upper, plain.ratio_limit_lower) == (None, None)
+
+
+def test_a_file_without_the_ratio_limit_keys_reads_as_no_limits() -> None:
+    raw = json.loads(dumps_project(Project("p")))
+    raw.pop("ratio_limit_upper")
+    raw.pop("ratio_limit_lower")
+    raw["version"] = 12
+    loaded = parse_project(json.dumps(raw), "p")
+    assert loaded.ratio_limits.upper is None and loaded.ratio_limits.lower is None
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("ratio_limit_upper", "0.5"),
+        ("ratio_limit_upper", True),
+        ("ratio_limit_upper", float("nan")),
+        ("ratio_limit_upper", -0.1),
+        ("ratio_limit_upper", 3.0),
+        ("ratio_limit_lower", 0.1),
+        ("ratio_limit_lower", -0.95),
+        ("ratio_limit_lower", [0]),
+    ],
+)
+def test_an_invalid_ratio_limit_is_rejected(key: str, value: object) -> None:
+    raw = json.loads(dumps_project(Project("p")))
+    raw[key] = value
+    with pytest.raises(ValueError, match="相対比率の"):
+        parse_project(json.dumps(raw), "p")
+
+
+def test_the_ratio_limits_are_rounded_to_four_decimals() -> None:
+    raw = json.loads(dumps_project(Project("p")))
+    raw["ratio_limit_upper"] = 0.123456
+    assert parse_project(json.dumps(raw), "p").ratio_limit_upper == 0.1235

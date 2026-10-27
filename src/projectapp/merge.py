@@ -183,7 +183,7 @@ PARAMETER_LABELS = {"levels": "段階"}
 TEMPLATE_LABELS = {"pattern": "URLの型"}
 EVENT_LABELS = {"start": "開始日", "end": "終了日", "text": "文字列", "color": "色"}
 WORK_DAY_LABELS = {"window": "時間帯"}
-SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間", "work_start": "始業時刻", "actual_mode": "実績の記録方式", "reference_mode": "参照の方式", "plantuml_overload_notice": "PlantUML の通知"}
+SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間", "work_start": "始業時刻", "actual_mode": "実績の記録方式", "reference_mode": "参照の方式", "plantuml_overload_notice": "PlantUML の通知", "ratio_limit_upper": "相対比率の上限", "ratio_limit_lower": "相対比率の下限"}
 
 
 def _members(project: Project) -> dict[str, Record]:
@@ -444,6 +444,8 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
         actual_mode=settings["actual_mode"],
         reference_mode=settings["reference_mode"],
         plantuml_overload_notice=settings["plantuml_overload_notice"],
+        ratio_limit_upper=settings["ratio_limit_upper"],
+        ratio_limit_lower=settings["ratio_limit_lower"],
         members=built_members,
         categories=[
             Category(r["name"], r["kind"], r["expiry_date"], r["color"], r["prj_code"], id=key)

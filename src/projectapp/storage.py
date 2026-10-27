@@ -582,6 +582,17 @@ def _plantuml_overload_notice(value: Any) -> bool:
     return value
 
 
+def _ratio_limit(value: Any, name: str, low: float, high: float) -> float | None:
+    """相対比率の加算分の上限・下限。null は制限なし。数値以外・非有限・範囲外は ValueError。"""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float) or not isfinite(value):
+        raise ValueError(f"{name}が正しくありません: {value!r}")
+    if not low - 1e-9 <= value <= high + 1e-9:
+        raise ValueError(f"{name}は{low * 100:+g}〜{high * 100:+g}%で指定してください: {value!r}")
+    return round(float(value), 4)
+
+
 def _ref_project(value: Any) -> str:
     """参照先のファイル名。空・文字列以外・使えない文字は ValueError。"""
     if not isinstance(value, str) or not value.strip():
@@ -1022,6 +1033,16 @@ def parse_project(text: str, name: str) -> Project:
         reference_mode=_reference_mode(raw.get("reference_mode")) if ctx.version >= 11 else ReferenceMode.LIVE,
         plantuml_overload_notice=(
             _plantuml_overload_notice(raw.get("plantuml_overload_notice", True)) if ctx.version >= 12 else True
+        ),
+        ratio_limit_upper=(
+            _ratio_limit(raw.get("ratio_limit_upper"), "相対比率の上限", 0.0, MAX_LEVEL_VALUE)
+            if ctx.version >= 13
+            else None
+        ),
+        ratio_limit_lower=(
+            _ratio_limit(raw.get("ratio_limit_lower"), "相対比率の下限", MIN_LEVEL_VALUE, 0.0)
+            if ctx.version >= 13
+            else None
         ),
     )
     for task in project.all_tasks():
