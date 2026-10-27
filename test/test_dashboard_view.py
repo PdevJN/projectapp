@@ -23,7 +23,8 @@ from projectapp.dashboard import (
     TeamProgress,
     WorkloadRow,
 )
-from projectapp.dashboard_view import HEATMAP_CSS, HEATMAP_HINT_DAYS, MAX_TIP_CHIPS, DashboardView, heatmap_html, percent_width
+from projectapp.dashboard_views import DEFAULT_ORDER, CardId, ViewState
+from projectapp.dashboard_view import HEATMAP_CSS, ViewActions, HEATMAP_HINT_DAYS, MAX_TIP_CHIPS, DashboardView, heatmap_html, percent_width
 from projectapp.models import Status
 
 
@@ -61,7 +62,9 @@ def empty() -> Dashboard:
     return Dashboard(day, Progress(None, {status: 0 for status in Status}, []), {}, [], [])
 
 
-def mount(member_changes: list[str | None] | None = None) -> tuple[list[DashboardView], list[int], list[PeriodKind]]:
+def mount(
+    member_changes: list[str | None] | None = None, actions: ViewActions | None = None
+) -> tuple[list[DashboardView], list[int], list[PeriodKind]]:
     views: list[DashboardView] = []
     backs: list[int] = []
     changes: list[PeriodKind] = []
@@ -72,6 +75,7 @@ def mount(member_changes: list[str | None] | None = None) -> tuple[list[Dashboar
             lambda: backs.append(1),
             changes.append,
             member_changes.append if member_changes is not None else None,
+            actions=actions,
         )
         views.append(view)
         view.build()
@@ -519,3 +523,134 @@ async def test_the_heatmap_card_has_no_scroll_hint_for_a_narrow_table(user: User
     views[0].show(data, PeriodKind.WEEK)
     await user.should_see(marker="dashboard-heatmap-table")
     await user.should_not_see(marker="dashboard-heatmap-hint")
+
+
+def state(cards: tuple[CardId, ...]) -> ViewState:
+    return ViewState(("標準",), "標準", False, None, cards, ())
+
+
+async def test_cards_follow_the_view_order_and_skip_hidden_ones(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK, view_state=state((CardId.DUE, CardId.HOURS)))
+    await user.should_see(marker="dashboard-due-0")
+    await user.should_see(marker="dashboard-hours-total")
+    await user.should_not_see(marker="dashboard-progress-percent")
+    await user.should_not_see(marker="dashboard-team")
+    assert views[0].card_order == (CardId.DUE, CardId.HOURS)  # 描く順は card_order のとおり
+
+
+async def test_without_a_view_state_all_cards_show_in_the_default_order(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-progress-percent")
+    assert views[0].card_order == DEFAULT_ORDER
+
+
+def full_state(
+    current: str = "標準", dirty: bool = False, save_block: str | None = None, names: tuple[str, ...] = ("標準", "月次")
+) -> ViewState:
+    return ViewState(names, current, dirty, save_block, DEFAULT_ORDER, ())
+
+
+def recording_actions(log: list) -> ViewActions:
+    return ViewActions(
+        select=lambda name: log.append(("select", name)),
+        save=lambda: log.append("save"),
+        save_as=lambda: log.append("save_as"),
+        revert=lambda: log.append("revert"),
+        rename=lambda: log.append("rename"),
+        delete=lambda: log.append("delete"),
+        move_card=lambda card_id, before: log.append(("move", card_id, before)),
+        hide_card=lambda card_id: log.append(("hide", card_id)),
+        show_card=lambda card_id: log.append(("show", card_id)),
+    )
+
+
+async def test_the_toolbar_shows_the_dirty_mark_and_save_buttons_only_when_dirty(user: User) -> None:
+    views, _, _ = mount(actions=recording_actions([]))
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK, view_state=full_state(dirty=False))
+    await user.should_see(marker="dashboard-view")
+    await user.should_see(marker="dashboard-view-save-as")  # 名前をつけて保存は常に出す
+    await user.should_not_see(marker="dashboard-view-dirty")
+    await user.should_not_see(marker="dashboard-view-save")
+    await user.should_not_see(marker="dashboard-view-revert")
+    views[0].show(sample(), PeriodKind.WEEK, view_state=full_state(current="月次", dirty=True))
+    await user.should_see(marker="dashboard-view-dirty")
+    await user.should_see(marker="dashboard-view-save")
+    await user.should_see(marker="dashboard-view-revert")
+
+
+async def test_save_is_disabled_when_blocked(user: User) -> None:
+    views, _, _ = mount(actions=recording_actions([]))
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK, view_state=full_state(dirty=True, save_block="「標準」は上書きできません"))
+    await user.should_see(marker="dashboard-view-save")
+    save = user.find(marker="dashboard-view-save").elements.pop()
+    assert save.enabled is False
+
+
+async def test_toolbar_buttons_call_the_actions(user: User) -> None:
+    log: list = []
+    views, _, _ = mount(actions=recording_actions(log))
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK, view_state=full_state(current="月次", dirty=True))
+    await user.should_see(marker="dashboard-view-save")
+    user.find(marker="dashboard-view-save").click()
+    user.find(marker="dashboard-view-save-as").click()
+    user.find(marker="dashboard-view-revert").click()
+    assert log == ["save", "save_as", "revert"]
+
+
+async def test_selecting_in_the_dropdown_calls_select_but_syncing_does_not(user: User) -> None:
+    log: list = []
+    views, _, _ = mount(actions=recording_actions(log))
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK, view_state=full_state())
+    await user.should_see(marker="dashboard-view")
+    assert log == []  # show でプルダウンの値を合わせても、選択の通知は出ない
+    views[0].view_select.set_value("月次")
+    assert log == [("select", "月次")]
+
+
+async def test_rename_and_delete_are_disabled_for_the_standard_view(user: User) -> None:
+    views, _, _ = mount(actions=recording_actions([]))
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK, view_state=full_state(current="標準"))
+    assert views[0].rename_item.enabled is False and views[0].delete_item.enabled is False
+    views[0].show(sample(), PeriodKind.WEEK, view_state=full_state(current="月次"))
+    assert views[0].rename_item.enabled is True and views[0].delete_item.enabled is True
+
+
+async def test_edit_mode_shows_handles_and_hide_buttons_and_the_hidden_list(user: User) -> None:
+    log: list = []
+    views, _, _ = mount(actions=recording_actions(log))
+    await user.open("/")
+    hidden_state = ViewState(("標準",), "標準", False, None, (CardId.TEAM, CardId.DUE), (CardId.PROGRESS,))
+    views[0].show(sample(), PeriodKind.WEEK, view_state=hidden_state)
+    await user.should_see(marker="dashboard-edit-toggle")
+    await user.should_not_see(marker="dashboard-hide-team")  # ふだんは出さない
+    user.find(marker="dashboard-edit-toggle").click()
+    await user.should_see(marker="dashboard-hide-team")
+    await user.should_see(marker="dashboard-hide-due")
+    await user.should_see(marker="dashboard-hidden-progress")
+    await user.should_see(marker="dashboard-drop-end")
+    user.find(marker="dashboard-hide-due").click()
+    user.find(marker="dashboard-hidden-progress").click()
+    assert log == [("hide", CardId.DUE), ("show", CardId.PROGRESS)]
+    user.find(marker="dashboard-edit-toggle").click()
+    await user.should_not_see(marker="dashboard-hide-team")
+
+
+async def test_a_move_event_calls_move_card_and_ignores_bad_arguments(user: User) -> None:
+    log: list = []
+    views, _, _ = mount(actions=recording_actions(log))
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK, view_state=full_state())
+    views[0].handle_move({"card": "due", "before": "team"})
+    views[0].handle_move({"card": "due", "before": None})
+    views[0].handle_move({"card": "nope", "before": None})
+    views[0].handle_move("due")
+    assert log == [("move", CardId.DUE, CardId.TEAM), ("move", CardId.DUE, None)]

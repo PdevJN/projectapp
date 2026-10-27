@@ -2,6 +2,7 @@
 
 import html
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime
 
 from nicegui import ui
@@ -17,6 +18,8 @@ from projectapp.dashboard import (
     PeriodKind,
     TeamProgress,
 )
+from projectapp.dashboard_drag import DASHBOARD_DRAG_CSS, DASHBOARD_DRAG_JS
+from projectapp.dashboard_views import DEFAULT_ORDER, STANDARD_NAME, CardId, ViewState, parse_card_move
 from projectapp.gantt import STATUS_COLORS, STATUS_DARK_COLORS, WEEKDAYS
 from projectapp.models import Status
 from projectapp.periodfield import add_range_picker, normalize_period
@@ -33,6 +36,14 @@ OVER_COLOR = "#ef5350"  # 100% を超える日がある負荷(予定超過の赤
 PLANNED_COLOR = "#1e88e5"  # 予定の時間。dataviz の検証で、灰青は「灰色に見える」ため不合格。青と緑の組は全項目 PASS
 ACTUAL_COLOR = "#43a047"  # 実績の時間
 EMPTY = "データがありません"
+CARD_TITLES = {
+    CardId.TEAM: "チーム全体の進捗",
+    CardId.PROGRESS: "進捗と遅れ",
+    CardId.LOAD: "人ごとの負荷",
+    CardId.HEATMAP: "負荷の日ごとの推移",
+    CardId.HOURS: "工数の予定と実績",
+    CardId.DUE: "期限とマイルストーン",
+}
 ALL_MEMBERS = ""  # プルダウンの`全員`の値
 MAX_TIP_CHIPS = 10  # 凡例のツールチップに並べるチップの上限。超えた分は「+n件」にまとめる
 PIE_DIAMETER = "9rem"
@@ -164,6 +175,21 @@ def moment_text(moment: datetime) -> str:
     return f"{moment:%m/%d %H:%M}"
 
 
+@dataclass
+class ViewActions:
+    """ビューの操作。MainView が渡す。"""
+
+    select: Callable[[str], object]
+    save: Callable[[], object]
+    save_as: Callable[[], object]
+    revert: Callable[[], object]
+    rename: Callable[[], object]
+    delete: Callable[[], object]
+    move_card: Callable[[CardId, CardId | None], object]
+    hide_card: Callable[[CardId], object]
+    show_card: Callable[[CardId], object]
+
+
 class DashboardView:
     """メイン画面の切り替え先。`show` で集計を受け取って描き、`hide` で隠す。"""
 
@@ -175,7 +201,17 @@ class DashboardView:
         on_cross_change: Callable[[bool], object] | None = None,
         on_project_change: Callable[[str, bool], object] | None = None,
         on_custom_change: Callable[[str], object] | None = None,
+        actions: ViewActions | None = None,
     ) -> None:
+        self.actions = actions
+        self.edit_mode = False
+        self.edit_button: ui.button | None = None
+        self.view_select: ui.select | None = None
+        self.dirty_mark: ui.label | None = None
+        self.save_button: ui.button | None = None
+        self.revert_button: ui.button | None = None
+        self.rename_item: ui.menu_item | None = None
+        self.delete_item: ui.menu_item | None = None
         self.on_custom_change = on_custom_change
         self.custom_field: ui.input | None = None
         self.custom_box: ui.column | None = None
@@ -189,15 +225,49 @@ class DashboardView:
         self.data: Dashboard | None = None
         self.icons: dict[str, str] = {}  # メンバー名 → アイコン(ある人だけ)
         self.syncing = False  # 開き直しでトグルの値を書き換えるあいだは、変更を通知しない
+        self.state: ViewState | None = None  # ビューの選択・カードの並び。None のあいだは既定の順で全部出す
+        self.card_order: tuple[CardId, ...] = DEFAULT_ORDER
 
     def build(self) -> None:
         ui.add_css(PIE_CSS)
         ui.add_css(HEATMAP_CSS)
+        ui.add_css(DASHBOARD_DRAG_CSS)
+        ui.add_head_html(f"<script>{DASHBOARD_DRAG_JS}</script>")
+        ui.on("dashboard_move_card", lambda e: self.handle_move(e.args))
         with ui.column().classes("w-full gap-4") as box:
             self.box = box
             box.mark("dashboard-box")
             with ui.row().classes("w-full items-center gap-4"):
                 ui.label("ダッシュボード").classes("text-h5")
+                with ui.row().classes("items-center gap-1 no-wrap"):
+                    self.view_select = (
+                        ui.select({STANDARD_NAME: STANDARD_NAME}, value=STANDARD_NAME, on_change=self.on_view)
+                        .props("dense outlined options-dense")
+                        .style("min-width: 8rem")
+                        .mark("dashboard-view")
+                    )
+                    self.dirty_mark = (
+                        ui.label("●").classes("text-warning").tooltip("保存していない変更があります").mark("dashboard-view-dirty")
+                    )
+                    self.save_button = (
+                        ui.button("保存", on_click=lambda: self.act("save")).props("flat dense").mark("dashboard-view-save")
+                    )
+                    ui.button("名前をつけて保存", on_click=lambda: self.act("save_as")).props("flat dense").mark(
+                        "dashboard-view-save-as"
+                    )
+                    self.revert_button = (
+                        ui.button("元に戻す", on_click=lambda: self.act("revert")).props("flat dense").mark("dashboard-view-revert")
+                    )
+                    with ui.button(icon="more_vert").props("flat dense round").mark("dashboard-view-menu"):
+                        with ui.menu():
+                            self.rename_item = ui.menu_item("名前の変更", on_click=lambda: self.act("rename")).mark(
+                                "dashboard-view-rename"
+                            )
+                            self.delete_item = ui.menu_item("削除", on_click=lambda: self.act("delete")).mark(
+                                "dashboard-view-delete"
+                            )
+                for item in (self.dirty_mark, self.save_button, self.revert_button):
+                    item.set_visibility(False)
                 self.toggle = ui.toggle(
                     {kind.value: kind.value for kind in PeriodKind},
                     value=PeriodKind.WEEK.value,
@@ -225,11 +295,75 @@ class DashboardView:
                 self.cross_switch = ui.switch("全プロジェクト", value=False, on_change=self.on_cross).mark(
                     "dashboard-cross"
                 )
+                self.edit_button = (
+                    ui.button("カードを編集", icon="edit", on_click=lambda: self.set_edit_mode(not self.edit_mode))
+                    .props("flat dense")
+                    .mark("dashboard-edit-toggle")
+                )
                 ui.button("戻る", icon="arrow_back", on_click=lambda: self.on_back()).props("flat").mark(
                     "dashboard-back"
                 )
             self.cards()
         box.set_visibility(False)
+
+    def set_edit_mode(self, on: bool) -> None:
+        self.edit_mode = on
+        if self.edit_button is not None:
+            self.edit_button.set_text("完了" if on else "カードを編集")
+            self.edit_button.props(f"icon={'check' if on else 'edit'}")
+        self.cards.refresh()
+
+    def handle_move(self, args: object) -> None:
+        """ブラウザからのカードの移動(取っ手を掴んで落とした)を受ける。不正な値は無視する。"""
+        parsed = parse_card_move(args)
+        if parsed is not None:
+            self.act("move_card", *parsed)
+
+    def decorate(self, element: ui.element, card_id: CardId) -> None:
+        """編集モードのカードに、取っ手(掴む)と非表示ボタンの帯を、先頭に足す。"""
+        element.props(f"data-dash-card={card_id.value}")
+        with element:
+            with ui.row().classes("w-full items-center justify-between no-wrap") as bar:
+                ui.icon("drag_indicator").props(f"data-dash-handle={card_id.value} draggable=true").classes("text-grey")
+                ui.button(icon="close", on_click=lambda c=card_id: self.act("hide_card", c)).props(
+                    "flat dense round size=sm"
+                ).mark(f"dashboard-hide-{card_id.value}")
+        bar.move(element, target_index=0)
+
+    def act(self, name: str, *args: object) -> None:
+        """MainView の操作を呼ぶ。actions がないとき(単体のテスト)は何もしない。"""
+        if self.actions is not None:
+            getattr(self.actions, name)(*args)
+
+    def on_view(self, event: ValueChangeEventArguments) -> None:
+        if not self.syncing and event.value:
+            self.act("select", event.value)
+
+    def sync_toolbar(self) -> None:
+        """ビューの選択・`●`・ボタンの有効/無効を、状態に合わせる(通知は出さない)。"""
+        state = self.state
+        if state is None or self.view_select is None:
+            return
+        self.syncing = True
+        try:
+            self.view_select.set_options({name: name for name in state.names}, value=state.current)
+        finally:
+            self.syncing = False
+        if self.dirty_mark is not None:
+            self.dirty_mark.set_visibility(state.dirty)
+        if self.save_button is not None:
+            self.save_button.set_visibility(state.dirty)
+            self.save_button.set_enabled(state.save_block is None)
+            if state.save_block is not None:
+                self.save_button.props(f'title="{state.save_block}"')  # 押せない理由(ネイティブのヒント)
+            else:
+                self.save_button.props(remove="title")
+        if self.revert_button is not None:
+            self.revert_button.set_visibility(state.dirty)
+        standard = state.current == STANDARD_NAME
+        for item in (self.rename_item, self.delete_item):
+            if item is not None:
+                item.set_enabled(not standard)
 
     def on_toggle(self, event: ValueChangeEventArguments) -> None:
         if not self.syncing:
@@ -272,10 +406,14 @@ class DashboardView:
         icons: dict[str, str] | None = None,
         custom_text: str | None = None,
         custom_error: str = "",
+        view_state: ViewState | None = None,
     ) -> None:
         """custom_text が None のときは、欄の文字(入力中の値)を書き換えない。"""
         self.icons = icons or {}
         self.data = data
+        self.state = view_state
+        self.card_order = view_state.cards if view_state is not None else DEFAULT_ORDER
+        self.sync_toolbar()
         if self.custom_box is not None and self.custom_field is not None and self.custom_error is not None:
             self.custom_box.set_visibility(kind is PeriodKind.CUSTOM)
             self.custom_field.set_visibility(kind is PeriodKind.CUSTOM)
@@ -310,6 +448,10 @@ class DashboardView:
         self.cards.refresh()
 
     def hide(self) -> None:
+        self.edit_mode = False  # 編集モードは持ち越さない(次に開くときは、ふだんの表示)
+        if self.edit_button is not None:
+            self.edit_button.set_text("カードを編集")
+            self.edit_button.props("icon=edit")
         if self.box is not None:
             self.box.set_visibility(False)
 
@@ -318,13 +460,32 @@ class DashboardView:
         data = self.data
         if data is None:
             return
-        with ui.element("div").style(GRID_STYLE):
-            self.team_card(data)
-            self.progress_card(data)
-            self.load_card(data)
-            self.heatmap_card(data)
-            self.hours_card(data)
-            self.due_card(data)
+        builders = {
+            CardId.TEAM: self.team_card,
+            CardId.PROGRESS: self.progress_card,
+            CardId.LOAD: self.load_card,
+            CardId.HEATMAP: self.heatmap_card,
+            CardId.HOURS: self.hours_card,
+            CardId.DUE: self.due_card,
+        }
+        with ui.element("div").style(GRID_STYLE) as grid:
+            for card_id in self.card_order:
+                before = len(grid.default_slot.children)
+                builders[card_id](data)
+                created = grid.default_slot.children[before:]
+                if self.edit_mode and created:  # 何も描かないカード(空の横断など)は、取っ手を付けない
+                    self.decorate(created[0], card_id)
+            if self.edit_mode:
+                ui.element("div").props("data-dash-end=1").style(
+                    "min-height: 3rem; border: 2px dashed rgba(128, 128, 128, 0.5)"
+                ).mark("dashboard-drop-end")
+        if self.edit_mode and self.state is not None and self.state.hidden:
+            with ui.row().classes("w-full items-center gap-2"):
+                ui.label("隠したカード").classes("text-caption text-grey")
+                for card_id in self.state.hidden:
+                    ui.button(
+                        CARD_TITLES[card_id], icon="add", on_click=lambda c=card_id: self.act("show_card", c)
+                    ).props("flat dense").mark(f"dashboard-hidden-{card_id.value}")
 
     def team_card(self, data: Dashboard) -> None:
         team = data.team

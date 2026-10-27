@@ -24,6 +24,8 @@ from projectapp.config import (
     THEMES,
     check_project_dir,
     load_custom_theme,
+    load_dashboard_view_last,
+    load_dashboard_views,
     load_project_dir,
     load_name_width,
     load_task_sections,
@@ -31,6 +33,8 @@ from projectapp.config import (
     load_zoom,
     resolve_project_dir,
     save_custom_theme,
+    save_dashboard_view_last,
+    save_dashboard_views,
     save_name_width,
     save_project_dir,
     save_task_sections,
@@ -60,7 +64,22 @@ from projectapp import arrange
 from projectapp.reference import ReferenceResolver, build_references, missing_references, take_snapshot
 from projectapp.shortcuts import Screen, defers_to_inputs, help_entries, key_guard_js, label_for, resolve
 from projectapp.dashboard import MAX_CUSTOM_DAYS, CrossSummary, Period, PeriodKind, custom_period_error, period_for, summarize, summarize_cross_loads
-from projectapp.dashboard_view import DashboardView
+from projectapp.dashboard_view import DashboardView, ViewActions
+from projectapp.dashboard_views import (
+    DEFAULT_ORDER,
+    MAX_VIEWS,
+    STANDARD_NAME,
+    CardId,
+    ViewSpec,
+    ViewState,
+    hidden_cards,
+    hide_card,
+    move_card,
+    resolve_member,
+    show_card,
+    standard_view,
+)
+from projectapp.dashboard_views import validate_name as validate_view_name
 from projectapp.portfolio import load_others
 from projectapp.export import (
     HTML_TO_IMAGE_URL,
@@ -226,6 +245,10 @@ class MainView:
         self.dashboard_member: str | None = None  # ダッシュボードで絞り込み中のメンバー。保存しない
         self.dashboard_cross = False  # 全プロジェクトを重ねるか。保存しない
         self.dashboard_excluded: set[str] = set()  # 重ねるのから外したプロジェクトの名前。保存しない
+        self.dashboard_views = load_dashboard_views(base_dir)  # 保存したビュー(`標準` を含まない)。全プロジェクト共通
+        self.dashboard_view_name = load_dashboard_view_last(base_dir) or STANDARD_NAME  # 最後に使ったビュー
+        self.dashboard_cards: tuple[CardId, ...] = DEFAULT_ORDER  # 表示するカードの並び。保存するのはビューにしたときだけ
+        self.dashboard_names: list[str] = []  # 今の名簿(refresh のたびに更新)。保存したメンバーが残っているかの判定に使う
         self.open_folder: Callable[[Path], object] = open_folder  # テストで差し替える(実際にはファイラを開かない)
         self.saving = False
         self.zoom = load_zoom(base_dir)  # 画面全体の倍率(%)。全プロジェクト共通
@@ -300,6 +323,17 @@ class MainView:
             self.change_dashboard_cross,
             self.change_dashboard_project,
             self.change_dashboard_custom,
+            actions=ViewActions(
+                select=self.select_dashboard_view,
+                save=self.save_dashboard_view,
+                save_as=self.save_dashboard_view_as,
+                revert=self.revert_dashboard_view,
+                rename=self.rename_dashboard_view,
+                delete=self.delete_dashboard_view,
+                move_card=self.move_dashboard_card,
+                hide_card=self.hide_dashboard_card,
+                show_card=self.show_dashboard_card,
+            ),
         )
 
     @staticmethod
@@ -782,11 +816,9 @@ class MainView:
         self.dashboard_kind = PeriodKind.WEEK
         self.dashboard_custom = None
         self.dashboard_custom_error = ""
-        self.dashboard_member = None
-        self.dashboard_cross = False
-        self.dashboard_excluded = set()
         self.set_header_visible(False)
         self.gantt.set_visible(False)
+        self.apply_dashboard_view(self.saved_dashboard_view(self.dashboard_view_name))
         self.refresh_dashboard()
 
     def refresh_dashboard(self, sync_field: bool = True) -> None:
@@ -803,6 +835,7 @@ class MainView:
                 projects = [replace(self.project, name=f"{self.project.name}(開いている)")]
             projects += others
         names = list(dict.fromkeys(m.name for p in projects for m in p.members))
+        self.dashboard_names = names
         if self.dashboard_member not in names:
             self.dashboard_member = None  # 削除・改名・横断オフで見えなくなったメンバーは、全員に戻す
         data = summarize(self.project, period, now, self.holidays, self.dashboard_kind, self.dashboard_member)
@@ -815,7 +848,9 @@ class MainView:
         icons = {m.name: m.icon for p in reversed(projects) for m in p.members if m.icon}
         # 入力が不正なあいだは、欄の文字を書き換えない(入力中の値を残す)
         custom_text = format_period(period.start, period.end) if sync_field and not self.dashboard_custom_error else None
-        self.dashboard_view.show(data, self.dashboard_kind, icons, custom_text, self.dashboard_custom_error)
+        self.dashboard_view.show(
+            data, self.dashboard_kind, icons, custom_text, self.dashboard_custom_error, self.dashboard_view_state()
+        )
 
     def change_dashboard_cross(self, on: bool) -> None:
         if self.dashboard_kind is None:
@@ -829,16 +864,20 @@ class MainView:
         (self.dashboard_excluded.discard if included else self.dashboard_excluded.add)(name)
         self.refresh_dashboard()
 
+    def starting_custom_period(self) -> Period:
+        """`指定` を始めるときの期間 = 直前に見ていた期間。全期間が長いときは、終わりの側の上限の長さに切る。"""
+        previous = period_for(
+            self.dashboard_kind or PeriodKind.WEEK, self.now().date(), self.project, self.holidays, self.dashboard_custom
+        )
+        if custom_period_error(previous):
+            previous = Period(previous.end - timedelta(days=MAX_CUSTOM_DAYS - 1), previous.end)
+        return previous
+
     def change_dashboard_period(self, kind: PeriodKind) -> None:
         if self.dashboard_kind is None:
             return
         if kind is PeriodKind.CUSTOM:
-            previous = period_for(  # 直前に見ていた期間から始める
-                self.dashboard_kind, self.now().date(), self.project, self.holidays, self.dashboard_custom
-            )
-            if custom_period_error(previous):  # 全期間が長いときは、終わりの側の上限の長さに切る
-                previous = Period(previous.end - timedelta(days=MAX_CUSTOM_DAYS - 1), previous.end)
-            self.dashboard_custom = previous
+            self.dashboard_custom = self.starting_custom_period()
         self.dashboard_custom_error = ""
         self.dashboard_kind = kind
         self.refresh_dashboard()
@@ -866,6 +905,165 @@ class MainView:
         if self.dashboard_kind is None:
             return
         self.dashboard_member = name
+        self.refresh_dashboard()
+
+    def saved_dashboard_view(self, name: str) -> ViewSpec:
+        """保存済みのビュー。名前がなければ `標準`。"""
+        return next((v for v in self.dashboard_views if v.name == name), standard_view())
+
+    def working_spec(self, name: str) -> ViewSpec:
+        """今の画面の条件とカードの並びを、ビューの形にしたもの。"""
+        custom = None
+        if self.dashboard_kind is PeriodKind.CUSTOM and self.dashboard_custom is not None and not self.dashboard_custom_error:
+            custom = (self.dashboard_custom.start, self.dashboard_custom.end)
+        return ViewSpec(
+            name,
+            self.dashboard_kind or PeriodKind.WEEK,
+            self.dashboard_member,
+            self.dashboard_cross,
+            self.dashboard_cards,
+            custom,
+        )
+
+    def dashboard_dirty(self) -> bool:
+        """保存したビューと違うか。保存したメンバーがいないときは、全員に戻した状態を同じとみなす。"""
+        saved = self.saved_dashboard_view(self.dashboard_view_name)
+        saved = replace(saved, member=resolve_member(saved.member, self.dashboard_names))
+        return self.working_spec(saved.name) != saved
+
+    def custom_save_block(self) -> str | None:
+        if self.dashboard_kind is PeriodKind.CUSTOM and (self.dashboard_custom_error or self.dashboard_custom is None):
+            return "期間の欄を直してください"
+        return None
+
+    def dashboard_save_block(self) -> str | None:
+        """`保存` できない理由。`標準` は上書きできない。"""
+        if self.dashboard_view_name == STANDARD_NAME:
+            return "「標準」は上書きできません。名前をつけて保存してください"
+        return self.custom_save_block()
+
+    def dashboard_view_state(self) -> ViewState:
+        return ViewState(
+            (STANDARD_NAME, *(v.name for v in self.dashboard_views)),
+            self.dashboard_view_name,
+            self.dashboard_dirty(),
+            self.dashboard_save_block(),
+            self.dashboard_cards,
+            hidden_cards(self.dashboard_cards, self.dashboard_cross),
+        )
+
+    def apply_dashboard_view(self, spec: ViewSpec) -> None:
+        """ビューの条件とカードの並びを、画面の状態に取り込む(集計し直さない)。除外したプロジェクトは空に戻る。"""
+        self.dashboard_view_name = spec.name
+        self.dashboard_kind = spec.period
+        if spec.period is PeriodKind.CUSTOM:
+            self.dashboard_custom = Period(*spec.custom) if spec.custom is not None else self.starting_custom_period()
+        self.dashboard_custom_error = ""
+        self.dashboard_member = spec.member
+        self.dashboard_cross = spec.cross
+        self.dashboard_excluded = set()
+        self.dashboard_cards = spec.cards
+
+    def persist_dashboard(self, *, views: bool = False, last: bool = False) -> None:
+        """設定に書く。書けなくても、画面上のビューは使い続ける(通知だけ出す)。"""
+        try:
+            if views:
+                save_dashboard_views(self.dashboard_views, self.base_dir)
+            if last:
+                save_dashboard_view_last(self.dashboard_view_name, self.base_dir)
+        except (OSError, ValueError):  # ValueError = 壊れた config.json(読めないファイルは上書きしない)
+            ui.notify("ダッシュボードのビューを保存できませんでした(この画面では使い続けられます)")
+
+    def select_dashboard_view(self, name: str) -> None:
+        if self.dashboard_kind is None or (name != STANDARD_NAME and all(v.name != name for v in self.dashboard_views)):
+            return
+        self.apply_dashboard_view(self.saved_dashboard_view(name))
+        self.persist_dashboard(last=True)
+        self.refresh_dashboard()
+
+    def save_dashboard_view(self) -> None:
+        if self.dashboard_kind is None:
+            return
+        if reason := self.dashboard_save_block():
+            ui.notify(reason)
+            return
+        name = self.dashboard_view_name
+        self.dashboard_views = [self.working_spec(name) if v.name == name else v for v in self.dashboard_views]
+        self.persist_dashboard(views=True)
+        self.refresh_dashboard()
+        ui.notify(f"ビュー「{name}」を保存しました")
+
+    def save_dashboard_view_as(self) -> None:
+        if self.dashboard_kind is None:
+            return
+        if reason := self.custom_save_block():
+            ui.notify(reason)
+            return
+
+        def validate(clean: str) -> str | None:
+            if len(self.dashboard_views) >= MAX_VIEWS:
+                return f"ビューは{MAX_VIEWS}件までです"
+            return validate_view_name(clean, (v.name for v in self.dashboard_views))
+
+        def apply(name: str) -> None:
+            self.dashboard_views = [*self.dashboard_views, self.working_spec(name)]
+            self.dashboard_view_name = name
+            self.persist_dashboard(views=True, last=True)
+            self.refresh_dashboard()
+
+        open_name_dialog(apply, validate, title="ビューの保存", label="ビュー名")
+
+    def revert_dashboard_view(self) -> None:
+        if self.dashboard_kind is None:
+            return
+        self.apply_dashboard_view(self.saved_dashboard_view(self.dashboard_view_name))
+        self.refresh_dashboard()
+
+    def rename_dashboard_view(self) -> None:
+        old = self.dashboard_view_name
+        if self.dashboard_kind is None or old == STANDARD_NAME:
+            return
+
+        def apply(name: str) -> None:
+            self.dashboard_views = [replace(v, name=name) if v.name == old else v for v in self.dashboard_views]
+            self.dashboard_view_name = name
+            self.persist_dashboard(views=True, last=True)
+            self.refresh_dashboard()
+
+        others = [v.name for v in self.dashboard_views if v.name != old]
+        open_name_dialog(
+            apply, lambda clean: validate_view_name(clean, others), title="ビュー名の変更", initial=old, label="ビュー名"
+        )
+
+    def delete_dashboard_view(self) -> None:
+        name = self.dashboard_view_name
+        if self.dashboard_kind is None or name == STANDARD_NAME:
+            return
+
+        def apply() -> None:
+            self.dashboard_views = [v for v in self.dashboard_views if v.name != name]
+            self.apply_dashboard_view(standard_view())
+            self.persist_dashboard(views=True, last=True)
+            self.refresh_dashboard()
+
+        open_confirm_dialog(f"ビュー「{name}」を削除しますか?", apply)
+
+    def move_dashboard_card(self, card_id: CardId, before_id: CardId | None) -> None:
+        if self.dashboard_kind is None:
+            return
+        self.dashboard_cards = move_card(self.dashboard_cards, card_id, before_id)
+        self.refresh_dashboard()
+
+    def hide_dashboard_card(self, card_id: CardId) -> None:
+        if self.dashboard_kind is None:
+            return
+        self.dashboard_cards = hide_card(self.dashboard_cards, card_id)
+        self.refresh_dashboard()
+
+    def show_dashboard_card(self, card_id: CardId) -> None:
+        if self.dashboard_kind is None:
+            return
+        self.dashboard_cards = show_card(self.dashboard_cards, card_id)
         self.refresh_dashboard()
 
     def close_dashboard(self) -> None:

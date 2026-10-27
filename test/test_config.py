@@ -10,18 +10,24 @@ from projectapp.config import (
     MIN_NAME_WIDTH_PX,
     PROJECT_DIR_MISSING_MESSAGE,
     check_project_dir,
+    load_dashboard_view_last,
+    load_dashboard_views,
     load_custom_theme,
     load_name_width,
     load_project_dir,
     load_theme,
     parse_name_width,
     resolve_project_dir,
+    save_dashboard_view_last,
+    save_dashboard_views,
     save_custom_theme,
     save_name_width,
     save_project_dir,
     save_theme,
 )
 
+from projectapp.dashboard import PeriodKind
+from projectapp.dashboard_views import CardId, ViewSpec
 from projectapp.theme import DEFAULTS, CustomTheme
 
 
@@ -329,3 +335,24 @@ def test_saving_the_theme_keeps_the_custom_colors(tmp_path: Path) -> None:
     save_custom_theme(DEFAULTS["dark"], tmp_path, select=True)
     save_theme("light", tmp_path)
     assert load_custom_theme(tmp_path) == DEFAULTS["dark"]
+
+
+def test_dashboard_views_round_trip_and_keep_other_keys(tmp_path: Path) -> None:
+    save_theme("dark", tmp_path)
+    views = [ViewSpec("月次", PeriodKind.MONTH, "田中", True, (CardId.LOAD,), None)]
+    save_dashboard_views(views, tmp_path)
+    save_dashboard_view_last("月次", tmp_path)
+    assert load_dashboard_views(tmp_path) == views
+    assert load_dashboard_view_last(tmp_path) == "月次"
+    assert load_theme(tmp_path) == "dark"
+
+
+def test_dashboard_views_default_to_empty_when_missing_or_unreadable(tmp_path: Path) -> None:
+    assert load_dashboard_views(tmp_path) == []
+    assert load_dashboard_view_last(tmp_path) is None
+    (tmp_path / "config.json").write_text("{broken", encoding="utf-8")
+    assert load_dashboard_views(tmp_path) == []
+    assert load_dashboard_view_last(tmp_path) is None
+    (tmp_path / "config.json").write_text(json.dumps({"dashboard_views": 3, "dashboard_view_last": 4}), encoding="utf-8")
+    assert load_dashboard_views(tmp_path) == []
+    assert load_dashboard_view_last(tmp_path) is None

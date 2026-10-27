@@ -6,6 +6,7 @@ import secrets
 from math import isfinite
 from pathlib import Path
 
+from projectapp.dashboard_views import ViewSpec, views_from_config, views_to_config
 from projectapp.storage import BASE_DIR
 from projectapp.theme import CustomTheme, custom_theme_to_dict, parse_custom_theme
 
@@ -83,6 +84,32 @@ def load_task_sections(base_dir: Path = BASE_DIR) -> list[str] | None:
 
 def save_task_sections(keys: list[str], base_dir: Path = BASE_DIR) -> None:
     update_config({"task_sections": [key for key in TASK_SECTION_KEYS if key in keys]}, base_dir)
+
+
+def load_dashboard_views(base_dir: Path = BASE_DIR) -> list[ViewSpec]:
+    """保存したダッシュボードのビュー(`標準` を含まない)。読めないときは空。"""
+    try:
+        raw = read_config(base_dir).get("dashboard_views")
+    except (OSError, ValueError):
+        return []
+    return views_from_config(raw)
+
+
+def save_dashboard_views(views: list[ViewSpec], base_dir: Path = BASE_DIR) -> None:
+    update_config({"dashboard_views": views_to_config(views)}, base_dir)
+
+
+def load_dashboard_view_last(base_dir: Path = BASE_DIR) -> str | None:
+    """最後に使ったダッシュボードのビューの名前。読めないときは None。"""
+    try:
+        name = read_config(base_dir).get("dashboard_view_last")
+    except (OSError, ValueError):
+        return None
+    return name if isinstance(name, str) and name else None
+
+
+def save_dashboard_view_last(name: str, base_dir: Path = BASE_DIR) -> None:
+    update_config({"dashboard_view_last": name}, base_dir)
 
 
 def load_name_width(base_dir: Path = BASE_DIR) -> int:
