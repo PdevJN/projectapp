@@ -34,6 +34,7 @@ from projectapp.forms import (
     compose_actual,
     compose_datetime,
     default_times,
+    build_ratio_limits,
     effective_ratio_text,
     exceeds_decimals,
     in_hours_range,
@@ -2226,3 +2227,71 @@ def test_effective_ratio_text_reports_a_limited_sum() -> None:
     assert effective_ratio_text(row, params) == "相対比率 250%"
     text = effective_ratio_text(row, params, RatioLimits(upper=0.5))
     assert text == "相対比率 150%(加算分 +150% → 上限 +50% に制限)"
+
+
+def test_build_ratio_limits_reads_percent_text() -> None:
+    assert build_ratio_limits("50", "-50") == RatioLimits(0.5, -0.5)
+    assert build_ratio_limits("", "") == RatioLimits(None, None)
+    assert build_ratio_limits(" 0 ", "0") == RatioLimits(0.0, 0.0)
+    assert build_ratio_limits("12.34567", "") == RatioLimits(0.1235, None)
+
+
+@pytest.mark.parametrize(
+    ("upper", "lower"),
+    [("abc", ""), ("", "x"), ("-1", ""), ("291", ""), ("", "1"), ("", "-91"), ("nan", ""), ("inf", ""), ("", "-inf")],
+)
+def test_build_ratio_limits_rejects_invalid_input(upper: str, lower: str) -> None:
+    with pytest.raises(ValueError, match="上限|下限"):
+        build_ratio_limits(upper, lower)
+
+
+def _open_limits_dialog(limits: RatioLimits, applied: list[RatioLimits]) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda *a: None, ratio_limits=limits, on_ratio_limits=applied.append
+            ),
+        )
+
+
+async def test_the_settings_dialog_reports_changed_ratio_limits(user: User) -> None:
+    applied: list[RatioLimits] = []
+    _open_limits_dialog(RatioLimits(), applied)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-limit-upper").elements.pop().set_value("50")
+    user.find(marker="settings-limit-lower").elements.pop().set_value("-50")
+    user.find(marker="settings-apply").click()
+    assert applied == [RatioLimits(0.5, -0.5)]
+
+
+async def test_the_preset_button_fills_plus_and_minus_fifty(user: User) -> None:
+    _open_limits_dialog(RatioLimits(), [])
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-limit-preset").click()
+    assert user.find(marker="settings-limit-upper").elements.pop().value == "50"
+    assert user.find(marker="settings-limit-lower").elements.pop().value == "-50"
+
+
+async def test_the_settings_dialog_does_not_report_unchanged_ratio_limits(user: User) -> None:
+    applied: list[RatioLimits] = []
+    _open_limits_dialog(RatioLimits(0.5, None), applied)
+    await user.open("/")
+    user.find("open").click()
+    assert user.find(marker="settings-limit-upper").elements.pop().value == "50"
+    user.find(marker="settings-apply").click()
+    assert applied == []
+
+
+async def test_an_invalid_ratio_limit_shows_an_error_and_keeps_the_dialog(user: User) -> None:
+    applied: list[RatioLimits] = []
+    _open_limits_dialog(RatioLimits(), applied)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-limit-upper").elements.pop().set_value("500")
+    user.find(marker="settings-apply").click()
+    assert applied == []
+    await user.should_see("相対比率の上限")

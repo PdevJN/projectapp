@@ -488,6 +488,27 @@ def build_work_settings(hours: float | None, start: str) -> tuple[float, time]:
     return hours, work_start
 
 
+def build_ratio_limits(upper_text: str, lower_text: str) -> RatioLimits:
+    """相対比率の加算分の上限・下限(%)の入力を検証する。空欄は制限なし。"""
+
+    def read(text: str, name: str, low: float, high: float) -> float | None:
+        text = text.strip()
+        if not text:
+            return None
+        try:
+            value = float(text) / 100
+        except ValueError:
+            raise ValueError(f"{name}は数値で入力してください") from None
+        if not isfinite(value) or not low - 1e-9 <= value <= high + 1e-9:
+            raise ValueError(f"{name}は{low * 100:+g}〜{high * 100:+g}%で入力してください")
+        return round(value, 4)
+
+    return RatioLimits(
+        read(upper_text, "相対比率の上限", 0.0, MAX_LEVEL_VALUE),
+        read(lower_text, "相対比率の下限", MIN_LEVEL_VALUE, 0.0),
+    )
+
+
 def build_base_date(text: str, today: date) -> date:
     """基準日(プロジェクト開始日)の入力を検証する。過去の日も、タスクより後ろの日も許可する。"""
     parsed = parse_date_input(text, today, roll_forward=False)
@@ -1175,6 +1196,8 @@ def open_settings_dialog(
     on_reference_mode: Callable[[ReferenceMode], object] | None = None,
     plantuml_notice: bool = True,
     on_plantuml_notice: Callable[[bool], object] | None = None,
+    ratio_limits: RatioLimits = RatioLimits(),
+    on_ratio_limits: Callable[[RatioLimits], object] | None = None,
 ) -> None:
     card_width = "w-[30rem] max-w-full" if categories is None and events is None else "w-[46rem] max-w-full"
     with disposable(ui.dialog()) as dialog, ui.card().classes(card_width):
@@ -1245,6 +1268,31 @@ def open_settings_dialog(
             notice = ui.checkbox(
                 "PlantUML の保存後に、割り当てが 100% 超に見える担当者を通知する", value=plantuml_notice
             ).mark("settings-plantuml-notice")
+        limit_upper = limit_lower = None
+        if on_ratio_limits is not None:
+            ui.label("相対比率の加算分の制限").classes("text-caption text-grey")
+            ui.label(
+                "パラメータの判定値の合計に上限・下限を設けます(空欄は制限なし)。基本比率 100% で +50% なら最大 150%"
+            ).classes("text-caption text-grey")
+            with ui.row().classes("items-center"):
+                limit_upper = (
+                    ui.input("上限(%)", value="" if ratio_limits.upper is None else f"{ratio_limits.upper * 100:g}")
+                    .props("dense")
+                    .classes("w-28")
+                    .mark("settings-limit-upper")
+                )
+                limit_lower = (
+                    ui.input("下限(%)", value="" if ratio_limits.lower is None else f"{ratio_limits.lower * 100:g}")
+                    .props("dense")
+                    .classes("w-28")
+                    .mark("settings-limit-lower")
+                )
+
+                def fill_preset() -> None:
+                    limit_upper.set_value("50")
+                    limit_lower.set_value("-50")
+
+                ui.button("+50% / -50%", on_click=fill_preset).props("flat dense").mark("settings-limit-preset")
         rows = [TemplateRow(t.name, t.name, t.pattern) for t in templates or []]
         if templates is not None:
             ui.label("URL テンプレート").classes("text-caption text-grey")
@@ -1479,6 +1527,7 @@ def open_settings_dialog(
             cedit: CategoryEdit | None,
             elist: list[Event] | None,
             base: date | None,
+            limits: RatioLimits | None,
         ) -> None:
             on_apply(*result, ActualMode(mode.value))
             if base is not None and on_base_date is not None:
@@ -1487,6 +1536,8 @@ def open_settings_dialog(
                 on_reference_mode(ReferenceMode(reference.value))
             if notice is not None and on_plantuml_notice is not None and bool(notice.value) is not plantuml_notice:
                 on_plantuml_notice(bool(notice.value))
+            if limits is not None and on_ratio_limits is not None and limits != ratio_limits:
+                on_ratio_limits(limits)
             if edit is not None and on_templates is not None and edit.templates != templates:
                 on_templates(edit)
             if cedit is not None and on_categories is not None and (cedit.categories != categories or cedit.removed_ids):  # Category の比較は id を見ないので、内容が同じ行の入れ直しも、削除として適用する
@@ -1497,7 +1548,7 @@ def open_settings_dialog(
 
         def confirm_delete() -> None:
             confirm.close()
-            commit(pending["result"], pending["edit"], pending["cedit"], pending["elist"], pending["base"])
+            commit(pending["result"], pending["edit"], pending["cedit"], pending["elist"], pending["base"], pending["limits"])
 
         def apply() -> None:
             try:
@@ -1506,6 +1557,11 @@ def open_settings_dialog(
                 cedit = build_categories()
                 elist = build_events()
                 base = build_base_date(base_input.value or "", date.today()) if base_input else None
+                limits = (
+                    build_ratio_limits(limit_upper.value or "", limit_lower.value or "")
+                    if limit_upper is not None and limit_lower is not None
+                    else None
+                )
             except ValueError as exc:
                 error.set_text(str(exc))
                 return
@@ -1519,11 +1575,11 @@ def open_settings_dialog(
             if tasks:
                 messages.append(f"削除するカテゴリを使っているタスクが{tasks}件あります。未定に戻ります。")
             if messages:
-                pending.update(result=result, edit=edit, cedit=cedit, elist=elist, base=base)
+                pending.update(result=result, edit=edit, cedit=cedit, elist=elist, base=base, limits=limits)
                 confirm_text.set_text("\n".join(messages))
                 confirm.open()
                 return
-            commit(result, edit, cedit, elist, base)
+            commit(result, edit, cedit, elist, base, limits)
 
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")
