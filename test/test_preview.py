@@ -32,6 +32,12 @@ def test_preview_settings_pass_show_events_to_the_options() -> None:
     assert PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK).to_options().show_events is True
 
 
+def test_preview_settings_pass_show_today_to_the_options() -> None:
+    settings = PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK, show_today=False)
+    assert settings.to_options().show_today is False
+    assert PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK).to_options().show_today is True
+
+
 def test_validate_period_accepts_a_period_and_one_day() -> None:
     assert validate_period("2026-10-01", "2026-10-31") == (date(2026, 10, 1), date(2026, 10, 31))
     assert validate_period(" 2026-10-05 ", "2026-10-05") == (date(2026, 10, 5), date(2026, 10, 5))
