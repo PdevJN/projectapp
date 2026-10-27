@@ -35,8 +35,8 @@ def reference_task(**kwargs: object) -> Task:
     return Task("基盤開発", id="ref", kind=TaskKind.REFERENCE, ref_project="基盤", **kwargs)  # type: ignore[arg-type]
 
 
-def test_format_version_is_11() -> None:
-    assert FORMAT_VERSION == 11
+def test_format_version_is_12() -> None:
+    assert FORMAT_VERSION == 12
 
 
 def test_a_reference_task_round_trips_with_its_snapshot() -> None:

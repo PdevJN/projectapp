@@ -576,6 +576,12 @@ def _reference_mode(value: Any) -> ReferenceMode:
         raise ValueError(f"参照の方式が正しくありません: {value!r}") from None
 
 
+def _plantuml_overload_notice(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"PlantUML の通知の設定が正しくありません: {value!r}")
+    return value
+
+
 def _ref_project(value: Any) -> str:
     """参照先のファイル名。空・文字列以外・使えない文字は ValueError。"""
     if not isinstance(value, str) or not value.strip():
@@ -1014,6 +1020,9 @@ def parse_project(text: str, name: str) -> Project:
         categories=_categories(raw.get("categories")) if ctx.version >= 3 else [],
         events=_events(raw.get("events")) if ctx.version >= 4 else [],
         reference_mode=_reference_mode(raw.get("reference_mode")) if ctx.version >= 11 else ReferenceMode.LIVE,
+        plantuml_overload_notice=(
+            _plantuml_overload_notice(raw.get("plantuml_overload_notice", True)) if ctx.version >= 12 else True
+        ),
     )
     for task in project.all_tasks():
         if task.kind is TaskKind.REFERENCE:

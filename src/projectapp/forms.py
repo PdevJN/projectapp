@@ -1172,6 +1172,8 @@ def open_settings_dialog(
     on_base_date: Callable[[date], object] | None = None,
     reference_mode: ReferenceMode = ReferenceMode.LIVE,
     on_reference_mode: Callable[[ReferenceMode], object] | None = None,
+    plantuml_notice: bool = True,
+    on_plantuml_notice: Callable[[bool], object] | None = None,
 ) -> None:
     card_width = "w-[30rem] max-w-full" if categories is None and events is None else "w-[46rem] max-w-full"
     with disposable(ui.dialog()) as dialog, ui.card().classes(card_width):
@@ -1237,6 +1239,11 @@ def open_settings_dialog(
             ui.label("スナップショットは、参照行の値を保存します(右クリックの「更新」で取り直す)").classes(
                 "text-caption text-grey"
             )
+        notice = None
+        if on_plantuml_notice is not None:
+            notice = ui.checkbox(
+                "PlantUML の保存後に、割り当てが 100% 超に見える担当者を通知する", value=plantuml_notice
+            ).mark("settings-plantuml-notice")
         rows = [TemplateRow(t.name, t.name, t.pattern) for t in templates or []]
         if templates is not None:
             ui.label("URL テンプレート").classes("text-caption text-grey")
@@ -1477,6 +1484,8 @@ def open_settings_dialog(
                 on_base_date(base)
             if reference is not None and on_reference_mode is not None and ReferenceMode(reference.value) is not reference_mode:
                 on_reference_mode(ReferenceMode(reference.value))
+            if notice is not None and on_plantuml_notice is not None and bool(notice.value) is not plantuml_notice:
+                on_plantuml_notice(bool(notice.value))
             if edit is not None and on_templates is not None and edit.templates != templates:
                 on_templates(edit)
             if cedit is not None and on_categories is not None and (cedit.categories != categories or cedit.removed_ids):  # Category の比較は id を見ないので、内容が同じ行の入れ直しも、削除として適用する

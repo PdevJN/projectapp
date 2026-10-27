@@ -5750,6 +5750,37 @@ async def test_save_plantuml_shows_no_overload_warning_normally(user: User, tmp_
     await user.should_not_see("日単位")
 
 
+async def test_save_plantuml_skips_the_overload_warning_when_the_option_is_off(user: User, tmp_path: Path) -> None:
+    target = tmp_path / "chart.puml"
+    a = Task("前", planned_start=datetime(2026, 10, 13, 9), planned_end=datetime(2026, 10, 14, 12), assignees=[Assignee("田中", 0.6)])
+    b = Task("後", planned_start=datetime(2026, 10, 14, 13), planned_end=datetime(2026, 10, 15, 18), assignees=[Assignee("田中", 0.6)])
+    view = await open_preview(user, tmp_path, FakeExporter(path=target), extra=a)
+    view.project.members = [Member("田中")]
+    view.project.plantuml_overload_notice = False
+    view.save_task((), None, b)
+    view.snapshot = asdict(view.project)
+    user.find(marker="preview-plantuml").click()
+    assert await wait_until(lambda: target.exists())
+    await user.should_see("保存しました")
+    await user.should_not_see("田中 10/14")
+
+
+async def test_apply_plantuml_notice_is_an_undoable_unsaved_edit(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("開発", [Task("実装")])]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    assert not view.is_dirty()
+    view.apply_plantuml_notice(False)
+    assert view.project.plantuml_overload_notice is False and view.is_dirty()
+    view.undo()
+    assert view.project.plantuml_overload_notice is True and not view.is_dirty()
+
+
 async def test_editing_one_week_changes_only_that_week_and_the_union(user: User, tmp_path: Path) -> None:
     save_cache({}, tmp_path)
     weeks = [[Assignee("田中")], [Assignee("田中"), Assignee("鈴木")]]
