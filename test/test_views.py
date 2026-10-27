@@ -35,7 +35,7 @@ from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Lev
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
-from projectapp.decompose import Part
+from projectapp.decompose import ParamMode, Part
 from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.plantuml import PLANTUML_FILE_TYPES
 from projectapp.puml_import import PLANTUML_OPEN_FILE_TYPES
@@ -735,6 +735,19 @@ async def test_decompose_task_makes_a_summary_in_one_undo_step(user: User, tmp_p
     view.undo()
     assert [t.name for t in view.project.sections[0].tasks] == ["実装"]
     assert view.project.sections[0].tasks[0].kind is TaskKind.NORMAL
+
+
+async def test_apply_decompose_passes_the_parameter_mode(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    save_project(Project("既存", sections=[Section("開発", [Task("実装", effort_hours=6.0, parameters=["A", "B"])])]), tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    view.apply_decompose((0,), 0, [Part("A", 3.0), Part("B", 3.0)], True, False, ParamMode.PER_PARAMETER)
+    assert [t.parameters for t in view.project.sections[0].tasks[1:]] == [["A"], ["B"]]
 
 
 async def open_edit_dialog_of_the_only_task(user: User, tmp_path: Path) -> MainView:

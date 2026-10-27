@@ -3,7 +3,7 @@ from datetime import date, datetime
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.decompose import Part
+from projectapp.decompose import ParamMode, Part
 from projectapp.decompose_dialog import open_decompose_dialog
 
 from projectapp.filtering import TaskFilter
@@ -129,13 +129,21 @@ async def test_links_from_a_hidden_child_disappear_while_the_summary_is_collapse
     assert 'data-link="a-z"' not in html and 'data-link="m-z"' in html
 
 
-def mount_decompose(task: Task, calls: list[tuple[list[Part], bool, bool]], reason: str | None = None, fail: str | None = None) -> None:
+def mount_decompose(
+    task: Task,
+    calls: list[tuple[list[Part], bool, bool]],
+    reason: str | None = None,
+    fail: str | None = None,
+    modes: list[ParamMode] | None = None,
+) -> None:
     @ui.page("/")
     def index() -> None:
-        def on_apply(parts: list[Part], chain: bool, new_section: bool) -> None:
+        def on_apply(parts: list[Part], chain: bool, new_section: bool, params: ParamMode) -> None:
             if fail:
                 raise ValueError(fail)
             calls.append((parts, chain, new_section))
+            if modes is not None:
+                modes.append(params)
 
         ui.button("開く", on_click=lambda: open_decompose_dialog(task, reason, on_apply))
 
@@ -266,7 +274,7 @@ def mount_settled(task: Task, calls: list[tuple[list[Part], bool, bool]]) -> Non
 
     @ui.page("/")
     def page() -> None:
-        def apply(parts: list[Part], chain: bool, new_section: bool) -> None:
+        def apply(parts: list[Part], chain: bool, new_section: bool, params: ParamMode) -> None:
             calls.append((parts, chain, new_section))
 
         open_decompose_dialog(task, None, apply, Settled(3.0, []))
@@ -283,3 +291,75 @@ async def test_the_settled_dialog_fixes_the_first_row_and_splits_the_rest(user: 
     await user.should_not_see(marker="decompose-remove-1")  # 3 行より減らせない
     user.find(marker="decompose-apply").click()
     assert [(p.name, p.effort_hours) for p in calls[0][0]] == [("実装 1", 3.0), ("実装 2", 3.5), ("実装 3", 3.5)]
+
+
+def param_task(*parameters: str) -> Task:
+    return Task("実装", effort_hours=9.0, parameters=list(parameters))
+
+
+async def test_the_parameter_option_is_hidden_without_parameters(user: User) -> None:
+    mount_decompose(Task("実装", effort_hours=4.0), [])
+    await user.open("/")
+    user.find("開く").click()
+    await user.should_not_see(marker="decompose-params")
+
+
+async def test_the_parameter_option_defaults_to_inherit_and_passes_the_mode(user: User) -> None:
+    calls: list[tuple[list[Part], bool, bool]] = []
+    modes: list[ParamMode] = []
+    mount_decompose(param_task("A", "B"), calls, modes=modes)
+    await user.open("/")
+    user.find("開く").click()
+    radio = user.find(marker="decompose-params").elements.pop()
+    assert radio.value is ParamMode.INHERIT
+    user.find(marker="decompose-apply").click()
+    assert modes == [ParamMode.INHERIT]
+
+
+async def test_choosing_none_passes_the_mode_and_keeps_the_rows(user: User) -> None:
+    calls: list[tuple[list[Part], bool, bool]] = []
+    modes: list[ParamMode] = []
+    mount_decompose(param_task("A", "B"), calls, modes=modes)
+    await user.open("/")
+    user.find("開く").click()
+    user.find(marker="decompose-params").elements.pop().set_value(ParamMode.NONE)
+    user.find(marker="decompose-apply").click()
+    assert modes == [ParamMode.NONE] and [p.name for p in calls[0][0]] == ["実装 1", "実装 2"]
+
+
+async def test_per_parameter_makes_one_fixed_row_per_parameter(user: User) -> None:
+    calls: list[tuple[list[Part], bool, bool]] = []
+    modes: list[ParamMode] = []
+    mount_decompose(param_task("A", "B", "C"), calls, modes=modes)
+    await user.open("/")
+    user.find("開く").click()
+    user.find(marker="decompose-params").elements.pop().set_value(ParamMode.PER_PARAMETER)
+    assert [user.find(marker=f"decompose-name-{n}").elements.pop().value for n in range(3)] == ["A", "B", "C"]
+    assert user.find(marker="decompose-effort-0").elements.pop().value == 3.0
+    assert not user.find(marker="decompose-add").elements.pop().enabled
+    await user.should_not_see(marker="decompose-remove-0")
+    user.find(marker="decompose-name-1").elements.pop().set_value("Bの分")
+    user.find(marker="decompose-apply").click()
+    assert modes == [ParamMode.PER_PARAMETER]
+    assert calls[0][0] == [Part("A", 3.0), Part("Bの分", 3.0), Part("C", 3.0)]
+
+
+async def test_leaving_per_parameter_restores_the_two_default_rows(user: User) -> None:
+    mount_decompose(param_task("A", "B", "C"), [])
+    await user.open("/")
+    user.find("開く").click()
+    radio = user.find(marker="decompose-params").elements.pop()
+    radio.set_value(ParamMode.PER_PARAMETER)
+    radio.set_value(ParamMode.INHERIT)
+    assert user.find(marker="decompose-name-0").elements.pop().value == "実装 1"
+    await user.should_not_see(marker="decompose-name-2")
+    assert user.find(marker="decompose-add").elements.pop().enabled
+
+
+async def test_per_parameter_is_not_offered_with_the_reason_when_unavailable(user: User) -> None:
+    mount_decompose(param_task("A"), [])
+    await user.open("/")
+    user.find("開く").click()
+    radio = user.find(marker="decompose-params").elements.pop()
+    assert ParamMode.PER_PARAMETER not in radio.options
+    await user.should_see("パラメータが 2 つ以上必要です")

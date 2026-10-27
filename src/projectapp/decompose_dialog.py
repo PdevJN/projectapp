@@ -4,10 +4,24 @@ from collections.abc import Callable
 
 from nicegui import ui
 
-from projectapp.decompose import MAX_PARTS, Part, Settled, default_parts, default_parts_settled
+from projectapp.decompose import (
+    MAX_PARTS,
+    ParamMode,
+    Part,
+    Settled,
+    default_parts,
+    default_parts_by_parameter,
+    default_parts_settled,
+    parameter_block_reason,
+)
 from projectapp.models import MAX_TASK_NAME_LENGTH, Task
 
 MIN_ROWS = 2
+PARAM_LABELS = {
+    ParamMode.INHERIT: "全員が引き継ぐ",
+    ParamMode.NONE: "付けない",
+    ParamMode.PER_PARAMETER: "パラメータごとに子を作る(1 つずつ付ける)",
+}
 
 
 def total_text(rows: list[Part], original: float) -> str:
@@ -20,10 +34,10 @@ def total_text(rows: list[Part], original: float) -> str:
 def open_decompose_dialog(
     task: Task,
     section_reason: str | None,
-    on_apply: Callable[[list[Part], bool, bool], object],
+    on_apply: Callable[[list[Part], bool, bool, ParamMode], object],
     settled: Settled | None = None,
 ) -> ui.dialog:
-    """`on_apply(行, 連結する, 新しいセクションにまとめる)`。ValueError なら、閉じずにエラー欄へ出す。
+    """`on_apply(行, 連結する, 新しいセクションにまとめる, 子のパラメータ)`。ValueError なら、閉じずにエラー欄へ出す。
     `section_reason` は、新しいセクションにまとめられない理由(まとめられるなら None)。
     `settled` があれば(実績・進捗度のあるタスク)、1 行目は消し込み(工数=消化分で固定)、残りは「工数 − 消化分」を割る。"""
     min_rows = MIN_ROWS + 1 if settled else MIN_ROWS
@@ -50,7 +64,24 @@ def open_decompose_dialog(
         if section_reason is not None:
             section.set_enabled(False)
             ui.label(section_reason).classes("text-caption text-grey")
+        mode = ParamMode.INHERIT
+        if task.parameters:
+            reason = parameter_block_reason(task, settled is not None)
+            labels = {m: label for m, label in PARAM_LABELS.items() if reason is None or m is not ParamMode.PER_PARAMETER}
+            ui.label("子のパラメータ").classes("text-caption text-grey")
+            params = ui.radio(labels, value=mode, on_change=lambda e: set_mode(e.value)).props("dense")
+            params.mark("decompose-params")
+            if reason is not None:
+                ui.label(reason).classes("text-caption text-grey").mark("decompose-params-reason")
         error = ui.label("").classes("text-negative").mark("decompose-error")
+
+        def set_mode(value: ParamMode) -> None:
+            """「パラメータごと」は行をパラメータと 1 対 1 に作り替える。戻すと通常の初期値(編集した行は捨てる)。"""
+            nonlocal mode, rows
+            if (value is ParamMode.PER_PARAMETER) != (mode is ParamMode.PER_PARAMETER):
+                rows = default_parts_by_parameter(task) if value is ParamMode.PER_PARAMETER else default_parts(task, MIN_ROWS)
+            mode = value
+            redraw()
 
         def set_name(n: int, value: str | None) -> None:
             rows[n] = Part(value or "", rows[n].effort_hours)
@@ -73,11 +104,11 @@ def open_decompose_dialog(
                         if settled and n == 0:
                             effort.set_enabled(False)
                             ui.label("消し込み").classes("text-caption text-grey").mark("decompose-settled-0")
-                        elif len(rows) > min_rows:
+                        elif len(rows) > min_rows and mode is not ParamMode.PER_PARAMETER:
                             ui.button(icon="close", on_click=lambda n=n: remove_row(n)).props(
                                 "flat dense round size=sm"
                             ).mark(f"decompose-remove-{n}")
-            add.set_enabled(len(rows) < MAX_PARTS)
+            add.set_enabled(len(rows) < MAX_PARTS and mode is not ParamMode.PER_PARAMETER)
             total.set_text(total_text(rows, task.effort_hours))
 
         def add_row() -> None:
@@ -91,7 +122,7 @@ def open_decompose_dialog(
         def apply() -> None:
             error.set_text("")
             try:
-                on_apply(list(rows), bool(chain.value), bool(section.value) and section_reason is None)
+                on_apply(list(rows), bool(chain.value), bool(section.value) and section_reason is None, mode)
             except ValueError as exc:
                 error.set_text(str(exc))
                 return

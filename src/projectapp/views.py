@@ -120,7 +120,7 @@ from projectapp.gitops import FileChange, GitResult, PullKind, PullOps, default_
 from projectapp.gitops import commit as commit_files_in_git
 from projectapp.gitops import push as push_to_remote
 from projectapp.gitstate import GitKind, GitState, describe, read_git_state, tooltip
-from projectapp.decompose import Part, can_make_section, decompose, settle
+from projectapp.decompose import ParamMode, Part, can_make_section, decompose, settle
 from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
@@ -1610,8 +1610,8 @@ class MainView:
     ) -> None:
         """分解ダイアログを開く。実行は `apply_decompose`。`on_done` は、分解に成功したあとに呼ぶ(開いたままの編集ダイアログを閉じる)。"""
 
-        def apply(parts: list[Part], chain: bool, new_section: bool) -> None:
-            self.apply_decompose(path, index, parts, chain, new_section)
+        def apply(parts: list[Part], chain: bool, new_section: bool, params: ParamMode) -> None:
+            self.apply_decompose(path, index, parts, chain, new_section, params)
             if on_done is not None:
                 on_done()
 
@@ -1751,12 +1751,25 @@ class MainView:
             self.after_edit()
 
     def apply_decompose(
-        self, path: SectionPath, index: int, parts: list[Part], chain: bool, new_section: bool
+        self,
+        path: SectionPath,
+        index: int,
+        parts: list[Part],
+        chain: bool,
+        new_section: bool,
+        params: ParamMode = ParamMode.INHERIT,
     ) -> None:
         """分解して再描画する(元に戻すの 1 ステップ)。不正なときは ValueError で、何も変えない。"""
         name = self.tasks_in(path)[index].name
         children = decompose(
-            self.project, path, index, parts, chain=chain, new_section=new_section, holidays=self.holidays
+            self.project,
+            path,
+            index,
+            parts,
+            chain=chain,
+            new_section=new_section,
+            holidays=self.holidays,
+            params=params,
         )
         if path:
             self.gantt.expand_section(path)
