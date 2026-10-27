@@ -43,6 +43,7 @@ class PreviewSettings:
     show_alerts: bool = True
     show_events: bool = True
     excluded: frozenset[str] = frozenset()  # PlantUML と画像に出さないタスクの id(チェックを外したもの)
+    show_today: bool = True
 
     def to_options(self, on_select: Callable[[list[str], bool], object] | None = None) -> ViewOptions:
         return ViewOptions(
@@ -51,6 +52,7 @@ class PreviewSettings:
             show_chips=self.show_chips,
             show_alerts=self.show_alerts,
             show_events=self.show_events,
+            show_today=self.show_today,
             read_only=True,
             selectable=True,
             excluded=self.excluded,
@@ -113,6 +115,7 @@ class PreviewBar:
                     "preview-alerts"
                 )
                 self.events = ui.checkbox("イベント", value=True).mark("preview-events")
+                self.today = ui.checkbox("今日", value=True).mark("preview-today")
             with ui.row().classes("w-full items-center gap-4").mark("preview-output"):
                 self.select_all = ui.checkbox("すべて選択", value=True).mark("preview-select-all")
                 self.select_count = ui.label("").classes("text-caption").mark("preview-select-count")
@@ -130,7 +133,7 @@ class PreviewBar:
             self.warning = ui.label("").classes("text-caption text-grey").mark("preview-warning")
         box.set_visibility(False)
         self.box = box
-        for widget in (self.period, self.scale, self.chips, self.alerts, self.events):
+        for widget in (self.period, self.scale, self.chips, self.alerts, self.events, self.today):
             widget.on_value_change(lambda _event: self.on_change())
         self.select_all.on_value_change(self.on_select_all_changed)
 
@@ -158,6 +161,7 @@ class PreviewBar:
             self.chips.set_value(settings.show_chips)
             self.alerts.set_value(settings.show_alerts)
             self.events.set_value(settings.show_events)
+            self.today.set_value(settings.show_today)
         finally:
             self.on_change = callback
         self.set_error(None)
@@ -169,7 +173,7 @@ class PreviewBar:
         if self.box is not None:
             self.box.set_visibility(False)
 
-    def read(self) -> tuple[str, str, Scale, bool, bool, bool]:
+    def read(self) -> tuple[str, str, Scale, bool, bool, bool, bool]:
         start, end = split_period(self.period.value or "")
         return (
             start,
@@ -178,6 +182,7 @@ class PreviewBar:
             bool(self.chips.value),
             bool(self.alerts.value),
             bool(self.events.value),
+            bool(self.today.value),
         )
 
     def set_error(self, text: str | None) -> None:

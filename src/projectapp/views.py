@@ -488,7 +488,7 @@ class MainView:
         self.reset_history()
         self.gantt.set_project(self.project)
         self.gantt.reset_filter()
-        self.gantt.reset_scroll()  # 別のプロジェクトは、先頭から見せる(編集後の再描画では動かさない)
+        self.gantt.scroll_on_open()  # 別のプロジェクトは、先頭に戻してから今日の位置へ(編集後の再描画では動かさない)
         for name in missing_references(project, self.reference_resolver, datetime.now()):
             ui.notify(f"参照先のプロジェクトが見つかりません: {name}", type="warning")
         if stale := self.stale_references():
@@ -1114,7 +1114,7 @@ class MainView:
         if self.preview is None or self.saving:
             return  # 保存中は、撮っている画面を変えない
         self.preview_notice = None  # 利用者が設定を変えたので、お知らせは消す
-        start_text, end_text, scale, chips, alerts, events = self.preview_bar.read()
+        start_text, end_text, scale, chips, alerts, events, today = self.preview_bar.read()
         try:
             start, end = validate_period(start_text, end_text)
         except ValueError as exc:
@@ -1128,7 +1128,7 @@ class MainView:
             self.preview_bar.set_warning(None)
             self.preview_bar.set_save_enabled(False)
             return
-        self.preview = PreviewSettings(start, end, scale, chips, alerts, events, self.preview.excluded)
+        self.preview = PreviewSettings(start, end, scale, chips, alerts, events, self.preview.excluded, show_today=today)
         self.apply_preview(self.preview)
 
     def selectable_ids(self) -> list[str]:
@@ -1213,6 +1213,7 @@ class MainView:
             show_chips=settings.show_chips,
             show_alerts=settings.show_alerts,
             show_events=settings.show_events,
+            show_today=settings.show_today,
             excluded=settings.excluded,
             references=self.reference_values(),
         )

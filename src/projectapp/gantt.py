@@ -60,6 +60,7 @@ from projectapp.timeline import (
     month_bands,
     overallocations,
     progress_state,
+    today_position,
     year_bands,
 )
 
@@ -81,6 +82,11 @@ DEADLINE_MARKER_HALF_PX = 6  # 「◆」の幅の半分。締切の位置が目�
 CHECKPOINT_MARKER_PX = 20  # チェックポイントの ◆ の大きさ(締切の小さな ◆ より大きい)
 WORKMARK_HEIGHT_PX = 4  # 担当者の稼働日の上書きの印の高さ
 DEADLINE_COLOR = "#f57c00"  # 赤は予定超過の背景と競合するので使わない
+TODAY_COLOR = "#e53935"  # 今日の線。ダークでは明るい赤に替える
+TODAY_DARK_COLOR = "#ff5252"
+TODAY_COLOR_VAR = "var(--today)"
+TODAY_LINE_WIDTH_PX = 2
+TODAY_CSS = f":root {{ --today: {TODAY_COLOR}; }}\nbody.body--dark {{ --today: {TODAY_DARK_COLOR}; }}"
 OVERLOAD_STRIPES = (  # 割り当て合計が100%を超える期間の縞。タスクの色に依存しないよう白と黒の半透明を重ねる
     "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 4px, rgba(0,0,0,0.35) 4px 8px)"
 )
@@ -164,6 +170,7 @@ class ViewOptions:
     show_chips: bool = True  # 名前欄のチップと進捗
     show_alerts: bool = True  # 予定超過の赤みと、割り当て超過の縞
     show_events: bool = True  # イベントの帯とセルの色
+    show_today: bool = True  # 今日の赤い縦線
     read_only: bool = False  # 編集の部品・クリック・ドラッグをなくす
     selectable: bool = False  # 行と見出しの先頭に、出力のチェックボックスを出す(読み取り専用のときだけ)
     excluded: frozenset[str] = frozenset()  # チェックを外したタスクの id。薄く描く
@@ -281,6 +288,16 @@ SCROLL_RESET_JS = (
     "document.querySelector('[data-chart-scroll]')?.scrollTo({top: 0, left: 0});"
     " window.scrollTo({top: 0})"
 )
+
+
+def today_scroll_js(x: float, name_width: int) -> str:
+    """今日の線が、名前の欄を除いたチャート領域の左から 1/4 の位置に来るよう、横にスクロールする。"""
+    return (
+        "requestAnimationFrame(() => { const el = document.querySelector('[data-chart-scroll]');"
+        f" if (el) el.scrollTo({{left: Math.max(0, {x:.1f} - (el.clientWidth - {name_width}) / 4)}}) }})"
+    )
+
+
 # 非表示(display: none)にすると、枠のスクロール位置が失われる。要素の更新(隠す)は run_javascript より先にブラウザへ届き、
 # 隠す直前には位置を読めないので、スクロールのたびに覚える(見えているときだけ。隠れて 0 を返すときは上書きしない)。
 # 出したあとの次のフレームで戻す
@@ -506,6 +523,8 @@ class GanttChart:
         self.syncing_period = False  # 欄を書き換えるあいだは、入力の変更として扱わない
         self.toolbar: ui.row | None = None
         self.scroll_box: ui.element | None = None
+        self.today_button: ui.button | None = None
+        self.today_tooltip: ui.tooltip | None = None
         self.task_filter = TaskFilter()
         self.quick_add: Position | None = None  # 名前の入力行を出している位置。保存しない
         self.quick_parent: str | None = None  # 入力行で作るタスクを、子にするまとめの id。なければ通常のタスク
@@ -723,6 +742,32 @@ class GanttChart:
     def reset_scroll(self) -> None:
         if self.client is not None:
             self.client.run_javascript(SCROLL_RESET_JS)
+
+    def today_x(self, columns: list[Column] | None = None) -> float | None:
+        """今日の線のチャート内の横位置(px)。表示範囲の外なら None。"""
+        if columns is None:
+            columns = build_columns(
+                self.project, self.view_scale, self.holidays, self.view_period, self.reference_values()
+            )
+        position = today_position(self.now(), columns, self.view_scale)
+        return None if position is None else position * COLUMN_WIDTH_PX[self.view_scale]
+
+    def scroll_to_today(self) -> None:
+        x = self.today_x()
+        if self.client is not None and x is not None:
+            self.client.run_javascript(today_scroll_js(x, self.name_width))
+
+    def scroll_on_open(self) -> None:
+        """別のプロジェクトを開いた直後だけ、先頭に戻してから今日の位置へ移る(範囲の外なら先頭のまま)。"""
+        self.reset_scroll()
+        self.scroll_to_today()
+
+    def sync_today_button(self, x: float | None) -> None:
+        """`当日`ボタンの押せる・押せないと、ホバーの文言を、今日が表示範囲の中かに合わせる。"""
+        if self.today_button is None or self.today_tooltip is None:
+            return
+        self.today_button.set_enabled(x is not None)
+        self.today_tooltip.set_text("今日の位置へ移ります" if x is not None else "今日は表示期間の外です")
 
     def scroll_to_top(self) -> None:
         if self.client is not None:
@@ -948,6 +993,7 @@ class GanttChart:
         ui.add_css(STICKY_CSS)
         ui.add_css(PROGRESS_CSS)
         ui.add_css(STATUS_CSS)
+        ui.add_css(TODAY_CSS)
         ui.add_css(PRIORITY_CSS)
         ui.add_css(LINK_CSS)
         ui.add_css(CONTEXT_MENU_CSS)
@@ -970,6 +1016,14 @@ class GanttChart:
                 value=self.scale,
                 on_change=lambda e: self.set_scale(Scale(e.value)),
             ).classes("shrink-0").mark("scale-toggle")
+            self.today_button = (
+                ui.button("当日", icon="today", on_click=self.scroll_to_today)
+                .props("flat dense")
+                .classes("shrink-0")
+                .mark("today-button")
+            )
+            with self.today_button:
+                self.today_tooltip = ui.tooltip("今日の位置へ移ります")
             with ui.column().classes("gap-0 shrink-0"):  # 欄とエラーを縦に並べる(エラーが空のときは高さを取らない)
                 self.period_input = (
                     ui.input(placeholder="表示期間(空は自動)", on_change=lambda e: self.on_period_changed(e.value))
@@ -1274,6 +1328,7 @@ class GanttChart:
         columns = build_columns(
             self.project, self.view_scale, self.holidays, self.view_period, self.reference_values()
         )
+        self.sync_today_button(self.today_x(columns))
         self.overloads = overallocations(self.project, self.holidays)
         self.category_lookup = by_id(self.project.categories)
         self.icon_lookup = {m.name: m.icon for m in self.project.members if m.icon}
@@ -1288,6 +1343,7 @@ class GanttChart:
             if self.view_scale is Scale.DAY:
                 self.stripes(columns, width, top)
             self.event_tints(columns, width, top)
+            self.today_line(columns, width, top)
             self.header(columns, width)
             self.no_match_message()
             self.links(columns, width)
@@ -1387,6 +1443,18 @@ class GanttChart:
 
     def shown_events(self) -> list[Event]:
         return self.project.events if self.options.show_events else []
+
+    def today_line(self, columns: list[Column], width: int, top: int) -> None:
+        """今日の赤い縦線。年・月の帯の下から最下行まで。クリックは通す。内容は定数と数値だけ。"""
+        position = today_position(self.now(), columns, self.view_scale)
+        if not self.options.show_today or position is None:
+            return
+        left = from_name(position * width - TODAY_LINE_WIDTH_PX / 2)
+        ui.element("div").style(
+            f"position: absolute; top: {top}px; bottom: 0; left: {left};"
+            f" width: {TODAY_LINE_WIDTH_PX}px; background: {TODAY_COLOR_VAR};"
+            " pointer-events: none; z-index: 1"
+        ).mark("today-line")
 
     def event_tints(self, columns: list[Column], width: int, top: int) -> None:
         """イベントの期間のセルの色。内容は定数と検証済みの色だけで、利用者の文字列を含まない。"""

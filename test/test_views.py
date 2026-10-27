@@ -1819,7 +1819,7 @@ async def test_the_preview_bar_has_a_view_row_and_an_output_row(user: User, tmp_
     view_row = markers_under("preview-bar")
     output_row = markers_under("preview-output")
     # 1 段目: 期間・スケール・表示項目。保存・戻る・すべて選択は含まない
-    assert {"preview-period", "preview-scale", "preview-chips", "preview-alerts", "preview-events"} <= view_row
+    assert {"preview-period", "preview-scale", "preview-chips", "preview-alerts", "preview-events", "preview-today"} <= view_row
     assert not {"preview-back", "preview-save", "preview-plantuml", "preview-select-all"} & view_row
     # 2 段目: 出力の選択と、戻る・保存
     assert {"preview-select-all", "preview-select-count", "preview-back", "preview-save", "preview-plantuml"} <= output_row
@@ -1954,6 +1954,14 @@ async def test_unchecking_preview_events_turns_off_the_event_options(user: User,
     user.find(marker="preview-events").elements.pop().set_value(False)
     assert view.gantt.options.show_events is False
     assert view.preview is not None and view.preview.show_events is False
+
+
+async def test_unchecking_preview_today_turns_off_the_today_line(user: User, tmp_path: Path) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    assert view.gantt.options.show_today is True
+    user.find(marker="preview-today").elements.pop().set_value(False)
+    assert view.gantt.options.show_today is False
+    assert view.preview is not None and view.preview.show_today is False
 
 
 async def test_a_bad_period_disables_saving_and_shows_the_reason(user: User, tmp_path: Path) -> None:

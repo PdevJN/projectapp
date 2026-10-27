@@ -227,6 +227,32 @@ def test_events_are_colored_cells_and_bars_clipped_to_the_period() -> None:
     assert not any("繁忙期" in line or "イベント" in line or "are colored" in line for line in off)
 
 
+TODAY = datetime(2026, 10, 14, 9)  # PERIOD(10/12〜10/30)の中
+
+
+def test_today_is_a_red_colored_day() -> None:
+    assert "2026-10-14 is colored in red" in lines(Project("p"), now=TODAY)
+
+
+def test_today_line_is_omitted_when_off_or_outside_the_period() -> None:
+    assert not any("is colored in red" in line for line in lines(Project("p"), now=TODAY, show_today=False))
+    assert not any("is colored in red" in line for line in lines(Project("p"), now=datetime(2026, 10, 1)))
+    assert not any("is colored in red" in line for line in lines(Project("p"), now=datetime(2026, 10, 31)))
+
+
+def test_today_is_inclusive_at_both_ends_of_the_period() -> None:
+    assert "2026-10-12 is colored in red" in lines(Project("p"), now=datetime(2026, 10, 12, 0, 0))
+    assert "2026-10-30 is colored in red" in lines(Project("p"), now=datetime(2026, 10, 30, 23, 59))
+
+
+def test_today_comes_after_the_event_colors_and_is_independent_of_show_events() -> None:
+    event = Event(date(2026, 10, 13), date(2026, 10, 16), "繁忙期", "lightpink", id="e1")
+    out = lines(Project("p", events=[event]), now=TODAY)
+    assert out.index("2026-10-14 is colored in red") > out.index("2026-10-13 to 2026-10-16 are colored in #ffb6c1")
+    off = lines(Project("p", events=[event]), now=TODAY, show_events=False)
+    assert "2026-10-14 is colored in red" in off
+
+
 def test_filter_keeps_matching_tasks_and_drops_sections_without_a_match() -> None:
     project = Project(
         "p",

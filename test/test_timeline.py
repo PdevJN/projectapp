@@ -33,6 +33,7 @@ from projectapp.timeline import (
     interval_span,
     overallocations,
     deadline_position,
+    today_position,
     computed_end,
     effective_end,
     is_overdue,
@@ -387,6 +388,38 @@ def test_deadline_position_at_the_boundaries() -> None:
     assert deadline_position(datetime(2026, 10, 5, 0, 0), columns) == 0.0
     last = datetime.combine(columns[-1].end, time.min) - timedelta(minutes=1)
     assert deadline_position(last, columns) is not None
+
+
+def test_today_position_day_follows_the_time_of_day() -> None:
+    columns = build_columns(Project("p", base_date=BASE), Scale.DAY)
+    assert today_position(datetime(2026, 10, 7, 12), columns, Scale.DAY) == 2.5
+    assert today_position(datetime(2026, 10, 7, 6), columns, Scale.DAY) == 2.25
+
+
+def test_today_position_week_is_the_middle_of_the_day() -> None:
+    columns = build_columns(Project("p", base_date=BASE), Scale.WEEK)
+    morning = today_position(datetime(2026, 10, 7, 1), columns, Scale.WEEK)
+    evening = today_position(datetime(2026, 10, 7, 23), columns, Scale.WEEK)
+    assert morning == evening == pytest.approx(2.5 / 7)  # 月曜始まりの水曜の 12:00
+
+
+def test_today_position_month_is_the_middle_of_the_column() -> None:
+    columns = build_columns(Project("p", base_date=BASE), Scale.MONTH)
+    index = next(i for i, c in enumerate(columns) if c.start <= date(2026, 10, 20) < c.end)
+    assert today_position(datetime(2026, 10, 2, 9), columns, Scale.MONTH) == index + 0.5
+    assert today_position(datetime(2026, 10, 31, 23), columns, Scale.MONTH) == index + 0.5
+
+
+@pytest.mark.parametrize("scale", [Scale.DAY, Scale.WEEK, Scale.MONTH])
+def test_today_position_outside_the_range_is_none(scale: Scale) -> None:
+    columns = build_columns(Project("p", base_date=BASE), scale)
+    assert today_position(datetime.combine(columns[0].start, time.min) - timedelta(minutes=1), columns, scale) is None
+    assert today_position(datetime.combine(columns[-1].end, time.min), columns, scale) is None
+
+
+def test_today_position_at_the_first_instant_is_zero() -> None:
+    columns = build_columns(Project("p", base_date=BASE), Scale.DAY)
+    assert today_position(datetime.combine(columns[0].start, time.min), columns, Scale.DAY) == 0.0
 
 
 def test_visible_range_survives_a_planned_end_at_the_end_of_time() -> None:
