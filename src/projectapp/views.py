@@ -1213,6 +1213,7 @@ class MainView:
             show_chips=settings.show_chips,
             show_alerts=settings.show_alerts,
             show_events=settings.show_events,
+            show_today=settings.show_today,
             excluded=settings.excluded,
             references=self.reference_values(),
         )
