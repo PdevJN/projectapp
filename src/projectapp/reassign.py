@@ -3,8 +3,8 @@
 from collections.abc import Sequence
 from datetime import date, datetime, time
 
-from projectapp.models import Status, Task, TaskKind
-from projectapp.timeline import Worker, calc_end, combine_rate
+from projectapp.models import Project, RatioLimits, Status, Task, TaskKind
+from projectapp.timeline import Worker, assignees_rate, calc_end, combine_rate, crew_of
 
 RATE_TOLERANCE = 1e-9  # 換算率が変わったとみなす差
 
@@ -51,3 +51,21 @@ def reviewed_end(
         return None
     start = max(now, task.planned_start) if task.planned_start else now
     return calc_end(start, remaining, daily_hours, work_start, holidays, list(crew) if crew else [Worker(combine_rate(new_rate, 1.0))])
+
+
+def limit_reviews(
+    project: Project, new_limits: RatioLimits, holidays: dict[date, str], now: datetime
+) -> list[tuple[Task, datetime]]:
+    """上限・下限を new_limits に変えたとき、完了予定の見直しが要るタスクと、見直した完了予定。project は変えない。"""
+    result: list[tuple[Task, datetime]] = []
+    for task in project.all_tasks():
+        args = (task.assignees, project.members, project.parameters, task.parameters)
+        old_rate = assignees_rate(*args, project.ratio_limits)
+        new_rate = assignees_rate(*args, new_limits)
+        if not needs_review(task, old_rate, new_rate):
+            continue
+        crew = crew_of(*args, new_limits)
+        end = reviewed_end(task, old_rate, new_rate, project.daily_hours, project.work_start, holidays, now, crew)
+        if end is not None:
+            result.append((task, end))
+    return result

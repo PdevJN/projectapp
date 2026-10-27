@@ -1,9 +1,10 @@
+from copy import deepcopy
 from datetime import date, datetime, time
 
 import pytest
 
-from projectapp.models import Actual, Status, Task, TaskKind
-from projectapp.reassign import consumed_hours, needs_review, reviewed_end
+from projectapp.models import Actual, Assignee, Level, Member, Parameter, Project, RatioLimits, Status, Task, TaskKind
+from projectapp.reassign import consumed_hours, limit_reviews, needs_review, reviewed_end
 
 WORK_START = time(9, 0)
 NOW = datetime(2026, 10, 14, 10, 0)  # 水曜
@@ -88,3 +89,55 @@ def test_reviewed_end_is_none_when_nothing_remains() -> None:
 
 def test_reviewed_end_is_none_when_the_calculation_fails() -> None:
     assert reviewed_end(task(progress=50), 1.0, 0.5, 0.0, WORK_START, {}, NOW) is None
+
+
+def _project_with(*tasks: Task) -> Project:
+    parameters = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
+    member = Member("田中", 1.0, {"a": "高", "b": "高", "c": "高"})
+    return Project("p", members=[member], parameters=parameters, tasks=list(tasks), daily_hours=8.0)
+
+
+def _worked(**extra: object) -> Task:
+    base = dict(
+        name="t", assignees=[Assignee("田中", 1.0)], effort_hours=20.0, status=Status.RUNNING, progress=50,
+        planned_start=datetime(2026, 10, 5, 9),
+    )
+    return Task(**{**base, **extra})
+
+
+def test_a_task_with_progress_needs_a_review_when_the_limit_changes_its_rate() -> None:
+    t = _worked()
+    result = limit_reviews(_project_with(t), RatioLimits(upper=0.5), {}, NOW)
+    assert [task_ is t for task_, _ in result] == [True]
+    assert result[0][1] > NOW
+
+
+def test_nothing_needs_a_review_when_the_limits_do_not_change_the_rate() -> None:
+    assert limit_reviews(_project_with(_worked()), RatioLimits(), {}, NOW) == []
+    assert limit_reviews(_project_with(_worked()), RatioLimits(upper=2.9), {}, NOW) == []
+
+
+@pytest.mark.parametrize(
+    "skipped",
+    [
+        Task("未着手", assignees=[Assignee("田中", 1.0)], effort_hours=20.0),  # 実績も進捗度もない
+        Task("終了", assignees=[Assignee("田中", 1.0)], effort_hours=20.0, status=Status.DONE, progress=50),
+        Task("担当なし", effort_hours=20.0, status=Status.RUNNING, progress=50),
+        Task("工数なし", assignees=[Assignee("田中", 1.0)], status=Status.RUNNING, progress=50),
+        Task("メンバー外", assignees=[Assignee("鈴木", 1.0)], effort_hours=20.0, status=Status.RUNNING, progress=50),
+        Task(
+            "週ごと", assignees=[Assignee("田中", 1.0)], effort_hours=20.0, status=Status.RUNNING, progress=50,
+            weekly_crew=[[Assignee("田中", 1.0)]],
+        ),
+    ],
+    ids=lambda t: t.name,
+)
+def test_tasks_outside_the_review_conditions_are_skipped(skipped: Task) -> None:
+    assert limit_reviews(_project_with(skipped), RatioLimits(upper=0.5), {}, NOW) == []
+
+
+def test_limit_reviews_does_not_change_the_project() -> None:
+    project = _project_with(_worked())
+    before = deepcopy(project)
+    limit_reviews(project, RatioLimits(upper=0.5), {}, NOW)
+    assert project == before
