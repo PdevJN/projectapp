@@ -2,6 +2,7 @@
 
 import html
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime
 
 from nicegui import ui
@@ -17,7 +18,7 @@ from projectapp.dashboard import (
     PeriodKind,
     TeamProgress,
 )
-from projectapp.dashboard_views import DEFAULT_ORDER, CardId, ViewState
+from projectapp.dashboard_views import DEFAULT_ORDER, STANDARD_NAME, CardId, ViewState
 from projectapp.gantt import STATUS_COLORS, STATUS_DARK_COLORS, WEEKDAYS
 from projectapp.models import Status
 from projectapp.periodfield import add_range_picker, normalize_period
@@ -165,6 +166,21 @@ def moment_text(moment: datetime) -> str:
     return f"{moment:%m/%d %H:%M}"
 
 
+@dataclass
+class ViewActions:
+    """ビューの操作。MainView が渡す。"""
+
+    select: Callable[[str], object]
+    save: Callable[[], object]
+    save_as: Callable[[], object]
+    revert: Callable[[], object]
+    rename: Callable[[], object]
+    delete: Callable[[], object]
+    move_card: Callable[[CardId, CardId | None], object]
+    hide_card: Callable[[CardId], object]
+    show_card: Callable[[CardId], object]
+
+
 class DashboardView:
     """メイン画面の切り替え先。`show` で集計を受け取って描き、`hide` で隠す。"""
 
@@ -176,7 +192,15 @@ class DashboardView:
         on_cross_change: Callable[[bool], object] | None = None,
         on_project_change: Callable[[str, bool], object] | None = None,
         on_custom_change: Callable[[str], object] | None = None,
+        actions: ViewActions | None = None,
     ) -> None:
+        self.actions = actions
+        self.view_select: ui.select | None = None
+        self.dirty_mark: ui.label | None = None
+        self.save_button: ui.button | None = None
+        self.revert_button: ui.button | None = None
+        self.rename_item: ui.menu_item | None = None
+        self.delete_item: ui.menu_item | None = None
         self.on_custom_change = on_custom_change
         self.custom_field: ui.input | None = None
         self.custom_box: ui.column | None = None
@@ -201,6 +225,35 @@ class DashboardView:
             box.mark("dashboard-box")
             with ui.row().classes("w-full items-center gap-4"):
                 ui.label("ダッシュボード").classes("text-h5")
+                with ui.row().classes("items-center gap-1 no-wrap"):
+                    self.view_select = (
+                        ui.select({STANDARD_NAME: STANDARD_NAME}, value=STANDARD_NAME, on_change=self.on_view)
+                        .props("dense outlined options-dense")
+                        .style("min-width: 8rem")
+                        .mark("dashboard-view")
+                    )
+                    self.dirty_mark = (
+                        ui.label("●").classes("text-warning").tooltip("保存していない変更があります").mark("dashboard-view-dirty")
+                    )
+                    self.save_button = (
+                        ui.button("保存", on_click=lambda: self.act("save")).props("flat dense").mark("dashboard-view-save")
+                    )
+                    ui.button("名前をつけて保存", on_click=lambda: self.act("save_as")).props("flat dense").mark(
+                        "dashboard-view-save-as"
+                    )
+                    self.revert_button = (
+                        ui.button("元に戻す", on_click=lambda: self.act("revert")).props("flat dense").mark("dashboard-view-revert")
+                    )
+                    with ui.button(icon="more_vert").props("flat dense round").mark("dashboard-view-menu"):
+                        with ui.menu():
+                            self.rename_item = ui.menu_item("名前の変更", on_click=lambda: self.act("rename")).mark(
+                                "dashboard-view-rename"
+                            )
+                            self.delete_item = ui.menu_item("削除", on_click=lambda: self.act("delete")).mark(
+                                "dashboard-view-delete"
+                            )
+                for item in (self.dirty_mark, self.save_button, self.revert_button):
+                    item.set_visibility(False)
                 self.toggle = ui.toggle(
                     {kind.value: kind.value for kind in PeriodKind},
                     value=PeriodKind.WEEK.value,
@@ -233,6 +286,41 @@ class DashboardView:
                 )
             self.cards()
         box.set_visibility(False)
+
+    def act(self, name: str, *args: object) -> None:
+        """MainView の操作を呼ぶ。actions がないとき(単体のテスト)は何もしない。"""
+        if self.actions is not None:
+            getattr(self.actions, name)(*args)
+
+    def on_view(self, event: ValueChangeEventArguments) -> None:
+        if not self.syncing and event.value:
+            self.act("select", event.value)
+
+    def sync_toolbar(self) -> None:
+        """ビューの選択・`●`・ボタンの有効/無効を、状態に合わせる(通知は出さない)。"""
+        state = self.state
+        if state is None or self.view_select is None:
+            return
+        self.syncing = True
+        try:
+            self.view_select.set_options({name: name for name in state.names}, value=state.current)
+        finally:
+            self.syncing = False
+        if self.dirty_mark is not None:
+            self.dirty_mark.set_visibility(state.dirty)
+        if self.save_button is not None:
+            self.save_button.set_visibility(state.dirty)
+            self.save_button.set_enabled(state.save_block is None)
+            if state.save_block is not None:
+                self.save_button.props(f'title="{state.save_block}"')  # 押せない理由(ネイティブのヒント)
+            else:
+                self.save_button.props(remove="title")
+        if self.revert_button is not None:
+            self.revert_button.set_visibility(state.dirty)
+        standard = state.current == STANDARD_NAME
+        for item in (self.rename_item, self.delete_item):
+            if item is not None:
+                item.set_enabled(not standard)
 
     def on_toggle(self, event: ValueChangeEventArguments) -> None:
         if not self.syncing:
@@ -282,6 +370,7 @@ class DashboardView:
         self.data = data
         self.state = view_state
         self.card_order = view_state.cards if view_state is not None else DEFAULT_ORDER
+        self.sync_toolbar()
         if self.custom_box is not None and self.custom_field is not None and self.custom_error is not None:
             self.custom_box.set_visibility(kind is PeriodKind.CUSTOM)
             self.custom_field.set_visibility(kind is PeriodKind.CUSTOM)

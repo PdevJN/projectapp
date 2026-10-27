@@ -2724,6 +2724,24 @@ async def test_card_moves_change_the_order(user: User, tmp_path: Path) -> None:
     assert view.dashboard_cards[-1] is CardId.DUE
 
 
+async def test_the_toolbar_select_switches_the_view(user: User, tmp_path: Path) -> None:
+    save_dashboard_views([ViewSpec("田中だけ", PeriodKind.ALL, "田中", False, (CardId.LOAD,))], tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    view.dashboard_view.view_select.set_value("田中だけ")
+    assert view.dashboard_view_name == "田中だけ"
+    await user.should_not_see(marker="dashboard-progress-percent")  # カードの並びも切り替わる
+    await user.should_see(marker="dashboard-load-田中")
+
+
+async def test_a_condition_change_shows_the_dirty_mark(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    await user.should_not_see(marker="dashboard-view-dirty")
+    view.change_dashboard_period(PeriodKind.MONTH)
+    await user.should_see(marker="dashboard-view-dirty")
+
+
 def text_of(user: User, marker: str) -> str:
     return user.find(marker=marker).elements.pop().text
 

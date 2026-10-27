@@ -64,7 +64,7 @@ from projectapp import arrange
 from projectapp.reference import ReferenceResolver, build_references, missing_references, take_snapshot
 from projectapp.shortcuts import Screen, defers_to_inputs, help_entries, key_guard_js, label_for, resolve
 from projectapp.dashboard import MAX_CUSTOM_DAYS, CrossSummary, Period, PeriodKind, custom_period_error, period_for, summarize, summarize_cross_loads
-from projectapp.dashboard_view import DashboardView
+from projectapp.dashboard_view import DashboardView, ViewActions
 from projectapp.dashboard_views import (
     DEFAULT_ORDER,
     MAX_VIEWS,
@@ -323,6 +323,17 @@ class MainView:
             self.change_dashboard_cross,
             self.change_dashboard_project,
             self.change_dashboard_custom,
+            actions=ViewActions(
+                select=self.select_dashboard_view,
+                save=self.save_dashboard_view,
+                save_as=self.save_dashboard_view_as,
+                revert=self.revert_dashboard_view,
+                rename=self.rename_dashboard_view,
+                delete=self.delete_dashboard_view,
+                move_card=self.move_dashboard_card,
+                hide_card=self.hide_dashboard_card,
+                show_card=self.show_dashboard_card,
+            ),
         )
 
     @staticmethod
