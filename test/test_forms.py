@@ -2178,3 +2178,42 @@ async def test_the_stale_snapshot_dialog_names_the_targets_and_offers_three_choi
     await user.should_see("更新して保存")
     user.find(marker="snapshot-skip").click()
     assert done == ["skip"]
+
+
+async def test_the_settings_dialog_reports_a_changed_plantuml_notice(user: User) -> None:
+    applied: list[bool] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda *a: None, plantuml_notice=True, on_plantuml_notice=applied.append
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    box = user.find(marker="settings-plantuml-notice").elements.pop()
+    assert box.value is True
+    box.set_value(False)
+    user.find(marker="settings-apply").click()
+    assert applied == [False]
+
+
+async def test_the_settings_dialog_does_not_report_an_unchanged_plantuml_notice(user: User) -> None:
+    applied: list[bool] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda *a: None, plantuml_notice=False, on_plantuml_notice=applied.append
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-apply").click()
+    assert applied == []
