@@ -14,7 +14,17 @@ from nicegui.testing import User
 
 from projectapp.csv_export import TSV_FILE_TYPES
 from projectapp.csv_import import CSV_OPEN_FILE_TYPES
-from projectapp.config import load_project_dir, load_zoom, save_project_dir, save_zoom
+from projectapp.config import (
+    load_dashboard_view_last,
+    load_dashboard_views,
+    load_project_dir,
+    load_zoom,
+    save_dashboard_view_last,
+    save_dashboard_views,
+    save_project_dir,
+    save_zoom,
+)
+from projectapp.dashboard_views import DEFAULT_ORDER, STANDARD_NAME, CardId, ViewSpec
 from projectapp.calendar import DayKind, save_cache
 from projectapp.filtering import TaskFilter
 from projectapp.gantt import KIND_COLORS
@@ -2493,6 +2503,225 @@ async def open_dashboard_view(user: User, tmp_path: Path, with_task: bool = True
         )
     view.mark_clean()
     return view
+
+
+async def open_dashboard(user: User, view: MainView) -> None:
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-load-田中")
+
+
+async def test_opening_the_dashboard_applies_the_standard_view(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    assert view.dashboard_view_name == STANDARD_NAME
+    assert view.dashboard_kind is PeriodKind.WEEK and view.dashboard_cards == DEFAULT_ORDER
+    assert view.dashboard_dirty() is False
+
+
+async def test_changing_a_condition_marks_the_view_dirty_and_changing_it_back_clears_it(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    view.change_dashboard_period(PeriodKind.MONTH)
+    assert view.dashboard_dirty() is True
+    view.change_dashboard_period(PeriodKind.WEEK)
+    assert view.dashboard_dirty() is False
+    view.hide_dashboard_card(CardId.DUE)
+    assert view.dashboard_dirty() is True
+
+
+async def test_save_as_creates_a_view_persists_it_and_remembers_it_as_the_last(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    view.change_dashboard_period(PeriodKind.MONTH)
+    view.hide_dashboard_card(CardId.DUE)
+    with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
+        view.save_dashboard_view_as()
+    user.find(marker="project-name").type("月次")
+    user.find(marker="name-save").click()
+    assert view.dashboard_view_name == "月次" and view.dashboard_dirty() is False
+    (saved,) = load_dashboard_views(tmp_path)
+    assert (saved.name, saved.period, CardId.DUE in saved.cards) == ("月次", PeriodKind.MONTH, False)
+    assert load_dashboard_view_last(tmp_path) == "月次"
+
+
+async def test_save_as_rejects_a_duplicate_and_the_standard_name(user: User, tmp_path: Path) -> None:
+    save_dashboard_views([ViewSpec("月次", PeriodKind.MONTH, None, False, DEFAULT_ORDER)], tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
+        view.save_dashboard_view_as()
+    for name in ("月次", STANDARD_NAME, ""):
+        user.find(marker="project-name").clear().type(name)
+        user.find(marker="name-save").click()
+        await user.should_see(marker="name-error")
+        assert text_of(user, "name-error") != ""
+    assert [v.name for v in load_dashboard_views(tmp_path)] == ["月次"]
+
+
+async def test_selecting_a_view_applies_it_and_discards_unsaved_changes(user: User, tmp_path: Path) -> None:
+    save_dashboard_views([ViewSpec("田中だけ", PeriodKind.ALL, "田中", False, (CardId.LOAD,))], tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    view.hide_dashboard_card(CardId.TEAM)  # 作業中の変更
+    view.select_dashboard_view("田中だけ")
+    assert (view.dashboard_kind, view.dashboard_member, view.dashboard_cards) == (PeriodKind.ALL, "田中", (CardId.LOAD,))
+    assert view.dashboard_dirty() is False
+    assert load_dashboard_view_last(tmp_path) == "田中だけ"
+    view.select_dashboard_view(STANDARD_NAME)
+    assert view.dashboard_cards == DEFAULT_ORDER and view.dashboard_member is None
+
+
+async def test_the_last_used_view_opens_next_time(user: User, tmp_path: Path) -> None:
+    save_dashboard_views([ViewSpec("田中だけ", PeriodKind.ALL, "田中", False, DEFAULT_ORDER)], tmp_path)
+    save_dashboard_view_last("田中だけ", tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    assert view.dashboard_view_name == "田中だけ" and view.dashboard_kind is PeriodKind.ALL
+
+
+async def test_an_unknown_last_view_falls_back_to_standard(user: User, tmp_path: Path) -> None:
+    save_dashboard_view_last("消えた", tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    assert view.dashboard_view_name == STANDARD_NAME
+
+
+async def test_a_saved_member_who_is_gone_shows_everyone_without_a_dirty_mark(user: User, tmp_path: Path) -> None:
+    save_dashboard_views([ViewSpec("鈴木だけ", PeriodKind.WEEK, "鈴木", False, DEFAULT_ORDER)], tmp_path)
+    save_dashboard_view_last("鈴木だけ", tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    assert view.dashboard_member is None
+    assert view.dashboard_dirty() is False
+    assert load_dashboard_views(tmp_path)[0].member == "鈴木"  # ビューは書き換えない
+
+
+async def test_a_custom_view_opens_with_its_dates(user: User, tmp_path: Path) -> None:
+    custom = (date(2026, 9, 1), date(2026, 9, 30))
+    save_dashboard_views([ViewSpec("九月", PeriodKind.CUSTOM, None, False, DEFAULT_ORDER, custom)], tmp_path)
+    save_dashboard_view_last("九月", tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    assert view.dashboard_custom == Period(*custom)
+    assert view.dashboard_dirty() is False
+    assert view.working_spec("九月").custom == custom
+
+
+async def test_a_custom_view_without_dates_starts_from_the_previous_period(user: User, tmp_path: Path) -> None:
+    save_dashboard_views([ViewSpec("日付なし", PeriodKind.CUSTOM, None, False, DEFAULT_ORDER, None)], tmp_path)
+    save_dashboard_view_last("日付なし", tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    assert view.dashboard_kind is PeriodKind.CUSTOM and view.dashboard_custom is not None
+
+
+async def test_saving_is_blocked_while_the_custom_field_has_an_error(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    view.change_dashboard_period(PeriodKind.CUSTOM)
+    view.change_dashboard_custom("x")
+    assert view.dashboard_view_state().save_block is not None
+    with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
+        view.save_dashboard_view_as()
+    await user.should_see("期間")  # 理由の通知。ダイアログは開かない
+    await user.should_not_see(marker="project-name")
+    assert load_dashboard_views(tmp_path) == []
+
+
+async def test_save_overwrites_a_custom_view_but_not_the_standard_one(user: User, tmp_path: Path) -> None:
+    save_dashboard_views([ViewSpec("月次", PeriodKind.MONTH, None, False, DEFAULT_ORDER)], tmp_path)
+    save_dashboard_view_last("月次", tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    view.hide_dashboard_card(CardId.DUE)
+    view.save_dashboard_view()
+    assert CardId.DUE not in load_dashboard_views(tmp_path)[0].cards
+    view.select_dashboard_view(STANDARD_NAME)
+    view.hide_dashboard_card(CardId.DUE)
+    assert view.dashboard_view_state().save_block is not None
+    view.save_dashboard_view()
+    assert [v.name for v in load_dashboard_views(tmp_path)] == ["月次"]
+
+
+async def test_revert_restores_the_saved_view(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    view.change_dashboard_period(PeriodKind.MONTH)
+    view.hide_dashboard_card(CardId.TEAM)
+    view.revert_dashboard_view()
+    assert view.dashboard_kind is PeriodKind.WEEK and view.dashboard_cards == DEFAULT_ORDER
+
+
+async def test_rename_and_delete(user: User, tmp_path: Path) -> None:
+    save_dashboard_views([ViewSpec("月次", PeriodKind.MONTH, None, False, DEFAULT_ORDER)], tmp_path)
+    save_dashboard_view_last("月次", tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
+        view.rename_dashboard_view()
+    user.find(marker="project-name").clear().type("毎月")
+    user.find(marker="name-save").click()
+    assert view.dashboard_view_name == "毎月"
+    assert [v.name for v in load_dashboard_views(tmp_path)] == ["毎月"]
+    assert load_dashboard_view_last(tmp_path) == "毎月"
+    with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
+        view.delete_dashboard_view()
+    await user.should_see("「毎月」を削除しますか?")
+    user.find(marker="confirm-ok").click()
+    assert view.dashboard_view_name == STANDARD_NAME
+    assert load_dashboard_views(tmp_path) == []
+    assert load_dashboard_view_last(tmp_path) == STANDARD_NAME
+
+
+async def test_the_standard_view_cannot_be_renamed_or_deleted(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
+        view.rename_dashboard_view()
+    with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
+        view.delete_dashboard_view()
+    await user.should_not_see(marker="project-name")
+    await user.should_not_see(marker="confirm-ok")
+
+
+async def test_the_view_limit_is_enforced(user: User, tmp_path: Path) -> None:
+    save_dashboard_views([ViewSpec(f"v{i}", PeriodKind.WEEK, None, False, DEFAULT_ORDER) for i in range(20)], tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
+        view.save_dashboard_view_as()
+    user.find(marker="project-name").type("21 件目")
+    user.find(marker="name-save").click()
+    await user.should_see(marker="name-error")
+    assert len(load_dashboard_views(tmp_path)) == 20
+
+
+async def test_a_failed_write_notifies_and_keeps_the_view_in_memory(user: User, tmp_path: Path, monkeypatch) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("projectapp.views.save_dashboard_views", boom)
+    view.change_dashboard_period(PeriodKind.MONTH)
+    with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
+        view.save_dashboard_view_as()
+    user.find(marker="project-name").type("月次")
+    user.find(marker="name-save").click()
+    await user.should_see("保存できませんでした")
+    assert view.dashboard_view_name == "月次" and [v.name for v in view.dashboard_views] == ["月次"]
+
+
+async def test_card_moves_change_the_order(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    view.move_dashboard_card(CardId.DUE, CardId.TEAM)
+    assert view.dashboard_cards[0] is CardId.DUE
+    view.hide_dashboard_card(CardId.DUE)
+    assert CardId.DUE not in view.dashboard_cards
+    view.show_dashboard_card(CardId.DUE)
+    assert view.dashboard_cards[-1] is CardId.DUE
 
 
 def text_of(user: User, marker: str) -> str:
