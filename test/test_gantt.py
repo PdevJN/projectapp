@@ -20,6 +20,10 @@ from projectapp.gantt import (
     SHOW_CHART_JS,
     STICKY_CSS,
     TRACK_SCROLL_JS,
+    TODAY_COLOR,
+    TODAY_CSS,
+    TODAY_DARK_COLOR,
+    TODAY_LINE_WIDTH_PX,
     ViewOptions,
     crew_text,
     SHIFT_HINT,
@@ -73,7 +77,7 @@ from projectapp.gantt import (
     header_cell_html,
 )
 from projectapp.reference import Reference
-from projectapp.timeline import Column, build_columns
+from projectapp.timeline import Column, build_columns, today_position
 from projectapp.models import (
     Assignee,
     Category,
@@ -198,6 +202,58 @@ async def test_holiday_wins_over_sunday(user: User) -> None:
     html = user.find(marker="stripes").elements.pop().content
     assert html.count(KIND_COLORS[DayKind.HOLIDAY]) == 1
     assert html.count(KIND_COLORS[DayKind.SUNDAY]) == 5
+
+
+NOON = datetime(2026, 10, 7, 12)  # sample_project の開始(10/5)から 2.5 列目
+
+
+async def test_day_scale_draws_the_today_line_at_the_current_time(user: User) -> None:
+    mount(sample_project(), now=NOON)
+    await user.open("/")
+    line = user.find(marker="today-line").elements.pop()
+    assert line._style["left"] == from_name(2.5 * COLUMN_WIDTH_PX[Scale.DAY] - TODAY_LINE_WIDTH_PX / 2)
+    assert line._style["width"] == f"{TODAY_LINE_WIDTH_PX}px"
+    assert line._style["pointer-events"] == "none"
+
+
+async def test_week_and_month_scales_draw_the_today_line_in_the_middle(user: User) -> None:
+    charts, _ = mount_chart(sample_project(), now=NOON)
+    await user.open("/")
+    for scale in (Scale.WEEK, Scale.MONTH):
+        charts[0].set_scale(scale)
+        columns = build_columns(charts[0].project, scale, {})
+        expected = from_name(today_position(NOON, columns, scale) * COLUMN_WIDTH_PX[scale] - TODAY_LINE_WIDTH_PX / 2)
+        for _ in range(10):  # 描き直しは背景タスクで起きる
+            line = user.find(marker="today-line").elements.pop()
+            if line._style["left"] == expected:
+                break
+            await asyncio.sleep(0.1)
+        assert line._style["left"] == expected
+
+
+async def test_no_today_line_when_today_is_outside_the_range(user: User) -> None:
+    mount(sample_project(), now=datetime(2026, 10, 1))  # 範囲(10/5〜)の前
+    await user.open("/")
+    await user.should_not_see(marker="today-line")
+
+
+async def test_no_today_line_when_show_today_is_off(user: User) -> None:
+    charts, _ = mount_chart(sample_project(), now=NOON)
+    await user.open("/")
+    await user.should_see(marker="today-line")
+    charts[0].set_options(ViewOptions(show_today=False))
+    await user.should_not_see(marker="today-line")
+
+
+async def test_today_line_is_drawn_without_tasks(user: User) -> None:
+    mount(Project("empty", base_date=BASE), now=NOON)
+    await user.open("/")
+    await user.should_see(marker="today-line")
+
+
+def test_today_line_colors_are_red_in_both_themes() -> None:
+    assert TODAY_COLOR in TODAY_CSS and TODAY_DARK_COLOR in TODAY_CSS
+    assert "body.body--dark" in TODAY_CSS
 
 
 async def test_week_scale_has_no_stripes_and_scales_bars(user: User) -> None:

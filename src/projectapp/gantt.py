@@ -53,6 +53,7 @@ from projectapp.timeline import (
     clip_overloads,
     current_progress,
     deadline_position,
+    today_position,
     effective_start,
     expected_progress,
     interval_span,
@@ -81,6 +82,11 @@ DEADLINE_MARKER_HALF_PX = 6  # 「◆」の幅の半分。締切の位置が目�
 CHECKPOINT_MARKER_PX = 20  # チェックポイントの ◆ の大きさ(締切の小さな ◆ より大きい)
 WORKMARK_HEIGHT_PX = 4  # 担当者の稼働日の上書きの印の高さ
 DEADLINE_COLOR = "#f57c00"  # 赤は予定超過の背景と競合するので使わない
+TODAY_COLOR = "#e53935"  # 今日の線。ダークでは明るい赤に替える
+TODAY_DARK_COLOR = "#ff5252"
+TODAY_COLOR_VAR = "var(--today)"
+TODAY_LINE_WIDTH_PX = 2
+TODAY_CSS = f":root {{ --today: {TODAY_COLOR}; }}\nbody.body--dark {{ --today: {TODAY_DARK_COLOR}; }}"
 OVERLOAD_STRIPES = (  # 割り当て合計が100%を超える期間の縞。タスクの色に依存しないよう白と黒の半透明を重ねる
     "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 4px, rgba(0,0,0,0.35) 4px 8px)"
 )
@@ -164,6 +170,7 @@ class ViewOptions:
     show_chips: bool = True  # 名前欄のチップと進捗
     show_alerts: bool = True  # 予定超過の赤みと、割り当て超過の縞
     show_events: bool = True  # イベントの帯とセルの色
+    show_today: bool = True  # 今日の赤い縦線
     read_only: bool = False  # 編集の部品・クリック・ドラッグをなくす
     selectable: bool = False  # 行と見出しの先頭に、出力のチェックボックスを出す(読み取り専用のときだけ)
     excluded: frozenset[str] = frozenset()  # チェックを外したタスクの id。薄く描く
@@ -948,6 +955,7 @@ class GanttChart:
         ui.add_css(STICKY_CSS)
         ui.add_css(PROGRESS_CSS)
         ui.add_css(STATUS_CSS)
+        ui.add_css(TODAY_CSS)
         ui.add_css(PRIORITY_CSS)
         ui.add_css(LINK_CSS)
         ui.add_css(CONTEXT_MENU_CSS)
@@ -1288,6 +1296,7 @@ class GanttChart:
             if self.view_scale is Scale.DAY:
                 self.stripes(columns, width, top)
             self.event_tints(columns, width, top)
+            self.today_line(columns, width, top)
             self.header(columns, width)
             self.no_match_message()
             self.links(columns, width)
@@ -1387,6 +1396,18 @@ class GanttChart:
 
     def shown_events(self) -> list[Event]:
         return self.project.events if self.options.show_events else []
+
+    def today_line(self, columns: list[Column], width: int, top: int) -> None:
+        """今日の赤い縦線。年・月の帯の下から最下行まで。クリックは通す。内容は定数と数値だけ。"""
+        position = today_position(self.now(), columns, self.view_scale)
+        if not self.options.show_today or position is None:
+            return
+        left = from_name(position * width - TODAY_LINE_WIDTH_PX / 2)
+        ui.element("div").style(
+            f"position: absolute; top: {top}px; bottom: 0; left: {left};"
+            f" width: {TODAY_LINE_WIDTH_PX}px; background: {TODAY_COLOR_VAR};"
+            " pointer-events: none; z-index: 1"
+        ).mark("today-line")
 
     def event_tints(self, columns: list[Column], width: int, top: int) -> None:
         """イベントの期間のセルの色。内容は定数と検証済みの色だけで、利用者の文字列を含まない。"""
