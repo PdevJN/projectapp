@@ -107,14 +107,14 @@ def _worked(**extra: object) -> Task:
 
 def test_a_task_with_progress_needs_a_review_when_the_limit_changes_its_rate() -> None:
     t = _worked()
-    result = limit_reviews(_project_with(t), RatioLimits(upper=0.5), {}, NOW)
+    result = limit_reviews(_project_with(t), RatioLimits(upper=1.5), {}, NOW)
     assert [task_ is t for task_, _ in result] == [True]
     assert result[0][1] > NOW
 
 
 def test_nothing_needs_a_review_when_the_limits_do_not_change_the_rate() -> None:
     assert limit_reviews(_project_with(_worked()), RatioLimits(), {}, NOW) == []
-    assert limit_reviews(_project_with(_worked()), RatioLimits(upper=2.9), {}, NOW) == []
+    assert limit_reviews(_project_with(_worked()), RatioLimits(upper=3.0), {}, NOW) == []
 
 
 @pytest.mark.parametrize(
@@ -133,11 +133,11 @@ def test_nothing_needs_a_review_when_the_limits_do_not_change_the_rate() -> None
     ids=lambda t: t.name,
 )
 def test_tasks_outside_the_review_conditions_are_skipped(skipped: Task) -> None:
-    assert limit_reviews(_project_with(skipped), RatioLimits(upper=0.5), {}, NOW) == []
+    assert limit_reviews(_project_with(skipped), RatioLimits(upper=1.5), {}, NOW) == []
 
 
 def test_limit_reviews_does_not_change_the_project() -> None:
     project = _project_with(_worked())
     before = deepcopy(project)
-    limit_reviews(project, RatioLimits(upper=0.5), {}, NOW)
+    limit_reviews(project, RatioLimits(upper=1.5), {}, NOW)
     assert project == before

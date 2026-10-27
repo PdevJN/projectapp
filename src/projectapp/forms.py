@@ -489,9 +489,9 @@ def build_work_settings(hours: float | None, start: str) -> tuple[float, time]:
 
 
 def build_ratio_limits(upper_text: str, lower_text: str) -> RatioLimits:
-    """相対比率の加算分の上限・下限(%)の入力を検証する。空欄は制限なし。"""
+    """相対比率の上限・下限(%)の入力を検証する。空欄は設定なし(既定の 10〜300%)。下限は上限以下。"""
 
-    def read(text: str, name: str, low: float, high: float) -> float | None:
+    def read(text: str, name: str) -> float | None:
         text = text.strip()
         if not text:
             return None
@@ -499,14 +499,14 @@ def build_ratio_limits(upper_text: str, lower_text: str) -> RatioLimits:
             value = float(text) / 100
         except ValueError:
             raise ValueError(f"{name}は数値で入力してください") from None
-        if not isfinite(value) or not low - 1e-9 <= value <= high + 1e-9:
-            raise ValueError(f"{name}は{low * 100:+g}〜{high * 100:+g}%で入力してください")
+        if not isfinite(value) or not MIN_RATIO - 1e-9 <= value <= MAX_RATIO + 1e-9:
+            raise ValueError(f"{name}は{MIN_RATIO * 100:g}〜{MAX_RATIO * 100:g}%で入力してください")
         return round(value, 4)
 
-    return RatioLimits(
-        read(upper_text, "相対比率の上限", 0.0, MAX_LEVEL_VALUE),
-        read(lower_text, "相対比率の下限", MIN_LEVEL_VALUE, 0.0),
-    )
+    limits = RatioLimits(read(upper_text, "相対比率の上限"), read(lower_text, "相対比率の下限"))
+    if limits.upper is not None and limits.lower is not None and limits.lower > limits.upper:
+        raise ValueError("相対比率の下限は上限以下にしてください")
+    return limits
 
 
 def build_base_date(text: str, today: date) -> date:
@@ -1270,9 +1270,9 @@ def open_settings_dialog(
             ).mark("settings-plantuml-notice")
         limit_upper = limit_lower = None
         if on_ratio_limits is not None:
-            ui.label("相対比率の加算分の制限").classes("text-caption text-grey")
+            ui.label("相対比率の下限・上限").classes("text-caption text-grey")
             ui.label(
-                "パラメータの判定値の合計に上限・下限を設けます(空欄は制限なし)。基本比率 100% で +50% なら最大 150%"
+                "基本比率を含めた相対比率そのものに、下限・上限を設けます(空欄は 10〜300%)。基本比率の入力値より結果が変わることがあります"
             ).classes("text-caption text-grey")
             with ui.row().classes("items-center"):
                 limit_upper = (
@@ -1289,10 +1289,10 @@ def open_settings_dialog(
                 )
 
                 def fill_preset() -> None:
-                    limit_upper.set_value("50")
-                    limit_lower.set_value("-50")
+                    limit_upper.set_value("150")
+                    limit_lower.set_value("50")
 
-                ui.button("+50% / -50%", on_click=fill_preset).props("flat dense").mark("settings-limit-preset")
+                ui.button("50% 〜 150%", on_click=fill_preset).props("flat dense").mark("settings-limit-preset")
         rows = [TemplateRow(t.name, t.name, t.pattern) for t in templates or []]
         if templates is not None:
             ui.label("URL テンプレート").classes("text-caption text-grey")
@@ -1717,12 +1717,12 @@ def parameters_panel(
 
 
 def effective_ratio_text(row: MemberRow, parameters: list[Parameter], limits: RatioLimits | None = None) -> str:
-    """メンバーの行の、実効比率の表示。基本比率が空・非有限のときは空。範囲に丸めた・加算分を制限したときは、その旨を足す。"""
+    """メンバーの行の、実効比率の表示。基本比率が空・非有限のときは空。範囲に丸めた・設定の下限/上限で制限したときは、その旨を足す。"""
     percent = row.ratio_percent
     if percent is None or not isfinite(percent):
         return ""
     detail = ratio_detail(Member(row.name, percent / 100, row.levels), parameters, limits=limits)
-    notes = ["範囲に丸めました"] if detail.clamped else []
+    notes = ["範囲に丸めました"] if detail.clamped and not detail.limited else []  # 制限したときは、その注記だけ
     if note := limit_note(detail, limits):
         notes.append(note)
     suffix = f"({'・'.join(notes)})" if notes else ""

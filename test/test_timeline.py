@@ -1179,13 +1179,13 @@ def _limited_project(**limits: float) -> tuple[Project, Task]:
 def test_conversion_rate_uses_the_project_ratio_limits() -> None:
     free, task = _limited_project()
     assert conversion_rate(task, free) == pytest.approx(2.5)
-    capped, task = _limited_project(ratio_limit_upper=0.5)
+    capped, task = _limited_project(ratio_limit_upper=1.5)
     assert conversion_rate(task, capped) == pytest.approx(1.5)
 
 
 def test_the_planned_end_follows_the_ratio_limits() -> None:
     free, task = _limited_project()
-    capped, capped_task = _limited_project(ratio_limit_upper=0.5)
+    capped, capped_task = _limited_project(ratio_limit_upper=1.5)
     free_end = Schedule(free, {}).finish(task)
     capped_end = Schedule(capped, {}).finish(capped_task)
     assert free_end is not None and capped_end is not None and capped_end > free_end

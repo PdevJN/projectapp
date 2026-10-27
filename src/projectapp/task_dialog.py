@@ -1044,7 +1044,7 @@ def open_task_dialog(
             ).classes("text-caption text-grey").mark("task-weekly-note")
 
         def limit_notes(names: list[str]) -> str:
-            """加算分を制限した担当者の注記(例: 田中 加算分 +150% → 上限 +50% に制限)。"""
+            """下限・上限で制限した担当者の注記(例: 田中 相対比率 250% → 上限 150% に制限)。"""
             by_name = {m.name: m for m in raw_members}
             notes = []
             for name in dict.fromkeys(names):

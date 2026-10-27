@@ -8,7 +8,7 @@ import secrets
 import unicodedata
 from enum import StrEnum
 
-FORMAT_VERSION = 13  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の加算分の上限・下限〔ratio_limit_upper・ratio_limit_lower〕)
+FORMAT_VERSION = 13  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕)
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -273,7 +273,7 @@ def walk_sections(sections: list[Section], prefix: SectionPath = ()) -> Iterator
 
 @dataclass(frozen=True)
 class RatioLimits:
-    """相対比率の加算分(判定値の合計)の上限・下限。None の側は制限しない。"""
+    """相対比率そのものの上限・下限(150% は 1.5)。None の側は設定なし(既定の 10〜300%)。"""
 
     upper: float | None = None
     lower: float | None = None
@@ -295,8 +295,8 @@ class Project:
     events: list[Event] = field(default_factory=list)  # イベント(プロジェクト共通。並びが色の優先順で、後ろが勝つ)
     reference_mode: ReferenceMode = ReferenceMode.LIVE  # プロジェクト参照の方式
     plantuml_overload_notice: bool = True  # PlantUML の保存後に、100% 超に見える担当者を通知するか
-    ratio_limit_upper: float | None = None  # 相対比率の加算分の上限(+50% は 0.5)。None は制限なし
-    ratio_limit_lower: float | None = None  # 同じく下限(-50% は -0.5)
+    ratio_limit_upper: float | None = None  # 相対比率の上限(150% は 1.5)。None は設定なし(10〜300%)
+    ratio_limit_lower: float | None = None  # 同じく下限(50% は 0.5)
 
     @property
     def ratio_limits(self) -> RatioLimits:

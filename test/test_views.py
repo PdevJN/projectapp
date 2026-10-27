@@ -6347,15 +6347,15 @@ async def _open_existing(user: User, tmp_path: Path, project: Project) -> MainVi
 async def test_apply_ratio_limits_without_affected_tasks_is_an_undoable_unsaved_edit(user: User, tmp_path: Path) -> None:
     view = await _open_existing(user, tmp_path, Project("既存", sections=[Section("開発", [Task("実装")])]))
     assert not view.is_dirty()
-    view.apply_ratio_limits(RatioLimits(0.5, -0.5))
-    assert (view.project.ratio_limit_upper, view.project.ratio_limit_lower) == (0.5, -0.5) and view.is_dirty()
+    view.apply_ratio_limits(RatioLimits(upper=1.5, lower=0.5))
+    assert (view.project.ratio_limit_upper, view.project.ratio_limit_lower) == (1.5, 0.5) and view.is_dirty()
     view.undo()
     assert view.project.ratio_limits == RatioLimits() and not view.is_dirty()
 
 
 async def test_apply_ratio_limits_asks_before_changing_a_task_with_progress(user: User, tmp_path: Path) -> None:
     view = await _open_existing(user, tmp_path, _progress_project())
-    view.apply_ratio_limits(RatioLimits(0.5, None))
+    view.apply_ratio_limits(RatioLimits(upper=1.5))
     await user.should_see("見直して適用")
     assert view.project.ratio_limit_upper is None  # 確認の前は変わらない
     user.find(marker="limit-review-cancel").click()
@@ -6367,11 +6367,11 @@ async def test_apply_ratio_limits_with_review_sets_the_manual_planned_end_in_one
     user: User, tmp_path: Path
 ) -> None:
     view = await _open_existing(user, tmp_path, _progress_project())
-    view.apply_ratio_limits(RatioLimits(0.5, None))
+    view.apply_ratio_limits(RatioLimits(upper=1.5))
     user.find(marker="limit-review-apply").click()
     await user.should_not_see("上限・下限は変更しませんでした")
     task = view.project.all_tasks()[0]
-    assert view.project.ratio_limit_upper == 0.5
+    assert view.project.ratio_limit_upper == 1.5
     assert task.planned_end_manual is True and task.planned_end is not None
     view.undo()
     task = view.project.all_tasks()[0]
@@ -6380,7 +6380,7 @@ async def test_apply_ratio_limits_with_review_sets_the_manual_planned_end_in_one
 
 async def test_apply_ratio_limits_without_review_keeps_the_planned_end(user: User, tmp_path: Path) -> None:
     view = await _open_existing(user, tmp_path, _progress_project())
-    view.apply_ratio_limits(RatioLimits(0.5, None))
+    view.apply_ratio_limits(RatioLimits(upper=1.5))
     user.find(marker="limit-review-skip").click()
     task = view.project.all_tasks()[0]
-    assert view.project.ratio_limit_upper == 0.5 and task.planned_end_manual is False
+    assert view.project.ratio_limit_upper == 1.5 and task.planned_end_manual is False

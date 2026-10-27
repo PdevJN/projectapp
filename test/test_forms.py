@@ -2221,24 +2221,28 @@ async def test_the_settings_dialog_does_not_report_an_unchanged_plantuml_notice(
     assert applied == []
 
 
-def test_effective_ratio_text_reports_a_limited_sum() -> None:
+def test_effective_ratio_text_reports_a_limited_ratio() -> None:
     params = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
     row = MemberRow(None, "田中", 100.0, {"a": "高", "b": "高", "c": "高"})
     assert effective_ratio_text(row, params) == "相対比率 250%"
-    text = effective_ratio_text(row, params, RatioLimits(upper=0.5))
-    assert text == "相対比率 150%(加算分 +150% → 上限 +50% に制限)"
+    text = effective_ratio_text(row, params, RatioLimits(upper=1.5))
+    assert text == "相対比率 150%(相対比率 250% → 上限 150% に制限)"
 
 
 def test_build_ratio_limits_reads_percent_text() -> None:
-    assert build_ratio_limits("50", "-50") == RatioLimits(0.5, -0.5)
+    assert build_ratio_limits("150", "50") == RatioLimits(upper=1.5, lower=0.5)
     assert build_ratio_limits("", "") == RatioLimits(None, None)
-    assert build_ratio_limits(" 0 ", "0") == RatioLimits(0.0, 0.0)
-    assert build_ratio_limits("12.34567", "") == RatioLimits(0.1235, None)
+    assert build_ratio_limits(" 300 ", "10") == RatioLimits(upper=3.0, lower=0.1)
+    assert build_ratio_limits("150.12345", "") == RatioLimits(upper=1.5012, lower=None)
+    assert build_ratio_limits("100", "100") == RatioLimits(upper=1.0, lower=1.0)
 
 
 @pytest.mark.parametrize(
     ("upper", "lower"),
-    [("abc", ""), ("", "x"), ("-1", ""), ("291", ""), ("", "1"), ("", "-91"), ("nan", ""), ("inf", ""), ("", "-inf")],
+    [
+        ("abc", ""), ("", "x"), ("9", ""), ("301", ""), ("", "9"), ("", "301"), ("nan", ""), ("inf", ""), ("", "-inf"),
+        ("", "-50"), ("100", "150"),
+    ],
 )
 def test_build_ratio_limits_rejects_invalid_input(upper: str, lower: str) -> None:
     with pytest.raises(ValueError, match="上限|下限"):
@@ -2261,27 +2265,27 @@ async def test_the_settings_dialog_reports_changed_ratio_limits(user: User) -> N
     _open_limits_dialog(RatioLimits(), applied)
     await user.open("/")
     user.find("open").click()
-    user.find(marker="settings-limit-upper").elements.pop().set_value("50")
-    user.find(marker="settings-limit-lower").elements.pop().set_value("-50")
+    user.find(marker="settings-limit-upper").elements.pop().set_value("150")
+    user.find(marker="settings-limit-lower").elements.pop().set_value("50")
     user.find(marker="settings-apply").click()
-    assert applied == [RatioLimits(0.5, -0.5)]
+    assert applied == [RatioLimits(upper=1.5, lower=0.5)]
 
 
-async def test_the_preset_button_fills_plus_and_minus_fifty(user: User) -> None:
+async def test_the_preset_button_fills_fifty_to_one_fifty(user: User) -> None:
     _open_limits_dialog(RatioLimits(), [])
     await user.open("/")
     user.find("open").click()
     user.find(marker="settings-limit-preset").click()
-    assert user.find(marker="settings-limit-upper").elements.pop().value == "50"
-    assert user.find(marker="settings-limit-lower").elements.pop().value == "-50"
+    assert user.find(marker="settings-limit-upper").elements.pop().value == "150"
+    assert user.find(marker="settings-limit-lower").elements.pop().value == "50"
 
 
 async def test_the_settings_dialog_does_not_report_unchanged_ratio_limits(user: User) -> None:
     applied: list[RatioLimits] = []
-    _open_limits_dialog(RatioLimits(0.5, None), applied)
+    _open_limits_dialog(RatioLimits(upper=1.5), applied)
     await user.open("/")
     user.find("open").click()
-    assert user.find(marker="settings-limit-upper").elements.pop().value == "50"
+    assert user.find(marker="settings-limit-upper").elements.pop().value == "150"
     user.find(marker="settings-apply").click()
     assert applied == []
 

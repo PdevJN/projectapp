@@ -1384,7 +1384,7 @@ class MainView:
         self.after_edit()
 
     def apply_ratio_limits(self, limits: RatioLimits) -> None:
-        """相対比率の加算分の上限・下限を変える。実績か進捗のあるタスクの完了予定が変わるときは、見直しを選ばせる。"""
+        """相対比率の下限・上限を変える。実績か進捗のあるタスクの完了予定が変わるときは、見直しを選ばせる。"""
         if limits == self.project.ratio_limits:
             return
         reviews = limit_reviews(self.project, limits, self.holidays, datetime.now())

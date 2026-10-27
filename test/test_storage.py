@@ -2030,9 +2030,9 @@ def test_a_non_boolean_plantuml_notice_option_is_refused(value: object) -> None:
 
 
 def test_the_ratio_limits_round_trip_and_default_to_none() -> None:
-    project = Project("p", ratio_limit_upper=0.5, ratio_limit_lower=-0.5)
+    project = Project("p", ratio_limit_upper=1.5, ratio_limit_lower=0.5)
     loaded = parse_project(dumps_project(project), "p")
-    assert (loaded.ratio_limit_upper, loaded.ratio_limit_lower) == (0.5, -0.5)
+    assert (loaded.ratio_limit_upper, loaded.ratio_limit_lower) == (1.5, 0.5)
     plain = parse_project(dumps_project(Project("p")), "p")
     assert (plain.ratio_limit_upper, plain.ratio_limit_lower) == (None, None)
 
@@ -2052,10 +2052,11 @@ def test_a_file_without_the_ratio_limit_keys_reads_as_no_limits() -> None:
         ("ratio_limit_upper", "0.5"),
         ("ratio_limit_upper", True),
         ("ratio_limit_upper", float("nan")),
-        ("ratio_limit_upper", -0.1),
-        ("ratio_limit_upper", 3.0),
-        ("ratio_limit_lower", 0.1),
-        ("ratio_limit_lower", -0.95),
+        ("ratio_limit_upper", 0.05),
+        ("ratio_limit_upper", 3.1),
+        ("ratio_limit_lower", 0.05),
+        ("ratio_limit_lower", 3.1),
+        ("ratio_limit_lower", -0.5),
         ("ratio_limit_lower", [0]),
     ],
 )
@@ -2068,5 +2069,14 @@ def test_an_invalid_ratio_limit_is_rejected(key: str, value: object) -> None:
 
 def test_the_ratio_limits_are_rounded_to_four_decimals() -> None:
     raw = json.loads(dumps_project(Project("p")))
-    raw["ratio_limit_upper"] = 0.123456
-    assert parse_project(json.dumps(raw), "p").ratio_limit_upper == 0.1235
+    raw["ratio_limit_upper"] = 1.123456
+    assert parse_project(json.dumps(raw), "p").ratio_limit_upper == 1.1235
+
+
+def test_a_lower_limit_above_the_upper_limit_is_rejected() -> None:
+    raw = json.loads(dumps_project(Project("p")))
+    raw["ratio_limit_upper"], raw["ratio_limit_lower"] = 0.8, 1.2
+    with pytest.raises(ValueError, match="下限"):
+        parse_project(json.dumps(raw), "p")
+    raw["ratio_limit_upper"] = raw["ratio_limit_lower"] = 1.0  # 同じ値は許す
+    assert parse_project(json.dumps(raw), "p").ratio_limits.lower == 1.0
