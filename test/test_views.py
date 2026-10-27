@@ -6360,6 +6360,7 @@ async def test_apply_ratio_limits_asks_before_changing_a_task_with_progress(user
     assert view.project.ratio_limit_upper is None  # 確認の前は変わらない
     user.find(marker="limit-review-cancel").click()
     assert view.project.ratio_limit_upper is None and not view.is_dirty()
+    await user.should_see("上限・下限は変更しませんでした")
 
 
 async def test_apply_ratio_limits_with_review_sets_the_manual_planned_end_in_one_undo_step(
@@ -6368,6 +6369,7 @@ async def test_apply_ratio_limits_with_review_sets_the_manual_planned_end_in_one
     view = await _open_existing(user, tmp_path, _progress_project())
     view.apply_ratio_limits(RatioLimits(0.5, None))
     user.find(marker="limit-review-apply").click()
+    await user.should_not_see("上限・下限は変更しませんでした")
     task = view.project.all_tasks()[0]
     assert view.project.ratio_limit_upper == 0.5
     assert task.planned_end_manual is True and task.planned_end is not None

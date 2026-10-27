@@ -1405,14 +1405,26 @@ class MainView:
                 "残りの作業を新しい条件で見直して、完了予定を手で指定の値にしますか。"
             ).classes("whitespace-pre-line")
 
+            decided = [False]
+
             def choose(review: bool) -> None:
+                decided[0] = True
                 dialog.close()
                 commit(review)
+
+            def cancel() -> None:
+                """ほかの設定は適用済みなので、制限だけが未適用と知らせる(外側クリックと ESC も同じ)。"""
+                if not decided[0]:
+                    decided[0] = True
+                    ui.notify("上限・下限は変更しませんでした")
+                dialog.close()
+
+            dialog.on("hide", cancel)
 
             with ui.row():
                 ui.button("見直して適用", on_click=lambda: choose(True)).mark("limit-review-apply")
                 ui.button("見直さずに適用", on_click=lambda: choose(False)).props("flat").mark("limit-review-skip")
-                ui.button("キャンセル", on_click=dialog.close).props("flat").mark("limit-review-cancel")
+                ui.button("キャンセル", on_click=cancel).props("flat").mark("limit-review-cancel")
         dialog.open()
 
     def apply_reference_mode(self, mode: ReferenceMode) -> None:
