@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
@@ -753,3 +754,71 @@ def test_decomposed_children_inherit_the_parameters_as_independent_lists_and_the
     assert first.parameters == ["P"] and second.parameters == ["P"]
     first.parameters.append("Q")
     assert second.parameters == ["P"]
+
+
+def param_task(parameters: list[str] | None = None, **fields: object) -> Task:
+    return Task("元", id="t", effort_hours=9.0, parameters=["A", "B", "C"] if parameters is None else parameters, **fields)
+
+
+def parameter_kids(project: Project) -> list[Task]:
+    summary = project.sections[0].tasks[0]
+    return [t for t in project.sections[0].tasks if t.id in summary.children]
+
+
+def test_default_parts_by_parameter_are_named_after_the_parameters_with_an_even_split() -> None:
+    from projectapp.decompose import default_parts_by_parameter
+
+    assert default_parts_by_parameter(param_task()) == [Part("A", 3.0), Part("B", 3.0), Part("C", 3.0)]
+    long = default_parts_by_parameter(param_task(["x" * 60, "y"]))
+    assert [len(p.name) for p in long] == [50, 1]
+
+
+def test_per_parameter_decompose_gives_each_child_only_its_own_parameter() -> None:
+    from projectapp.decompose import ParamMode
+
+    project = Project("p", sections=[Section("s", [param_task()])])
+    decompose(project, (0,), 0, [Part("A", 3.0), Part("B", 3.0), Part("C", 3.0)], params=ParamMode.PER_PARAMETER)
+    assert [c.parameters for c in parameter_kids(project)] == [["A"], ["B"], ["C"]]
+    assert project.sections[0].tasks[0].parameters == []
+
+
+def test_none_mode_gives_the_children_no_parameters() -> None:
+    from projectapp.decompose import ParamMode
+
+    project = Project("p", sections=[Section("s", [param_task()])])
+    decompose(project, (0,), 0, [Part("前", 4.0), Part("後", 5.0)], params=ParamMode.NONE)
+    assert [c.parameters for c in parameter_kids(project)] == [[], []]
+
+
+def test_inherit_is_the_default() -> None:
+    project = Project("p", sections=[Section("s", [param_task()])])
+    decompose(project, (0,), 0, [Part("前", 4.0), Part("後", 5.0)])
+    assert [c.parameters for c in parameter_kids(project)] == [["A", "B", "C"]] * 2
+
+
+@pytest.mark.parametrize(
+    ("task", "rows"),
+    [
+        (param_task(["A"]), 2),  # パラメータが 1 件
+        (param_task([f"P{n}" for n in range(21)]), 21),  # 上限の 20 件を超える
+        (param_task(), 2),  # 行数がパラメータ数と違う
+        (param_task(progress=50), 3),  # 進捗度のあるタスク
+    ],
+)
+def test_per_parameter_refuses_what_it_cannot_do_without_changing_the_project(task: Task, rows: int) -> None:
+    from projectapp.decompose import ParamMode
+
+    project = Project("p", sections=[Section("s", [task])])
+    before = deepcopy(project)
+    with pytest.raises(ValueError):
+        decompose(project, (0,), 0, [Part(f"r{n}", 1.0) for n in range(rows)], params=ParamMode.PER_PARAMETER)
+    assert project == before
+
+
+def test_per_parameter_block_reason_explains_why_it_is_unavailable() -> None:
+    from projectapp.decompose import parameter_block_reason
+
+    assert parameter_block_reason(param_task(), settled=False) is None
+    assert "2 つ以上" in (parameter_block_reason(param_task(["A"]), settled=False) or "")
+    assert "20" in (parameter_block_reason(param_task([f"P{n}" for n in range(21)]), settled=False) or "")
+    assert "実績" in (parameter_block_reason(param_task(), settled=True) or "")

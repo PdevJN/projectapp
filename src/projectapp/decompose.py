@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import date, datetime
+from enum import Enum
 from math import isfinite
 
 from projectapp.arrange import section_at, tasks_at
@@ -25,7 +26,16 @@ from projectapp.summary import parent_map
 from projectapp.timeline import Schedule, assignees_rate, combine_rate, crew_on, effective_start, week_index
 
 MAX_PARTS = 20  # 一度に分けられる数の上限
+MIN_PARTS = 2  # 分解の最小の件数(実績があるときは、さらに消し込みの 1 つが要る)
 EFFORT_DECIMALS = 2  # 工数の小数点以下の桁数(forms.HOURS_DECIMALS と同じ。forms は NiceGUI に依存するのでここに持つ)
+
+
+class ParamMode(Enum):
+    """分解した子に付けるパラメータ。"""
+
+    INHERIT = "inherit"  # 全員が元のパラメータをすべて引き継ぐ
+    NONE = "none"  # 付けない
+    PER_PARAMETER = "per_parameter"  # 元のパラメータ 1 つにつき子を 1 つ作り、そのパラメータだけを付ける
 
 
 @dataclass(frozen=True)
@@ -47,6 +57,23 @@ def default_parts(task: Task, count: int) -> list[Part]:
     width = len(str(count)) + 1
     base = task.name[: MAX_TASK_NAME_LENGTH - width]
     return [Part(f"{base} {n}", efforts[n - 1]) for n in range(1, count + 1)]
+
+
+def parameter_block_reason(task: Task, settled: bool) -> str | None:
+    """「パラメータごとに子を作る」を選べない理由(選べるなら None)。"""
+    if settled:
+        return "実績・進捗度のあるタスクでは、パラメータごとに分けられません"
+    if len(task.parameters) < MIN_PARTS:
+        return f"パラメータが {MIN_PARTS} つ以上必要です"
+    if len(task.parameters) > MAX_PARTS:
+        return f"パラメータが {MAX_PARTS} 件を超えています"
+    return None
+
+
+def default_parts_by_parameter(task: Task) -> list[Part]:
+    """パラメータごとの行。名前はパラメータ名(上限に収める)、工数は均等割り。"""
+    efforts = split_effort(task.effort_hours, len(task.parameters))
+    return [Part(name[:MAX_TASK_NAME_LENGTH], effort) for name, effort in zip(task.parameters, efforts)]
 
 
 @dataclass(frozen=True)
@@ -138,7 +165,7 @@ def _validate(
     if (reason := decompose_block_reason(project, task, holidays, today)) is not None:
         raise ValueError(reason)
     settled = task.actuals or (task.progress or 0) >= 1
-    low = 3 if settled else 2  # 実績があるときは、消し込みの 1 つ + 残りを割った 2 つ以上
+    low = MIN_PARTS + 1 if settled else MIN_PARTS  # 実績があるときは、消し込みの 1 つ + 残りを割った 2 つ以上
     if not low <= len(parts) <= MAX_PARTS:
         raise ValueError(f"分解は {low}〜{MAX_PARTS} 件で指定してください")
     for part in parts:
@@ -164,6 +191,14 @@ def _unique_name(name: str, taken: Sequence[str]) -> str:
     return f"{name}#{n}"
 
 
+def child_parameters(task: Task, index: int, params: ParamMode) -> list[str]:
+    if params is ParamMode.NONE:
+        return []
+    if params is ParamMode.PER_PARAMETER:
+        return [task.parameters[index]]
+    return list(task.parameters)
+
+
 def decompose(
     project: Project,
     path: SectionPath,
@@ -174,10 +209,12 @@ def decompose(
     new_section: bool = False,
     holidays: dict[date, str] | None = None,
     today: datetime | None = None,
+    params: ParamMode = ParamMode.INHERIT,
 ) -> list[Task]:
     """`path` のセクションの `index` 番目のタスクを、`parts` の分だけの子に分解する。元のタスクはまとめとして残る。
 
-    子は元の担当・カテゴリ・優先度・色・リンク・開始予定を引き継ぐ(工数は各行の値)。元の先行は最初の子へ移す
+    子は元の担当・カテゴリ・優先度・色・リンク・開始予定を引き継ぐ(工数は各行の値)。パラメータは`params`で決める
+    (既定は全員が引き継ぐ。`NONE`は付けない。`PER_PARAMETER`は行を元のパラメータと 1 対 1 にして、n 番目の子にだけ n 番目を付ける)。元の先行は最初の子へ移す
     (`chain` がオフなら全員が引き継ぐ)。締切は最後の子に渡す。不正なときは ValueError で、何も変えない。
 
     実績か進捗度のあるタスクは、1 つ目の子を消し込み(実績を引き継いで終了。工数=消化分)にし、残りの子には残りの見積もりを
@@ -189,6 +226,11 @@ def decompose(
     now = today or datetime.now()
     _validate(project, task, parts, holidays or {}, now)
     settled = settle(project, task, holidays or {}, now)
+    if params is ParamMode.PER_PARAMETER:
+        if (reason := parameter_block_reason(task, settled is not None)) is not None:
+            raise ValueError(reason)
+        if len(parts) != len(task.parameters):
+            raise ValueError("パラメータごとに分けるときは、行をパラメータと同じ数にしてください")
     parent_section: Section | None = None
     if new_section:
         reason = can_make_section(path)
@@ -225,7 +267,7 @@ def decompose(
                 deadline=task.deadline if n == len(parts) - 1 else None,
                 category_id=task.category_id,
                 urls=[replace(u, values=dict(u.values)) for u in task.urls],
-                parameters=list(task.parameters),
+                parameters=child_parameters(task, n, params),
             )
         )
     tasks[index] = replace(
