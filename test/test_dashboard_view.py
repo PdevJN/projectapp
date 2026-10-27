@@ -23,6 +23,7 @@ from projectapp.dashboard import (
     TeamProgress,
     WorkloadRow,
 )
+from projectapp.dashboard_views import DEFAULT_ORDER, CardId, ViewState
 from projectapp.dashboard_view import HEATMAP_CSS, HEATMAP_HINT_DAYS, MAX_TIP_CHIPS, DashboardView, heatmap_html, percent_width
 from projectapp.models import Status
 
@@ -519,3 +520,26 @@ async def test_the_heatmap_card_has_no_scroll_hint_for_a_narrow_table(user: User
     views[0].show(data, PeriodKind.WEEK)
     await user.should_see(marker="dashboard-heatmap-table")
     await user.should_not_see(marker="dashboard-heatmap-hint")
+
+
+def state(cards: tuple[CardId, ...]) -> ViewState:
+    return ViewState(("標準",), "標準", False, None, cards, ())
+
+
+async def test_cards_follow_the_view_order_and_skip_hidden_ones(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK, view_state=state((CardId.DUE, CardId.HOURS)))
+    await user.should_see(marker="dashboard-due-0")
+    await user.should_see(marker="dashboard-hours-total")
+    await user.should_not_see(marker="dashboard-progress-percent")
+    await user.should_not_see(marker="dashboard-team")
+    assert views[0].card_order == (CardId.DUE, CardId.HOURS)  # 描く順は card_order のとおり
+
+
+async def test_without_a_view_state_all_cards_show_in_the_default_order(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-progress-percent")
+    assert views[0].card_order == DEFAULT_ORDER

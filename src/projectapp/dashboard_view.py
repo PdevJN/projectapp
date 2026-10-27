@@ -17,6 +17,7 @@ from projectapp.dashboard import (
     PeriodKind,
     TeamProgress,
 )
+from projectapp.dashboard_views import DEFAULT_ORDER, CardId, ViewState
 from projectapp.gantt import STATUS_COLORS, STATUS_DARK_COLORS, WEEKDAYS
 from projectapp.models import Status
 from projectapp.periodfield import add_range_picker, normalize_period
@@ -189,6 +190,8 @@ class DashboardView:
         self.data: Dashboard | None = None
         self.icons: dict[str, str] = {}  # メンバー名 → アイコン(ある人だけ)
         self.syncing = False  # 開き直しでトグルの値を書き換えるあいだは、変更を通知しない
+        self.state: ViewState | None = None  # ビューの選択・カードの並び。None のあいだは既定の順で全部出す
+        self.card_order: tuple[CardId, ...] = DEFAULT_ORDER
 
     def build(self) -> None:
         ui.add_css(PIE_CSS)
@@ -272,10 +275,13 @@ class DashboardView:
         icons: dict[str, str] | None = None,
         custom_text: str | None = None,
         custom_error: str = "",
+        view_state: ViewState | None = None,
     ) -> None:
         """custom_text が None のときは、欄の文字(入力中の値)を書き換えない。"""
         self.icons = icons or {}
         self.data = data
+        self.state = view_state
+        self.card_order = view_state.cards if view_state is not None else DEFAULT_ORDER
         if self.custom_box is not None and self.custom_field is not None and self.custom_error is not None:
             self.custom_box.set_visibility(kind is PeriodKind.CUSTOM)
             self.custom_field.set_visibility(kind is PeriodKind.CUSTOM)
@@ -318,13 +324,17 @@ class DashboardView:
         data = self.data
         if data is None:
             return
+        builders = {
+            CardId.TEAM: self.team_card,
+            CardId.PROGRESS: self.progress_card,
+            CardId.LOAD: self.load_card,
+            CardId.HEATMAP: self.heatmap_card,
+            CardId.HOURS: self.hours_card,
+            CardId.DUE: self.due_card,
+        }
         with ui.element("div").style(GRID_STYLE):
-            self.team_card(data)
-            self.progress_card(data)
-            self.load_card(data)
-            self.heatmap_card(data)
-            self.hours_card(data)
-            self.due_card(data)
+            for card_id in self.card_order:
+                builders[card_id](data)
 
     def team_card(self, data: Dashboard) -> None:
         team = data.team
