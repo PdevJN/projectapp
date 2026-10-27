@@ -488,7 +488,7 @@ class MainView:
         self.reset_history()
         self.gantt.set_project(self.project)
         self.gantt.reset_filter()
-        self.gantt.reset_scroll()  # 別のプロジェクトは、先頭から見せる(編集後の再描画では動かさない)
+        self.gantt.scroll_on_open()  # 別のプロジェクトは、先頭に戻してから今日の位置へ(編集後の再描画では動かさない)
         for name in missing_references(project, self.reference_resolver, datetime.now()):
             ui.notify(f"参照先のプロジェクトが見つかりません: {name}", type="warning")
         if stale := self.stale_references():

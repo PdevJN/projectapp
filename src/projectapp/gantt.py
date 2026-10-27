@@ -288,6 +288,14 @@ SCROLL_RESET_JS = (
     "document.querySelector('[data-chart-scroll]')?.scrollTo({top: 0, left: 0});"
     " window.scrollTo({top: 0})"
 )
+def today_scroll_js(x: float, name_width: int) -> str:
+    """今日の線が、名前の欄を除いたチャート領域の左から 1/4 の位置に来るよう、横にスクロールする。"""
+    return (
+        "requestAnimationFrame(() => { const el = document.querySelector('[data-chart-scroll]');"
+        f" if (el) el.scrollTo({{left: Math.max(0, {x:.1f} - (el.clientWidth - {name_width}) / 4)}}) }})"
+    )
+
+
 # 非表示(display: none)にすると、枠のスクロール位置が失われる。要素の更新(隠す)は run_javascript より先にブラウザへ届き、
 # 隠す直前には位置を読めないので、スクロールのたびに覚える(見えているときだけ。隠れて 0 を返すときは上書きしない)。
 # 出したあとの次のフレームで戻す
@@ -513,6 +521,8 @@ class GanttChart:
         self.syncing_period = False  # 欄を書き換えるあいだは、入力の変更として扱わない
         self.toolbar: ui.row | None = None
         self.scroll_box: ui.element | None = None
+        self.today_button: ui.button | None = None
+        self.today_tooltip: ui.tooltip | None = None
         self.task_filter = TaskFilter()
         self.quick_add: Position | None = None  # 名前の入力行を出している位置。保存しない
         self.quick_parent: str | None = None  # 入力行で作るタスクを、子にするまとめの id。なければ通常のタスク
@@ -730,6 +740,32 @@ class GanttChart:
     def reset_scroll(self) -> None:
         if self.client is not None:
             self.client.run_javascript(SCROLL_RESET_JS)
+
+    def today_x(self, columns: list[Column] | None = None) -> float | None:
+        """今日の線のチャート内の横位置(px)。表示範囲の外なら None。"""
+        if columns is None:
+            columns = build_columns(
+                self.project, self.view_scale, self.holidays, self.view_period, self.reference_values()
+            )
+        position = today_position(self.now(), columns, self.view_scale)
+        return None if position is None else position * COLUMN_WIDTH_PX[self.view_scale]
+
+    def scroll_to_today(self) -> None:
+        x = self.today_x()
+        if self.client is not None and x is not None:
+            self.client.run_javascript(today_scroll_js(x, self.name_width))
+
+    def scroll_on_open(self) -> None:
+        """別のプロジェクトを開いた直後だけ、先頭に戻してから今日の位置へ移る(範囲の外なら先頭のまま)。"""
+        self.reset_scroll()
+        self.scroll_to_today()
+
+    def sync_today_button(self, x: float | None) -> None:
+        """`当日`ボタンの押せる・押せないと、ホバーの文言を、今日が表示範囲の中かに合わせる。"""
+        if self.today_button is None or self.today_tooltip is None:
+            return
+        self.today_button.set_enabled(x is not None)
+        self.today_tooltip.set_text("今日の位置へ移ります" if x is not None else "今日は表示期間の外です")
 
     def scroll_to_top(self) -> None:
         if self.client is not None:
@@ -978,6 +1014,14 @@ class GanttChart:
                 value=self.scale,
                 on_change=lambda e: self.set_scale(Scale(e.value)),
             ).classes("shrink-0").mark("scale-toggle")
+            self.today_button = (
+                ui.button("当日", icon="today", on_click=self.scroll_to_today)
+                .props("flat dense")
+                .classes("shrink-0")
+                .mark("today-button")
+            )
+            with self.today_button:
+                self.today_tooltip = ui.tooltip("今日の位置へ移ります")
             with ui.column().classes("gap-0 shrink-0"):  # 欄とエラーを縦に並べる(エラーが空のときは高さを取らない)
                 self.period_input = (
                     ui.input(placeholder="表示期間(空は自動)", on_change=lambda e: self.on_period_changed(e.value))
@@ -1282,6 +1326,7 @@ class GanttChart:
         columns = build_columns(
             self.project, self.view_scale, self.holidays, self.view_period, self.reference_values()
         )
+        self.sync_today_button(self.today_x(columns))
         self.overloads = overallocations(self.project, self.holidays)
         self.category_lookup = by_id(self.project.categories)
         self.icon_lookup = {m.name: m.icon for m in self.project.members if m.icon}

@@ -24,6 +24,7 @@ from projectapp.gantt import (
     TODAY_CSS,
     TODAY_DARK_COLOR,
     TODAY_LINE_WIDTH_PX,
+    today_scroll_js,
     ViewOptions,
     crew_text,
     SHIFT_HINT,
@@ -1842,6 +1843,84 @@ async def test_the_scroll_box_survives_a_redraw_so_the_scroll_position_is_kept(u
 
 async def test_changing_the_scale_resets_only_the_horizontal_scroll(user: User) -> None:
     charts, _ = mount_chart(filter_project())
+    await user.open("/")
+    sent = record_javascript(charts[0])
+    charts[0].set_scale(Scale.WEEK)
+    assert sent == [SCROLL_TO_LEFT_JS]
+
+
+def test_today_scroll_js_puts_the_line_a_quarter_in_from_the_name_column() -> None:
+    js = today_scroll_js(400.0, 200)
+    assert "[data-chart-scroll]" in js
+    assert "400.0 - (el.clientWidth - 200) / 4" in js
+    assert "Math.max(0," in js
+
+
+async def settled(condition: Callable[[], bool]) -> None:
+    """描き直し(背景タスク)が済んで条件を満たすまで待つ。"""
+    for _ in range(10):
+        if condition():
+            return
+        await asyncio.sleep(0.1)
+    raise AssertionError("条件を満たさなかった")
+
+
+async def test_today_button_scrolls_to_the_line(user: User) -> None:
+    charts, _ = mount_chart(sample_project(), now=NOON)
+    await user.open("/")
+    sent = record_javascript(charts[0])
+    user.find(marker="today-button").click()
+    assert sent == [today_scroll_js(2.5 * COLUMN_WIDTH_PX[Scale.DAY], charts[0].name_width)]
+
+
+async def test_today_button_is_disabled_outside_the_range_and_follows_the_period(user: User) -> None:
+    charts, _ = mount_chart(sample_project(), now=NOON)
+    await user.open("/")
+    button = user.find(marker="today-button").elements.pop()
+    assert button.enabled
+    charts[0].set_period((date(2026, 11, 1), date(2026, 11, 30)))
+    await settled(lambda: not button.enabled)
+    charts[0].set_period(None)
+    await settled(lambda: button.enabled)
+
+
+async def test_today_button_uses_the_time_of_the_click(user: User) -> None:
+    clock = [datetime(2026, 10, 1)]  # 範囲の前から始める
+    charts: list[GanttChart] = []
+
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(sample_project(), {}, Recorder().actions, now=lambda: clock[0])
+        charts.append(chart)
+        chart.build()
+
+    await user.open("/")
+    sent = record_javascript(charts[0])
+    charts[0].scroll_to_today()
+    assert sent == []  # 範囲の外では何も送らない
+    clock[0] = NOON  # 日付をまたいで開きっぱなし
+    charts[0].scroll_to_today()
+    assert len(sent) == 1
+
+
+async def test_scroll_on_open_resets_then_goes_to_today(user: User) -> None:
+    charts, _ = mount_chart(sample_project(), now=NOON)
+    await user.open("/")
+    sent = record_javascript(charts[0])
+    charts[0].scroll_on_open()
+    assert sent == [SCROLL_RESET_JS, today_scroll_js(2.5 * COLUMN_WIDTH_PX[Scale.DAY], charts[0].name_width)]
+
+
+async def test_scroll_on_open_stays_at_the_left_when_today_is_outside(user: User) -> None:
+    charts, _ = mount_chart(sample_project(), now=datetime(2026, 10, 1))
+    await user.open("/")
+    sent = record_javascript(charts[0])
+    charts[0].scroll_on_open()
+    assert sent == [SCROLL_RESET_JS]
+
+
+async def test_changing_the_scale_still_resets_to_the_left_not_today(user: User) -> None:
+    charts, _ = mount_chart(sample_project(), now=NOON)
     await user.open("/")
     sent = record_javascript(charts[0])
     charts[0].set_scale(Scale.WEEK)
