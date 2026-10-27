@@ -56,6 +56,7 @@ from projectapp.models import (
     Parameter,
     ReferenceMode,
     Priority,
+    RatioLimits,
     Status,
     Task,
     TaskKind,
@@ -68,7 +69,7 @@ from projectapp.models import (
     union_assignees,
 )
 from projectapp.workdays import sort_work_days, validate_work_days
-from projectapp.ratios import ParameterEdit, ratio_detail, remap_levels, validate_parameters
+from projectapp.ratios import ParameterEdit, limit_note, ratio_detail, remap_levels, validate_parameters
 from projectapp.urls import TemplateEdit, resolve, validate_templates
 
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
@@ -1659,14 +1660,17 @@ def parameters_panel(
     return ParametersPanel(dirty=lambda: rows != baseline, apply=apply)
 
 
-def effective_ratio_text(row: MemberRow, parameters: list[Parameter]) -> str:
-    """メンバーの行の、実効比率の表示。基本比率が空・非有限のときは空。範囲に丸めたときは、その旨を足す。"""
+def effective_ratio_text(row: MemberRow, parameters: list[Parameter], limits: RatioLimits | None = None) -> str:
+    """メンバーの行の、実効比率の表示。基本比率が空・非有限のときは空。範囲に丸めた・加算分を制限したときは、その旨を足す。"""
     percent = row.ratio_percent
     if percent is None or not isfinite(percent):
         return ""
-    detail = ratio_detail(Member(row.name, percent / 100, row.levels), parameters)
-    note = "(範囲に丸めました)" if detail.clamped else ""
-    return f"相対比率 {detail.ratio * 100:g}%{note}"
+    detail = ratio_detail(Member(row.name, percent / 100, row.levels), parameters, limits=limits)
+    notes = ["範囲に丸めました"] if detail.clamped else []
+    if note := limit_note(detail, limits):
+        notes.append(note)
+    suffix = f"({'・'.join(notes)})" if notes else ""
+    return f"相対比率 {detail.ratio * 100:g}%{suffix}"
 
 
 def _signed_percent(value: float) -> str:
@@ -1743,6 +1747,7 @@ def members_panel(
     get_parameters: Callable[[], list[Parameter]],
     get_taken: Callable[[], Collection[str]],
     pick_icon: Callable[[], Awaitable[str | None]] | None = None,
+    get_limits: Callable[[], RatioLimits] = RatioLimits,
 ) -> MembersPanel:
     """メンバーの編集(タブの中身)。1 行が 1 人の表(名前・基本比率・パラメータごとの段階・実効比率・削除)。
     適用してもダイアログは閉じず、プロジェクトの今のメンバーから行を作り直す。"""
@@ -1810,7 +1815,7 @@ def members_panel(
 
                     def refresh_effective(r: MemberRow, holder: list[ui.label] = effective) -> None:
                         if holder:
-                            holder[0].set_text(effective_ratio_text(r, chosen_parameters))
+                            holder[0].set_text(effective_ratio_text(r, chosen_parameters, get_limits()))
 
                     def on_ratio(e, r=row) -> None:  # noqa: ANN001
                         r.ratio_percent = e.value
@@ -1862,7 +1867,7 @@ def members_panel(
                         )
                     if with_effective:
                         effective.append(
-                            ui.label(effective_ratio_text(row, chosen_parameters))
+                            ui.label(effective_ratio_text(row, chosen_parameters, get_limits()))
                             .classes("text-grey member-effective")
                             .mark(f"member-effective-{index}")
                         )
@@ -1949,6 +1954,7 @@ def open_members_parameters_dialog(
     pick_icon: Callable[[], Awaitable[str | None]] | None = None,
     applied: Callable[[], bool] = lambda: False,
     rollback: Callable[[], object] = lambda: None,
+    get_limits: Callable[[], RatioLimits] = RatioLimits,
 ) -> None:
     """メンバーとパラメータのダイアログ。`適用`はタブごとで閉じない。`閉じる`は変更のあるタブを確定して閉じ、
     `キャンセル`は未適用の編集を捨てて閉じる(開いてから適用した分〔applied〕があれば、残すか rollback で戻すかを確認する)。"""
@@ -1965,7 +1971,9 @@ def open_members_parameters_dialog(
             "flex-shrink: 0"  # 縮むと、はみ出た分が overflow: hidden で切れる。カードのスクロールに任せる
         ).mark("members-parameters-panels"):
             with ui.tab_panel("members"):
-                members = members_panel(get_members, assigned, on_apply_members, get_parameters, get_taken, pick_icon)
+                members = members_panel(
+                    get_members, assigned, on_apply_members, get_parameters, get_taken, pick_icon, get_limits
+                )
             with ui.tab_panel("parameters"):
 
                 def parameters_applied(edit: ParameterEdit) -> None:

@@ -62,6 +62,7 @@ from projectapp.models import (
     Member,
     Parameter,
     Priority,
+    RatioLimits,
     Status,
     Task,
     TaskKind,
@@ -2217,3 +2218,11 @@ async def test_the_settings_dialog_does_not_report_an_unchanged_plantuml_notice(
     user.find("open").click()
     user.find(marker="settings-apply").click()
     assert applied == []
+
+
+def test_effective_ratio_text_reports_a_limited_sum() -> None:
+    params = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
+    row = MemberRow(None, "田中", 100.0, {"a": "高", "b": "高", "c": "高"})
+    assert effective_ratio_text(row, params) == "相対比率 250%"
+    text = effective_ratio_text(row, params, RatioLimits(upper=0.5))
+    assert text == "相対比率 150%(加算分 +150% → 上限 +50% に制限)"

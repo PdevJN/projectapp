@@ -1318,6 +1318,7 @@ class MainView:
             pick_icon=self.pick_member_icon if self.exporter.available else None,
             applied=lambda: self.project != opened,
             rollback=rollback,
+            get_limits=lambda: self.project.ratio_limits,
         )
 
     async def pick_member_icon(self) -> str | None:
@@ -1565,6 +1566,7 @@ class MainView:
             "finish_of": finish_of,
             "url_templates": self.project.url_templates,
             "parameters": self.project.parameters,
+            "ratio_limits": self.project.ratio_limits,
             "categories": self.project.categories,
             "sections": self.task_sections,
             "on_sections_change": self.set_task_sections,

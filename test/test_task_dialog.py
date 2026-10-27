@@ -18,6 +18,7 @@ from projectapp.models import (
     Member,
     Parameter,
     Priority,
+    RatioLimits,
     Status,
     Task,
     TaskKind,
@@ -48,6 +49,7 @@ def mount_dialog(
     on_decompose: Callable[[Callable[[], object]], object] | None = None,
     now: Callable[[], datetime] | None = None,
     reference_choices: list[str] | None = None,
+    ratio_limits: RatioLimits | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -66,6 +68,7 @@ def mount_dialog(
                 finish_of=finish_of,
                 url_templates=url_templates,
                 parameters=parameters,
+                ratio_limits=ratio_limits,
                 categories=categories,
                 sections=sections,
                 on_sections_change=on_sections_change,
@@ -2844,3 +2847,23 @@ async def test_a_reference_row_hides_the_normal_fields_and_keeps_its_missing_tar
     await user.should_not_see(marker="task-effort")
     user.find(marker="task-save").click()
     assert saved[0].ref_project == "ない"
+
+
+async def test_the_conversion_text_names_a_limited_assignee(user: User) -> None:
+    params = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
+    member = Member("田中", 1.0, {"a": "高", "b": "高", "c": "高"})
+    task = Task("t", assignees=[Assignee("田中", 1.0)], effort_hours=10.0, parameters=["a", "b", "c"])
+    mount_dialog(task, [], members=[member], parameters=params, ratio_limits=RatioLimits(upper=0.5))
+    await open_dialog(user)
+    text = user.find(marker="task-conversion").elements.pop().text
+    assert "換算率 150%" in text and "田中 加算分 +150% → 上限 +50% に制限" in text
+
+
+async def test_the_conversion_text_has_no_limit_note_without_limits(user: User) -> None:
+    params = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
+    member = Member("田中", 1.0, {"a": "高", "b": "高", "c": "高"})
+    task = Task("t", assignees=[Assignee("田中", 1.0)], effort_hours=10.0, parameters=["a", "b", "c"])
+    mount_dialog(task, [], members=[member], parameters=params)
+    await open_dialog(user)
+    text = user.find(marker="task-conversion").elements.pop().text
+    assert "換算率 250%" in text and "制限" not in text

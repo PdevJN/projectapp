@@ -1167,3 +1167,25 @@ def test_the_sample_project_shows_exactly_the_period_and_clips_the_bars_at_its_e
     assert [name.split("]")[0] for name in drawn] == [
         "[左端をまたぐ", "[ちょうど月初", "[中", "[中", "[ちょうど月末", "[右端をまたぐ",
     ]  # 前の月・後の月・遠い月だけのタスクは描かない
+
+
+def _limited_project(**limits: float) -> tuple[Project, Task]:
+    parameters = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
+    member = Member("田中", 1.0, {"a": "高", "b": "高", "c": "高"})
+    task = Task("t", assignees=[Assignee("田中", 1.0)], effort_hours=10.0, planned_start=datetime(2026, 10, 5, 9))
+    return Project("p", members=[member], parameters=parameters, tasks=[task], **limits), task
+
+
+def test_conversion_rate_uses_the_project_ratio_limits() -> None:
+    free, task = _limited_project()
+    assert conversion_rate(task, free) == pytest.approx(2.5)
+    capped, task = _limited_project(ratio_limit_upper=0.5)
+    assert conversion_rate(task, capped) == pytest.approx(1.5)
+
+
+def test_the_planned_end_follows_the_ratio_limits() -> None:
+    free, task = _limited_project()
+    capped, capped_task = _limited_project(ratio_limit_upper=0.5)
+    free_end = Schedule(free, {}).finish(task)
+    capped_end = Schedule(capped, {}).finish(capped_task)
+    assert free_end is not None and capped_end is not None and capped_end > free_end

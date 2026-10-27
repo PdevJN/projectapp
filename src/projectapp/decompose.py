@@ -87,7 +87,7 @@ class Settled:
 def _worked_rate(project: Project, task: Task, start: date, interval_start: datetime) -> float:
     """実績の区間を数えるときの換算率。週ごとのタスクは、区間の開始の日の週の担当で数える。"""
     crew = crew_on(task, start, interval_start.date())
-    return assignees_rate(crew, project.members, project.parameters, task.parameters)
+    return assignees_rate(crew, project.members, project.parameters, task.parameters, project.ratio_limits)
 
 
 def settle(project: Project, task: Task, holidays: dict[date, str], today: datetime) -> Settled | None:
@@ -106,7 +106,8 @@ def settle(project: Project, task: Task, holidays: dict[date, str], today: datet
         )
         consumed = min(worked, task.effort_hours)
     else:
-        consumed = consumed_hours(task, assignees_rate(task.assignees, project.members, project.parameters, task.parameters))
+        rate = assignees_rate(task.assignees, project.members, project.parameters, task.parameters, project.ratio_limits)
+        consumed = consumed_hours(task, rate)
     crew = task.weekly_crew[week_index(anchor, today.date(), len(task.weekly_crew))] if task.weekly_crew else task.assignees
     return Settled(round(consumed, EFFORT_DECIMALS), [Assignee(a.name, a.allocation) for a in crew])
 
