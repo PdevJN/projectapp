@@ -7,7 +7,16 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from math import isfinite
 
-from projectapp.models import MAX_LEVEL_VALUE, MAX_RATIO, MIN_LEVEL_VALUE, MIN_RATIO, Member, Parameter, Project
+from projectapp.models import (
+    MAX_LEVEL_VALUE,
+    MAX_RATIO,
+    MIN_LEVEL_VALUE,
+    MIN_RATIO,
+    Member,
+    Parameter,
+    Project,
+    RatioLimits,
+)
 
 
 @dataclass(frozen=True)
@@ -17,11 +26,30 @@ class RatioDetail:
     raw: float  # 丸める前の合計
     ratio: float  # 丸めたあと(計算に使う値)
     clamped: bool  # 範囲に丸めたか
+    adjustment: float = 0.0  # 制限する前の加算分(判定値の合計)
+    limited: bool = False  # 上限か下限で加算分を収めたか
 
 
-def ratio_detail(member: Member, parameters: list[Parameter], only: Collection[str] | None = None) -> RatioDetail:
+def limit_adjustment(adjustment: float, limits: RatioLimits | None) -> float:
+    """加算分を [下限, 上限] に収める。None の側は収めない。"""
+    if limits is None:
+        return adjustment
+    if limits.upper is not None and adjustment > limits.upper:
+        return limits.upper
+    if limits.lower is not None and adjustment < limits.lower:
+        return limits.lower
+    return adjustment
+
+
+def ratio_detail(
+    member: Member,
+    parameters: list[Parameter],
+    only: Collection[str] | None = None,
+    limits: RatioLimits | None = None,
+) -> RatioDetail:
     """メンバーの相対比率の内訳。存在しないパラメータ・段階への選択は、判定値 0% として数えない。
-    only があれば、その名前のパラメータだけ足す(None か空は全パラメータ。タスクに付けたパラメータの指定)。"""
+    only があれば、その名前のパラメータだけ足す(None か空は全パラメータ。タスクに付けたパラメータの指定)。
+    limits があれば、判定値の合計をその範囲に収めてから基本比率に足す。"""
     counted = set(only) if only else None
     adjustments: list[tuple[str, str, float]] = []
     for parameter in parameters:
@@ -31,15 +59,34 @@ def ratio_detail(member: Member, parameters: list[Parameter], only: Collection[s
         level = next((lv for lv in parameter.levels if lv.name == chosen), None) if chosen is not None else None
         if level is not None:
             adjustments.append((parameter.name, level.name, level.value))
+    total = sum(value for _, _, value in adjustments)
+    adjustment = round(total, 4)
+    bounded = limit_adjustment(adjustment, limits)
+    limited = bounded != adjustment
     # 保存する値は小数点以下 4 桁までなので、足し算の誤差(0.3 - 0.2 = 0.0999…)で境界を外さないよう丸める
-    raw = round(member.ratio + sum(value for _, _, value in adjustments), 4)
+    raw = round(member.ratio + (bounded if limited else total), 4)
     ratio = min(max(raw, MIN_RATIO), MAX_RATIO) if isfinite(raw) else member.ratio
-    return RatioDetail(member.ratio, adjustments, raw, ratio, ratio != raw)
+    return RatioDetail(member.ratio, adjustments, raw, ratio, ratio != raw, adjustment, limited)
 
 
-def effective_ratio(member: Member, parameters: list[Parameter], only: Collection[str] | None = None) -> float:
+def effective_ratio(
+    member: Member,
+    parameters: list[Parameter],
+    only: Collection[str] | None = None,
+    limits: RatioLimits | None = None,
+) -> float:
     """計算に使う相対比率。"""
-    return ratio_detail(member, parameters, only).ratio
+    return ratio_detail(member, parameters, only, limits).ratio
+
+
+def limit_note(detail: RatioDetail, limits: RatioLimits | None) -> str:
+    """内訳に添える注記。加算分を制限したときだけ。例: 加算分 +150% → 上限 +50% に制限。"""
+    if limits is None or not detail.limited:
+        return ""
+    if limits.upper is not None and detail.adjustment > limits.upper:
+        return f"加算分 {detail.adjustment * 100:+g}% → 上限 {limits.upper * 100:+g}% に制限"
+    assert limits.lower is not None
+    return f"加算分 {detail.adjustment * 100:+g}% → 下限 {limits.lower * 100:+g}% に制限"
 
 
 @dataclass(frozen=True)

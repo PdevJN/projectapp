@@ -271,6 +271,14 @@ def walk_sections(sections: list[Section], prefix: SectionPath = ()) -> Iterator
         yield from walk_sections(section.sections, path)
 
 
+@dataclass(frozen=True)
+class RatioLimits:
+    """相対比率の加算分(判定値の合計)の上限・下限。None の側は制限しない。"""
+
+    upper: float | None = None
+    lower: float | None = None
+
+
 @dataclass
 class Project:
     name: str
@@ -287,6 +295,12 @@ class Project:
     events: list[Event] = field(default_factory=list)  # イベント(プロジェクト共通。並びが色の優先順で、後ろが勝つ)
     reference_mode: ReferenceMode = ReferenceMode.LIVE  # プロジェクト参照の方式
     plantuml_overload_notice: bool = True  # PlantUML の保存後に、100% 超に見える担当者を通知するか
+    ratio_limit_upper: float | None = None  # 相対比率の加算分の上限(+50% は 0.5)。None は制限なし
+    ratio_limit_lower: float | None = None  # 同じく下限(-50% は -0.5)
+
+    @property
+    def ratio_limits(self) -> RatioLimits:
+        return RatioLimits(self.ratio_limit_upper, self.ratio_limit_lower)
 
     def all_tasks(self) -> list[Task]:
         """セクションなしのタスク、続いて各セクションを深さ優先で(そのタスク → そのサブセクション)。"""

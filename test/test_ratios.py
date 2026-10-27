@@ -2,13 +2,15 @@
 
 import pytest
 
-from projectapp.models import Level, Member, Parameter, Project, Task
+from projectapp.models import Level, Member, Parameter, Project, RatioLimits, Task
 from projectapp.ratios import (
     ParameterEdit,
     apply_parameter_edit,
     deletion_impacts,
     effective_ratio,
     impact_lines,
+    limit_adjustment,
+    limit_note,
     ratio_detail,
     remap_levels,
     task_deletion_impacts,
@@ -255,3 +257,102 @@ def test_impact_lines_list_members_then_tasks() -> None:
         "「専門」を選んでいるメンバーが1人います",
         "「専門」を付けているタスクが1件あります",
     ]
+
+
+BIG = Parameter("大", [Level("高", 0.5), Level("低", -0.5)])
+BIG2 = Parameter("大2", [Level("高", 0.5)])
+BIG3 = Parameter("大3", [Level("高", 0.5)])
+PILE = [BIG, BIG2, BIG3]
+
+
+def test_without_limits_the_adjustments_are_added_as_before() -> None:
+    member = Member("a", 1.0, {"大": "高", "大2": "高", "大3": "高"})
+    assert effective_ratio(member, PILE) == pytest.approx(2.5)
+    assert effective_ratio(member, PILE, limits=RatioLimits()) == pytest.approx(2.5)
+    assert effective_ratio(member, PILE, limits=None) == pytest.approx(2.5)
+
+
+def test_the_upper_limit_caps_the_sum_of_the_adjustments() -> None:
+    member = Member("a", 1.0, {"大": "高", "大2": "高", "大3": "高"})
+    detail = ratio_detail(member, PILE, limits=RatioLimits(upper=0.5))
+    assert detail.adjustment == pytest.approx(1.5)
+    assert detail.limited is True
+    assert detail.raw == pytest.approx(1.5)
+    assert detail.ratio == pytest.approx(1.5)
+
+
+def test_the_lower_limit_floors_the_sum_of_the_adjustments() -> None:
+    member = Member("a", 1.0, {"大": "低"})
+    detail = ratio_detail(member, PILE, limits=RatioLimits(lower=-0.3))
+    assert detail.adjustment == pytest.approx(-0.5)
+    assert detail.ratio == pytest.approx(0.7)
+    assert detail.limited is True
+
+
+def test_a_sum_inside_the_limits_is_not_limited() -> None:
+    member = Member("a", 1.0, {"経験": "上級"})
+    detail = ratio_detail(member, PARAMETERS, limits=RatioLimits(upper=0.5, lower=-0.5))
+    assert detail.limited is False
+    assert detail.ratio == pytest.approx(1.2)
+
+
+def test_a_sum_exactly_on_a_limit_is_not_reported_as_limited() -> None:
+    member = Member("a", 1.0, {"大": "高"})
+    detail = ratio_detail(member, PILE, limits=RatioLimits(upper=0.5))
+    assert detail.limited is False
+    assert detail.ratio == pytest.approx(1.5)
+
+
+def test_an_upper_limit_of_zero_blocks_additions_but_not_reductions() -> None:
+    plus = Member("a", 1.0, {"大": "高"})
+    minus = Member("b", 1.0, {"大": "低"})
+    zero_up = RatioLimits(upper=0.0)
+    assert effective_ratio(plus, PILE, limits=zero_up) == pytest.approx(1.0)
+    assert effective_ratio(minus, PILE, limits=zero_up) == pytest.approx(0.5)
+
+
+def test_a_lower_limit_of_zero_blocks_reductions_but_not_additions() -> None:
+    plus = Member("a", 1.0, {"大": "高"})
+    minus = Member("b", 1.0, {"大": "低"})
+    zero_down = RatioLimits(lower=0.0)
+    assert effective_ratio(plus, PILE, limits=zero_down) == pytest.approx(1.5)
+    assert effective_ratio(minus, PILE, limits=zero_down) == pytest.approx(1.0)
+
+
+def test_the_limits_never_pull_a_high_base_ratio_below_the_base() -> None:
+    fast = Member("a", 2.0, {"大": "高", "大2": "高"})
+    assert effective_ratio(fast, PILE, limits=RatioLimits(upper=0.5)) == pytest.approx(2.5)
+
+
+def test_the_limits_apply_to_the_tagged_parameters_only() -> None:
+    member = Member("a", 1.0, {"大": "高", "大2": "高", "大3": "高"})
+    assert effective_ratio(member, PILE, ["大", "大2"], RatioLimits(upper=0.5)) == pytest.approx(1.5)
+    assert effective_ratio(member, PILE, ["大"], RatioLimits(upper=0.5)) == pytest.approx(1.5)  # 制限内
+
+
+def test_the_rounding_to_the_ratio_range_still_applies_after_the_limits() -> None:
+    slow = Member("a", 0.3, {"大": "低"})
+    detail = ratio_detail(slow, PILE, limits=RatioLimits(lower=-0.5))
+    assert detail.raw == pytest.approx(-0.2)
+    assert detail.ratio == pytest.approx(0.1)
+    assert detail.clamped is True and detail.limited is False
+
+
+def test_limit_adjustment_handles_one_sided_and_missing_limits() -> None:
+    assert limit_adjustment(0.8, None) == 0.8
+    assert limit_adjustment(0.8, RatioLimits(upper=0.5)) == 0.5
+    assert limit_adjustment(-0.8, RatioLimits(upper=0.5)) == -0.8
+    assert limit_adjustment(-0.8, RatioLimits(lower=-0.5)) == -0.5
+    assert limit_adjustment(0.8, RatioLimits(lower=-0.5)) == 0.8
+
+
+def test_limit_note_names_the_limit_only_when_it_was_applied() -> None:
+    member = Member("a", 1.0, {"大": "高", "大2": "高", "大3": "高"})
+    up = RatioLimits(upper=0.5)
+    assert limit_note(ratio_detail(member, PILE, limits=up), up) == "加算分 +150% → 上限 +50% に制限"
+    down = RatioLimits(lower=-0.3)
+    low = Member("b", 1.0, {"大": "低"})
+    assert limit_note(ratio_detail(low, PILE, limits=down), down) == "加算分 -50% → 下限 -30% に制限"
+    assert limit_note(ratio_detail(member, PILE), None) == ""
+    wide = RatioLimits(upper=2.9)
+    assert limit_note(ratio_detail(member, PILE, limits=wide), wide) == ""
