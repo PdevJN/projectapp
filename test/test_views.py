@@ -2756,6 +2756,32 @@ async def test_editing_cards_in_the_dashboard_changes_order_and_shows_the_dirty_
     assert view.dashboard_cards[0] is CardId.DUE
 
 
+async def test_a_broken_config_file_does_not_stop_the_view_from_updating(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    (tmp_path / "config.json").write_text("{bad", encoding="utf-8")  # 起動後に壊れた(外部の編集など)
+    view.change_dashboard_period(PeriodKind.MONTH)
+    with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
+        view.save_dashboard_view_as()
+    user.find(marker="project-name").type("月次")
+    user.find(marker="name-save").click()
+    await user.should_see("保存できませんでした")
+    assert view.dashboard_view_name == "月次"
+    state = view.dashboard_view.state
+    assert state is not None and state.current == "月次" and "月次" in state.names  # 画面も新しいビューに更新される
+
+
+async def test_closing_and_reopening_the_dashboard_leaves_edit_mode(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    user.find(marker="dashboard-edit-toggle").click()
+    assert view.dashboard_view.edit_mode is True
+    view.close_dashboard()
+    assert view.dashboard_view.edit_mode is False
+    await open_dashboard(user, view)
+    await user.should_not_see(marker="dashboard-hide-team")
+
+
 def text_of(user: User, marker: str) -> str:
     return user.find(marker=marker).elements.pop().text
 

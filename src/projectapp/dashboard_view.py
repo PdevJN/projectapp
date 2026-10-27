@@ -448,6 +448,10 @@ class DashboardView:
         self.cards.refresh()
 
     def hide(self) -> None:
+        self.edit_mode = False  # 編集モードは持ち越さない(次に開くときは、ふだんの表示)
+        if self.edit_button is not None:
+            self.edit_button.set_text("カードを編集")
+            self.edit_button.props("icon=edit")
         if self.box is not None:
             self.box.set_visibility(False)
 

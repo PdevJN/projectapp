@@ -971,7 +971,7 @@ class MainView:
                 save_dashboard_views(self.dashboard_views, self.base_dir)
             if last:
                 save_dashboard_view_last(self.dashboard_view_name, self.base_dir)
-        except OSError:
+        except (OSError, ValueError):  # ValueError = 壊れた config.json(読めないファイルは上書きしない)
             ui.notify("ダッシュボードのビューを保存できませんでした(この画面では使い続けられます)")
 
     def select_dashboard_view(self, name: str) -> None:
