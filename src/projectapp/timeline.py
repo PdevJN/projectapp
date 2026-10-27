@@ -169,6 +169,22 @@ def deadline_position(deadline: datetime, columns: list[Column]) -> float | None
     return _position(deadline, columns)
 
 
+def today_position(now: datetime, columns: list[Column], scale: Scale) -> float | None:
+    """今日の線の位置(列の単位)。範囲の外ならNone。日次は時刻、週次は日の真ん中、月次は列の真ん中。"""
+    begin = datetime.combine(columns[0].start, time.min)
+    finish = datetime.combine(columns[-1].end, time.min)
+    if not begin <= now < finish:
+        return None
+    if scale is Scale.DAY:
+        return _position(now, columns)
+    if scale is Scale.WEEK:
+        return _position(datetime.combine(now.date(), time(12)), columns)
+    for index, column in enumerate(columns):
+        if column.start <= now.date() < column.end:
+            return index + 0.5
+    return None
+
+
 def interval_span(start: datetime, end: datetime, columns: list[Column]) -> tuple[float, float]:
     """区間の(左端, 幅)を列の単位で返す。幅は0以上。"""
     left = _position(start, columns)
