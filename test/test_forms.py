@@ -35,6 +35,7 @@ from projectapp.forms import (
     compose_datetime,
     default_times,
     build_ratio_limits,
+    ratio_range_text,
     effective_ratio_text,
     exceeds_decimals,
     in_hours_range,
@@ -2299,3 +2300,11 @@ async def test_an_invalid_ratio_limit_shows_an_error_and_keeps_the_dialog(user: 
     user.find(marker="settings-apply").click()
     assert applied == []
     await user.should_see("相対比率の上限")
+
+
+def test_ratio_range_text_shows_the_configured_range_or_the_default() -> None:
+    assert ratio_range_text(None) == "10〜300%"
+    assert ratio_range_text(RatioLimits()) == "10〜300%"
+    assert ratio_range_text(RatioLimits(upper=1.5, lower=0.5)) == "50〜150%"
+    assert ratio_range_text(RatioLimits(upper=1.5)) == "10〜150%"
+    assert ratio_range_text(RatioLimits(lower=0.5)) == "50〜300%"

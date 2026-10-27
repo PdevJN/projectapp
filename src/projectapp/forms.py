@@ -488,6 +488,13 @@ def build_work_settings(hours: float | None, start: str) -> tuple[float, time]:
     return hours, work_start
 
 
+def ratio_range_text(limits: RatioLimits | None) -> str:
+    """相対比率を丸める範囲の表示(例: 50〜150%)。設定のない側は既定の 10〜300%。"""
+    lower = MIN_RATIO if limits is None or limits.lower is None else limits.lower
+    upper = MAX_RATIO if limits is None or limits.upper is None else limits.upper
+    return f"{lower * 100:g}〜{upper * 100:g}%"
+
+
 def build_ratio_limits(upper_text: str, lower_text: str) -> RatioLimits:
     """相対比率の上限・下限(%)の入力を検証する。空欄は設定なし(既定の 10〜300%)。下限は上限以下。"""
 
@@ -1600,6 +1607,7 @@ def parameters_panel(
     impacts: Callable[[ParameterEdit], list[str]],
     on_apply: Callable[[ParameterEdit], object],
     on_applied: Callable[[ParameterEdit], object],
+    get_limits: Callable[[], RatioLimits] = RatioLimits,
 ) -> ParametersPanel:
     """パラメータの定義の編集(タブの中身)。削除でメンバーの選択が外れるときは、適用の前に確認する。
     適用してもダイアログは閉じず、プロジェクトの今の定義から行を作り直す。"""
@@ -1612,7 +1620,9 @@ def parameters_panel(
 
     rows = to_rows()
     baseline = deepcopy(rows)
-    ui.label("相対比率 = 基本比率 + 選んだ段階の判定値の合計(10〜300% に丸めます)").classes("text-caption text-grey")
+    ui.label(f"相対比率 = 基本比率 + 選んだ段階の判定値の合計({ratio_range_text(get_limits())} に丸めます)").classes(
+        "text-caption text-grey"
+    )
 
     @ui.refreshable
     def table() -> None:
@@ -2036,7 +2046,9 @@ def open_members_parameters_dialog(
                     members.parameters_changed(edit)
                     fit_width()
 
-                parameters = parameters_panel(get_parameters, impacts, on_apply_parameters, parameters_applied)
+                parameters = parameters_panel(
+                    get_parameters, impacts, on_apply_parameters, parameters_applied, get_limits
+                )
 
         def fit_width() -> None:
             card.style(replace=f"width: {max(36, members.min_rem() + 3)}rem; max-width: 96vw")

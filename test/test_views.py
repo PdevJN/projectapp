@@ -6384,3 +6384,17 @@ async def test_apply_ratio_limits_without_review_keeps_the_planned_end(user: Use
     user.find(marker="limit-review-skip").click()
     task = view.project.all_tasks()[0]
     assert view.project.ratio_limit_upper == 1.5 and task.planned_end_manual is False
+
+
+async def test_the_parameter_tab_caption_shows_the_default_range(user: User, tmp_path: Path) -> None:
+    await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    await user.should_see("10〜300% に丸めます")
+
+
+async def test_the_parameter_tab_caption_follows_the_ratio_limits(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.ratio_limit_upper, view.project.ratio_limit_lower = 1.5, 0.5
+    await open_members_parameters(user)
+    await user.should_see("50〜150% に丸めます")
+    await user.should_not_see("10〜300%")
