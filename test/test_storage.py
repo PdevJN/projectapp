@@ -1308,7 +1308,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 11
+    assert raw["version"] == FORMAT_VERSION == 12
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1376,7 +1376,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 11
+    assert raw["version"] == FORMAT_VERSION == 12
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -1900,7 +1900,7 @@ def test_task_parameters_round_trip_and_the_version_is_10(tmp_path: Path) -> Non
     project = Project("p", parameters=[Parameter("Python", []), Parameter("Java", [])], tasks=[Task("a", parameters=["Python", "Java"])])
     path = save_project(project, tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 11
+    assert raw["version"] == FORMAT_VERSION == 12
     assert raw["tasks"][0]["parameters"] == ["Python", "Java"]
     assert load_project(path).tasks[0].parameters == ["Python", "Java"]
 
@@ -1942,7 +1942,7 @@ def _weekly_project() -> Project:
 
 
 def test_format_version_is_eleven() -> None:
-    assert FORMAT_VERSION == 11
+    assert FORMAT_VERSION == 12
 
 
 def test_weekly_crew_roundtrips_and_assignees_is_the_union(tmp_path: Path) -> None:
@@ -2002,3 +2002,28 @@ def test_weekly_crew_is_dropped_for_a_checkpoint(tmp_path: Path) -> None:
     task = Task("c", id="c1", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17), weekly_crew=[[Assignee("田中")]])
     path = save_project(Project("p", members=[Member("田中")], tasks=[task]), tmp_path)
     assert load_project(path).tasks[0].weekly_crew == []
+
+
+def test_the_plantuml_notice_option_round_trips_and_defaults_to_on() -> None:
+    assert Project("p").plantuml_overload_notice is True
+    off = parse_project(dumps_project(Project("p", plantuml_overload_notice=False)), "p")
+    assert off.plantuml_overload_notice is False
+    assert json.loads(dumps_project(Project("p")))["plantuml_overload_notice"] is True
+
+
+def test_an_old_file_without_the_plantuml_notice_option_reads_as_on() -> None:
+    raw = json.loads(dumps_project(Project("p", plantuml_overload_notice=False)))
+    raw["version"] = 11
+    del raw["plantuml_overload_notice"]
+    assert parse_project(json.dumps(raw), "p").plantuml_overload_notice is True
+    raw["version"] = 11
+    raw["plantuml_overload_notice"] = False  # version 11 ではまだ読まない
+    assert parse_project(json.dumps(raw), "p").plantuml_overload_notice is True
+
+
+@pytest.mark.parametrize("value", ["false", 0, 1, None, []])
+def test_a_non_boolean_plantuml_notice_option_is_refused(value: object) -> None:
+    raw = json.loads(dumps_project(Project("p")))
+    raw["plantuml_overload_notice"] = value
+    with pytest.raises(ValueError, match="PlantUML の通知"):
+        parse_project(json.dumps(raw), "p")

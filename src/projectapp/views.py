@@ -714,6 +714,8 @@ class MainView:
             on_base_date=self.apply_base_date,
             reference_mode=self.project.reference_mode,
             on_reference_mode=self.apply_reference_mode,
+            plantuml_notice=self.project.plantuml_overload_notice,
+            on_plantuml_notice=self.apply_plantuml_notice,
         )
 
     def multi_interval_count(self) -> int:
@@ -1259,7 +1261,7 @@ class MainView:
                 return
             note = f"(期間の外などで {result.skipped} 件を省きました)" if result.skipped else ""
             ui.notify(f"保存しました{note}")
-            if (warning := day_overload_notice(result.day_overloads)) is not None:
+            if self.project.plantuml_overload_notice and (warning := day_overload_notice(result.day_overloads)) is not None:
                 ui.notify(warning, type="warning", timeout=10000)
             if (approx := weekly_crew_notice(result.weekly_tasks)) is not None:
                 ui.notify(approx, type="warning", timeout=10000)
@@ -1368,6 +1370,13 @@ class MainView:
         if day == self.project.base_date:
             return
         self.project.base_date = day
+        self.after_edit()
+
+    def apply_plantuml_notice(self, enabled: bool) -> None:
+        """PlantUML の保存後の「100% 超に見える」通知の、出す・出さないを変える。保存はしない。"""
+        if enabled is self.project.plantuml_overload_notice:
+            return
+        self.project.plantuml_overload_notice = enabled
         self.after_edit()
 
     def apply_reference_mode(self, mode: ReferenceMode) -> None:

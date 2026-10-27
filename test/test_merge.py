@@ -540,3 +540,10 @@ def test_a_snapshot_changed_on_both_sides_is_a_conflict_with_a_readable_label() 
 def test_the_reference_mode_merges_as_a_setting() -> None:
     merged = merge_projects(proj(), proj(reference_mode=ReferenceMode.SNAPSHOT), proj())
     assert merged.project.reference_mode is ReferenceMode.SNAPSHOT
+
+
+def test_the_plantuml_notice_option_merges_as_a_setting() -> None:
+    merged = merge_projects(proj(), proj(plantuml_overload_notice=False), proj())
+    assert merged.project.plantuml_overload_notice is False
+    both = merge_projects(proj(), proj(plantuml_overload_notice=False), proj(plantuml_overload_notice=False))
+    assert both.project.plantuml_overload_notice is False and both.conflicts == []
