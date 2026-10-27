@@ -356,3 +356,20 @@ def test_limit_note_names_the_limit_only_when_it_was_applied() -> None:
     assert limit_note(ratio_detail(member, PILE), None) == ""
     wide = RatioLimits(upper=2.9)
     assert limit_note(ratio_detail(member, PILE, limits=wide), wide) == ""
+
+
+@pytest.mark.parametrize("levels", [{}, {"経験": "上級"}, {"経験": "初級", "専門": "高"}, {"専門": "低"}])
+@pytest.mark.parametrize("only", [None, ["経験"], ["専門"]])
+def test_no_limits_gives_the_same_detail_as_before(levels: dict[str, str], only: list[str] | None) -> None:
+    member = Member("a", 1.0, levels)
+    plain = ratio_detail(member, PARAMETERS, only)
+    for limits in (None, RatioLimits(), RatioLimits(None, None)):
+        detail = ratio_detail(member, PARAMETERS, only, limits)
+        assert (detail.base, detail.adjustments, detail.raw, detail.ratio, detail.clamped) == (
+            plain.base,
+            plain.adjustments,
+            plain.raw,
+            plain.ratio,
+            plain.clamped,
+        )
+        assert detail.limited is False
