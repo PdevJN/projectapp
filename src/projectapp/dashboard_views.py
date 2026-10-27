@@ -131,3 +131,70 @@ def parse_card_move(args: object) -> tuple[CardId, CardId | None] | None:
     except ValueError:
         return None
     return card_id, before
+
+
+def views_to_config(views: list[ViewSpec]) -> list[dict]:
+    result = []
+    for spec in views:
+        entry: dict = {
+            "name": spec.name,
+            "period": spec.period.value,
+            "member": spec.member,
+            "cross": spec.cross,
+            "cards": [c.value for c in spec.cards],
+        }
+        if spec.custom is not None:
+            entry["custom"] = {"start": spec.custom[0].isoformat(), "end": spec.custom[1].isoformat()}
+        result.append(entry)
+    return result
+
+
+def custom_from_config(raw: object) -> tuple[date, date] | None:
+    """`custom` の値(`{"start", "end"}`)を読む。読めない・不正な期間は None。"""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        start = date.fromisoformat(raw["start"])
+        end = date.fromisoformat(raw["end"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return None if validate_custom(start, end) else (start, end)
+
+
+def view_from_config(raw: object) -> ViewSpec | None:
+    """1 件のビューを読む。名前か期間が不正なら None(その件だけ捨てる)。それ以外の不正な値は補う。"""
+    if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
+        return None
+    name = raw["name"].strip()
+    if validate_name(name, ()):
+        return None
+    try:
+        period = PeriodKind(raw.get("period"))
+    except ValueError:
+        return None
+    member = raw.get("member")
+    cross = raw.get("cross")
+    custom = custom_from_config(raw.get("custom")) if period is PeriodKind.CUSTOM else None
+    return ViewSpec(
+        name,
+        period,
+        member if isinstance(member, str) and member else None,
+        cross if isinstance(cross, bool) else False,
+        normalize_cards(raw.get("cards")),
+        custom,
+    )
+
+
+def views_from_config(raw: object) -> list[ViewSpec]:
+    """`config.json` の `dashboard_views` を読む。不正な件だけ捨て、同名は最初の 1 件を残し、20 件までにする。"""
+    if not isinstance(raw, list):
+        return []
+    views: list[ViewSpec] = []
+    for item in raw:
+        spec = view_from_config(item)
+        if spec is None or spec.name in {v.name for v in views}:
+            continue
+        views.append(spec)
+        if len(views) >= MAX_VIEWS:
+            break
+    return views

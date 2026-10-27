@@ -1,9 +1,11 @@
+from dataclasses import replace
 from datetime import date
 
 from projectapp.dashboard import PeriodKind
 from projectapp.dashboard_views import (
     DEFAULT_ORDER,
     MAX_VIEW_NAME,
+    MAX_VIEWS,
     STANDARD_NAME,
     CardId,
     ViewSpec,
@@ -17,6 +19,8 @@ from projectapp.dashboard_views import (
     standard_view,
     validate_custom,
     validate_name,
+    views_from_config,
+    views_to_config,
 )
 
 
@@ -98,3 +102,60 @@ def test_parse_card_move_accepts_only_known_ids() -> None:
     assert parse_card_move({"card": "load"}) == (CardId.LOAD, None)
     assert parse_card_move("load") is None
     assert parse_card_move(None) is None
+
+
+def view(name: str = "月次", **changes: object) -> ViewSpec:
+    base = ViewSpec(name, PeriodKind.MONTH, "田中", True, (CardId.LOAD, CardId.DUE), None)
+    return replace(base, **changes)
+
+
+def test_views_round_trip_including_a_custom_period() -> None:
+    views = [view(), view("十月", period=PeriodKind.CUSTOM, custom=(date(2026, 10, 1), date(2026, 10, 31)), member=None)]
+    assert views_from_config(views_to_config(views)) == views
+    assert views_to_config(views)[1]["custom"] == {"start": "2026-10-01", "end": "2026-10-31"}
+    assert "custom" not in views_to_config(views)[0]
+
+
+def test_views_from_config_drops_only_the_bad_entries() -> None:
+    good = views_to_config([view("月次")])[0]
+    raw = [
+        good,
+        "x",
+        {**good, "name": ""},
+        {**good, "name": STANDARD_NAME},
+        {**good, "name": "週", "period": "未知"},
+        {**good, "name": "月次"},  # 重複は最初の 1 件だけ
+        {**good, "name": "カード", "cards": ["due", "zzz", "due"]},
+        {**good, "name": "文字列", "cards": "due"},
+        {**good, "name": "メンバー", "member": 3, "cross": "yes"},
+    ]
+    views = views_from_config(raw)
+    assert [v.name for v in views] == ["月次", "カード", "文字列", "メンバー"]
+    assert views[1].cards == (CardId.DUE,)
+    assert views[2].cards == DEFAULT_ORDER
+    assert (views[3].member, views[3].cross) == (None, False)
+
+
+def test_views_from_config_ignores_bad_dates_but_keeps_the_view() -> None:
+    good = views_to_config([view("十月", period=PeriodKind.CUSTOM, custom=(date(2026, 10, 1), date(2026, 10, 31)))])[0]
+    for custom in (
+        {"start": "2026-10-31", "end": "2026-10-01"},  # 逆順
+        {"start": "2026-01-01", "end": "2027-02-05"},  # 401 日
+        {"start": "1999-01-01", "end": "1999-01-02"},  # 範囲外の年
+        {"start": "x", "end": "y"},
+        {"start": "2026-10-01"},
+        "2026-10-01",
+        None,
+    ):
+        (loaded,) = views_from_config([{**good, "custom": custom}])
+        assert loaded.name == "十月" and loaded.period is PeriodKind.CUSTOM and loaded.custom is None
+    month = views_to_config([view("月次")])[0]
+    (loaded,) = views_from_config([{**month, "custom": {"start": "2026-10-01", "end": "2026-10-31"}}])
+    assert loaded.custom is None  # `指定` 以外のビューは日付を持たない
+
+
+def test_views_from_config_caps_the_count_and_rejects_non_lists() -> None:
+    raw = [{**views_to_config([view("a")])[0], "name": f"v{i}"} for i in range(MAX_VIEWS + 5)]
+    assert len(views_from_config(raw)) == MAX_VIEWS
+    for bad in (None, "x", 3, {"a": 1}):
+        assert views_from_config(bad) == []
