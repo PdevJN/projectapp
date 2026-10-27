@@ -622,3 +622,35 @@ async def test_rename_and_delete_are_disabled_for_the_standard_view(user: User) 
     assert views[0].rename_item.enabled is False and views[0].delete_item.enabled is False
     views[0].show(sample(), PeriodKind.WEEK, view_state=full_state(current="月次"))
     assert views[0].rename_item.enabled is True and views[0].delete_item.enabled is True
+
+
+async def test_edit_mode_shows_handles_and_hide_buttons_and_the_hidden_list(user: User) -> None:
+    log: list = []
+    views, _, _ = mount(actions=recording_actions(log))
+    await user.open("/")
+    hidden_state = ViewState(("標準",), "標準", False, None, (CardId.TEAM, CardId.DUE), (CardId.PROGRESS,))
+    views[0].show(sample(), PeriodKind.WEEK, view_state=hidden_state)
+    await user.should_see(marker="dashboard-edit-toggle")
+    await user.should_not_see(marker="dashboard-hide-team")  # ふだんは出さない
+    user.find(marker="dashboard-edit-toggle").click()
+    await user.should_see(marker="dashboard-hide-team")
+    await user.should_see(marker="dashboard-hide-due")
+    await user.should_see(marker="dashboard-hidden-progress")
+    await user.should_see(marker="dashboard-drop-end")
+    user.find(marker="dashboard-hide-due").click()
+    user.find(marker="dashboard-hidden-progress").click()
+    assert log == [("hide", CardId.DUE), ("show", CardId.PROGRESS)]
+    user.find(marker="dashboard-edit-toggle").click()
+    await user.should_not_see(marker="dashboard-hide-team")
+
+
+async def test_a_move_event_calls_move_card_and_ignores_bad_arguments(user: User) -> None:
+    log: list = []
+    views, _, _ = mount(actions=recording_actions(log))
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK, view_state=full_state())
+    views[0].handle_move({"card": "due", "before": "team"})
+    views[0].handle_move({"card": "due", "before": None})
+    views[0].handle_move({"card": "nope", "before": None})
+    views[0].handle_move("due")
+    assert log == [("move", CardId.DUE, CardId.TEAM), ("move", CardId.DUE, None)]

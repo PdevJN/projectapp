@@ -2742,6 +2742,20 @@ async def test_a_condition_change_shows_the_dirty_mark(user: User, tmp_path: Pat
     await user.should_see(marker="dashboard-view-dirty")
 
 
+async def test_editing_cards_in_the_dashboard_changes_order_and_shows_the_dirty_mark(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    user.find(marker="dashboard-edit-toggle").click()
+    await user.should_see(marker="dashboard-hide-due")  # refresh は遅延実行なので、描かれるのを待つ
+    user.find(marker="dashboard-hide-due").click()
+    await user.should_see(marker="dashboard-view-dirty")
+    await user.should_see(marker="dashboard-hidden-due")
+    user.find(marker="dashboard-hidden-due").click()
+    assert view.dashboard_cards[-1] is CardId.DUE
+    view.dashboard_view.handle_move({"card": "due", "before": "team"})
+    assert view.dashboard_cards[0] is CardId.DUE
+
+
 def text_of(user: User, marker: str) -> str:
     return user.find(marker=marker).elements.pop().text
 
