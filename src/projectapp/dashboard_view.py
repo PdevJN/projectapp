@@ -675,7 +675,7 @@ class DashboardView:
                     "text-caption text-grey"
                 ).mark("dashboard-backlog-unset")
             if backlog.required is None or backlog.shortfall is None:
-                reason = "今日以降に稼働日がない" if backlog.days == 0 else "期間が決まらない"
+                reason = "期間がすでに終わっている" if backlog.days == 0 else "期間が決まらない"
                 ui.label(f"{reason}ため、必要な人数は出せません").classes("text-grey").mark("dashboard-backlog-nodays")
             else:
                 ui.label(f"稼働 {backlog.days} 日で終える場合").classes("text-caption").mark("dashboard-backlog-days")
@@ -690,7 +690,8 @@ class DashboardView:
                 ui.label(gap).classes("text-subtitle2" + (" text-negative" if short > 0 else "")).mark(
                     "dashboard-backlog-gap"
                 )
-                ui.label("今いる人員は、実行中のタスクが使う分を引いていません。稼働日の上書きと休暇も反映していません。").classes(
+                ui.label("今いる人員は、実行中のタスクが使う分を引いていません。稼働日の上書きと休暇も反映していません。"
+                    "今日は、稼働が終わっていても 1 日として数えます。").classes(
                     "text-caption text-grey"
                 ).mark("dashboard-backlog-note")
             if backlog.by_member:

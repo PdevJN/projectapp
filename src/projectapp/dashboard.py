@@ -527,8 +527,27 @@ def _backlog_days(
     else:
         start, end = max(today, period.start), period.end
     if start > end:
-        return 0
-    return sum(is_workday(day, holidays) for day in Period(start, end).days())
+        return 0  # 期間がすでに終わっている
+    count = sum(is_workday(day, holidays) for day in Period(start, end).days())
+    if count == 0 and is_workday(_next_workday(end + timedelta(days=1), holidays), holidays):
+        return 1  # 残りの日が休みだけのときは、次の稼働日の 1 日で終える場合を示す
+    return count
+
+
+class _WorkHours:
+    """通常カレンダーの稼働時間の累積。タスクの期間を 1 日ずつ回さずに、日の範囲の合計を出す。"""
+
+    def __init__(self, project: Project, holidays: dict[date, str], first: date, last: date) -> None:
+        self.first = first
+        self.cumulative = [0.0]
+        for day in Period(first, last).days():
+            self.cumulative.append(self.cumulative[-1] + day_hours(day, project.daily_hours, holidays))
+
+    def between(self, low: date, high: date) -> float:
+        """[low, high] の稼働時間。表の範囲に収まっていること。"""
+        if low > high:
+            return 0.0
+        return self.cumulative[(high - self.first).days + 1] - self.cumulative[(low - self.first).days]
 
 
 def _overlap_hours(project: Project, holidays: dict[date, str], day: date, start: datetime, end: datetime) -> float:
@@ -540,7 +559,13 @@ def _overlap_hours(project: Project, holidays: dict[date, str], day: date, start
 
 
 def _counted_fraction(
-    task: Task, project: Project, schedule: Schedule, period: Period, now: datetime, holidays: dict[date, str]
+    task: Task,
+    project: Project,
+    schedule: Schedule,
+    period: Period,
+    now: datetime,
+    holidays: dict[date, str],
+    table: _WorkHours | None,
 ) -> float:
     """期間の分として数える、工数の割合(0〜1)。期間の終わりより後ろに予定した分と、まだ先の期間までの隙間は数えない。
     予定の終わりを過ぎた遅れと、日程のないタスクは、全量が残っているので数える(締切が期間より後なら除く)。"""
@@ -551,14 +576,33 @@ def _counted_fraction(
         return 1.0
     if end <= start:
         return float(start.date() <= period.end)
-    days = [day for day in Period(start.date(), end.date()).days() if _covers(start, end, day)]
-    weights = [_overlap_hours(project, holidays, day, start, end) for day in days]
-    if not any(weights):  # 稼働日にかからない(土日だけ)ときは、日数で割る
-        weights = [1.0] * len(days)
-    counted = sum(
-        w for day, w in zip(days, weights) if day <= period.end and not now.date() <= day < period.start
-    )
-    return counted / sum(weights)
+    first, last = start.date(), (end - timedelta(microseconds=1)).date()  # 終わりが 0 時ちょうどなら前日まで
+    assert table is not None  # 日程のあるタスクがあれば、呼び出し側が作る
+
+    def weight(low: date, high: date) -> float:
+        """[low, high] のうち、タスクの期間と重なる日の稼働時間。初日と最終日は、重なる時間だけ。"""
+        low, high = max(low, first), min(high, last)
+        if low > high:
+            return 0.0
+        if first == last:
+            return _overlap_hours(project, holidays, first, start, end)
+        total = table.between(low, high)
+        if low == first:
+            total += _overlap_hours(project, holidays, first, start, end) - table.between(first, first)
+        if high == last:
+            total += _overlap_hours(project, holidays, last, start, end) - table.between(last, last)
+        return total
+
+    def days(low: date, high: date) -> int:
+        return max(0, (min(high, last) - max(low, first)).days + 1)
+
+    cutoff, gap_end = period.end, period.start - timedelta(days=1)  # 隙間は [今日, 期間の始まりの前日]
+    total = weight(first, last)
+    if total > 0:
+        counted = weight(first, cutoff) - weight(now.date(), min(gap_end, cutoff))
+        return counted / total
+    # 稼働日にかからない(土日だけ)ときは、日数で割る
+    return (days(first, cutoff) - days(now.date(), min(gap_end, cutoff))) / days(first, last)
 
 
 def summarize_backlog(
@@ -576,10 +620,18 @@ def summarize_backlog(
     unset = 0
     ends: list[datetime] = []
     split = {name: 0.0 for name in (*names, UNASSIGNED)}
-    for task in _tasks(project, member):
-        if task.status is not Status.NOT_STARTED or task.kind is not TaskKind.NORMAL:
-            continue
-        fraction = 1.0 if kind is PeriodKind.ALL else _counted_fraction(task, project, schedule, period, now, holidays)
+    targets = [
+        task
+        for task in _tasks(project, member)
+        if task.status is Status.NOT_STARTED and task.kind is TaskKind.NORMAL
+    ]
+    spans = [(schedule.start(task), schedule.end(task)) for task in targets]
+    dates = [moment.date() for pair in spans if None not in pair for moment in pair if moment is not None]
+    table = _WorkHours(project, holidays, min(dates), max(dates)) if dates and kind is not PeriodKind.ALL else None
+    for task in targets:
+        fraction = (
+            1.0 if kind is PeriodKind.ALL else _counted_fraction(task, project, schedule, period, now, holidays, table)
+        )
         if fraction <= 0:
             continue
         if not (isfinite(task.effort_hours) and task.effort_hours > 0):

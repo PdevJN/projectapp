@@ -167,10 +167,17 @@ def test_a_task_before_a_future_period_but_not_overdue_is_left_out() -> None:
     assert summarize_backlog(project_of(soon), nov, PeriodKind.CUSTOM, NOW, {}).hours == 0
 
 
-def test_no_workday_left_gives_zero_days_not_undecided() -> None:
+def test_no_workday_left_in_the_period_uses_the_next_workday() -> None:
+    # 水・木・金が休みで、今週の稼働日が残っていない。次の稼働日(月曜)の 1 日で終える場合を示す
     holidays = {date(2026, 10, d): "休" for d in (7, 8, 9)}
     backlog = summarize_backlog(project_of(todo("a", 6.5)), WEEK, PeriodKind.WEEK, NOW, holidays)
-    assert (backlog.days, backlog.required) == (0, None)
+    assert (backlog.days, backlog.required) == (1, 1.0)
+
+
+def test_opening_on_a_weekend_uses_the_next_workday_for_this_week() -> None:
+    saturday = datetime(2026, 10, 10, 12)
+    backlog = summarize_backlog(project_of(todo("a", 6.5)), WEEK, PeriodKind.WEEK, saturday, {})
+    assert (backlog.days, backlog.required) == (1, 1.0)
 
 
 def test_a_period_already_over_gives_zero_days() -> None:
@@ -184,3 +191,24 @@ def test_the_partial_first_day_is_weighed_by_the_hours_actually_in_the_period() 
     afternoon = Task("午後開始", planned_start=datetime(2026, 10, 9, 14), effort_hours=13)
     backlog = summarize_backlog(project_of(afternoon), WEEK, PeriodKind.WEEK, NOW, {})
     assert backlog.hours == 1.5
+
+
+def test_many_tasks_with_a_far_end_are_summed_quickly() -> None:
+    from time import perf_counter
+
+    far = [
+        Task(f"t{i}", planned_start=datetime(2026, 10, 8, 9), planned_end=datetime(2100, 1, 1, 9),
+             planned_end_manual=True, effort_hours=8)
+        for i in range(300)
+    ]
+    started = perf_counter()
+    backlog = summarize_backlog(project_of(*far), WEEK, PeriodKind.WEEK, NOW, {})
+    assert perf_counter() - started < 5  # 日ごとに回していたころは 20 秒を超えた
+    assert backlog.hours > 0
+
+
+def test_a_task_ending_at_midnight_does_not_reach_into_the_next_day() -> None:
+    # 木曜 9:00 から 6.5h → 木曜 15:30 で終わる。1 日だけにかかり、今週の分は全量
+    one_day = Task("1日", planned_start=datetime(2026, 10, 8, 9), planned_end=datetime(2026, 10, 9, 0),
+                   planned_end_manual=True, effort_hours=6.5)
+    assert summarize_backlog(project_of(one_day), WEEK, PeriodKind.WEEK, NOW, {}).hours == 6.5

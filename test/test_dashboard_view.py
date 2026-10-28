@@ -708,7 +708,7 @@ async def test_the_backlog_card_says_when_no_workday_is_left(user: User) -> None
     await user.open("/")
     views[0].show(with_backlog(Backlog(5.0, 0, 0, None, 1.0, [])), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-nodays")
-    assert text(user, "dashboard-backlog-nodays") == "今日以降に稼働日がないため、必要な人数は出せません"
+    assert text(user, "dashboard-backlog-nodays") == "期間がすでに終わっているため、必要な人数は出せません"
 
 
 async def test_the_backlog_card_says_just_right_instead_of_zero_point_zero(user: User) -> None:
@@ -727,4 +727,5 @@ async def test_the_backlog_card_notes_what_the_supply_leaves_out(user: User) -> 
     await user.should_see(marker="dashboard-backlog-note")
     assert text(user, "dashboard-backlog-note") == (
         "今いる人員は、実行中のタスクが使う分を引いていません。稼働日の上書きと休暇も反映していません。"
+        "今日は、稼働が終わっていても 1 日として数えます。"
     )
