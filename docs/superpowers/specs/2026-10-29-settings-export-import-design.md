@@ -1,6 +1,6 @@
 # 設定値のエクスポート・インポートの設計(要望 78)
 
-> **状態**: 設計書承認済み(2026-10-29)。実装計画 [`plans/2026-10-29-settings-export-import.md`](../plans/2026-10-29-settings-export-import.md)— 要望 78 — `feature/settings-io`。
+> **状態**: 実装済み(PR #120。2026-10-29)。実装計画 [`plans/2026-10-29-settings-export-import.md`](../plans/2026-10-29-settings-export-import.md)— 要望 78。
 
 ## 目的
 
