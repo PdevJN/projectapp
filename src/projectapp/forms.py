@@ -1,6 +1,6 @@
 """タスク・セクションの追加・編集の入力検証と、ファイル・名前・設定のダイアログ。"""
 
-from collections.abc import Awaitable, Callable, Collection
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time
@@ -70,7 +70,8 @@ from projectapp.models import (
     new_id,
     union_assignees,
 )
-from projectapp.workdays import sort_work_days, validate_work_days
+from projectapp.periodfield import add_range_picker, normalize_period, split_period, validate_period
+from projectapp.workdays import MAX_NOTE, expand_range, sort_work_days, validate_work_days
 from projectapp.ratios import ParameterEdit, limit_note, ratio_detail, remap_levels, validate_parameters
 from projectapp.urls import TemplateEdit, resolve, validate_templates
 
@@ -594,32 +595,91 @@ class WorkDayRow:
     start: str
     end: str
     rest: bool
+    note: str = ""
 
 
 def build_work_day_list(rows: list[WorkDayRow], today: date) -> list[WorkDay]:
-    """入力の行を検証して、日付の昇順の一覧にする。完全に空の行は無視する。休みの行は時刻を見ない。"""
+    """入力の行を検証して、日付の昇順の一覧にする。完全に空の行は無視する(メモだけの行は日付のエラー)。休みの行は時刻を見ない。"""
     built: list[WorkDay] = []
     for row in rows:
-        if not row.rest and not any(t.strip() for t in (row.day, row.start, row.end)):
+        if not row.rest and not any(t.strip() for t in (row.day, row.start, row.end, row.note)):
             continue
         day = parse_date_input(row.day, today, roll_forward=False)
         if day is None:
             raise ValueError("稼働日の日付を入力してください(例: 2026-10-17、10/17)")
+        note = row.note.strip()
         if row.rest:
-            built.append(WorkDay(date.fromisoformat(day)))
+            built.append(WorkDay(date.fromisoformat(day), note=note))
             continue
         start, end = parse_time_input(row.start), parse_time_input(row.end)
         if start is None or end is None:
             raise ValueError(
                 f"稼働日 {day} の開始と終了を時刻で入力してください(例: 13:00、930)。休みなら「休み」にチェックしてください"
             )
-        built.append(WorkDay(date.fromisoformat(day), time.fromisoformat(start), time.fromisoformat(end)))
+        built.append(WorkDay(date.fromisoformat(day), time.fromisoformat(start), time.fromisoformat(end), note))
     validate_work_days(built)
     return sort_work_days(built)
 
 
-def work_day_editor(rows: list[WorkDayRow], marker: str) -> None:
-    """稼働日の上書きの行(日付 / 開始 / 終了 / 休み / 削除)と追加ボタン。rows をその場で書き換える。"""
+@dataclass
+class RangeAdd:
+    rows: list[WorkDayRow]  # 足す行(日付の昇順)
+    registered: int  # 登録済みで飛ばした日数
+    off: int  # 土日祝で飛ばした日数
+
+
+def plan_work_day_range(
+    period_text: str,
+    rest: bool,
+    start_text: str,
+    end_text: str,
+    note: str,
+    skip_off: bool,
+    rows: list[WorkDayRow],
+    holidays: Mapping[date, str],
+    today: date,
+) -> RangeAdd:
+    """「期間で追加」の入力を解釈して、足す行を作る。不正は ValueError。"""
+    fixed = normalize_period(period_text, today)
+    if fixed is None:
+        raise ValueError("期間を入れてください(例: 2026-10-26 〜 2026-10-30)")
+    start, end = validate_period(*split_period(fixed))
+    window: tuple[time, time] | None = None
+    if not rest:
+        opens, closes = parse_time_input(start_text), parse_time_input(end_text)
+        if opens is None or closes is None:
+            raise ValueError("開始と終了を時刻で入力してください(例: 13:00、930)。休みなら「休み」にしてください")
+        window = (time.fromisoformat(opens), time.fromisoformat(closes))
+    existing = {date.fromisoformat(d) for r in rows if (d := parse_date_input(r.day, today, roll_forward=False))}
+    added, registered, off = expand_range(start, end, window, note, existing, holidays, skip_off)
+    built = [
+        WorkDayRow(
+            w.day.isoformat(),
+            w.start.strftime("%H:%M") if w.start else "",
+            w.end.strftime("%H:%M") if w.end else "",
+            window is None,
+            w.note,
+        )
+        for w in added
+    ]
+    return RangeAdd(built, registered, off)
+
+
+def work_day_range_summary(plan: RangeAdd) -> str:
+    """追加のあとの通知(足した日数と、飛ばした日数)。足す日がないときは、その旨。"""
+    head = f"{len(plan.rows)} 日を追加しました" if plan.rows else "追加する日がありません"
+    skipped = []
+    if plan.registered:
+        skipped.append(f"{plan.registered} 日は登録済みのため飛ばしました")
+    if plan.off:
+        skipped.append(f"土日祝 {plan.off} 日を除きました")
+    return head + (f"({'。'.join(skipped)})" if skipped else "")
+
+
+def work_day_editor(
+    rows: list[WorkDayRow], marker: str, get_holidays: Callable[[], Mapping[date, str]] = dict
+) -> None:
+    """稼働日の上書きの行(日付 / 開始 / 終了 / 休み / メモ / 削除)と、追加・期間で追加のボタン。rows をその場で書き換える。"""
 
     from projectapp.task_dialog import add_picker, date_normalizer  # task_dialog が forms を使うので、呼ぶときに読む
 
@@ -643,6 +703,10 @@ def work_day_editor(rows: list[WorkDayRow], marker: str) -> None:
                     ui.checkbox("休み", value=wrow.rest, on_change=lambda e, r=wrow: toggle(r, bool(e.value))).mark(
                         f"{marker}-{n}-rest"
                     )
+                    note_input = ui.input(
+                        "メモ", value=wrow.note, on_change=lambda e, r=wrow: setattr(r, "note", e.value or "")
+                    ).classes("w-44").mark(f"{marker}-{n}-note")
+                    limit_length(note_input, MAX_NOTE)
                     ui.button(icon="delete", on_click=lambda _e, r=wrow: remove(r)).props(
                         "flat dense color=negative"
                     ).mark(f"{marker}-{n}-remove")
@@ -659,8 +723,60 @@ def work_day_editor(rows: list[WorkDayRow], marker: str) -> None:
         rows.append(WorkDayRow("", "", "", False))
         table.refresh()
 
+    def open_range() -> None:
+        with ui.dialog() as sub, ui.card().classes("w-[34rem] max-w-full"):
+            ui.label("期間で稼働日を追加").classes("text-subtitle1")
+            ui.label("期間の各日を、1 日ずつの行として足します。登録済みの日は飛ばします").classes("text-caption text-grey")
+            with ui.row().classes("w-full items-center no-wrap gap-2"):
+                period = ui.input("期間", placeholder="2026-10-26 〜 2026-10-30").classes("col").mark(
+                    f"{marker}-range-period"
+                )
+                add_range_picker(period, f"{marker}-range")
+            kind = ui.toggle({"rest": "休み", "window": "稼働の時間帯"}, value="rest").mark(f"{marker}-range-kind")
+            with ui.row().classes("items-center gap-2"):
+                start = ui.input("開始").classes("w-28").mark(f"{marker}-range-start")
+                end = ui.input("終了").classes("w-28").mark(f"{marker}-range-end")
+                for field_input in (start, end):
+                    field_input.bind_enabled_from(kind, "value", lambda value: value == "window")
+            skip = ui.checkbox("土日祝を除く", value=True).mark(f"{marker}-range-skip")
+            note = ui.input("メモ(任意)").classes("w-full").mark(f"{marker}-range-note")
+            limit_length(note, MAX_NOTE)
+            error = ui.label("").classes("text-negative").mark(f"{marker}-range-error")
+
+            def add_rows() -> None:
+                try:
+                    plan = plan_work_day_range(
+                        period.value or "",
+                        kind.value == "rest",
+                        start.value or "",
+                        end.value or "",
+                        note.value or "",
+                        bool(skip.value),
+                        rows,
+                        get_holidays(),
+                        date.today(),
+                    )
+                except ValueError as exc:
+                    error.set_text(str(exc))
+                    return
+                if not plan.rows:
+                    error.set_text(work_day_range_summary(plan))
+                    return
+                rows.extend(plan.rows)
+                rows.sort(key=lambda r: parse_date_input(r.day, date.today(), roll_forward=False) or "9999")
+                ui.notify(work_day_range_summary(plan))
+                sub.close()
+                table.refresh()
+
+            with ui.row().classes("gap-2"):
+                ui.button("追加", on_click=add_rows).mark(f"{marker}-range-add")
+                ui.button("キャンセル", on_click=sub.close).props("flat").mark(f"{marker}-range-cancel")
+        sub.open()
+
     table()
-    ui.button("稼働日を追加", icon="add", on_click=add).props("flat dense").mark(f"{marker}-add")
+    with ui.row().classes("gap-2"):
+        ui.button("稼働日を追加", icon="add", on_click=add).props("flat dense").mark(f"{marker}-add")
+        ui.button("期間で追加", icon="date_range", on_click=open_range).props("flat dense").mark(f"{marker}-range-open")
 
 
 # 色の名前(ラベル)→ 色コード(Vue の式)。NiceGUI の select は、選択肢の value に番号(0〜9)を渡すので、色名では引けない。名前は一意
@@ -1816,6 +1932,7 @@ def members_panel(
     get_taken: Callable[[], Collection[str]],
     pick_icon: Callable[[], Awaitable[str | None]] | None = None,
     get_limits: Callable[[], RatioLimits] = RatioLimits,
+    get_holidays: Callable[[], dict[date, str]] = dict,
 ) -> MembersPanel:
     """メンバーの編集(タブの中身)。1 行が 1 人の表(名前・基本比率・パラメータごとの段階・実効比率・削除)。
     適用してもダイアログは閉じず、プロジェクトの今のメンバーから行を作り直す。"""
@@ -1827,6 +1944,7 @@ def members_panel(
                 w.start.strftime("%H:%M") if w.start else "",
                 w.end.strftime("%H:%M") if w.end else "",
                 w.start is None,
+                w.note,
             )
             for w in member.work_days
         ]
@@ -1952,12 +2070,12 @@ def members_panel(
         table.refresh()
 
     def open_work_days(row: MemberRow) -> None:
-        with ui.dialog() as sub, ui.card().classes("w-[40rem] max-w-full"):
+        with ui.dialog() as sub, ui.card().classes("w-[58rem] max-w-full"):
             ui.label(f"{row.name or '(名前なし)'} の稼働日の上書き").classes("text-subtitle1")
             ui.label("日付ごとに、稼働の時間帯(開始〜終了)か休みを決めます。土日祝を稼働にしたり、平日を休みにできます").classes(
                 "text-caption text-grey"
             )
-            work_day_editor(row.work_days, "member-workday")
+            work_day_editor(row.work_days, "member-workday", get_holidays)
             ui.button("閉じる", on_click=sub.close).mark("member-workday-close")
         sub.on("hide", table.refresh)
         sub.open()
@@ -2023,6 +2141,7 @@ def open_members_parameters_dialog(
     applied: Callable[[], bool] = lambda: False,
     rollback: Callable[[], object] = lambda: None,
     get_limits: Callable[[], RatioLimits] = RatioLimits,
+    get_holidays: Callable[[], dict[date, str]] = dict,
 ) -> None:
     """メンバーとパラメータのダイアログ。`適用`はタブごとで閉じない。`閉じる`は変更のあるタブを確定して閉じ、
     `キャンセル`は未適用の編集を捨てて閉じる(開いてから適用した分〔applied〕があれば、残すか rollback で戻すかを確認する)。"""
@@ -2040,7 +2159,7 @@ def open_members_parameters_dialog(
         ).mark("members-parameters-panels"):
             with ui.tab_panel("members"):
                 members = members_panel(
-                    get_members, assigned, on_apply_members, get_parameters, get_taken, pick_icon, get_limits
+                    get_members, assigned, on_apply_members, get_parameters, get_taken, pick_icon, get_limits, get_holidays
                 )
             with ui.tab_panel("parameters"):
 

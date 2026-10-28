@@ -1308,7 +1308,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 13
+    assert raw["version"] == FORMAT_VERSION == 14
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1376,7 +1376,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 13
+    assert raw["version"] == FORMAT_VERSION == 14
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -1882,8 +1882,8 @@ def test_member_work_days_round_trip_in_date_order() -> None:
     text = dumps_project(Project("p", members=[member]))
     saved = json.loads(text)["members"][0]["work_days"]
     assert saved == [
-        {"day": "2026-10-17", "start": "13:00:00", "end": "16:00:00"},
-        {"day": "2026-10-18", "start": None, "end": None},
+        {"day": "2026-10-17", "start": "13:00:00", "end": "16:00:00", "note": ""},
+        {"day": "2026-10-18", "start": None, "end": None, "note": ""},
     ]
     loaded = parse_project(text, "p").members[0].work_days
     assert loaded == [WorkDay(date(2026, 10, 17), time(13), time(16)), WorkDay(date(2026, 10, 18))]
@@ -1900,7 +1900,7 @@ def test_task_parameters_round_trip_and_the_version_is_10(tmp_path: Path) -> Non
     project = Project("p", parameters=[Parameter("Python", []), Parameter("Java", [])], tasks=[Task("a", parameters=["Python", "Java"])])
     path = save_project(project, tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 13
+    assert raw["version"] == FORMAT_VERSION == 14
     assert raw["tasks"][0]["parameters"] == ["Python", "Java"]
     assert load_project(path).tasks[0].parameters == ["Python", "Java"]
 
@@ -1942,7 +1942,7 @@ def _weekly_project() -> Project:
 
 
 def test_format_version_is_eleven() -> None:
-    assert FORMAT_VERSION == 13
+    assert FORMAT_VERSION == 14
 
 
 def test_weekly_crew_roundtrips_and_assignees_is_the_union(tmp_path: Path) -> None:
@@ -2101,3 +2101,39 @@ def test_a_base_ratio_outside_the_default_range_still_loads() -> None:
     project = Project("p", members=[Member("速い", 2.0), Member("遅い", 0.3)])
     loaded = parse_project(dumps_project(project), "p")
     assert [m.ratio for m in loaded.members] == [2.0, 0.3]  # 基本比率の入力範囲は 10〜300% のまま
+
+
+def test_work_day_note_round_trips_and_is_stripped() -> None:
+    member = Member("甲", id="m1", work_days=[WorkDay(date(2026, 10, 17), note="夏季休暇")])
+    text = dumps_project(Project("p", members=[member]))
+    raw = json.loads(text)
+    assert raw["version"] == 14
+    assert raw["members"][0]["work_days"][0]["note"] == "夏季休暇"
+    assert parse_project(text, "p").members[0].work_days[0].note == "夏季休暇"
+    raw["members"][0]["work_days"][0]["note"] = "  通院  "
+    assert parse_project(json.dumps(raw), "p").members[0].work_days[0].note == "通院"
+
+
+def test_work_days_without_a_note_key_load_with_an_empty_note() -> None:
+    member = Member("甲", id="m1", work_days=[WorkDay(date(2026, 10, 17))])
+    raw = json.loads(dumps_project(Project("p", members=[member])))
+    del raw["members"][0]["work_days"][0]["note"]
+    assert parse_project(json.dumps(raw), "p").members[0].work_days[0].note == ""
+    raw["members"][0]["work_days"][0]["note"] = None
+    assert parse_project(json.dumps(raw), "p").members[0].work_days[0].note == ""
+
+
+def test_a_note_in_a_version_13_file_is_ignored() -> None:
+    member = Member("甲", id="m1", work_days=[WorkDay(date(2026, 10, 17), note="夏季休暇")])
+    raw = json.loads(dumps_project(Project("p", members=[member])))
+    raw["version"] = 13
+    assert parse_project(json.dumps(raw), "p").members[0].work_days[0].note == ""
+
+
+@pytest.mark.parametrize("note", [3, ["x"], "あ" * 31, "a\nb"])
+def test_bad_work_day_notes_are_rejected(note: object) -> None:
+    member = Member("甲", id="m1", work_days=[WorkDay(date(2026, 10, 17))])
+    raw = json.loads(dumps_project(Project("p", members=[member])))
+    raw["members"][0]["work_days"][0]["note"] = note
+    with pytest.raises(ValueError):
+        parse_project(json.dumps(raw), "p")

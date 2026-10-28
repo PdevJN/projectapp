@@ -17,8 +17,11 @@ from projectapp.forms import (
     member_table_min_rem,
     CategoryRow,
     EventRow,
+    RangeAdd,
     WorkDayRow,
     build_work_day_list,
+    plan_work_day_range,
+    work_day_range_summary,
     build_category_edit,
     LevelRow,
     MemberRow,
@@ -2309,3 +2312,63 @@ def test_ratio_range_text_shows_the_configured_range_or_the_default() -> None:
     assert ratio_range_text(RatioLimits(upper=1.2, lower=0.8)) == "80〜120%"
     assert ratio_range_text(RatioLimits(upper=1.2)) == "50〜120%"
     assert ratio_range_text(RatioLimits(lower=0.8)) == "80〜150%"
+
+
+def test_work_day_row_has_an_empty_note_by_default() -> None:
+    assert WorkDayRow("10/17", "", "", True).note == ""
+
+
+def test_build_work_day_list_carries_the_note_and_strips_it() -> None:
+    rows = [WorkDayRow("10/17", "13", "16", False, " 通院 "), WorkDayRow("10/18", "", "", True, "夏季休暇")]
+    built = build_work_day_list(rows, WORK_TODAY)
+    assert [w.note for w in built] == ["通院", "夏季休暇"]
+
+
+def test_a_row_with_only_a_note_is_not_ignored() -> None:
+    with pytest.raises(ValueError, match="日付"):
+        build_work_day_list([WorkDayRow("", "", "", False, "メモだけ")], WORK_TODAY)
+
+
+def test_build_work_day_list_rejects_a_long_note() -> None:
+    with pytest.raises(ValueError, match="メモ"):
+        build_work_day_list([WorkDayRow("10/17", "", "", True, "あ" * 31)], WORK_TODAY)
+
+
+def test_plan_work_day_range_adds_rest_rows_and_skips_registered_days() -> None:
+    existing = [WorkDayRow("10/27", "", "", True)]
+    plan = plan_work_day_range("10/26 〜 10/30", True, "", "", "夏季休暇", True, existing, {}, WORK_TODAY)
+    assert [r.day for r in plan.rows] == ["2026-10-26", "2026-10-28", "2026-10-29", "2026-10-30"]
+    assert all(r.rest and r.note == "夏季休暇" and r.start == "" and r.end == "" for r in plan.rows)
+    assert (plan.registered, plan.off) == (1, 0)
+
+
+def test_plan_work_day_range_with_a_window_formats_the_times() -> None:
+    plan = plan_work_day_range("2026-10-26 〜 2026-10-26", False, "9", "1230", "", True, [], {}, WORK_TODAY)
+    assert [(r.start, r.end, r.rest) for r in plan.rows] == [("09:00", "12:30", False)]
+
+
+@pytest.mark.parametrize(
+    ("period", "rest", "start", "end", "message"),
+    [
+        ("", True, "", "", "期間"),  # 空
+        ("abc", True, "", "", "期間"),
+        ("10/30 〜 10/26", True, "", "", "開始日"),  # 逆
+        ("10/26 〜 10/30", False, "", "", "時刻"),  # 時間帯なのに時刻が空
+        ("10/26 〜 10/30", False, "12", "9", "開始"),  # 逆
+    ],
+)
+def test_plan_work_day_range_rejects_bad_input(period: str, rest: bool, start: str, end: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        plan_work_day_range(period, rest, start, end, "", True, [], {}, WORK_TODAY)
+
+
+def test_plan_work_day_range_with_nothing_to_add_returns_no_rows() -> None:
+    plan = plan_work_day_range("10/31 〜 11/1", True, "", "", "", True, [], {}, WORK_TODAY)  # 土日だけ
+    assert plan.rows == [] and plan.off == 2
+
+
+def test_work_day_range_summary() -> None:
+    row = WorkDayRow("2026-10-26", "", "", True)
+    assert work_day_range_summary(RangeAdd([row] * 3, 1, 2)) == "3 日を追加しました(1 日は登録済みのため飛ばしました。土日祝 2 日を除きました)"
+    assert work_day_range_summary(RangeAdd([row], 0, 0)) == "1 日を追加しました"
+    assert work_day_range_summary(RangeAdd([], 2, 0)) == "追加する日がありません(2 日は登録済みのため飛ばしました)"

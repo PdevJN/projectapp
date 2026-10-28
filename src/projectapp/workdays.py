@@ -1,9 +1,20 @@
 """稼働日の上書きの規則(検証・並べ替え・辞書化)。NiceGUI に依存しない。"""
 
-from collections.abc import Iterable
-from datetime import date
+from collections.abc import Iterable, Mapping
+from datetime import date, time, timedelta
 
-from projectapp.models import MAX_YEAR, MIN_YEAR, WorkDay
+from projectapp.models import MAX_YEAR, MIN_YEAR, WorkDay, has_control_char
+
+MAX_NOTE = 30  # メモの最大文字数
+MAX_RANGE_DAYS = 366  # 期間で一括追加できる日数
+
+
+def validate_note(note: str) -> None:
+    """メモは 30 文字以内で、改行・制御文字・ゼロ幅文字を含まない。不正は ValueError。"""
+    if len(note) > MAX_NOTE:
+        raise ValueError(f"稼働日のメモは{MAX_NOTE}文字以内で入力してください")
+    if has_control_char(note):
+        raise ValueError("稼働日のメモに改行・制御文字は使えません")
 
 
 def validate_work_days(days: list[WorkDay]) -> None:
@@ -15,6 +26,7 @@ def validate_work_days(days: list[WorkDay]) -> None:
         if row.day in seen:
             raise ValueError(f"稼働日の日付が重複しています: {row.day.isoformat()}")
         seen.add(row.day)
+        validate_note(row.note)
         if (row.start is None) != (row.end is None):
             raise ValueError(f"稼働日の開始と終了は、両方入れるか休みにしてください: {row.day.isoformat()}")
         if row.start is not None and row.end is not None and row.start >= row.end:
@@ -28,3 +40,40 @@ def sort_work_days(days: list[WorkDay]) -> list[WorkDay]:
 def work_day_map(days: Iterable[WorkDay]) -> dict[date, WorkDay]:
     """日付 → 上書き。"""
     return {row.day: row for row in days}
+
+
+def expand_range(
+    start: date,
+    end: date,
+    window: tuple[time, time] | None,
+    note: str,
+    existing: Iterable[date],
+    holidays: Mapping[date, str],
+    skip_off: bool,
+) -> tuple[list[WorkDay], int, int]:
+    """期間の各日を稼働日の上書きにする。window が None なら休み。
+    戻り値は (足す行, 登録済みで飛ばした日数, 土日祝で飛ばした日数)。登録済みの日は上書きしない。"""
+    if start > end:
+        raise ValueError("期間は、開始日が終了日以前になるように入れてください")
+    count = (end - start).days + 1
+    if count > MAX_RANGE_DAYS:
+        raise ValueError(f"一度に追加できるのは{MAX_RANGE_DAYS}日までです")
+    if window is not None and window[0] >= window[1]:
+        raise ValueError("稼働日の終了は開始より後にしてください")
+    note = note.strip()
+    validate_note(note)
+    opens, closes = window if window is not None else (None, None)
+    taken = set(existing)
+    rows: list[WorkDay] = []
+    registered = off = 0
+    for offset in range(count):
+        day = start + timedelta(days=offset)
+        if not MIN_YEAR <= day.year <= MAX_YEAR:
+            raise ValueError(f"稼働日の日付は {MIN_YEAR}〜{MAX_YEAR} 年にしてください: {day.isoformat()}")
+        if skip_off and (day.weekday() >= 5 or day in holidays):
+            off += 1
+        elif day in taken:
+            registered += 1
+        else:
+            rows.append(WorkDay(day, opens, closes, note))
+    return rows, registered, off
