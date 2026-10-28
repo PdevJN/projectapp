@@ -1171,6 +1171,18 @@ async def test_the_members_dialog_adds_a_member(user: User, tmp_path: Path) -> N
     assert view.is_dirty()
 
 
+async def test_the_members_dialog_applies_ratio_unclamped(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-0")
+    user.find(marker="member-name-0").type("田中")
+    user.find(marker="member-ratio-0").clear().type("200")
+    user.find(marker="member-unclamped-0").click()
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: [(m.ratio, m.ratio_unclamped) for m in view.project.members] == [(2.0, True)])
+
+
 async def test_the_members_dialog_rejects_a_duplicate_name(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
@@ -4142,8 +4154,8 @@ async def test_the_members_dialog_is_a_table_whose_columns_follow_the_parameters
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    # アイコン・名前・相対比率・稼働日・削除
-    assert len(grid_columns(user)) == 5
+    # アイコン・名前・相対比率・丸めない・稼働日・削除
+    assert len(grid_columns(user)) == 6
 
 
 async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path) -> None:
@@ -4152,8 +4164,8 @@ async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path)
     view.project.parameters.append(Parameter("専門性", [Level("高", 0.1)]))
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    # アイコン・名前・基本比率・経験・専門性・相対比率・稼働日・削除
-    assert len(grid_columns(user)) == 8
+    # アイコン・名前・基本比率・丸めない・経験・専門性・相対比率・稼働日・削除
+    assert len(grid_columns(user)) == 9
     assert user.find(marker="member-header-level-1").elements.pop().text == "専門性"
 
 
@@ -4169,7 +4181,7 @@ async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(user: U
     grid = user.find(marker="member-grid").elements.pop()
     assert "min-width" in grid._style  # 列を押しつぶさない
     assert grid_columns(user)[1] == "7rem"  # 名前の列は、列の数にかかわらず固定(狭くも広くもならない)
-    assert len(grid_columns(user)) == 3 + 7 + 3
+    assert len(grid_columns(user)) == 4 + 7 + 3
 
 
 async def test_the_table_area_grows_with_the_rows(user: User, tmp_path: Path) -> None:
@@ -4208,8 +4220,8 @@ async def test_the_dialog_width_follows_the_columns_without_the_old_wide_name(us
     from projectapp.forms import member_table_min_rem
 
     # アイコン 6rem + 名前 7rem + 比率 7rem + 稼働日 7rem + 削除 3rem + 列の間隔。以前の名前 12rem 以上の幅ではない
-    assert member_table_min_rem(0, False) == 6 + 7 + 7 + 7 + 3 + 2 * 5
-    assert member_table_min_rem(2, True) == 6 + 7 + 7 + 9 * 2 + 11 + 7 + 3 + 2 * 8
+    assert member_table_min_rem(0, False) == 6 + 7 + 7 + 5 + 7 + 3 + 2 * 6
+    assert member_table_min_rem(2, True) == 6 + 7 + 7 + 5 + 9 * 2 + 11 + 7 + 3 + 2 * 9
 
 
 async def test_the_member_table_uses_14px_controls(user: User, tmp_path: Path) -> None:

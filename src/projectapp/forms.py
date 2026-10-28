@@ -887,6 +887,7 @@ class MemberRow:
     id: str | None = None  # 開いた時点のメンバーの id。新しい行は None(適用で新しい id を振る)
     icon: str = ""  # アイコン(data URI)。空はアイコンなし
     work_days: list[WorkDayRow] = field(default_factory=list)  # 稼働日の上書きの入力行
+    ratio_unclamped: bool = False  # 丸めない(相対比率を 50〜150% に丸めない)
 
 
 def build_members(
@@ -925,7 +926,7 @@ def build_members(
             raise ValueError(f"{name}: {exc}") from None
         member_id = row.id or new_id(used)
         used.add(member_id)
-        members.append(Member(name, round(ratio / 100, 4), levels, member_id, row.icon, work_days))
+        members.append(Member(name, round(ratio / 100, 4), levels, member_id, row.icon, work_days, row.ratio_unclamped))
         if row.original is not None and row.original != name:
             renames[row.original] = name
     kept = {row.original for row in rows if row.original is not None}
@@ -1747,7 +1748,7 @@ def parameters_panel(
 
     rows = to_rows()
     baseline = deepcopy(rows)
-    ui.label(f"相対比率 = 基本比率 + 選んだ段階の判定値の合計({ratio_range_text(get_limits())} に丸めます)").classes(
+    ui.label(f"相対比率 = 基本比率 + 選んだ段階の判定値の合計({ratio_range_text(get_limits())} に丸めます。メンバーの「丸めない」を除く)").classes(
         "text-caption text-grey"
     )
 
@@ -1858,8 +1859,12 @@ def effective_ratio_text(row: MemberRow, parameters: list[Parameter], limits: Ra
     percent = row.ratio_percent
     if percent is None or not isfinite(percent):
         return ""
-    detail = ratio_detail(Member(row.name, percent / 100, row.levels), parameters, limits=limits)
-    notes = ["範囲に丸めました"] if detail.clamped and not detail.limited else []  # 制限したときは、その注記だけ
+    detail = ratio_detail(
+        Member(row.name, percent / 100, row.levels, ratio_unclamped=row.ratio_unclamped), parameters, limits=limits
+    )
+    notes = ["丸め対象外"] if detail.unclamped else []
+    if detail.clamped and not detail.limited:
+        notes.append("範囲に丸めました")  # 制限したときは、その注記だけ
     if note := limit_note(detail, limits):
         notes.append(note)
     suffix = f"({'・'.join(notes)})" if notes else ""
@@ -1874,6 +1879,7 @@ MEMBER_ICON_COLUMN_REM = 6  # アイコンの列(画像 + 選ぶ・外すのボ�
 MEMBER_ICON_SIZE_PX = 28
 MEMBER_NAME_COLUMN_REM = 7  # 名前の列(固定。列の数や画面の幅で変わらない)
 MEMBER_RATIO_COLUMN_REM = 7
+MEMBER_UNCLAMPED_COLUMN_REM = 5  # 丸めないのチェックの列
 MEMBER_LEVEL_COLUMN_REM = 9
 MEMBER_EFFECTIVE_COLUMN_REM = 11
 MEMBER_WORK_DAYS_COLUMN_REM = 7
@@ -1893,8 +1899,13 @@ MEMBER_TABLE_CSS = f"""
 
 
 def member_columns(level_count: int, with_effective: bool) -> list[str]:
-    """メンバーの表の列の幅(アイコン・名前・基本比率・パラメータごとの段階・実効比率・削除)。"""
-    columns = [f"{MEMBER_ICON_COLUMN_REM}rem", f"{MEMBER_NAME_COLUMN_REM}rem", f"{MEMBER_RATIO_COLUMN_REM}rem"]
+    """メンバーの表の列の幅(アイコン・名前・基本比率・丸めない・パラメータごとの段階・実効比率・稼働日・削除)。"""
+    columns = [
+        f"{MEMBER_ICON_COLUMN_REM}rem",
+        f"{MEMBER_NAME_COLUMN_REM}rem",
+        f"{MEMBER_RATIO_COLUMN_REM}rem",
+        f"{MEMBER_UNCLAMPED_COLUMN_REM}rem",
+    ]
     columns += [f"{MEMBER_LEVEL_COLUMN_REM}rem"] * level_count
     if with_effective:
         columns.append(f"{MEMBER_EFFECTIVE_COLUMN_REM}rem")
@@ -1914,11 +1925,12 @@ def member_table_min_rem(level_count: int, with_effective: bool) -> int:
         MEMBER_ICON_COLUMN_REM
         + MEMBER_NAME_COLUMN_REM
         + MEMBER_RATIO_COLUMN_REM
+        + MEMBER_UNCLAMPED_COLUMN_REM
         + MEMBER_LEVEL_COLUMN_REM * level_count
         + (MEMBER_EFFECTIVE_COLUMN_REM if with_effective else 0)
         + MEMBER_WORK_DAYS_COLUMN_REM
         + MEMBER_DELETE_COLUMN_REM
-        + 2 * (5 + level_count + (1 if with_effective else 0))  # 列の間隔(gap 0.5rem)の概算
+        + 2 * (6 + level_count + (1 if with_effective else 0))  # 列の間隔(gap 0.5rem)の概算
     )
 
 
@@ -1960,7 +1972,9 @@ def members_panel(
 
     def to_rows() -> list[MemberRow]:
         return [
-            MemberRow(m.name, m.name, round(m.ratio * 100, 2), dict(m.levels), m.id, m.icon, work_day_rows(m))
+            MemberRow(
+                m.name, m.name, round(m.ratio * 100, 2), dict(m.levels), m.id, m.icon, work_day_rows(m), m.ratio_unclamped
+            )
             for m in get_members()
         ]
 
@@ -1999,6 +2013,7 @@ def members_panel(
                 ui.label("基本比率(%)" if with_effective else "相対比率(%)").classes(header).mark(
                     "member-header-ratio"
                 )
+                ui.label("丸めない").classes(header).mark("member-header-unclamped")
                 for p, parameter in enumerate(chosen_parameters):
                     ui.label(parameter.name).classes(f"{header} ellipsis").mark(f"member-header-level-{p}")
                 if with_effective:
@@ -2037,6 +2052,16 @@ def members_panel(
                         step=5,
                         on_change=on_ratio,
                     ).props("dense outlined aria-label=比率").classes("w-full").mark(f"member-ratio-{index}")
+
+                    def on_unclamped(e, r=row) -> None:  # noqa: ANN001
+                        r.ratio_unclamped = bool(e.value)
+                        refresh_effective(r)
+
+                    ui.checkbox(value=row.ratio_unclamped, on_change=on_unclamped).props(
+                        "dense aria-label=丸めない"
+                    ).tooltip(
+                        "50〜150%(設定の上限・下限)に丸めず、基本比率 + 判定値をそのまま使います。10〜300% は常に守ります"
+                    ).mark(f"member-unclamped-{index}")
                     for p, parameter in enumerate(chosen_parameters):
 
                         def on_level(e, r=row, name=parameter.name) -> None:  # noqa: ANN001
