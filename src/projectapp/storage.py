@@ -476,7 +476,7 @@ def _events(value: Any) -> list[Event]:
     return events
 
 
-def _work_days(value: Any) -> list[WorkDay]:
+def _work_days(value: Any, version: int = FORMAT_VERSION) -> list[WorkDay]:
     """稼働日の上書き(version 8)。キーがない・null は空。形・時刻・重複の不正は ValueError。"""
     if value is None:
         return []
@@ -504,7 +504,12 @@ def _work_days(value: Any) -> list[WorkDay]:
                     raise ValueError(f"稼働日の{key}の形式が正しくありません: {text!r}") from None
             else:
                 raise ValueError(f"稼働日の{key}が文字列ではありません: {text!r}")
-        rows.append(WorkDay(day, times[0], times[1]))
+        note = raw.get("note") if version >= 14 else None
+        if note is None:
+            note = ""
+        elif not isinstance(note, str):
+            raise ValueError(f"稼働日のメモが文字列ではありません: {note!r}")
+        rows.append(WorkDay(day, times[0], times[1], note.strip()))
     validate_work_days(rows)
     return sort_work_days(rows)
 
@@ -934,7 +939,7 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
         ratio = _number_in_range(raw.get("ratio", 1.0), MIN_RATIO, MAX_RATIO, "相対比率")
         levels = _member_levels(raw.get("levels"))
         icon = _icon(raw.get("icon")) if ctx.version >= 7 else ""
-        work_days = _work_days(raw.get("work_days")) if ctx.version >= 8 else []
+        work_days = _work_days(raw.get("work_days"), ctx.version) if ctx.version >= 8 else []
         member_id = None
         if ctx.version >= 2:
             member_id = _entity_id(raw.get("id"), "メンバー")

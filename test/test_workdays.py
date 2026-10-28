@@ -37,3 +37,17 @@ def test_sort_and_map() -> None:
     a, b = WorkDay(date(2026, 10, 18), time(9), time(10)), WorkDay(date(2026, 10, 12))
     assert sort_work_days([a, b]) == [b, a]
     assert work_day_map([a, b]) == {date(2026, 10, 18): a, date(2026, 10, 12): b}
+
+
+def test_work_day_note_defaults_to_empty() -> None:
+    assert WorkDay(date(2026, 10, 12)).note == ""
+
+
+def test_validate_accepts_a_note_up_to_the_limit() -> None:
+    validate_work_days([WorkDay(date(2026, 10, 12), note="あ" * 30)])
+
+
+@pytest.mark.parametrize("note", ["あ" * 31, "夏季\n休暇", "夏季\u200b休暇"])
+def test_validate_rejects_bad_notes(note: str) -> None:
+    with pytest.raises(ValueError, match="メモ"):
+        validate_work_days([WorkDay(date(2026, 10, 12), note=note)])

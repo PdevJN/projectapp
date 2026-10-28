@@ -3,7 +3,18 @@
 from collections.abc import Iterable
 from datetime import date
 
-from projectapp.models import MAX_YEAR, MIN_YEAR, WorkDay
+from projectapp.models import MAX_YEAR, MIN_YEAR, WorkDay, has_control_char
+
+MAX_NOTE = 30  # メモの最大文字数
+MAX_RANGE_DAYS = 366  # 期間で一括追加できる日数
+
+
+def validate_note(note: str) -> None:
+    """メモは 30 文字以内で、改行・制御文字・ゼロ幅文字を含まない。不正は ValueError。"""
+    if len(note) > MAX_NOTE:
+        raise ValueError(f"稼働日のメモは{MAX_NOTE}文字以内で入力してください")
+    if has_control_char(note):
+        raise ValueError("稼働日のメモに改行・制御文字は使えません")
 
 
 def validate_work_days(days: list[WorkDay]) -> None:
@@ -15,6 +26,7 @@ def validate_work_days(days: list[WorkDay]) -> None:
         if row.day in seen:
             raise ValueError(f"稼働日の日付が重複しています: {row.day.isoformat()}")
         seen.add(row.day)
+        validate_note(row.note)
         if (row.start is None) != (row.end is None):
             raise ValueError(f"稼働日の開始と終了は、両方入れるか休みにしてください: {row.day.isoformat()}")
         if row.start is not None and row.end is not None and row.start >= row.end:
