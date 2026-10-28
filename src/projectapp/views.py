@@ -109,6 +109,8 @@ from projectapp.csv_export import DEFAULT_FILENAME as TSV_DEFAULT_FILENAME
 from projectapp.csv_export import TSV_FILE_TYPES, build_tsv, write_tsv
 from projectapp.csv_import import CSV_OPEN_FILE_TYPES, CsvImportError, parse_csv, read_table
 from projectapp.csv_import import summary as csv_import_summary
+from projectapp.settings_io import DEFAULT_FILENAME as SETTINGS_DEFAULT_FILENAME
+from projectapp.settings_io import SETTINGS_FILE_TYPES, build_settings, write_settings
 from projectapp.puml_import import (
     PLANTUML_OPEN_FILE_TYPES,
     PlantUmlImportError,
@@ -579,6 +581,21 @@ class MainView:
         self.show_project(result.project, None)
         self.snapshot = asdict(Project(NEW_PROJECT_NAME))  # 空の新規とは別物なので、未保存の扱いにする
         ui.notify(csv_import_summary(result))
+
+    async def export_settings(self) -> None:
+        """設定値(プロジェクト設定・メンバー・パラメータなど)を書き出す。プロジェクトは変えない(保存も、変更扱いもしない)。"""
+        if not self.exporter.available:
+            ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
+            return
+        path = await self.exporter.ask_path(SETTINGS_DEFAULT_FILENAME, SETTINGS_FILE_TYPES)
+        if path is None:
+            return
+        try:
+            written = write_settings(path, build_settings(self.project))
+        except (OSError, ValueError) as exc:
+            ui.notify(f"保存できませんでした: {exc}", type="negative")
+            return
+        ui.notify(f"書き出しました({written.name})")
 
     async def export_tsv(self) -> None:
         """通常タスクとセクションを TSV に書き出す。プロジェクトは変えない(保存も、変更扱いもしない)。"""
@@ -2036,6 +2053,11 @@ class MainView:
                     MenuItem("チャートプレビュー", "visibility", self.enter_preview, "export-preview"),
                     MenuItem("担当者へ書き出し", "ios_share", self.open_handoff, "export-handoff"),
                     MenuItem("TSV として書き出す", "download", self.export_tsv, "export-tsv"),
+                    *(
+                        [MenuItem("設定を書き出す", "save_alt", self.export_settings, "export-settings")]
+                        if self.exporter.available
+                        else []
+                    ),
                 ],
             )
             self.header_menu(

@@ -30,6 +30,8 @@ from projectapp.filtering import TaskFilter
 from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.handoff import JSON_FILE_TYPES
+from projectapp.settings_io import DEFAULT_FILENAME as SETTINGS_DEFAULT_FILENAME
+from projectapp.settings_io import SETTINGS_FILE_TYPES, build_settings, parse_settings, write_settings
 from projectapp.categories import CategoryEdit
 from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, RatioLimits, ReferenceMode, ReferenceValue, Section, Status, Task, TaskKind, TaskUrl, UrlTemplate, WorkDay, union_assignees
 from projectapp.storage import load_project, save_project
@@ -3246,13 +3248,14 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     ]
     assert menu_icons(user, "menu-file-items") == ["folder_open", "upload_file", "table_view", "note_add", "save", "save_as", "drive_file_move", "event_repeat"]
     assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
-    assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share", "download"]
+    assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share", "download", "save_alt"]
     assert menu_icons(user, "menu-help-items") == ["keyboard"]
     assert menu_icons(user, "menu-theme-items") == ["brightness_auto", "light_mode", "dark_mode", "palette", "tune", "event"]
     assert menu_items(user, "menu-export-items") == [
         ("チャートプレビュー", "export-preview"),
         ("担当者へ書き出し", "export-handoff"),
         ("TSV として書き出す", "export-tsv"),
+        ("設定を書き出す", "export-settings"),
     ]
     assert menu_items(user, "menu-help-items") == [("ショートカットヘルプ", "help-shortcuts")]
     assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark"), ("カスタム", "theme-custom"), ("カスタムの色…", "theme-custom-settings"), ("今日の線の色…", "theme-today-color")]
@@ -6320,6 +6323,37 @@ async def test_export_tsv_needs_the_native_window(user: User, tmp_path: Path) ->
     user.find(marker="export-tsv").click()
     await user.should_see("ネイティブウィンドウでのみ、書き出せます")
     assert exporter.asked == []
+
+
+async def test_export_settings_writes_the_file_without_touching_the_project(user: User, tmp_path: Path) -> None:
+    target = tmp_path / "out" / "settings.json"
+    target.parent.mkdir()
+    exporter = FakeExporter(path=target)
+    view = await open_for_import(user, tmp_path, exporter)
+    view.project.members = [Member("田中", 1.2)]
+    dirty = view.is_dirty()
+    user.find(marker="export-settings").click()
+    assert await wait_until(target.exists)
+    data = json.loads(target.read_text(encoding="utf-8"))
+    assert data["kind"] == "projectapp-settings" and [m["name"] for m in data["members"]] == ["田中"]
+    assert exporter.asked == [SETTINGS_DEFAULT_FILENAME] and exporter.asked_types == [SETTINGS_FILE_TYPES]
+    assert view.is_dirty() == dirty and view.project.members == [Member("田中", 1.2)]
+    await user.should_see("書き出しました")
+
+
+async def test_cancelling_the_settings_save_dialog_writes_nothing(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=None)
+    await open_for_import(user, tmp_path, exporter)
+    user.find(marker="export-settings").click()
+    assert await wait_until(lambda: exporter.asked != [])
+    assert not list(tmp_path.glob("settings*.json"))
+
+
+async def test_the_settings_export_item_is_hidden_without_the_native_window(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(path=tmp_path / "x.json", available=False)
+    await open_for_import(user, tmp_path, exporter)
+    await user.should_see(marker="export-tsv")
+    await user.should_not_see(marker="export-settings")
 
 
 def _progress_project() -> Project:
