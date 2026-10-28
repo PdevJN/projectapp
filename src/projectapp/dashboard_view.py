@@ -685,11 +685,14 @@ class DashboardView:
                 scale = max(backlog.required, backlog.supply) or 1.0
                 bar(backlog.required / scale, PLANNED_COLOR)
                 bar(backlog.supply / scale, ACTUAL_COLOR)
-                short = backlog.shortfall
-                gap = f"あと {short:.1f} 人" if short > 0 else f"余裕 {-short:.1f} 人"
+                short = round(backlog.shortfall, 1)  # 表示の桁で 0 になるときは「あと 0.0 人」と出さない
+                gap = f"あと {short:.1f} 人" if short > 0 else f"余裕 {-short:.1f} 人" if short < 0 else "ちょうど"
                 ui.label(gap).classes("text-subtitle2" + (" text-negative" if short > 0 else "")).mark(
                     "dashboard-backlog-gap"
                 )
+                ui.label("今いる人員は、実行中のタスクが使う分を引いていません。稼働日の上書きと休暇も反映していません。").classes(
+                    "text-caption text-grey"
+                ).mark("dashboard-backlog-note")
             if backlog.by_member:
                 ui.label("担当別").classes("text-subtitle2")
                 top = max(hours for _, hours in backlog.by_member)

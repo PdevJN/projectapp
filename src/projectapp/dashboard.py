@@ -19,6 +19,7 @@ from projectapp.timeline import (
     crew_pieces,
     current_progress,
     day_hours,
+    day_window,
     is_overdue,
     is_workday,
 )
@@ -508,6 +509,11 @@ class Backlog:
         return None if self.required is None else self.required - self.supply
 
 
+def _next_workday(day: date, holidays: dict[date, str]) -> date:
+    """その日以降で最初の稼働日(通常カレンダー)。2 週間見て無ければその日。"""
+    return next((d for d in (day + timedelta(days=i) for i in range(14)) if is_workday(d, holidays)), day)
+
+
 def _backlog_days(
     project: Project, period: Period, kind: PeriodKind, now: datetime, holidays: dict[date, str], ends: list[datetime]
 ) -> int | None:
@@ -516,12 +522,21 @@ def _backlog_days(
     if kind is PeriodKind.ALL:  # 全期間は、数えたタスクの最も遅い終わりまで
         if not ends:
             return None
-        start, end = max(today, project.base_date), max(ends).date()
+        start = max(today, project.base_date)
+        end = max(max(ends).date(), _next_workday(start, holidays))  # 全部が遅れていても、最初の稼働日で終える場合を示す
     else:
         start, end = max(today, period.start), period.end
     if start > end:
         return 0
     return sum(is_workday(day, holidays) for day in Period(start, end).days())
+
+
+def _overlap_hours(project: Project, holidays: dict[date, str], day: date, start: datetime, end: datetime) -> float:
+    """その日の稼働の枠のうち、[start, end) と重なる時間[h]。"""
+    window = day_window(day, project.daily_hours, project.work_start, holidays)
+    if window is None:
+        return 0.0
+    return max(0.0, (min(end, window[1]) - max(start, window[0])).total_seconds() / 3600)
 
 
 def _counted_fraction(
@@ -537,7 +552,7 @@ def _counted_fraction(
     if end <= start:
         return float(start.date() <= period.end)
     days = [day for day in Period(start.date(), end.date()).days() if _covers(start, end, day)]
-    weights = [day_hours(day, project.daily_hours, holidays) for day in days]
+    weights = [_overlap_hours(project, holidays, day, start, end) for day in days]
     if not any(weights):  # 稼働日にかからない(土日だけ)ときは、日数で割る
         weights = [1.0] * len(days)
     counted = sum(

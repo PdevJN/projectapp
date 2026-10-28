@@ -709,3 +709,22 @@ async def test_the_backlog_card_says_when_no_workday_is_left(user: User) -> None
     views[0].show(with_backlog(Backlog(5.0, 0, 0, None, 1.0, [])), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-nodays")
     assert text(user, "dashboard-backlog-nodays") == "今日以降に稼働日がないため、必要な人数は出せません"
+
+
+async def test_the_backlog_card_says_just_right_instead_of_zero_point_zero(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(Backlog(24.3, 0, 3, 1.0125, 1.0, [("田中", 24.3)])), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-gap")
+    assert text(user, "dashboard-backlog-gap") == "ちょうど"
+    assert "text-negative" not in user.find(marker="dashboard-backlog-gap").elements.pop().classes
+
+
+async def test_the_backlog_card_notes_what_the_supply_leaves_out(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(Backlog(6.5, 0, 3, 0.5, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-note")
+    assert text(user, "dashboard-backlog-note") == (
+        "今いる人員は、実行中のタスクが使う分を引いていません。稼働日の上書きと休暇も反映していません。"
+    )

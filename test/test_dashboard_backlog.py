@@ -69,10 +69,17 @@ def test_all_period_without_an_end_has_no_required_people() -> None:
     assert (backlog.hours, backlog.days, backlog.required) == (5, None, None)
 
 
-def test_all_period_ending_in_the_past_has_no_required_people() -> None:
+def test_all_period_ending_in_the_past_still_counts_today_as_one_workday() -> None:
     project = project_of(Task("過去", planned_start=datetime(2026, 9, 1, 9), effort_hours=5))
     backlog = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {})
-    assert (backlog.days, backlog.required) == (0, None)
+    assert (backlog.days, backlog.required) == (1, 5 / 6.5)  # 全部が遅れていても、今日 1 日で終える場合を示す
+
+
+def test_all_period_with_everything_overdue_starts_at_the_next_workday_on_a_weekend() -> None:
+    sunday = datetime(2026, 10, 11, 12)
+    project = project_of(Task("過去", planned_start=datetime(2026, 9, 1, 9), effort_hours=6.5))
+    backlog = summarize_backlog(project, WEEK, PeriodKind.ALL, sunday, {})
+    assert (backlog.days, backlog.required) == (1, 1.0)
 
 
 def test_supply_is_the_sum_of_relative_ratios_and_shortfall_follows() -> None:
@@ -170,3 +177,10 @@ def test_a_period_already_over_gives_zero_days() -> None:
     past = Period(date(2026, 9, 1), date(2026, 9, 30))
     backlog = summarize_backlog(project_of(todo("a", 6.5)), past, PeriodKind.CUSTOM, NOW, {})
     assert backlog.days == 0
+
+
+def test_the_partial_first_day_is_weighed_by_the_hours_actually_in_the_period() -> None:
+    # 金曜 14:00 開始の 13h は、金 1.5h + 月 6.5h + 火 5h。今週(〜日曜)に入るのは金曜の 1.5h だけ
+    afternoon = Task("午後開始", planned_start=datetime(2026, 10, 9, 14), effort_hours=13)
+    backlog = summarize_backlog(project_of(afternoon), WEEK, PeriodKind.WEEK, NOW, {})
+    assert backlog.hours == 1.5
