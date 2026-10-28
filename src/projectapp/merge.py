@@ -182,7 +182,7 @@ CATEGORY_LABELS = {"name": "名前", "kind": "種別", "expiry_date": "有効期
 PARAMETER_LABELS = {"levels": "段階"}
 TEMPLATE_LABELS = {"pattern": "URLの型"}
 EVENT_LABELS = {"start": "開始日", "end": "終了日", "text": "文字列", "color": "色"}
-WORK_DAY_LABELS = {"window": "時間帯"}
+WORK_DAY_LABELS = {"window": "時間帯", "note": "メモ"}
 SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間", "work_start": "始業時刻", "actual_mode": "実績の記録方式", "reference_mode": "参照の方式", "plantuml_overload_notice": "PlantUML の通知", "ratio_limit_upper": "相対比率の上限", "ratio_limit_lower": "相対比率の下限"}
 
 
@@ -199,14 +199,20 @@ def _categories(project: Project) -> dict[str, Record]:
     }
 
 
-def _show_window(name: str, value: Any) -> str:
+def _show_work_day(name: str, value: Any) -> str:
+    if name == "note":
+        return value or "(なし)"
     start, end = value
     return "休み" if start is None else f"{start:%H:%M}〜{end:%H:%M}"
 
 
 def _member_work_days(project: Project) -> dict[str, Record]:
     # 開始と終了は組で意味を持つ(両方 None=休み)ので、1 項目として比べる
-    return {f"{m.id}:{w.day.isoformat()}": {"window": (w.start, w.end)} for m in project.members for w in m.work_days}
+    return {
+        f"{m.id}:{w.day.isoformat()}": {"window": (w.start, w.end), "note": w.note}
+        for m in project.members
+        for w in m.work_days
+    }
 
 
 def _events(project: Project) -> dict[str, Record]:
@@ -316,7 +322,7 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
         _member_work_days(base),
         _member_work_days(ours),
         _member_work_days(theirs),
-        _show_window,
+        _show_work_day,
     )
     parameters = merger.collection("parameter", PARAMETER_LABELS, _parameters(base), _parameters(ours), _parameters(theirs))
     templates = merger.collection("url_template", TEMPLATE_LABELS, _templates(base), _templates(ours), _templates(theirs))
@@ -430,7 +436,8 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
     for key, r in member_days.items():
         member_id, day = key.split(":", 1)
         if member_id in by_id:  # 削除されたメンバーの上書きは捨てる
-            by_id[member_id].work_days.append(WorkDay(date.fromisoformat(day), *r["window"]))
+            start, end = r["window"]
+            by_id[member_id].work_days.append(WorkDay(date.fromisoformat(day), start, end, r["note"]))
     for member in built_members:
         member.work_days = sort_work_days(member.work_days)
 

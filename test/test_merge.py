@@ -435,6 +435,37 @@ def test_member_work_day_conflict_is_labelled_with_the_member_and_date() -> None
     assert conflict.label == "甲: 2026-10-17"
 
 
+def test_member_work_day_note_is_its_own_item() -> None:
+    base = proj(members=[mem(wd("2026-10-17"))])
+    ours = proj(members=[mem(WorkDay(date(2026, 10, 17), time(13), time(16), "通院"))])
+    theirs = proj(members=[mem(wd("2026-10-17", 17))])
+    result = merge_projects(base, ours, theirs)
+    assert result.conflicts == []
+    (row,) = result.project.members[0].work_days
+    assert (row.end, row.note) == (time(17), "通院")  # 時間帯は相手、メモは自分
+
+
+def test_member_work_day_note_conflict_shows_the_notes() -> None:
+    def noted(text: str) -> WorkDay:
+        return WorkDay(date(2026, 10, 17), time(13), time(16), text)
+
+    base = proj(members=[mem(noted("通院"))])
+    ours = proj(members=[mem(noted("出張"))])
+    theirs = proj(members=[mem(noted("休暇"))])
+    result = merge_projects(base, ours, theirs, {("work_day", "m1:2026-10-17", "メモ"): THEIRS})
+    (conflict,) = result.conflicts
+    assert (conflict.ours, conflict.theirs) == ("出張", "休暇")
+    assert result.project.members[0].work_days[0].note == "休暇"
+
+
+def test_a_work_day_added_with_a_note_keeps_the_note() -> None:
+    base = proj(members=[mem()])
+    ours = proj(members=[mem(WorkDay(date(2026, 10, 19), note="夏季休暇"))])
+    theirs = proj(members=[mem()])
+    result = merge_projects(base, ours, theirs)
+    assert result.project.members[0].work_days == [WorkDay(date(2026, 10, 19), note="夏季休暇")]
+
+
 def test_task_parameters_take_the_side_that_changed_them() -> None:
     base = proj(tasks=[task("a", "t1")])
     ours = proj(tasks=[task("a", "t1", parameters=["Python"])])
