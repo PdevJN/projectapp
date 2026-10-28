@@ -4213,13 +4213,13 @@ async def test_the_name_column_is_a_narrow_fixed_width_with_or_without_parameter
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    assert grid_columns(user) == ["6rem", "7rem", "7rem", "7rem", "3rem"]  # アイコン・名前・相対比率・稼働日・削除
+    assert grid_columns(user) == ["6rem", "7rem", "7rem", "5rem", "7rem", "3rem"]  # アイコン・名前・相対比率・丸めない・稼働日・削除
 
 
 async def test_the_dialog_width_follows_the_columns_without_the_old_wide_name(user: User, tmp_path: Path) -> None:
     from projectapp.forms import member_table_min_rem
 
-    # アイコン 6rem + 名前 7rem + 比率 7rem + 稼働日 7rem + 削除 3rem + 列の間隔。以前の名前 12rem 以上の幅ではない
+    # アイコン 6rem + 名前 7rem + 比率 7rem + 丸めない 5rem + 稼働日 7rem + 削除 3rem + 列の間隔。以前の名前 12rem 以上の幅ではない
     assert member_table_min_rem(0, False) == 6 + 7 + 7 + 5 + 7 + 3 + 2 * 6
     assert member_table_min_rem(2, True) == 6 + 7 + 7 + 5 + 9 * 2 + 11 + 7 + 3 + 2 * 9
 
