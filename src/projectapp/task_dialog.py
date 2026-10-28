@@ -928,6 +928,7 @@ def open_task_dialog(
             m.name,
             effective_ratio(m, parameters or [], chosen_parameters, ratio_limits),
             work_days=list(m.work_days),
+            ratio_unclamped=True,  # 実効比率は丸め済みなので、換算で丸め直さない(10〜300% の範囲内)
         )
         for m in raw_members
     ]
@@ -1050,7 +1051,10 @@ def open_task_dialog(
             for name in dict.fromkeys(names):
                 if name in by_name:
                     detail = ratio_detail(by_name[name], parameters or [], chosen_parameters, ratio_limits)
-                    if note := limit_note(detail, ratio_limits):
+                    note = limit_note(detail, ratio_limits)
+                    if detail.unclamped:
+                        note = f"丸め対象外・{note}" if note else "丸め対象外"
+                    if note:
                         notes.append(f"{name} {note}")
             return f"・{'・'.join(notes)}" if notes else ""
 

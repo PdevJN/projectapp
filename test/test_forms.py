@@ -1437,6 +1437,20 @@ def test_effective_ratio_text(percent: float | None, levels: dict[str, str], tex
     assert effective_ratio_text(MemberRow(None, "a", percent, levels), [EXPERIENCE]) == text
 
 
+def test_build_members_carries_ratio_unclamped() -> None:
+    rows = [MemberRow(None, "田中", 200.0, ratio_unclamped=True), MemberRow(None, "鈴木", 100.0)]
+    members, _ = build_members(rows, [], lambda _: 0)
+    assert [m.ratio_unclamped for m in members] == [True, False]
+
+
+def test_effective_ratio_text_for_an_unclamped_member() -> None:
+    row = MemberRow(None, "a", 200.0, ratio_unclamped=True)
+    assert effective_ratio_text(row, [EXPERIENCE]) == "相対比率 200%(丸め対象外)"
+    over = MemberRow(None, "a", 290.0, {"経験": "上級"}, ratio_unclamped=True)
+    assert effective_ratio_text(over, [EXPERIENCE]) == "相対比率 300%(丸め対象外・相対比率 310% → 安全範囲の上限 300% に制限)"
+    assert effective_ratio_text(MemberRow(None, "a", 200.0), [EXPERIENCE]) == "相対比率 150%(範囲に丸めました)"
+
+
 def test_build_members_keeps_the_id_of_a_renamed_row() -> None:
     members, renames = build_members([MemberRow("田中", "田中二郎", 100.0, id="m1")], ["田中"], lambda name: 0)
     assert [(m.name, m.id) for m in members] == [("田中二郎", "m1")]
@@ -2140,7 +2154,7 @@ def test_build_members_carries_work_day_rows_and_prefixes_errors_with_the_name()
 
 
 def test_member_columns_include_the_work_days_column() -> None:
-    assert len(member_columns(0, False)) == 5  # アイコン・名前・比率・稼働日・削除
+    assert len(member_columns(0, False)) == 6  # アイコン・名前・比率・丸めない・稼働日・削除
     assert member_table_min_rem(0, False) > MEMBER_ICON_COLUMN_REM + MEMBER_NAME_COLUMN_REM + MEMBER_RATIO_COLUMN_REM
 
 

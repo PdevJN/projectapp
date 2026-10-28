@@ -141,3 +141,10 @@ def test_limit_reviews_does_not_change_the_project() -> None:
     before = deepcopy(project)
     limit_reviews(project, RatioLimits(upper=1.0), {}, NOW)
     assert project == before
+
+
+@pytest.mark.parametrize(("unclamped", "reviewed"), [(True, 0), (False, 1)])
+def test_limit_reviews_ignore_a_task_whose_crew_is_unclamped(unclamped: bool, reviewed: int) -> None:
+    member = Member("田中", 1.4, ratio_unclamped=unclamped)  # 対象外は 140% のまま。上限 100% でも変わらない
+    project = Project("p", members=[member], tasks=[_worked()], daily_hours=8.0)
+    assert len(limit_reviews(project, RatioLimits(upper=1.0), {}, NOW)) == reviewed

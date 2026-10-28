@@ -186,6 +186,7 @@ def _overwrite(target: Item, item: Item) -> None:
     """重複の項目を、取り込む値で置き換える。名前と id は保つ。"""
     if isinstance(target, Member) and isinstance(item, Member):
         target.ratio, target.levels, target.icon, target.work_days = item.ratio, item.levels, item.icon, item.work_days
+        target.ratio_unclamped = item.ratio_unclamped
     elif isinstance(target, Parameter) and isinstance(item, Parameter):
         target.levels = item.levels
     elif isinstance(target, Category) and isinstance(item, Category):

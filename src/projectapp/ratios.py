@@ -11,7 +11,9 @@ from projectapp.models import (
     DEFAULT_RATIO_MAX,
     DEFAULT_RATIO_MIN,
     MAX_LEVEL_VALUE,
+    MAX_RATIO,
     MIN_LEVEL_VALUE,
+    MIN_RATIO,
     Member,
     Parameter,
     Project,
@@ -26,7 +28,8 @@ class RatioDetail:
     raw: float  # 丸める前の合計
     ratio: float  # 丸めたあと(計算に使う値)
     clamped: bool  # 範囲に丸めたか
-    limited: bool = False  # 設定の上限か下限で収めたか(既定の 50〜150% の丸めは含めない)
+    limited: bool = False  # 設定の上限か下限で収めたか(既定の 50〜150% の丸めは含めない)。丸め対象外では、安全範囲で収めたか
+    unclamped: bool = False  # 丸め対象外のメンバー(安全範囲 10〜300% だけで収めた)
 
 
 def ratio_detail(
@@ -37,6 +40,7 @@ def ratio_detail(
 ) -> RatioDetail:
     """メンバーの相対比率の内訳。存在しないパラメータ・段階への選択は、判定値 0% として数えない。
     only があれば、その名前のパラメータだけ足す(None か空は全パラメータ。タスクに付けたパラメータの指定)。
+    メンバーが丸め対象外(ratio_unclamped)なら、limits は見ず、10〜300% だけで収める。
     limits があれば、相対比率(基本比率 + 判定値の合計)を設定の下限・上限に収める(空欄の側は 50〜150%)。"""
     counted = set(only) if only else None
     adjustments: list[tuple[str, str, float]] = []
@@ -49,6 +53,10 @@ def ratio_detail(
             adjustments.append((parameter.name, level.name, level.value))
     # 保存する値は小数点以下 4 桁までなので、足し算の誤差(0.3 - 0.2 = 0.0999…)で境界を外さないよう丸める
     raw = round(member.ratio + sum(value for _, _, value in adjustments), 4)
+    if member.ratio_unclamped:
+        # 丸め対象外: 既定の 50〜150% も設定の上限・下限も使わず、安全範囲(10〜300%)だけで収める
+        ratio = min(max(raw, MIN_RATIO), MAX_RATIO) if isfinite(raw) else member.ratio
+        return RatioDetail(member.ratio, adjustments, raw, ratio, ratio != raw, ratio != raw, True)
     lower = DEFAULT_RATIO_MIN if limits is None or limits.lower is None else limits.lower
     upper = DEFAULT_RATIO_MAX if limits is None or limits.upper is None else limits.upper
     ratio = min(max(raw, lower), upper) if isfinite(raw) else member.ratio
@@ -70,6 +78,11 @@ def effective_ratio(
 
 def limit_note(detail: RatioDetail, limits: RatioLimits | None) -> str:
     """内訳に添える注記。設定の上限・下限で収めたときだけ。例: 相対比率 250% → 上限 150% に制限。"""
+    if detail.unclamped:
+        if not detail.limited:
+            return ""
+        edge = "上限 300%" if detail.raw > detail.ratio else "下限 10%"
+        return f"相対比率 {detail.raw * 100:g}% → 安全範囲の{edge} に制限"
     if limits is None or not detail.limited:
         return ""
     if limits.upper is not None and detail.raw > limits.upper:

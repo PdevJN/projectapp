@@ -8,7 +8,7 @@ import secrets
 import unicodedata
 from enum import StrEnum
 
-FORMAT_VERSION = 15  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕)
+FORMAT_VERSION = 16  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕。16: メンバーの丸め対象外〔members[].ratio_unclamped〕)
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -102,6 +102,7 @@ class Member:
     id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する(担当者はこの id で指す)
     icon: str = ""  # アイコン(128×128 の PNG の data URI)。空はアイコンなし
     work_days: list[WorkDay] = field(default_factory=list)  # 稼働日の上書き(日付の昇順。このメンバーだけに効く)
+    ratio_unclamped: bool = False  # 真なら、相対比率を 50〜150%(設定の上限・下限)に丸めない(10〜300% の安全範囲だけ守る)
 
 
 @dataclass

@@ -945,6 +945,9 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
         levels = _member_levels(raw.get("levels"))
         icon = _icon(raw.get("icon")) if ctx.version >= 7 else ""
         work_days = _work_days(raw.get("work_days"), ctx.version) if ctx.version >= 8 else []
+        unclamped = raw.get("ratio_unclamped", False) if ctx.version >= 16 else False
+        if not isinstance(unclamped, bool):
+            raise ValueError(f"メンバーの丸め対象外の設定が真偽値ではありません: {unclamped!r}")
         member_id = None
         if ctx.version >= 2:
             member_id = _entity_id(raw.get("id"), "メンバー")
@@ -956,7 +959,7 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
         if not name or name in seen:
             continue
         seen.add(name)
-        member = Member(name, ratio, levels, icon=icon, work_days=work_days)
+        member = Member(name, ratio, levels, icon=icon, work_days=work_days, ratio_unclamped=unclamped)
         if member_id is not None:
             member.id = member_id
         members.append(member)
