@@ -697,7 +697,7 @@ PlantUML は日単位で担当者の割り当てを集計するので、同じ�
 
 ## 要望 76: 相対比率の丸めの影響を受けないメンバーを、設定できるようにする(2026-10-28 に受領)
 
-> **状態**: 実装済み(実機確認前。2026-10-29。[設計書](superpowers/specs/2026-10-29-ratio-unclamped-design.md)・[計画](superpowers/plans/2026-10-29-ratio-unclamped.md))。
+> **状態**: 完了(実機確認済み。2026-10-29。PR #122 で`develop`へマージ。[設計書](superpowers/specs/2026-10-29-ratio-unclamped-design.md)・[計画](superpowers/plans/2026-10-29-ratio-unclamped.md))。
 
 ### 要望
 相対比率の丸め(既定は 50〜150%。プロジェクトの設定で狭められる)の影響を受けない人を、設定できるようにする。
