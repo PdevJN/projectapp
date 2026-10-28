@@ -2,7 +2,8 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from projectapp.models import Assignee, Actual, Level, Member, Parameter, Project, ReferenceValue, Section, Status, Task, TaskKind, WorkDay
+from projectapp.events import effective_holidays
+from projectapp.models import Assignee, Actual, Event, Level, Member, Parameter, Project, ReferenceValue, Section, Status, Task, TaskKind, WorkDay
 from projectapp.workdays import work_day_map
 from projectapp.timeline import (
     Schedule,
@@ -283,6 +284,25 @@ def test_effective_end_follows_the_project_settings_and_holidays() -> None:
     )
     project.work_start = time(10, 0)
     assert eff(project, effort_hours=15.0) == datetime(2026, 10, 12, 17)  # 金10-18時の8h + 月7h
+
+
+def test_effective_end_skips_the_days_of_a_closed_event() -> None:
+    project = Project("p", daily_hours=8.0, events=[Event(date(2026, 10, 12), date(2026, 10, 13), "休業", closed=True)])
+    holidays = effective_holidays(project, {})
+    assert eff(project, holidays, effort_hours=15.0) == datetime(2026, 10, 14, 16)  # 金 8h + 水 7h(月・火は休業)
+
+
+def test_a_members_override_beats_a_closed_event() -> None:
+    work = [WorkDay(date(2026, 10, 12), time(9), time(17))]
+    project = Project(
+        "p",
+        daily_hours=8.0,
+        members=[Member("甲", work_days=work)],
+        events=[Event(date(2026, 10, 12), date(2026, 10, 13), "休業", closed=True)],
+    )
+    holidays = effective_holidays(project, {})
+    end = eff(project, holidays, effort_hours=15.0, assignees=[Assignee("甲", 1.0)])
+    assert end == datetime(2026, 10, 12, 16)  # 金 8h + 月 7h。月曜は上書きで稼働(休業より優先)
 
 
 def test_effective_end_is_the_next_day_without_effort_and_planned_end() -> None:

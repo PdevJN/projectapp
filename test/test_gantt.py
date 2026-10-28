@@ -4058,3 +4058,39 @@ async def test_a_too_long_period_typed_at_a_fine_scale_is_applied_when_the_scale
     chart.set_scale(Scale.MONTH)  # エラー文が勧めるとおり、スケールを粗くする
     assert chart.period == (date(2026, 1, 1), date(2029, 12, 31))
     assert user.find(marker="chart-period-error").elements.pop().text == ""
+
+
+async def test_closed_event_days_are_not_painted_as_holidays(user: User) -> None:
+    project = Project("p", base_date=BASE, events=[Event(date(2026, 10, 7), date(2026, 10, 7), "休業", closed=True)])
+    mount(project, {date(2026, 10, 8): "祝"})
+    await user.open("/")
+    html = user.find(marker="stripes").elements.pop().content
+    assert html.count(KIND_COLORS[DayKind.HOLIDAY]) == 1  # 10/8 の祝日だけ。休業の 10/7 は緑にしない
+
+
+async def test_the_chart_computes_with_closed_event_days_but_keeps_the_base(user: User) -> None:
+    project = Project("p", base_date=BASE, events=[Event(date(2026, 10, 7), date(2026, 10, 7), "休業", closed=True)])
+    charts, _ = mount_chart(project)
+    await user.open("/")
+    assert charts[0].holidays == {date(2026, 10, 7): "休業"}
+    assert charts[0].base_holidays == {}
+    project.events[0].closed = False
+    assert charts[0].holidays == {}  # 休みを外すと戻る
+
+
+async def test_closed_event_bar_has_a_mark_and_a_tooltip(user: User) -> None:
+    event = Event(date(2026, 10, 8), date(2026, 10, 9), "夏季休業", "gray", id="e1", closed=True)
+    mount_with(event_project(event), ViewOptions(period=EVENT_PERIOD))
+    await user.open("/")
+    bar = user.find(marker="event-bar-e1").elements.pop()
+    assert bar._props.get("title") == "夏季休業(休み: 全員の稼働日)"
+    await user.should_see("休 夏季休業")
+
+
+async def test_work_day_mark_does_not_call_a_closed_event_a_holiday(user: User) -> None:
+    project = member_project()
+    project.events = [Event(date(2026, 10, 7), date(2026, 10, 7), "夏季休業", closed=True)]
+    mount(project)
+    await user.open("/")
+    content = user.find(marker="workmark-0-0").elements.pop().content
+    assert "祝日" not in content and "夏季休業" not in content

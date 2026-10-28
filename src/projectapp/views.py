@@ -13,6 +13,7 @@ from nicegui import run, ui
 from nicegui.events import KeyEventArguments
 
 from projectapp.calendar import load_cache
+from projectapp.events import EffectiveHolidays
 from projectapp.categories import CategoryEdit
 from projectapp.icons import ICON_FILE_TYPES, IconError, load_icon
 from projectapp.categories import apply_edit as apply_category_edit
@@ -284,12 +285,13 @@ class MainView:
         self.dark = ui.dark_mode()
         self.dark.value = self.dark_value(self.theme, self.custom_theme)
         cached = load_cache(base_dir)
-        self.holidays: dict[date, str] = cached or {}
+        self.base_holidays: dict[date, str] = cached or {}  # 祝日だけ。計算には、休みのイベントを足した holidays を使う
+        self._effective_holidays = EffectiveHolidays()
         self.needs_first_fetch = cached is None
-        self.reference_resolver = ReferenceResolver(lambda: self.project_dir, lambda: self.holidays)
+        self.reference_resolver = ReferenceResolver(lambda: self.project_dir, lambda: self.base_holidays)
         self.gantt = GanttChart(
             self.project,
-            self.holidays,
+            self.base_holidays,
             GanttActions(
                 add_section=self.add_section,
                 add_task=self.add_task,
@@ -871,7 +873,7 @@ class MainView:
         data = summarize(self.project, period, now, self.holidays, self.dashboard_kind, self.dashboard_member)
         if self.dashboard_cross:
             chosen = [p for p in projects if p.name not in self.dashboard_excluded]
-            loads = summarize_cross_loads(chosen, period, self.holidays, self.dashboard_member)
+            loads = summarize_cross_loads(chosen, period, self.base_holidays, self.dashboard_member)
             titles = [p.name for p in projects]
             data.cross = CrossSummary(loads, titles, self.dashboard_excluded & set(titles), failures)
             data.members = names
@@ -1939,14 +1941,23 @@ class MainView:
                     type="warning",
                 )
 
+    @property
+    def holidays(self) -> dict[date, str]:
+        """祝日に、休みにしたイベントの期間を足した辞書。日程の計算・集計はこれを使う。"""
+        return self._effective_holidays.get(self.project, self.base_holidays)
+
+    @holidays.setter
+    def holidays(self, value: dict[date, str]) -> None:
+        self.base_holidays = value
+
     async def refresh_holidays(self, quiet: bool = False) -> None:
         """祝日を取得してチャートに反映する。失敗しても画面は変えず通知だけ出す。"""
         try:
-            self.holidays = await download_holidays(self.base_dir, self.transport)
+            self.base_holidays = await download_holidays(self.base_dir, self.transport)
         except (httpx.HTTPError, ValueError, OSError):  # OSErrorはキャッシュの書き込み失敗
             ui.notify("祝日データを取得できませんでした", type="warning")
             return
-        self.gantt.set_holidays(self.holidays)
+        self.gantt.set_holidays(self.base_holidays)
         if not quiet:
             ui.notify("祝日データを更新しました")
 

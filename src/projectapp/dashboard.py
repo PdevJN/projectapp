@@ -8,6 +8,7 @@ from enum import StrEnum
 from math import isfinite
 from typing import NamedTuple
 
+from projectapp.events import effective_holidays
 from projectapp.models import Assignee, Project, Status, Task, TaskKind, WorkDay
 from projectapp.ratios import effective_ratio
 from projectapp.reassign import consumed_hours
@@ -384,11 +385,14 @@ def summarize_cross_loads(
     projects: list[Project], period: Period, holidays: dict[date, str], member: str | None = None
 ) -> dict[str, CrossLoad]:
     """複数のプロジェクトを重ねた負荷。同じ名前のメンバーを同一人物とみなす。"""
+    closed_aware = {id(p): effective_holidays(p, holidays) for p in projects}  # 各プロジェクトの休みのイベントを足す
     open_days = {
-        (id(p), m.name): set(_workdays(period, holidays, work_day_map(m.work_days))) for p in projects for m in p.members
+        (id(p), m.name): set(_workdays(period, closed_aware[id(p)], work_day_map(m.work_days)))
+        for p in projects
+        for m in p.members
     }
     days = sorted(set().union(*open_days.values())) if open_days else []
-    per_project = [(project, _member_spans(project, holidays, member)) for project in projects]
+    per_project = [(project, _member_spans(project, closed_aware[id(project)], member)) for project in projects]
     names = dict.fromkeys(m.name for p in projects for m in p.members if member is None or m.name == member)
     loads: dict[str, CrossLoad] = {}
     for name in names:
