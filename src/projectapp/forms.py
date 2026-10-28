@@ -560,6 +560,7 @@ class EventRow:
     end: str
     text: str
     color: str  # 色名
+    closed: bool = False  # 期間の稼働日を全員の休みにする
 
 
 def build_event_list(rows: list[EventRow], taken: Collection[str], today: date) -> list[Event]:
@@ -580,13 +581,13 @@ def build_event_list(rows: list[EventRow], taken: Collection[str], today: date) 
             raise ValueError(f"イベントの色が正しくありません: {row.color.strip()!r}(red・orange・gray などの色名)")
         event_id = row.original or new_id(used)
         used.add(event_id)
-        built.append(Event(days[0], days[1], row.text.strip(), color, event_id))
+        built.append(Event(days[0], days[1], row.text.strip(), color, event_id, closed=row.closed))
     validate_events(built)
     return sort_events(built)
 
 
 def event_key(e: Event) -> tuple:
-    return (e.id, e.start, e.end, e.text, e.color)
+    return (e.id, e.start, e.end, e.text, e.color, e.closed)
 
 
 @dataclass
@@ -1544,12 +1545,15 @@ def open_settings_dialog(
             ui.button("カテゴリを追加", icon="add", on_click=add_category).props("flat dense").mark(
                 "settings-category-add"
             )
-        event_rows = [EventRow(e.id, e.start.isoformat(), e.end.isoformat(), e.text, e.color) for e in events or []]
+        event_rows = [EventRow(e.id, e.start.isoformat(), e.end.isoformat(), e.text, e.color, e.closed) for e in events or []]
         if events is not None:
             ui.label("イベント").classes("text-caption text-grey")
             ui.label("開始日〜終了日に、文字列をガントチャートの日付の下に出し、期間のセルを色で塗ります").classes(
                 "text-caption text-grey"
             )
+            ui.label(
+                "「稼働日を休みにする」をチェックした期間は、全員の稼働日を休みとして扱います(メンバーが稼働日の上書きで稼働にした日を除く)"
+            ).classes("text-caption text-grey")
 
             @ui.refreshable
             def event_table() -> None:
@@ -1590,6 +1594,11 @@ def open_settings_dialog(
                                     value=erow.color,
                                     on_change=lambda e, r=erow, s=swatch: change_event_color(r, s, e.value or ""),
                                 ).classes("grow").mark(f"settings-event-{n}-color")
+                                ui.checkbox(
+                                    "稼働日を休みにする",
+                                    value=erow.closed,
+                                    on_change=lambda e, r=erow: setattr(r, "closed", bool(e.value)),
+                                ).mark(f"settings-event-{n}-closed")
 
             def swatch_color(text: str) -> str:
                 name = normalize_color(text)

@@ -181,7 +181,7 @@ MEMBER_LABELS = {"name": "名前", "ratio": "基本比率", "levels": "段階の
 CATEGORY_LABELS = {"name": "名前", "kind": "種別", "expiry_date": "有効期限", "color": "色", "prj_code": "PRJコード"}
 PARAMETER_LABELS = {"levels": "段階"}
 TEMPLATE_LABELS = {"pattern": "URLの型"}
-EVENT_LABELS = {"start": "開始日", "end": "終了日", "text": "文字列", "color": "色"}
+EVENT_LABELS = {"start": "開始日", "end": "終了日", "text": "文字列", "color": "色", "closed": "休み"}
 WORK_DAY_LABELS = {"window": "時間帯", "note": "メモ"}
 SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間", "work_start": "始業時刻", "actual_mode": "実績の記録方式", "reference_mode": "参照の方式", "plantuml_overload_notice": "PlantUML の通知", "ratio_limit_upper": "相対比率の上限", "ratio_limit_lower": "相対比率の下限"}
 
@@ -216,7 +216,7 @@ def _member_work_days(project: Project) -> dict[str, Record]:
 
 
 def _events(project: Project) -> dict[str, Record]:
-    return {e.id: {"start": e.start, "end": e.end, "text": e.text, "color": e.color} for e in project.events}
+    return {e.id: {"start": e.start, "end": e.end, "text": e.text, "color": e.color, "closed": e.closed} for e in project.events}
 
 
 def _parameters(project: Project) -> dict[str, Record]:
@@ -458,7 +458,7 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
             Category(r["name"], r["kind"], r["expiry_date"], r["color"], r["prj_code"], id=key)
             for key, r in categories.items()
         ],
-        events=sort_events([Event(r["start"], r["end"], r["text"], r["color"], id=key) for key, r in events.items()]),
+        events=sort_events([Event(r["start"], r["end"], r["text"], r["color"], id=key, closed=r["closed"]) for key, r in events.items()]),
         parameters=[Parameter(key, [Level(n, v) for n, v in r["levels"]]) for key, r in parameters.items()],
         url_templates=[UrlTemplate(key, r["pattern"]) for key, r in templates.items()],
     )

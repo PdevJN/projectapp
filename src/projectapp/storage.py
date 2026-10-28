@@ -453,7 +453,7 @@ def _iso_date(text: Any, label: str) -> date:
     return date.fromisoformat(text)
 
 
-def _events(value: Any) -> list[Event]:
+def _events(value: Any, version: int = FORMAT_VERSION) -> list[Event]:
     """イベント(version 4)。キーがない・null は空。日付・文字列・色・id の不正は ValueError。"""
     if value is None:
         return []
@@ -471,7 +471,12 @@ def _events(value: Any) -> list[Event]:
         normalized = normalize_color(color) if isinstance(color, str) else None
         if normalized is None:
             raise ValueError(f"イベントの色が正しくありません: {color!r}")
-        events.append(Event(dates[0], dates[1], text.strip(), normalized, _entity_id(raw.get("id"), "イベント")))
+        closed = raw.get("closed", False) if version >= 15 else False
+        if not isinstance(closed, bool):
+            raise ValueError(f"イベントの休みが真偽値ではありません: {closed!r}")
+        events.append(
+            Event(dates[0], dates[1], text.strip(), normalized, _entity_id(raw.get("id"), "イベント"), closed=closed)
+        )
     validate_events(events)
     return events
 
@@ -1051,7 +1056,7 @@ def parse_project(text: str, name: str) -> Project:
         url_templates=_url_templates(raw.get("url_templates")),
         parameters=_parameters(raw.get("parameters")),
         categories=_categories(raw.get("categories")) if ctx.version >= 3 else [],
-        events=_events(raw.get("events")) if ctx.version >= 4 else [],
+        events=_events(raw.get("events"), ctx.version) if ctx.version >= 4 else [],
         reference_mode=_reference_mode(raw.get("reference_mode")) if ctx.version >= 11 else ReferenceMode.LIVE,
         plantuml_overload_notice=(
             _plantuml_overload_notice(raw.get("plantuml_overload_notice", True)) if ctx.version >= 12 else True

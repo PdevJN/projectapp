@@ -14,7 +14,7 @@ from projectapp.browser import open_url as default_open_url
 from projectapp.arrange import Position, section_key
 from projectapp.calendar import DayKind, day_kind, member_notes
 from projectapp.forms import section_name_error, task_name_error
-from projectapp.events import assign_lanes, cell_colors, color_hex, column_span
+from projectapp.events import EffectiveHolidays, assign_lanes, cell_colors, color_hex, column_span
 from projectapp.categories import by_id, chip_text
 from projectapp.config import (
     DEFAULT_NAME_WIDTH_PX,
@@ -505,14 +505,15 @@ class GanttChart:
         self.references_of = references
         self.refs: dict[str, Reference] = {}  # 参照行の id → 参照。描画のたびに取り直す
         self.open_url = open_url
-        self.holidays = holidays
+        self.base_holidays = holidays  # 祝日だけ。背景と稼働日のホバーは、これを使う
+        self._effective = EffectiveHolidays()
         self.actions = actions
         self.now = now
         self.name_width = name_width  # 名前の欄の幅(px)。ドラッグで変わり、保存は呼び出し側
         self.overloads: list[Overload] = []
         self.category_lookup: dict[str, Category] = {}
         self.icon_lookup: dict[str, str] = {}
-        self.schedule = Schedule(project, holidays)
+        self.schedule = Schedule(project, self.holidays)
         self.links_html: ui.html | None = None
         self.link_layout: tuple[list[Column], int] | None = None
         self.scale = Scale.DAY
@@ -773,8 +774,13 @@ class GanttChart:
         if self.client is not None:
             self.client.run_javascript(SCROLL_TO_TOP_JS)
 
+    @property
+    def holidays(self) -> dict[date, str]:
+        """祝日に、休みにしたイベントの期間を足した辞書。計算はこれを使う。"""
+        return self._effective.get(self.project, self.base_holidays)
+
     def set_holidays(self, holidays: dict[date, str]) -> None:
-        self.holidays = holidays
+        self.base_holidays = holidays
         self.render.refresh()
 
     def set_scale(self, scale: Scale) -> None:
@@ -1432,7 +1438,7 @@ class GanttChart:
         """日次スケールの土日祝の背景。内容は定数と日付のみで利用者の入力を含まない。"""
         cells = "".join(
             f'<div style="width:{width}px;background:'
-            f'{KIND_COLORS.get(day_kind(column.start, self.holidays), "transparent")}">'
+            f'{KIND_COLORS.get(day_kind(column.start, self.base_holidays), "transparent")}">'
             "</div>"
             for column in columns
         )
@@ -1498,11 +1504,12 @@ class GanttChart:
             f"position: absolute; left: {left}px; width: {bar_width}px; top: 0;"
             f" height: {EVENT_ROW_HEIGHT_PX}px; overflow: clip; --ev: {color_hex(event.color)}"
         )
-        bar._props["title"] = event.text  # 属性の値として渡る(HTML にはならない)。全文はマウスオーバーで出す
+        # 属性の値として渡る(HTML にはならない)。全文はマウスオーバーで出す。休みのイベントは、その旨を添える
+        bar._props["title"] = f"{event.text}(休み: 全員の稼働日)" if event.closed else event.text
         with bar.mark(f"event-bar-{event.id}"):
             ui.element("div").classes("event-fill")
             # 帯が画面より広くても、名前の列の右端に文字が残るよう、帯の中で固定する(年・月の帯と同じ)
-            ui.label(event.text).style(
+            ui.label(f"休 {event.text}" if event.closed else event.text).style(
                 "position: sticky; left: var(--name-w); display: inline-block; padding: 0 4px;"
                 " font-size: 10px; line-height: 16px; white-space: nowrap"
             )
@@ -1726,7 +1733,7 @@ class GanttChart:
                 self.reference_band(key, ti, task, columns, width)
                 self.deadline_marker(path, ti, task, columns, width)
                 return row
-            if self.view_scale is Scale.DAY and (notes := member_notes(task, self.project, self.holidays)):
+            if self.view_scale is Scale.DAY and (notes := member_notes(task, self.project, self.base_holidays)):
                 self.work_day_strip(key, ti, notes, columns, width)
             start = self.schedule.start(task)
             end = self.schedule.bar_end(task)

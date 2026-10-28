@@ -6,6 +6,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from projectapp.dashboard import _progress_weight
+from projectapp.events import effective_holidays
 from projectapp.models import OverloadSpan, Project, ReferenceMode, ReferenceValue, Status, Task, TaskKind
 from projectapp.storage import file_digest, load_project
 from projectapp.timeline import Schedule, is_overdue, overallocations
@@ -76,7 +77,8 @@ class ReferenceResolver:
         if cached is not None and cached[0] == key:
             return cached[1], cached[2]
         try:
-            value, problem = compute_reference(load_project(path), self.holidays(), now), ""
+            project = load_project(path)
+            value, problem = compute_reference(project, effective_holidays(project, self.holidays()), now), ""
         except Exception as exc:  # noqa: BLE001 他人のファイルの形の崩れで、画面を止めない
             value, problem = None, f"「{name}.json」を読めません({exc or type(exc).__name__})"
         self._cache[name] = (key, value, problem)

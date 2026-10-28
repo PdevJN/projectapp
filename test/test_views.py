@@ -6472,3 +6472,17 @@ async def test_the_range_dialog_skips_days_that_already_have_a_row(user: User, t
     assert await wait_until(lambda: len(view.project.members[0].work_days) == 3)
     kept = next(w for w in view.project.members[0].work_days if w.day == date(2026, 10, 27))
     assert (kept.start, kept.end) == (time(13), time(16))  # 既存の行は上書きしない
+
+
+async def test_the_view_holidays_include_closed_events_but_the_base_does_not(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.base_holidays = {date(2026, 10, 12): "スポーツの日"}
+    view.project.events = [Event(date(2026, 10, 26), date(2026, 10, 27), "夏季休業", closed=True)]
+    assert view.holidays == {
+        date(2026, 10, 12): "スポーツの日",
+        date(2026, 10, 26): "夏季休業",
+        date(2026, 10, 27): "夏季休業",
+    }
+    assert view.base_holidays == {date(2026, 10, 12): "スポーツの日"}
+    view.project.events[0].closed = False
+    assert view.holidays == {date(2026, 10, 12): "スポーツの日"}  # 休みを外すと戻る

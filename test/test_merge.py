@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, datetime, time
 
 import pytest
@@ -129,6 +130,24 @@ def test_event_changed_differently_is_a_conflict_with_a_readable_label() -> None
     assert (conflict.kind, conflict.label, conflict.field) == ("event", "休暇", "文字列")
     assert result.project.events[0].text == "研修"
     assert merge_projects(base, ours, theirs).project.events[0].text == "休暇"
+
+
+def test_event_closed_is_its_own_item() -> None:
+    base = proj(events=[ev("e1")])
+    ours = proj(events=[replace(ev("e1"), closed=True)])
+    theirs = proj(events=[ev("e1", color="red")])
+    result = merge_projects(base, ours, theirs)
+    assert result.conflicts == []
+    (event,) = result.project.events
+    assert (event.closed, event.color) == (True, "red")  # 休みは自分、色は相手
+
+
+def test_event_closed_change_is_kept_whichever_side_made_it() -> None:
+    base = proj(events=[ev("e1")])
+    closed_side = proj(events=[replace(ev("e1"), closed=True)])
+    unchanged = proj(events=[ev("e1")])
+    assert merge_projects(base, closed_side, unchanged).project.events[0].closed is True
+    assert merge_projects(base, unchanged, closed_side).project.events[0].closed is True
 
 
 def test_event_deleted_by_one_side_and_changed_by_the_other_is_a_conflict() -> None:

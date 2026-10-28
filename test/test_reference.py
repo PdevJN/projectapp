@@ -1,6 +1,8 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from projectapp.models import Actual, Assignee, Member, Project, Section, Status, Task, TaskKind
+import pytest
+
+from projectapp.models import Actual, Assignee, Event, Member, Project, Section, Status, Task, TaskKind
 from projectapp.reference import compute_reference
 
 NOW = datetime(2026, 10, 8, 10)
@@ -195,3 +197,18 @@ def test_missing_references_lists_each_file_once(tmp_path: Path) -> None:
     ])
     save_project(source(), tmp_path)
     assert missing_references(project, resolver_for(tmp_path), NOW) == ["ない"]
+
+
+def test_reference_passes_the_event_closed_days_to_the_computation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = Project("基盤", events=[Event(date(2026, 10, 12), date(2026, 10, 12), "休業", closed=True)])
+    save_project(project, tmp_path)
+    seen: list[dict[date, str]] = []
+    real = compute_reference
+
+    def spy(p: Project, holidays: dict[date, str], now: datetime) -> ReferenceValue:
+        seen.append(holidays)
+        return real(p, holidays, now)
+
+    monkeypatch.setattr("projectapp.reference.compute_reference", spy)
+    ReferenceResolver(lambda: tmp_path, lambda: {date(2026, 10, 1): "祝"}).live("基盤", datetime(2026, 10, 14))
+    assert seen == [{date(2026, 10, 1): "祝", date(2026, 10, 12): "休業"}]

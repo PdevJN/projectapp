@@ -21,7 +21,7 @@ from projectapp.dashboard import (
     summarize_workload,
 )
 from projectapp.timeline import overallocations
-from projectapp.models import Assignee, Actual, Member, Project, Status, Task, TaskKind, WorkDay
+from projectapp.models import Assignee, Actual, Event, Member, Project, Status, Task, TaskKind, WorkDay
 
 TODAY = date(2026, 10, 7)  # 水曜
 NOW = datetime(2026, 10, 7, 12)
@@ -836,3 +836,13 @@ def test_the_team_progress_follows_a_custom_period_like_the_week_and_month() -> 
     assert custom.team.period == period
     everything = summarize(project, period, NOW, {}, PeriodKind.ALL)
     assert sorted(everything.team.tasks[Status.NOT_STARTED]) == ["中", "外"]
+
+
+def test_cross_load_applies_each_projects_own_closed_events() -> None:
+    plain = project_of(span_task("a", 5, 6, 0.6))
+    closed_project = project_of(span_task("b", 5, 6, 0.6))
+    closed_project.events = [Event(WEEK.start, WEEK.end, "休業", closed=True)]
+    both = summarize_cross_loads([plain, closed_project], WEEK, {})["田中"]
+    only_plain = summarize_cross_loads([plain], WEEK, {})["田中"]
+    assert both.total == only_plain.total  # 休業のプロジェクトのタスクは数えない
+    assert not plain.events  # 開いているほうのイベントは混ざらない
