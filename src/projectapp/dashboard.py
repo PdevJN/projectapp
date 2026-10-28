@@ -15,6 +15,7 @@ from projectapp.timeline import (
     OVERLOAD_EPSILON,
     Schedule,
     actual_end,
+    combine_rate,
     conversion_rate,
     counted_pieces,
     crew_on,
@@ -611,11 +612,31 @@ def _counted_fraction(
 OPEN_STATUSES = (Status.NOT_STARTED, Status.RUNNING, Status.PAUSED)  # 残りの工数に数える状態
 
 
-def _remaining_hours(task: Task, project: Project) -> float:
-    """残りの工数。未着手は全量、実行中・一時停止は工数から消化分(進捗度、なければ実績の区間 × 換算率)を引く。"""
+def _open_hours(task: Task, project: Project, holidays: dict[date, str], now: datetime, limit: float) -> float:
+    """終了のない実績の区間が、今までに稼働の枠の中で積んだ時間[h]。`limit` に達したら数えるのをやめる。"""
+    total = 0.0
+    for interval in task.actuals:
+        if interval.end is not None or interval.start >= now:
+            continue
+        for day in Period(interval.start.date(), now.date()).days():
+            total += _overlap_hours(project, holidays, day, interval.start, now)
+            if total >= limit:
+                return total
+    return total
+
+
+def _remaining_hours(task: Task, project: Project, holidays: dict[date, str], now: datetime) -> float:
+    """残りの工数。未着手は全量、実行中・一時停止は工数から消化分を引く。消化分は、進捗度があれば工数 × 進捗度、
+    なければ実績の区間 × 換算率(開いたままの区間は、今までに稼働の枠で積んだ時間)。"""
     if task.status is Status.NOT_STARTED:
         return task.effort_hours
-    return task.effort_hours - consumed_hours(task, conversion_rate(task, project))
+    rate = conversion_rate(task, project)
+    done = consumed_hours(task, rate)
+    if not task.progress:  # 進捗度があれば、そちらを優先する(None と 0 は進捗度なし)
+        factor = combine_rate(rate, 1.0)
+        open_hours = _open_hours(task, project, holidays, now, task.effort_hours / factor)
+        done = min(done + open_hours * factor, task.effort_hours)
+    return task.effort_hours - done
 
 
 def summarize_backlog(
@@ -650,7 +671,7 @@ def summarize_backlog(
             unset += 1
             continue
         ends.extend(moment for moment in (schedule.end(task), task.deadline) if moment is not None)
-        rest = _remaining_hours(task, project)
+        rest = _remaining_hours(task, project, holidays, now)
         for key, _, share in _shares(task.assignees, names):
             portion = rest * fraction * share
             split[key] += portion

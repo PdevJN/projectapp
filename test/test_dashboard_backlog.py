@@ -52,10 +52,35 @@ def test_without_progress_the_worked_intervals_are_taken_off_by_the_conversion_r
     assert summarize_backlog(half, WEEK, PeriodKind.WEEK, NOW, {}).hours == 8  # 4h × 0.5 = 2h 消化
 
 
-def test_a_running_interval_without_an_end_is_not_taken_off() -> None:
-    running = [Actual(datetime(2026, 10, 7, 9), None)]
-    project = project_of(todo("実行中", 10, status=Status.RUNNING, actuals=running))
-    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 10
+def test_an_open_interval_counts_the_working_hours_until_now_when_there_is_no_progress() -> None:
+    # 10/6 9:00 から開いたまま。10/6 の 6.5h + 10/7 の 9:00〜12:00 の 3h = 9.5h を消化とみなす
+    running = [Actual(datetime(2026, 10, 6, 9), None)]
+    project = project_of(todo("実行中", 20, status=Status.RUNNING, actuals=running))
+    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 10.5
+
+
+def test_an_open_interval_is_scaled_by_the_conversion_rate() -> None:
+    running = [Actual(datetime(2026, 10, 6, 9), None)]
+    project = project_of(
+        todo("実行中", 20, status=Status.RUNNING, assignees=[Assignee("田中")], actuals=running),
+        members=[Member("田中", 0.5)],
+    )
+    # 全期間は期間で按分しないので、消化の換算だけを確かめられる
+    assert summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}).hours == 20 - 9.5 * 0.5
+
+
+def test_the_open_interval_adds_to_the_closed_ones_and_never_goes_below_zero() -> None:
+    mixed = [Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 15)), Actual(datetime(2026, 10, 7, 9), None)]
+    project = project_of(todo("再開", 20, status=Status.RUNNING, actuals=mixed))
+    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 20 - 6 - 3
+    stale = [Actual(datetime(2026, 9, 1, 9), None)]  # 1 か月以上前に開いたまま
+    assert summarize_backlog(project_of(todo("放置", 20, status=Status.RUNNING, actuals=stale)), WEEK, PeriodKind.WEEK, NOW, {}).hours == 0
+
+
+def test_the_progress_wins_over_the_open_interval() -> None:
+    running = [Actual(datetime(2026, 10, 6, 9), None)]
+    project = project_of(todo("実行中", 20, status=Status.RUNNING, progress=25, actuals=running))
+    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 15
 
 
 def test_a_running_task_at_full_progress_adds_nothing() -> None:
