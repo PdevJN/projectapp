@@ -81,14 +81,38 @@ def move_task(project: Project, src: Position, dst: Position) -> bool:
     """`dst` の番号は、取り除く前の一覧での挿入位置。位置が変わらないときは False。"""
     source = tasks_at(project, src[0])
     target = tasks_at(project, dst[0])
-    index = min(dst[1], len(target))
+    index = _outside_blocks(target, min(dst[1], len(target)), source[src[1]])
+    size = _block_size(source, src[1])
     if source is target:
-        if index in (src[1], src[1] + 1):
+        if src[1] <= index <= src[1] + size:
             return False
         if index > src[1]:
-            index -= 1
-    target.insert(index, source.pop(src[1]))
+            index -= size
+    block = source[src[1] : src[1] + size]
+    del source[src[1] : src[1] + size]
+    target[index:index] = block
     return True
+
+
+def _outside_blocks(tasks: list[Task], index: int, moving: Task) -> int:
+    """まとめと子のあいだ(かたまりの内側)への挿入は、かたまりの後ろへ送る。同じまとめの子の並べ替えは除く。"""
+    for start, task in enumerate(tasks):
+        if task.kind is not TaskKind.SUMMARY or moving.id in task.children or moving is task:
+            continue
+        end = start + _block_size(tasks, start)
+        if start < index < end:
+            return end
+    return index
+
+
+def _block_size(tasks: list[Task], index: int) -> int:
+    """タスクと一緒に動かす行数。まとめは、直後に続く子を含める(それ以外は 1)。"""
+    task = tasks[index]
+    end = index + 1
+    if task.kind is TaskKind.SUMMARY:
+        while end < len(tasks) and tasks[end].id in task.children:
+            end += 1
+    return end - index
 
 
 def _plain_copy(original: Task, task_id: str, name: str) -> Task:
