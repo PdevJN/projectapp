@@ -6398,3 +6398,77 @@ async def test_the_parameter_tab_caption_follows_the_ratio_limits(user: User, tm
     await open_members_parameters(user)
     await user.should_see("80〜120% に丸めます")
     await user.should_not_see("50〜150%")
+
+
+async def open_work_day_dialog(user: User, tmp_path: Path) -> MainView:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("甲", 1.0, {}, "m1")]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="member-workday-open-0").click()
+    await user.should_see(marker="member-workday-add")
+    return view
+
+
+async def test_a_work_day_row_note_is_applied(user: User, tmp_path: Path) -> None:
+    view = await open_work_day_dialog(user, tmp_path)
+    user.find(marker="member-workday-add").click()
+    await user.should_see(marker="member-workday-0-day")
+    user.find(marker="member-workday-0-day").type("2026-10-17")
+    user.find(marker="member-workday-0-rest").click()
+    user.find(marker="member-workday-0-note").type("通院")
+    user.find(marker="member-workday-close").click()
+    await settle()
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members[0].work_days == [WorkDay(date(2026, 10, 17), note="通院")])
+
+
+async def test_the_range_dialog_adds_one_row_per_workday(user: User, tmp_path: Path) -> None:
+    view = await open_work_day_dialog(user, tmp_path)
+    user.find(marker="member-workday-range-open").click()
+    await user.should_see(marker="member-workday-range-period")
+    user.find(marker="member-workday-range-period").type("2026-10-26 〜 2026-11-01")
+    user.find(marker="member-workday-range-note").type("夏季休暇")
+    user.find(marker="member-workday-range-add").click()
+    await user.should_see(marker="member-workday-4-day")  # 月〜金の 5 行
+    await user.should_not_see(marker="member-workday-5-day")  # 土日は除く
+    user.find(marker="member-workday-close").click()
+    await settle()
+    user.find(marker="member-apply").click()
+    expected = [WorkDay(date(2026, 10, 26 + n), note="夏季休暇") for n in range(5)]
+    assert await wait_until(lambda: view.project.members[0].work_days == expected)
+
+
+async def test_the_range_dialog_shows_an_error_and_stays_open(user: User, tmp_path: Path) -> None:
+    await open_work_day_dialog(user, tmp_path)
+    user.find(marker="member-workday-range-open").click()
+    await user.should_see(marker="member-workday-range-add")
+    user.find(marker="member-workday-range-add").click()  # 期間が空
+    await settle()
+    assert "期間" in user.find(marker="member-workday-range-error").elements.pop().text
+    user.find(marker="member-workday-range-period").type("2026-10-31 〜 2026-11-01")  # 土日だけ
+    user.find(marker="member-workday-range-add").click()
+    await settle()
+    assert "追加する日がありません" in user.find(marker="member-workday-range-error").elements.pop().text
+    await user.should_see(marker="member-workday-range-add")  # 閉じていない
+    await user.should_not_see(marker="member-workday-0-day")  # 行は増えていない
+
+
+async def test_the_range_dialog_skips_days_that_already_have_a_row(user: User, tmp_path: Path) -> None:
+    view = await open_work_day_dialog(user, tmp_path)
+    user.find(marker="member-workday-add").click()
+    await user.should_see(marker="member-workday-0-day")
+    user.find(marker="member-workday-0-day").type("2026-10-27")
+    user.find(marker="member-workday-0-start").type("13")
+    user.find(marker="member-workday-0-end").type("16")
+    user.find(marker="member-workday-range-open").click()
+    await user.should_see(marker="member-workday-range-period")
+    user.find(marker="member-workday-range-period").type("2026-10-26 〜 2026-10-28")
+    user.find(marker="member-workday-range-add").click()
+    await user.should_see(marker="member-workday-2-day")  # 既存 1 行 + 26・28 日
+    user.find(marker="member-workday-close").click()
+    await settle()
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: len(view.project.members[0].work_days) == 3)
+    kept = next(w for w in view.project.members[0].work_days if w.day == date(2026, 10, 27))
+    assert (kept.start, kept.end) == (time(13), time(16))  # 既存の行は上書きしない

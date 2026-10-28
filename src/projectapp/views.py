@@ -1322,6 +1322,7 @@ class MainView:
             applied=lambda: self.project != opened,
             rollback=rollback,
             get_limits=lambda: self.project.ratio_limits,
+            get_holidays=lambda: self.holidays,
         )
 
     async def pick_member_icon(self) -> str | None:
