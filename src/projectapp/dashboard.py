@@ -9,6 +9,7 @@ from math import isfinite
 from typing import NamedTuple
 
 from projectapp.models import Assignee, Project, Status, Task, TaskKind, WorkDay
+from projectapp.ratios import effective_ratio
 from projectapp.timeline import (
     OVERLOAD_EPSILON,
     Schedule,
@@ -492,6 +493,76 @@ def summarize_due(
     return rows
 
 
+@dataclass(frozen=True)
+class Backlog:
+    hours: float  # 未着手の工数の合計(100% の人の時間)
+    unset_count: int  # 工数のない未着手のタスク(合計に入れない)
+    days: int | None  # 割る期間の稼働日数。決まらないときは None
+    required: float | None  # 必要な人数(100% の人に換算)。days が None か 0 のときは None
+    supply: float  # 今いる人員(相対比率の合計)
+    by_member: list[tuple[str, float]]  # (担当者, 未着手の工数)。共同タスクは割り当て率の比で按分
+
+    @property
+    def shortfall(self) -> float | None:
+        """不足する人数。負なら余裕。"""
+        return None if self.required is None else self.required - self.supply
+
+
+def _backlog_days(
+    project: Project, period: Period, kind: PeriodKind, now: datetime, holidays: dict[date, str], ends: list[datetime]
+) -> int | None:
+    """必要人数の分母にする稼働日数(通常カレンダー)。今日より前の日は数えない。"""
+    today = now.date()
+    if kind is PeriodKind.ALL:  # 全期間は、数えたタスクの最も遅い終わりまで
+        if not ends:
+            return None
+        start, end = max(today, project.base_date), max(ends).date()
+    else:
+        start, end = max(today, period.start), period.end
+    if start > end:
+        return None
+    return sum(is_workday(day, holidays) for day in Period(start, end).days())
+
+
+def summarize_backlog(
+    project: Project,
+    period: Period,
+    kind: PeriodKind,
+    now: datetime,
+    holidays: dict[date, str],
+    member: str | None = None,
+) -> Backlog:
+    """未着手の工数の合計と、それを期間内に終えるのに要る人数。期間が全期間以外なら、期間にかかるタスクだけ。"""
+    schedule = Schedule(project, holidays)
+    names = [m.name for m in project.members]
+    hours = 0.0
+    unset = 0
+    ends: list[datetime] = []
+    split = {name: 0.0 for name in (*names, UNASSIGNED)}
+    for task in _tasks(project, member):
+        if task.status is not Status.NOT_STARTED or task.kind is not TaskKind.NORMAL:
+            continue
+        if kind is not PeriodKind.ALL and not _touches(task, schedule, period, now):
+            continue
+        if not (isfinite(task.effort_hours) and task.effort_hours > 0):
+            unset += 1
+            continue
+        hours += task.effort_hours
+        ends.extend(moment for moment in (schedule.end(task), task.deadline) if moment is not None)
+        for key, _, share in _shares(task.assignees, names):
+            split[key] += task.effort_hours * share
+    days = _backlog_days(project, period, kind, now, holidays, ends)
+    required = hours / (project.daily_hours * days) if days else None
+    supply = sum(
+        effective_ratio(m, project.parameters, None, project.ratio_limits)
+        for m in project.members
+        if member is None or m.name == member
+    )
+    shown = [name for name in (*names, UNASSIGNED) if member is None or name == member]
+    rows = [(name, split[name]) for name in shown if split[name] > 0]
+    return Backlog(hours, unset, days, required, supply, rows)
+
+
 @dataclass
 class Dashboard:
     period: Period
@@ -503,6 +574,7 @@ class Dashboard:
     member: str | None = None  # 絞り込み中のメンバー。None は全員
     members: list[str] = field(default_factory=list)  # プルダウンの選択肢(プロジェクトのメンバーの順)
     cross: CrossSummary | None = None  # 全プロジェクトを重ねるとき。None は開いているプロジェクトだけ
+    backlog: Backlog = field(default_factory=lambda: Backlog(0.0, 0, None, None, 0.0, []))
 
     @property
     def planned_total(self) -> float:
@@ -530,4 +602,5 @@ def summarize(
         summarize_team_progress(project, None if kind is PeriodKind.ALL else period, now, holidays, member),
         member,
         [m.name for m in project.members],
+        backlog=summarize_backlog(project, period, kind, now, holidays, member),
     )
