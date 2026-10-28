@@ -3235,6 +3235,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         ("開く", "file-open"),
         ("PlantUML を取り込む", "file-import-plantuml"),
         ("CSV を取り込む", "file-import-csv"),
+        ("設定を取り込む", "file-import-settings"),
         ("新規プロジェクト作成", "file-new"),
         ("上書き保存", "save-project"),
         ("名前をつけて保存", "file-save-as"),
@@ -3246,7 +3247,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         ("メンバーとパラメータ", "open-members-parameters"),
         ("ダッシュボード", "menu-open-dashboard"),
     ]
-    assert menu_icons(user, "menu-file-items") == ["folder_open", "upload_file", "table_view", "note_add", "save", "save_as", "drive_file_move", "event_repeat"]
+    assert menu_icons(user, "menu-file-items") == ["folder_open", "upload_file", "table_view", "settings_backup_restore", "note_add", "save", "save_as", "drive_file_move", "event_repeat"]
     assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
     assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share", "download", "save_alt"]
     assert menu_icons(user, "menu-help-items") == ["keyboard"]
@@ -3265,7 +3266,7 @@ async def test_the_file_menu_separates_open_save_and_update(user: User, tmp_path
     await open_header_view(user, tmp_path)
     menu = user.find(marker="menu-file-items").elements.pop()
     kinds = ["sep" if isinstance(c, ui.separator) else "item" for c in menu.default_slot.children]
-    assert kinds == ["item", "item", "item", "item", "sep", "item", "item", "sep", "item", "item"]
+    assert kinds == ["item", "item", "item", "item", "item", "sep", "item", "item", "sep", "item", "item"]
 
 
 async def test_the_project_menu_dashboard_item_opens_the_dashboard(user: User, tmp_path: Path) -> None:
@@ -3631,8 +3632,8 @@ async def test_the_file_menu_separators_are_marked_and_the_holiday_update_is_las
     await open_header_view(user, tmp_path)
     menu = user.find(marker="menu-file-items").elements.pop()
     children = menu.default_slot.children
-    assert "menu-file-separator" in children[4]._markers and "menu-file-separator" in children[7]._markers
-    assert "file-change-dir" in children[8]._markers and "refresh-holidays" in children[9]._markers
+    assert "menu-file-separator" in children[5]._markers and "menu-file-separator" in children[8]._markers
+    assert "file-change-dir" in children[9]._markers and "refresh-holidays" in children[10]._markers
 
 
 async def test_templates_are_saved_with_the_project_and_mark_it_dirty(
@@ -6354,6 +6355,133 @@ async def test_the_settings_export_item_is_hidden_without_the_native_window(user
     await open_for_import(user, tmp_path, exporter)
     await user.should_see(marker="export-tsv")
     await user.should_not_see(marker="export-settings")
+
+
+def write_settings_file(tmp_path: Path, project: Project, name: str = "in.json") -> Path:
+    folder = tmp_path / "other"
+    folder.mkdir(exist_ok=True)
+    return write_settings(folder / name, build_settings(project))
+
+
+def incoming_file(project: Project):
+    return parse_settings(json.dumps(build_settings(project)))
+
+
+async def test_import_settings_adds_the_items_in_one_undoable_unsaved_edit(user: User, tmp_path: Path) -> None:
+    source = Project("元", members=[Member("鈴木", 1.1)], parameters=[Parameter("経験", [Level("上級", 0.2)])])
+    exporter = FakeExporter(open_path=write_settings_file(tmp_path, source))
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-settings").click()
+    await user.should_see(marker="import-apply")
+    user.find(marker="import-apply").click()
+    assert await wait_until(lambda: [m.name for m in view.project.members] == ["鈴木"])
+    assert [p.name for p in view.project.parameters] == ["経験"] and view.is_dirty()
+    assert view.project.name == "新規プロジェクト"  # 置き換えない
+    assert exporter.asked_open == [SETTINGS_FILE_TYPES]
+    await user.should_see("取り込みました(メンバー 1 件、パラメータ 1 件)")
+    view.undo()
+    assert view.project.members == [] and view.project.parameters == [] and not view.is_dirty()
+
+
+async def test_import_settings_skips_a_duplicate_unless_it_is_overwritten(user: User, tmp_path: Path) -> None:
+    source = Project("元", members=[Member("田中", 1.5)])
+    exporter = FakeExporter(open_path=write_settings_file(tmp_path, source))
+    view = await open_for_import(user, tmp_path, exporter)
+    view.project.members = [Member("田中", 1.0)]
+    member_id = view.project.members[0].id
+    user.find(marker="file-import-settings").click()
+    await user.should_see(marker="import-overwrite-members-0")
+    user.find(marker="import-overwrite-members-0").click()
+    user.find(marker="import-apply").click()
+    assert await wait_until(lambda: view.project.members[0].ratio == 1.5)
+    assert view.project.members[0].id == member_id and len(view.project.members) == 1
+
+
+async def test_an_unchecked_section_is_not_imported(user: User, tmp_path: Path) -> None:
+    source = Project("元", members=[Member("鈴木")], parameters=[Parameter("経験", [Level("上級", 0.2)])])
+    exporter = FakeExporter(open_path=write_settings_file(tmp_path, source))
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-settings").click()
+    await user.should_see(marker="import-section-members")
+    user.find(marker="import-section-members").click()
+    user.find(marker="import-apply").click()
+    assert await wait_until(lambda: view.project.parameters != [])
+    assert view.project.members == []
+
+
+async def test_cancelling_the_file_dialog_or_the_import_dialog_changes_nothing(user: User, tmp_path: Path) -> None:
+    exporter = FakeExporter(open_path=None)
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-settings").click()
+    assert await wait_until(lambda: exporter.asked_open != [])
+    assert not view.is_dirty()
+    exporter.open_path = write_settings_file(tmp_path, Project("元", members=[Member("鈴木")]))
+    user.find(marker="file-import-settings").click()
+    await user.should_see(marker="import-cancel")
+    user.find(marker="import-cancel").click()
+    assert view.project.members == [] and not view.is_dirty()
+
+
+async def test_a_broken_settings_file_is_refused_with_a_notice(user: User, tmp_path: Path) -> None:
+    folder = tmp_path / "other"
+    folder.mkdir()
+    broken = folder / "bad.json"
+    broken.write_text('{"kind": "projectapp-settings", "version": 1, "members": "abc"}', encoding="utf-8")
+    view = await open_for_import(user, tmp_path, FakeExporter(open_path=broken))
+    user.find(marker="file-import-settings").click()
+    await user.should_see("取り込めませんでした")
+    assert view.project.members == [] and not view.is_dirty()
+
+
+async def test_a_file_with_nothing_to_import_says_so(user: User, tmp_path: Path) -> None:
+    view = await open_for_import(user, tmp_path, FakeExporter(open_path=write_settings_file(tmp_path, Project("元"))))
+    user.find(marker="file-import-settings").click()
+    await user.should_see("取り込める項目がありません")
+    assert not view.is_dirty()
+
+
+async def test_the_settings_import_item_is_hidden_without_the_native_window(user: User, tmp_path: Path) -> None:
+    await open_for_import(user, tmp_path, FakeExporter(available=False))
+    await user.should_see(marker="file-import-plantuml")
+    await user.should_not_see(marker="file-import-settings")
+
+
+async def test_import_with_changed_limits_asks_and_cancel_keeps_only_the_other_items(user: User, tmp_path: Path) -> None:
+    view = await _open_existing(user, tmp_path, _progress_project())
+    source = Project("元", ratio_limit_upper=1.0, members=[Member("鈴木")])
+    view.apply_settings_import(incoming_file(source), {"project", "members"}, set())
+    await user.should_see("見直して適用")
+    assert view.project.ratio_limit_upper is None and len(view.project.members) == 1  # 確認の前は変わらない
+    user.find(marker="limit-review-cancel").click()
+    assert await wait_until(lambda: len(view.project.members) == 2)
+    assert view.project.ratio_limit_upper is None  # プロジェクト設定だけ取り消す
+    await user.should_see("プロジェクト設定は取り込みませんでした")
+
+
+async def test_import_with_changed_limits_can_review_the_planned_end(user: User, tmp_path: Path) -> None:
+    view = await _open_existing(user, tmp_path, _progress_project())
+    view.apply_settings_import(incoming_file(Project("元", ratio_limit_upper=1.0)), {"project"}, set())
+    user.find(marker="limit-review-apply").click()
+    assert await wait_until(lambda: view.project.ratio_limit_upper == 1.0)
+    assert view.project.all_tasks()[0].planned_end_manual is True
+    view.undo()
+    assert view.project.ratio_limit_upper is None and not view.project.all_tasks()[0].planned_end_manual
+
+
+async def test_import_keeps_the_task_assignment_when_a_member_is_overwritten(user: User, tmp_path: Path) -> None:
+    view = await _open_existing(user, tmp_path, _progress_project())
+    source = Project("元", members=[Member("田中", 1.4)])
+    view.apply_settings_import(incoming_file(source), {"members"}, {("members", "田中")})
+    assert [a.name for a in view.project.all_tasks()[0].assignees] == ["田中"]
+    assert view.project.members[0].ratio == 1.4
+
+
+async def test_import_switching_to_snapshot_retakes_the_snapshots(user: User, tmp_path: Path, monkeypatch) -> None:
+    view = await _open_existing(user, tmp_path, Project("既存"))
+    calls: list[ReferenceMode] = []
+    monkeypatch.setattr(view, "refresh_all_snapshots", lambda: calls.append(view.project.reference_mode))
+    view.apply_settings_import(incoming_file(Project("元", reference_mode=ReferenceMode.SNAPSHOT)), {"project"}, set())
+    assert calls == [ReferenceMode.SNAPSHOT] and view.project.reference_mode is ReferenceMode.SNAPSHOT
 
 
 def _progress_project() -> Project:
