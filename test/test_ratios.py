@@ -360,3 +360,45 @@ def test_a_configured_limit_narrows_the_default_range() -> None:
     assert effective_ratio(Member("a", 1.0, ALL_HIGH), PILE, limits=limits) == pytest.approx(1.2)
     assert effective_ratio(Member("b", 0.6), PILE, limits=limits) == pytest.approx(0.8)
     assert effective_ratio(Member("c", 1.0), PILE, limits=RatioLimits(upper=1.2)) == pytest.approx(1.0)
+
+
+def test_an_unclamped_member_keeps_a_base_ratio_outside_the_default_range() -> None:
+    assert effective_ratio(Member("a", 2.0, ratio_unclamped=True), []) == pytest.approx(2.0)
+    assert effective_ratio(Member("a", 0.3, ratio_unclamped=True), []) == pytest.approx(0.3)
+    assert effective_ratio(Member("a", 2.0), []) == pytest.approx(1.5)  # 対象のメンバーは従来どおり
+
+
+def test_an_unclamped_member_adds_the_levels_without_the_default_range() -> None:
+    member = Member("a", 2.0, {"経験": "上級"}, ratio_unclamped=True)
+    detail = ratio_detail(member, PARAMETERS)
+    assert detail.raw == pytest.approx(2.2) and detail.ratio == pytest.approx(2.2)
+    assert detail.unclamped is True and detail.clamped is False and detail.limited is False
+
+
+def test_the_limits_do_not_apply_to_an_unclamped_member() -> None:
+    limits = RatioLimits(upper=1.2, lower=0.8)
+    assert effective_ratio(Member("a", 2.0, ratio_unclamped=True), [], limits=limits) == pytest.approx(2.0)
+    assert effective_ratio(Member("a", 2.0), [], limits=limits) == pytest.approx(1.2)
+
+
+def test_an_unclamped_member_is_still_held_to_the_safe_range() -> None:
+    low = ratio_detail(Member("a", 1.0, {"大": "低"}, ratio_unclamped=True), [Parameter("大", [Level("低", -2.5)])])
+    assert low.raw == pytest.approx(-1.5) and low.ratio == pytest.approx(0.1)  # 0 以下で割り算が壊れない
+    assert low.clamped is True and low.limited is True
+    high = ratio_detail(Member("a", 2.5, {"大": "高"}, ratio_unclamped=True), [Parameter("大", [Level("高", 1.0)])])
+    assert high.raw == pytest.approx(3.5) and high.ratio == pytest.approx(3.0)
+    assert high.limited is True
+
+
+def test_a_ratio_exactly_on_the_safe_range_is_not_limited() -> None:
+    detail = ratio_detail(Member("a", 3.0, ratio_unclamped=True), [])
+    assert detail.ratio == pytest.approx(3.0) and detail.limited is False and detail.clamped is False
+
+
+def test_limit_note_for_an_unclamped_member_names_the_safe_range_even_without_limits() -> None:
+    upper = ratio_detail(Member("a", 2.5, {"大": "高"}, ratio_unclamped=True), [Parameter("大", [Level("高", 1.0)])])
+    assert limit_note(upper, None) == "相対比率 350% → 安全範囲の上限 300% に制限"
+    lower = ratio_detail(Member("a", 1.0, {"大": "低"}, ratio_unclamped=True), [Parameter("大", [Level("低", -0.95)])])
+    assert limit_note(lower, RatioLimits(lower=0.8)) == "相対比率 5% → 安全範囲の下限 10% に制限"
+    inside = ratio_detail(Member("a", 2.0, ratio_unclamped=True), [])
+    assert limit_note(inside, None) == ""
