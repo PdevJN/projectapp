@@ -1,7 +1,7 @@
 from datetime import date, datetime
 
 from projectapp.dashboard import UNASSIGNED, Period, PeriodKind, summarize, summarize_backlog
-from projectapp.models import Assignee, Member, Project, Status, Task, TaskKind
+from projectapp.models import Actual, Assignee, Member, Project, Status, Task, TaskKind
 
 NOW = datetime(2026, 10, 7, 12)  # 水曜
 WEEK = Period(date(2026, 10, 5), date(2026, 10, 11))
@@ -16,17 +16,66 @@ def todo(name: str, effort: float, **kwargs: object) -> Task:
     return Task(name, planned_start=datetime(2026, 10, 6, 9), effort_hours=effort, **kwargs)  # type: ignore[arg-type]
 
 
-def test_only_not_started_normal_tasks_with_effort_are_summed() -> None:
+def test_not_started_counts_in_full_and_done_checkpoints_and_summaries_are_left_out() -> None:
     project = project_of(
         todo("未着手", 6.5),
-        todo("実行中", 10, status=Status.RUNNING),
         todo("終了", 10, status=Status.DONE),
-        todo("一時停止", 10, status=Status.PAUSED),
         Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 8, 17)),
     )
     backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {})
     assert backlog.hours == 6.5
     assert backlog.unset_count == 0
+
+
+def test_running_and_paused_tasks_count_the_rest_after_the_progress() -> None:
+    project = project_of(
+        todo("未着手", 6.5),
+        todo("実行中", 10, status=Status.RUNNING, progress=40),
+        todo("一時停止", 10, status=Status.PAUSED, progress=25),
+    )
+    backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {})
+    assert backlog.hours == 6.5 + 6 + 7.5
+    assert backlog.by_status == {Status.NOT_STARTED: 6.5, Status.RUNNING: 6, Status.PAUSED: 7.5}
+
+
+def test_without_progress_the_worked_intervals_are_taken_off_by_the_conversion_rate() -> None:
+    worked = [Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 13))]  # 4h
+    project = project_of(
+        todo("実行中", 10, status=Status.RUNNING, assignees=[Assignee("田中")], actuals=worked),
+        members=[Member("田中", 1.0)],
+    )
+    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 6
+    half = project_of(
+        todo("実行中", 10, status=Status.RUNNING, assignees=[Assignee("田中")], actuals=worked),
+        members=[Member("田中", 0.5)],
+    )
+    assert summarize_backlog(half, WEEK, PeriodKind.WEEK, NOW, {}).hours == 8  # 4h × 0.5 = 2h 消化
+
+
+def test_a_running_interval_without_an_end_is_not_taken_off() -> None:
+    running = [Actual(datetime(2026, 10, 7, 9), None)]
+    project = project_of(todo("実行中", 10, status=Status.RUNNING, actuals=running))
+    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 10
+
+
+def test_a_running_task_at_full_progress_adds_nothing() -> None:
+    project = project_of(todo("ほぼ終了", 10, status=Status.RUNNING, progress=100))
+    backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {})
+    assert (backlog.hours, backlog.unset_count) == (0, 0)
+
+
+def test_running_and_paused_tasks_without_effort_are_counted_as_unset() -> None:
+    project = project_of(todo("実行中", 0, status=Status.RUNNING), todo("停止", 0, status=Status.PAUSED))
+    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).unset_count == 2
+
+
+def test_the_member_filter_takes_the_members_share_of_the_rest() -> None:
+    project = project_of(
+        todo("共同", 10, status=Status.RUNNING, progress=50, assignees=[Assignee("田中", 0.75), Assignee("鈴木", 0.25)]),
+        members=[Member("田中", 1.0), Member("鈴木", 1.0)],
+    )
+    backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}, "田中")
+    assert (backlog.hours, backlog.by_status) == (3.75, {Status.RUNNING: 3.75})  # 残り 5h の 75%
 
 
 def test_tasks_without_effort_are_counted_apart_not_as_one_hour() -> None:

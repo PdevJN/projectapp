@@ -42,7 +42,7 @@ CARD_TITLES = {
     CardId.LOAD: "人ごとの負荷",
     CardId.HEATMAP: "負荷の日ごとの推移",
     CardId.HOURS: "工数の予定と実績",
-    CardId.BACKLOG: "未着手の工数と必要人数",
+    CardId.BACKLOG: "残りの工数と必要人数",
     CardId.DUE: "期限とマイルストーン",
 }
 ALL_MEMBERS = ""  # プルダウンの`全員`の値
@@ -665,11 +665,15 @@ class DashboardView:
 
     def backlog_card(self, data: Dashboard) -> None:
         backlog = data.backlog
-        with card("未着手の工数と必要人数", "dashboard-backlog"):
+        with card("残りの工数と必要人数", "dashboard-backlog"):
             if backlog.hours <= 0 and not backlog.unset_count:
                 empty_message("dashboard-empty-backlog")
                 return
-            ui.label(f"未着手の工数 {backlog.hours:.1f}h").classes("text-h6").mark("dashboard-backlog-hours")
+            ui.label(f"残りの工数 {backlog.hours:.1f}h").classes("text-h6").mark("dashboard-backlog-hours")
+            if backlog.by_status:
+                ui.label(" / ".join(f"{status.value} {hours:.1f}h" for status, hours in backlog.by_status.items())).classes(
+                    "text-caption"
+                ).mark("dashboard-backlog-by-status")
             if backlog.unset_count:
                 ui.label(f"工数未設定 {backlog.unset_count} 件(合計に入れていません)").classes(
                     "text-caption text-grey"
@@ -690,8 +694,7 @@ class DashboardView:
                 ui.label(gap).classes("text-subtitle2" + (" text-negative" if short > 0 else "")).mark(
                     "dashboard-backlog-gap"
                 )
-                ui.label("今いる人員は、実行中のタスクが使う分を引いていません。稼働日の上書きと休暇も反映していません。"
-                    "今日は、稼働が終わっていても 1 日として数えます。").classes(
+                ui.label("稼働日の上書きと休暇は反映していません。今日は、稼働が終わっていても 1 日として数えます。").classes(
                     "text-caption text-grey"
                 ).mark("dashboard-backlog-note")
             if backlog.by_member:

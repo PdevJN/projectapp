@@ -10,10 +10,12 @@ from typing import NamedTuple
 
 from projectapp.models import Assignee, Project, Status, Task, TaskKind, WorkDay
 from projectapp.ratios import effective_ratio
+from projectapp.reassign import consumed_hours
 from projectapp.timeline import (
     OVERLOAD_EPSILON,
     Schedule,
     actual_end,
+    conversion_rate,
     counted_pieces,
     crew_on,
     crew_pieces,
@@ -496,12 +498,13 @@ def summarize_due(
 
 @dataclass(frozen=True)
 class Backlog:
-    hours: float  # 未着手の工数の合計(100% の人の時間)
-    unset_count: int  # 工数のない未着手のタスク(合計に入れない)
+    hours: float  # 残りの工数の合計(100% の人の時間)
+    unset_count: int  # 工数のない未終了のタスク(合計に入れない)
     days: int | None  # 割る期間の稼働日数。決まらないときは None
     required: float | None  # 必要な人数(100% の人に換算)。days が None か 0 のときは None
     supply: float  # 今いる人員(相対比率の合計)
-    by_member: list[tuple[str, float]]  # (担当者, 未着手の工数)。共同タスクは割り当て率の比で按分
+    by_member: list[tuple[str, float]]  # (担当者, 残りの工数)。共同タスクは割り当て率の比で按分
+    by_status: dict[Status, float] = field(default_factory=dict)  # 状態ごとの残りの工数(0 は除く)
 
     @property
     def shortfall(self) -> float | None:
@@ -605,6 +608,16 @@ def _counted_fraction(
     return (days(first, cutoff) - days(now.date(), min(gap_end, cutoff))) / days(first, last)
 
 
+OPEN_STATUSES = (Status.NOT_STARTED, Status.RUNNING, Status.PAUSED)  # 残りの工数に数える状態
+
+
+def _remaining_hours(task: Task, project: Project) -> float:
+    """残りの工数。未着手は全量、実行中・一時停止は工数から消化分(進捗度、なければ実績の区間 × 換算率)を引く。"""
+    if task.status is Status.NOT_STARTED:
+        return task.effort_hours
+    return task.effort_hours - consumed_hours(task, conversion_rate(task, project))
+
+
 def summarize_backlog(
     project: Project,
     period: Period,
@@ -613,17 +626,16 @@ def summarize_backlog(
     holidays: dict[date, str],
     member: str | None = None,
 ) -> Backlog:
-    """未着手の工数の合計と、それを期間内に終えるのに要る人数。全期間以外は、期間の終わりまでに予定した分。
+    """残りの工数(未着手の全量と、実行中・一時停止の消化分を除いた分)の合計と、それを期間内に終えるのに要る人数。全期間以外は、期間の終わりまでに予定した分。
     メンバーで絞るときは、共同タスクのその人の分(割り当て率の比)だけを数える。"""
     schedule = Schedule(project, holidays)
     names = [m.name for m in project.members]
     unset = 0
     ends: list[datetime] = []
     split = {name: 0.0 for name in (*names, UNASSIGNED)}
+    by_status = {status: 0.0 for status in OPEN_STATUSES}
     targets = [
-        task
-        for task in _tasks(project, member)
-        if task.status is Status.NOT_STARTED and task.kind is TaskKind.NORMAL
+        task for task in _tasks(project, member) if task.status in OPEN_STATUSES and task.kind is TaskKind.NORMAL
     ]
     spans = [(schedule.start(task), schedule.end(task)) for task in targets]
     dates = [moment.date() for pair in spans if None not in pair for moment in pair if moment is not None]
@@ -638,8 +650,12 @@ def summarize_backlog(
             unset += 1
             continue
         ends.extend(moment for moment in (schedule.end(task), task.deadline) if moment is not None)
+        rest = _remaining_hours(task, project)
         for key, _, share in _shares(task.assignees, names):
-            split[key] += task.effort_hours * fraction * share
+            portion = rest * fraction * share
+            split[key] += portion
+            if member is None or key == member:
+                by_status[task.status] += portion
     shown = [name for name in (*names, UNASSIGNED) if member is None or name == member]
     hours = sum(split[name] for name in shown)
     days = _backlog_days(project, period, kind, now, holidays, ends)
@@ -649,7 +665,8 @@ def summarize_backlog(
         for m in project.members
         if member is None or m.name == member
     )
-    return Backlog(hours, unset, days, required, supply, [(name, split[name]) for name in shown if split[name] > 0])
+    rows = [(name, split[name]) for name in shown if split[name] > 0]
+    return Backlog(hours, unset, days, required, supply, rows, {k: v for k, v in by_status.items() if v > 0})
 
 
 @dataclass

@@ -669,7 +669,7 @@ async def test_the_backlog_card_shows_hours_required_people_and_the_shortfall(us
     backlog = Backlog(19.5, 2, 3, 2.0, 1.5, [("田中", 13.0), (UNASSIGNED, 6.5)])
     views[0].show(with_backlog(backlog), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-people")
-    assert text(user, "dashboard-backlog-hours") == "未着手の工数 19.5h"
+    assert text(user, "dashboard-backlog-hours") == "残りの工数 19.5h"
     assert text(user, "dashboard-backlog-unset") == "工数未設定 2 件(合計に入れていません)"
     assert text(user, "dashboard-backlog-days") == "稼働 3 日で終える場合"
     assert text(user, "dashboard-backlog-people") == "必要 2.0 人 / 今いる人員 1.5 人"
@@ -726,6 +726,17 @@ async def test_the_backlog_card_notes_what_the_supply_leaves_out(user: User) -> 
     views[0].show(with_backlog(Backlog(6.5, 0, 3, 0.5, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-note")
     assert text(user, "dashboard-backlog-note") == (
-        "今いる人員は、実行中のタスクが使う分を引いていません。稼働日の上書きと休暇も反映していません。"
-        "今日は、稼働が終わっていても 1 日として数えます。"
+        "稼働日の上書きと休暇は反映していません。今日は、稼働が終わっていても 1 日として数えます。"
     )
+
+
+async def test_the_backlog_card_lists_the_rest_by_status(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    backlog = Backlog(
+        20.0, 0, 3, 20 / 19.5, 1.5, [("田中", 20.0)],
+        {Status.NOT_STARTED: 12.0, Status.RUNNING: 6.0, Status.PAUSED: 2.0},
+    )
+    views[0].show(with_backlog(backlog), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-by-status")
+    assert text(user, "dashboard-backlog-by-status") == "未着手 12.0h / 実行中 6.0h / 一時停止 2.0h"
