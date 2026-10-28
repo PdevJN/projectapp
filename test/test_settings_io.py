@@ -1,10 +1,11 @@
 import json
-from datetime import date, time
+from datetime import date, datetime, time
 from pathlib import Path
 
 import pytest
 
 from projectapp.models import (
+    Actual,
     ActualMode,
     Category,
     Event,
@@ -21,8 +22,16 @@ from projectapp.models import (
 from projectapp.settings_io import (
     DEFAULT_FILENAME,
     SETTINGS_FILE_TYPES,
+    ImportFile,
+    ImportPlan,
+    ProjectChange,
+    SectionPlan,
+    apply_import,
     build_settings,
+    copy_into,
     parse_settings,
+    plan_import,
+    summary,
     write_settings,
 )
 
@@ -106,3 +115,172 @@ def test_the_file_is_written_as_json(tmp_path: Path) -> None:
 def test_a_broken_file_is_refused(text: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         parse_settings(text)
+
+
+def incoming_of(project: Project) -> ImportFile:
+    return parse_settings(json.dumps(build_settings(project)))
+
+
+def test_the_plan_splits_new_items_from_duplicates() -> None:
+    current = Project(
+        "現", base_date=date(2026, 10, 5), members=[Member("田中")], parameters=[Parameter("経験", [Level("上級", 0.2)])]
+    )
+    source = Project(
+        "入",
+        base_date=date(2026, 10, 5),
+        daily_hours=7.0,
+        members=[Member("田中", 1.5), Member("鈴木")],
+        parameters=[Parameter("経験", [Level("上級", 0.3)])],
+        events=[Event(date(2026, 10, 10), date(2026, 10, 12), "合宿")],
+    )
+    plan = plan_import(current, incoming_of(source))
+    assert plan == ImportPlan(
+        sections=(
+            SectionPlan("members", ("鈴木",), ("田中",), True),
+            SectionPlan("parameters", (), ("経験",), True),
+            SectionPlan("events", ("2026-10-10〜2026-10-12 合宿",), (), False),
+        ),
+        project_changes=(ProjectChange("稼働可能時間", "6.5h", "7h"),),
+    )
+
+
+def test_a_file_with_nothing_new_makes_an_empty_plan() -> None:
+    project = Project("同じ", base_date=date(2026, 10, 5))
+    assert plan_import(project, incoming_of(project)) == ImportPlan((), ())
+
+
+def test_apply_adds_new_items_with_fresh_ids_and_keeps_the_current_ones() -> None:
+    current = Project("現", members=[Member("田中", 1.0)], categories=[Category("開発")])
+    source = Project(
+        "入",
+        members=[Member("田中", 1.5), Member("鈴木", 1.1)],
+        categories=[Category("開発", color="red"), Category("保守")],
+        events=[Event(date(2026, 10, 10), date(2026, 10, 12), "合宿")],
+        url_templates=[UrlTemplate("チケット", "https://example.com/{ID}")],
+    )
+    result = apply_import(current, incoming_of(source), {"members", "categories", "events", "url_templates"}, set())
+    members = result.project.members
+    assert [(m.name, m.ratio) for m in members] == [("田中", 1.0), ("鈴木", 1.1)]  # 重複は既定でスキップ
+    assert [c.name for c in result.project.categories] == ["開発", "保守"]
+    assert result.project.categories[0].color == "blue"
+    assert [e.text for e in result.project.events] == ["合宿"]
+    assert [t.name for t in result.project.url_templates] == ["チケット"]
+    all_ids = [x.id for x in (*members, *result.project.categories, *result.project.events)]
+    assert len(set(all_ids)) == len(all_ids)
+    assert result.counts == {"project": 0, "members": 1, "parameters": 0, "categories": 1, "url_templates": 1, "events": 1}
+    assert result.skipped == 2  # 田中と開発
+    assert current.members == [Member("田中", 1.0)]  # 元は変えない
+
+
+def test_apply_overwrites_the_chosen_duplicates_and_keeps_their_ids() -> None:
+    current = Project(
+        "現",
+        members=[Member("田中", 1.0)],
+        categories=[Category("開発")],
+        parameters=[Parameter("経験", [Level("上級", 0.2)])],
+        url_templates=[UrlTemplate("チケット", "https://old/{ID}")],
+    )
+    member_id, category_id = current.members[0].id, current.categories[0].id
+    source = Project(
+        "入",
+        members=[Member("田中", 1.5, work_days=[WorkDay(date(2026, 10, 12), None, None, "休")])],
+        categories=[Category("開発", kind="業務", color="red", prj_code="P-1")],
+        parameters=[Parameter("経験", [Level("上級", 0.3)])],
+        url_templates=[UrlTemplate("チケット", "https://new/{ID}")],
+    )
+    overwrite = {("members", "田中"), ("categories", "開発"), ("parameters", "経験"), ("url_templates", "チケット")}
+    result = apply_import(current, incoming_of(source), {"members", "categories", "parameters", "url_templates"}, overwrite)
+    member, category = result.project.members[0], result.project.categories[0]
+    assert (member.id, member.ratio, len(member.work_days)) == (member_id, 1.5, 1)
+    assert (category.id, category.kind, category.color, category.prj_code) == (category_id, "業務", "red", "P-1")
+    assert result.project.parameters[0].levels == [Level("上級", 0.3)]
+    assert result.project.url_templates[0].pattern == "https://new/{ID}"
+    assert result.skipped == 0
+
+
+def test_unchecked_sections_are_left_alone() -> None:
+    current = Project("現")
+    source = Project("入", members=[Member("鈴木")], parameters=[Parameter("経験", [Level("上級", 0.2)])])
+    result = apply_import(current, incoming_of(source), {"parameters"}, set())
+    assert result.project.members == [] and [p.name for p in result.project.parameters] == ["経験"]
+    assert result.skipped == 0
+
+
+def test_a_duplicate_event_in_the_file_is_added_once() -> None:
+    event = Event(date(2026, 10, 10), date(2026, 10, 12), "合宿")
+    source = Project("入", events=[event, Event(date(2026, 10, 10), date(2026, 10, 12), "合宿")])
+    result = apply_import(Project("現"), incoming_of(source), {"events"}, set())
+    assert len(result.project.events) == 1
+
+
+def test_a_duplicate_event_is_never_overwritten_or_added() -> None:
+    event = Event(date(2026, 10, 10), date(2026, 10, 12), "合宿", "red")
+    current = Project("現", events=[event])
+    source = Project("入", events=[Event(date(2026, 10, 10), date(2026, 10, 12), "合宿", "blue")])
+    result = apply_import(current, incoming_of(source), {"events"}, {("events", "2026-10-10〜2026-10-12 合宿")})
+    assert [e.color for e in result.project.events] == ["red"] and result.skipped == 1
+
+
+def test_level_choices_that_no_longer_match_are_dropped_and_counted() -> None:
+    current = Project("現", parameters=[Parameter("経験", [Level("上級", 0.2)])], members=[Member("田中", 1.0, {"経験": "上級"})])
+    source = Project("入", parameters=[Parameter("経験", [Level("中級", 0.1)])])
+    result = apply_import(current, incoming_of(source), {"parameters"}, {("parameters", "経験")})
+    assert result.project.members[0].levels == {}
+    assert result.dropped_levels == 1
+
+
+def test_project_settings_are_applied_together() -> None:
+    current = Project("現", base_date=date(2026, 10, 5))
+    source = Project(
+        "入",
+        base_date=date(2026, 11, 1),
+        daily_hours=7.0,
+        work_start=time(10, 0),
+        plantuml_overload_notice=False,
+        ratio_limit_upper=1.2,
+        ratio_limit_lower=0.8,
+    )
+    result = apply_import(current, incoming_of(source), {"project"}, set())
+    got = result.project
+    assert (got.base_date, got.daily_hours, got.work_start) == (date(2026, 11, 1), 7.0, time(10, 0))
+    assert (got.plantuml_overload_notice, got.ratio_limits.upper, got.ratio_limits.lower) == (False, 1.2, 0.8)
+    assert result.counts["project"] == 1
+
+
+def test_the_simple_record_mode_is_refused_while_a_task_has_several_intervals() -> None:
+    task = Task(
+        "実装",
+        actuals=[
+            Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 10)),
+            Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 10)),
+        ],
+    )
+    current = Project("現", actual_mode=ActualMode.INTERVALS, tasks=[task])
+    source = Project("入", actual_mode=ActualMode.SIMPLE, daily_hours=7.0)
+    result = apply_import(current, incoming_of(source), {"project"}, set())
+    assert result.project.actual_mode is ActualMode.INTERVALS and result.project.daily_hours == 7.0
+    assert result.notes == ["記録方式は、2 区間以上のタスクがあるため変えませんでした"]
+
+
+def test_an_invalid_result_raises_and_changes_nothing() -> None:
+    current = Project("現", categories=[Category("開発")])
+    incoming = incoming_of(Project("入", categories=[Category("保守")]))
+    incoming.project.categories[0].color = "nope"  # 読み込み後に壊す(適用後の検証で拾う)
+    with pytest.raises(ValueError):
+        apply_import(current, incoming, {"categories"}, set())
+    assert [c.name for c in current.categories] == ["開発"]
+
+
+def test_copy_into_moves_every_field_and_keeps_the_target_object() -> None:
+    target, source = Project("現"), Project("入", daily_hours=7.0, members=[Member("鈴木")])
+    copy_into(target, source)
+    assert target.name == "入" and target.daily_hours == 7.0 and [m.name for m in target.members] == ["鈴木"]
+
+
+def test_the_summary_lists_the_counts_and_the_leftovers() -> None:
+    current = Project("現", members=[Member("田中")])
+    source = Project("入", members=[Member("田中"), Member("鈴木")], parameters=[Parameter("経験", [Level("上級", 0.2)])])
+    result = apply_import(current, incoming_of(source), {"members", "parameters"}, set())
+    assert summary(result) == "取り込みました(メンバー 1 件、パラメータ 1 件)。重複 1 件は取り込んでいません"
+    empty = apply_import(current, incoming_of(Project("入")), {"members"}, set())
+    assert summary(empty) == "取り込む項目はありませんでした"
