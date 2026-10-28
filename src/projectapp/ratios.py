@@ -1,6 +1,6 @@
 """相対比率のパラメータ(要望 20)。NiceGUI に依存しない純粋関数。
 
-相対比率 = 基本比率 + 選んだ段階の判定値の合計。10〜300%(プロジェクトの設定で下限・上限を変えられる)に丸めて使う。
+相対比率 = 基本比率 + 選んだ段階の判定値の合計。50〜150%(プロジェクトの設定で狭められる)に丸めて使う。
 """
 
 from collections.abc import Collection
@@ -8,10 +8,10 @@ from dataclasses import dataclass
 from math import isfinite
 
 from projectapp.models import (
+    DEFAULT_RATIO_MAX,
+    DEFAULT_RATIO_MIN,
     MAX_LEVEL_VALUE,
-    MAX_RATIO,
     MIN_LEVEL_VALUE,
-    MIN_RATIO,
     Member,
     Parameter,
     Project,
@@ -26,7 +26,7 @@ class RatioDetail:
     raw: float  # 丸める前の合計
     ratio: float  # 丸めたあと(計算に使う値)
     clamped: bool  # 範囲に丸めたか
-    limited: bool = False  # 設定の上限か下限で収めたか(既定の 10〜300% の丸めは含めない)
+    limited: bool = False  # 設定の上限か下限で収めたか(既定の 50〜150% の丸めは含めない)
 
 
 def ratio_detail(
@@ -37,7 +37,7 @@ def ratio_detail(
 ) -> RatioDetail:
     """メンバーの相対比率の内訳。存在しないパラメータ・段階への選択は、判定値 0% として数えない。
     only があれば、その名前のパラメータだけ足す(None か空は全パラメータ。タスクに付けたパラメータの指定)。
-    limits があれば、相対比率(基本比率 + 判定値の合計)を設定の下限・上限に収める(空欄の側は 10〜300%)。"""
+    limits があれば、相対比率(基本比率 + 判定値の合計)を設定の下限・上限に収める(空欄の側は 50〜150%)。"""
     counted = set(only) if only else None
     adjustments: list[tuple[str, str, float]] = []
     for parameter in parameters:
@@ -49,8 +49,8 @@ def ratio_detail(
             adjustments.append((parameter.name, level.name, level.value))
     # 保存する値は小数点以下 4 桁までなので、足し算の誤差(0.3 - 0.2 = 0.0999…)で境界を外さないよう丸める
     raw = round(member.ratio + sum(value for _, _, value in adjustments), 4)
-    lower = MIN_RATIO if limits is None or limits.lower is None else limits.lower
-    upper = MAX_RATIO if limits is None or limits.upper is None else limits.upper
+    lower = DEFAULT_RATIO_MIN if limits is None or limits.lower is None else limits.lower
+    upper = DEFAULT_RATIO_MAX if limits is None or limits.upper is None else limits.upper
     ratio = min(max(raw, lower), upper) if isfinite(raw) else member.ratio
     limited = limits is not None and (
         (limits.upper is not None and raw > limits.upper) or (limits.lower is not None and raw < limits.lower)

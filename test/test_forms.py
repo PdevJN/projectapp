@@ -1422,9 +1422,10 @@ def test_a_renamed_member_keeps_the_levels() -> None:
         (100.0, {}, "相対比率 100%"),
         (100.0, {"経験": "上級"}, "相対比率 120%"),
         (100.0, {"経験": "初級"}, "相対比率 80%"),
-        (290.0, {"経験": "上級"}, "相対比率 300%(範囲に丸めました)"),
-        (10.0, {"経験": "初級"}, "相対比率 10%(範囲に丸めました)"),
-        (30.0, {"経験": "初級"}, "相対比率 10%"),  # ちょうど下限は、丸めたことにしない
+        (140.0, {"経験": "上級"}, "相対比率 150%(範囲に丸めました)"),
+        (40.0, {"経験": "初級"}, "相対比率 50%(範囲に丸めました)"),
+        (70.0, {"経験": "初級"}, "相対比率 50%"),  # ちょうど下限は、丸めたことにしない
+        (130.0, {"経験": "上級"}, "相対比率 150%"),  # ちょうど上限も同じ
         (None, {}, ""),
         (float("nan"), {}, ""),
     ],
@@ -2225,7 +2226,7 @@ async def test_the_settings_dialog_does_not_report_an_unchanged_plantuml_notice(
 def test_effective_ratio_text_reports_a_limited_ratio() -> None:
     params = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
     row = MemberRow(None, "田中", 100.0, {"a": "高", "b": "高", "c": "高"})
-    assert effective_ratio_text(row, params) == "相対比率 250%"
+    assert effective_ratio_text(row, params) == "相対比率 150%(範囲に丸めました)"
     text = effective_ratio_text(row, params, RatioLimits(upper=1.5))
     assert text == "相対比率 150%(相対比率 250% → 上限 150% に制限)"
 
@@ -2233,16 +2234,16 @@ def test_effective_ratio_text_reports_a_limited_ratio() -> None:
 def test_build_ratio_limits_reads_percent_text() -> None:
     assert build_ratio_limits("150", "50") == RatioLimits(upper=1.5, lower=0.5)
     assert build_ratio_limits("", "") == RatioLimits(None, None)
-    assert build_ratio_limits(" 300 ", "10") == RatioLimits(upper=3.0, lower=0.1)
-    assert build_ratio_limits("150.12345", "") == RatioLimits(upper=1.5012, lower=None)
+    assert build_ratio_limits(" 120 ", "80") == RatioLimits(upper=1.2, lower=0.8)
+    assert build_ratio_limits("149.12345", "") == RatioLimits(upper=1.4912, lower=None)
     assert build_ratio_limits("100", "100") == RatioLimits(upper=1.0, lower=1.0)
 
 
 @pytest.mark.parametrize(
     ("upper", "lower"),
     [
-        ("abc", ""), ("", "x"), ("9", ""), ("301", ""), ("", "9"), ("", "301"), ("nan", ""), ("inf", ""), ("", "-inf"),
-        ("", "-50"), ("100", "150"),
+        ("abc", ""), ("", "x"), ("49", ""), ("151", ""), ("", "49"), ("", "151"), ("nan", ""), ("inf", ""),
+        ("", "-inf"), ("", "-50"), ("100", "120"),
     ],
 )
 def test_build_ratio_limits_rejects_invalid_input(upper: str, lower: str) -> None:
@@ -2303,8 +2304,8 @@ async def test_an_invalid_ratio_limit_shows_an_error_and_keeps_the_dialog(user: 
 
 
 def test_ratio_range_text_shows_the_configured_range_or_the_default() -> None:
-    assert ratio_range_text(None) == "10〜300%"
-    assert ratio_range_text(RatioLimits()) == "10〜300%"
-    assert ratio_range_text(RatioLimits(upper=1.5, lower=0.5)) == "50〜150%"
-    assert ratio_range_text(RatioLimits(upper=1.5)) == "10〜150%"
-    assert ratio_range_text(RatioLimits(lower=0.5)) == "50〜300%"
+    assert ratio_range_text(None) == "50〜150%"
+    assert ratio_range_text(RatioLimits()) == "50〜150%"
+    assert ratio_range_text(RatioLimits(upper=1.2, lower=0.8)) == "80〜120%"
+    assert ratio_range_text(RatioLimits(upper=1.2)) == "50〜120%"
+    assert ratio_range_text(RatioLimits(lower=0.8)) == "80〜150%"

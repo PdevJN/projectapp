@@ -98,7 +98,7 @@ def test_schedule_type_and_anchor_date(kwargs: dict, schedule_type: str, anchor:
         (13.0, [Member("田中", 0.5)], 26.0),  # 相対比率 50% → 担当者は 2 倍の時間
         (13.0, [], 13.0),  # メンバーにいない担当者は 100%
         (0.0, [Member("田中", 0.5)], 0.0),
-        (1.0, [Member("田中", 0.3)], 3.33),  # 小数第 2 位に丸める
+        (1.0, [Member("田中", 0.6)], 1.67),  # 小数第 2 位に丸める
     ],
 )
 def test_estimate_hours_divides_by_the_relative_ratio(effort: float, members: list[Member], expected: float) -> None:

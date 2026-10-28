@@ -35,6 +35,8 @@ from projectapp.models import (
     MAX_CATEGORY_NAME_LENGTH,
     MAX_EVENT_TEXT_LENGTH,
     Event,
+    DEFAULT_RATIO_MAX,
+    DEFAULT_RATIO_MIN,
     MAX_LEVEL_VALUE,
     MAX_PROGRESS,
     MAX_PROJECT_CODE_LENGTH,
@@ -489,14 +491,14 @@ def build_work_settings(hours: float | None, start: str) -> tuple[float, time]:
 
 
 def ratio_range_text(limits: RatioLimits | None) -> str:
-    """相対比率を丸める範囲の表示(例: 50〜150%)。設定のない側は既定の 10〜300%。"""
-    lower = MIN_RATIO if limits is None or limits.lower is None else limits.lower
-    upper = MAX_RATIO if limits is None or limits.upper is None else limits.upper
+    """相対比率を丸める範囲の表示(例: 50〜150%)。設定のない側は既定の 50〜150%。"""
+    lower = DEFAULT_RATIO_MIN if limits is None or limits.lower is None else limits.lower
+    upper = DEFAULT_RATIO_MAX if limits is None or limits.upper is None else limits.upper
     return f"{lower * 100:g}〜{upper * 100:g}%"
 
 
 def build_ratio_limits(upper_text: str, lower_text: str) -> RatioLimits:
-    """相対比率の上限・下限(%)の入力を検証する。空欄は設定なし(既定の 10〜300%)。下限は上限以下。"""
+    """相対比率の上限・下限(%)の入力を検証する。空欄は設定なし(既定の 50〜150%)。下限は上限以下。"""
 
     def read(text: str, name: str) -> float | None:
         text = text.strip()
@@ -506,8 +508,8 @@ def build_ratio_limits(upper_text: str, lower_text: str) -> RatioLimits:
             value = float(text) / 100
         except ValueError:
             raise ValueError(f"{name}は数値で入力してください") from None
-        if not isfinite(value) or not MIN_RATIO - 1e-9 <= value <= MAX_RATIO + 1e-9:
-            raise ValueError(f"{name}は{MIN_RATIO * 100:g}〜{MAX_RATIO * 100:g}%で入力してください")
+        if not isfinite(value) or not DEFAULT_RATIO_MIN - 1e-9 <= value <= DEFAULT_RATIO_MAX + 1e-9:
+            raise ValueError(f"{name}は{DEFAULT_RATIO_MIN * 100:g}〜{DEFAULT_RATIO_MAX * 100:g}%で入力してください")
         return round(value, 4)
 
     limits = RatioLimits(read(upper_text, "相対比率の上限"), read(lower_text, "相対比率の下限"))
@@ -1279,7 +1281,7 @@ def open_settings_dialog(
         if on_ratio_limits is not None:
             ui.label("相対比率の下限・上限").classes("text-caption text-grey")
             ui.label(
-                "基本比率を含めた相対比率そのものに、下限・上限を設けます(空欄は 10〜300%)。基本比率の入力値より結果が変わることがあります"
+                "基本比率を含めた相対比率そのものの範囲を、既定の 50〜150% の中で狭められます(空欄は 50〜150%)"
             ).classes("text-caption text-grey")
             with ui.row().classes("items-center"):
                 limit_upper = (

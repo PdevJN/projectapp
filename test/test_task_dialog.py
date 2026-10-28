@@ -2853,10 +2853,10 @@ async def test_the_conversion_text_names_a_limited_assignee(user: User) -> None:
     params = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
     member = Member("田中", 1.0, {"a": "高", "b": "高", "c": "高"})
     task = Task("t", assignees=[Assignee("田中", 1.0)], effort_hours=10.0, parameters=["a", "b", "c"])
-    mount_dialog(task, [], members=[member], parameters=params, ratio_limits=RatioLimits(upper=1.5))
+    mount_dialog(task, [], members=[member], parameters=params, ratio_limits=RatioLimits(upper=1.0))
     await open_dialog(user)
     text = user.find(marker="task-conversion").elements.pop().text
-    assert "換算率 150%" in text and "田中 相対比率 250% → 上限 150% に制限" in text
+    assert "換算率 100%" in text and "田中 相対比率 250% → 上限 100% に制限" in text
 
 
 async def test_the_conversion_text_has_no_limit_note_without_limits(user: User) -> None:
@@ -2866,4 +2866,4 @@ async def test_the_conversion_text_has_no_limit_note_without_limits(user: User) 
     mount_dialog(task, [], members=[member], parameters=params)
     await open_dialog(user)
     text = user.find(marker="task-conversion").elements.pop().text
-    assert "換算率 250%" in text and "制限" not in text
+    assert "換算率 150%" in text and "制限" not in text

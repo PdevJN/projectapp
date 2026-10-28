@@ -503,7 +503,7 @@ def test_conversion_rate_skips_assignees_who_are_not_members() -> None:
 
 def test_assignees_rate_works_on_a_member_list() -> None:
     members = [Member("A", 1.0), Member("B", 2.0)]
-    assert assignees_rate([Assignee("A", 1.0), Assignee("B", 0.25)], members) == pytest.approx(1.5)
+    assert assignees_rate([Assignee("A", 1.0), Assignee("B", 0.25)], members) == pytest.approx(1.375)  # B は 200% → 150%
     assert assignees_rate([], members) == 1.0
 
 
@@ -1178,14 +1178,14 @@ def _limited_project(**limits: float) -> tuple[Project, Task]:
 
 def test_conversion_rate_uses_the_project_ratio_limits() -> None:
     free, task = _limited_project()
-    assert conversion_rate(task, free) == pytest.approx(2.5)
-    capped, task = _limited_project(ratio_limit_upper=1.5)
-    assert conversion_rate(task, capped) == pytest.approx(1.5)
+    assert conversion_rate(task, free) == pytest.approx(1.5)  # 既定の上限 150%
+    capped, task = _limited_project(ratio_limit_upper=1.0)
+    assert conversion_rate(task, capped) == pytest.approx(1.0)
 
 
 def test_the_planned_end_follows_the_ratio_limits() -> None:
     free, task = _limited_project()
-    capped, capped_task = _limited_project(ratio_limit_upper=1.5)
+    capped, capped_task = _limited_project(ratio_limit_upper=1.0)
     free_end = Schedule(free, {}).finish(task)
     capped_end = Schedule(capped, {}).finish(capped_task)
     assert free_end is not None and capped_end is not None and capped_end > free_end

@@ -30,6 +30,8 @@ from projectapp.models import (
     URL_KEY,
     ActualMode,
     MAX_ALLOCATION,
+    DEFAULT_RATIO_MAX,
+    DEFAULT_RATIO_MIN,
     MAX_LEVEL_VALUE,
     MAX_PROJECT_CODE_LENGTH,
     MAX_PROGRESS,
@@ -584,13 +586,13 @@ def _plantuml_overload_notice(value: Any) -> bool:
 
 
 def _ratio_limit(value: Any, name: str) -> float | None:
-    """相対比率の上限・下限。null は設定なし(既定の 10〜300%)。数値以外・非有限・範囲外は ValueError。"""
+    """相対比率の上限・下限。null は設定なし(既定の 50〜150%)。数値以外・非有限・範囲外は ValueError。"""
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int | float) or not isfinite(value):
         raise ValueError(f"{name}が正しくありません: {value!r}")
-    if not MIN_RATIO - 1e-9 <= value <= MAX_RATIO + 1e-9:
-        raise ValueError(f"{name}は{MIN_RATIO * 100:g}〜{MAX_RATIO * 100:g}%で指定してください: {value!r}")
+    if not DEFAULT_RATIO_MIN - 1e-9 <= value <= DEFAULT_RATIO_MAX + 1e-9:
+        raise ValueError(f"{name}は{DEFAULT_RATIO_MIN * 100:g}〜{DEFAULT_RATIO_MAX * 100:g}%で指定してください: {value!r}")
     return round(float(value), 4)
 
 

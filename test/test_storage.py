@@ -2080,3 +2080,24 @@ def test_a_lower_limit_above_the_upper_limit_is_rejected() -> None:
         parse_project(json.dumps(raw), "p")
     raw["ratio_limit_upper"] = raw["ratio_limit_lower"] = 1.0  # 同じ値は許す
     assert parse_project(json.dumps(raw), "p").ratio_limits.lower == 1.0
+
+
+@pytest.mark.parametrize(("key", "value"), [("ratio_limit_upper", 1.6), ("ratio_limit_upper", 0.4), ("ratio_limit_lower", 1.6), ("ratio_limit_lower", 0.4)])
+def test_a_ratio_limit_outside_the_default_range_is_rejected(key: str, value: float) -> None:
+    raw = json.loads(dumps_project(Project("p")))
+    raw[key] = value
+    with pytest.raises(ValueError, match="50〜150%"):
+        parse_project(json.dumps(raw), "p")
+
+
+def test_ratio_limits_on_the_default_range_edges_are_accepted() -> None:
+    raw = json.loads(dumps_project(Project("p")))
+    raw["ratio_limit_upper"], raw["ratio_limit_lower"] = 1.5, 0.5
+    loaded = parse_project(json.dumps(raw), "p")
+    assert (loaded.ratio_limit_upper, loaded.ratio_limit_lower) == (1.5, 0.5)
+
+
+def test_a_base_ratio_outside_the_default_range_still_loads() -> None:
+    project = Project("p", members=[Member("速い", 2.0), Member("遅い", 0.3)])
+    loaded = parse_project(dumps_project(project), "p")
+    assert [m.ratio for m in loaded.members] == [2.0, 0.3]  # 基本比率の入力範囲は 10〜300% のまま
