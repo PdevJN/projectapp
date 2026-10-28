@@ -3526,6 +3526,15 @@ async def test_assignees_overrides_get_a_mark_on_the_task_row(user: User) -> Non
     await user.should_not_see(marker="workmark-0-1")  # 担当者のいないタスクには出ない
 
 
+async def test_the_work_day_mark_title_includes_the_memo(user: User) -> None:
+    project = member_project()
+    project.members[0].work_days = [WorkDay(date(2026, 10, 7), note="夏季休暇")]
+    mount(project)
+    await user.open("/")
+    content = user.find(marker="workmark-0-0").elements.pop().content
+    assert 'title="甲: 休み(夏季休暇)"' in content
+
+
 async def test_day_header_and_background_ignore_member_overrides(user: User) -> None:
     mount(member_project())
     await user.open("/")

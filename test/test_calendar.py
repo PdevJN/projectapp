@@ -96,6 +96,26 @@ def test_work_day_note() -> None:
     assert work_day_note(date(2026, 10, 13), holidays, None) is None
 
 
+def test_work_day_note_with_a_memo() -> None:
+    holidays = {date(2026, 10, 12): "スポーツの日"}
+    days = {
+        date(2026, 10, 16): WorkDay(date(2026, 10, 16), note="夏季休暇"),
+        date(2026, 10, 17): WorkDay(date(2026, 10, 17), time(13), time(16), "通院"),
+        date(2026, 10, 12): WorkDay(date(2026, 10, 12), note="夏季休暇"),
+    }
+    assert work_day_note(date(2026, 10, 16), holidays, days) == "休み(夏季休暇)"
+    assert work_day_note(date(2026, 10, 17), holidays, days) == "稼働 13:00〜16:00(通院)"
+    assert work_day_note(date(2026, 10, 12), holidays, days) == "休み(夏季休暇。祝日: スポーツの日)"
+
+
+def test_member_notes_include_the_memo() -> None:
+    sat = date(2026, 10, 17)
+    member = Member("田中", work_days=[WorkDay(sat, note="夏季休暇")])
+    task = Task("t", assignees=[Assignee("田中", 1.0)])
+    notes = member_notes(task, Project("p", members=[member], tasks=[task]), {})
+    assert notes[sat] == "田中: 休み(夏季休暇)"
+
+
 def test_member_notes_list_each_assignees_override_by_day() -> None:
     sat = date(2026, 10, 17)
     a = Member("田中", work_days=[WorkDay(sat, time(13), time(16))])
