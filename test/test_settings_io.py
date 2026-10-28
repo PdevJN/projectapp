@@ -284,3 +284,15 @@ def test_the_summary_lists_the_counts_and_the_leftovers() -> None:
     assert summary(result) == "取り込みました(メンバー 1 件、パラメータ 1 件)。重複 1 件は取り込んでいません"
     empty = apply_import(current, incoming_of(Project("入")), {"members"}, set())
     assert summary(empty) == "取り込む項目はありませんでした"
+
+
+def test_apply_overwrite_also_replaces_ratio_unclamped() -> None:
+    current = Project("現", members=[Member("田中", 1.0)])
+    source = Project("入", members=[Member("田中", 2.0, ratio_unclamped=True)])
+    result = apply_import(current, incoming_of(source), {"members"}, {("members", "田中")})
+    assert result.project.members[0].ratio_unclamped is True
+
+
+def test_settings_file_round_trips_ratio_unclamped() -> None:
+    incoming = incoming_of(Project("p", members=[Member("田中", 2.0, ratio_unclamped=True)]))
+    assert incoming.project.members[0].ratio_unclamped is True

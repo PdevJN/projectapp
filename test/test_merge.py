@@ -608,3 +608,19 @@ def test_the_ratio_limits_merge_as_settings() -> None:
 def test_different_limits_on_both_sides_are_a_conflict_with_a_readable_label() -> None:
     merged = merge_projects(proj(), proj(ratio_limit_upper=0.5), proj(ratio_limit_upper=0.3))
     assert [c.field for c in merged.conflicts] == ["相対比率の上限"]
+
+
+def test_a_member_ratio_unclamped_changed_on_one_side_is_taken() -> None:
+    base = proj(members=[Member("甲", 2.0, id="m1")])
+    ours = proj(members=[Member("甲", 2.0, id="m1", ratio_unclamped=True)])
+    result = merge_projects(base, ours, base)
+    assert result.conflicts == [] and result.project.members[0].ratio_unclamped is True
+
+
+def test_ratio_unclamped_and_ratio_changed_on_different_sides_merge_without_conflict() -> None:
+    base = proj(members=[Member("甲", 2.0, id="m1")])
+    ours = proj(members=[Member("甲", 2.0, id="m1", ratio_unclamped=True)])
+    theirs = proj(members=[Member("甲", 1.0, id="m1")])
+    result = merge_projects(base, ours, theirs)
+    member = result.project.members[0]
+    assert result.conflicts == [] and (member.ratio, member.ratio_unclamped) == (1.0, True)

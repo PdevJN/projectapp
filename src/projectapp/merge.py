@@ -177,7 +177,7 @@ class _Merger:
         return result
 
 
-MEMBER_LABELS = {"name": "名前", "ratio": "基本比率", "levels": "段階の選択", "icon": "アイコン"}
+MEMBER_LABELS = {"name": "名前", "ratio": "基本比率", "levels": "段階の選択", "icon": "アイコン", "ratio_unclamped": "丸め対象外"}
 CATEGORY_LABELS = {"name": "名前", "kind": "種別", "expiry_date": "有効期限", "color": "色", "prj_code": "PRJコード"}
 PARAMETER_LABELS = {"levels": "段階"}
 TEMPLATE_LABELS = {"pattern": "URLの型"}
@@ -188,7 +188,8 @@ SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間",
 
 def _members(project: Project) -> dict[str, Record]:
     return {
-        m.id: {"name": m.name, "ratio": m.ratio, "levels": dict(m.levels), "icon": m.icon} for m in project.members
+        m.id: {"name": m.name, "ratio": m.ratio, "levels": dict(m.levels), "icon": m.icon, "ratio_unclamped": m.ratio_unclamped}
+        for m in project.members
     }
 
 
@@ -430,7 +431,8 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
     root_tasks, root_sections = build(None)
 
     built_members = [
-        Member(r["name"], r["ratio"], dict(r["levels"]), id=key, icon=r["icon"]) for key, r in members.items()
+        Member(r["name"], r["ratio"], dict(r["levels"]), id=key, icon=r["icon"], ratio_unclamped=r["ratio_unclamped"])
+        for key, r in members.items()
     ]
     by_id = {m.id: m for m in built_members}
     for key, r in member_days.items():
