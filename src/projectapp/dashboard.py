@@ -9,15 +9,20 @@ from math import isfinite
 from typing import NamedTuple
 
 from projectapp.models import Assignee, Project, Status, Task, TaskKind, WorkDay
+from projectapp.ratios import effective_ratio
+from projectapp.reassign import consumed_hours
 from projectapp.timeline import (
     OVERLOAD_EPSILON,
     Schedule,
     actual_end,
+    combine_rate,
+    conversion_rate,
     counted_pieces,
     crew_on,
     crew_pieces,
     current_progress,
     day_hours,
+    day_window,
     is_overdue,
     is_workday,
 )
@@ -492,6 +497,199 @@ def summarize_due(
     return rows
 
 
+@dataclass(frozen=True)
+class Backlog:
+    hours: float  # 残りの工数の合計(100% の人の時間)
+    unset_count: int  # 工数のない未終了のタスク(合計に入れない)
+    days: int | None  # 割る期間の稼働日数。決まらないときは None
+    required: float | None  # 必要な人数(100% の人に換算)。days が None か 0 のときは None
+    supply: float  # 今いる人員(相対比率の合計)
+    by_member: list[tuple[str, float]]  # (担当者, 残りの工数)。共同タスクは割り当て率の比で按分
+    by_status: dict[Status, float] = field(default_factory=dict)  # 状態ごとの残りの工数(0 は除く)
+
+    @property
+    def shortfall(self) -> float | None:
+        """不足する人数。負なら余裕。"""
+        return None if self.required is None else self.required - self.supply
+
+
+def _next_workday(day: date, holidays: dict[date, str]) -> date:
+    """その日以降で最初の稼働日(通常カレンダー)。2 週間見て無ければその日。"""
+    return next((d for d in (day + timedelta(days=i) for i in range(14)) if is_workday(d, holidays)), day)
+
+
+def _backlog_days(
+    project: Project, period: Period, kind: PeriodKind, now: datetime, holidays: dict[date, str], ends: list[datetime]
+) -> int | None:
+    """必要人数の分母にする稼働日数(通常カレンダー)。今日より前の日は数えない。今日以降に日がなければ 0。"""
+    today = now.date()
+    if kind is PeriodKind.ALL:  # 全期間は、数えたタスクの最も遅い終わりまで
+        if not ends:
+            return None
+        start = max(today, project.base_date)
+        end = max(max(ends).date(), _next_workday(start, holidays))  # 全部が遅れていても、最初の稼働日で終える場合を示す
+    else:
+        start, end = max(today, period.start), period.end
+    if start > end:
+        return 0  # 期間がすでに終わっている
+    count = sum(is_workday(day, holidays) for day in Period(start, end).days())
+    if count == 0 and is_workday(_next_workday(end + timedelta(days=1), holidays), holidays):
+        return 1  # 残りの日が休みだけのときは、次の稼働日の 1 日で終える場合を示す
+    return count
+
+
+class _WorkHours:
+    """通常カレンダーの稼働時間の累積。タスクの期間を 1 日ずつ回さずに、日の範囲の合計を出す。"""
+
+    def __init__(self, project: Project, holidays: dict[date, str], first: date, last: date) -> None:
+        self.first = first
+        self.cumulative = [0.0]
+        for day in Period(first, last).days():
+            self.cumulative.append(self.cumulative[-1] + day_hours(day, project.daily_hours, holidays))
+
+    def between(self, low: date, high: date) -> float:
+        """[low, high] の稼働時間。表の範囲に収まっていること。"""
+        if low > high:
+            return 0.0
+        return self.cumulative[(high - self.first).days + 1] - self.cumulative[(low - self.first).days]
+
+
+def _overlap_hours(project: Project, holidays: dict[date, str], day: date, start: datetime, end: datetime) -> float:
+    """その日の稼働の枠のうち、[start, end) と重なる時間[h]。"""
+    window = day_window(day, project.daily_hours, project.work_start, holidays)
+    if window is None:
+        return 0.0
+    return max(0.0, (min(end, window[1]) - max(start, window[0])).total_seconds() / 3600)
+
+
+def _counted_fraction(
+    task: Task,
+    project: Project,
+    schedule: Schedule,
+    period: Period,
+    now: datetime,
+    holidays: dict[date, str],
+    table: _WorkHours | None,
+) -> float:
+    """期間の分として数える、工数の割合(0〜1)。期間の終わりより後ろに予定した分と、まだ先の期間までの隙間は数えない。
+    予定の終わりを過ぎた遅れと、日程のないタスクは、全量が残っているので数える(締切が期間より後なら除く)。"""
+    start, end = schedule.start(task), schedule.end(task)
+    if start is None or end is None:
+        return 0.0 if task.deadline is not None and task.deadline.date() > period.end else 1.0
+    if end <= now:
+        return 1.0
+    if end <= start:
+        return float(start.date() <= period.end)
+    first, last = start.date(), (end - timedelta(microseconds=1)).date()  # 終わりが 0 時ちょうどなら前日まで
+    assert table is not None  # 日程のあるタスクがあれば、呼び出し側が作る
+
+    def weight(low: date, high: date) -> float:
+        """[low, high] のうち、タスクの期間と重なる日の稼働時間。初日と最終日は、重なる時間だけ。"""
+        low, high = max(low, first), min(high, last)
+        if low > high:
+            return 0.0
+        if first == last:
+            return _overlap_hours(project, holidays, first, start, end)
+        total = table.between(low, high)
+        if low == first:
+            total += _overlap_hours(project, holidays, first, start, end) - table.between(first, first)
+        if high == last:
+            total += _overlap_hours(project, holidays, last, start, end) - table.between(last, last)
+        return total
+
+    def days(low: date, high: date) -> int:
+        return max(0, (min(high, last) - max(low, first)).days + 1)
+
+    cutoff, gap_end = period.end, period.start - timedelta(days=1)  # 隙間は [今日, 期間の始まりの前日]
+    total = weight(first, last)
+    if total > 0:
+        counted = weight(first, cutoff) - weight(now.date(), min(gap_end, cutoff))
+        return counted / total
+    # 稼働日にかからない(土日だけ)ときは、日数で割る
+    return (days(first, cutoff) - days(now.date(), min(gap_end, cutoff))) / days(first, last)
+
+
+OPEN_STATUSES = (Status.NOT_STARTED, Status.RUNNING, Status.PAUSED)  # 残りの工数に数える状態
+
+
+def _open_hours(task: Task, project: Project, holidays: dict[date, str], now: datetime, limit: float) -> float:
+    """終了のない実績の区間が、今までに稼働の枠の中で積んだ時間[h]。`limit` に達したら数えるのをやめる。"""
+    total = 0.0
+    for interval in task.actuals:
+        if interval.end is not None or interval.start >= now:
+            continue
+        for day in Period(interval.start.date(), now.date()).days():
+            total += _overlap_hours(project, holidays, day, interval.start, now)
+            if total >= limit:
+                return total
+    return total
+
+
+def _remaining_hours(task: Task, project: Project, holidays: dict[date, str], now: datetime) -> float:
+    """残りの工数。未着手は全量、実行中・一時停止は工数から消化分を引く。消化分は、進捗度があれば工数 × 進捗度、
+    なければ実績の区間 × 換算率(開いたままの区間は、今までに稼働の枠で積んだ時間)。"""
+    if task.status is Status.NOT_STARTED:
+        return task.effort_hours
+    rate = conversion_rate(task, project)
+    done = consumed_hours(task, rate)
+    if not task.progress:  # 進捗度があれば、そちらを優先する(None と 0 は進捗度なし)
+        factor = combine_rate(rate, 1.0)
+        open_hours = _open_hours(task, project, holidays, now, task.effort_hours / factor)
+        done = min(done + open_hours * factor, task.effort_hours)
+    return task.effort_hours - done
+
+
+def summarize_backlog(
+    project: Project,
+    period: Period,
+    kind: PeriodKind,
+    now: datetime,
+    holidays: dict[date, str],
+    member: str | None = None,
+) -> Backlog:
+    """残りの工数(未着手の全量と、実行中・一時停止の消化分を除いた分)の合計と、それを期間内に終えるのに要る人数。全期間以外は、期間の終わりまでに予定した分。
+    メンバーで絞るときは、共同タスクのその人の分(割り当て率の比)だけを数える。"""
+    schedule = Schedule(project, holidays)
+    names = [m.name for m in project.members]
+    unset = 0
+    ends: list[datetime] = []
+    split = {name: 0.0 for name in (*names, UNASSIGNED)}
+    by_status = {status: 0.0 for status in OPEN_STATUSES}
+    targets = [
+        task for task in _tasks(project, member) if task.status in OPEN_STATUSES and task.kind is TaskKind.NORMAL
+    ]
+    spans = [(schedule.start(task), schedule.end(task)) for task in targets]
+    dates = [moment.date() for pair in spans if None not in pair for moment in pair if moment is not None]
+    table = _WorkHours(project, holidays, min(dates), max(dates)) if dates and kind is not PeriodKind.ALL else None
+    for task in targets:
+        fraction = (
+            1.0 if kind is PeriodKind.ALL else _counted_fraction(task, project, schedule, period, now, holidays, table)
+        )
+        if fraction <= 0:
+            continue
+        if not (isfinite(task.effort_hours) and task.effort_hours > 0):
+            unset += 1
+            continue
+        ends.extend(moment for moment in (schedule.end(task), task.deadline) if moment is not None)
+        rest = _remaining_hours(task, project, holidays, now)
+        for key, _, share in _shares(task.assignees, names):
+            portion = rest * fraction * share
+            split[key] += portion
+            if member is None or key == member:
+                by_status[task.status] += portion
+    shown = [name for name in (*names, UNASSIGNED) if member is None or name == member]
+    hours = sum(split[name] for name in shown)
+    days = _backlog_days(project, period, kind, now, holidays, ends)
+    required = hours / (project.daily_hours * days) if days else None
+    supply = sum(
+        effective_ratio(m, project.parameters, None, project.ratio_limits)
+        for m in project.members
+        if member is None or m.name == member
+    )
+    rows = [(name, split[name]) for name in shown if split[name] > 0]
+    return Backlog(hours, unset, days, required, supply, rows, {k: v for k, v in by_status.items() if v > 0})
+
+
 @dataclass
 class Dashboard:
     period: Period
@@ -503,6 +701,7 @@ class Dashboard:
     member: str | None = None  # 絞り込み中のメンバー。None は全員
     members: list[str] = field(default_factory=list)  # プルダウンの選択肢(プロジェクトのメンバーの順)
     cross: CrossSummary | None = None  # 全プロジェクトを重ねるとき。None は開いているプロジェクトだけ
+    backlog: Backlog = field(default_factory=lambda: Backlog(0.0, 0, None, None, 0.0, []))
 
     @property
     def planned_total(self) -> float:
@@ -530,4 +729,5 @@ def summarize(
         summarize_team_progress(project, None if kind is PeriodKind.ALL else period, now, holidays, member),
         member,
         [m.name for m in project.members],
+        backlog=summarize_backlog(project, period, kind, now, holidays, member),
     )

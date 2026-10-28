@@ -42,6 +42,7 @@ CARD_TITLES = {
     CardId.LOAD: "人ごとの負荷",
     CardId.HEATMAP: "負荷の日ごとの推移",
     CardId.HOURS: "工数の予定と実績",
+    CardId.BACKLOG: "残りの工数と必要人数",
     CardId.DUE: "期限とマイルストーン",
 }
 ALL_MEMBERS = ""  # プルダウンの`全員`の値
@@ -466,6 +467,7 @@ class DashboardView:
             CardId.LOAD: self.load_card,
             CardId.HEATMAP: self.heatmap_card,
             CardId.HOURS: self.hours_card,
+            CardId.BACKLOG: self.backlog_card,
             CardId.DUE: self.due_card,
         }
         with ui.element("div").style(GRID_STYLE) as grid:
@@ -660,6 +662,47 @@ class DashboardView:
             ui.label(f"合計 予定 {data.planned_total:.1f}h / 実績 {data.actual_total:.1f}h").classes(
                 "text-subtitle2"
             ).mark("dashboard-hours-total")
+
+    def backlog_card(self, data: Dashboard) -> None:
+        backlog = data.backlog
+        with card("残りの工数と必要人数", "dashboard-backlog"):
+            if backlog.hours <= 0 and not backlog.unset_count:
+                empty_message("dashboard-empty-backlog")
+                return
+            ui.label(f"残りの工数 {backlog.hours:.1f}h").classes("text-h6").mark("dashboard-backlog-hours")
+            if backlog.by_status:
+                ui.label(" / ".join(f"{status.value} {hours:.1f}h" for status, hours in backlog.by_status.items())).classes(
+                    "text-caption"
+                ).mark("dashboard-backlog-by-status")
+            if backlog.unset_count:
+                ui.label(f"工数未設定 {backlog.unset_count} 件(合計に入れていません)").classes(
+                    "text-caption text-grey"
+                ).mark("dashboard-backlog-unset")
+            if backlog.required is None or backlog.shortfall is None:
+                reason = "期間がすでに終わっている" if backlog.days == 0 else "期間が決まらない"
+                ui.label(f"{reason}ため、必要な人数は出せません").classes("text-grey").mark("dashboard-backlog-nodays")
+            else:
+                ui.label(f"稼働 {backlog.days} 日で終える場合").classes("text-caption").mark("dashboard-backlog-days")
+                ui.label(f"必要 {backlog.required:.1f} 人 / 今いる人員 {backlog.supply:.1f} 人").mark(
+                    "dashboard-backlog-people"
+                )
+                scale = max(backlog.required, backlog.supply) or 1.0
+                bar(backlog.required / scale, PLANNED_COLOR)
+                bar(backlog.supply / scale, ACTUAL_COLOR)
+                short = round(backlog.shortfall, 1)  # 表示の桁で 0 になるときは「あと 0.0 人」と出さない
+                gap = f"あと {short:.1f} 人" if short > 0 else f"余裕 {-short:.1f} 人" if short < 0 else "ちょうど"
+                ui.label(gap).classes("text-subtitle2" + (" text-negative" if short > 0 else "")).mark(
+                    "dashboard-backlog-gap"
+                )
+                ui.label("稼働日の上書きと休暇は反映していません。今日は、稼働が終わっていても 1 日として数えます。").classes(
+                    "text-caption text-grey"
+                ).mark("dashboard-backlog-note")
+            if backlog.by_member:
+                ui.label("担当別").classes("text-subtitle2")
+                top = max(hours for _, hours in backlog.by_member)
+                for name, hours in backlog.by_member:
+                    ui.label(f"{name} {hours:.1f}h").classes("text-caption").mark(f"dashboard-backlog-member-{name}")
+                    bar(hours / top, PLANNED_COLOR)
 
     def due_card(self, data: Dashboard) -> None:
         with card("期限とマイルストーン", "dashboard-due"):

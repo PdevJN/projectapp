@@ -1,0 +1,355 @@
+{
+  "version": 13,
+  "name": "2週間確認",
+  "base_date": "2026-10-19",
+  "daily_hours": 8.0,
+  "work_start": "09:00:00",
+  "members": [
+    {
+      "name": "田中",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "a1b2c3d1",
+      "icon": "",
+      "work_days": []
+    },
+    {
+      "name": "鈴木",
+      "ratio": 0.5,
+      "levels": {},
+      "id": "a1b2c3d2",
+      "icon": "",
+      "work_days": []
+    }
+  ],
+  "sections": [
+    {
+      "name": "第1週 10/19〜10/23",
+      "tasks": [
+        {
+          "name": "[終了] 要件定義 16h",
+          "id": "b0000001",
+          "planned_start": "2026-10-19T09:00:00",
+          "effort_hours": 16,
+          "priority": "中",
+          "status": "終了",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "a1b2c3d1",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [
+            {
+              "start": "2026-10-19T09:00:00",
+              "end": "2026-10-20T17:00:00",
+              "progress": null
+            }
+          ],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": 100,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[終了] 基本設計 8h",
+          "id": "b0000002",
+          "planned_start": "2026-10-21T09:00:00",
+          "effort_hours": 8,
+          "priority": "中",
+          "status": "終了",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "a1b2c3d2",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [
+            {
+              "start": "2026-10-21T09:00:00",
+              "end": "2026-10-21T17:00:00",
+              "progress": null
+            }
+          ],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": 100,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        }
+      ],
+      "sections": [],
+      "id": "c0000001"
+    },
+    {
+      "name": "第2週 10/26〜10/30",
+      "tasks": [
+        {
+          "name": "[実行中] 実装(前半) 24h",
+          "id": "b0000003",
+          "planned_start": "2026-10-26T09:00:00",
+          "effort_hours": 24,
+          "priority": "中",
+          "status": "実行中",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "a1b2c3d1",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [
+            {
+              "start": "2026-10-26T09:00:00",
+              "end": null,
+              "progress": null
+            }
+          ],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": 50,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[一時停止] 環境調整 8h",
+          "id": "b0000004",
+          "planned_start": "2026-10-27T09:00:00",
+          "effort_hours": 8,
+          "priority": "中",
+          "status": "一時停止",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "a1b2c3d2",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": 25,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[未着手] 設計レビュー 12h(田中)",
+          "id": "b0000005",
+          "planned_start": "2026-10-28T09:00:00",
+          "effort_hours": 12,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "a1b2c3d1",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[未着手] 実装(後半) 12h(田中)",
+          "id": "b0000006",
+          "planned_start": "2026-10-29T09:00:00",
+          "effort_hours": 12,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "a1b2c3d1",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[未着手] 資料作成 6h(鈴木)",
+          "id": "b0000007",
+          "planned_start": "2026-10-28T09:00:00",
+          "effort_hours": 6,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "a1b2c3d2",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[未着手] 結合テスト 6h(田中50%・鈴木50%)",
+          "id": "b0000008",
+          "planned_start": "2026-10-29T09:00:00",
+          "effort_hours": 6,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "a1b2c3d1",
+              "allocation": 0.5
+            },
+            {
+              "member": "a1b2c3d2",
+              "allocation": 0.5
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[未着手] 技術調査 12h(担当なし)",
+          "id": "b0000009",
+          "planned_start": "2026-10-28T09:00:00",
+          "effort_hours": 12,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "[未着手] 打合せ 工数なし",
+          "id": "b0000010",
+          "planned_start": "2026-10-30T09:00:00",
+          "effort_hours": 0,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "a1b2c3d1",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        }
+      ],
+      "sections": [],
+      "id": "c0000002"
+    }
+  ],
+  "tasks": [],
+  "actual_mode": "simple",
+  "url_templates": [],
+  "parameters": [],
+  "categories": [],
+  "events": [],
+  "reference_mode": "live"
+}

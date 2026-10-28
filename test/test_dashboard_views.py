@@ -26,8 +26,13 @@ from projectapp.dashboard_views import (
 
 def test_the_default_order_matches_the_current_dashboard() -> None:
     assert DEFAULT_ORDER == (
-        CardId.TEAM, CardId.PROGRESS, CardId.LOAD, CardId.HEATMAP, CardId.HOURS, CardId.DUE,
+        CardId.TEAM, CardId.PROGRESS, CardId.LOAD, CardId.HEATMAP, CardId.HOURS, CardId.BACKLOG, CardId.DUE,
     )
+
+
+def test_a_view_saved_before_the_backlog_card_hides_it() -> None:
+    saved = normalize_cards(["team", "progress", "load", "heatmap", "hours", "due"])
+    assert CardId.BACKLOG in hidden_cards(saved, False)
 
 
 def test_the_standard_view_is_todays_dashboard() -> None:
