@@ -57,4 +57,4 @@
 | 2026-10-26 | タスクダイアログの節の折りたたみ | [設計](specs/2026-10-26-task-dialog-sections-design.md) | [計画](plans/2026-10-26-task-dialog-sections.md) | 要望 62 | PR #90(0f72fe0。2026-10-26。実機確認済み) | 要約は`caption`プロパティ(設計書のマーカーは作らない) |
 | 2026-10-26 | メンバーとパラメータのダイアログの、閉じるとキャンセル | [設計](specs/2026-10-26-members-dialog-close-cancel-design.md) | — | 要望 68 | 実装済み(PR #93) | チャットで設計を提示し、記録を依頼された段階 |
 | 2026-10-28 | 稼働日の上書きの拡張(メモ・期間で追加) | [設計](specs/2026-10-28-work-day-notes-design.md) | [計画](plans/2026-10-28-work-day-notes.md) | 44〜46 | PR #114(7d67917。2026-10-28。実機確認済み) | — |
-| 2026-10-28 | イベントの期間を休みにする | [設計](specs/2026-10-28-event-closed-design.md) | [計画](plans/2026-10-28-event-closed.md) | 要望 82 | (マージ後に記録) | — |
+| 2026-10-28 | イベントの期間を休みにする | [設計](specs/2026-10-28-event-closed-design.md) | [計画](plans/2026-10-28-event-closed.md) | 要望 82 | PR #117(7a6d9e2。2026-10-29。実機確認済み) | — |
