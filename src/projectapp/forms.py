@@ -1,6 +1,6 @@
 """タスク・セクションの追加・編集の入力検証と、ファイル・名前・設定のダイアログ。"""
 
-from collections.abc import Awaitable, Callable, Collection
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time
@@ -70,7 +70,8 @@ from projectapp.models import (
     new_id,
     union_assignees,
 )
-from projectapp.workdays import sort_work_days, validate_work_days
+from projectapp.periodfield import normalize_period, split_period, validate_period
+from projectapp.workdays import expand_range, sort_work_days, validate_work_days
 from projectapp.ratios import ParameterEdit, limit_note, ratio_detail, remap_levels, validate_parameters
 from projectapp.urls import TemplateEdit, resolve, validate_templates
 
@@ -594,28 +595,85 @@ class WorkDayRow:
     start: str
     end: str
     rest: bool
+    note: str = ""
 
 
 def build_work_day_list(rows: list[WorkDayRow], today: date) -> list[WorkDay]:
-    """入力の行を検証して、日付の昇順の一覧にする。完全に空の行は無視する。休みの行は時刻を見ない。"""
+    """入力の行を検証して、日付の昇順の一覧にする。完全に空の行は無視する(メモだけの行は日付のエラー)。休みの行は時刻を見ない。"""
     built: list[WorkDay] = []
     for row in rows:
-        if not row.rest and not any(t.strip() for t in (row.day, row.start, row.end)):
+        if not row.rest and not any(t.strip() for t in (row.day, row.start, row.end, row.note)):
             continue
         day = parse_date_input(row.day, today, roll_forward=False)
         if day is None:
             raise ValueError("稼働日の日付を入力してください(例: 2026-10-17、10/17)")
+        note = row.note.strip()
         if row.rest:
-            built.append(WorkDay(date.fromisoformat(day)))
+            built.append(WorkDay(date.fromisoformat(day), note=note))
             continue
         start, end = parse_time_input(row.start), parse_time_input(row.end)
         if start is None or end is None:
             raise ValueError(
                 f"稼働日 {day} の開始と終了を時刻で入力してください(例: 13:00、930)。休みなら「休み」にチェックしてください"
             )
-        built.append(WorkDay(date.fromisoformat(day), time.fromisoformat(start), time.fromisoformat(end)))
+        built.append(WorkDay(date.fromisoformat(day), time.fromisoformat(start), time.fromisoformat(end), note))
     validate_work_days(built)
     return sort_work_days(built)
+
+
+@dataclass
+class RangeAdd:
+    rows: list[WorkDayRow]  # 足す行(日付の昇順)
+    registered: int  # 登録済みで飛ばした日数
+    off: int  # 土日祝で飛ばした日数
+
+
+def plan_work_day_range(
+    period_text: str,
+    rest: bool,
+    start_text: str,
+    end_text: str,
+    note: str,
+    skip_off: bool,
+    rows: list[WorkDayRow],
+    holidays: Mapping[date, str],
+    today: date,
+) -> RangeAdd:
+    """「期間で追加」の入力を解釈して、足す行を作る。不正は ValueError。"""
+    fixed = normalize_period(period_text, today)
+    if fixed is None:
+        raise ValueError("期間を入れてください(例: 2026-10-26 〜 2026-10-30)")
+    start, end = validate_period(*split_period(fixed))
+    window: tuple[time, time] | None = None
+    if not rest:
+        opens, closes = parse_time_input(start_text), parse_time_input(end_text)
+        if opens is None or closes is None:
+            raise ValueError("開始と終了を時刻で入力してください(例: 13:00、930)。休みなら「休み」にしてください")
+        window = (time.fromisoformat(opens), time.fromisoformat(closes))
+    existing = {date.fromisoformat(d) for r in rows if (d := parse_date_input(r.day, today, roll_forward=False))}
+    added, registered, off = expand_range(start, end, window, note, existing, holidays, skip_off)
+    built = [
+        WorkDayRow(
+            w.day.isoformat(),
+            w.start.strftime("%H:%M") if w.start else "",
+            w.end.strftime("%H:%M") if w.end else "",
+            window is None,
+            w.note,
+        )
+        for w in added
+    ]
+    return RangeAdd(built, registered, off)
+
+
+def work_day_range_summary(plan: RangeAdd) -> str:
+    """追加のあとの通知(足した日数と、飛ばした日数)。足す日がないときは、その旨。"""
+    head = f"{len(plan.rows)} 日を追加しました" if plan.rows else "追加する日がありません"
+    skipped = []
+    if plan.registered:
+        skipped.append(f"{plan.registered} 日は登録済みのため飛ばしました")
+    if plan.off:
+        skipped.append(f"土日祝 {plan.off} 日を除きました")
+    return head + (f"({'。'.join(skipped)})" if skipped else "")
 
 
 def work_day_editor(rows: list[WorkDayRow], marker: str) -> None:
@@ -1827,6 +1885,7 @@ def members_panel(
                 w.start.strftime("%H:%M") if w.start else "",
                 w.end.strftime("%H:%M") if w.end else "",
                 w.start is None,
+                w.note,
             )
             for w in member.work_days
         ]
