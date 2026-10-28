@@ -519,3 +519,52 @@ def test_a_copied_reference_row_keeps_its_target_and_snapshot() -> None:
     copy = project.tasks[1]
     assert (copy.kind, copy.ref_project, copy.ref_snapshot) == (TaskKind.REFERENCE, "基盤", value)
     assert copy.id != "r"
+
+
+def test_move_summary_takes_its_children_along_within_a_section() -> None:
+    project, parent, kids = summary_project()
+    assert arrange.move_task(project, ((0,), 0), ((0,), 4))  # 末尾へ
+    assert names(project.sections[0].tasks) == ["z", "まとめ", "c0", "c1"]
+    assert parent.children == [k.id for k in kids]
+
+
+def test_move_summary_backward_takes_its_children_along() -> None:
+    project, _, _ = summary_project()
+    project.sections[0].tasks.insert(0, Task("y", id="y"))
+    assert arrange.move_task(project, ((0,), 1), ((0,), 0))
+    assert names(project.sections[0].tasks) == ["まとめ", "c0", "c1", "y", "z"]
+
+
+def test_move_summary_across_sections_takes_its_children_along() -> None:
+    project, _, _ = summary_project()
+    assert arrange.move_task(project, ((0,), 0), ((), 0))
+    assert names(project.tasks) == ["まとめ", "c0", "c1"]
+    assert names(project.sections[0].tasks) == ["z"]
+
+
+def test_move_summary_into_its_own_block_changes_nothing() -> None:
+    project, _, _ = summary_project()
+    for index in (0, 1, 2, 3):  # 自分の位置・子のあいだ・直後(子の後ろ)
+        assert not arrange.move_task(project, ((0,), 0), ((0,), index))
+    assert names(project.sections[0].tasks) == ["まとめ", "c0", "c1", "z"]
+
+
+def test_move_a_child_alone_still_moves_only_the_child() -> None:
+    project, _, _ = summary_project()
+    assert arrange.move_task(project, ((0,), 1), ((), 0))
+    assert names(project.tasks) == ["c0"]
+
+
+def test_dropping_below_a_summary_row_puts_the_task_after_its_children() -> None:
+    summary = Task("S", id="s", kind=TaskKind.SUMMARY, children=["c1", "c2"])
+    project = Project("p", tasks=[Task("X", id="x"), summary, Task("c1", id="c1"), Task("c2", id="c2")])
+    assert arrange.move_task(project, ((), 0), ((), 2))
+    assert [t.name for t in project.tasks] == ["S", "c1", "c2", "X"]
+    assert summary.children == ["c1", "c2"]
+
+
+def test_a_child_can_still_be_reordered_inside_its_own_summary() -> None:
+    summary = Task("S", id="s", kind=TaskKind.SUMMARY, children=["c1", "c2"])
+    project = Project("p", tasks=[summary, Task("c1", id="c1"), Task("c2", id="c2")])
+    assert arrange.move_task(project, ((), 2), ((), 1))
+    assert [t.name for t in project.tasks] == ["S", "c2", "c1"]
