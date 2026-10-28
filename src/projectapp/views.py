@@ -109,6 +109,11 @@ from projectapp.csv_export import DEFAULT_FILENAME as TSV_DEFAULT_FILENAME
 from projectapp.csv_export import TSV_FILE_TYPES, build_tsv, write_tsv
 from projectapp.csv_import import CSV_OPEN_FILE_TYPES, CsvImportError, parse_csv, read_table
 from projectapp.csv_import import summary as csv_import_summary
+from projectapp.settings_io import DEFAULT_FILENAME as SETTINGS_DEFAULT_FILENAME
+from projectapp.settings_dialog import open_import_dialog
+from projectapp.settings_io import SETTINGS_FILE_TYPES, ImportFile, ImportResult, apply_import, build_settings
+from projectapp.settings_io import copy_into, parse_settings, plan_import, write_settings
+from projectapp.settings_io import summary as settings_import_summary
 from projectapp.puml_import import (
     PLANTUML_OPEN_FILE_TYPES,
     PlantUmlImportError,
@@ -579,6 +584,83 @@ class MainView:
         self.show_project(result.project, None)
         self.snapshot = asdict(Project(NEW_PROJECT_NAME))  # 空の新規とは別物なので、未保存の扱いにする
         ui.notify(csv_import_summary(result))
+
+    def request_import_settings(self) -> None:
+        """設定の取り込みを始める(ネイティブのみ)。プロジェクトは置き換えず、今のプロジェクトへ足すので、編集中でも確認しない。"""
+        if not self.exporter.available:
+            ui.notify(IMPORT_NOT_NATIVE_MESSAGE, type="warning")
+            return
+        with self.client:  # `pick_csv` と同じ理由で、タイマーは画面の直下に置く
+            ui.timer(0, self.import_settings, once=True)
+
+    async def import_settings(self) -> None:
+        """選んだ設定ファイルを読み、取り込みのダイアログを開く。失敗したら、通知だけして何も変えない。"""
+        path = await self.exporter.ask_open_path(SETTINGS_FILE_TYPES)
+        if path is None:
+            return
+        try:
+            incoming = parse_settings(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:  # UnicodeDecodeError は ValueError
+            ui.notify(f"取り込めませんでした: {exc}", type="negative")
+            return
+        plan = plan_import(self.project, incoming)
+        if not plan.sections and not plan.project_changes:
+            ui.notify("取り込める項目がありません")
+            return
+        with self.client:
+            open_import_dialog(plan, lambda sections, overwrite: self.apply_settings_import(incoming, sections, overwrite))
+
+    def apply_settings_import(self, incoming: ImportFile, sections: set[str], overwrite: set[tuple[str, str]]) -> None:
+        """選んだ内容を取り込む。相対比率の上限・下限が変わり、見直しが要るタスクがあるときは、先に選ばせる。"""
+        try:
+            result = apply_import(self.project, incoming, sections, overwrite)
+        except ValueError as exc:
+            ui.notify(f"取り込めませんでした: {exc}", type="negative")
+            return
+        old, new = self.project.ratio_limits, result.project.ratio_limits
+        reviews: list[tuple[Task, datetime]] = []
+        if new != old:
+            before = replace(result.project, ratio_limit_upper=old.upper, ratio_limit_lower=old.lower)
+            reviews = limit_reviews(before, new, self.holidays, datetime.now())
+        if not reviews:
+            self.commit_settings_import(result)
+            return
+        ends = {task.id: end for task, end in reviews}
+
+        def choose(review: bool | None) -> None:
+            if review is None:  # キャンセルは、プロジェクト設定の反映だけを取り消す
+                self.apply_settings_import(incoming, sections - {"project"}, overwrite)
+            else:
+                self.commit_settings_import(result, ends if review else None)
+
+        self.ask_limit_review(len(reviews), choose, "プロジェクト設定は取り込みませんでした")
+
+    def commit_settings_import(self, result: ImportResult, ends: dict[str, datetime] | None = None) -> None:
+        """取り込み後のプロジェクトを今のプロジェクトへ移し、1 回の編集として確定する。"""
+        for task in result.project.all_tasks():
+            if ends and task.id in ends:
+                task.planned_end, task.planned_end_manual = ends[task.id], True
+        mode_changed = result.project.reference_mode is not self.project.reference_mode
+        copy_into(self.project, result.project)
+        if mode_changed:
+            self.refresh_all_snapshots()
+        self.after_edit()
+        ui.notify(settings_import_summary(result))
+
+    async def export_settings(self) -> None:
+        """設定値(プロジェクト設定・メンバー・パラメータなど)を書き出す。プロジェクトは変えない(保存も、変更扱いもしない)。"""
+        if not self.exporter.available:
+            ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
+            return
+        path = await self.exporter.ask_path(SETTINGS_DEFAULT_FILENAME, SETTINGS_FILE_TYPES)
+        if path is None:
+            return
+        try:
+            written = write_settings(path, build_settings(self.project))
+        except (OSError, ValueError) as exc:
+            ui.notify(f"保存できませんでした: {exc}", type="negative")
+            return
+        ui.notify(f"書き出しました({written.name})")
 
     async def export_tsv(self) -> None:
         """通常タスクとセクションを TSV に書き出す。プロジェクトは変えない(保存も、変更扱いもしない)。"""
@@ -1402,9 +1484,15 @@ class MainView:
         if not reviews:
             commit(False)
             return
+        self.ask_limit_review(
+            len(reviews), lambda review: commit(review) if review is not None else None, "上限・下限は変更しませんでした"
+        )
+
+    def ask_limit_review(self, count: int, on_choice: Callable[[bool | None], None], cancel_message: str) -> None:
+        """相対比率の上限・下限の変更で完了予定を見直すかを選ばせる。見直す=True・見直さない=False・キャンセル=None で on_choice を 1 回呼ぶ。"""
         with self.client, ui.dialog() as dialog, ui.card():  # 設定ダイアログの中で作ると、それが閉じるときに一緒に消える
             ui.label(
-                f"上限・下限の変更で、実績か進捗のある {len(reviews)} 件のタスクの換算率が変わります。\n"
+                f"上限・下限の変更で、実績か進捗のある {count} 件のタスクの換算率が変わります。\n"
                 "残りの作業を新しい条件で見直して、完了予定を手で指定の値にしますか。"
             ).classes("whitespace-pre-line")
 
@@ -1413,13 +1501,14 @@ class MainView:
             def choose(review: bool) -> None:
                 decided[0] = True
                 dialog.close()
-                commit(review)
+                on_choice(review)
 
             def cancel() -> None:
                 """ほかの設定は適用済みなので、制限だけが未適用と知らせる(外側クリックと ESC も同じ)。"""
                 if not decided[0]:
                     decided[0] = True
-                    ui.notify("上限・下限は変更しませんでした")
+                    ui.notify(cancel_message)
+                    on_choice(None)
                 dialog.close()
 
             dialog.on("hide", cancel)
@@ -1434,14 +1523,17 @@ class MainView:
         """参照の方式を変える。スナップショットへは全参照行のスナップショットをそのとき取り、常に最新へは捨てる。保存はしない。"""
         if mode is self.project.reference_mode:
             return
-        now = datetime.now()
         self.project.reference_mode = mode
+        self.refresh_all_snapshots()
+        self.after_edit()
+
+    def refresh_all_snapshots(self) -> None:
+        """全参照行のスナップショットを方式に合わせて取り直す(スナップショットは取得、常に最新は捨てる)。"""
+        now = datetime.now()
+        snapshot = self.project.reference_mode is ReferenceMode.SNAPSHOT
         for task in self.project.all_tasks():
             if task.kind is TaskKind.REFERENCE:
-                task.ref_snapshot = (
-                    take_snapshot(self.reference_resolver, task.ref_project, now) if mode is ReferenceMode.SNAPSHOT else None
-                )
-        self.after_edit()
+                task.ref_snapshot = take_snapshot(self.reference_resolver, task.ref_project, now) if snapshot else None
 
     def refresh_reference(self, path: SectionPath, index: int) -> None:
         """参照行のスナップショットを、今の参照先の値に取り直す(スナップショットの方式のときだけ)。"""
@@ -2011,6 +2103,11 @@ class MainView:
                         if self.exporter.available
                         else []
                     ),
+                    *(
+                        [MenuItem("設定を取り込む", "settings_backup_restore", self.request_import_settings, "file-import-settings")]
+                        if self.exporter.available
+                        else []
+                    ),
                     MenuItem("新規プロジェクト作成", "note_add", self.request_new, "file-new"),
                     None,  # 水平線(開く・作る / 保存 / データの更新)
                     MenuItem("上書き保存", "save", self.save_project_clicked, "save-project"),
@@ -2036,6 +2133,11 @@ class MainView:
                     MenuItem("チャートプレビュー", "visibility", self.enter_preview, "export-preview"),
                     MenuItem("担当者へ書き出し", "ios_share", self.open_handoff, "export-handoff"),
                     MenuItem("TSV として書き出す", "download", self.export_tsv, "export-tsv"),
+                    *(
+                        [MenuItem("設定を書き出す", "save_alt", self.export_settings, "export-settings")]
+                        if self.exporter.available
+                        else []
+                    ),
                 ],
             )
             self.header_menu(
