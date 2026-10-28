@@ -511,7 +511,7 @@ class Backlog:
 def _backlog_days(
     project: Project, period: Period, kind: PeriodKind, now: datetime, holidays: dict[date, str], ends: list[datetime]
 ) -> int | None:
-    """必要人数の分母にする稼働日数(通常カレンダー)。今日より前の日は数えない。"""
+    """必要人数の分母にする稼働日数(通常カレンダー)。今日より前の日は数えない。今日以降に日がなければ 0。"""
     today = now.date()
     if kind is PeriodKind.ALL:  # 全期間は、数えたタスクの最も遅い終わりまで
         if not ends:
@@ -520,8 +520,30 @@ def _backlog_days(
     else:
         start, end = max(today, period.start), period.end
     if start > end:
-        return None
+        return 0
     return sum(is_workday(day, holidays) for day in Period(start, end).days())
+
+
+def _counted_fraction(
+    task: Task, project: Project, schedule: Schedule, period: Period, now: datetime, holidays: dict[date, str]
+) -> float:
+    """期間の分として数える、工数の割合(0〜1)。期間の終わりより後ろに予定した分と、まだ先の期間までの隙間は数えない。
+    予定の終わりを過ぎた遅れと、日程のないタスクは、全量が残っているので数える(締切が期間より後なら除く)。"""
+    start, end = schedule.start(task), schedule.end(task)
+    if start is None or end is None:
+        return 0.0 if task.deadline is not None and task.deadline.date() > period.end else 1.0
+    if end <= now:
+        return 1.0
+    if end <= start:
+        return float(start.date() <= period.end)
+    days = [day for day in Period(start.date(), end.date()).days() if _covers(start, end, day)]
+    weights = [day_hours(day, project.daily_hours, holidays) for day in days]
+    if not any(weights):  # 稼働日にかからない(土日だけ)ときは、日数で割る
+        weights = [1.0] * len(days)
+    counted = sum(
+        w for day, w in zip(days, weights) if day <= period.end and not now.date() <= day < period.start
+    )
+    return counted / sum(weights)
 
 
 def summarize_backlog(
@@ -532,25 +554,27 @@ def summarize_backlog(
     holidays: dict[date, str],
     member: str | None = None,
 ) -> Backlog:
-    """未着手の工数の合計と、それを期間内に終えるのに要る人数。期間が全期間以外なら、期間にかかるタスクだけ。"""
+    """未着手の工数の合計と、それを期間内に終えるのに要る人数。全期間以外は、期間の終わりまでに予定した分。
+    メンバーで絞るときは、共同タスクのその人の分(割り当て率の比)だけを数える。"""
     schedule = Schedule(project, holidays)
     names = [m.name for m in project.members]
-    hours = 0.0
     unset = 0
     ends: list[datetime] = []
     split = {name: 0.0 for name in (*names, UNASSIGNED)}
     for task in _tasks(project, member):
         if task.status is not Status.NOT_STARTED or task.kind is not TaskKind.NORMAL:
             continue
-        if kind is not PeriodKind.ALL and not _touches(task, schedule, period, now):
+        fraction = 1.0 if kind is PeriodKind.ALL else _counted_fraction(task, project, schedule, period, now, holidays)
+        if fraction <= 0:
             continue
         if not (isfinite(task.effort_hours) and task.effort_hours > 0):
             unset += 1
             continue
-        hours += task.effort_hours
         ends.extend(moment for moment in (schedule.end(task), task.deadline) if moment is not None)
         for key, _, share in _shares(task.assignees, names):
-            split[key] += task.effort_hours * share
+            split[key] += task.effort_hours * fraction * share
+    shown = [name for name in (*names, UNASSIGNED) if member is None or name == member]
+    hours = sum(split[name] for name in shown)
     days = _backlog_days(project, period, kind, now, holidays, ends)
     required = hours / (project.daily_hours * days) if days else None
     supply = sum(
@@ -558,9 +582,7 @@ def summarize_backlog(
         for m in project.members
         if member is None or m.name == member
     )
-    shown = [name for name in (*names, UNASSIGNED) if member is None or name == member]
-    rows = [(name, split[name]) for name in shown if split[name] > 0]
-    return Backlog(hours, unset, days, required, supply, rows)
+    return Backlog(hours, unset, days, required, supply, [(name, split[name]) for name in shown if split[name] > 0])
 
 
 @dataclass

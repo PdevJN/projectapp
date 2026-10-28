@@ -701,3 +701,11 @@ async def test_the_backlog_card_is_empty_without_effort(user: User) -> None:
     await user.open("/")
     views[0].show(with_backlog(Backlog(0.0, 0, 3, 0.0, 1.0, [])), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-empty-backlog")
+
+
+async def test_the_backlog_card_says_when_no_workday_is_left(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(Backlog(5.0, 0, 0, None, 1.0, [])), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-nodays")
+    assert text(user, "dashboard-backlog-nodays") == "今日以降に稼働日がないため、必要な人数は出せません"

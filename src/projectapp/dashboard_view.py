@@ -675,9 +675,8 @@ class DashboardView:
                     "text-caption text-grey"
                 ).mark("dashboard-backlog-unset")
             if backlog.required is None or backlog.shortfall is None:
-                ui.label("期間が決まらないため、必要な人数は出せません").classes("text-grey").mark(
-                    "dashboard-backlog-nodays"
-                )
+                reason = "今日以降に稼働日がない" if backlog.days == 0 else "期間が決まらない"
+                ui.label(f"{reason}ため、必要な人数は出せません").classes("text-grey").mark("dashboard-backlog-nodays")
             else:
                 ui.label(f"稼働 {backlog.days} 日で終える場合").classes("text-caption").mark("dashboard-backlog-days")
                 ui.label(f"必要 {backlog.required:.1f} 人 / 今いる人員 {backlog.supply:.1f} 人").mark(
