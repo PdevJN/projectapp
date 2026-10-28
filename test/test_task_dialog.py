@@ -2564,6 +2564,18 @@ async def test_switching_a_member_with_progress_asks_for_a_review(user: User) ->
     assert "2026-10-16 13:00" in user.find(marker="reassign-text").elements.pop().text
 
 
+async def test_the_review_uses_the_unclamped_ratio_of_the_new_member(user: User) -> None:
+    saved: list[Task] = []
+    big = Member("大", 2.0, ratio_unclamped=True)  # 200%。丸め直すと 150% になり、完了予定が遅くなる
+    mount_dialog(reassign_task(), saved, members=[FAST, big], now=lambda: REASSIGN_NOW)
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="task-assignee").elements.pop().set_value("大")
+    user.find(marker="task-save").click()
+    await user.should_see(marker="reassign-text")
+    assert "2026-10-14 14:00" in user.find(marker="reassign-text").elements.pop().text  # 残り 8h ÷ 200% = 4h
+
+
 async def test_applying_the_review_saves_the_end_as_manual(user: User) -> None:
     saved: list[Task] = []
     await switch_to_slow(user, saved, reassign_task())

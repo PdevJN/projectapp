@@ -928,6 +928,7 @@ def open_task_dialog(
             m.name,
             effective_ratio(m, parameters or [], chosen_parameters, ratio_limits),
             work_days=list(m.work_days),
+            ratio_unclamped=True,  # 実効比率は丸め済みなので、換算で丸め直さない(10〜300% の範囲内)
         )
         for m in raw_members
     ]
