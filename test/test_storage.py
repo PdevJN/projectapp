@@ -1308,7 +1308,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 14
+    assert raw["version"] == FORMAT_VERSION == 15
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1376,7 +1376,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 14
+    assert raw["version"] == FORMAT_VERSION == 15
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -1647,7 +1647,9 @@ def test_events_roundtrip_and_are_ordered_as_saved(tmp_path: Path) -> None:
     assert [e.id for e in loaded.events] == ["e1", "e2"]
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert raw["version"] == FORMAT_VERSION
-    assert raw["events"][0] == {"start": "2026-10-20", "end": "2026-10-24", "text": "リリース", "color": "red", "id": "e1"}
+    assert raw["events"][0] == {
+        "start": "2026-10-20", "end": "2026-10-24", "text": "リリース", "color": "red", "id": "e1", "closed": False
+    }
 
 
 def test_version_3_file_loads_without_events(tmp_path: Path) -> None:
@@ -1900,7 +1902,7 @@ def test_task_parameters_round_trip_and_the_version_is_10(tmp_path: Path) -> Non
     project = Project("p", parameters=[Parameter("Python", []), Parameter("Java", [])], tasks=[Task("a", parameters=["Python", "Java"])])
     path = save_project(project, tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 14
+    assert raw["version"] == FORMAT_VERSION == 15
     assert raw["tasks"][0]["parameters"] == ["Python", "Java"]
     assert load_project(path).tasks[0].parameters == ["Python", "Java"]
 
@@ -1942,7 +1944,7 @@ def _weekly_project() -> Project:
 
 
 def test_format_version_is_eleven() -> None:
-    assert FORMAT_VERSION == 14
+    assert FORMAT_VERSION == 15
 
 
 def test_weekly_crew_roundtrips_and_assignees_is_the_union(tmp_path: Path) -> None:
@@ -2107,7 +2109,7 @@ def test_work_day_note_round_trips_and_is_stripped() -> None:
     member = Member("甲", id="m1", work_days=[WorkDay(date(2026, 10, 17), note="夏季休暇")])
     text = dumps_project(Project("p", members=[member]))
     raw = json.loads(text)
-    assert raw["version"] == 14
+    assert raw["version"] == 15
     assert raw["members"][0]["work_days"][0]["note"] == "夏季休暇"
     assert parse_project(text, "p").members[0].work_days[0].note == "夏季休暇"
     raw["members"][0]["work_days"][0]["note"] = "  通院  "
@@ -2136,4 +2138,32 @@ def test_bad_work_day_notes_are_rejected(note: object) -> None:
     raw = json.loads(dumps_project(Project("p", members=[member])))
     raw["members"][0]["work_days"][0]["note"] = note
     with pytest.raises(ValueError):
+        parse_project(json.dumps(raw), "p")
+
+
+def test_event_closed_round_trips(tmp_path: Path) -> None:
+    event = Event(date(2026, 10, 26), date(2026, 10, 28), "夏季休業", id="e1", closed=True)
+    path = save_project(Project("p", events=[event]), tmp_path)
+    assert json.loads(path.read_text(encoding="utf-8"))["events"][0]["closed"] is True
+    assert load_project(path).events[0].closed is True
+
+
+def test_events_without_a_closed_key_load_as_open() -> None:
+    raw = json.loads(dumps_project(Project("p", events=[Event(date(2026, 10, 26), date(2026, 10, 28), "x", id="e1")])))
+    del raw["events"][0]["closed"]
+    assert parse_project(json.dumps(raw), "p").events[0].closed is False
+
+
+def test_closed_in_a_version_14_file_is_ignored() -> None:
+    event = Event(date(2026, 10, 26), date(2026, 10, 28), "x", id="e1", closed=True)
+    raw = json.loads(dumps_project(Project("p", events=[event])))
+    raw["version"] = 14
+    assert parse_project(json.dumps(raw), "p").events[0].closed is False
+
+
+@pytest.mark.parametrize("closed", [None, 1, "true", ["x"]])
+def test_bad_event_closed_values_are_rejected(closed: object) -> None:
+    raw = json.loads(dumps_project(Project("p", events=[Event(date(2026, 10, 26), date(2026, 10, 28), "x", id="e1")])))
+    raw["events"][0]["closed"] = closed
+    with pytest.raises(ValueError, match="休み"):
         parse_project(json.dumps(raw), "p")

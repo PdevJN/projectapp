@@ -9,11 +9,13 @@ from projectapp.events import (
     color_hex,
     column_span,
     count_lanes,
+    EffectiveHolidays,
+    effective_holidays,
     normalize_color,
     sort_events,
     validate_events,
 )
-from projectapp.models import Event
+from projectapp.models import Event, Project
 from projectapp.timeline import Column
 
 
@@ -170,3 +172,56 @@ def test_lanes_by_columns_ignore_events_outside_the_columns() -> None:
     outside = event("2026-12-01", "2026-12-02", id="o")
     inside = event("2026-10-05", "2026-10-05", id="i")
     assert assign_lanes([outside, inside], columns)[1] == 0  # 描かないイベントは、段を取らない
+
+
+def closed(start: str, end: str, text: str = "夏季休業", **kw: object) -> Event:
+    return Event(date.fromisoformat(start), date.fromisoformat(end), text, closed=True, **kw)  # type: ignore[arg-type]
+
+
+def test_effective_holidays_without_closed_events_equals_the_base() -> None:
+    base = {date(2026, 10, 12): "スポーツの日"}
+    project = Project("p", events=[Event(date(2026, 10, 1), date(2026, 10, 3), "リリース")])
+    assert effective_holidays(project, base) == base
+
+
+def test_effective_holidays_adds_every_day_of_a_closed_event() -> None:
+    project = Project("p", events=[closed("2026-10-26", "2026-10-28")])
+    result = effective_holidays(project, {})
+    assert result == {date(2026, 10, 26 + n): "夏季休業" for n in range(3)}
+
+
+def test_effective_holidays_keeps_the_holiday_name_when_they_overlap() -> None:
+    base = {date(2026, 10, 27): "祝日"}
+    result = effective_holidays(Project("p", events=[closed("2026-10-26", "2026-10-28")]), base)
+    assert result[date(2026, 10, 27)] == "祝日" and result[date(2026, 10, 26)] == "夏季休業"
+
+
+def test_effective_holidays_uses_the_earlier_event_when_closed_events_overlap() -> None:
+    events = [closed("2026-10-27", "2026-10-28", "後"), closed("2026-10-26", "2026-10-27", "先")]
+    result = effective_holidays(Project("p", events=events), {})
+    assert result[date(2026, 10, 27)] == "先" and result[date(2026, 10, 28)] == "後"
+
+
+def test_effective_holidays_does_not_change_the_base() -> None:
+    base: dict[date, str] = {}
+    effective_holidays(Project("p", events=[closed("2026-10-26", "2026-10-26")]), base)
+    assert base == {}
+
+
+def test_effective_holidays_clamps_extreme_periods_to_the_supported_years() -> None:
+    project = Project("p", events=[closed("0001-01-01", "9999-12-31")])
+    result = effective_holidays(project, {})
+    assert min(result) == date(2000, 1, 1) and max(result) == date(2100, 12, 31)
+
+
+def test_effective_holidays_cache_follows_the_events_and_the_base() -> None:
+    cache = EffectiveHolidays()
+    base: dict[date, str] = {}
+    project = Project("p", events=[closed("2026-10-26", "2026-10-26")])
+    first = cache.get(project, base)
+    assert cache.get(project, base) is first  # 同じ間は使い回す
+    project.events[0].end = date(2026, 10, 27)
+    assert date(2026, 10, 27) in cache.get(project, base)  # イベントの変更に追従する
+    project.events[0].closed = False
+    assert cache.get(project, base) == {}
+    assert cache.get(project, {date(2026, 10, 12): "祝"}) == {date(2026, 10, 12): "祝"}  # 祝日の差し替えに追従する

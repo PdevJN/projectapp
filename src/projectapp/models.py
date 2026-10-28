@@ -8,7 +8,7 @@ import secrets
 import unicodedata
 from enum import StrEnum
 
-FORMAT_VERSION = 14  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕)
+FORMAT_VERSION = 15  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕)
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -137,6 +137,7 @@ class Event:
     text: str
     color: str = "gray"  # events.CSS_COLORS のどれか(小文字)
     id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する
+    closed: bool = False  # 期間の稼働日を全員の休みにする
 
 
 @dataclass

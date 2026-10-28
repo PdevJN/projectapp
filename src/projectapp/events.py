@@ -1,8 +1,9 @@
 """イベントカレンダーの規則(検証・段の割り当て・列との重なり・セルの色)。NiceGUI に依存しない。"""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from datetime import date, timedelta
 
-from projectapp.models import MAX_EVENT_TEXT_LENGTH, Event, has_control_char
+from projectapp.models import MAX_EVENT_TEXT_LENGTH, MAX_YEAR, MIN_YEAR, Event, Project, has_control_char
 from projectapp.timeline import Column
 
 # CSS の名前付き色(CSS Color Module Level 4)。キーは小文字、値は #rrggbb。transparent は含めない
@@ -132,3 +133,30 @@ def cell_colors(events: Sequence[Event], columns: Sequence[Column]) -> list[str 
             for i in range(first, first + count):
                 colors[i] = e.color
     return colors
+
+
+def effective_holidays(project: Project, base: Mapping[date, str]) -> dict[date, str]:
+    """祝日 base に、休みにしたイベント(closed)の期間の全日を足した辞書。祝日と先のイベントの名前を残す。"""
+    result = dict(base)
+    first, last = date(MIN_YEAR, 1, 1), date(MAX_YEAR, 12, 31)  # 検証は年の範囲を見ないので、ここで切る
+    for event in sort_events([e for e in project.events if e.closed]):
+        day = max(event.start, first)
+        while day <= min(event.end, last):
+            result.setdefault(day, event.text)
+            day += timedelta(days=1)
+    return result
+
+
+class EffectiveHolidays:
+    """effective_holidays の結果を、祝日(同じオブジェクト)と休みのイベントが同じ間は使い回す。返した辞書は書き換えない。"""
+
+    def __init__(self) -> None:
+        self._base: dict[date, str] | None = None
+        self._key: tuple | None = None
+        self._value: dict[date, str] = {}
+
+    def get(self, project: Project, base: dict[date, str]) -> dict[date, str]:
+        key = (len(base), tuple((e.start, e.end, e.text) for e in project.events if e.closed))
+        if base is not self._base or key != self._key:
+            self._value, self._base, self._key = effective_holidays(project, base), base, key
+        return self._value
