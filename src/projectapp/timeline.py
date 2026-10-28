@@ -9,7 +9,7 @@ from enum import StrEnum
 from itertools import groupby
 from math import ceil, isfinite
 
-from projectapp.models import MAX_WEEKS, Assignee, Member, Parameter, Project, ReferenceValue, Status, Task, TaskKind, WorkDay
+from projectapp.models import MAX_WEEKS, Assignee, Member, Parameter, Project, RatioLimits, ReferenceValue, Status, Task, TaskKind, WorkDay
 from projectapp.ratios import effective_ratio
 from projectapp.summary import children_of
 from projectapp.workdays import work_day_map
@@ -501,13 +501,14 @@ def crew_of(
     members: list[Member],
     parameters: list[Parameter] | None = None,
     only: Collection[str] | None = None,
+    limits: RatioLimits | None = None,
 ) -> list[Worker]:
     """担当者を算出用の Worker にする。相対比率は、パラメータを反映した実効比率(only はタスクに付けたパラメータ)。メンバーにいない担当者は入れない。"""
     by_name = {m.name: m for m in members}
     chosen = parameters or []
     return [
         Worker(
-            combine_rate(effective_ratio(by_name[a.name], chosen, only), a.allocation),
+            combine_rate(effective_ratio(by_name[a.name], chosen, only, limits), a.allocation),
             work_day_map(by_name[a.name].work_days),
             a.name,
             a.allocation,
@@ -522,19 +523,23 @@ def assignees_rate(
     members: list[Member],
     parameters: list[Parameter] | None = None,
     only: Collection[str] | None = None,
+    limits: RatioLimits | None = None,
 ) -> float:
     """担当者全員の換算率(相対比率 × 割り当て率)の合計。誰も数えられなければ 1.0(換算しない)。"""
-    rates = [w.rate for w in crew_of(assignees, members, parameters, only)]
+    rates = [w.rate for w in crew_of(assignees, members, parameters, only, limits)]
     return sum(rates) if rates else 1.0
 
 
 def conversion_rate(task: Task, project: Project) -> float:
-    return assignees_rate(task.assignees, project.members, project.parameters, task.parameters)
+    return assignees_rate(task.assignees, project.members, project.parameters, task.parameters, project.ratio_limits)
 
 
 def weekly_crews(task: Task, project: Project) -> list[list[Worker]]:
     """週ごとの担当を算出用の Worker にしたもの(パラメータを反映)。週ごとに分けないタスクは空。"""
-    return [crew_of(week, project.members, project.parameters, task.parameters) for week in task.weekly_crew]
+    return [
+        crew_of(week, project.members, project.parameters, task.parameters, project.ratio_limits)
+        for week in task.weekly_crew
+    ]
 
 
 def effort_days(effort_hours: float, rate: float, daily_hours: float) -> float | None:
@@ -591,7 +596,7 @@ def _own_end(
         project.work_start,
         holidays,
         task.deadline,
-        crew=crew_of(task.assignees, project.members, project.parameters, task.parameters),
+        crew=crew_of(task.assignees, project.members, project.parameters, task.parameters, project.ratio_limits),
         weeks=weekly_crews(task, project) or None,
     )
 

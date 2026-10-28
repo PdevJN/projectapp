@@ -2,13 +2,14 @@
 
 import pytest
 
-from projectapp.models import Level, Member, Parameter, Project, Task
+from projectapp.models import DEFAULT_RATIO_MAX, DEFAULT_RATIO_MIN, Level, Member, Parameter, Project, RatioLimits, Task
 from projectapp.ratios import (
     ParameterEdit,
     apply_parameter_edit,
     deletion_impacts,
     effective_ratio,
     impact_lines,
+    limit_note,
     ratio_detail,
     remap_levels,
     task_deletion_impacts,
@@ -44,10 +45,10 @@ def test_the_adjustments_follow_the_order_of_the_definition() -> None:
 @pytest.mark.parametrize(
     ("base", "level", "raw", "ratio", "clamped"),
     [
-        (0.2, "初級", 0.0, 0.1, True),  # 下限に丸める
-        (0.3, "初級", 0.1, 0.1, False),  # ちょうど下限
-        (2.9, "上級", 3.1, 3.0, True),  # 上限に丸める
-        (2.8, "上級", 3.0, 3.0, False),  # ちょうど上限
+        (0.4, "初級", 0.2, 0.5, True),  # 下限(50%)に丸める
+        (0.7, "初級", 0.5, 0.5, False),  # ちょうど下限
+        (1.4, "上級", 1.6, 1.5, True),  # 上限(150%)に丸める
+        (1.3, "上級", 1.5, 1.5, False),  # ちょうど上限
     ],
 )
 def test_the_result_is_rounded_into_the_ratio_range(base: float, level: str, raw: float, ratio: float, clamped: bool) -> None:
@@ -225,10 +226,10 @@ def test_a_named_parameter_without_a_chosen_level_adds_nothing() -> None:
 
 
 def test_unregistered_names_are_ignored_and_the_result_is_still_clamped() -> None:
-    member = Member("a", 2.9, {"経験": "上級"})
-    assert effective_ratio(member, PARAMETERS, only=["ない"]) == pytest.approx(2.9)
+    member = Member("a", 1.4, {"経験": "上級"})
+    assert effective_ratio(member, PARAMETERS, only=["ない"]) == pytest.approx(1.4)
     big = [Parameter("経験", [Level("上級", 0.5)])]
-    assert effective_ratio(member, big, only=["経験"]) == pytest.approx(3.0)  # 3.4 を 300% に丸める
+    assert effective_ratio(member, big, only=["経験"]) == pytest.approx(1.5)  # 1.9 を 150% に丸める
 
 
 def test_renaming_follows_in_tasks_and_deleting_removes_the_name() -> None:
@@ -255,3 +256,107 @@ def test_impact_lines_list_members_then_tasks() -> None:
         "「専門」を選んでいるメンバーが1人います",
         "「専門」を付けているタスクが1件あります",
     ]
+
+
+BIG = Parameter("大", [Level("高", 0.5), Level("低", -0.5)])
+BIG2 = Parameter("大2", [Level("高", 0.5)])
+BIG3 = Parameter("大3", [Level("高", 0.5)])
+PILE = [BIG, BIG2, BIG3]
+ALL_HIGH = {"大": "高", "大2": "高", "大3": "高"}
+
+
+def test_without_limits_the_default_range_applies() -> None:
+    member = Member("a", 1.0, ALL_HIGH)  # 加算分 +150% → 250% を、既定の上限 150% に丸める
+    assert effective_ratio(member, PILE) == pytest.approx(1.5)
+    assert effective_ratio(member, PILE, limits=RatioLimits()) == pytest.approx(1.5)
+    assert effective_ratio(member, PILE, limits=None) == pytest.approx(1.5)
+
+
+def test_the_upper_limit_caps_the_ratio_itself() -> None:
+    detail = ratio_detail(Member("a", 1.0, ALL_HIGH), PILE, limits=RatioLimits(upper=1.5))
+    assert detail.raw == pytest.approx(2.5)
+    assert detail.ratio == pytest.approx(1.5)
+    assert detail.limited is True and detail.clamped is True
+
+
+def test_the_lower_limit_floors_the_ratio_itself() -> None:
+    detail = ratio_detail(Member("a", 1.0, {"大": "低"}), PILE, limits=RatioLimits(lower=0.7))
+    assert detail.raw == pytest.approx(0.5)
+    assert detail.ratio == pytest.approx(0.7)
+    assert detail.limited is True
+
+
+def test_a_ratio_inside_the_limits_is_not_limited() -> None:
+    detail = ratio_detail(Member("a", 1.0, {"経験": "上級"}), PARAMETERS, limits=RatioLimits(lower=0.5, upper=1.5))
+    assert detail.limited is False and detail.clamped is False
+    assert detail.ratio == pytest.approx(1.2)
+
+
+def test_a_ratio_exactly_on_a_limit_is_not_reported_as_limited() -> None:
+    detail = ratio_detail(Member("a", 1.0, {"大": "高"}), PILE, limits=RatioLimits(upper=1.5))
+    assert detail.limited is False and detail.clamped is False
+    assert detail.ratio == pytest.approx(1.5)
+
+
+def test_the_limits_also_apply_to_the_base_ratio_alone() -> None:
+    limits = RatioLimits(lower=0.5, upper=1.5)
+    assert effective_ratio(Member("fast", 2.0), PILE, limits=limits) == pytest.approx(1.5)
+    assert effective_ratio(Member("slow", 0.3), PILE, limits=limits) == pytest.approx(0.5)
+
+
+def test_the_limits_apply_to_the_tagged_parameters_only() -> None:
+    member = Member("a", 1.0, ALL_HIGH)
+    assert effective_ratio(member, PILE, ["大"], RatioLimits(upper=1.2)) == pytest.approx(1.2)
+    assert effective_ratio(member, PILE, ["大"], RatioLimits(upper=1.8)) == pytest.approx(1.5)  # 制限内
+
+
+def test_only_a_configured_limit_counts_as_limited() -> None:
+    high = ratio_detail(Member("a", 1.0, ALL_HIGH), PILE)  # 既定の範囲(50〜150%)の丸めは制限と呼ばない
+    assert high.ratio == pytest.approx(1.5) and high.clamped is True and high.limited is False
+    over = ratio_detail(Member("b", 3.5), PILE)
+    assert over.ratio == pytest.approx(1.5) and over.clamped is True and over.limited is False
+
+
+def test_limit_note_names_the_limit_only_when_it_was_applied() -> None:
+    up = RatioLimits(upper=1.5)
+    assert limit_note(ratio_detail(Member("a", 1.0, ALL_HIGH), PILE, limits=up), up) == "相対比率 250% → 上限 150% に制限"
+    down = RatioLimits(lower=0.7)
+    low = Member("b", 1.0, {"大": "低"})
+    assert limit_note(ratio_detail(low, PILE, limits=down), down) == "相対比率 50% → 下限 70% に制限"
+    assert limit_note(ratio_detail(Member("a", 1.0, ALL_HIGH), PILE), None) == ""
+    wide = RatioLimits(upper=3.0)
+    assert limit_note(ratio_detail(Member("a", 1.0, ALL_HIGH), PILE, limits=wide), wide) == ""
+
+
+@pytest.mark.parametrize("levels", [{}, {"経験": "上級"}, {"経験": "初級", "専門": "高"}, {"専門": "低"}])
+@pytest.mark.parametrize("only", [None, ["経験"], ["専門"]])
+def test_no_limits_gives_the_same_detail_as_before(levels: dict[str, str], only: list[str] | None) -> None:
+    member = Member("a", 1.0, levels)
+    plain = ratio_detail(member, PARAMETERS, only)
+    for limits in (None, RatioLimits(), RatioLimits(None, None)):
+        detail = ratio_detail(member, PARAMETERS, only, limits)
+        assert (detail.base, detail.adjustments, detail.raw, detail.ratio, detail.clamped) == (
+            plain.base,
+            plain.adjustments,
+            plain.raw,
+            plain.ratio,
+            plain.clamped,
+        )
+        assert detail.limited is False
+
+
+def test_the_default_range_is_fifty_to_one_fifty_percent() -> None:
+    assert (DEFAULT_RATIO_MIN, DEFAULT_RATIO_MAX) == (0.5, 1.5)
+    fast = ratio_detail(Member("fast", 2.0), PILE)
+    slow = ratio_detail(Member("slow", 0.3), PILE)
+    assert (fast.ratio, fast.clamped, fast.limited) == (1.5, True, False)
+    assert (slow.ratio, slow.clamped, slow.limited) == (0.5, True, False)
+    assert effective_ratio(Member("a", 1.0, ALL_HIGH), PILE) == pytest.approx(1.5)  # 加算分 +150% も 150% で止まる
+    assert effective_ratio(Member("ok", 1.4), PILE) == pytest.approx(1.4)
+
+
+def test_a_configured_limit_narrows_the_default_range() -> None:
+    limits = RatioLimits(upper=1.2, lower=0.8)
+    assert effective_ratio(Member("a", 1.0, ALL_HIGH), PILE, limits=limits) == pytest.approx(1.2)
+    assert effective_ratio(Member("b", 0.6), PILE, limits=limits) == pytest.approx(0.8)
+    assert effective_ratio(Member("c", 1.0), PILE, limits=RatioLimits(upper=1.2)) == pytest.approx(1.0)

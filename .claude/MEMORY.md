@@ -4,6 +4,8 @@
 
 ## 現在の状況
 
+**2026-10-28(要望 73・75): 相対比率の下限・上限を実装(`feature/ratio-limits`。未マージ・実機確認待ち。設計書`2026-10-28-ratio-limits-design.md`〔改訂あり〕、計画`plans/2026-10-28-ratio-limits.md`〔加算分の制限の時点〕)。設定なしの既定の丸め範囲は 50〜150%(2026-10-28。通知なし。基本比率の入力・読込は 10〜300% のまま)。当初は判定値の合計(加算分)の制限(要望 73)で実装し、実機確認前に相対比率そのものの制限(例: 50%〜150%。基本比率にも掛かる)に置き換えた(要望 75)。`Project.ratio_limit_upper/lower`(version 13。空欄=既定の 10〜300%)・`models.RatioLimits(upper, lower)`(引数順に注意)・`ratios.ratio_detail(…, limits)/limit_note`・`reassign.limit_reviews`・`MainView.apply_ratio_limits`(実績・進捗のあるタスクの完了予定の見直し確認。確認ダイアログは`with self.client`で作る。キャンセルは通知)。`test/`側の`ty`診断は既存。**未確認の実機項目**: 設定ダイアログの欄・プリセット・確認の3択、外側クリックと ESC の通知、内訳の注記、メンバー画面の注記、Cmd+Z での一括の取り消し。確認用データ`~/.projectapp/上限下限確認用.json`(制限なしで作成済み)。要望 74(未着手の工数の合計と必要人数の可視化)は`docs/request-74`に記録済み(未マージ)。**
+
 **2026-10-27(要望 71): ガントチャートの今日の線を実装し、PR #100(31da447)で`develop`へマージ済み(ブランチは整理済み。設計書`2026-10-27-today-marker-design.md`、計画`plans/2026-10-27-today-marker.md`)。赤い縦線(日次=時刻、週次=日の真ん中、月次=列の真ん中)・`当日`ボタン・開いた直後だけ今日へスクロール・プレビューの`今日`・PlantUML の`is colored in red`。`timeline.today_position`・`GanttChart.today_line`/`scroll_on_open`。テスト 3,848 件と`ty check`通過。要望 40 は実機確認済み(PR #98・#99)。実機(ネイティブ)で確認済み(2026-10-27)。最終レビューは Critical・Important なし、Minor は 3 件修正済み・1 件(指定期間の外での PlantUML との差)は未対応。要望 72(今日の線の色を設定で編集)を未着手で記録。**
 
 **2026-10-27(要望 72): 今日の線の色を設定で編集できるようにし、PR #102(1440e0a)で`develop`へマージ済み(`feature/today-color`はリモートに残っている)。テーマのメニューの`今日の線の色…`→ダイアログ(`#RRGGBB`・空欄は既定・プレビュー・適用/キャンセル/既定に戻す)。`config.json`の`today_color`(1 色。`custom_theme`とは別キーで全テーマで効く)、`theme.parse_today_color`/`today_color_js`、`theme_dialog.open_today_color_dialog`、`build_plantuml(today_color=)`(なければ`red`)。太さ・コントラスト警告・元に戻す対象は見送り。全体テストと`ty check src`通過。実機(ネイティブ)で確認済み。**
@@ -12,7 +14,7 @@
 
 **2026-10-28(要望 48): PlantUML の「100% 超に見える」通知を、プロジェクトの設定で切り替えられるようにし、PR #106(bbd9e3a)で`develop`へマージ済み(`feature/plantuml-notice-option`はリモートに残っている)。設定ダイアログのチェックボックス(既定オン)、ファイルの`plantuml_overload_notice`(`FORMAT_VERSION`を 12 に。キーなし・11 以下はオン、真偽値でない値は拒否)、元に戻す対象、3 者マージの設定(`SETTING_LABELS`)。オフでも出力は変わらず、週ごとの担当の近似の通知は対象外。`MainView.apply_plantuml_notice`・`save_plantuml`が見る。実機(ネイティブ)で確認済み。確認用に`~/.projectapp/要望48確認用.json`を作った(不要なら削除)。**
 
-**次の作業の候補**: 73(パラメータと相対比率の計算方法の見直し。未着手・乖離の実例から)・50(読み取り専用モード)・44〜46(メンバーの休暇・不在)・70(ダッシュボードの相対期間)。
+**次の作業の候補**: 74(未着手の工数の合計と必要人数の可視化。未着手)・50(読み取り専用モード)・44〜46(メンバーの休暇・不在)・70(ダッシュボードの相対期間)。
 
 
 **2026-10-27(要望 40): ダッシュボードのカスタムビューを実装し、PR #98(9b441c0)で`develop`へマージ済み(`feature/dashboard-views`はリモートに残っている。設計書`2026-10-27-dashboard-views-design.md`、計画`2026-10-27-dashboard-views.md`)。名前付きビューに、期間(`指定`は日付そのもの)・メンバー・`全プロジェクト`・カードの出し入れと順を保存(`config.json`の`dashboard_views`・`dashboard_view_last`)。`dashboard_views.py`(純粋関数)・`dashboard_drag.py`(JS)・`DashboardView`(ツールバー・編集モード)・`MainView`(状態と操作)。`●`は保存済みとの比較で出す。テスト 3,822 件と`ty check`通過。**実機(ネイティブ)で確認済み(2026-10-27。カードのドラッグ・ガントチャートへの干渉なし・開き直しで最後のビューが開く、すべて問題なし)。** 最終レビューの Important 2 件(壊れた`config.json`での保存系の例外、編集モードの持ち越し)は修正済み。見送った Minor: `指定`ビューの日付を捨てたときの`●`、同じビューの補う期間が今週になる、ドラッグの偽造イベントで隠れたカードが出る。相対的な期間は要望 70。次は、実機確認(結果次第で修正の PR)。**

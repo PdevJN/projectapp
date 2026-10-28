@@ -8,12 +8,13 @@ import secrets
 import unicodedata
 from enum import StrEnum
 
-FORMAT_VERSION = 12  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕)
+FORMAT_VERSION = 13  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕)
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
 MIN_YEAR, MAX_YEAR = 2000, 2100  # 入力ミスで表示範囲が際限なく広がるのを防ぐ
-MIN_RATIO, MAX_RATIO = 0.1, 3.0  # 相対比率(10%〜300%)
+MIN_RATIO, MAX_RATIO = 0.1, 3.0  # 基本比率の入力・読込の範囲(10%〜300%)
+DEFAULT_RATIO_MIN, DEFAULT_RATIO_MAX = 0.5, 1.5  # 相対比率の計算に使う範囲(50%〜150%)。プロジェクトの設定で狭められる
 MAX_SECTION_DEPTH = 3  # セクションの入れ子の上限(root 直下が 1 階層目。root は数えない)
 SectionPath = tuple[int, ...]  # セクションの位置。root は ()、1 番目のセクションは (0,)、その 2 番目のサブセクションは (0, 1)
 MIN_LEVEL_VALUE, MAX_LEVEL_VALUE = -0.9, 2.9  # パラメータの段階の判定値(-90%〜+290%)
@@ -271,6 +272,14 @@ def walk_sections(sections: list[Section], prefix: SectionPath = ()) -> Iterator
         yield from walk_sections(section.sections, path)
 
 
+@dataclass(frozen=True)
+class RatioLimits:
+    """相対比率そのものの上限・下限(150% は 1.5)。None の側は設定なし(既定の 50〜150%)。"""
+
+    upper: float | None = None
+    lower: float | None = None
+
+
 @dataclass
 class Project:
     name: str
@@ -287,6 +296,12 @@ class Project:
     events: list[Event] = field(default_factory=list)  # イベント(プロジェクト共通。並びが色の優先順で、後ろが勝つ)
     reference_mode: ReferenceMode = ReferenceMode.LIVE  # プロジェクト参照の方式
     plantuml_overload_notice: bool = True  # PlantUML の保存後に、100% 超に見える担当者を通知するか
+    ratio_limit_upper: float | None = None  # 相対比率の上限(150% は 1.5)。None は設定なし(50〜150%)
+    ratio_limit_lower: float | None = None  # 同じく下限(50% は 0.5)
+
+    @property
+    def ratio_limits(self) -> RatioLimits:
+        return RatioLimits(self.ratio_limit_upper, self.ratio_limit_lower)
 
     def all_tasks(self) -> list[Task]:
         """セクションなしのタスク、続いて各セクションを深さ優先で(そのタスク → そのサブセクション)。"""

@@ -35,6 +35,8 @@ from projectapp.models import (
     MAX_CATEGORY_NAME_LENGTH,
     MAX_EVENT_TEXT_LENGTH,
     Event,
+    DEFAULT_RATIO_MAX,
+    DEFAULT_RATIO_MIN,
     MAX_LEVEL_VALUE,
     MAX_PROGRESS,
     MAX_PROJECT_CODE_LENGTH,
@@ -56,6 +58,7 @@ from projectapp.models import (
     Parameter,
     ReferenceMode,
     Priority,
+    RatioLimits,
     Status,
     Task,
     TaskKind,
@@ -68,7 +71,7 @@ from projectapp.models import (
     union_assignees,
 )
 from projectapp.workdays import sort_work_days, validate_work_days
-from projectapp.ratios import ParameterEdit, ratio_detail, remap_levels, validate_parameters
+from projectapp.ratios import ParameterEdit, limit_note, ratio_detail, remap_levels, validate_parameters
 from projectapp.urls import TemplateEdit, resolve, validate_templates
 
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
@@ -485,6 +488,34 @@ def build_work_settings(hours: float | None, start: str) -> tuple[float, time]:
     if minutes > 24 * 60 + 1e-9:  # 稼働枠が日をまたぐと算出が曖昧になる
         raise ValueError("始業時刻と稼働可能時間の合計が24時を超えています")
     return hours, work_start
+
+
+def ratio_range_text(limits: RatioLimits | None) -> str:
+    """相対比率を丸める範囲の表示(例: 50〜150%)。設定のない側は既定の 50〜150%。"""
+    lower = DEFAULT_RATIO_MIN if limits is None or limits.lower is None else limits.lower
+    upper = DEFAULT_RATIO_MAX if limits is None or limits.upper is None else limits.upper
+    return f"{lower * 100:g}〜{upper * 100:g}%"
+
+
+def build_ratio_limits(upper_text: str, lower_text: str) -> RatioLimits:
+    """相対比率の上限・下限(%)の入力を検証する。空欄は設定なし(既定の 50〜150%)。下限は上限以下。"""
+
+    def read(text: str, name: str) -> float | None:
+        text = text.strip()
+        if not text:
+            return None
+        try:
+            value = float(text) / 100
+        except ValueError:
+            raise ValueError(f"{name}は数値で入力してください") from None
+        if not isfinite(value) or not DEFAULT_RATIO_MIN - 1e-9 <= value <= DEFAULT_RATIO_MAX + 1e-9:
+            raise ValueError(f"{name}は{DEFAULT_RATIO_MIN * 100:g}〜{DEFAULT_RATIO_MAX * 100:g}%で入力してください")
+        return round(value, 4)
+
+    limits = RatioLimits(read(upper_text, "相対比率の上限"), read(lower_text, "相対比率の下限"))
+    if limits.upper is not None and limits.lower is not None and limits.lower > limits.upper:
+        raise ValueError("相対比率の下限は上限以下にしてください")
+    return limits
 
 
 def build_base_date(text: str, today: date) -> date:
@@ -1174,6 +1205,8 @@ def open_settings_dialog(
     on_reference_mode: Callable[[ReferenceMode], object] | None = None,
     plantuml_notice: bool = True,
     on_plantuml_notice: Callable[[bool], object] | None = None,
+    ratio_limits: RatioLimits = RatioLimits(),
+    on_ratio_limits: Callable[[RatioLimits], object] | None = None,
 ) -> None:
     card_width = "w-[30rem] max-w-full" if categories is None and events is None else "w-[46rem] max-w-full"
     with disposable(ui.dialog()) as dialog, ui.card().classes(card_width):
@@ -1244,6 +1277,31 @@ def open_settings_dialog(
             notice = ui.checkbox(
                 "PlantUML の保存後に、割り当てが 100% 超に見える担当者を通知する", value=plantuml_notice
             ).mark("settings-plantuml-notice")
+        limit_upper = limit_lower = None
+        if on_ratio_limits is not None:
+            ui.label("相対比率の下限・上限").classes("text-caption text-grey")
+            ui.label(
+                "基本比率を含めた相対比率そのものの範囲を、既定の 50〜150% の中で狭められます(空欄は 50〜150%)"
+            ).classes("text-caption text-grey")
+            with ui.row().classes("items-center"):
+                limit_upper = (
+                    ui.input("上限(%)", value="" if ratio_limits.upper is None else f"{ratio_limits.upper * 100:g}")
+                    .props("dense")
+                    .classes("w-28")
+                    .mark("settings-limit-upper")
+                )
+                limit_lower = (
+                    ui.input("下限(%)", value="" if ratio_limits.lower is None else f"{ratio_limits.lower * 100:g}")
+                    .props("dense")
+                    .classes("w-28")
+                    .mark("settings-limit-lower")
+                )
+
+                def fill_preset() -> None:
+                    limit_upper.set_value("150")
+                    limit_lower.set_value("50")
+
+                ui.button("50% 〜 150%", on_click=fill_preset).props("flat dense").mark("settings-limit-preset")
         rows = [TemplateRow(t.name, t.name, t.pattern) for t in templates or []]
         if templates is not None:
             ui.label("URL テンプレート").classes("text-caption text-grey")
@@ -1478,6 +1536,7 @@ def open_settings_dialog(
             cedit: CategoryEdit | None,
             elist: list[Event] | None,
             base: date | None,
+            limits: RatioLimits | None,
         ) -> None:
             on_apply(*result, ActualMode(mode.value))
             if base is not None and on_base_date is not None:
@@ -1486,6 +1545,8 @@ def open_settings_dialog(
                 on_reference_mode(ReferenceMode(reference.value))
             if notice is not None and on_plantuml_notice is not None and bool(notice.value) is not plantuml_notice:
                 on_plantuml_notice(bool(notice.value))
+            if limits is not None and on_ratio_limits is not None and limits != ratio_limits:
+                on_ratio_limits(limits)
             if edit is not None and on_templates is not None and edit.templates != templates:
                 on_templates(edit)
             if cedit is not None and on_categories is not None and (cedit.categories != categories or cedit.removed_ids):  # Category の比較は id を見ないので、内容が同じ行の入れ直しも、削除として適用する
@@ -1496,7 +1557,7 @@ def open_settings_dialog(
 
         def confirm_delete() -> None:
             confirm.close()
-            commit(pending["result"], pending["edit"], pending["cedit"], pending["elist"], pending["base"])
+            commit(pending["result"], pending["edit"], pending["cedit"], pending["elist"], pending["base"], pending["limits"])
 
         def apply() -> None:
             try:
@@ -1505,6 +1566,11 @@ def open_settings_dialog(
                 cedit = build_categories()
                 elist = build_events()
                 base = build_base_date(base_input.value or "", date.today()) if base_input else None
+                limits = (
+                    build_ratio_limits(limit_upper.value or "", limit_lower.value or "")
+                    if limit_upper is not None and limit_lower is not None
+                    else None
+                )
             except ValueError as exc:
                 error.set_text(str(exc))
                 return
@@ -1518,11 +1584,11 @@ def open_settings_dialog(
             if tasks:
                 messages.append(f"削除するカテゴリを使っているタスクが{tasks}件あります。未定に戻ります。")
             if messages:
-                pending.update(result=result, edit=edit, cedit=cedit, elist=elist, base=base)
+                pending.update(result=result, edit=edit, cedit=cedit, elist=elist, base=base, limits=limits)
                 confirm_text.set_text("\n".join(messages))
                 confirm.open()
                 return
-            commit(result, edit, cedit, elist, base)
+            commit(result, edit, cedit, elist, base, limits)
 
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")
@@ -1543,6 +1609,7 @@ def parameters_panel(
     impacts: Callable[[ParameterEdit], list[str]],
     on_apply: Callable[[ParameterEdit], object],
     on_applied: Callable[[ParameterEdit], object],
+    get_limits: Callable[[], RatioLimits] = RatioLimits,
 ) -> ParametersPanel:
     """パラメータの定義の編集(タブの中身)。削除でメンバーの選択が外れるときは、適用の前に確認する。
     適用してもダイアログは閉じず、プロジェクトの今の定義から行を作り直す。"""
@@ -1555,7 +1622,9 @@ def parameters_panel(
 
     rows = to_rows()
     baseline = deepcopy(rows)
-    ui.label("相対比率 = 基本比率 + 選んだ段階の判定値の合計(10〜300% に丸めます)").classes("text-caption text-grey")
+    ui.label(f"相対比率 = 基本比率 + 選んだ段階の判定値の合計({ratio_range_text(get_limits())} に丸めます)").classes(
+        "text-caption text-grey"
+    )
 
     @ui.refreshable
     def table() -> None:
@@ -1659,14 +1728,17 @@ def parameters_panel(
     return ParametersPanel(dirty=lambda: rows != baseline, apply=apply)
 
 
-def effective_ratio_text(row: MemberRow, parameters: list[Parameter]) -> str:
-    """メンバーの行の、実効比率の表示。基本比率が空・非有限のときは空。範囲に丸めたときは、その旨を足す。"""
+def effective_ratio_text(row: MemberRow, parameters: list[Parameter], limits: RatioLimits | None = None) -> str:
+    """メンバーの行の、実効比率の表示。基本比率が空・非有限のときは空。範囲に丸めた・設定の下限/上限で制限したときは、その旨を足す。"""
     percent = row.ratio_percent
     if percent is None or not isfinite(percent):
         return ""
-    detail = ratio_detail(Member(row.name, percent / 100, row.levels), parameters)
-    note = "(範囲に丸めました)" if detail.clamped else ""
-    return f"相対比率 {detail.ratio * 100:g}%{note}"
+    detail = ratio_detail(Member(row.name, percent / 100, row.levels), parameters, limits=limits)
+    notes = ["範囲に丸めました"] if detail.clamped and not detail.limited else []  # 制限したときは、その注記だけ
+    if note := limit_note(detail, limits):
+        notes.append(note)
+    suffix = f"({'・'.join(notes)})" if notes else ""
+    return f"相対比率 {detail.ratio * 100:g}%{suffix}"
 
 
 def _signed_percent(value: float) -> str:
@@ -1743,6 +1815,7 @@ def members_panel(
     get_parameters: Callable[[], list[Parameter]],
     get_taken: Callable[[], Collection[str]],
     pick_icon: Callable[[], Awaitable[str | None]] | None = None,
+    get_limits: Callable[[], RatioLimits] = RatioLimits,
 ) -> MembersPanel:
     """メンバーの編集(タブの中身)。1 行が 1 人の表(名前・基本比率・パラメータごとの段階・実効比率・削除)。
     適用してもダイアログは閉じず、プロジェクトの今のメンバーから行を作り直す。"""
@@ -1810,7 +1883,7 @@ def members_panel(
 
                     def refresh_effective(r: MemberRow, holder: list[ui.label] = effective) -> None:
                         if holder:
-                            holder[0].set_text(effective_ratio_text(r, chosen_parameters))
+                            holder[0].set_text(effective_ratio_text(r, chosen_parameters, get_limits()))
 
                     def on_ratio(e, r=row) -> None:  # noqa: ANN001
                         r.ratio_percent = e.value
@@ -1862,7 +1935,7 @@ def members_panel(
                         )
                     if with_effective:
                         effective.append(
-                            ui.label(effective_ratio_text(row, chosen_parameters))
+                            ui.label(effective_ratio_text(row, chosen_parameters, get_limits()))
                             .classes("text-grey member-effective")
                             .mark(f"member-effective-{index}")
                         )
@@ -1949,6 +2022,7 @@ def open_members_parameters_dialog(
     pick_icon: Callable[[], Awaitable[str | None]] | None = None,
     applied: Callable[[], bool] = lambda: False,
     rollback: Callable[[], object] = lambda: None,
+    get_limits: Callable[[], RatioLimits] = RatioLimits,
 ) -> None:
     """メンバーとパラメータのダイアログ。`適用`はタブごとで閉じない。`閉じる`は変更のあるタブを確定して閉じ、
     `キャンセル`は未適用の編集を捨てて閉じる(開いてから適用した分〔applied〕があれば、残すか rollback で戻すかを確認する)。"""
@@ -1965,14 +2039,18 @@ def open_members_parameters_dialog(
             "flex-shrink: 0"  # 縮むと、はみ出た分が overflow: hidden で切れる。カードのスクロールに任せる
         ).mark("members-parameters-panels"):
             with ui.tab_panel("members"):
-                members = members_panel(get_members, assigned, on_apply_members, get_parameters, get_taken, pick_icon)
+                members = members_panel(
+                    get_members, assigned, on_apply_members, get_parameters, get_taken, pick_icon, get_limits
+                )
             with ui.tab_panel("parameters"):
 
                 def parameters_applied(edit: ParameterEdit) -> None:
                     members.parameters_changed(edit)
                     fit_width()
 
-                parameters = parameters_panel(get_parameters, impacts, on_apply_parameters, parameters_applied)
+                parameters = parameters_panel(
+                    get_parameters, impacts, on_apply_parameters, parameters_applied, get_limits
+                )
 
         def fit_width() -> None:
             card.style(replace=f"width: {max(36, members.min_rem() + 3)}rem; max-width: 96vw")

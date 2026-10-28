@@ -30,6 +30,8 @@ from projectapp.models import (
     URL_KEY,
     ActualMode,
     MAX_ALLOCATION,
+    DEFAULT_RATIO_MAX,
+    DEFAULT_RATIO_MIN,
     MAX_LEVEL_VALUE,
     MAX_PROJECT_CODE_LENGTH,
     MAX_PROGRESS,
@@ -40,6 +42,7 @@ from projectapp.models import (
     MIN_LEVEL_VALUE,
     MIN_PROGRESS,
     MIN_RATIO,
+    RatioLimits,
     MIN_YEAR,
     Actual,
     Assignee,
@@ -582,6 +585,30 @@ def _plantuml_overload_notice(value: Any) -> bool:
     return value
 
 
+def _ratio_limit(value: Any, name: str) -> float | None:
+    """相対比率の上限・下限。null は設定なし(既定の 50〜150%)。数値以外・非有限・範囲外は ValueError。"""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float) or not isfinite(value):
+        raise ValueError(f"{name}が正しくありません: {value!r}")
+    if not DEFAULT_RATIO_MIN - 1e-9 <= value <= DEFAULT_RATIO_MAX + 1e-9:
+        raise ValueError(f"{name}は{DEFAULT_RATIO_MIN * 100:g}〜{DEFAULT_RATIO_MAX * 100:g}%で指定してください: {value!r}")
+    return round(float(value), 4)
+
+
+def _ratio_limits(raw: dict[str, Any], version: int) -> RatioLimits:
+    """version 13 以上の、相対比率の上限・下限。下限が上限を上回るのは拒否する。"""
+    if version < 13:
+        return RatioLimits()
+    limits = RatioLimits(
+        upper=_ratio_limit(raw.get("ratio_limit_upper"), "相対比率の上限"),
+        lower=_ratio_limit(raw.get("ratio_limit_lower"), "相対比率の下限"),
+    )
+    if limits.upper is not None and limits.lower is not None and limits.lower > limits.upper:
+        raise ValueError(f"相対比率の下限が上限を上回っています: {limits.lower!r} > {limits.upper!r}")
+    return limits
+
+
 def _ref_project(value: Any) -> str:
     """参照先のファイル名。空・文字列以外・使えない文字は ValueError。"""
     if not isinstance(value, str) or not value.strip():
@@ -1006,6 +1033,7 @@ def parse_project(text: str, name: str) -> Project:
     ctx = _Context(_check_version(raw))
     members = _members(raw["members"], ctx)  # version 2 の担当者の解決に要るので、タスクより先に読む
     sections = [_section(s, 1, ctx) for s in raw["sections"]]
+    ratio_limits = _ratio_limits(raw, ctx.version)
     project = Project(
         name=name,
         base_date=date.fromisoformat(raw["base_date"]),
@@ -1023,6 +1051,8 @@ def parse_project(text: str, name: str) -> Project:
         plantuml_overload_notice=(
             _plantuml_overload_notice(raw.get("plantuml_overload_notice", True)) if ctx.version >= 12 else True
         ),
+        ratio_limit_upper=ratio_limits.upper,
+        ratio_limit_lower=ratio_limits.lower,
     )
     for task in project.all_tasks():
         if task.kind is TaskKind.REFERENCE:

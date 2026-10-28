@@ -125,7 +125,7 @@ from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, short_date
-from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, ReferenceMode, ReferenceValue, Section, SectionPath, Task, TaskKind, WorkDay, new_id, union_assignees
+from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, RatioLimits, ReferenceMode, ReferenceValue, Section, SectionPath, Task, TaskKind, WorkDay, new_id, union_assignees
 from projectapp.workdays import work_day_map
 from projectapp.selection import set_checked
 from projectapp.preview import (
@@ -158,6 +158,7 @@ from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
 from projectapp.theme_dialog import open_today_color_dialog as show_today_color_dialog
 from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
 from projectapp.ratios import ParameterEdit, apply_parameter_edit, impact_lines
+from projectapp.reassign import limit_reviews
 from projectapp.timeline import (
     Schedule,
     build_columns,
@@ -716,6 +717,8 @@ class MainView:
             on_reference_mode=self.apply_reference_mode,
             plantuml_notice=self.project.plantuml_overload_notice,
             on_plantuml_notice=self.apply_plantuml_notice,
+            ratio_limits=self.project.ratio_limits,
+            on_ratio_limits=self.apply_ratio_limits,
         )
 
     def multi_interval_count(self) -> int:
@@ -1318,6 +1321,7 @@ class MainView:
             pick_icon=self.pick_member_icon if self.exporter.available else None,
             applied=lambda: self.project != opened,
             rollback=rollback,
+            get_limits=lambda: self.project.ratio_limits,
         )
 
     async def pick_member_icon(self) -> str | None:
@@ -1378,6 +1382,50 @@ class MainView:
             return
         self.project.plantuml_overload_notice = enabled
         self.after_edit()
+
+    def apply_ratio_limits(self, limits: RatioLimits) -> None:
+        """相対比率の下限・上限を変える。実績か進捗のあるタスクの完了予定が変わるときは、見直しを選ばせる。"""
+        if limits == self.project.ratio_limits:
+            return
+        reviews = limit_reviews(self.project, limits, self.holidays, datetime.now())
+
+        def commit(review: bool) -> None:
+            if review:
+                for task, end in reviews:
+                    task.planned_end, task.planned_end_manual = end, True
+            self.project.ratio_limit_upper, self.project.ratio_limit_lower = limits.upper, limits.lower
+            self.after_edit()
+
+        if not reviews:
+            commit(False)
+            return
+        with self.client, ui.dialog() as dialog, ui.card():  # 設定ダイアログの中で作ると、それが閉じるときに一緒に消える
+            ui.label(
+                f"上限・下限の変更で、実績か進捗のある {len(reviews)} 件のタスクの換算率が変わります。\n"
+                "残りの作業を新しい条件で見直して、完了予定を手で指定の値にしますか。"
+            ).classes("whitespace-pre-line")
+
+            decided = [False]
+
+            def choose(review: bool) -> None:
+                decided[0] = True
+                dialog.close()
+                commit(review)
+
+            def cancel() -> None:
+                """ほかの設定は適用済みなので、制限だけが未適用と知らせる(外側クリックと ESC も同じ)。"""
+                if not decided[0]:
+                    decided[0] = True
+                    ui.notify("上限・下限は変更しませんでした")
+                dialog.close()
+
+            dialog.on("hide", cancel)
+
+            with ui.row():
+                ui.button("見直して適用", on_click=lambda: choose(True)).mark("limit-review-apply")
+                ui.button("見直さずに適用", on_click=lambda: choose(False)).props("flat").mark("limit-review-skip")
+                ui.button("キャンセル", on_click=cancel).props("flat").mark("limit-review-cancel")
+        dialog.open()
 
     def apply_reference_mode(self, mode: ReferenceMode) -> None:
         """参照の方式を変える。スナップショットへは全参照行のスナップショットをそのとき取り、常に最新へは捨てる。保存はしない。"""
@@ -1565,6 +1613,7 @@ class MainView:
             "finish_of": finish_of,
             "url_templates": self.project.url_templates,
             "parameters": self.project.parameters,
+            "ratio_limits": self.project.ratio_limits,
             "categories": self.project.categories,
             "sections": self.task_sections,
             "on_sections_change": self.set_task_sections,

@@ -31,7 +31,7 @@ from projectapp.gantt import KIND_COLORS
 from projectapp.forms import build_task
 from projectapp.handoff import JSON_FILE_TYPES
 from projectapp.categories import CategoryEdit
-from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, ReferenceMode, ReferenceValue, Section, Task, TaskKind, TaskUrl, UrlTemplate, WorkDay, union_assignees
+from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, RatioLimits, ReferenceMode, ReferenceValue, Section, Status, Task, TaskKind, TaskUrl, UrlTemplate, WorkDay, union_assignees
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
@@ -4102,7 +4102,7 @@ async def test_the_effective_ratio_follows_the_base_ratio_and_shows_the_rounding
     with user.client:
         user.find(marker="member-level-0-0").elements.pop().set_value("上級")
     user.find(marker="member-ratio-0").clear().type("290")
-    assert user.find(marker="member-effective-0").elements.pop().text == "相対比率 300%(範囲に丸めました)"
+    assert user.find(marker="member-effective-0").elements.pop().text == "相対比率 150%(範囲に丸めました)"
 
 
 async def test_applying_members_drops_selections_that_point_nowhere(user: User, tmp_path: Path) -> None:
@@ -6320,3 +6320,81 @@ async def test_export_tsv_needs_the_native_window(user: User, tmp_path: Path) ->
     user.find(marker="export-tsv").click()
     await user.should_see("ネイティブウィンドウでのみ、書き出せます")
     assert exporter.asked == []
+
+
+def _progress_project() -> Project:
+    parameters = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
+    member = Member("田中", 1.0, {"a": "高", "b": "高", "c": "高"})
+    task = Task(
+        "実装", assignees=[Assignee("田中", 1.0)], effort_hours=20.0, status=Status.RUNNING, progress=50,
+        planned_start=datetime(2026, 10, 5, 9),
+    )
+    return Project("既存", members=[member], parameters=parameters, sections=[Section("開発", [task])])
+
+
+async def _open_existing(user: User, tmp_path: Path, project: Project) -> MainView:
+    save_cache({}, tmp_path)
+    save_project(project, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    await choose_in_combo(user, "既存")
+    assert await wait_until(lambda: view.path is not None)
+    return view
+
+
+async def test_apply_ratio_limits_without_affected_tasks_is_an_undoable_unsaved_edit(user: User, tmp_path: Path) -> None:
+    view = await _open_existing(user, tmp_path, Project("既存", sections=[Section("開発", [Task("実装")])]))
+    assert not view.is_dirty()
+    view.apply_ratio_limits(RatioLimits(upper=1.5, lower=0.5))
+    assert (view.project.ratio_limit_upper, view.project.ratio_limit_lower) == (1.5, 0.5) and view.is_dirty()
+    view.undo()
+    assert view.project.ratio_limits == RatioLimits() and not view.is_dirty()
+
+
+async def test_apply_ratio_limits_asks_before_changing_a_task_with_progress(user: User, tmp_path: Path) -> None:
+    view = await _open_existing(user, tmp_path, _progress_project())
+    view.apply_ratio_limits(RatioLimits(upper=1.0))
+    await user.should_see("見直して適用")
+    assert view.project.ratio_limit_upper is None  # 確認の前は変わらない
+    user.find(marker="limit-review-cancel").click()
+    assert view.project.ratio_limit_upper is None and not view.is_dirty()
+    await user.should_see("上限・下限は変更しませんでした")
+
+
+async def test_apply_ratio_limits_with_review_sets_the_manual_planned_end_in_one_undo_step(
+    user: User, tmp_path: Path
+) -> None:
+    view = await _open_existing(user, tmp_path, _progress_project())
+    view.apply_ratio_limits(RatioLimits(upper=1.0))
+    user.find(marker="limit-review-apply").click()
+    await user.should_not_see("上限・下限は変更しませんでした")
+    task = view.project.all_tasks()[0]
+    assert view.project.ratio_limit_upper == 1.0
+    assert task.planned_end_manual is True and task.planned_end is not None
+    view.undo()
+    task = view.project.all_tasks()[0]
+    assert view.project.ratio_limit_upper is None and task.planned_end_manual is False and not view.is_dirty()
+
+
+async def test_apply_ratio_limits_without_review_keeps_the_planned_end(user: User, tmp_path: Path) -> None:
+    view = await _open_existing(user, tmp_path, _progress_project())
+    view.apply_ratio_limits(RatioLimits(upper=1.0))
+    user.find(marker="limit-review-skip").click()
+    task = view.project.all_tasks()[0]
+    assert view.project.ratio_limit_upper == 1.0 and task.planned_end_manual is False
+
+
+async def test_the_parameter_tab_caption_shows_the_default_range(user: User, tmp_path: Path) -> None:
+    await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    await user.should_see("50〜150% に丸めます")
+
+
+async def test_the_parameter_tab_caption_follows_the_ratio_limits(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.ratio_limit_upper, view.project.ratio_limit_lower = 1.2, 0.8
+    await open_members_parameters(user)
+    await user.should_see("80〜120% に丸めます")
+    await user.should_not_see("50〜150%")

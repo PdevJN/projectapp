@@ -59,6 +59,7 @@ from projectapp.models import (
     Member,
     Parameter,
     Priority,
+    RatioLimits,
     Status,
     Task,
     TaskKind,
@@ -66,7 +67,7 @@ from projectapp.models import (
     UrlTemplate,
     has_control_char,
 )
-from projectapp.ratios import effective_ratio
+from projectapp.ratios import effective_ratio, limit_note, ratio_detail
 from projectapp.reassign import needs_review, reviewed_end
 from projectapp.task_sections import (
     FOLDABLE,
@@ -909,6 +910,7 @@ def open_task_dialog(
     url_templates: list[UrlTemplate] | None = None,
     open_url: Callable[[str], object] = default_open_url,
     parameters: list[Parameter] | None = None,
+    ratio_limits: RatioLimits | None = None,
     categories: list[Category] | None = None,
     sections: list[str] | None = None,
     on_sections_change: Callable[[list[str]], object] | None = None,
@@ -922,7 +924,11 @@ def open_task_dialog(
     chosen_parameters = list(initial.parameters)  # 付けたパラメータ(選択欄の値。空は全パラメータの合計)
     # 換算には、付けたパラメータを反映した実効比率を使う(以降は、このコピーだけを見る)
     member_list = [
-        Member(m.name, effective_ratio(m, parameters or [], chosen_parameters), work_days=list(m.work_days))
+        Member(
+            m.name,
+            effective_ratio(m, parameters or [], chosen_parameters, ratio_limits),
+            work_days=list(m.work_days),
+        )
         for m in raw_members
     ]
     for assignee in initial.assignees:  # 一覧にいない担当者も、保存で失わない(相対比率は 100% とみなす)
@@ -935,7 +941,7 @@ def open_task_dialog(
         by_name = {m.name: m for m in raw_members}
         for member in member_list:
             if member.name in by_name:
-                member.ratio = effective_ratio(by_name[member.name], parameters or [], chosen_parameters)
+                member.ratio = effective_ratio(by_name[member.name], parameters or [], chosen_parameters, ratio_limits)
     opened_sections = initial_open(task, sections)
     with disposable(ui.dialog().props("persistent")) as dialog, ui.card().classes("w-[44rem] max-w-full"):
         ui.label("タスクの編集" if task else "タスクの追加").classes("text-h6")
@@ -1037,6 +1043,17 @@ def open_task_dialog(
                 + ")"
             ).classes("text-caption text-grey").mark("task-weekly-note")
 
+        def limit_notes(names: list[str]) -> str:
+            """下限・上限で制限した担当者の注記(例: 田中 相対比率 250% → 上限 150% に制限)。"""
+            by_name = {m.name: m for m in raw_members}
+            notes = []
+            for name in dict.fromkeys(names):
+                if name in by_name:
+                    detail = ratio_detail(by_name[name], parameters or [], chosen_parameters, ratio_limits)
+                    if note := limit_note(detail, ratio_limits):
+                        notes.append(f"{name} {note}")
+            return f"・{'・'.join(notes)}" if notes else ""
+
         def refresh_conversion(_event: object = None) -> None:
             tagged = f"・{'・'.join(chosen_parameters)}を反映" if chosen_parameters else ""
             if weekly:
@@ -1054,7 +1071,9 @@ def open_task_dialog(
                     rate = sum(combine_rate(m.ratio, f) for m, f in week) if week else 1.0
                     detail = " + ".join(f"{m.name} {m.ratio * 100:g}%×{f * 100:g}%" for m, f in week) or "担当なし"
                     parts.append(f"第{number}週: {detail} = {rate * 100:g}%")
-                conversion.set_text(f"換算率 {' / '.join(parts)}{tagged}")
+                conversion.set_text(
+                    f"換算率 {' / '.join(parts)}{tagged}{limit_notes([m.name for week in weeks for m, _ in week])}"
+                )
                 return
             chosen = assignee_fields.chosen()
             rate = sum(combine_rate(m.ratio, f) for m, f in chosen) if chosen else 1.0
@@ -1064,7 +1083,8 @@ def open_task_dialog(
                 conversion.set_text("")
                 return
             detail = " + ".join(f"{m.name} {m.ratio * 100:g}%×{f * 100:g}%" for m, f in chosen)
-            conversion.set_text(f"換算率 {rate * 100:g}%({detail}{tagged})→ {effort.value:g}h は約 {days:.1f}日分")
+            notes = limit_notes([m.name for m, _ in chosen])
+            conversion.set_text(f"換算率 {rate * 100:g}%({detail}{tagged}{notes})→ {effort.value:g}h は約 {days:.1f}日分")
 
         def on_effort_change(value: float | None) -> None:
             fields.set_effort(value)

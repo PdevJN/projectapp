@@ -547,3 +547,14 @@ def test_the_plantuml_notice_option_merges_as_a_setting() -> None:
     assert merged.project.plantuml_overload_notice is False
     both = merge_projects(proj(), proj(plantuml_overload_notice=False), proj(plantuml_overload_notice=False))
     assert both.project.plantuml_overload_notice is False and both.conflicts == []
+
+
+def test_the_ratio_limits_merge_as_settings() -> None:
+    merged = merge_projects(proj(), proj(ratio_limit_upper=0.5), proj(ratio_limit_lower=-0.5))
+    assert merged.project.ratio_limit_upper == 0.5
+    assert merged.project.ratio_limit_lower == -0.5 and merged.conflicts == []
+
+
+def test_different_limits_on_both_sides_are_a_conflict_with_a_readable_label() -> None:
+    merged = merge_projects(proj(), proj(ratio_limit_upper=0.5), proj(ratio_limit_upper=0.3))
+    assert [c.field for c in merged.conflicts] == ["相対比率の上限"]
