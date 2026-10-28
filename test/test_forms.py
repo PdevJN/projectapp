@@ -1841,6 +1841,16 @@ def test_build_event_list_normalizes_dates_and_color_and_sorts() -> None:
     assert built[0].id == "e1" and built[1].id not in {"e1", ""}
 
 
+def test_event_row_is_open_by_default() -> None:
+    assert EventRow(None, "10/20", "10/24", "x", "gray").closed is False
+
+
+def test_build_event_list_carries_closed() -> None:
+    rows = [EventRow(None, "10/26", "10/28", "夏季休業", "gray", True), EventRow(None, "10/1", "10/1", "x", "gray")]
+    built = build_event_list(rows, set(), TODAY)
+    assert [(e.text, e.closed) for e in built] == [("x", False), ("夏季休業", True)]
+
+
 def test_build_event_list_does_not_roll_dates_into_next_year() -> None:
     (built,) = build_event_list([EventRow(None, "10/1", "10/2", "x", "red")], set(), TODAY)  # 10/1 は過ぎた日
     assert built.start == date(2026, 10, 1)
@@ -1903,6 +1913,36 @@ async def test_adding_an_event_applies_it(user: User) -> None:
     assert applied == [1]
     ((event,),) = received
     assert (event.start, event.end, event.text, event.color) == (date(2026, 10, 20), date(2026, 10, 24), "リリース", "orange")
+
+
+async def test_closing_an_event_applies_it(user: User) -> None:
+    applied: list[int] = []
+    received: list[list[Event]] = []
+    mount_event_settings([], applied, received)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-event-add").click()
+    await asyncio.sleep(0.2)
+    user.find(marker="settings-event-0-start").type("2026-10-26")
+    user.find(marker="settings-event-0-end").type("2026-10-28")
+    user.find(marker="settings-event-0-text").type("夏季休業")
+    user.find(marker="settings-event-0-closed").click()
+    user.find(marker="settings-apply").click()
+    assert applied == [1]
+    ((event,),) = received
+    assert event.closed is True
+
+
+async def test_changing_only_closed_counts_as_an_event_change(user: User) -> None:
+    applied: list[int] = []
+    received: list[list[Event]] = []
+    existing = [Event(date(2026, 10, 26), date(2026, 10, 28), "夏季休業", "gray", id="e1")]
+    mount_event_settings(existing, applied, received)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-event-0-closed").click()
+    user.find(marker="settings-apply").click()
+    assert [e.closed for e in received[0]] == [True]
 
 
 async def test_event_swatch_follows_the_color_text(user: User) -> None:
