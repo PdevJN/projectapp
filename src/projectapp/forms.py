@@ -55,7 +55,9 @@ from projectapp.models import (
     Category,
     Level,
     Member,
+    Membership,
     Parameter,
+    Team,
     ReferenceMode,
     Priority,
     RatioLimits,
@@ -72,6 +74,8 @@ from projectapp.models import (
 )
 from projectapp.periodfield import add_range_picker, normalize_period, split_period, validate_period
 from projectapp.workdays import MAX_NOTE, expand_range, sort_work_days, validate_work_days
+from projectapp.teams import membership_error, normalize
+from projectapp.teams_dialog import teams_panel
 from projectapp.ratios import ParameterEdit, limit_note, ratio_detail, remap_levels, validate_parameters
 from projectapp.urls import TemplateEdit, resolve, validate_templates
 
@@ -888,6 +892,7 @@ class MemberRow:
     icon: str = ""  # アイコン(data URI)。空はアイコンなし
     work_days: list[WorkDayRow] = field(default_factory=list)  # 稼働日の上書きの入力行
     ratio_unclamped: bool = False  # 丸めない(相対比率を 50〜150% に丸めない)
+    teams: list[Membership] = field(default_factory=list)  # 所属するチーム(割合の合計 100。空はチームなし)
 
 
 def build_members(
@@ -897,8 +902,10 @@ def build_members(
     parameters: list[Parameter] | None = None,
     taken: Collection[str] = (),
     today: date | None = None,
+    team_ids: Collection[str] = (),
 ) -> tuple[list[Member], dict[str, str]]:
-    """ダイアログの行を検証して、メンバー一覧と、改名の対応({旧: 新})を返す。`taken` は、プロジェクトにある id(新しい行の id がこれと重ならない)。"""
+    """ダイアログの行を検証して、メンバー一覧と、改名の対応({旧: 新})を返す。`taken` は、プロジェクトにある id(新しい行の id がこれと重ならない)。
+    `team_ids` は、所属を検証する、今あるチームの id。"""
     members: list[Member] = []
     renames: dict[str, str] = {}
     seen: set[str] = set()
@@ -924,9 +931,15 @@ def build_members(
             work_days = build_work_day_list(row.work_days, today or date.today())
         except ValueError as exc:
             raise ValueError(f"{name}: {exc}") from None
+        team_error = membership_error(row.teams, team_ids)
+        if team_error is not None:
+            raise ValueError(f"{name}: {team_error}")
         member_id = row.id or new_id(used)
         used.add(member_id)
-        members.append(Member(name, round(ratio / 100, 4), levels, member_id, row.icon, work_days, row.ratio_unclamped))
+        teams = [Membership(s.team_id, s.percent) for s in row.teams]
+        members.append(
+            Member(name, round(ratio / 100, 4), levels, member_id, row.icon, work_days, row.ratio_unclamped, teams)
+        )
         if row.original is not None and row.original != name:
             renames[row.original] = name
     kept = {row.original for row in rows if row.original is not None}
@@ -1937,11 +1950,12 @@ def member_table_min_rem(level_count: int, with_effective: bool) -> int:
 @dataclass
 class MembersPanel:
     """メンバーのタブの操作。dirty は未適用の編集があるか、min_rem は今の表の幅(rem)、
-    parameters_changed は、パラメータの適用を、未適用の行へ伝える。"""
+    parameters_changed は、パラメータの適用を、teams_changed は、チームの削除を、未適用の行へ伝える。"""
 
     dirty: Callable[[], bool]
     min_rem: Callable[[], int]
     parameters_changed: Callable[[ParameterEdit], None]
+    teams_changed: Callable[[set[str]], None]
     apply: Callable[[Callable[[], None] | None], None]
 
 
@@ -1954,6 +1968,7 @@ def members_panel(
     pick_icon: Callable[[], Awaitable[str | None]] | None = None,
     get_limits: Callable[[], RatioLimits] = RatioLimits,
     get_holidays: Callable[[], dict[date, str]] = dict,
+    get_teams: Callable[[], list[Team]] = list,
 ) -> MembersPanel:
     """メンバーの編集(タブの中身)。1 行が 1 人の表(名前・基本比率・パラメータごとの段階・実効比率・削除)。
     適用してもダイアログは閉じず、プロジェクトの今のメンバーから行を作り直す。"""
@@ -1973,7 +1988,15 @@ def members_panel(
     def to_rows() -> list[MemberRow]:
         return [
             MemberRow(
-                m.name, m.name, round(m.ratio * 100, 2), dict(m.levels), m.id, m.icon, work_day_rows(m), m.ratio_unclamped
+                m.name,
+                m.name,
+                round(m.ratio * 100, 2),
+                dict(m.levels),
+                m.id,
+                m.icon,
+                work_day_rows(m),
+                m.ratio_unclamped,
+                [Membership(s.team_id, s.percent) for s in m.teams],
             )
             for m in get_members()
         ]
@@ -2134,7 +2157,9 @@ def members_panel(
 
     def apply(then: Callable[[], None] | None = None) -> None:
         try:
-            result = build_members(rows, originals, assigned, current["parameters"], get_taken())
+            result = build_members(
+                rows, originals, assigned, current["parameters"], get_taken(), team_ids={t.id for t in get_teams()}
+            )
         except ValueError as exc:
             error.set_text(str(exc))
             return
@@ -2153,11 +2178,17 @@ def members_panel(
         current["parameters"] = list(get_parameters())
         table.refresh()
 
+    def teams_changed(removed: set[str]) -> None:
+        for row in (*rows, *baseline):  # 未適用の行も、適用済みの基準も、同じように写す(印が出ない)
+            row.teams = normalize([s for s in row.teams if s.team_id not in removed])
+        table.refresh()
+
     ui.button("適用", on_click=lambda: apply()).mark("member-apply")
     return MembersPanel(
         dirty=lambda: rows != baseline,
         min_rem=lambda: layout()[3],
         parameters_changed=parameters_changed,
+        teams_changed=teams_changed,
         apply=apply,
     )
 
@@ -2176,6 +2207,9 @@ def open_members_parameters_dialog(
     rollback: Callable[[], object] = lambda: None,
     get_limits: Callable[[], RatioLimits] = RatioLimits,
     get_holidays: Callable[[], dict[date, str]] = dict,
+    get_teams: Callable[[], list[Team]] = list,
+    team_impacts: Callable[[list[Team]], list[str]] = lambda teams: [],
+    on_apply_teams: Callable[[list[Team]], object] = lambda teams: None,
 ) -> None:
     """メンバーとパラメータのダイアログ。`適用`はタブごとで閉じない。`閉じる`は変更のあるタブを確定して閉じ、
     `キャンセル`は未適用の編集を捨てて閉じる(開いてから適用した分〔applied〕があれば、残すか rollback で戻すかを確認する)。"""
@@ -2188,12 +2222,15 @@ def open_members_parameters_dialog(
             with ui.tab("parameters", label="").mark("tab-parameters"), ui.row().classes("items-center no-wrap gap-1"):
                 ui.label("パラメータ")
                 parameters_mark = ui.label("").classes("text-orange").mark("parameters-dirty")
+            with ui.tab("teams", label="").mark("tab-teams"), ui.row().classes("items-center no-wrap gap-1"):
+                ui.label("チーム")
+                teams_mark = ui.label("").classes("text-orange").mark("teams-dirty")
         with ui.tab_panels(tabs, value="members").props("keep-alive").classes("w-full").style(
             "flex-shrink: 0"  # 縮むと、はみ出た分が overflow: hidden で切れる。カードのスクロールに任せる
         ).mark("members-parameters-panels"):
             with ui.tab_panel("members"):
                 members = members_panel(
-                    get_members, assigned, on_apply_members, get_parameters, get_taken, pick_icon, get_limits, get_holidays
+                    get_members, assigned, on_apply_members, get_parameters, get_taken, pick_icon, get_limits, get_holidays, get_teams
                 )
             with ui.tab_panel("parameters"):
 
@@ -2204,6 +2241,10 @@ def open_members_parameters_dialog(
                 parameters = parameters_panel(
                     get_parameters, impacts, on_apply_parameters, parameters_applied, get_limits
                 )
+            with ui.tab_panel("teams"):
+                teams = teams_panel(
+                    get_teams, team_impacts, on_apply_teams, lambda removed: members.teams_changed(removed), get_taken
+                )
 
         def fit_width() -> None:
             card.style(replace=f"width: {max(36, members.min_rem() + 3)}rem; max-width: 96vw")
@@ -2211,6 +2252,7 @@ def open_members_parameters_dialog(
         def update_marks() -> None:
             members_mark.set_text("●" if members.dirty() else "")
             parameters_mark.set_text("●" if parameters.dirty() else "")
+            teams_mark.set_text("●" if teams.dirty() else "")
 
         fit_width()
         ui.timer(0.3, update_marks)
@@ -2219,7 +2261,7 @@ def open_members_parameters_dialog(
             dialog.close()
 
         def close_after_apply() -> None:
-            """変更のあるタブを、パラメータ → メンバーの順に確定して閉じる。エラーのタブは表示して閉じない。"""
+            """変更のあるタブを、パラメータ → チーム → メンバーの順に確定して閉じる。エラーのタブは表示して閉じない。"""
 
             def apply_members() -> None:
                 if members.dirty():
@@ -2228,11 +2270,18 @@ def open_members_parameters_dialog(
                 else:
                     close_dialog()
 
+            def apply_teams() -> None:
+                if teams.dirty():
+                    tabs.set_value("teams")
+                    teams.apply(apply_members)
+                else:
+                    apply_members()
+
             if parameters.dirty():
                 tabs.set_value("parameters")
-                parameters.apply(apply_members)
+                parameters.apply(apply_teams)
             else:
-                apply_members()
+                apply_teams()
 
         def rollback_and_close() -> None:
             confirm.close()

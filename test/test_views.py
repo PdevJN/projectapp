@@ -33,7 +33,7 @@ from projectapp.handoff import JSON_FILE_TYPES
 from projectapp.settings_io import DEFAULT_FILENAME as SETTINGS_DEFAULT_FILENAME
 from projectapp.settings_io import SETTINGS_FILE_TYPES, build_settings, parse_settings, write_settings
 from projectapp.categories import CategoryEdit
-from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Parameter, Project, RatioLimits, ReferenceMode, ReferenceValue, Section, Status, Task, TaskKind, TaskUrl, UrlTemplate, WorkDay, union_assignees
+from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Membership, Parameter, Project, RatioLimits, ReferenceMode, ReferenceValue, Section, Status, Task, TaskKind, TaskUrl, Team, UrlTemplate, WorkDay, union_assignees
 from projectapp.storage import load_project, save_project
 from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
 
@@ -6660,3 +6660,100 @@ async def test_the_view_holidays_include_closed_events_but_the_base_does_not(use
     assert view.base_holidays == {date(2026, 10, 12): "スポーツの日"}
     view.project.events[0].closed = False
     assert view.holidays == {date(2026, 10, 12): "スポーツの日"}  # 休みを外すと戻る
+
+
+async def test_the_teams_tab_adds_renames_and_applies_without_closing(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    await user.should_see(marker="tab-teams")
+    user.find(marker="tab-teams").click()
+    user.find(marker="team-add").click()
+    await user.should_see(marker="team-name-0")
+    user.find(marker="team-name-0").type("開発")
+    user.find(marker="team-apply").click()
+    assert await wait_until(lambda: [t.name for t in view.project.teams] == ["開発"])
+    await user.should_see(marker="members-parameters-panels")  # 閉じない
+
+
+async def test_the_teams_tab_shows_errors_and_changes_nothing(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    user.find(marker="tab-teams").click()
+    user.find(marker="team-add").click()
+    await user.should_see(marker="team-name-0")
+    user.find(marker="team-apply").click()  # 名前が空
+    assert await wait_until(lambda: "名前を入力" in user.find(marker="team-error").elements.pop().text)
+    assert view.project.teams == []
+
+
+async def test_team_delete_without_members_applies_without_a_confirmation(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.teams = [Team("開発", id="t1")]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="tab-teams").click()
+    user.find(marker="team-delete-0").click()
+    user.find(marker="team-apply").click()
+    assert await wait_until(lambda: view.project.teams == [])
+
+
+async def test_team_delete_with_members_asks_then_drops_memberships_and_renormalizes(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.teams = [Team("開発", id="t1"), Team("QA", id="t2"), Team("運用", id="t3")]
+    view.project.members = [
+        Member("甲", 1.0, id="m1", teams=[Membership("t1", 60), Membership("t2", 30), Membership("t3", 10)])
+    ]
+    view.mark_clean()
+    await open_members_parameters(user)
+    user.find(marker="tab-teams").click()
+    user.find(marker="team-delete-2").click()  # 運用を削除
+    user.find(marker="team-apply").click()
+    await user.should_see(marker="team-delete-confirm")
+    assert view.project.teams[2].name == "運用"  # 確認の前は変わらない
+    user.find(marker="team-delete-confirm").click()
+    assert await wait_until(lambda: [t.name for t in view.project.teams] == ["開発", "QA"])
+    assert view.project.members[0].teams == [Membership("t1", 67), Membership("t2", 33)]
+
+
+async def test_team_delete_also_fixes_unapplied_member_rows_without_marking_the_members_tab(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.teams = [Team("開発", id="t1"), Team("QA", id="t2")]
+    view.project.members = [Member("甲", 1.0, id="m1", teams=[Membership("t1", 60), Membership("t2", 40)])]
+    view.mark_clean()
+    await open_members_parameters(user)
+    members_mark = user.find(marker="members-dirty").elements.pop()
+    user.find(marker="member-name-0").clear().type("甲田")  # 未適用の編集
+    user.find(marker="tab-teams").click()
+    user.find(marker="team-delete-1").click()  # QA を削除
+    user.find(marker="team-apply").click()
+    await user.should_see(marker="team-delete-confirm")
+    user.find(marker="team-delete-confirm").click()
+    assert await wait_until(lambda: [t.name for t in view.project.teams] == ["開発"])
+    user.find(marker="tab-members").click()
+    user.find(marker="member-apply").click()  # 未適用の行の所属が正規化されているので、検証を通る
+    assert await wait_until(lambda: [m.name for m in view.project.members] == ["甲田"])
+    assert view.project.members[0].teams == [Membership("t1", 100)]
+    assert members_mark.text == ""
+
+
+async def test_closing_applies_teams_before_members(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    user.find(marker="tab-teams").click()
+    user.find(marker="team-add").click()
+    await user.should_see(marker="team-name-0")
+    user.find(marker="team-name-0").type("開発")
+    user.find(marker="members-parameters-close").click()
+    assert await wait_until(lambda: [t.name for t in view.project.teams] == ["開発"])
+
+
+async def test_the_teams_tab_shows_a_mark_while_it_has_unapplied_edits(user: User, tmp_path: Path) -> None:
+    await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    teams_mark = user.find(marker="teams-dirty").elements.pop()
+    assert teams_mark.text == ""
+    user.find(marker="tab-teams").click()
+    user.find(marker="team-add").click()
+    assert await wait_until(lambda: teams_mark.text == "●")

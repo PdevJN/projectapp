@@ -134,7 +134,7 @@ from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, short_date
-from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, RatioLimits, ReferenceMode, ReferenceValue, Section, SectionPath, Task, TaskKind, WorkDay, new_id, union_assignees
+from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, RatioLimits, ReferenceMode, ReferenceValue, Section, SectionPath, Task, TaskKind, Team, WorkDay, new_id, union_assignees
 from projectapp.workdays import work_day_map
 from projectapp.selection import set_checked
 from projectapp.preview import (
@@ -162,6 +162,7 @@ from projectapp.storage import (
 )
 from projectapp.summary import parent_map
 from projectapp.task_dialog import open_task_dialog, open_week_crew_dialog
+from projectapp.teams import removal_impacts, replace_teams
 from projectapp.theme import BODY_CSS, CustomTheme, theme_js, today_color_js
 from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
 from projectapp.theme_dialog import open_today_color_dialog as show_today_color_dialog
@@ -1426,6 +1427,9 @@ class MainView:
             rollback=rollback,
             get_limits=lambda: self.project.ratio_limits,
             get_holidays=lambda: self.holidays,
+            get_teams=lambda: self.project.teams,
+            team_impacts=lambda teams: removal_impacts(self.project, teams),
+            on_apply_teams=self.apply_teams,
         )
 
     async def pick_member_icon(self) -> str | None:
@@ -1452,6 +1456,13 @@ class MainView:
                 for assignee in [*task.assignees, *(a for week in task.weekly_crew for a in week)]:
                     if assignee.name in renames:
                         assignee.name = renames[assignee.name]
+        self.after_edit()
+
+    def apply_teams(self, teams: list[Team]) -> None:
+        """チームを更新し、消えたチームへの所属をメンバーから外す。保存はしない(編集中の判定に入る)。"""
+        if [(t.id, t.name) for t in teams] == [(t.id, t.name) for t in self.project.teams]:
+            return
+        replace_teams(self.project, teams)
         self.after_edit()
 
     def apply_parameters(self, edit: ParameterEdit) -> None:
