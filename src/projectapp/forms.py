@@ -74,8 +74,8 @@ from projectapp.models import (
 )
 from projectapp.periodfield import add_range_picker, normalize_period, split_period, validate_period
 from projectapp.workdays import MAX_NOTE, expand_range, sort_work_days, validate_work_days
-from projectapp.teams import membership_error, normalize
-from projectapp.teams_dialog import teams_panel
+from projectapp.teams import membership_error, membership_summary, normalize
+from projectapp.teams_dialog import open_member_teams_dialog, teams_panel
 from projectapp.ratios import ParameterEdit, limit_note, ratio_detail, remap_levels, validate_parameters
 from projectapp.urls import TemplateEdit, resolve, validate_templates
 
@@ -1896,6 +1896,7 @@ MEMBER_UNCLAMPED_COLUMN_REM = 5  # 丸めないのチェックの列
 MEMBER_LEVEL_COLUMN_REM = 9
 MEMBER_EFFECTIVE_COLUMN_REM = 11
 MEMBER_WORK_DAYS_COLUMN_REM = 7
+MEMBER_TEAMS_COLUMN_REM = 10  # チームの列(所属の要約のボタン)
 MEMBER_DELETE_COLUMN_REM = 3
 MEMBER_ROW_HEIGHT_PX = 36
 MEMBER_ROW_GAP_PX = 4  # 行の間隔(gap-y-1)
@@ -1911,8 +1912,8 @@ MEMBER_TABLE_CSS = f"""
 """
 
 
-def member_columns(level_count: int, with_effective: bool) -> list[str]:
-    """メンバーの表の列の幅(アイコン・名前・基本比率・丸めない・パラメータごとの段階・実効比率・稼働日・削除)。"""
+def member_columns(level_count: int, with_effective: bool, with_teams: bool = False) -> list[str]:
+    """メンバーの表の列の幅(アイコン・名前・基本比率・丸めない・パラメータごとの段階・実効比率・チーム・稼働日・削除)。"""
     columns = [
         f"{MEMBER_ICON_COLUMN_REM}rem",
         f"{MEMBER_NAME_COLUMN_REM}rem",
@@ -1922,6 +1923,8 @@ def member_columns(level_count: int, with_effective: bool) -> list[str]:
     columns += [f"{MEMBER_LEVEL_COLUMN_REM}rem"] * level_count
     if with_effective:
         columns.append(f"{MEMBER_EFFECTIVE_COLUMN_REM}rem")
+    if with_teams:
+        columns.append(f"{MEMBER_TEAMS_COLUMN_REM}rem")
     columns.append(f"{MEMBER_WORK_DAYS_COLUMN_REM}rem")
     columns.append(f"{MEMBER_DELETE_COLUMN_REM}rem")
     return columns
@@ -1932,7 +1935,7 @@ def member_scroll_min_height_px(row_count: int) -> int:
     return MEMBER_HEADER_HEIGHT_PX + row_count * (MEMBER_ROW_HEIGHT_PX + MEMBER_ROW_GAP_PX) + MEMBER_SCROLLBAR_ROOM_PX
 
 
-def member_table_min_rem(level_count: int, with_effective: bool) -> int:
+def member_table_min_rem(level_count: int, with_effective: bool, with_teams: bool = False) -> int:
     """表の最小の幅(rem)。これより狭い画面では、表を横にスクロールさせる。"""
     return (
         MEMBER_ICON_COLUMN_REM
@@ -1941,9 +1944,10 @@ def member_table_min_rem(level_count: int, with_effective: bool) -> int:
         + MEMBER_UNCLAMPED_COLUMN_REM
         + MEMBER_LEVEL_COLUMN_REM * level_count
         + (MEMBER_EFFECTIVE_COLUMN_REM if with_effective else 0)
+        + (MEMBER_TEAMS_COLUMN_REM if with_teams else 0)
         + MEMBER_WORK_DAYS_COLUMN_REM
         + MEMBER_DELETE_COLUMN_REM
-        + 2 * (6 + level_count + (1 if with_effective else 0))  # 列の間隔(gap 0.5rem)の概算
+        + 2 * (6 + level_count + (1 if with_effective else 0) + (1 if with_teams else 0))  # 列の間隔(gap 0.5rem)の概算
     )
 
 
@@ -2006,19 +2010,21 @@ def members_panel(
     originals = [r.name for r in rows]
     current = {"parameters": list(get_parameters())}
 
-    def layout() -> tuple[list[Parameter], bool, list[str], int]:
+    def layout() -> tuple[list[Parameter], bool, list[str], int, bool]:
         parameters = current["parameters"]
         with_effective = bool(parameters)
+        with_teams = bool(get_teams())
         return (
             parameters,
             with_effective,
-            member_columns(len(parameters), with_effective),
-            member_table_min_rem(len(parameters), with_effective),
+            member_columns(len(parameters), with_effective, with_teams),
+            member_table_min_rem(len(parameters), with_effective, with_teams),
+            with_teams,
         )
 
     @ui.refreshable
     def table() -> None:
-        chosen_parameters, with_effective, columns, min_rem = layout()
+        chosen_parameters, with_effective, columns, min_rem, with_teams = layout()
         if not rows:
             ui.label("メンバーがいません").classes("text-grey")
         # 横に伸びる(パラメータが多い)ときは、表だけを横にスクロールさせる。
@@ -2041,6 +2047,8 @@ def members_panel(
                     ui.label(parameter.name).classes(f"{header} ellipsis").mark(f"member-header-level-{p}")
                 if with_effective:
                     ui.label("相対比率").classes(header).mark("member-header-effective")
+                if with_teams:
+                    ui.label("チーム").classes(header).mark("member-header-teams")
                 ui.label("稼働日").classes(header).mark("member-header-workdays")
                 ui.label("")
                 for index, row in enumerate(rows):
@@ -2114,6 +2122,11 @@ def members_panel(
                             .classes("text-grey member-effective")
                             .mark(f"member-effective-{index}")
                         )
+                    if with_teams:
+                        ui.button(
+                            membership_summary(row.teams, get_teams()),
+                            on_click=lambda r=row: open_teams(r),
+                        ).props("flat dense no-caps").classes("ellipsis").mark(f"member-teams-open-{index}")
                     ui.button(
                         f"稼働日({len(row.work_days)})" if row.work_days else "稼働日",
                         on_click=lambda r=row: open_work_days(r),
@@ -2136,6 +2149,13 @@ def members_panel(
             ui.button("閉じる", on_click=sub.close).mark("member-workday-close")
         sub.on("hide", table.refresh)
         sub.open()
+
+    def open_teams(row: MemberRow) -> None:
+        def save(chosen: list[Membership]) -> None:
+            row.teams = chosen
+            table.refresh()
+
+        open_member_teams_dialog(row.name, get_teams(), list(row.teams), save)
 
     async def choose_icon(row: MemberRow) -> None:
         assert pick_icon is not None

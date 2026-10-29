@@ -6757,3 +6757,85 @@ async def test_the_teams_tab_shows_a_mark_while_it_has_unapplied_edits(user: Use
     user.find(marker="tab-teams").click()
     user.find(marker="team-add").click()
     assert await wait_until(lambda: teams_mark.text == "●")
+
+
+def team_members_view_setup(view: MainView) -> None:
+    view.project.teams = [Team("開発", id="t1"), Team("QA", id="t2")]
+    view.project.members = [Member("甲", 1.0, id="m1"), Member("乙", 1.0, id="m2", teams=[Membership("t1", 100)])]
+    view.mark_clean()
+
+
+async def test_the_members_table_has_a_teams_column_only_when_teams_exist(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.members = [Member("甲", 1.0, id="m1")]
+    view.mark_clean()
+    await open_members_parameters(user)
+    await user.should_not_see(marker="member-header-teams")
+
+
+async def test_the_teams_button_shows_the_summary(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    team_members_view_setup(view)
+    await open_members_parameters(user)
+    await user.should_see(marker="member-header-teams")
+    assert user.find(marker="member-teams-open-0").elements.pop().text == "チーム"
+    assert user.find(marker="member-teams-open-1").elements.pop().text == "開発"
+
+
+async def test_choosing_two_teams_splits_evenly_and_saves_on_apply(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    team_members_view_setup(view)
+    await open_members_parameters(user)
+    user.find(marker="member-teams-open-0").click()
+    await user.should_see(marker="mteam-save")
+    user.find(marker="mteam-check-0").elements.pop().set_value(True)
+    user.find(marker="mteam-check-1").elements.pop().set_value(True)
+    assert user.find(marker="mteam-percent-0").elements.pop().value == 50
+    user.find(marker="mteam-percent-0").elements.pop().set_value(70)
+    user.find(marker="mteam-percent-1").elements.pop().set_value(30)
+    user.find(marker="mteam-save").click()
+    assert await wait_until(lambda: user.find(marker="member-teams-open-0").elements.pop().text == "開発 70%・QA 30%")
+    assert view.project.members[0].teams == []  # 適用するまでは変わらない
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members[0].teams == [Membership("t1", 70), Membership("t2", 30)])
+
+
+async def test_choosing_one_team_hides_the_percent_and_saves_100(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    team_members_view_setup(view)
+    await open_members_parameters(user)
+    user.find(marker="member-teams-open-0").click()
+    await user.should_see(marker="mteam-save")
+    user.find(marker="mteam-check-1").elements.pop().set_value(True)
+    await user.should_not_see(marker="mteam-percent-1")  # 1 つだけなら割合は出さない
+    user.find(marker="mteam-save").click()
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members[0].teams == [Membership("t2", 100)])
+
+
+async def test_a_bad_total_shows_an_error_and_keeps_the_dialog_open(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    team_members_view_setup(view)
+    await open_members_parameters(user)
+    user.find(marker="member-teams-open-0").click()
+    await user.should_see(marker="mteam-save")
+    user.find(marker="mteam-check-0").elements.pop().set_value(True)
+    user.find(marker="mteam-check-1").elements.pop().set_value(True)
+    user.find(marker="mteam-percent-0").elements.pop().set_value(70)
+    user.find(marker="mteam-percent-1").elements.pop().set_value(40)
+    user.find(marker="mteam-save").click()
+    assert await wait_until(lambda: "合計を 100%" in user.find(marker="mteam-error").elements.pop().text)
+    await user.should_see(marker="mteam-save")  # 閉じない
+
+
+async def test_unchecking_every_team_clears_the_membership(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    team_members_view_setup(view)
+    await open_members_parameters(user)
+    user.find(marker="member-teams-open-1").click()
+    await user.should_see(marker="mteam-save")
+    assert user.find(marker="mteam-check-0").elements.pop().value is True  # 今の所属が入っている
+    user.find(marker="mteam-check-0").elements.pop().set_value(False)
+    user.find(marker="mteam-save").click()
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: view.project.members[1].teams == [])

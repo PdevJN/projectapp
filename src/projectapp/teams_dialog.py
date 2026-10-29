@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 from nicegui import ui
 
-from projectapp.models import Team
-from projectapp.teams import TeamRow, build_teams
+from projectapp.models import Membership, Team
+from projectapp.teams import TeamRow, build_teams, even_split, settle_memberships
 
 
 @dataclass
@@ -103,3 +103,60 @@ def teams_panel(
     ui.button("適用", on_click=lambda: apply()).mark("team-apply")
     return TeamsPanel(dirty=lambda: rows != baseline, apply=apply)
 
+
+def open_member_teams_dialog(
+    name: str,
+    teams: list[Team],
+    current: list[Membership],
+    on_save: Callable[[list[Membership]], object],
+) -> None:
+    """メンバー 1 人の所属を決める小さなダイアログ。チームごとにチェックを入れ、2 つ以上のときだけ割合(合計 100)を入れる。"""
+    percents = {m.team_id: m.percent for m in current}
+    with ui.dialog() as dialog, ui.card().classes("w-96"):
+        ui.label(f"{name or '(名前なし)'} の所属チーム").classes("text-subtitle1")
+        ui.label("兼務のときは、割合の合計を 100% にします").classes("text-caption text-grey")
+        checks: list[ui.checkbox] = []
+        inputs: list[ui.number] = []
+        for index, team in enumerate(teams):
+            with ui.row().classes("w-full items-center no-wrap gap-3"):
+                check = ui.checkbox(team.name, value=team.id in percents).classes("flex-1").mark(f"mteam-check-{index}")
+                number = ui.number("割合(%)", value=percents.get(team.id), min=1, max=100, step=5).classes("w-28")
+                number.mark(f"mteam-percent-{index}")
+            checks.append(check)
+            inputs.append(number)
+        error = ui.label("").classes("text-negative").mark("mteam-error")
+
+        def checked() -> list[int]:
+            return [i for i, check in enumerate(checks) if check.value]
+
+        def show() -> None:
+            picked = checked()
+            for i, number in enumerate(inputs):
+                number.set_visibility(i in picked and len(picked) >= 2)
+
+        def on_check() -> None:
+            picked = checked()
+            if len(picked) >= 2:  # 選び直したら、均等割りから始める
+                for i, share in zip(picked, even_split(len(picked))):
+                    inputs[i].set_value(share)
+            show()
+
+        for check in checks:
+            check.on_value_change(lambda _e: on_check())
+        show()
+
+        def save() -> None:
+            rows = [(teams[i].id, inputs[i].value) for i in checked()]
+            try:
+                chosen = settle_memberships(rows, {t.id for t in teams})
+            except ValueError as exc:
+                error.set_text(str(exc))
+                return
+            dialog.close()
+            on_save(chosen)
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark("mteam-cancel")
+            ui.button("決定", on_click=save).mark("mteam-save")
+    dialog.on("hide", dialog.delete)
+    dialog.open()

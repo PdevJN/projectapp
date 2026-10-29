@@ -2444,3 +2444,8 @@ def test_build_members_rejects_a_membership_of_an_unknown_team() -> None:
     rows_ = [MemberRow(None, "甲", 100.0, teams=[Membership("zzz", 100)])]
     with pytest.raises(ValueError, match="存在しないチーム"):
         build_members(rows_, [], no_tasks, team_ids={"a"})
+
+
+def test_member_columns_add_a_teams_column_only_when_asked() -> None:
+    assert len(member_columns(0, False, True)) == len(member_columns(0, False)) + 1
+    assert member_table_min_rem(0, False, True) > member_table_min_rem(0, False)
