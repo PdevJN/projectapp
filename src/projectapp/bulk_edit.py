@@ -8,7 +8,12 @@ from enum import Enum
 
 from projectapp.effortunits import DECIMALS
 from projectapp.models import MAX_YEAR, MIN_YEAR, Assignee, Project, Task, TaskKind, walk_sections
-from projectapp.timeline import Schedule, own_end
+from projectapp.linkgraph import drop_task_links
+from projectapp.merge import fill_empty_weeks
+from projectapp.models import union_assignees
+from projectapp.reassign import needs_review
+from projectapp.summary import parent_map
+from projectapp.timeline import Schedule, conversion_rate, effective_end, effective_start, own_end, week_count
 
 SKIP_KIND = "対象外の種別"
 SKIP_NO_CREW = "担当なし"
@@ -195,5 +200,107 @@ def forecast_text(result: BulkResult, total: int) -> str:
     return text
 
 
-def _crew(task: Task, change: CrewChange, project: Project, holidays: dict[date, str], schedule: Schedule, result: BulkResult) -> Task:
-    raise NotImplementedError  # Task 3 で実装する
+def _copy(crew: Sequence[Assignee]) -> list[Assignee]:
+    return [Assignee(a.name, a.allocation) for a in crew]
+
+
+def _crew(
+    task: Task, change: CrewChange, project: Project, holidays: dict[date, str], schedule: Schedule, result: BulkResult
+) -> Task:
+    if task.kind is not TaskKind.NORMAL:
+        result.skip(SKIP_KIND)
+        return task
+    new = _crew_applied(task, change, project, holidays, schedule, result)
+    if new != task and needs_review(new, conversion_rate(task, project), conversion_rate(new, project)):
+        result.review_needed += 1
+    return new
+
+
+def _crew_applied(
+    task: Task, change: CrewChange, project: Project, holidays: dict[date, str], schedule: Schedule, result: BulkResult
+) -> Task:
+    weeks = task.weekly_crew
+    if change.mode is CrewMode.ADD:
+        who = change.members[0]
+
+        def add(crew: Sequence[Assignee]) -> list[Assignee]:
+            merged = [Assignee(a.name, who.allocation if a.name == who.name else a.allocation) for a in crew]
+            return merged if any(a.name == who.name for a in crew) else [*merged, Assignee(who.name, who.allocation)]
+
+        if weeks:
+            added = [add(w) for w in weeks]
+            return replace(task, weekly_crew=added, assignees=union_assignees(added))
+        return replace(task, assignees=add(task.assignees))
+    if change.mode is CrewMode.REMOVE:
+        name = change.members[0].name
+
+        def drop(crew: Sequence[Assignee]) -> list[Assignee]:
+            return _copy([a for a in crew if a.name != name])
+
+        if weeks:
+            filled, empties = fill_empty_weeks([drop(w) for w in weeks])
+            if not filled:  # 全週が空: 週ごとをやめて担当なしにする
+                result.emptied += 1
+                return replace(task, weekly_crew=[], assignees=[])
+            result.filled_weeks += len(empties)
+            return replace(task, weekly_crew=filled, assignees=union_assignees(filled))
+        crew = drop(task.assignees)
+        if task.assignees and not crew:
+            result.emptied += 1
+        return replace(task, assignees=crew)
+    if change.mode is CrewMode.REPLACE:
+        if weeks:
+            result.weeks_dropped += 1
+        return replace(task, weekly_crew=[], assignees=_copy(change.members))
+    # FROM_WEEK: 第 N 週から後ろを丸ごと上書きする
+    if not weeks:
+        if not task.assignees:
+            result.skip(SKIP_NO_CREW)
+            return task
+        start = effective_start(task, project, holidays, schedule)
+        if start is None:
+            result.skip(SKIP_NO_START)
+            return task
+        end = effective_end(task, project, holidays, schedule)
+        count = week_count(start, end) if end is not None and end > start else 1
+        weeks = [_copy(task.assignees) for _ in range(count)]
+    head = [_copy(w) for w in weeks[: change.from_week - 1]]
+    while len(head) < change.from_week - 1:
+        head.append(_copy(head[-1]))  # 定義した週より後ろは、最後の週の担当が続いていた
+    new_weeks = [*head, _copy(change.members)]
+    return replace(task, weekly_crew=new_weeks, assignees=union_assignees(new_weeks))
+
+
+@dataclass(frozen=True)
+class DeleteSummary:
+    total: int
+    summaries: int  # うちまとめ
+    children: int  # うちまとめの子
+    running: int  # うち実行中の記録(終了のない区間)があるもの
+
+
+def delete_summary(project: Project, ids: Collection[str]) -> DeleteSummary:
+    """削除の確認に出す件数。"""
+    by_id = project.task_map()
+    parents = parent_map(project)
+    chosen = [by_id[i] for i in ids if i in by_id]
+    return DeleteSummary(
+        total=len(chosen),
+        summaries=sum(1 for t in chosen if t.kind is TaskKind.SUMMARY),
+        children=sum(1 for t in chosen if t.id in parents),
+        running=sum(1 for t in chosen if any(a.end is None for a in t.actuals)),
+    )
+
+
+def delete_tasks(project: Project, ids: Collection[str]) -> int:
+    """ids のタスクを取り除き、先行・まとめの子から外す(単独の削除と同じ規則)。消した件数を返す。"""
+    removed = 0
+    for task_id in ids:
+        for tasks in _task_lists(project):
+            index = next((i for i, t in enumerate(tasks) if t.id == task_id), None)
+            if index is not None:
+                del tasks[index]
+                drop_task_links(project, task_id)
+                removed += 1
+                break
+    return removed

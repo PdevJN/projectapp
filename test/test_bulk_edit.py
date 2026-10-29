@@ -4,17 +4,24 @@ from projectapp.bulk_edit import (
     SKIP_BEFORE_START,
     SKIP_KIND,
     SKIP_NEGATIVE,
+    SKIP_NO_CREW,
     SKIP_NO_EFFORT,
+    SKIP_NO_START,
     BulkChanges,
     CategoryChange,
+    CrewChange,
+    CrewMode,
     EffortChange,
     EffortMode,
     EndChange,
     EndMode,
     apply_bulk,
+    delete_summary,
+    delete_tasks,
     forecast_text,
     store,
 )
+from projectapp.models import Actual, Assignee, Member, MAX_WEEKS
 from projectapp.models import Category, Project, Section, Task, TaskKind
 
 START = datetime(2026, 10, 5, 9)
@@ -126,3 +133,137 @@ def test_forecast_text_counts_targets_changes_and_skips_by_reason() -> None:
     assert text.startswith("対象 2 件 / 変更 1 件")
     assert "スキップ 1 項目" in text and SKIP_NO_EFFORT in text
     assert forecast_text(apply_bulk(project, [], BulkChanges(), {}), 0) == "対象 0 件 / 変更 0 件"
+
+
+def crew_project(*tasks: Task) -> Project:
+    project = project_of(*tasks)
+    project.members = [Member("田中", id="m1"), Member("鈴木", id="m2")]
+    return project
+
+
+def names(crew: list[Assignee]) -> list[tuple[str, float]]:
+    return [(a.name, a.allocation) for a in crew]
+
+
+def weekly(*weeks: list[Assignee]) -> list[list[Assignee]]:
+    return [list(w) for w in weeks]
+
+
+def test_crew_add_appends_and_updates_an_existing_member_rate() -> None:
+    project = crew_project(Task("t", id="t", assignees=[Assignee("田中", 1.0)]))
+    add = BulkChanges(crew=CrewChange(CrewMode.ADD, (Assignee("鈴木", 0.5),)))
+    assert names(apply_bulk(project, ["t"], add, {}).tasks["t"].assignees) == [("田中", 1.0), ("鈴木", 0.5)]
+    update = BulkChanges(crew=CrewChange(CrewMode.ADD, (Assignee("田中", 0.4),)))
+    assert names(apply_bulk(project, ["t"], update, {}).tasks["t"].assignees) == [("田中", 0.4)]
+
+
+def test_crew_add_applies_to_every_week_of_a_weekly_task_and_keeps_the_union() -> None:
+    task = Task("t", id="t", assignees=[Assignee("田中", 1.0)], weekly_crew=weekly([Assignee("田中", 1.0)], [Assignee("田中", 0.5)]))
+    project = crew_project(task)
+    new = apply_bulk(project, ["t"], BulkChanges(crew=CrewChange(CrewMode.ADD, (Assignee("鈴木", 0.3),))), {}).tasks["t"]
+    assert [names(w) for w in new.weekly_crew] == [[("田中", 1.0), ("鈴木", 0.3)], [("田中", 0.5), ("鈴木", 0.3)]]
+    assert names(new.assignees) == [("田中", 1.0), ("鈴木", 0.3)]
+
+
+def test_crew_remove_drops_the_member_and_notes_when_a_task_becomes_unassigned() -> None:
+    project = crew_project(Task("a", id="a", assignees=[Assignee("田中", 1.0), Assignee("鈴木", 1.0)]), Task("b", id="b", assignees=[Assignee("田中", 1.0)]))
+    result = apply_bulk(project, ["a", "b"], BulkChanges(crew=CrewChange(CrewMode.REMOVE, (Assignee("田中"),))), {})
+    assert names(result.tasks["a"].assignees) == [("鈴木", 1.0)]
+    assert result.tasks["b"].assignees == [] and result.emptied == 1
+
+
+def test_crew_remove_on_a_weekly_task_fills_emptied_weeks_from_the_neighbour() -> None:
+    task = Task("t", id="t", assignees=[Assignee("田中", 1.0), Assignee("鈴木", 1.0)], weekly_crew=weekly([Assignee("田中", 1.0), Assignee("鈴木", 1.0)], [Assignee("田中", 1.0)]))
+    result = apply_bulk(crew_project(task), ["t"], BulkChanges(crew=CrewChange(CrewMode.REMOVE, (Assignee("田中"),))), {})
+    new = result.tasks["t"]
+    assert [names(w) for w in new.weekly_crew] == [[("鈴木", 1.0)], [("鈴木", 1.0)]]  # 第 2 週は直前の週と同じ
+    assert result.filled_weeks == 1
+
+
+def test_crew_remove_that_empties_every_week_ends_weekly_and_unassigns() -> None:
+    task = Task("t", id="t", assignees=[Assignee("田中", 1.0)], weekly_crew=weekly([Assignee("田中", 1.0)], [Assignee("田中", 1.0)]))
+    result = apply_bulk(crew_project(task), ["t"], BulkChanges(crew=CrewChange(CrewMode.REMOVE, (Assignee("田中"),))), {})
+    assert result.tasks["t"].weekly_crew == [] and result.tasks["t"].assignees == [] and result.emptied == 1
+
+
+def test_crew_remove_of_an_absent_member_changes_nothing() -> None:
+    project = crew_project(Task("t", id="t", assignees=[Assignee("田中", 1.0)]))
+    result = apply_bulk(project, ["t"], BulkChanges(crew=CrewChange(CrewMode.REMOVE, (Assignee("鈴木"),))), {})
+    assert result.tasks == {} and result.skipped == 0
+
+
+def test_crew_replace_swaps_the_list_and_ends_weekly_counting_it() -> None:
+    plain = Task("p", id="p", assignees=[Assignee("田中", 1.0)])
+    weekly_task = Task("w", id="w", assignees=[Assignee("田中", 1.0)], weekly_crew=weekly([Assignee("田中", 1.0)]))
+    change = BulkChanges(crew=CrewChange(CrewMode.REPLACE, (Assignee("鈴木", 0.5),)))
+    result = apply_bulk(crew_project(plain, weekly_task), ["p", "w"], change, {})
+    assert names(result.tasks["p"].assignees) == [("鈴木", 0.5)]
+    assert result.tasks["w"].weekly_crew == [] and names(result.tasks["w"].assignees) == [("鈴木", 0.5)]
+    assert result.weeks_dropped == 1  # 週ごとが解除された件数だけ
+
+
+def test_crew_from_week_splits_a_plain_task_and_overwrites_the_tail() -> None:
+    task = Task("t", id="t", planned_start=START, planned_end=datetime(2026, 10, 22, 12), assignees=[Assignee("田中", 1.0)])  # 3 週ぶん
+    change = BulkChanges(crew=CrewChange(CrewMode.FROM_WEEK, (Assignee("鈴木", 0.5),), from_week=2))
+    new = apply_bulk(crew_project(task), ["t"], change, {}).tasks["t"]
+    assert [names(w) for w in new.weekly_crew] == [[("田中", 1.0)], [("鈴木", 0.5)]]  # 第 3 週の定義は消え、第 2 週の担当が続く
+    assert names(new.assignees) == [("田中", 1.0), ("鈴木", 0.5)]
+
+
+def test_crew_from_week_on_a_weekly_task_pads_with_the_last_week_and_caps_the_tail() -> None:
+    task = Task("t", id="t", assignees=[Assignee("田中", 1.0)], weekly_crew=weekly([Assignee("田中", 1.0)]))
+    change = BulkChanges(crew=CrewChange(CrewMode.FROM_WEEK, (Assignee("鈴木", 1.0),), from_week=4))
+    new = apply_bulk(crew_project(task), ["t"], change, {}).tasks["t"]
+    assert [names(w) for w in new.weekly_crew] == [[("田中", 1.0)]] * 3 + [[("鈴木", 1.0)]]
+    last = BulkChanges(crew=CrewChange(CrewMode.FROM_WEEK, (Assignee("鈴木", 1.0),), from_week=MAX_WEEKS))
+    assert len(apply_bulk(crew_project(task), ["t"], last, {}).tasks["t"].weekly_crew) == MAX_WEEKS
+
+
+def test_crew_from_week_skips_tasks_without_crew_or_start() -> None:
+    no_crew = Task("a", id="a", planned_start=START)
+    no_start = Task("b", id="b", assignees=[Assignee("田中", 1.0)])
+    change = BulkChanges(crew=CrewChange(CrewMode.FROM_WEEK, (Assignee("鈴木", 1.0),), from_week=2))
+    result = apply_bulk(crew_project(no_crew, no_start), ["a", "b"], change, {})
+    assert result.tasks == {} and result.skips[SKIP_NO_CREW] == 1 and result.skips[SKIP_NO_START] == 1
+
+
+def test_crew_skips_non_normal_tasks() -> None:
+    project = crew_project(Task("s", id="s", kind=TaskKind.SUMMARY))
+    result = apply_bulk(project, ["s"], BulkChanges(crew=CrewChange(CrewMode.ADD, (Assignee("田中", 1.0),))), {})
+    assert result.tasks == {} and result.skips[SKIP_KIND] == 1
+
+
+def test_crew_change_counts_tasks_whose_end_needs_a_review() -> None:
+    # 工数あり・進捗度あり・終了でない → 換算率が変わると見直しが要る
+    worked = Task("w", id="w", planned_start=START, effort_hours=20, progress=30, assignees=[Assignee("田中", 1.0)])
+    fresh = Task("f", id="f", planned_start=START, effort_hours=20, assignees=[Assignee("田中", 1.0)])  # 実績も進捗度もない
+    change = BulkChanges(crew=CrewChange(CrewMode.ADD, (Assignee("鈴木", 1.0),)))
+    result = apply_bulk(crew_project(worked, fresh), ["w", "f"], change, {})
+    assert result.review_needed == 1
+
+
+def test_delete_summary_counts_summaries_children_and_running_records() -> None:
+    kids = [Task("c0", id="c0"), Task("c1", id="c1", actuals=[Actual(START)])]  # c1 は実行中の区間
+    summary = Task("s", id="s", kind=TaskKind.SUMMARY, children=["c0", "c1"])
+    project = project_of(summary, *kids, Task("n", id="n"))
+    info = delete_summary(project, ["s", "c0", "c1", "n"])
+    assert (info.total, info.summaries, info.children, info.running) == (4, 1, 2, 1)
+
+
+def test_delete_tasks_removes_from_sections_and_cleans_links_and_summary_children() -> None:
+    kid = Task("c", id="c")
+    summary = Task("s", id="s", kind=TaskKind.SUMMARY, children=["c"])
+    after = Task("後続", id="after", predecessors=["c", "keep"])
+    keep = Task("残る", id="keep")
+    project = project_of(keep, section=[summary, kid, after])
+    assert delete_tasks(project, ["s", "c"]) == 2
+    assert [t.id for t in project.all_tasks()] == ["keep", "after"]
+    assert project.task_map()["after"].predecessors == ["keep"]
+
+
+def test_delete_tasks_leaves_children_as_normal_tasks_when_only_the_summary_goes() -> None:
+    summary = Task("s", id="s", kind=TaskKind.SUMMARY, children=["c"])
+    project = project_of(summary, Task("c", id="c"))
+    delete_tasks(project, ["s"])
+    assert [t.id for t in project.all_tasks()] == ["c"]
+    assert delete_tasks(project, ["zzz"]) == 0
