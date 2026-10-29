@@ -50,9 +50,11 @@ from projectapp.models import (
     Event,
     Level,
     Member,
+    Membership,
     Parameter,
     Priority,
     Project,
+    Team,
     Section,
     Status,
     Task,
@@ -64,6 +66,7 @@ from projectapp.models import (
     tidy_task_name,
     walk_sections,
 )
+from projectapp.teams import membership_error, team_name_error
 from projectapp.workdays import sort_work_days, validate_work_days
 from projectapp.urls import validate_templates, validate_urls
 
@@ -97,17 +100,23 @@ def _task_dicts(tasks: list[dict[str, Any]], sections: list[dict[str, Any]]) -> 
 
 
 def _check_unique_ids(project: Project) -> None:
-    """タスク同士・メンバー同士・セクション同士の id の重複があれば ValueError(読めないファイルを書かない)。"""
+    """タスク同士・メンバー同士・セクション同士などの id の重複と、読めないチームの所属があれば ValueError(読めないファイルを書かない)。"""
     groups = {
         "タスク": [t.id for t in project.all_tasks()],
         "メンバー": [m.id for m in project.members],
         "セクション": [s.id for _, s in walk_sections(project.sections)],
         "カテゴリ": [c.id for c in project.categories],
         "イベント": [e.id for e in project.events],
+        "チーム": [t.id for t in project.teams],
     }
     for label, ids in groups.items():
         if len(set(ids)) != len(ids):
             raise ValueError(f"{label}の id が重複しています")
+    team_ids = {t.id for t in project.teams}
+    for member in project.members:
+        error = membership_error(member.teams, team_ids)
+        if error is not None:
+            raise ValueError(f"{member.name}: {error}")
 
 
 def _dump(project: Project) -> dict[str, Any]:
@@ -127,7 +136,7 @@ def _dump(project: Project) -> dict[str, Any]:
             if name not in ids:
                 ids[name] = new_id(taken)
                 taken.add(ids[name])
-                data["members"].append({"name": name, "ratio": 1.0, "levels": {}, "id": ids[name], "icon": "", "work_days": []})
+                data["members"].append({"name": name, "ratio": 1.0, "levels": {}, "id": ids[name], "icon": "", "work_days": [], "teams": []})
             refs.append({"member": ids[name], "allocation": assignee["allocation"]})
         return refs
 
@@ -451,6 +460,50 @@ def _iso_date(text: Any, label: str) -> date:
     if not isinstance(text, str) or _ISO_DATE.fullmatch(text) is None:
         raise ValueError(f"イベントの{label}が YYYY-MM-DD ではありません: {text!r}")
     return date.fromisoformat(text)
+
+
+def _teams(value: Any) -> list[Team]:
+    """チーム(version 17)。キーがない・null は空。名前の空・重複・長さ・制御文字、id の不正・重複は ValueError。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("チームがリストではありません")
+    teams: list[Team] = []
+    names: set[str] = set()
+    ids: set[str] = set()
+    for raw in value:
+        if not isinstance(raw, dict):
+            raise ValueError("チームの形式が正しくありません")
+        name = raw.get("name")
+        if not isinstance(name, str):
+            raise ValueError("チームの名前が文字列ではありません")
+        error = team_name_error(name, names)
+        if error is not None:
+            raise ValueError(error)
+        team_id = _entity_id(raw.get("id"), "チーム")
+        if team_id in ids:
+            raise ValueError(f"チームの id が重複しています: {team_id}")
+        names.add(name.strip())
+        ids.add(team_id)
+        teams.append(Team(name.strip(), team_id))
+    return teams
+
+
+def _memberships(value: Any, team_ids: set[str]) -> list[Membership]:
+    """メンバーの所属(version 17)。キーがない・null は空。存在しないチーム・重複・割合の不正・合計が 100 でないものは ValueError。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("メンバーの所属がリストではありません")
+    rows: list[Membership] = []
+    for raw in value:
+        if not isinstance(raw, dict) or not isinstance(raw.get("team_id"), str):
+            raise ValueError("メンバーの所属の形式が正しくありません")
+        rows.append(Membership(raw["team_id"], raw.get("percent")))  # type: ignore[arg-type]  # 割合の型は membership_error が見る
+    error = membership_error(rows, team_ids)
+    if error is not None:
+        raise ValueError(error)
+    return rows
 
 
 def _events(value: Any, version: int = FORMAT_VERSION) -> list[Event]:
@@ -948,6 +1001,7 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
         unclamped = raw.get("ratio_unclamped", False) if ctx.version >= 16 else False
         if not isinstance(unclamped, bool):
             raise ValueError(f"メンバーの丸め対象外の設定が真偽値ではありません: {unclamped!r}")
+        teams = _memberships(raw.get("teams"), ctx.team_ids) if ctx.version >= 17 else []
         member_id = None
         if ctx.version >= 2:
             member_id = _entity_id(raw.get("id"), "メンバー")
@@ -959,7 +1013,7 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
         if not name or name in seen:
             continue
         seen.add(name)
-        member = Member(name, ratio, levels, icon=icon, work_days=work_days, ratio_unclamped=unclamped)
+        member = Member(name, ratio, levels, icon=icon, work_days=work_days, ratio_unclamped=unclamped, teams=teams)
         if member_id is not None:
             member.id = member_id
         members.append(member)
@@ -1015,6 +1069,7 @@ class _Context:
     member_names: dict[str, str] = field(default_factory=dict)  # version 2: メンバー id → 名前(名前が空のメンバーは入れない)
     section_ids: set[str] = field(default_factory=set)
     pending: list[Task] = field(default_factory=list)  # id のないタスク(古いファイル)。読込の最後に id を振る
+    team_ids: set[str] = field(default_factory=set)  # version 17: 読んだチームの id(メンバーの所属の検証に使う)
     legacy_codes: dict[int, str] = field(default_factory=dict)  # version 2 以前: タスク(id())→ 旧 ProjectCode。読込の最後にカテゴリへ移す
 
 
@@ -1044,6 +1099,8 @@ def load_project(path: Path) -> Project:
 def parse_project(text: str, name: str) -> Project:
     raw = json.loads(text)
     ctx = _Context(_check_version(raw))
+    teams = _teams(raw.get("teams")) if ctx.version >= 17 else []
+    ctx.team_ids = {t.id for t in teams}
     members = _members(raw["members"], ctx)  # version 2 の担当者の解決に要るので、タスクより先に読む
     sections = [_section(s, 1, ctx) for s in raw["sections"]]
     ratio_limits = _ratio_limits(raw, ctx.version)
@@ -1053,6 +1110,7 @@ def parse_project(text: str, name: str) -> Project:
         daily_hours=_daily_hours(raw["daily_hours"]),
         work_start=_work_start(raw.get("work_start", "09:00:00")),
         members=members,
+        teams=teams,
         sections=sections,
         tasks=[_task(t, ctx) for t in raw.get("tasks", [])],
         actual_mode=_actual_mode(raw.get("actual_mode", "simple")),

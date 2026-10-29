@@ -18,6 +18,7 @@ from projectapp.models import (
     Event,
     Level,
     Member,
+    Membership,
     Parameter,
     Priority,
     Project,
@@ -26,6 +27,7 @@ from projectapp.models import (
     Task,
     TaskKind,
     TaskUrl,
+    Team,
     UrlTemplate,
     WorkDay,
     walk_sections,
@@ -1827,7 +1829,7 @@ def test_an_invalid_icon_is_rejected_on_load(tmp_path: Path, value: object) -> N
 def test_a_member_added_for_an_unknown_assignee_is_saved_with_an_empty_icon(tmp_path: Path) -> None:
     project = Project("demo", sections=[Section("s", [Task("t", assignees=[Assignee("丙", 1.0)])])])
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["members"] == [{"name": "丙", "ratio": 1.0, "levels": {}, "id": raw["members"][0]["id"], "icon": "", "work_days": []}]
+    assert raw["members"] == [{"name": "丙", "ratio": 1.0, "levels": {}, "id": raw["members"][0]["id"], "icon": "", "work_days": [], "teams": []}]
 
 
 def test_an_icon_with_a_huge_declared_size_is_rejected_on_load_with_a_value_error(tmp_path: Path) -> None:
@@ -2196,3 +2198,92 @@ def test_a_non_boolean_ratio_unclamped_is_rejected_on_load(value: object) -> Non
     raw["members"][0]["ratio_unclamped"] = value
     with pytest.raises(ValueError, match="丸め"):
         parse_project(json.dumps(raw), "p")
+
+
+def team_project() -> Project:
+    return Project(
+        "p",
+        base_date=date(2026, 10, 5),
+        teams=[Team("開発", id="t1"), Team("QA", id="t2")],
+        members=[
+            Member("甲", id="m1", teams=[Membership("t1", 60), Membership("t2", 40)]),
+            Member("乙", id="m2", teams=[Membership("t2", 100)]),
+            Member("丙", id="m3"),
+        ],
+    )
+
+
+def team_dict() -> dict:
+    return json.loads(dumps_project(team_project()))
+
+
+def test_teams_and_memberships_round_trip() -> None:
+    loaded = parse_project(dumps_project(team_project()), "p")
+    assert [(t.id, t.name) for t in loaded.teams] == [("t1", "開発"), ("t2", "QA")]
+    assert loaded.members[0].teams == [Membership("t1", 60), Membership("t2", 40)]
+    assert loaded.members[2].teams == []
+
+
+def test_a_file_without_team_keys_loads_as_no_teams() -> None:
+    raw = team_dict()
+    raw["version"] = 16
+    del raw["teams"]
+    for member in raw["members"]:
+        del member["teams"]
+    loaded = parse_project(json.dumps(raw), "p")
+    assert loaded.teams == [] and all(m.teams == [] for m in loaded.members)
+
+
+def test_teams_in_a_version_16_file_are_ignored() -> None:
+    raw = team_dict()
+    raw["version"] = 16
+    loaded = parse_project(json.dumps(raw), "p")
+    assert loaded.teams == [] and all(m.teams == [] for m in loaded.members)
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        lambda raw: raw["members"][0]["teams"].append({"team_id": "zzz", "percent": 0}),  # 未知のチーム
+        lambda raw: raw["members"][0].update(teams=[{"team_id": "t1", "percent": 50}, {"team_id": "t1", "percent": 50}]),
+        lambda raw: raw["members"][0].update(teams=[{"team_id": "t1", "percent": 60}, {"team_id": "t2", "percent": 30}]),
+        lambda raw: raw["members"][0].update(teams=[{"team_id": "t1", "percent": 60.5}, {"team_id": "t2", "percent": 39.5}]),
+        lambda raw: raw["members"][0].update(teams=[{"team_id": "t1", "percent": True}]),
+        lambda raw: raw["members"][0].update(teams=[{"team_id": "t1", "percent": 0}, {"team_id": "t2", "percent": 100}]),
+        lambda raw: raw["members"][0].update(teams=[{"team_id": 1, "percent": 100}]),
+        lambda raw: raw["members"][0].update(teams="x"),
+        lambda raw: raw.update(teams="x"),
+        lambda raw: raw["teams"].append({"name": "開発", "id": "t3"}),  # 名前の重複
+        lambda raw: raw["teams"].append({"name": "別", "id": "t1"}),  # id の重複
+        lambda raw: raw["teams"].append({"name": "", "id": "t3"}),
+        lambda raw: raw["teams"].append({"name": "あ" * 31, "id": "t3"}),
+        lambda raw: raw["teams"].append({"name": "別", "id": ""}),
+        lambda raw: raw["teams"].append("x"),
+    ],
+)
+def test_bad_teams_are_rejected_on_load(edit) -> None:
+    raw = team_dict()
+    edit(raw)
+    with pytest.raises(ValueError):
+        parse_project(json.dumps(raw), "p")
+
+
+def test_dumping_refuses_a_membership_of_an_unknown_team() -> None:
+    project = team_project()
+    project.members[2].teams = [Membership("zzz", 100)]
+    with pytest.raises(ValueError):
+        dumps_project(project)
+
+
+def test_dumping_refuses_duplicate_team_ids() -> None:
+    project = team_project()
+    project.teams[1].id = "t1"
+    with pytest.raises(ValueError, match="チーム"):
+        dumps_project(project)
+
+
+def test_members_added_for_unknown_assignees_are_saved_without_teams() -> None:
+    project = team_project()
+    project.tasks = [Task("a", id="a", assignees=[Assignee("新人", 1.0)])]
+    loaded = parse_project(dumps_project(project), "p")
+    assert next(m for m in loaded.members if m.name == "新人").teams == []

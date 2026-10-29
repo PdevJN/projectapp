@@ -55,10 +55,11 @@ class ImportFile:
 
 
 def build_settings(project: Project) -> dict[str, Any]:
-    """設定ファイルの辞書。各要素の形は、プロジェクトファイルの保存と同じ。タスクとセクションは含めない。"""
+    """設定ファイルの辞書。各要素の形は、プロジェクトファイルの保存と同じ。タスクとセクション・チームと所属は含めない。"""
     raw = json.loads(dumps_project(replace(project, tasks=[], sections=[])))
     data: dict[str, Any] = {"kind": SETTINGS_KIND, "version": SETTINGS_VERSION, "project_version": raw["version"]}
     data.update({key: raw[key] for key in (*PROJECT_KEYS, *COLLECTION_KEYS)})
+    data["members"] = [{**member, "teams": []} for member in data["members"]]  # チームと所属は設定ファイルに含めない
     return data
 
 
