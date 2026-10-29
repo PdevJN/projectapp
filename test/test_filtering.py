@@ -128,3 +128,23 @@ def test_a_section_whose_tasks_are_all_excluded_has_no_match() -> None:
     a = Task("甲")
     section = Section("A", tasks=[a])
     assert not section_has_match(section, TaskFilter(exclude=frozenset({a.id})))
+
+
+def test_a_team_filter_keeps_tasks_any_member_is_on() -> None:
+    team_filter = TaskFilter(team="開発", team_members=frozenset({"田中", "鈴木"}))
+    assert matches(Task("設計", assignees=[Assignee("田中")]), team_filter)
+    assert matches(Task("共同", assignees=[Assignee("佐藤"), Assignee("鈴木")]), team_filter)  # 共同タスクは丸ごと
+    assert not matches(Task("別", assignees=[Assignee("佐藤")]), team_filter)
+    assert not matches(Task("担当なし"), team_filter)
+
+
+def test_a_team_filter_is_active_and_combines_with_the_query() -> None:
+    team_filter = TaskFilter(query="設", team="開発", team_members=frozenset({"田中"}))
+    assert team_filter.active
+    assert matches(Task("設計", assignees=[Assignee("田中")]), team_filter)
+    assert not matches(Task("実装", assignees=[Assignee("田中")]), team_filter)
+
+
+def test_no_team_means_nobody_is_excluded_by_team() -> None:
+    assert not TaskFilter().active
+    assert matches(Task("設計"), TaskFilter(team_members=frozenset({"田中"})))  # team が None なら見ない

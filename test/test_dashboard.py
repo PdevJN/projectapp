@@ -18,10 +18,11 @@ from projectapp.dashboard import (
     summarize_loads,
     summarize_progress,
     summarize_team_progress,
+    summarize_team_rows,
     summarize_workload,
 )
 from projectapp.timeline import overallocations
-from projectapp.models import Assignee, Actual, Event, Member, Project, Status, Task, TaskKind, WorkDay
+from projectapp.models import Assignee, Actual, Event, Member, Membership, Project, Status, Task, TaskKind, Team, WorkDay
 
 TODAY = date(2026, 10, 7)  # 水曜
 NOW = datetime(2026, 10, 7, 12)
@@ -846,3 +847,99 @@ def test_cross_load_applies_each_projects_own_closed_events() -> None:
     only_plain = summarize_cross_loads([plain], WEEK, {})["田中"]
     assert both.total == only_plain.total  # 休業のプロジェクトのタスクは数えない
     assert not plain.events  # 開いているほうのイベントは混ざらない
+
+
+def teamed_project() -> Project:
+    members = [
+        Member("田中", 1.0, teams=[Membership("a", 100)]),
+        Member("佐藤", 1.0, teams=[Membership("a", 60), Membership("b", 40)]),
+        Member("鈴木", 1.0, teams=[Membership("b", 100)]),
+        Member("山田", 1.0),
+    ]
+    tasks = [
+        Task("田中の", effort_hours=2, status=Status.RUNNING, progress=50, assignees=[Assignee("田中", 1.0)]),
+        Task("共同", effort_hours=6, assignees=[Assignee("田中", 0.5), Assignee("鈴木", 0.5)]),
+        Task("鈴木の", effort_hours=4, status=Status.DONE, progress=100, assignees=[Assignee("鈴木", 1.0)]),
+        Task("山田の", effort_hours=1, assignees=[Assignee("山田", 1.0)]),
+        Task("担当なし", effort_hours=1),
+    ]
+    project = project_of(*tasks, members=members)
+    project.teams = [Team("開発", id="a"), Team("QA", id="b"), Team("空", id="z")]
+    return project
+
+
+def test_a_set_scope_keeps_tasks_any_of_the_names_is_on() -> None:
+    progress = summarize_progress(teamed_project(), {}, NOW, frozenset({"田中", "鈴木"}))
+    assert progress.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 1}
+    assert progress.by_member == [] and progress.by_team == []  # 絞り込み中は、メンバー別・チーム別を出さない
+
+
+def test_a_string_scope_still_means_one_member() -> None:
+    assert summarize_progress(teamed_project(), {}, NOW, "山田").counts[Status.NOT_STARTED] == 1
+
+
+def test_summarize_with_a_team_filters_loads_and_workload_to_its_members() -> None:
+    data = summarize(teamed_project(), WEEK, NOW, {}, team="開発")
+    assert data.team_name == "開発" and data.member is None
+    assert list(data.loads) == ["田中", "佐藤"]
+    assert [row.name for row in data.workload] == ["田中", "佐藤"]  # 未割り当てを出さない
+    assert data.team.tasks[Status.NOT_STARTED] == ["共同"]  # 鈴木のだけのタスクは入らない
+
+
+def test_summarize_lists_the_teams_that_have_members_for_the_dropdown() -> None:
+    data = summarize(teamed_project(), WEEK, NOW, {})
+    assert data.teams == ["開発", "QA"]  # メンバーのいない「空」は出ない
+    assert data.team_name is None
+
+
+def test_a_member_wins_over_a_team() -> None:
+    data = summarize(teamed_project(), WEEK, NOW, {}, member="山田", team="開発")
+    assert data.member == "山田" and data.team_name is None
+    assert list(data.loads) == ["山田"]
+
+
+def test_an_unknown_or_empty_team_filters_nothing() -> None:
+    everyone = summarize(teamed_project(), WEEK, NOW, {})
+    for team in ("ない", "空"):
+        data = summarize(teamed_project(), WEEK, NOW, {}, team=team)
+        assert data.team_name is None
+        assert list(data.loads) == list(everyone.loads)
+
+
+def test_the_backlog_for_a_team_counts_only_the_team_members() -> None:
+    project = teamed_project()
+    everyone = summarize(project, WEEK, NOW, {}).backlog
+    team = summarize(project, WEEK, NOW, {}, team="開発").backlog
+    assert {name for name, _ in team.by_member} <= {"田中", "佐藤"}
+    assert team.supply == pytest.approx(2.0)  # 田中と佐藤の相対比率の合計
+    assert team.hours < everyone.hours
+
+
+def test_the_due_rows_for_a_team_only_list_its_tasks() -> None:
+    project = teamed_project()
+    for task in project.tasks:
+        task.deadline = datetime(2026, 10, 8, 17)
+    rows = summarize(project, WEEK, NOW, {}, team="開発").due
+    assert rows and {row.name for row in rows} <= {"田中の", "共同"}
+
+
+def test_the_cross_loads_for_a_name_set_only_include_those_members() -> None:
+    loads = summarize_cross_loads([teamed_project()], WEEK, {}, frozenset({"田中", "佐藤"}))
+    assert list(loads) == ["田中", "佐藤"]
+
+
+def test_by_team_has_a_row_per_team_with_members_and_counts_shared_tasks_for_each() -> None:
+    dev, qa = summarize_team_rows(teamed_project())
+    assert (dev.name, qa.name) == ("開発", "QA")
+    assert dev.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 0}
+    assert qa.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 0, Status.PAUSED: 0, Status.DONE: 1}  # 共同(鈴木)と鈴木の
+    assert dev.percent == pytest.approx(100 * 1 / 8)  # 田中の(2h × 50%)と共同(6h × 0%)
+    assert qa.percent == pytest.approx(40)  # 共同(6h × 0%)と鈴木の(4h × 100%)
+
+
+def test_by_team_is_built_for_everyone_only_and_skipped_without_teams() -> None:
+    project = teamed_project()
+    assert [row.name for row in summarize_progress(project, {}, NOW).by_team] == ["開発", "QA"]
+    assert summarize_progress(project, {}, NOW, "田中").by_team == []
+    bare = project_of(Task("作業", effort_hours=2))
+    assert summarize_team_rows(bare) == [] and summarize_progress(bare, {}, NOW).by_team == []

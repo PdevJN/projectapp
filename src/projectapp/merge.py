@@ -18,16 +18,20 @@ from projectapp.models import (
     Event,
     Level,
     Member,
+    MAX_TEAM_NAME_LENGTH,
+    Membership,
     Parameter,
     Project,
     Section,
     Task,
     TaskKind,
+    Team,
     UrlTemplate,
     WorkDay,
     union_assignees,
 )
 from projectapp.storage import dumps_project, parse_project
+from projectapp.teams import normalize
 from projectapp.workdays import sort_work_days
 
 OURS = "ours"
@@ -177,7 +181,8 @@ class _Merger:
         return result
 
 
-MEMBER_LABELS = {"name": "名前", "ratio": "基本比率", "levels": "段階の選択", "icon": "アイコン", "ratio_unclamped": "丸め対象外"}
+MEMBER_LABELS = {"name": "名前", "ratio": "基本比率", "levels": "段階の選択", "icon": "アイコン", "ratio_unclamped": "丸め対象外", "teams": "所属チーム"}
+TEAM_LABELS = {"name": "名前"}
 CATEGORY_LABELS = {"name": "名前", "kind": "種別", "expiry_date": "有効期限", "color": "色", "prj_code": "PRJコード"}
 PARAMETER_LABELS = {"levels": "段階"}
 TEMPLATE_LABELS = {"pattern": "URLの型"}
@@ -188,9 +193,26 @@ SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間",
 
 def _members(project: Project) -> dict[str, Record]:
     return {
-        m.id: {"name": m.name, "ratio": m.ratio, "levels": dict(m.levels), "icon": m.icon, "ratio_unclamped": m.ratio_unclamped}
+        m.id: {
+            "name": m.name,
+            "ratio": m.ratio,
+            "levels": dict(m.levels),
+            "icon": m.icon,
+            "ratio_unclamped": m.ratio_unclamped,
+            "teams": [(s.team_id, s.percent) for s in m.teams],
+        }
         for m in project.members
     }
+
+
+def _numbered(name: str, number: int, limit: int) -> str:
+    """同名を避ける連番つきの名前(`名前 (2)`)。上限を超えないよう、元の名前を切り詰めてから接尾辞を付ける。"""
+    suffix = f" ({number})"
+    return name[: limit - len(suffix)].rstrip() + suffix
+
+
+def _teams(project: Project) -> dict[str, Record]:
+    return {t.id: {"name": t.name} for t in project.teams}
 
 
 def _categories(project: Project) -> dict[str, Record]:
@@ -310,7 +332,15 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
         "setting", "設定", SETTING_LABELS, _settings(base), _settings(ours), _settings(theirs)
     )
     assert settings is not None
-    members = merger.collection("member", MEMBER_LABELS, _members(base), _members(ours), _members(theirs))
+    teams = merger.collection("team", TEAM_LABELS, _teams(base), _teams(ours), _teams(theirs))
+    team_names = {t.id: t.name for source in (base, theirs, ours) for t in source.teams}  # 自分の名前を優先
+
+    def show_member(name: str, value: Any) -> Any:
+        if name == "teams":
+            return [f"{team_names.get(team_id, team_id)} {percent}%" for team_id, percent in value]
+        return value
+
+    members = merger.collection("member", MEMBER_LABELS, _members(base), _members(ours), _members(theirs), show_member)
     categories = merger.collection("category", CATEGORY_LABELS, _categories(base), _categories(ours), _categories(theirs))
     events = merger.collection("event", EVENT_LABELS, _events(base), _events(ours), _events(theirs))
     for source in (theirs, ours):  # 自分の名前を優先する
@@ -327,6 +357,18 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
     )
     parameters = merger.collection("parameter", PARAMETER_LABELS, _parameters(base), _parameters(ours), _parameters(theirs))
     templates = merger.collection("url_template", TEMPLATE_LABELS, _templates(base), _templates(ours), _templates(theirs))
+    team_seen: set[str] = set()  # 同名で id の違うチームも、読み直すと拒否されるので、名前を変えて両方残す
+    team_taken = {record["name"] for record in teams.values()}
+    for record in teams.values():
+        name = record["name"]
+        if name in team_seen:
+            number = 2
+            while _numbered(name, number, MAX_TEAM_NAME_LENGTH) in team_taken | team_seen:
+                number += 1
+            renamed = _numbered(name, number, MAX_TEAM_NAME_LENGTH)
+            notes.append(f"同名のチームがいたため、名前を変えました: {name} → {renamed}")
+            record["name"] = name = renamed
+        team_seen.add(name)
     seen: set[str] = set()  # 同名で id の違うメンバーは、読み直すと片方が捨てられるので、名前を変えて両方残す
     taken = {record["name"] for record in members.values()}
     for record in members.values():
@@ -430,8 +472,26 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
 
     root_tasks, root_sections = build(None)
 
+    team_ids = set(teams)
+
+    def settle_teams(record: Record) -> list[Membership]:
+        rows = [Membership(team_id, percent) for team_id, percent in record["teams"]]
+        kept = [s for s in rows if s.team_id in team_ids]
+        if len(kept) != len(rows):
+            notes.append(f"削除されたチームへの所属を外しました: {record['name']}")
+            return normalize(kept)
+        return rows
+
     built_members = [
-        Member(r["name"], r["ratio"], dict(r["levels"]), id=key, icon=r["icon"], ratio_unclamped=r["ratio_unclamped"])
+        Member(
+            r["name"],
+            r["ratio"],
+            dict(r["levels"]),
+            id=key,
+            icon=r["icon"],
+            ratio_unclamped=r["ratio_unclamped"],
+            teams=settle_teams(r),
+        )
         for key, r in members.items()
     ]
     by_id = {m.id: m for m in built_members}
@@ -456,6 +516,7 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
         ratio_limit_upper=settings["ratio_limit_upper"],
         ratio_limit_lower=settings["ratio_limit_lower"],
         members=built_members,
+        teams=[Team(r["name"], id=key) for key, r in teams.items()],
         categories=[
             Category(r["name"], r["kind"], r["expiry_date"], r["color"], r["prj_code"], id=key)
             for key, r in categories.items()

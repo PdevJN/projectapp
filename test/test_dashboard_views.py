@@ -15,6 +15,7 @@ from projectapp.dashboard_views import (
     normalize_cards,
     parse_card_move,
     resolve_member,
+    resolve_team,
     show_card,
     standard_view,
     validate_custom,
@@ -164,3 +165,28 @@ def test_views_from_config_caps_the_count_and_rejects_non_lists() -> None:
     assert len(views_from_config(raw)) == MAX_VIEWS
     for bad in (None, "x", 3, {"a": 1}):
         assert views_from_config(bad) == []
+
+
+def test_team_round_trips_through_the_config() -> None:
+    spec = ViewSpec("開発ビュー", PeriodKind.WEEK, None, False, DEFAULT_ORDER, team="開発")
+    [loaded] = views_from_config(views_to_config([spec]))
+    assert loaded.team == "開発" and loaded.member is None
+
+
+def test_a_view_without_team_reads_as_no_team() -> None:
+    raw = [{"name": "旧", "period": PeriodKind.WEEK.value, "member": None, "cross": False, "cards": [c.value for c in DEFAULT_ORDER]}]
+    [loaded] = views_from_config(raw)
+    assert loaded.team is None
+
+
+def test_a_non_string_or_empty_team_reads_as_no_team() -> None:
+    base = {"name": "x", "period": PeriodKind.WEEK.value, "member": None, "cross": False, "cards": [c.value for c in DEFAULT_ORDER]}
+    for bad in (3, "", None, ["開発"]):
+        [loaded] = views_from_config([{**base, "team": bad}])
+        assert loaded.team is None
+
+
+def test_resolve_team_returns_none_for_a_team_that_left_the_roster() -> None:
+    assert resolve_team("開発", ["開発", "QA"]) == "開発"
+    assert resolve_team("消えた", ["開発"]) is None
+    assert resolve_team(None, ["開発"]) is None

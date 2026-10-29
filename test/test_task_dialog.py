@@ -16,6 +16,7 @@ from projectapp.models import (
     Category,
     Level,
     Member,
+    Membership,
     Parameter,
     Priority,
     RatioLimits,
@@ -23,6 +24,7 @@ from projectapp.models import (
     Task,
     TaskKind,
     TaskUrl,
+    Team,
     UrlTemplate,
     WorkDay,
 )
@@ -50,6 +52,7 @@ def mount_dialog(
     now: Callable[[], datetime] | None = None,
     reference_choices: list[str] | None = None,
     ratio_limits: RatioLimits | None = None,
+    teams: list[Team] | None = None,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -75,6 +78,7 @@ def mount_dialog(
                 on_decompose=on_decompose,
                 now=now or datetime.now,
                 reference_choices=reference_choices,
+                teams=teams,
                 open_url=(lambda url: opened.append(url)) if opened is not None else default_open_url,
             ),
         )
@@ -2879,3 +2883,61 @@ async def test_the_conversion_text_has_no_limit_note_without_limits(user: User) 
     await open_dialog(user)
     text = user.find(marker="task-conversion").elements.pop().text
     assert "換算率 150%" in text and "制限" not in text
+
+
+def teamed_members() -> list[Member]:
+    return [
+        Member("甲", 1.0, teams=[Membership("t1", 100)]),
+        Member("乙", 1.0, teams=[Membership("t1", 50), Membership("t2", 50)]),
+        Member("丙", 1.0),
+    ]
+
+
+async def test_the_team_row_is_hidden_when_no_team_has_members(user: User) -> None:
+    mount_dialog(None, [], members=teamed_members(), teams=[Team("空", id="t9")])
+    await open_dialog(user)
+    await user.should_not_see(marker="task-team-add")
+
+
+async def test_adding_a_team_puts_its_members_in_the_crew_at_the_given_rate(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, members=teamed_members(), teams=[Team("開発", id="t1"), Team("QA", id="t2")])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    with user.client:
+        user.find(marker="task-team-rate").elements.pop().set_value(80)
+    user.find(marker="task-team-add").click()
+    await user.should_see(marker="task-assignee-2")  # 2 人ぶんの行ができる
+    user.find(marker="task-save").click()
+    assert saved[0].assignees == [Assignee("甲", pytest.approx(0.8)), Assignee("乙", pytest.approx(0.8))]
+
+
+async def test_adding_a_team_updates_the_rate_of_people_already_in_the_crew(user: User) -> None:
+    saved: list[Task] = []
+    task = Task("a", assignees=[Assignee("甲", 0.5), Assignee("丙", 1.0)])
+    mount_dialog(task, saved, members=teamed_members(), teams=[Team("開発", id="t1")])
+    await open_dialog(user)
+    user.find(marker="task-team-add").click()  # 既定の割り当て率は 100%
+    await user.should_see(marker="task-assignee-3")
+    user.find(marker="task-save").click()
+    assert saved[0].assignees == [Assignee("甲", 1.0), Assignee("丙", 1.0), Assignee("乙", 1.0)]
+
+
+async def test_a_bad_team_rate_notifies_and_changes_nothing(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, members=teamed_members(), teams=[Team("開発", id="t1")])
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    with user.client:
+        user.find(marker="task-team-rate").elements.pop().set_value(0)
+    user.find(marker="task-team-add").click()
+    await user.should_see("割り当て率は 1〜100% で入力してください")
+    user.find(marker="task-save").click()
+    assert saved[0].assignees == []
+
+
+async def test_the_team_row_follows_the_assignee_fields_when_the_task_is_weekly(user: User) -> None:
+    task = Task("a", assignees=[Assignee("甲", 1.0)], weekly_crew=[[Assignee("甲", 1.0)]])
+    mount_dialog(task, [], members=teamed_members(), teams=[Team("開発", id="t1")])
+    await open_dialog(user)
+    await user.should_not_see(marker="task-team-add")

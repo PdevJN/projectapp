@@ -86,6 +86,7 @@ from projectapp.models import (
     Actual,
     Event,
     Member,
+    Membership,
     OverloadSpan,
     Priority,
     Project,
@@ -96,6 +97,7 @@ from projectapp.models import (
     Task,
     TaskKind,
     TaskUrl,
+    Team,
     UrlTemplate,
     WorkDay,
 )
@@ -4098,3 +4100,75 @@ async def test_work_day_mark_does_not_call_a_closed_event_a_holiday(user: User) 
     await user.open("/")
     content = user.find(marker="workmark-0-0").elements.pop().content
     assert "祝日" not in content and "夏季休業" not in content
+
+
+def teamed_project() -> Project:
+    project = filter_project()
+    project.teams = [Team("開発", id="a"), Team("空", id="z")]
+    project.members = [Member("田中", teams=[Membership("a", 100)]), Member("鈴木")]
+    return project
+
+
+async def test_the_assignee_select_lists_teams_that_have_members_and_filters_by_team(user: User) -> None:
+    from projectapp.scope import team_key
+
+    mount_chart(teamed_project())
+    await user.open("/")
+    select = user.find(marker="assignee-filter").elements.pop()
+    assert select.options == {
+        "": "すべての担当者",
+        "田中": "田中",
+        "鈴木": "鈴木",
+        team_key("開発"): "チーム: 開発",
+    }  # メンバーのいない「空」は出ない
+    select.set_value(team_key("開発"))
+    await user.should_see(marker="task-top-0")
+    await user.should_see(marker="task-0-0")
+    await user.should_not_see(marker="task-0-1")
+    select.set_value("")
+    await user.should_see(marker="task-0-1")
+
+
+async def test_choosing_a_member_after_a_team_replaces_the_team_filter(user: User) -> None:
+    from projectapp.scope import team_key
+
+    charts, _ = mount_chart(teamed_project())
+    await user.open("/")
+    select = user.find(marker="assignee-filter").elements.pop()
+    select.set_value(team_key("開発"))
+    select.set_value("鈴木")
+    assert charts[0].task_filter.assignee == "鈴木" and charts[0].task_filter.team is None
+    await user.should_see(marker="task-0-1")
+    await user.should_not_see(marker="task-top-0")
+
+
+async def test_set_project_drops_a_team_that_lost_its_members(user: User) -> None:
+    from projectapp.scope import team_key
+
+    charts, _ = mount_chart(teamed_project())
+    await user.open("/")
+    select = user.find(marker="assignee-filter").elements.pop()
+    select.set_value(team_key("開発"))
+    other = teamed_project()
+    other.members = [Member("田中"), Member("鈴木")]
+    charts[0].set_project(other)
+    assert charts[0].task_filter.team is None and charts[0].task_filter.team_members == frozenset()
+    assert select.value == ""
+    assert team_key("開発") not in select.options
+
+
+async def test_set_project_follows_a_roster_change_of_the_chosen_team(user: User) -> None:
+    from projectapp.scope import team_key
+
+    charts, _ = mount_chart(teamed_project())
+    await user.open("/")
+    select = user.find(marker="assignee-filter").elements.pop()
+    select.set_value(team_key("開発"))
+    other = teamed_project()
+    other.members = [Member("田中"), Member("鈴木", teams=[Membership("a", 100)])]
+    charts[0].set_project(other)
+    assert charts[0].task_filter.team == "開発"
+    assert charts[0].task_filter.team_members == frozenset({"鈴木"})
+    assert select.value == team_key("開発")
+    await user.should_see(marker="task-0-1")
+    await user.should_not_see(marker="task-top-0")

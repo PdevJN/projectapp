@@ -82,6 +82,7 @@ from projectapp.dashboard_views import (
     hide_card,
     move_card,
     resolve_member,
+    resolve_team,
     show_card,
     standard_view,
 )
@@ -134,7 +135,7 @@ from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, short_date
-from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, RatioLimits, ReferenceMode, ReferenceValue, Section, SectionPath, Task, TaskKind, WorkDay, new_id, union_assignees
+from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, RatioLimits, ReferenceMode, ReferenceValue, Section, SectionPath, Task, TaskKind, Team, WorkDay, new_id, union_assignees
 from projectapp.workdays import work_day_map
 from projectapp.selection import set_checked
 from projectapp.preview import (
@@ -162,6 +163,7 @@ from projectapp.storage import (
 )
 from projectapp.summary import parent_map
 from projectapp.task_dialog import open_task_dialog, open_week_crew_dialog
+from projectapp.teams import removal_impacts, replace_teams, team_scope, teams_with_members
 from projectapp.theme import BODY_CSS, CustomTheme, theme_js, today_color_js
 from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
 from projectapp.theme_dialog import open_today_color_dialog as show_today_color_dialog
@@ -257,6 +259,7 @@ class MainView:
         self.dashboard_custom: Period | None = None  # `指定` の期間。保存しない
         self.dashboard_custom_error = ""  # `指定` の欄の入力が不正なときの、エラー文
         self.dashboard_member: str | None = None  # ダッシュボードで絞り込み中のメンバー。保存しない
+        self.dashboard_team: str | None = None  # 絞り込み中のチーム名。メンバーとは同時に使わない。保存しない
         self.dashboard_cross = False  # 全プロジェクトを重ねるか。保存しない
         self.dashboard_excluded: set[str] = set()  # 重ねるのから外したプロジェクトの名前。保存しない
         self.dashboard_views = load_dashboard_views(base_dir)  # 保存したビュー(`標準` を含まない)。全プロジェクト共通
@@ -341,6 +344,7 @@ class MainView:
             self.change_dashboard_cross,
             self.change_dashboard_project,
             self.change_dashboard_custom,
+            on_team_change=self.change_dashboard_team,
             actions=ViewActions(
                 select=self.select_dashboard_view,
                 save=self.save_dashboard_view,
@@ -971,10 +975,15 @@ class MainView:
         self.dashboard_names = names
         if self.dashboard_member not in names:
             self.dashboard_member = None  # 削除・改名・横断オフで見えなくなったメンバーは、全員に戻す
-        data = summarize(self.project, period, now, self.holidays, self.dashboard_kind, self.dashboard_member)
+        if self.dashboard_member is not None or self.dashboard_team not in (None, *teams_with_members(self.project)):
+            self.dashboard_team = None  # 消えたチームは全員に戻す。メンバーを選んでいるときはチームを使わない
+        data = summarize(
+            self.project, period, now, self.holidays, self.dashboard_kind, self.dashboard_member, self.dashboard_team
+        )
         if self.dashboard_cross:
             chosen = [p for p in projects if p.name not in self.dashboard_excluded]
-            loads = summarize_cross_loads(chosen, period, self.base_holidays, self.dashboard_member)
+            scope = self.dashboard_member if self.dashboard_member is not None else team_scope(self.project, self.dashboard_team)
+            loads = summarize_cross_loads(chosen, period, self.base_holidays, scope)
             titles = [p.name for p in projects]
             data.cross = CrossSummary(loads, titles, self.dashboard_excluded & set(titles), failures)
             data.members = names
@@ -1038,6 +1047,14 @@ class MainView:
         if self.dashboard_kind is None:
             return
         self.dashboard_member = name
+        self.dashboard_team = None  # メンバーとチームは、どちらか一方
+        self.refresh_dashboard()
+
+    def change_dashboard_team(self, name: str | None) -> None:
+        if self.dashboard_kind is None:
+            return
+        self.dashboard_team = name
+        self.dashboard_member = None
         self.refresh_dashboard()
 
     def saved_dashboard_view(self, name: str) -> ViewSpec:
@@ -1056,12 +1073,19 @@ class MainView:
             self.dashboard_cross,
             self.dashboard_cards,
             custom,
+            self.dashboard_team,
         )
 
     def dashboard_dirty(self) -> bool:
         """保存したビューと違うか。保存したメンバーがいないときは、全員に戻した状態を同じとみなす。"""
         saved = self.saved_dashboard_view(self.dashboard_view_name)
-        saved = replace(saved, member=resolve_member(saved.member, self.dashboard_names))
+        saved = replace(
+            saved,
+            member=resolve_member(saved.member, self.dashboard_names),
+            team=resolve_team(saved.team, teams_with_members(self.project)),
+        )
+        if saved.member is not None:
+            saved = replace(saved, team=None)  # 両方あればメンバー優先
         return self.working_spec(saved.name) != saved
 
     def custom_save_block(self) -> str | None:
@@ -1093,6 +1117,7 @@ class MainView:
             self.dashboard_custom = Period(*spec.custom) if spec.custom is not None else self.starting_custom_period()
         self.dashboard_custom_error = ""
         self.dashboard_member = spec.member
+        self.dashboard_team = None if spec.member is not None else spec.team
         self.dashboard_cross = spec.cross
         self.dashboard_excluded = set()
         self.dashboard_cards = spec.cards
@@ -1426,6 +1451,9 @@ class MainView:
             rollback=rollback,
             get_limits=lambda: self.project.ratio_limits,
             get_holidays=lambda: self.holidays,
+            get_teams=lambda: self.project.teams,
+            team_impacts=lambda teams: removal_impacts(self.project, teams),
+            on_apply_teams=self.apply_teams,
         )
 
     async def pick_member_icon(self) -> str | None:
@@ -1452,6 +1480,13 @@ class MainView:
                 for assignee in [*task.assignees, *(a for week in task.weekly_crew for a in week)]:
                     if assignee.name in renames:
                         assignee.name = renames[assignee.name]
+        self.after_edit()
+
+    def apply_teams(self, teams: list[Team]) -> None:
+        """チームを更新し、消えたチームへの所属をメンバーから外す。保存はしない(編集中の判定に入る)。"""
+        if [(t.id, t.name) for t in teams] == [(t.id, t.name) for t in self.project.teams]:
+            return
+        replace_teams(self.project, teams)
         self.after_edit()
 
     def apply_parameters(self, edit: ParameterEdit) -> None:
@@ -1745,6 +1780,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            teams=self.project.teams,
             **self.link_args(None),
         )
 
@@ -1757,6 +1793,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            teams=self.project.teams,
             **self.link_args(None),
         )
 
@@ -1770,6 +1807,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            teams=self.project.teams,
             on_delete=lambda: self.delete_task(path, task_index),
             on_decompose=None  # まとめの子は、入れ子になるので分解できない
             if task.id in parent_map(self.project)

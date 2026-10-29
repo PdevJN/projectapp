@@ -23,6 +23,7 @@ from projectapp.dashboard_views import DEFAULT_ORDER, STANDARD_NAME, CardId, Vie
 from projectapp.gantt import STATUS_COLORS, STATUS_DARK_COLORS, WEEKDAYS
 from projectapp.models import Status
 from projectapp.periodfield import add_range_picker, normalize_period
+from projectapp.scope import read_scope, scope_options, scope_value
 from projectapp.timeline import OVERLOAD_EPSILON
 
 TRACK_STYLE = (
@@ -202,6 +203,7 @@ class DashboardView:
         on_cross_change: Callable[[bool], object] | None = None,
         on_project_change: Callable[[str, bool], object] | None = None,
         on_custom_change: Callable[[str], object] | None = None,
+        on_team_change: Callable[[str | None], object] | None = None,
         actions: ViewActions | None = None,
     ) -> None:
         self.actions = actions
@@ -214,6 +216,7 @@ class DashboardView:
         self.rename_item: ui.menu_item | None = None
         self.delete_item: ui.menu_item | None = None
         self.on_custom_change = on_custom_change
+        self.on_team_change = on_team_change
         self.custom_field: ui.input | None = None
         self.custom_box: ui.column | None = None
         self.custom_error: ui.label | None = None
@@ -389,8 +392,14 @@ class DashboardView:
             self.custom_field.set_value(fixed)
 
     def on_member(self, event: ValueChangeEventArguments) -> None:
-        if not self.syncing and self.on_member_change is not None:
-            self.on_member_change(event.value or None)
+        if self.syncing:
+            return
+        member, team = read_scope(event.value)
+        if team is not None:
+            if self.on_team_change is not None:
+                self.on_team_change(team)
+        elif self.on_member_change is not None:
+            self.on_member_change(member)
 
     def on_cross(self, event: ValueChangeEventArguments) -> None:
         if not self.syncing and self.on_cross_change is not None:
@@ -432,10 +441,10 @@ class DashboardView:
             finally:
                 self.syncing = False
         if self.member_select is not None:
-            options = {ALL_MEMBERS: "全員", **{name: name for name in data.members}}
+            options = scope_options("全員", data.members, data.teams)
             self.syncing = True
             try:
-                self.member_select.set_options(options, value=data.member or ALL_MEMBERS)
+                self.member_select.set_options(options, value=scope_value(data.member, data.team_name))
             finally:
                 self.syncing = False
         if self.cross_switch is not None and self.cross_switch.value != (data.cross is not None):
@@ -496,6 +505,8 @@ class DashboardView:
             scope = "すべてのタスク" if period is None else f"{period.start:%m/%d}〜{period.end:%m/%d} にかかるタスク"
             if data.member:
                 scope = f"{data.member}・{scope}"
+            elif data.team_name:
+                scope = f"チーム「{data.team_name}」・{scope}"
             ui.label(scope).classes("text-caption text-grey").mark("dashboard-team-scope")
             if team.percent is None:
                 empty_message("dashboard-empty-team")
@@ -548,6 +559,10 @@ class DashboardView:
                 ui.label("メンバー別").classes("text-subtitle2")
                 for row in progress.by_member:
                     self.member_progress_row(row)
+            if progress.by_team:
+                ui.label("チーム別").classes("text-subtitle2")
+                for row in progress.by_team:
+                    self.member_progress_row(row, "dashboard-team-row")
             ui.label("予定超過").classes("text-subtitle2")
             if not progress.overdue:
                 ui.label("なし").classes("text-grey").mark("dashboard-overdue-none")
@@ -557,17 +572,17 @@ class DashboardView:
                     ui.label(row.name).classes("col ellipsis").mark(f"dashboard-overdue-name-{index}")
                     ui.label(row.assignee or "").classes("text-caption")
 
-    def member_progress_row(self, row: MemberProgress) -> None:
+    def member_progress_row(self, row: MemberProgress, marker: str = "dashboard-member") -> None:
         with ui.column().classes("w-full gap-1"):
             with ui.row().classes("items-center no-wrap gap-2"):
-                if icon := self.icons.get(row.name):
-                    avatar(row.name, icon, 20).mark(f"dashboard-member-icon-{row.name}")
+                if marker == "dashboard-member" and (icon := self.icons.get(row.name)):
+                    avatar(row.name, icon, 20).mark(f"{marker}-icon-{row.name}")
                 ui.label(row.name)
             if row.percent is None:
-                ui.label("タスクなし").classes("text-caption text-grey").mark(f"dashboard-member-progress-{row.name}")
+                ui.label("タスクなし").classes("text-caption text-grey").mark(f"{marker}-progress-{row.name}")
                 return
             ui.label(f"{row.percent:.0f}% / {sum(row.counts.values())}件").classes("text-caption").mark(
-                f"dashboard-member-progress-{row.name}"
+                f"{marker}-progress-{row.name}"
             )
             bar(row.percent / 100, LOAD_COLOR)
 

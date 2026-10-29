@@ -11,10 +11,12 @@ class TaskFilter:
     query: str = ""  # タスク名への部分一致(大文字小文字を区別しない)
     assignee: str | None = None  # None なら全員
     exclude: frozenset[str] = frozenset()  # 描かないタスクの id(画像の書き出しで、チェックを外したものを除く)
+    team: str | None = None  # 絞り込み中のチーム名。assignee とは同時に使わない
+    team_members: frozenset[str] = frozenset()  # そのチームのメンバー名(名簿が変わったら gantt が更新する)
 
     @property
     def active(self) -> bool:
-        return bool(self.query.strip()) or self.assignee is not None or bool(self.exclude)
+        return bool(self.query.strip()) or self.assignee is not None or self.team is not None or bool(self.exclude)
 
 
 def matches(task: Task, task_filter: TaskFilter, by_id: Mapping[str, Task] | None = None) -> bool:
@@ -22,8 +24,10 @@ def matches(task: Task, task_filter: TaskFilter, by_id: Mapping[str, Task] | Non
     `by_id`(id → タスク)を渡すと、まとめは子のどれかが合っても合う。"""
     if task.id in task_filter.exclude:
         return False
-    own = (task_filter.assignee is None or task_filter.assignee in task.assignee_names) and (
-        task_filter.query.strip().casefold() in task.name.casefold()
+    own = (
+        (task_filter.assignee is None or task_filter.assignee in task.assignee_names)
+        and (task_filter.team is None or not task_filter.team_members.isdisjoint(task.assignee_names))
+        and (task_filter.query.strip().casefold() in task.name.casefold())
     )
     if own and task_filter.exclude and by_id is not None and task.kind is TaskKind.SUMMARY and task.children:
         own = any(cid not in task_filter.exclude for cid in task.children if cid in by_id)

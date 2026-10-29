@@ -11,11 +11,13 @@ from projectapp.models import (
     Event,
     Level,
     Member,
+    Membership,
     Parameter,
     Project,
     ReferenceMode,
     Section,
     Task,
+    Team,
     UrlTemplate,
     WorkDay,
 )
@@ -296,3 +298,16 @@ def test_apply_overwrite_also_replaces_ratio_unclamped() -> None:
 def test_settings_file_round_trips_ratio_unclamped() -> None:
     incoming = incoming_of(Project("p", members=[Member("田中", 2.0, ratio_unclamped=True)]))
     assert incoming.project.members[0].ratio_unclamped is True
+
+
+def test_the_settings_file_has_no_teams_and_members_have_no_memberships() -> None:
+    project = Project(
+        "p",
+        teams=[Team("開発", id="t1")],
+        members=[Member("甲", id="m1", teams=[Membership("t1", 100)])],
+    )
+    data = build_settings(project)
+    assert "teams" not in data
+    assert data["members"][0]["teams"] == []
+    imported = parse_settings(json.dumps(data))  # 読める(未知のチームを指す所属が残っていない)
+    assert imported.project.members[0].teams == []

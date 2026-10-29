@@ -7,7 +7,7 @@ import projectapp.models as models
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.models import Event, WorkDay
+from projectapp.models import Event, Membership, WorkDay
 from projectapp.categories import COLOR_HEX, COLOR_LABELS, COLORS, CategoryEdit
 from projectapp.forms import (
     MEMBER_ICON_COLUMN_REM,
@@ -2426,3 +2426,26 @@ def test_work_day_range_summary() -> None:
     assert work_day_range_summary(RangeAdd([row] * 3, 1, 2)) == "3 日を追加しました(1 日は登録済みのため飛ばしました。土日祝 2 日を除きました)"
     assert work_day_range_summary(RangeAdd([row], 0, 0)) == "1 日を追加しました"
     assert work_day_range_summary(RangeAdd([], 2, 0)) == "追加する日がありません(2 日は登録済みのため飛ばしました)"
+
+
+def test_build_members_carries_memberships_and_checks_them() -> None:
+    rows_ = [MemberRow(None, "甲", 100.0, teams=[Membership("a", 60), Membership("b", 40)])]
+    members, _ = build_members(rows_, [], no_tasks, team_ids={"a", "b"})
+    assert members[0].teams == [Membership("a", 60), Membership("b", 40)]
+
+
+def test_build_members_rejects_a_bad_membership_with_the_member_name() -> None:
+    rows_ = [MemberRow(None, "甲", 100.0, teams=[Membership("a", 60), Membership("b", 30)])]
+    with pytest.raises(ValueError, match="甲: 所属の割合の合計を 100%"):
+        build_members(rows_, [], no_tasks, team_ids={"a", "b"})
+
+
+def test_build_members_rejects_a_membership_of_an_unknown_team() -> None:
+    rows_ = [MemberRow(None, "甲", 100.0, teams=[Membership("zzz", 100)])]
+    with pytest.raises(ValueError, match="存在しないチーム"):
+        build_members(rows_, [], no_tasks, team_ids={"a"})
+
+
+def test_member_columns_add_a_teams_column_only_when_asked() -> None:
+    assert len(member_columns(0, False, True)) == len(member_columns(0, False)) + 1
+    assert member_table_min_rem(0, False, True) > member_table_min_rem(0, False)

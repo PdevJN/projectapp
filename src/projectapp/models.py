@@ -8,7 +8,7 @@ import secrets
 import unicodedata
 from enum import StrEnum
 
-FORMAT_VERSION = 16  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕。16: メンバーの丸め対象外〔members[].ratio_unclamped〕)
+FORMAT_VERSION = 17  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕。16: メンバーの丸め対象外〔members[].ratio_unclamped〕。17: チーム〔teams・members[].teams〕)
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -26,6 +26,7 @@ MAX_TASK_NAME_LENGTH = 50  # タスク名の最大文字数
 MAX_CATEGORY_NAME_LENGTH = 30  # カテゴリの名前の最大文字数
 MAX_CATEGORY_KIND_LENGTH = 20  # カテゴリの種別の最大文字数
 MAX_EVENT_TEXT_LENGTH = 30  # イベントの文字列の最大文字数
+MAX_TEAM_NAME_LENGTH = 30  # チームの名前の最大文字数
 HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
 
@@ -95,6 +96,22 @@ class WorkDay:
 
 
 @dataclass
+class Membership:
+    """メンバーのチームへの所属。`percent` は、そのメンバーの時間のうちこのチームに数える割合(整数 1〜100)。"""
+
+    team_id: str
+    percent: int = 100
+
+
+@dataclass
+class Team:
+    """プロジェクト共通のチーム。所属は `Member.teams` が持つ(タスクにチームの記録は残さない)。"""
+
+    name: str
+    id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する
+
+
+@dataclass
 class Member:
     name: str
     ratio: float = 1.0  # 基本比率(1.0 = 100%)。相対比率 = 基本比率 + 選んだ段階の判定値の合計
@@ -103,6 +120,7 @@ class Member:
     icon: str = ""  # アイコン(128×128 の PNG の data URI)。空はアイコンなし
     work_days: list[WorkDay] = field(default_factory=list)  # 稼働日の上書き(日付の昇順。このメンバーだけに効く)
     ratio_unclamped: bool = False  # 真なら、相対比率を 50〜150%(設定の上限・下限)に丸めない(10〜300% の安全範囲だけ守る)
+    teams: list[Membership] = field(default_factory=list)  # 所属するチーム。空はチームなし。あれば割合の合計が 100
 
 
 @dataclass
@@ -297,6 +315,7 @@ class Project:
     parameters: list[Parameter] = field(default_factory=list)  # 相対比率のパラメータ(プロジェクト共通)
     categories: list[Category] = field(default_factory=list)  # カテゴリ(プロジェクト共通。「未定」は含まない)
     events: list[Event] = field(default_factory=list)  # イベント(プロジェクト共通。並びが色の優先順で、後ろが勝つ)
+    teams: list[Team] = field(default_factory=list)  # チーム(プロジェクト共通)
     reference_mode: ReferenceMode = ReferenceMode.LIVE  # プロジェクト参照の方式
     plantuml_overload_notice: bool = True  # PlantUML の保存後に、100% 超に見える担当者を通知するか
     ratio_limit_upper: float | None = None  # 相対比率の上限(150% は 1.5)。None は設定なし(50〜150%)
@@ -318,11 +337,12 @@ class Project:
         return {task.id: task for task in self.all_tasks()}
 
     def used_ids(self) -> set[str]:
-        """タスク・メンバー・セクション・カテゴリ・イベントの id。新しい id が既存と重ならないように、振る側が渡す。"""
+        """タスク・メンバー・セクション・カテゴリ・イベント・チームの id。新しい id が既存と重ならないように、振る側が渡す。"""
         return (
             {t.id for t in self.all_tasks()}
             | {m.id for m in self.members}
             | {s.id for _, s in walk_sections(self.sections)}
             | {c.id for c in self.categories}
             | {e.id for e in self.events}
+            | {t.id for t in self.teams}
         )

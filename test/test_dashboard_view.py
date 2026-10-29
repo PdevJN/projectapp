@@ -740,3 +740,31 @@ async def test_the_backlog_card_lists_the_rest_by_status(user: User) -> None:
     views[0].show(with_backlog(backlog), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-by-status")
     assert text(user, "dashboard-backlog-by-status") == "未着手 12.0h / 実行中 6.0h / 一時停止 2.0h"
+
+
+async def test_the_team_row_and_dropdown_show_for_everyone_and_report_team_changes(user: User) -> None:
+    from projectapp.scope import team_key
+
+    members: list[str | None] = []
+    teams: list[str | None] = []
+    views: list[DashboardView] = []
+
+    @ui.page("/")
+    def index() -> None:
+        view = DashboardView(lambda: None, lambda kind: None, members.append, on_team_change=teams.append)
+        views.append(view)
+        view.build()
+
+    await user.open("/")
+    data = sample()
+    data.teams = ["開発"]
+    data.progress.by_team = [MemberProgress("開発", 40.0, {Status.NOT_STARTED: 1, Status.RUNNING: 2, Status.PAUSED: 0, Status.DONE: 0})]
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-team-row-progress-開発")
+    assert text(user, "dashboard-team-row-progress-開発") == "40% / 3件"
+    select = user.find(marker="dashboard-member").elements.pop()
+    assert select.options[team_key("開発")] == "チーム: 開発"
+    select.set_value(team_key("開発"))
+    assert teams == ["開発"] and members == []
+    select.set_value("田中")
+    assert members == ["田中"]

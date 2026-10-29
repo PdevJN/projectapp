@@ -39,6 +39,8 @@ from projectapp.periodfield import (
 )
 from projectapp.models import ID_KEY, MAX_SECTION_DEPTH, URL_KEY, Assignee, Category, Event, Priority, Project, ReferenceMode, ReferenceValue, Section, SectionPath, Status, Task, TaskKind, TaskUrl
 from projectapp.reference import Reference
+from projectapp.scope import read_scope, scope_options, scope_value
+from projectapp.teams import team_scope, teams_with_members
 from projectapp.selection import CheckState, check_state, task_ids_of, toggled
 from projectapp.urls import resolve
 from projectapp.summary import children_of, parent_map, summary_progress, summary_status
@@ -586,6 +588,12 @@ class GanttChart:
         names = {member.name for member in project.members}
         if self.task_filter.assignee not in (None, *names):
             self.task_filter = replace(self.task_filter, assignee=None)
+        if self.task_filter.team is not None:  # チームの絞り込みは、名簿の変更に追従し、消えたら外す
+            members = team_scope(project, self.task_filter.team)
+            if members is None:
+                self.task_filter = replace(self.task_filter, team=None, team_members=frozenset())
+            elif members != self.task_filter.team_members:
+                self.task_filter = replace(self.task_filter, team_members=members)
         self.sync_assignee_select()
         self.tasks_by_id = project.task_map()  # 選択の整理は、描き直しを待たずに行う
         self.sync_bulk(restyle=False)
@@ -811,13 +819,21 @@ class GanttChart:
         self.scroll_to_top()
 
     def assignee_options(self) -> dict[str, str]:
-        options = {ALL_ASSIGNEES: "すべての担当者"}
-        options.update({member.name: member.name for member in self.project.members})
-        return options
+        return scope_options(
+            "すべての担当者", [member.name for member in self.project.members], teams_with_members(self.project)
+        )
+
+    def on_assignee_filter(self, value: str | None) -> None:
+        """担当者のプルダウンの選択。メンバーかチームのどちらか一方だけを絞り込みに入れる。"""
+        member, team = read_scope(value)
+        members = team_scope(self.project, team)
+        if members is None:
+            team = None  # 消えた・メンバーのいないチームは、絞り込まない
+        self.set_filter(replace(self.task_filter, assignee=member, team=team, team_members=members or frozenset()))
 
     def sync_assignee_select(self) -> None:
         if self.assignee_select is not None:
-            value = self.task_filter.assignee or ALL_ASSIGNEES
+            value = scope_value(self.task_filter.assignee, self.task_filter.team)
             self.assignee_select.set_options(self.assignee_options(), value=value)
 
     def refresh_scrollbars(self) -> None:
@@ -1148,13 +1164,8 @@ class GanttChart:
             self.assignee_select = (
                 ui.select(
                     self.assignee_options(),
-                    value=self.task_filter.assignee or ALL_ASSIGNEES,
-                    on_change=lambda e: self.set_filter(
-                        replace(
-                            self.task_filter,
-                            assignee=None if e.value == ALL_ASSIGNEES else e.value,
-                        )
-                    ),
+                    value=scope_value(self.task_filter.assignee, self.task_filter.team),
+                    on_change=lambda e: self.on_assignee_filter(e.value),
                 )
                 .props("dense outlined")
                 .style("flex: 1 1 8rem; min-width: 7rem; max-width: 12rem")

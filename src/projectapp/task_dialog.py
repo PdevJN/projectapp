@@ -4,6 +4,7 @@ import html
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from math import isfinite
 from datetime import date, datetime, time
 
 from nicegui import ui
@@ -58,6 +59,7 @@ from projectapp.models import (
     Category,
     Member,
     Parameter,
+    Team,
     Priority,
     RatioLimits,
     Status,
@@ -68,6 +70,7 @@ from projectapp.models import (
     has_control_char,
 )
 from projectapp.ratios import effective_ratio, limit_note, ratio_detail
+from projectapp.teams import add_team_members, team_member_names
 from projectapp.reassign import needs_review, reviewed_end
 from projectapp.task_sections import (
     FOLDABLE,
@@ -917,6 +920,7 @@ def open_task_dialog(
     on_decompose: Callable[[Callable[[], object]], object] | None = None,
     now: Callable[[], datetime] = datetime.now,
     reference_choices: list[str] | None = None,
+    teams: list[Team] | None = None,
 ) -> ui.dialog:
     initial = task or Task("")
     is_summary = initial.kind is TaskKind.SUMMARY  # まとめは、名前・カテゴリ・優先度・リンクだけを編集する
@@ -1038,6 +1042,24 @@ def open_task_dialog(
                     .mark("task-parameters")
                 )
             assignee_fields = AssigneeFields(initial.assignees, member_list, lambda: refresh_conversion())
+            team_choices = {t.id: t.name for t in teams or [] if team_member_names(raw_members, t.id)}
+            with ui.row().classes("w-full items-center no-wrap gap-4") as team_box:
+                team_select = ui.select(
+                    team_choices, label="チームから追加", value=next(iter(team_choices), None)
+                ).classes("flex-1").mark("task-team")
+                team_rate = ui.number("割り当て率(%)", value=100, min=1, max=100, step=5).classes("flex-1")
+                team_rate.mark("task-team-rate")
+
+                def add_team() -> None:
+                    rate = team_rate.value
+                    if rate is None or not isfinite(rate) or not 1 <= rate <= 100:
+                        ui.notify("割り当て率は 1〜100% で入力してください")
+                        return
+                    names = team_member_names(raw_members, team_select.value)
+                    assignee_fields.set_assignees(add_team_members(assignee_fields.assignee_list(), names, rate / 100))
+
+                ui.button("追加", icon="group_add", on_click=add_team).props("flat dense").mark("task-team-add")
+            team_box.set_visibility(bool(team_choices))
             weekly_note = ui.label(
                 "担当は週ごとに分けています。棒の上のチップをタップして直します(担当者: "
                 + "・".join(a.name for a in initial.assignees)
@@ -1238,6 +1260,7 @@ def open_task_dialog(
             for widget in (fields.first_row, effort, conversion, actual_box, progress_field.container):
                 widget.set_visibility(normal)
             assignee_fields.container.set_visibility(normal and not weekly)
+            team_box.set_visibility(normal and not weekly and bool(team_choices))
             weekly_note.set_visibility(normal and weekly)
             if parameter_select is not None:
                 parameter_select.set_visibility(normal)
