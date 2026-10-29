@@ -2564,5 +2564,7 @@ class MainView:
             ui.label("キー操作").classes("text-h6")
             for key, desc in help_entries():
                 ui.label(f"{key}: {desc}")
+            ui.label("Ctrl/Cmd+クリック: タスクを選択に加える・外す(名前の欄。まとめは子も)").mark("help-bulk-click")
+            ui.label("Shift+クリック: 最後に選んだ行との間を選ぶ。ESC か選択バーの解除で解除").mark("help-bulk-range")
             ui.button("閉じる", on_click=dialog.close)
         return dialog
