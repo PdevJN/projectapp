@@ -147,7 +147,7 @@
 - 一括の適用(純粋関数)と、検証(チェックポイント・終了のタスクの扱い)
 - 一括削除の確認(件数を出す)。後続との連結の整理(`drop_task_links`)
 
-> **状態**: 実装完了・実機確認済み(2026-10-29。`feature/bulk-edit`。設計書 `superpowers/specs/2026-10-29-bulk-edit-design.md`、計画 `superpowers/plans/2026-10-29-bulk-edit.md`)。第 N 週以降の登録は要望 84 へ移した。倍率での工数変更は要望 83(後続)。
+> **状態**: 完了(PR #123。`develop`へマージ済み。2026-10-29。設計書 `superpowers/specs/2026-10-29-bulk-edit-design.md`、計画 `superpowers/plans/2026-10-29-bulk-edit.md`)。第 N 週以降の登録は要望 84 へ移した。倍率での工数変更は要望 83(後続)。
 
 ### 決めたい点(受領時。設計書で決定済み)
 - 選択の方法: 行頭のチェック、Shift/Cmd クリック、セクション単位の選択
