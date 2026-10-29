@@ -151,3 +151,5 @@
 - 要望 35 の実装(2026-10-29。`feature/bulk-edit`、`superpowers:executing-plans` で native 実行): 7 タスクを計画どおり実装。`bulk_select.py`・`bulk_edit.py`(`timeline.own_end` を公開)・`bulk_dialog.py`・`gantt.py` の選択(`SELECT_CLICK_JS`・選択バー・右クリック)・`views.py` の配線(`apply_bulk`/`commit_bulk`/`confirm_bulk_delete`/`escape_pressed`、`warn_overallocation(limit=)`)。テスト 4,248 件が通過、`ty` エラーなし。判断: ① 絞り込みで子が一致するまとめも見える(仕様)ので、テストの期待を直した。② `set_project`/`set_filter` は描き直し(非同期)を待たず選択を整理する。③ 選択の解除は `reset_history()` に集約(開く・新規・取り込み・名前をつけて保存が通る)。④ `views.py` では `apply_bulk` が同名メソッドと紛れるので `apply_bulk_changes` として import。**残り**: 実機確認(Cmd/Ctrl・Shift クリック、折りたたんだまとめ、絞り込み、Undo、Esc、右クリック。文字が選択状態になる場合は名前の欄に `user-select: none`)、PR。
 
 - 要望 35 の仕上げ(2026-10-29): 実機確認で出た直しを反映。右クリックメニューの`選択中 0 件を…`は`display: none`で確実に隠す、1 件目の選択はバーに使い方のヒントと行の薄い背景、`Delete`(macOS は delete キー)で一括削除、`第 N 週以降`は一括編集から外して要望 84 へ、ダイアログの見た目(見出し・項目ごとの枠・フッター)を整えた。テスト 4,249 件通過、実機確認済み。`feature/bulk-edit`から PR を作成。
+
+- 要望 35 のマージ(2026-10-29): PR #123(マージコミット cd2c4d3)で`develop`へマージ済み。ローカルの`feature/bulk-edit`は削除、リモートは残している。次の候補は要望 84(週ごとの担当の第 N 週以降)・83(工数の倍率変更)。
