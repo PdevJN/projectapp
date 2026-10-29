@@ -102,6 +102,22 @@ def team_member_names(members: Sequence[Member], team_id: str) -> list[str]:
     return [m.name for m in members if any(s.team_id == team_id for s in m.teams)]
 
 
+def teams_with_members(project: Project) -> list[str]:
+    """メンバーがいるチームの名前(チームの並び順)。絞り込みの選択肢に出す。"""
+    return [t.name for t in project.teams if team_member_names(project.members, t.id)]
+
+
+def team_scope(project: Project, team: str | None) -> frozenset[str] | None:
+    """チーム名 → 所属するメンバー名の集合。None・存在しない・メンバーがいないチームは None(絞り込まない)。"""
+    if team is None:
+        return None
+    for entry in project.teams:
+        if entry.name == team:
+            names = team_member_names(project.members, entry.id)
+            return frozenset(names) if names else None
+    return None
+
+
 def drop_teams(project: Project, removed: Collection[str]) -> int:
     """削除したチームへの所属を外し、残りの割合を 100% に揃える。所属が変わったメンバーの数を返す。"""
     changed = 0

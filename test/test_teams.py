@@ -15,6 +15,8 @@ from projectapp.teams import (
     settle_memberships,
     team_member_names,
     team_name_error,
+    team_scope,
+    teams_with_members,
 )
 
 
@@ -207,3 +209,28 @@ def test_add_team_members_adds_and_updates() -> None:
     result = add_team_members(current, ["甲", "乙"], 0.8)
     assert result == [Assignee("甲", 0.8), Assignee("丙", 1.0), Assignee("乙", 0.8)]
     assert current == [Assignee("甲", 0.5), Assignee("丙", 1.0)]  # 元は変えない
+
+
+def test_teams_with_members_skips_empty_teams_in_team_order() -> None:
+    project = Project(
+        "p",
+        teams=[Team("空", id="c"), Team("開発", id="a"), Team("QA", id="b")],
+        members=[Member("甲", teams=ms(("b", 100))), Member("乙", teams=ms(("a", 50), ("b", 50)))],
+    )
+    assert teams_with_members(project) == ["開発", "QA"]
+
+
+def test_team_scope_is_the_set_of_member_names() -> None:
+    project = Project(
+        "p",
+        teams=[Team("開発", id="a"), Team("空", id="c")],
+        members=[Member("甲", teams=ms(("a", 100))), Member("乙")],
+    )
+    assert team_scope(project, "開発") == frozenset({"甲"})
+
+
+def test_team_scope_is_none_for_unknown_empty_or_missing() -> None:
+    project = Project("p", teams=[Team("空", id="c")], members=[Member("甲")])
+    assert team_scope(project, "空") is None
+    assert team_scope(project, "ない") is None
+    assert team_scope(project, None) is None
