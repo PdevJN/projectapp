@@ -1756,6 +1756,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            teams=self.project.teams,
             **self.link_args(None),
         )
 
@@ -1768,6 +1769,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            teams=self.project.teams,
             **self.link_args(None),
         )
 
@@ -1781,6 +1783,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            teams=self.project.teams,
             on_delete=lambda: self.delete_task(path, task_index),
             on_decompose=None  # まとめの子は、入れ子になるので分解できない
             if task.id in parent_map(self.project)
