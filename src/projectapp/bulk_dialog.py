@@ -21,7 +21,7 @@ from projectapp.bulk_edit import (
 from projectapp.dateinput import parse_date_input
 from projectapp.effortunits import EffortUnit, to_hours
 from projectapp.forms import _build_assignees, disposable
-from projectapp.models import MAX_ALLOCATION, MAX_WEEKS, MIN_ALLOCATION, Assignee, Project
+from projectapp.models import MAX_ALLOCATION, MIN_ALLOCATION, Assignee, Project
 from projectapp.task_dialog import AssigneeFields
 
 UNDECIDED = "__undecided__"  # カテゴリの選択肢で「未定」を表す値
@@ -36,10 +36,6 @@ CREW_HELP = {
     CrewMode.ADD: "選んだメンバーを担当に加えます。すでにいる人は、割り当て率だけ更新します。",
     CrewMode.REMOVE: "選んだメンバーを担当から外します。担当がいなくなったタスクは担当なしになります。",
     CrewMode.REPLACE: "担当を、下の一覧に置き換えます。週ごとの担当は解除されます。",
-    CrewMode.FROM_WEEK: (
-        "開始予定から 7 日ごとの第 N 週以降の担当を、下の一覧に置き換えます。"
-        "第 N-1 週までは今のままです(週ごとでないタスクは、今の担当を第 1 週として分けます)。"
-    ),
 }
 
 
@@ -66,9 +62,6 @@ def open_bulk_dialog(
                 [m.value for m in CrewMode], value=CrewMode.ADD.value, on_change=lambda _e: refresh()
             ).mark("bulk-crew-mode")
             crew_help = ui.label("").classes("text-caption text-grey").mark("bulk-crew-help")  # モードごとの説明
-            crew_week = ui.number(
-                "第 N 週から(2〜52)", value=2, min=2, max=MAX_WEEKS, step=1, on_change=lambda _e: refresh()
-            ).mark("bulk-crew-week")
             with ui.row().classes("w-full items-center no-wrap gap-4") as one_box:  # 追加・削除は 1 人
                 crew_member = ui.select(members, label="メンバー", on_change=lambda _e: refresh()).classes("flex-1")
                 crew_member.mark("bulk-crew-member")
@@ -76,7 +69,7 @@ def open_bulk_dialog(
                 crew_rate.mark("bulk-crew-rate")
             crew_list = AssigneeFields(
                 [], project.members, lambda: refresh(), marker="bulk-crew-list", title="新しい担当者(メンバーと割り当て率)"
-            )  # 置き換え・第 N 週以降
+            )  # 置き換え
 
         def crew_change() -> CrewChange | str:
             mode = CrewMode(crew_mode.value)
@@ -98,13 +91,7 @@ def open_bulk_dialog(
                 chosen = _build_assignees(crew_list.rows())
             except ValueError:
                 return RATE_ERROR
-            week = 2
-            if mode is CrewMode.FROM_WEEK:
-                number = _whole(crew_week.value, 2, MAX_WEEKS)
-                if number is None:
-                    return f"第 N 週は 2〜{MAX_WEEKS} で入力してください"
-                week = number
-            return CrewChange(mode, tuple(chosen), from_week=week)
+            return CrewChange(mode, tuple(chosen))
 
         # カテゴリ
         category_on = ui.switch("カテゴリを変更する", on_change=lambda _e: refresh()).mark("bulk-category-on")
@@ -197,8 +184,7 @@ def open_bulk_dialog(
             crew_mode_value = CrewMode(crew_mode.value)
             one_box.set_visibility(crew_mode_value in (CrewMode.ADD, CrewMode.REMOVE))
             crew_rate.set_visibility(crew_mode_value is CrewMode.ADD)
-            crew_list.container.set_visibility(crew_mode_value in (CrewMode.REPLACE, CrewMode.FROM_WEEK))
-            crew_week.set_visibility(crew_mode_value is CrewMode.FROM_WEEK)
+            crew_list.container.set_visibility(crew_mode_value is CrewMode.REPLACE)
             crew_help.set_text(CREW_HELP[crew_mode_value])
             category.set_visibility(bool(category_on.value))
             end_box.set_visibility(bool(end_on.value))

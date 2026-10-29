@@ -13,11 +13,9 @@ from projectapp.merge import fill_empty_weeks
 from projectapp.models import union_assignees
 from projectapp.reassign import needs_review
 from projectapp.summary import parent_map
-from projectapp.timeline import Schedule, conversion_rate, effective_end, effective_start, own_end, week_count
+from projectapp.timeline import conversion_rate, own_end
 
 SKIP_KIND = "対象外の種別"
-SKIP_NO_CREW = "担当なし"
-SKIP_NO_START = "開始予定なし"
 SKIP_BEFORE_START = "開始予定より前"
 SKIP_NO_END = "完了予定が読めない"
 SKIP_NO_EFFORT = "工数なし"
@@ -31,14 +29,12 @@ class CrewMode(Enum):
     ADD = "追加"
     REMOVE = "削除"
     REPLACE = "置き換え"
-    FROM_WEEK = "第 N 週以降"
 
 
 @dataclass(frozen=True)
 class CrewChange:
     mode: CrewMode
-    members: tuple[Assignee, ...] = ()  # ADD・REMOVE は 1 人(REMOVE は名前だけ使う)。REPLACE・FROM_WEEK は一覧
-    from_week: int = 2  # FROM_WEEK だけ(1 始まり。2〜MAX_WEEKS)
+    members: tuple[Assignee, ...] = ()  # ADD・REMOVE は 1 人(REMOVE は名前だけ使う)。REPLACE は一覧
 
 
 @dataclass(frozen=True)
@@ -159,7 +155,6 @@ def apply_bulk(project: Project, ids: Sequence[str], changes: BulkChanges, holid
     """ids(描画順)のタスクに changes を当てた結果を返す。project は変えない(ダイアログの見込みにも使う)。
     項目の順は 担当 → カテゴリ → 工数 → 完了予定。ずらしの基準は、元のタスクの完了予定。"""
     by_id = project.task_map()
-    schedule = Schedule(project, holidays)
     result = BulkResult()
     for task_id in ids:
         original = by_id.get(task_id)
@@ -167,7 +162,7 @@ def apply_bulk(project: Project, ids: Sequence[str], changes: BulkChanges, holid
             continue
         task = original
         if changes.crew is not None:
-            task = _crew(task, changes.crew, project, holidays, schedule, result)
+            task = _crew(task, changes.crew, project, result)
         if changes.category is not None:
             task = _category(task, changes.category, result)
         if changes.effort is not None:
@@ -205,19 +200,19 @@ def _copy(crew: Sequence[Assignee]) -> list[Assignee]:
 
 
 def _crew(
-    task: Task, change: CrewChange, project: Project, holidays: dict[date, str], schedule: Schedule, result: BulkResult
+    task: Task, change: CrewChange, project: Project, result: BulkResult
 ) -> Task:
     if task.kind is not TaskKind.NORMAL:
         result.skip(SKIP_KIND)
         return task
-    new = _crew_applied(task, change, project, holidays, schedule, result)
+    new = _crew_applied(task, change, project, result)
     if new != task and needs_review(new, conversion_rate(task, project), conversion_rate(new, project)):
         result.review_needed += 1
     return new
 
 
 def _crew_applied(
-    task: Task, change: CrewChange, project: Project, holidays: dict[date, str], schedule: Schedule, result: BulkResult
+    task: Task, change: CrewChange, project: Project, result: BulkResult
 ) -> Task:
     weeks = task.weekly_crew
     if change.mode is CrewMode.ADD:
@@ -252,23 +247,6 @@ def _crew_applied(
         if weeks:
             result.weeks_dropped += 1
         return replace(task, weekly_crew=[], assignees=_copy(change.members))
-    # FROM_WEEK: 第 N 週から後ろを丸ごと上書きする
-    if not weeks:
-        if not task.assignees:
-            result.skip(SKIP_NO_CREW)
-            return task
-        start = effective_start(task, project, holidays, schedule)
-        if start is None:
-            result.skip(SKIP_NO_START)
-            return task
-        end = effective_end(task, project, holidays, schedule)
-        count = week_count(start, end) if end is not None and end > start else 1
-        weeks = [_copy(task.assignees) for _ in range(count)]
-    head = [_copy(w) for w in weeks[: change.from_week - 1]]
-    while len(head) < change.from_week - 1:
-        head.append(_copy(head[-1]))  # 定義した週より後ろは、最後の週の担当が続いていた
-    new_weeks = [*head, _copy(change.members)]
-    return replace(task, weekly_crew=new_weeks, assignees=union_assignees(new_weeks))
 
 
 @dataclass(frozen=True)

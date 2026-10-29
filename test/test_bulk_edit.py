@@ -4,9 +4,7 @@ from projectapp.bulk_edit import (
     SKIP_BEFORE_START,
     SKIP_KIND,
     SKIP_NEGATIVE,
-    SKIP_NO_CREW,
     SKIP_NO_EFFORT,
-    SKIP_NO_START,
     BulkChanges,
     CategoryChange,
     CrewChange,
@@ -21,7 +19,7 @@ from projectapp.bulk_edit import (
     forecast_text,
     store,
 )
-from projectapp.models import Actual, Assignee, Member, MAX_WEEKS
+from projectapp.models import Actual, Assignee, Member
 from projectapp.models import Category, Project, Section, Task, TaskKind
 
 START = datetime(2026, 10, 5, 9)
@@ -200,31 +198,6 @@ def test_crew_replace_swaps_the_list_and_ends_weekly_counting_it() -> None:
     assert names(result.tasks["p"].assignees) == [("鈴木", 0.5)]
     assert result.tasks["w"].weekly_crew == [] and names(result.tasks["w"].assignees) == [("鈴木", 0.5)]
     assert result.weeks_dropped == 1  # 週ごとが解除された件数だけ
-
-
-def test_crew_from_week_splits_a_plain_task_and_overwrites_the_tail() -> None:
-    task = Task("t", id="t", planned_start=START, planned_end=datetime(2026, 10, 22, 12), assignees=[Assignee("田中", 1.0)])  # 3 週ぶん
-    change = BulkChanges(crew=CrewChange(CrewMode.FROM_WEEK, (Assignee("鈴木", 0.5),), from_week=2))
-    new = apply_bulk(crew_project(task), ["t"], change, {}).tasks["t"]
-    assert [names(w) for w in new.weekly_crew] == [[("田中", 1.0)], [("鈴木", 0.5)]]  # 第 3 週の定義は消え、第 2 週の担当が続く
-    assert names(new.assignees) == [("田中", 1.0), ("鈴木", 0.5)]
-
-
-def test_crew_from_week_on_a_weekly_task_pads_with_the_last_week_and_caps_the_tail() -> None:
-    task = Task("t", id="t", assignees=[Assignee("田中", 1.0)], weekly_crew=weekly([Assignee("田中", 1.0)]))
-    change = BulkChanges(crew=CrewChange(CrewMode.FROM_WEEK, (Assignee("鈴木", 1.0),), from_week=4))
-    new = apply_bulk(crew_project(task), ["t"], change, {}).tasks["t"]
-    assert [names(w) for w in new.weekly_crew] == [[("田中", 1.0)]] * 3 + [[("鈴木", 1.0)]]
-    last = BulkChanges(crew=CrewChange(CrewMode.FROM_WEEK, (Assignee("鈴木", 1.0),), from_week=MAX_WEEKS))
-    assert len(apply_bulk(crew_project(task), ["t"], last, {}).tasks["t"].weekly_crew) == MAX_WEEKS
-
-
-def test_crew_from_week_skips_tasks_without_crew_or_start() -> None:
-    no_crew = Task("a", id="a", planned_start=START)
-    no_start = Task("b", id="b", assignees=[Assignee("田中", 1.0)])
-    change = BulkChanges(crew=CrewChange(CrewMode.FROM_WEEK, (Assignee("鈴木", 1.0),), from_week=2))
-    result = apply_bulk(crew_project(no_crew, no_start), ["a", "b"], change, {})
-    assert result.tasks == {} and result.skips[SKIP_NO_CREW] == 1 and result.skips[SKIP_NO_START] == 1
 
 
 def test_crew_skips_non_normal_tasks() -> None:
