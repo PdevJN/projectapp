@@ -724,6 +724,17 @@ class GanttChart:
         self.sync_task_rows()
         self.update_links()
 
+    @staticmethod
+    def show_menu_part(part: ui.element | None, shown: bool) -> None:
+        """右クリックメニューの一括の項目を出す・隠す。Quasar の項目は `hidden` クラスだけでは隠れないことがあるので、display も切り替える。"""
+        if part is None:
+            return
+        part.set_visibility(shown)
+        if shown:
+            part.style(remove="display: none")
+        else:
+            part.style("display: none")
+
     def visible_task_ids(self) -> list[str]:
         """見えているタスク行の id(描画順)。折りたたみ・絞り込みで隠れた行は含めない。"""
         return [s.task_id for s in self.slots() if s.task_id is not None and s.shown]
@@ -756,8 +767,8 @@ class GanttChart:
         if self.bulk_bar is not None:
             self.bulk_bar.set_visibility(bool(self.bulk.ids))
         for item in (self.bulk_edit_item, self.bulk_delete_item, self.bulk_separator):
-            if item is not None and not self.bulk.ids:
-                item.set_visibility(False)  # 選択がなければ、右クリックのメニューに一括の項目を出さない
+            if not self.bulk.ids:
+                self.show_menu_part(item, False)  # 選択がなければ、右クリックのメニューに一括の項目を出さない
         if self.bulk_count is not None:
             chosen = len(self.selected_ids())
             # 1 件だけのときは、選択中であることと使い方を添える(最初の選択で気づけるように)
@@ -1192,10 +1203,9 @@ class GanttChart:
                 with ui.item_section():
                     self.bulk_delete_label = ui.label("選択中を削除")
             self.bulk_delete_item = item
-            self.bulk_edit_item.set_visibility(False)
-            self.bulk_delete_item.set_visibility(False)  # 選択した行の右クリックで、open_menu が出す
             self.bulk_separator = ui.separator()
-            self.bulk_separator.set_visibility(False)
+            for part in (self.bulk_edit_item, self.bulk_delete_item, self.bulk_separator):
+                self.show_menu_part(part, False)  # 選択した行の右クリックで、open_menu が出す
             ui.menu_item("編集", on_click=act(lambda p, t: self.actions.edit_task(p, t))).mark("context-edit")
             self.decompose_item = ui.menu_item(
                 "分解…", on_click=act(lambda p, t: self.actions.decompose_task(p, t))
@@ -1265,14 +1275,13 @@ class GanttChart:
         chosen = self.selected_ids()
         clicked = tasks[ti] if ti < len(tasks) else None
         show = clicked is not None and clicked.id in chosen  # 選択に含まれる行の右クリックだけ、一括の項目を出す
-        if self.bulk_separator is not None:
-            self.bulk_separator.set_visibility(show)
+        self.show_menu_part(self.bulk_separator, show)
         for item, label, text in (
             (self.bulk_edit_item, self.bulk_edit_label, "編集…"),
             (self.bulk_delete_item, self.bulk_delete_label, "削除"),
         ):
-            if item is not None and label is not None:
-                item.set_visibility(show)
+            self.show_menu_part(item, show)
+            if show and label is not None:
                 label.set_text(f"選択中 {len(chosen)} 件を{text}")
         if self.weeks_item is not None and self.weeks_label is not None:
             task = tasks[ti] if ti < len(tasks) else None

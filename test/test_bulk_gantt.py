@@ -164,3 +164,17 @@ async def test_the_menu_hides_bulk_items_without_a_selection_and_the_bar_hints_w
     assert user.find(marker="bulk-count").elements.pop().text == "2 件選択中"
     chart.clear_selection()
     assert not chart.bulk_edit_item.visible and not chart.bulk_delete_item.visible
+
+
+async def test_bulk_menu_parts_are_hidden_with_display_none_and_keep_no_stale_label(user: User) -> None:
+    charts, _ = mount_chart(bulk_project())
+    await user.open("/")
+    chart = charts[0]
+    chart.open_menu((), 0)  # 選択なし
+    for part in (chart.bulk_edit_item, chart.bulk_delete_item, chart.bulk_separator):
+        assert part._style.get("display") == "none"
+    assert "0 件" not in chart.bulk_delete_label.text  # 選択がないときは件数入りの文言にしない
+    chart.clicked_task("top", {"ctrl": True})
+    chart.open_menu((), 0)
+    assert "display" not in chart.bulk_delete_item._style
+    assert chart.bulk_delete_label.text == "選択中 1 件を削除"
