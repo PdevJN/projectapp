@@ -45,6 +45,9 @@ from projectapp.config import (
     save_zoom,
     step_zoom,
 )
+from projectapp.bulk_dialog import open_bulk_dialog
+from projectapp.bulk_edit import BulkChanges, BulkResult, delete_summary, delete_tasks, store
+from projectapp.bulk_edit import apply_bulk as apply_bulk_changes  # MainView.apply_bulk と紛れないように
 from projectapp.forms import (
     MEMBER_TABLE_CSS,
     open_commit_dialog,
@@ -307,6 +310,8 @@ class MainView:
                 set_name_width=self.set_name_width,
                 add_subsection=self.add_subsection,
                 decompose_task=self.decompose_task,
+                bulk_edit=self.bulk_edit,
+                bulk_delete=self.confirm_bulk_delete,
                 copy_task=self.copy_task_below,
                 rename_task=self.rename_task,
                 delete_task=self.confirm_delete_task,
@@ -444,6 +449,7 @@ class MainView:
         """履歴を捨て、いまの内容を確定した状態にする(別のプロジェクトに切り替えたとき・名前をつけて保存したとき)。"""
         self.history.clear()
         self.committed = deepcopy(self.project)
+        self.gantt.clear_selection()  # 履歴を捨てる場面(開く・新規・取り込み・名前をつけて保存)では、一括操作の選択も解除する
 
     def restore(self, project: Project) -> None:
         """Undo・Redo で取り出した状態に差し替えて描き直す。折りたたみはセクションの id で引き継ぎ、絞り込み・スクロールは変えない。"""
@@ -905,10 +911,7 @@ class MainView:
             screen=self.screen(),
         )
         if action == "escape":
-            if self.preview is not None:
-                self.exit_preview()
-            elif self.dashboard_kind is not None:
-                self.close_dashboard()
+            self.escape_pressed()
         elif action == "search":
             self.gantt.focus_search()
         elif action == "help":
@@ -917,6 +920,15 @@ class MainView:
             self.change_zoom(ZOOM_DIRECTIONS[action])
         elif action is not None:
             getattr(self, self.SHORTCUT_METHODS[action])()
+
+    def escape_pressed(self) -> None:
+        """ESC。プレビュー・ダッシュボードから戻る。何もなければ(ダイアログが開いていないとき)一括操作の選択を解除する。"""
+        if self.preview is not None:
+            self.exit_preview()
+        elif self.dashboard_kind is not None:
+            self.close_dashboard()
+        elif not self.dialog_open() and self.gantt.has_selection():
+            self.gantt.clear_selection()
 
     def set_header_visible(self, visible: bool) -> None:
         """ヘッダーと、メイン側のタイトルを、一緒に出す・隠す(プレビューとダッシュボードの出入り)。"""
@@ -1936,6 +1948,54 @@ class MainView:
         drop_task_links(self.project, removed.id)
         self.after_edit()
 
+    def bulk_edit(self, ids: list[str]) -> None:
+        """選択中のタスクの一括編集ダイアログを開く。"""
+        if ids:
+            open_bulk_dialog(self.project, ids, self.holidays, lambda changes: self.apply_bulk(ids, changes))
+
+    def apply_bulk(self, ids: list[str], changes: BulkChanges) -> None:
+        """一括編集を適用する。置き換えで週ごとが解除されるときだけ、先に件数を出して確認する。"""
+        result = apply_bulk_changes(self.project, ids, changes, self.holidays)
+        if result.weeks_dropped:
+            open_confirm_dialog(
+                f"週ごとの担当が {result.weeks_dropped} 件のタスクで解除されます",
+                lambda: self.commit_bulk(result),
+                detail="置き換えると、週ごとの担当は 1 つの担当に戻ります",
+                confirm_label="適用",
+            )
+            return
+        self.commit_bulk(result)
+
+    def commit_bulk(self, result: BulkResult) -> None:
+        store(self.project, result)
+        self.after_edit()  # 適用 1 回 = 元に戻す 1 ステップ
+        ui.notify(f"{result.changed} 件を一括編集しました")
+        if result.skipped:
+            reasons = "・".join(f"{reason} {count}" for reason, count in result.skips.items())
+            ui.notify(f"スキップ {result.skipped} 項目: {reasons}", type="warning")
+        if result.review_needed:
+            ui.notify(f"完了予定の見直しが要るタスクが {result.review_needed} 件あります", type="warning")
+        if result.manual_switched:
+            ui.notify(f"自動算出から手で指定に変わったタスク {result.manual_switched} 件(設定を変えても追従しません)", type="warning")
+        if result.emptied:
+            ui.notify(f"担当がいなくなったタスクが {result.emptied} 件あります", type="warning")
+        if result.filled_weeks:
+            ui.notify(f"担当のいなくなった週 {result.filled_weeks} 週を、隣の週の担当にしました", type="warning")
+        self.warn_overallocation(*result.tasks.values(), limit=3)
+
+    def confirm_bulk_delete(self, ids: list[str]) -> None:
+        if not ids:
+            return
+        info = delete_summary(self.project, ids)
+        message = f"{info.total} 件のタスクを削除します(うちまとめ {info.summaries} 件・子 {info.children} 件)"
+        detail = f"実行中の記録があるタスクが {info.running} 件あります" if info.running else None
+        open_confirm_dialog(message, lambda: self.bulk_delete(ids), detail=detail)
+
+    def bulk_delete(self, ids: list[str]) -> None:
+        delete_tasks(self.project, ids)
+        self.gantt.clear_selection()
+        self.after_edit()
+
     def move_task(self, src: arrange.Position, dst: arrange.Position, copy: bool) -> None:
         """行を動かす(copy が真なら複製を置く)。位置が不正・変化なしなら何もしない。"""
         if not arrange.has_task(self.project, src) or not arrange.has_list(self.project, dst):
@@ -2017,21 +2077,29 @@ class MainView:
         self.after_edit()
         self.warn_overallocation(task)
 
-    def warn_overallocation(self, *tasks: Task) -> None:
+    def warn_overallocation(self, *tasks: Task, limit: int | None = None) -> None:
         """保存したタスクが担当者の割り当て合計の超過に関わるなら、担当者ごとに通知する(保存は妨げない)。
-        複数のタスクを渡したときは、担当者ごとに 1 回だけ出す。"""
+        複数のタスクを渡したときは、担当者ごとに 1 回だけ出す。limit があれば、その人数だけ通知し、残りは件数にまとめる。"""
         if not any(task.assignees for task in tasks):
             return
         overloads = overallocations(self.project, self.holidays)
         mine = [o for task in tasks for o in clip_overloads(task, self.project, self.holidays, overloads)]
         names = dict.fromkeys(name for task in tasks for name in task.assignee_names)
+        notified = 0
         for name in names:
             peaks = [o.total for o in mine if o.member == name]
-            if peaks:
-                ui.notify(
-                    f"{name} 最大{round(max(peaks) * 100)}%になる期間があります",
-                    type="warning",
-                )
+            if not peaks:
+                continue
+            if limit is not None and notified >= limit:
+                notified += 1
+                continue
+            notified += 1
+            ui.notify(
+                f"{name} 最大{round(max(peaks) * 100)}%になる期間があります",
+                type="warning",
+            )
+        if limit is not None and notified > limit:
+            ui.notify(f"ほか {notified - limit} 人も割り当てが 100% を超える期間があります", type="warning")
 
     @property
     def holidays(self) -> dict[date, str]:
