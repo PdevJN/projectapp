@@ -6839,3 +6839,64 @@ async def test_unchecking_every_team_clears_the_membership(user: User, tmp_path:
     user.find(marker="mteam-save").click()
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: view.project.members[1].teams == [])
+
+
+async def open_team_dashboard(user: User, tmp_path: Path) -> MainView:
+    view = await open_dashboard_view(user, tmp_path)
+    view.project.teams = [Team("開発", id="t1")]
+    view.project.members = [Member("甲", 1.0, id="m1", teams=[Membership("t1", 100)]), Member("乙", 1.0, id="m2")]
+    view.project.tasks = [Task("甲の", assignees=[Assignee("甲", 1.0)]), Task("乙の", assignees=[Assignee("乙", 1.0)])]
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-member")
+    view.refresh_dashboard()
+    return view
+
+
+async def test_the_dashboard_dropdown_lists_teams_and_choosing_one_filters(user: User, tmp_path: Path) -> None:
+    from projectapp.scope import team_key
+
+    view = await open_team_dashboard(user, tmp_path)
+    select = user.find(marker="dashboard-member").elements.pop()
+    assert select.options[team_key("開発")] == "チーム: 開発"
+    select.set_value(team_key("開発"))
+    assert view.dashboard_team == "開発" and view.dashboard_member is None
+    await user.should_see("チーム「開発」・10/05〜10/11 にかかるタスク")
+
+
+async def test_choosing_a_member_after_a_team_clears_the_team(user: User, tmp_path: Path) -> None:
+    from projectapp.scope import team_key
+
+    view = await open_team_dashboard(user, tmp_path)
+    select = user.find(marker="dashboard-member").elements.pop()
+    select.set_value(team_key("開発"))
+    select.set_value("乙")
+    assert view.dashboard_member == "乙" and view.dashboard_team is None
+
+
+async def test_a_team_that_vanished_from_the_roster_returns_to_everyone(user: User, tmp_path: Path) -> None:
+    view = await open_team_dashboard(user, tmp_path)
+    view.change_dashboard_team("開発")
+    assert view.dashboard_team == "開発"
+    view.project.members[0].teams = []
+    view.refresh_dashboard()
+    assert view.dashboard_team is None
+
+
+async def test_the_working_view_carries_the_team_and_a_vanished_saved_team_is_not_dirty(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_team_dashboard(user, tmp_path)
+    view.change_dashboard_team("開発")
+    assert view.working_spec("x").team == "開発" and view.working_spec("x").member is None
+    saved = ViewSpec("保存済み", PeriodKind.WEEK, None, False, DEFAULT_ORDER, None, "消えたチーム")
+    view.dashboard_views = [saved]
+    view.apply_dashboard_view(saved)
+    view.refresh_dashboard()
+    assert view.dashboard_team is None
+    assert not view.dashboard_dirty()
+
+
+async def test_a_view_with_both_member_and_team_uses_the_member(user: User, tmp_path: Path) -> None:
+    view = await open_team_dashboard(user, tmp_path)
+    view.apply_dashboard_view(ViewSpec("両方", PeriodKind.WEEK, "乙", False, DEFAULT_ORDER, None, "開発"))
+    assert view.dashboard_member == "乙" and view.dashboard_team is None

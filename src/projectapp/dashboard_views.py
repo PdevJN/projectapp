@@ -37,6 +37,7 @@ class ViewSpec:
     cross: bool
     cards: tuple[CardId, ...]  # 表示するカードを、並び順に
     custom: tuple[date, date] | None = None  # `period` が `指定` のときだけ。両端を含む
+    team: str | None = None  # 絞り込み中のチーム名(メンバーとは同時に使わない。両方あればメンバー優先)
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,11 @@ def resolve_member(member: str | None, names: Iterable[str]) -> str | None:
     return member if member is not None and member in set(names) else None
 
 
+def resolve_team(team: str | None, names: Iterable[str]) -> str | None:
+    """保存したチームが今の名簿になければ(メンバーのいるチームの名前になければ)、全員(None)。"""
+    return team if team is not None and team in set(names) else None
+
+
 def parse_card_move(args: object) -> tuple[CardId, CardId | None] | None:
     """ブラウザから来たカードの移動 `{"card": id, "before": id | None}` を読む。不正な値は None。"""
     if not isinstance(args, dict):
@@ -141,6 +147,7 @@ def views_to_config(views: list[ViewSpec]) -> list[dict]:
             "name": spec.name,
             "period": spec.period.value,
             "member": spec.member,
+            "team": spec.team,
             "cross": spec.cross,
             "cards": [c.value for c in spec.cards],
         }
@@ -174,6 +181,7 @@ def view_from_config(raw: object) -> ViewSpec | None:
     except ValueError:
         return None
     member = raw.get("member")
+    team = raw.get("team")
     cross = raw.get("cross")
     custom = custom_from_config(raw.get("custom")) if period is PeriodKind.CUSTOM else None
     return ViewSpec(
@@ -183,6 +191,7 @@ def view_from_config(raw: object) -> ViewSpec | None:
         cross if isinstance(cross, bool) else False,
         normalize_cards(raw.get("cards")),
         custom,
+        team if isinstance(team, str) and team else None,
     )
 
 
