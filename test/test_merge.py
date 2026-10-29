@@ -712,3 +712,16 @@ def test_merged_files_with_teams_load_again() -> None:
     merged = merge_projects(base, base, theirs).project
     loaded = parse_project(dumps_project(merged), "p")  # 読み直せる形
     assert [t.name for t in loaded.teams] == ["開発", "QA", "運用"]
+
+
+def test_renaming_same_named_30_character_teams_keeps_the_name_within_the_limit() -> None:
+    from projectapp.storage import dumps_project, parse_project
+
+    name = "あ" * 30
+    base = proj()
+    ours = replace(base, teams=[Team(name, id="x")])
+    theirs = replace(base, teams=[Team(name, id="y")])
+    result = merge_projects(base, ours, theirs)
+    names = [t.name for t in result.project.teams]
+    assert len(set(names)) == 2 and all(len(n) <= 30 for n in names)
+    parse_project(dumps_project(result.project), "p")  # 読み直せる

@@ -18,6 +18,7 @@ from projectapp.models import (
     Event,
     Level,
     Member,
+    MAX_TEAM_NAME_LENGTH,
     Membership,
     Parameter,
     Project,
@@ -204,6 +205,12 @@ def _members(project: Project) -> dict[str, Record]:
     }
 
 
+def _numbered(name: str, number: int, limit: int) -> str:
+    """同名を避ける連番つきの名前(`名前 (2)`)。上限を超えないよう、元の名前を切り詰めてから接尾辞を付ける。"""
+    suffix = f" ({number})"
+    return name[: limit - len(suffix)].rstrip() + suffix
+
+
 def _teams(project: Project) -> dict[str, Record]:
     return {t.id: {"name": t.name} for t in project.teams}
 
@@ -356,9 +363,9 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
         name = record["name"]
         if name in team_seen:
             number = 2
-            while f"{name} ({number})" in team_taken | team_seen:
+            while _numbered(name, number, MAX_TEAM_NAME_LENGTH) in team_taken | team_seen:
                 number += 1
-            renamed = f"{name} ({number})"
+            renamed = _numbered(name, number, MAX_TEAM_NAME_LENGTH)
             notes.append(f"同名のチームがいたため、名前を変えました: {name} → {renamed}")
             record["name"] = name = renamed
         team_seen.add(name)
