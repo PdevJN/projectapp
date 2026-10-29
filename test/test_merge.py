@@ -11,6 +11,7 @@ from projectapp.models import (
     Event,
     Level,
     Member,
+    Membership,
     Parameter,
     Priority,
     Project,
@@ -19,6 +20,7 @@ from projectapp.models import (
     Section,
     Task,
     TaskKind,
+    Team,
     UrlTemplate,
     WorkDay,
     union_assignees,
@@ -624,3 +626,89 @@ def test_ratio_unclamped_and_ratio_changed_on_different_sides_merge_without_conf
     result = merge_projects(base, ours, theirs)
     member = result.project.members[0]
     assert result.conflicts == [] and (member.ratio, member.ratio_unclamped) == (1.0, True)
+
+
+def ms(*pairs: tuple[str, int]) -> list[Membership]:
+    return [Membership(team_id, percent) for team_id, percent in pairs]
+
+
+def team_base() -> Project:
+    return proj(
+        teams=[Team("開発", id="a"), Team("QA", id="b")],
+        members=[Member("甲", 1.0, id="m1", teams=ms(("a", 60), ("b", 40)))],
+    )
+
+
+def test_team_added_on_one_side_is_taken() -> None:
+    base = team_base()
+    theirs = replace(base, teams=[*base.teams, Team("運用", id="c")])
+    result = merge_projects(base, base, theirs)
+    assert [t.id for t in result.project.teams] == ["a", "b", "c"]
+    assert result.conflicts == []
+
+
+def test_team_rename_on_both_sides_is_a_conflict() -> None:
+    base = team_base()
+    ours = replace(base, teams=[Team("開発1", id="a"), base.teams[1]])
+    theirs = replace(base, teams=[Team("開発2", id="a"), base.teams[1]])
+    result = merge_projects(base, ours, theirs)
+    assert [(c.kind, c.key, c.field) for c in result.conflicts] == [("team", "a", "名前")]
+    assert result.project.teams[0].name == "開発1"
+    chosen = merge_projects(base, ours, theirs, {("team", "a", "名前"): THEIRS})
+    assert chosen.project.teams[0].name == "開発2"
+
+
+def test_membership_change_on_one_side_is_taken_as_a_whole_list() -> None:
+    base = team_base()
+    theirs = replace(base, members=[Member("甲", 1.0, id="m1", teams=ms(("a", 100)))])
+    result = merge_projects(base, base, theirs)
+    assert result.project.members[0].teams == ms(("a", 100))
+    assert result.conflicts == []
+
+
+def test_membership_change_on_both_sides_is_one_conflict_shown_with_team_names() -> None:
+    base = team_base()
+    ours = replace(base, members=[Member("甲", 1.0, id="m1", teams=ms(("a", 100)))])
+    theirs = replace(base, members=[Member("甲", 1.0, id="m1", teams=ms(("b", 100)))])
+    result = merge_projects(base, ours, theirs)
+    [conflict] = result.conflicts
+    assert (conflict.kind, conflict.field) == ("member", "所属チーム")
+    assert conflict.ours == ["開発 100%"] and conflict.theirs == ["QA 100%"]
+
+
+def test_a_team_deleted_on_one_side_is_removed_from_memberships_and_the_rest_is_renormalized() -> None:
+    base = team_base()
+    ours = replace(base, teams=[base.teams[0]])  # 自分は QA を削除(所属は触らない = base のまま)
+    result = merge_projects(base, ours, base)
+    assert [t.id for t in result.project.teams] == ["a"]
+    assert result.project.members[0].teams == ms(("a", 100))
+    assert any("甲" in note and "チーム" in note for note in result.notes)
+
+
+def test_a_membership_added_to_a_team_the_other_side_deleted_is_dropped_with_a_note() -> None:
+    base = proj(teams=[Team("開発", id="a")], members=[Member("甲", 1.0, id="m1")])
+    ours = replace(base, teams=[])
+    theirs = replace(base, members=[Member("甲", 1.0, id="m1", teams=ms(("a", 100)))])
+    result = merge_projects(base, ours, theirs)
+    assert result.project.teams == []
+    assert result.project.members[0].teams == []
+    assert result.notes
+
+
+def test_same_named_teams_added_on_both_sides_both_stay_with_a_rename_note() -> None:
+    base = proj()
+    ours = replace(base, teams=[Team("開発", id="x")])
+    theirs = replace(base, teams=[Team("開発", id="y")])
+    result = merge_projects(base, ours, theirs)
+    assert sorted(t.name for t in result.project.teams) == ["開発", "開発 (2)"]
+    assert any("同名のチーム" in note for note in result.notes)
+
+
+def test_merged_files_with_teams_load_again() -> None:
+    from projectapp.storage import dumps_project, parse_project
+
+    base = team_base()
+    theirs = replace(base, teams=[*base.teams, Team("運用", id="c")])
+    merged = merge_projects(base, base, theirs).project
+    loaded = parse_project(dumps_project(merged), "p")  # 読み直せる形
+    assert [t.name for t in loaded.teams] == ["開発", "QA", "運用"]
