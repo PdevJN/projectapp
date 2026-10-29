@@ -871,6 +871,7 @@ class MainView:
         "git_pull": "start_git_pull",
         "undo": "undo",
         "redo": "redo",
+        "bulk_delete": "delete_selected",
     }
 
     def on_plain_key(self, event: KeyEventArguments) -> None:
@@ -920,6 +921,12 @@ class MainView:
             self.change_zoom(ZOOM_DIRECTIONS[action])
         elif action is not None:
             getattr(self, self.SHORTCUT_METHODS[action])()
+
+    def delete_selected(self) -> None:
+        """Delete キー。選択中のタスクの一括削除を、確認つきで呼ぶ(選択がなければ何もしない)。"""
+        ids = self.gantt.selected_ids()
+        if ids:
+            self.confirm_bulk_delete(ids)
 
     def escape_pressed(self) -> None:
         """ESC。プレビュー・ダッシュボードから戻る。何もなければ(ダイアログが開いていないとき)一括操作の選択を解除する。"""

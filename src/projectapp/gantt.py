@@ -277,7 +277,9 @@ SELECT_CLICK_JS = (
 PLAIN_CLICK_JS = "(e) => { if (e.shiftKey || e.ctrlKey || e.metaKey) return; e.stopPropagation(); emit(); }"
 BULK_CSS = """
 .task-selected { outline: 2px solid var(--q-primary); outline-offset: -2px; }
-.task-selected > .gantt-sticky { box-shadow: inset 4px 0 0 var(--q-primary); }
+.task-selected > .gantt-sticky {
+  box-shadow: inset 4px 0 0 var(--q-primary), inset 0 0 0 999px color-mix(in srgb, var(--q-primary) 18%, transparent);
+}
 """
 SCROLLBAR_ROOM_PX = 16  # 横スクロールバーの分の余白。WebKit は高さ auto にバーの厚みを含めない
 # チャートの枠は縦横ともここでスクロールする。高さの上限は、画面の高さから、上のヘッダー
@@ -560,6 +562,7 @@ class GanttChart:
         self.bulk_count: ui.label | None = None
         self.bulk_edit_item: ui.menu_item | None = None
         self.bulk_delete_item: ui.menu_item | None = None
+        self.bulk_separator: ui.separator | None = None
         self.bulk_edit_label: ui.label | None = None
         self.bulk_delete_label: ui.label | None = None
         self.weeks_item: ui.menu_item | None = None
@@ -752,8 +755,14 @@ class GanttChart:
         self.bulk.prune(self.tasks_by_id)
         if self.bulk_bar is not None:
             self.bulk_bar.set_visibility(bool(self.bulk.ids))
+        for item in (self.bulk_edit_item, self.bulk_delete_item, self.bulk_separator):
+            if item is not None and not self.bulk.ids:
+                item.set_visibility(False)  # 選択がなければ、右クリックのメニューに一括の項目を出さない
         if self.bulk_count is not None:
-            self.bulk_count.set_text(f"{len(self.selected_ids())} 件選択中")
+            chosen = len(self.selected_ids())
+            # 1 件だけのときは、選択中であることと使い方を添える(最初の選択で気づけるように)
+            hint = "  — Cmd/Ctrl+クリックで追加、Shift+クリックで範囲、Esc で解除" if chosen == 1 else ""
+            self.bulk_count.set_text(f"{chosen} 件選択中{hint}")
         if restyle and self.client is not None:
             ids = json.dumps(sorted(self.bulk.ids))
             self.client.run_javascript(
@@ -1183,7 +1192,10 @@ class GanttChart:
                 with ui.item_section():
                     self.bulk_delete_label = ui.label("選択中を削除")
             self.bulk_delete_item = item
-            ui.separator()
+            self.bulk_edit_item.set_visibility(False)
+            self.bulk_delete_item.set_visibility(False)  # 選択した行の右クリックで、open_menu が出す
+            self.bulk_separator = ui.separator()
+            self.bulk_separator.set_visibility(False)
             ui.menu_item("編集", on_click=act(lambda p, t: self.actions.edit_task(p, t))).mark("context-edit")
             self.decompose_item = ui.menu_item(
                 "分解…", on_click=act(lambda p, t: self.actions.decompose_task(p, t))
@@ -1253,6 +1265,8 @@ class GanttChart:
         chosen = self.selected_ids()
         clicked = tasks[ti] if ti < len(tasks) else None
         show = clicked is not None and clicked.id in chosen  # 選択に含まれる行の右クリックだけ、一括の項目を出す
+        if self.bulk_separator is not None:
+            self.bulk_separator.set_visibility(show)
         for item, label, text in (
             (self.bulk_edit_item, self.bulk_edit_label, "編集…"),
             (self.bulk_delete_item, self.bulk_delete_label, "削除"),

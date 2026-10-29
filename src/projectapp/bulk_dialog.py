@@ -32,6 +32,17 @@ EFFORT_ERROR = "工数は 0 以上の数で入力してください"
 RATE_ERROR = f"割り当て率は {MIN_ALLOCATION * 100:g}〜{MAX_ALLOCATION * 100:g}% で入力してください"
 
 
+CREW_HELP = {
+    CrewMode.ADD: "選んだメンバーを担当に加えます。すでにいる人は、割り当て率だけ更新します。",
+    CrewMode.REMOVE: "選んだメンバーを担当から外します。担当がいなくなったタスクは担当なしになります。",
+    CrewMode.REPLACE: "担当を、下の一覧に置き換えます。週ごとの担当は解除されます。",
+    CrewMode.FROM_WEEK: (
+        "開始予定から 7 日ごとの第 N 週以降の担当を、下の一覧に置き換えます。"
+        "第 N-1 週までは今のままです(週ごとでないタスクは、今の担当を第 1 週として分けます)。"
+    ),
+}
+
+
 def _whole(value: object, low: int, high: int) -> int | None:
     """low〜high の整数なら整数にする(小数・範囲外・空は None)。"""
     if not isinstance(value, (int, float)) or not isfinite(value) or value != int(value):
@@ -54,15 +65,18 @@ def open_bulk_dialog(
             crew_mode = ui.toggle(
                 [m.value for m in CrewMode], value=CrewMode.ADD.value, on_change=lambda _e: refresh()
             ).mark("bulk-crew-mode")
+            crew_help = ui.label("").classes("text-caption text-grey").mark("bulk-crew-help")  # モードごとの説明
+            crew_week = ui.number(
+                "第 N 週から(2〜52)", value=2, min=2, max=MAX_WEEKS, step=1, on_change=lambda _e: refresh()
+            ).mark("bulk-crew-week")
             with ui.row().classes("w-full items-center no-wrap gap-4") as one_box:  # 追加・削除は 1 人
                 crew_member = ui.select(members, label="メンバー", on_change=lambda _e: refresh()).classes("flex-1")
                 crew_member.mark("bulk-crew-member")
                 crew_rate = ui.number("割り当て率(%)", value=100, step=5, on_change=lambda _e: refresh()).classes("flex-1")
                 crew_rate.mark("bulk-crew-rate")
-            crew_list = AssigneeFields([], project.members, lambda: refresh(), marker="bulk-crew-list")  # 置き換え・第 N 週以降
-            crew_week = ui.number(
-                "第 N 週から(2〜52)", value=2, min=2, max=MAX_WEEKS, step=1, on_change=lambda _e: refresh()
-            ).mark("bulk-crew-week")
+            crew_list = AssigneeFields(
+                [], project.members, lambda: refresh(), marker="bulk-crew-list", title="新しい担当者(メンバーと割り当て率)"
+            )  # 置き換え・第 N 週以降
 
         def crew_change() -> CrewChange | str:
             mode = CrewMode(crew_mode.value)
@@ -185,6 +199,7 @@ def open_bulk_dialog(
             crew_rate.set_visibility(crew_mode_value is CrewMode.ADD)
             crew_list.container.set_visibility(crew_mode_value in (CrewMode.REPLACE, CrewMode.FROM_WEEK))
             crew_week.set_visibility(crew_mode_value is CrewMode.FROM_WEEK)
+            crew_help.set_text(CREW_HELP[crew_mode_value])
             category.set_visibility(bool(category_on.value))
             end_box.set_visibility(bool(end_on.value))
             date_mode = EndMode(end_mode.value) is EndMode.DATE

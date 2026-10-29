@@ -49,7 +49,7 @@ async def test_ctrl_click_selects_and_marks_rows_without_re_rendering(user: User
     chart.clicked_task("top", {"ctrl": True})
     assert chart.bulk.ids == {"top"}
     await user.should_see(marker="bulk-bar")
-    assert user.find(marker="bulk-count").elements.pop().text == "1 件選択中"
+    assert user.find(marker="bulk-count").elements.pop().text.startswith("1 件選択中")
     if before is not None:
         assert chart.render_count == before  # 描き直さない
 
@@ -86,7 +86,7 @@ async def test_rows_hidden_by_a_filter_are_not_targets_but_stay_selected(user: U
     user.find(marker="bulk-edit").click()
     assert recorder.events == [("bulk_edit", (["low"],))]
     assert chart.bulk.ids == {"top", "low"}
-    assert user.find(marker="bulk-count").elements.pop().text == "1 件選択中"
+    assert user.find(marker="bulk-count").elements.pop().text.startswith("1 件選択中")
 
 
 async def test_clear_selection_hides_the_bar_and_set_project_prunes_gone_ids(user: User) -> None:
@@ -151,3 +151,16 @@ def test_the_click_script_filters_modifiers_and_excluded_targets(tmp_path: Path)
     assert out["meta"]["out"] == [{"shift": False, "ctrl": True}]  # Cmd も ctrl 扱い
     assert out["shift"]["out"] == [{"shift": True, "ctrl": False}]
     assert out["button"]["out"] == []  # ボタン・リンク・入力欄の上は選択にしない
+
+
+async def test_the_menu_hides_bulk_items_without_a_selection_and_the_bar_hints_when_one_is_selected(user: User) -> None:
+    charts, _ = mount_chart(bulk_project())
+    await user.open("/")
+    chart = charts[0]
+    assert not chart.bulk_edit_item.visible and not chart.bulk_delete_item.visible  # 選択がないときは出さない
+    chart.clicked_task("top", {"ctrl": True})
+    assert "Cmd/Ctrl+クリック" in user.find(marker="bulk-count").elements.pop().text  # 1 件目は使い方を添える
+    chart.clicked_task("low", {"ctrl": True})
+    assert user.find(marker="bulk-count").elements.pop().text == "2 件選択中"
+    chart.clear_selection()
+    assert not chart.bulk_edit_item.visible and not chart.bulk_delete_item.visible

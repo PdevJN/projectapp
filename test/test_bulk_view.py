@@ -113,3 +113,16 @@ async def test_warn_overallocation_with_a_limit_notifies_that_many_people_and_co
     view.warn_overallocation(*tasks, limit=3)
     assert len([m for m in messages if "最大" in m]) == 3
     assert [m for m in messages if "ほか" in m] == ["ほか 2 人も割り当てが 100% を超える期間があります"]
+
+
+async def test_delete_key_asks_to_delete_the_selection_and_does_nothing_without_one(user: User, tmp_path: Path) -> None:
+    view = await open_view(user, tmp_path)
+    with user.client:
+        view.delete_selected()
+    await user.should_not_see("件のタスクを削除します")
+    view.gantt.clicked_task("a", {"ctrl": True})
+    with user.client:
+        view.delete_selected()
+    await user.should_see("1 件のタスクを削除します")
+    user.find(marker="confirm-ok").click()
+    assert [t.id for t in view.project.all_tasks()] == ["b", "c"]
