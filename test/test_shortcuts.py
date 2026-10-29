@@ -99,7 +99,7 @@ def test_the_key_lists_for_the_browser_guard_come_from_the_table():
     from projectapp.shortcuts import ctrl_keys, plain_keys
 
     assert ctrl_keys() == {"s", "o", "n", ",", "m", "e", "p", "k", "l", "z", "+", "=", ";", "-", "0"}
-    assert plain_keys() == {"escape", "d", "/", "?"}
+    assert plain_keys() == {"escape", "delete", "d", "/", "?"}
 
 
 HARNESS = """
@@ -210,3 +210,11 @@ def test_undo_and_redo_are_in_the_help():
     entries = help_entries()
     assert ("Ctrl/Cmd+Z", "元に戻す") in entries
     assert ("Ctrl/Cmd+Shift+Z", "やり直す") in entries
+
+
+def test_delete_and_backspace_call_the_bulk_delete_only_on_the_main_screen_without_a_dialog() -> None:
+    for key in ("Delete", "Backspace"):
+        assert resolve(key, ctrl=False, shift=False, modal=False, screen=Screen.MAIN) == "bulk_delete"
+        assert resolve(key, ctrl=False, shift=False, modal=True, screen=Screen.MAIN) is None
+        assert resolve(key, ctrl=False, shift=False, modal=False, screen=Screen.DASHBOARD) is None
+    assert ("Delete", "選択中のタスクを削除(macOS の delete キーも可)") in help_entries()

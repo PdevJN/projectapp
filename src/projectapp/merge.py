@@ -286,7 +286,7 @@ def _member_names(*projects: Project) -> dict[str, str]:
     return names
 
 
-def _fill_empty_weeks(weeks: list[list[Assignee]]) -> tuple[list[list[Assignee]], list[int]]:
+def fill_empty_weeks(weeks: list[list[Assignee]]) -> tuple[list[list[Assignee]], list[int]]:
     """担当者のいなくなった週を、前の週(なければ次の週)の担当にする。埋めた週の番号(1 始まり)も返す。
     すべての週が空なら空のリスト(週ごとに分けない)。"""
     if not any(weeks):
@@ -381,7 +381,7 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
                 else:
                     notes.append(f"担当者を外しました: 「{record['name']}」の第{number}週の{shown.get(member_id, member_id)}")
             weeks.append(crew)
-        weeks, filled = _fill_empty_weeks(weeks)
+        weeks, filled = fill_empty_weeks(weeks)
         for number in filled:
             notes.append(f"担当者がいなくなった週を、隣の週と同じにしました: 「{record['name']}」の第{number}週")
         if record["weekly_crew"] and not weeks:

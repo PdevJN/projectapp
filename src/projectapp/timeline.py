@@ -601,6 +601,11 @@ def _own_end(
     )
 
 
+def own_end(task: Task, project: Project, holidays: dict[date, str]) -> datetime | None:
+    """先行の押し出しを含めない、タスク自身の完了予定(開始予定を開始として算出)。一括編集のずらしの基準。"""
+    return _own_end(task, project, holidays, task.planned_start)
+
+
 class Schedule:
     """タスクの id から、実効の開始・完了への対応。必要なものだけ算出して使い回す(保存しない)。"""
 

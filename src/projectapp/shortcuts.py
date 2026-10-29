@@ -27,6 +27,8 @@ class Shortcut:
     def label(self) -> str:
         if self.key == "escape":
             return "ESC"
+        if self.key == "delete":
+            return "Delete"
         prefix = ("Ctrl/Cmd+" if self.ctrl else "") + ("Shift+" if self.shift else "")
         return prefix + self.key.upper() if len(self.key) == 1 and self.key.isalpha() else prefix + self.key
 
@@ -45,6 +47,7 @@ SHORTCUTS: tuple[Shortcut, ...] = (
     Shortcut("l", "git_pull", "プル", ctrl=True, shift=True),
     Shortcut("z", "undo", "元に戻す", ctrl=True, in_inputs=False),
     Shortcut("z", "redo", "やり直す", ctrl=True, shift=True, in_inputs=False),
+    Shortcut("delete", "bulk_delete", "選択中のタスクを削除(macOS の delete キーも可)", aliases=("backspace",)),
     Shortcut("d", "dashboard", "ダッシュボード"),
     Shortcut("/", "search", "タスク名の検索欄へ移る"),
     Shortcut("?", "help", "ショートカットヘルプ"),

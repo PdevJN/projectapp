@@ -1,6 +1,7 @@
 """ガントチャートの描画(NiceGUI要素とCSS)。"""
 
 import html
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
@@ -11,6 +12,7 @@ from nicegui.events import ValueChangeEventArguments
 from projectapp import arrange
 from projectapp.avatar import avatar
 from projectapp.browser import open_url as default_open_url
+from projectapp.bulk_select import BulkSelection
 from projectapp.arrange import Position, section_key
 from projectapp.calendar import DayKind, day_kind, member_notes
 from projectapp.forms import section_name_error, task_name_error
@@ -265,6 +267,20 @@ QUICK_ADD_JS = (
     "(e) => { if (!e.target.closest('button, a, input, [data-no-quick-add]'))"
     " emit({shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey}); }"
 )
+# Cmd/Ctrl クリックと Shift クリックだけを選択として送る。ボタン・リンク・入力欄と、印の付いた要素の上は除く
+SELECT_CLICK_JS = (
+    "(e) => { if (!(e.shiftKey || e.ctrlKey || e.metaKey)) return;"
+    " if (e.target.closest('button, a, input, [data-no-select]')) return;"
+    " e.preventDefault(); emit({shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey}); }"
+)
+# 修飾キーつきのクリックは、まとめ・参照行の名前のクリック(開閉・参照先を開く)で横取りせず、選択へ回す
+PLAIN_CLICK_JS = "(e) => { if (e.shiftKey || e.ctrlKey || e.metaKey) return; e.stopPropagation(); emit(); }"
+BULK_CSS = """
+.task-selected { outline: 2px solid var(--q-primary); outline-offset: -2px; }
+.task-selected > .gantt-sticky {
+  box-shadow: inset 4px 0 0 var(--q-primary), inset 0 0 0 999px color-mix(in srgb, var(--q-primary) 18%, transparent);
+}
+"""
 SCROLLBAR_ROOM_PX = 16  # 横スクロールバーの分の余白。WebKit は高さ auto にバーの厚みを含めない
 # チャートの枠は縦横ともここでスクロールする。高さの上限は、画面の高さから、上のヘッダー
 # (1 行のメニュー・ツールバー・ページの余白)の分を引いた値(固定の見積もり。実機で合わせる)
@@ -468,6 +484,9 @@ class GanttActions:
     add_subsection: Callable[[SectionPath], object] = lambda path: None  # サブセクションの追加(親のセクションのパス)
     # 右クリックのメニューの操作(セクションのパス, タスク番号)
     decompose_task: Callable[[SectionPath, int], object] = lambda path, ti: None
+    # 選択中の一括操作(見えている選択済みのタスク id。描画順)
+    bulk_edit: Callable[[list[str]], object] = lambda ids: None
+    bulk_delete: Callable[[list[str]], object] = lambda ids: None
     copy_task: Callable[[SectionPath, int], object] = lambda path, ti: None
     rename_task: Callable[[SectionPath, int], object] = lambda path, ti: None
     delete_task: Callable[[SectionPath, int], object] = lambda path, ti: None
@@ -538,6 +557,14 @@ class GanttChart:
         self.menu: ui.context_menu | None = None  # 右クリックの共有メニュー(1 つだけ。行ごとには作らない)
         self.menu_target: tuple[SectionPath, int] | None = None  # メニューを開いた行
         self.decompose_item: ui.menu_item | None = None
+        self.bulk = BulkSelection()  # 一括操作の選択。保存しない・元に戻す対象にしない
+        self.bulk_bar: ui.row | None = None
+        self.bulk_count: ui.label | None = None
+        self.bulk_edit_item: ui.menu_item | None = None
+        self.bulk_delete_item: ui.menu_item | None = None
+        self.bulk_separator: ui.separator | None = None
+        self.bulk_edit_label: ui.label | None = None
+        self.bulk_delete_label: ui.label | None = None
         self.weeks_item: ui.menu_item | None = None
         self.refresh_item: ui.menu_item | None = None
         self.weeks_label: ui.label | None = None
@@ -560,12 +587,15 @@ class GanttChart:
         if self.task_filter.assignee not in (None, *names):
             self.task_filter = replace(self.task_filter, assignee=None)
         self.sync_assignee_select()
+        self.tasks_by_id = project.task_map()  # 選択の整理は、描き直しを待たずに行う
+        self.sync_bulk(restyle=False)
         self.render.refresh()
 
     def set_filter(self, task_filter: TaskFilter) -> None:
         if task_filter == self.task_filter:
             return
         self.task_filter = task_filter
+        self.sync_bulk(restyle=False)  # 隠れた行は対象から外れる(件数が変わる)。行は描き直しで付け直す
         self.render.refresh()
         self.scroll_to_top()
 
@@ -694,12 +724,71 @@ class GanttChart:
         self.sync_task_rows()
         self.update_links()
 
+    @staticmethod
+    def show_menu_part(part: ui.element | None, shown: bool) -> None:
+        """右クリックメニューの一括の項目を出す・隠す。Quasar の項目は `hidden` クラスだけでは隠れないことがあるので、display も切り替える。"""
+        if part is None:
+            return
+        part.set_visibility(shown)
+        if shown:
+            part.style(remove="display: none")
+        else:
+            part.style("display: none")
+
+    def visible_task_ids(self) -> list[str]:
+        """見えているタスク行の id(描画順)。折りたたみ・絞り込みで隠れた行は含めない。"""
+        return [s.task_id for s in self.slots() if s.task_id is not None and s.shown]
+
+    def clicked_task(self, task_id: str, keys: object) -> None:
+        """名前の欄の Cmd/Ctrl クリック(個別に追加・解除)と Shift クリック(範囲)。修飾なしは何もしない。"""
+        shift, ctrl = held_keys(keys)
+        if self.options.read_only or not (shift or ctrl):
+            return
+        if shift:
+            self.bulk.extend(self.visible_task_ids(), task_id, self.tasks_by_id)
+        else:
+            self.bulk.toggle(task_id, self.tasks_by_id)
+        self.sync_bulk()
+
+    def has_selection(self) -> bool:
+        return bool(self.bulk.ids)
+
+    def clear_selection(self) -> None:
+        self.bulk.clear()
+        self.sync_bulk()
+
+    def selected_ids(self) -> list[str]:
+        """適用の対象。選択のうち、見えている行だけ(描画順)。"""
+        return self.bulk.effective(self.visible_task_ids())
+
+    def sync_bulk(self, restyle: bool = True) -> None:
+        """選択バーと、行の見た目(クラス)を合わせる。描き直さない。restyle=False は、描き直しの中(行が自分でクラスを付ける)。"""
+        self.bulk.prune(self.tasks_by_id)
+        if self.bulk_bar is not None:
+            self.bulk_bar.set_visibility(bool(self.bulk.ids))
+        for item in (self.bulk_edit_item, self.bulk_delete_item, self.bulk_separator):
+            if not self.bulk.ids:
+                self.show_menu_part(item, False)  # 選択がなければ、右クリックのメニューに一括の項目を出さない
+        if self.bulk_count is not None:
+            chosen = len(self.selected_ids())
+            # 1 件だけのときは、選択中であることと使い方を添える(最初の選択で気づけるように)
+            hint = "  — Cmd/Ctrl+クリックで追加、Shift+クリックで範囲、Esc で解除" if chosen == 1 else ""
+            self.bulk_count.set_text(f"{chosen} 件選択中{hint}")
+        if restyle and self.client is not None:
+            ids = json.dumps(sorted(self.bulk.ids))
+            self.client.run_javascript(
+                f"(() => {{ const ids = new Set({ids});"
+                " document.querySelectorAll('[data-task-id]').forEach((el) =>"
+                " el.classList.toggle('task-selected', ids.has(el.dataset.taskId))); })()"
+            )
+
     def sync_task_rows(self) -> None:
         """行の表示を `slots()`(セクション・まとめの折りたたみ・絞り込みをすべて見たもの)に合わせる。"""
         for slot in self.slots():
             row = self.task_rows.get(slot.task_id) if slot.task_id is not None else None
             if row is not None:
                 row.set_visibility(slot.shown)
+        self.sync_bulk()
 
     def expand_section(self, path: SectionPath) -> None:
         """セクションと、その親をすべて展開する(描き直しは、呼び出し側のあとの処理に任せる)。"""
@@ -1005,6 +1094,7 @@ class GanttChart:
         ui.add_css(CONTEXT_MENU_CSS)
         ui.add_css(EVENT_CSS)
         ui.add_css(REFERENCE_CSS)
+        ui.add_css(BULK_CSS)
         ui.add_css(SHIFT_TOOLTIP_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.add_head_html(f"<script>{SHIFT_TRACK_JS}</script>")
@@ -1071,6 +1161,17 @@ class GanttChart:
                 .mark("assignee-filter")
             )
         # スクロールする枠は一度だけ作る。render は中身だけを作り直すので、描き直してもスクロール位置が保たれる
+        if not self.options.read_only:
+            with ui.row().classes("w-full items-center no-wrap gap-2") as self.bulk_bar:
+                self.bulk_count = ui.label("").classes("text-body2").mark("bulk-count")
+                ui.button("編集…", icon="edit", on_click=lambda: self.actions.bulk_edit(self.selected_ids())).props(
+                    "flat dense size=sm"
+                ).mark("bulk-edit")
+                ui.button("削除", icon="delete", on_click=lambda: self.actions.bulk_delete(self.selected_ids())).props(
+                    "flat dense size=sm color=negative"
+                ).mark("bulk-delete")
+                ui.button("解除", icon="close", on_click=self.clear_selection).props("flat dense size=sm").mark("bulk-clear")
+            self.bulk_bar.mark("bulk-bar").set_visibility(False)
         scroll_style = (
             f"overflow: auto; max-height: {CHART_MAX_HEIGHT};"
             f" padding-bottom: {SCROLLBAR_ROOM_PX}px"
@@ -1092,6 +1193,19 @@ class GanttChart:
             return run
 
         with ui.context_menu().props("no-parent-event").classes("app-context-menu") as self.menu:  # 親の右クリックでは開かない(行の右クリックだけ)
+            with ui.menu_item(on_click=lambda: self.actions.bulk_edit(self.selected_ids())).mark("context-bulk-edit") as item:
+                with ui.item_section():
+                    self.bulk_edit_label = ui.label("選択中を編集…")  # 件数入りの文言に open_menu で差し替える
+            self.bulk_edit_item = item
+            with ui.menu_item(on_click=lambda: self.actions.bulk_delete(self.selected_ids())).props(
+                "class=text-negative"
+            ).mark("context-bulk-delete") as item:
+                with ui.item_section():
+                    self.bulk_delete_label = ui.label("選択中を削除")
+            self.bulk_delete_item = item
+            self.bulk_separator = ui.separator()
+            for part in (self.bulk_edit_item, self.bulk_delete_item, self.bulk_separator):
+                self.show_menu_part(part, False)  # 選択した行の右クリックで、open_menu が出す
             ui.menu_item("編集", on_click=act(lambda p, t: self.actions.edit_task(p, t))).mark("context-edit")
             self.decompose_item = ui.menu_item(
                 "分解…", on_click=act(lambda p, t: self.actions.decompose_task(p, t))
@@ -1158,6 +1272,17 @@ class GanttChart:
         if self.decompose_item is None:
             return
         tasks = arrange.tasks_at(self.project, path) if arrange.has_list(self.project, (path, 0)) else []
+        chosen = self.selected_ids()
+        clicked = tasks[ti] if ti < len(tasks) else None
+        show = clicked is not None and clicked.id in chosen  # 選択に含まれる行の右クリックだけ、一括の項目を出す
+        self.show_menu_part(self.bulk_separator, show)
+        for item, label, text in (
+            (self.bulk_edit_item, self.bulk_edit_label, "編集…"),
+            (self.bulk_delete_item, self.bulk_delete_label, "削除"),
+        ):
+            self.show_menu_part(item, show)
+            if show and label is not None:
+                label.set_text(f"選択中 {len(chosen)} 件を{text}")
         if self.weeks_item is not None and self.weeks_label is not None:
             task = tasks[ti] if ti < len(tasks) else None
             weekly = task is not None and bool(task.weekly_crew)
@@ -1364,6 +1489,7 @@ class GanttChart:
                 self.section_rows((index,), section, columns, width)
             self.quick_section_here(())
             self.bottom_add_row()
+        self.sync_bulk(restyle=False)
 
     def no_match_message(self) -> None:
         """絞り込み中に1件も一致しないとき(タスクが1つもないときは出さない)。"""
@@ -1654,7 +1780,9 @@ class GanttChart:
         if self.selecting and ids and all(i in self.options.excluded for i in ids):
             style += "; opacity: 0.4"  # 出力しない行は薄く描く
         row = ui.row().classes("items-center no-wrap gap-0").style(style)
-        row.props(self.drag_props("row", key, ti=ti)).mark(f"row-{key}-{ti}")
+        row.props(self.drag_props("row", key, ti=ti)).props(f"data-task-id={task.id}").mark(f"row-{key}-{ti}")
+        if task.id in self.bulk.ids:
+            row.classes("task-selected")
         self.menu_on_right_click(row, path, ti)
         self.task_rows[task.id] = row
         summary = task.kind is TaskKind.SUMMARY
@@ -1677,6 +1805,7 @@ class GanttChart:
             cell.mark(f"task-{key}-{ti}")
             if not self.options.read_only:
                 cell.on("dblclick", lambda e, path=path, ti=ti: self.double_clicked_task(path, ti, e.args), js_handler=QUICK_ADD_JS)
+                cell.on("click", lambda e, tid=task.id: self.clicked_task(tid, e.args), js_handler=SELECT_CLICK_JS)
             if not self.task_filter.active and not self.options.read_only:
                 cell.props(f"draggable=true data-drag-handle data-si={key} data-ti={ti}")
             with cell:
@@ -1706,14 +1835,14 @@ class GanttChart:
                         name.on(
                             "click",
                             lambda tid=task.id: self.toggle_summary(tid),
-                            js_handler="(e) => { e.stopPropagation(); emit(); }",
+                            js_handler=PLAIN_CLICK_JS,
                         )
                 if task.kind is TaskKind.REFERENCE and not self.options.read_only:
                     name.classes("ref-link").props("data-no-quick-add").tooltip(reference_open_hint(task))
                     name.on(
                         "click",
                         lambda tid=task.id: self.actions.open_reference(tid),
-                        js_handler="(e) => { e.stopPropagation(); emit(); }",
+                        js_handler=PLAIN_CLICK_JS,
                     )
                 if finished:  # 終了したタスクは、名前に取り消し線を引く
                     name.style("text-decoration: line-through")

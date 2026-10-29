@@ -119,6 +119,8 @@ class Recorder:
             set_name_width=lambda width: self.events.append(("set_name_width", (width,))),
             add_subsection=lambda path: self.events.append(("add_subsection", (path,))),
             decompose_task=lambda path, ti: self.events.append(("decompose_task", (path, ti))),
+            bulk_edit=lambda ids: self.events.append(("bulk_edit", (ids,))),
+            bulk_delete=lambda ids: self.events.append(("bulk_delete", (ids,))),
             copy_task=lambda path, ti: self.events.append(("copy_task", (path, ti))),
             rename_task=lambda path, ti: self.events.append(("rename_task", (path, ti))),
             delete_task=lambda path, ti: self.events.append(("delete_task", (path, ti))),
@@ -2339,8 +2341,10 @@ async def test_the_name_cell_and_its_chips_have_no_click_handler(user: User) -> 
         categorized(Task("設計", assignees=[Assignee("山")], status=Status.DONE), "PRJ-1")
     )
     await user.open("/")
-    for marker in ("task-0-0", "task-name-0-0", "task-code-0-0", "task-assignee-0-0", "task-progress-0-0"):
+    for marker in ("task-name-0-0", "task-code-0-0", "task-assignee-0-0", "task-progress-0-0"):
         assert click_listeners(chip(user, marker)) == []
+    # 名前の欄のクリックは、Cmd/Ctrl・Shift つきのときだけ一括操作の選択になる(修飾なしは何も起きない)
+    assert len(click_listeners(chip(user, "task-0-0"))) == 1
     user.find(marker="task-0-0").click()
     assert recorder.events == []
 

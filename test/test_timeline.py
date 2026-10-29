@@ -1209,3 +1209,12 @@ def test_the_planned_end_follows_the_ratio_limits() -> None:
     free_end = Schedule(free, {}).finish(task)
     capped_end = Schedule(capped, {}).finish(capped_task)
     assert free_end is not None and capped_end is not None and capped_end > free_end
+
+
+def test_own_end_ignores_the_push_by_predecessors_and_uses_the_planned_start() -> None:
+    from projectapp.timeline import own_end
+
+    task = Task("t", planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 7, 12))
+    project = Project("p", base_date=date(2026, 10, 5), tasks=[task])
+    assert own_end(task, project, {}) == datetime(2026, 10, 7, 12)
+    assert own_end(Task("x"), project, {}) is None
