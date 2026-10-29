@@ -27,6 +27,7 @@ from projectapp.timeline import (
     is_overdue,
     is_workday,
 )
+from projectapp.teams import team_scope, teams_with_members
 from projectapp.workdays import work_day_map
 
 
@@ -118,14 +119,27 @@ class Progress:
     counts: dict[Status, int]
     overdue: list[OverdueRow]
     by_member: list[MemberProgress] = field(default_factory=list)  # メンバーごと。絞り込み中は空
+    by_team: list[MemberProgress] = field(default_factory=list)  # チームごと(メンバーのいるチームだけ)。絞り込み中は空
 
 
-def _tasks(project: Project, member: str | None = None) -> list[Task]:
-    """集計の対象のタスク。まとめは、子の工数・進捗・期限を二重に数えないよう外す。`member`があれば、その人が担当のものだけ。"""
+Scope = str | frozenset[str] | None  # 絞り込み。文字列は 1 人、集合はそのうちの誰か(チーム)。None は全員
+
+
+def _names(scope: Scope) -> frozenset[str] | None:
+    """絞り込みを、メンバー名の集合にする。全員は None。"""
+    if scope is None:
+        return None
+    return frozenset({scope}) if isinstance(scope, str) else scope
+
+
+def _tasks(project: Project, member: Scope = None) -> list[Task]:
+    """集計の対象のタスク。まとめは、子の工数・進捗・期限を二重に数えないよう外す。`member`があれば、その人(チームなら誰か)が担当のものだけ。"""
+    scoped = _names(member)
     return [
         task
         for task in project.all_tasks()
-        if task.kind not in (TaskKind.SUMMARY, TaskKind.REFERENCE) and (member is None or member in task.assignee_names)
+        if task.kind not in (TaskKind.SUMMARY, TaskKind.REFERENCE)
+        and (scoped is None or not scoped.isdisjoint(task.assignee_names))
     ]
 
 
@@ -174,7 +188,7 @@ def summarize_team_progress(
     period: Period | None = None,
     now: datetime | None = None,
     holidays: dict[date, str] | None = None,
-    member: str | None = None,
+    member: Scope = None,
 ) -> TeamProgress:
     """チーム全体の進捗。担当者に関わらず、1 タスクを 1 回だけ数える。`period` があれば、期間にかかるタスクだけ。"""
     hours = {status: 0.0 for status in Status}
@@ -222,8 +236,19 @@ def summarize_member_progress(project: Project) -> list[MemberProgress]:
     return rows
 
 
+def summarize_team_rows(project: Project) -> list[MemberProgress]:
+    """チームごとの進捗(メンバーのいるチームだけ)。共同タスクは、担当が所属する全チームの行に数える。"""
+    tasks = _tasks(project)
+    rows = []
+    for name in teams_with_members(project):
+        scoped = team_scope(project, name)
+        assert scoped is not None
+        rows.append(_member_row(name, [t for t in tasks if not scoped.isdisjoint(t.assignee_names)]))
+    return rows
+
+
 def summarize_progress(
-    project: Project, holidays: dict[date, str], now: datetime, member: str | None = None
+    project: Project, holidays: dict[date, str], now: datetime, member: Scope = None
 ) -> Progress:
     counts = {status: 0 for status in Status}
     weighted = total = 0.0
@@ -246,7 +271,8 @@ def summarize_progress(
             overdue.append(OverdueRow(task.name, assignee_label(task), limit))
     overdue.sort(key=lambda row: row.limit)
     by_member = summarize_member_progress(project) if member is None else []
-    return Progress(weighted / total if total else None, counts, overdue, by_member)
+    by_team = summarize_team_rows(project) if member is None else []
+    return Progress(weighted / total if total else None, counts, overdue, by_member, by_team)
 
 
 UNASSIGNED = "未割り当て"
@@ -343,7 +369,7 @@ def _day_peak(items: list[tuple[datetime, datetime, float]], day: date) -> float
 Span = tuple[datetime, datetime, float]
 
 
-def _member_spans(project: Project, holidays: dict[date, str], member: str | None) -> dict[str, list[Span]]:
+def _member_spans(project: Project, holidays: dict[date, str], member: Scope) -> dict[str, list[Span]]:
     """担当者名 → (開始, 終了, 割り当て率)。数えないタスクは入れない。"""
     spans: dict[str, list[Span]] = {}
     schedule = Schedule(project, holidays)
@@ -371,20 +397,22 @@ def _load_stats(items: list[Span], days: list[date]) -> LoadStats:
 
 
 def summarize_loads(
-    project: Project, period: Period, holidays: dict[date, str], member: str | None = None
+    project: Project, period: Period, holidays: dict[date, str], member: Scope = None
 ) -> dict[str, LoadStats]:
     spans = _member_spans(project, holidays, member)
+    scoped = _names(member)
     return {
         entry.name: _load_stats(spans.get(entry.name, []), _workdays(period, holidays, work_day_map(entry.work_days)))
         for entry in project.members
-        if member is None or entry.name == member
+        if scoped is None or entry.name in scoped
     }
 
 
 def summarize_cross_loads(
-    projects: list[Project], period: Period, holidays: dict[date, str], member: str | None = None
+    projects: list[Project], period: Period, holidays: dict[date, str], member: Scope = None
 ) -> dict[str, CrossLoad]:
     """複数のプロジェクトを重ねた負荷。同じ名前のメンバーを同一人物とみなす。"""
+    scoped = _names(member)
     closed_aware = {id(p): effective_holidays(p, holidays) for p in projects}  # 各プロジェクトの休みのイベントを足す
     open_days = {
         (id(p), m.name): set(_workdays(period, closed_aware[id(p)], work_day_map(m.work_days)))
@@ -393,7 +421,7 @@ def summarize_cross_loads(
     }
     days = sorted(set().union(*open_days.values())) if open_days else []
     per_project = [(project, _member_spans(project, closed_aware[id(project)], member)) for project in projects]
-    names = dict.fromkeys(m.name for p in projects for m in p.members if member is None or m.name == member)
+    names = dict.fromkeys(m.name for p in projects for m in p.members if scoped is None or m.name in scoped)
     loads: dict[str, CrossLoad] = {}
     for name in names:
         rows: list[ProjectLoad] = []
@@ -442,9 +470,10 @@ def _shares(assignees: list[Assignee], names: list[str]) -> list[tuple[str, floa
 
 
 def summarize_workload(
-    project: Project, period: Period, now: datetime, holidays: dict[date, str], member: str | None = None
+    project: Project, period: Period, now: datetime, holidays: dict[date, str], member: Scope = None
 ) -> list[WorkloadRow]:
-    names = [member.name for member in project.members]
+    names = [m.name for m in project.members]
+    scoped = _names(member)
     planned = {name: 0.0 for name in (*names, UNASSIGNED)}
     actual = {name: 0.0 for name in (*names, UNASSIGNED)}
     calendars = {m.name: work_day_map(m.work_days) for m in project.members}
@@ -475,7 +504,7 @@ def summarize_workload(
             crew = crew_on(task, start.date(), interval.start.date()) if start is not None else task.assignees
             for key, _, share in _shares(crew, names):
                 actual[key] += seconds / 3600 * share
-    shown = [name for name in names if member is None or name == member]
+    shown = [name for name in names if scoped is None or name in scoped]
     rows = [WorkloadRow(name, planned[name], actual[name]) for name in shown]
     if member is None and (planned[UNASSIGNED] or actual[UNASSIGNED]):
         rows.append(WorkloadRow(UNASSIGNED, planned[UNASSIGNED], actual[UNASSIGNED]))
@@ -483,7 +512,7 @@ def summarize_workload(
 
 
 def summarize_due(
-    project: Project, period: Period, now: datetime, holidays: dict[date, str], member: str | None = None
+    project: Project, period: Period, now: datetime, holidays: dict[date, str], member: Scope = None
 ) -> list[DueRow]:
     low, high = period.bounds()
     rows: list[DueRow] = []
@@ -649,12 +678,13 @@ def summarize_backlog(
     kind: PeriodKind,
     now: datetime,
     holidays: dict[date, str],
-    member: str | None = None,
+    member: Scope = None,
 ) -> Backlog:
     """残りの工数(未着手の全量と、実行中・一時停止の消化分を除いた分)の合計と、それを期間内に終えるのに要る人数。全期間以外は、期間の終わりまでに予定した分。
     メンバーで絞るときは、共同タスクのその人の分(割り当て率の比)だけを数える。"""
     schedule = Schedule(project, holidays)
     names = [m.name for m in project.members]
+    scoped = _names(member)
     unset = 0
     ends: list[datetime] = []
     split = {name: 0.0 for name in (*names, UNASSIGNED)}
@@ -679,16 +709,16 @@ def summarize_backlog(
         for key, _, share in _shares(task.assignees, names):
             portion = rest * fraction * share
             split[key] += portion
-            if member is None or key == member:
+            if scoped is None or key in scoped:
                 by_status[task.status] += portion
-    shown = [name for name in (*names, UNASSIGNED) if member is None or name == member]
+    shown = [name for name in (*names, UNASSIGNED) if scoped is None or name in scoped]
     hours = sum(split[name] for name in shown)
     days = _backlog_days(project, period, kind, now, holidays, ends)
     required = hours / (project.daily_hours * days) if days else None
     supply = sum(
         effective_ratio(m, project.parameters, None, project.ratio_limits)
         for m in project.members
-        if member is None or m.name == member
+        if scoped is None or m.name in scoped
     )
     rows = [(name, split[name]) for name in shown if split[name] > 0]
     return Backlog(hours, unset, days, required, supply, rows, {k: v for k, v in by_status.items() if v > 0})
@@ -704,6 +734,8 @@ class Dashboard:
     team: TeamProgress = field(default_factory=TeamProgress)
     member: str | None = None  # 絞り込み中のメンバー。None は全員
     members: list[str] = field(default_factory=list)  # プルダウンの選択肢(プロジェクトのメンバーの順)
+    team_name: str | None = None  # 絞り込み中のチーム名。member とは同時に使わない
+    teams: list[str] = field(default_factory=list)  # プルダウンの選択肢のチーム(メンバーのいるものだけ)
     cross: CrossSummary | None = None  # 全プロジェクトを重ねるとき。None は開いているプロジェクトだけ
     backlog: Backlog = field(default_factory=lambda: Backlog(0.0, 0, None, None, 0.0, []))
 
@@ -723,15 +755,21 @@ def summarize(
     holidays: dict[date, str],
     kind: PeriodKind = PeriodKind.ALL,
     member: str | None = None,
+    team: str | None = None,
 ) -> Dashboard:
+    """`member`があれば`team`は無視する。存在しない・メンバーのいないチームは絞り込まない。"""
+    team_members = team_scope(project, team) if member is None else None
+    scope: Scope = member if member is not None else team_members
     return Dashboard(
         period,
-        summarize_progress(project, holidays, now, member),
-        summarize_loads(project, period, holidays, member),
-        summarize_workload(project, period, now, holidays, member),
-        summarize_due(project, period, now, holidays, member),
-        summarize_team_progress(project, None if kind is PeriodKind.ALL else period, now, holidays, member),
+        summarize_progress(project, holidays, now, scope),
+        summarize_loads(project, period, holidays, scope),
+        summarize_workload(project, period, now, holidays, scope),
+        summarize_due(project, period, now, holidays, scope),
+        summarize_team_progress(project, None if kind is PeriodKind.ALL else period, now, holidays, scope),
         member,
         [m.name for m in project.members],
-        backlog=summarize_backlog(project, period, kind, now, holidays, member),
+        backlog=summarize_backlog(project, period, kind, now, holidays, scope),
+        team_name=team if team_members is not None else None,
+        teams=teams_with_members(project),
     )
