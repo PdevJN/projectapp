@@ -50,17 +50,36 @@ def open_bulk_dialog(
     project: Project, ids: list[str], holidays: dict[date, str], on_apply: Callable[[BulkChanges], object]
 ) -> None:
     members = [m.name for m in project.members]
-    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[36rem]").style("max-height: 85vh; overflow: auto").mark(
-        "bulk-dialog"
-    ):
-        ui.label(f"{len(ids)} 件を一括編集").classes("text-h6")
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[36rem] p-0 gap-0 no-wrap").style(
+        "max-height: 88vh; max-width: 96vw; overflow: hidden"
+    ).mark("bulk-dialog"):
+        with ui.row().classes("w-full items-start no-wrap px-5 pt-4 pb-3"):
+            with ui.column().classes("gap-0 flex-1"):
+                ui.label(f"{len(ids)} 件を一括編集").classes("text-h6")
+                ui.label("変更する項目をオンにすると、選んだタスクにまとめて適用します").classes("text-caption text-grey")
+            ui.button(icon="close", on_click=dialog.close).props("flat round dense").mark("bulk-close")
+        ui.separator()
+        body = ui.column().classes("w-full gap-3 px-5 py-4").style("overflow-y: auto; flex: 1 1 auto; min-height: 0")
+
+        def section(icon: str, title: str, marker: str) -> tuple[ui.switch, ui.column]:
+            """項目 1 つぶんの枠。見出し(アイコン・名前・右端のスイッチ)と、オンのときだけ出す中身。"""
+            with body, ui.card().props("flat bordered").classes("w-full gap-0 px-4 py-3"):
+                with ui.row().classes("w-full items-center no-wrap gap-3"):
+                    ui.icon(icon).classes("text-primary text-xl")
+                    ui.label(title).classes("text-subtitle2 flex-1")
+                    switch = ui.switch(value=False, on_change=lambda _e: refresh()).props("dense").mark(marker)
+                content = ui.column().classes("w-full gap-2 pt-3")
+            return switch, content
+
+        def modes(options: list[str], value: str) -> ui.toggle:
+            return ui.toggle(options, value=value, on_change=lambda _e: refresh()).props(
+                "no-caps unelevated dense toggle-color=primary"
+            )
 
         # 担当
-        crew_on = ui.switch("担当を変更する", on_change=lambda _e: refresh()).mark("bulk-crew-on")
-        with ui.column().classes("w-full gap-1") as crew_box:
-            crew_mode = ui.toggle(
-                [m.value for m in CrewMode], value=CrewMode.ADD.value, on_change=lambda _e: refresh()
-            ).mark("bulk-crew-mode")
+        crew_on, crew_box = section("group", "担当", "bulk-crew-on")
+        with crew_box:
+            crew_mode = modes([m.value for m in CrewMode], CrewMode.ADD.value).mark("bulk-crew-mode")
             crew_help = ui.label("").classes("text-caption text-grey").mark("bulk-crew-help")  # モードごとの説明
             with ui.row().classes("w-full items-center no-wrap gap-4") as one_box:  # 追加・削除は 1 人
                 crew_member = ui.select(members, label="メンバー", on_change=lambda _e: refresh()).classes("flex-1")
@@ -94,27 +113,26 @@ def open_bulk_dialog(
             return CrewChange(mode, tuple(chosen))
 
         # カテゴリ
-        category_on = ui.switch("カテゴリを変更する", on_change=lambda _e: refresh()).mark("bulk-category-on")
-        category = ui.select(
-            {UNDECIDED: "未定", **{c.id: c.name for c in project.categories}},
-            value=UNDECIDED,
-            label="カテゴリ",
-            on_change=lambda _e: refresh(),
-        ).classes("w-full")
-        category.mark("bulk-category")
+        category_on, category_box = section("label", "カテゴリ", "bulk-category-on")
+        with category_box:
+            category = ui.select(
+                {UNDECIDED: "未定", **{c.id: c.name for c in project.categories}},
+                value=UNDECIDED,
+                label="カテゴリ",
+                on_change=lambda _e: refresh(),
+            ).props("dense outlined").classes("w-full")
+            category.mark("bulk-category")
 
         # 完了予定
-        end_on = ui.switch("完了予定を変更する", on_change=lambda _e: refresh()).mark("bulk-end-on")
-        with ui.column().classes("w-full gap-1") as end_box:
-            end_mode = ui.toggle(
-                [m.value for m in EndMode], value=EndMode.DATE.value, on_change=lambda _e: refresh()
-            ).mark("bulk-end-mode")
+        end_on, end_box = section("event", "完了予定", "bulk-end-on")
+        with end_box:
+            end_mode = modes([m.value for m in EndMode], EndMode.DATE.value).mark("bulk-end-mode")
             end_date = ui.input("日付(YYYY-MM-DD)", on_change=lambda _e: refresh()).props("dense outlined")
             end_date.mark("bulk-end-date")
             with ui.row().classes("items-center no-wrap gap-4") as shift_box:
-                end_sign = ui.toggle([SHIFT_FORWARD, SHIFT_BACK], value=SHIFT_FORWARD, on_change=lambda _e: refresh())
+                end_sign = modes([SHIFT_FORWARD, SHIFT_BACK], SHIFT_FORWARD)
                 end_days = ui.number("日数(暦日)", value=1, min=1, max=MAX_SHIFT_DAYS, step=1, on_change=lambda _e: refresh())
-                end_days.mark("bulk-end-days")
+                end_days.props("dense outlined").mark("bulk-end-days")
         end_date.on("blur", lambda _e: _normalize_date())
 
         def _normalize_date() -> None:
@@ -134,16 +152,17 @@ def open_bulk_dialog(
             return EndChange(EndMode.SHIFT, days=days if end_sign.value == SHIFT_FORWARD else -days)
 
         # 工数
-        effort_on = ui.switch("工数を変更する", on_change=lambda _e: refresh()).mark("bulk-effort-on")
-        with ui.row().classes("items-center no-wrap gap-4") as effort_box:
-            effort_mode = ui.toggle(
-                [m.value for m in EffortMode], value=EffortMode.SET.value, on_change=lambda _e: refresh()
-            ).mark("bulk-effort-mode")
-            effort_sign = ui.toggle([EFFORT_UP, EFFORT_DOWN], value=EFFORT_UP, on_change=lambda _e: refresh())  # 増減のときだけ
-            effort_value = ui.input("値", on_change=lambda _e: refresh()).props("dense outlined").mark("bulk-effort-value")
-            effort_unit = ui.select(
-                [u.value for u in EffortUnit], value=EffortUnit.HOURS.value, on_change=lambda _e: refresh()
-            ).mark("bulk-effort-unit")
+        effort_on, effort_box = section("schedule", "工数", "bulk-effort-on")
+        with effort_box:
+            effort_mode = modes([m.value for m in EffortMode], EffortMode.SET.value).mark("bulk-effort-mode")
+            with ui.row().classes("w-full items-center no-wrap gap-3"):
+                effort_sign = modes([EFFORT_UP, EFFORT_DOWN], EFFORT_UP)  # 増減のときだけ
+                effort_value = ui.input("値", on_change=lambda _e: refresh()).props("dense outlined").classes("flex-1")
+                effort_value.mark("bulk-effort-value")
+                effort_unit = ui.select(
+                    [u.value for u in EffortUnit], value=EffortUnit.HOURS.value, on_change=lambda _e: refresh()
+                ).props("dense outlined").classes("w-24")
+                effort_unit.mark("bulk-effort-unit")
 
         def effort_change() -> EffortChange | str:
             try:
@@ -157,8 +176,15 @@ def open_bulk_dialog(
                 return EffortChange(EffortMode.ADJUST, hours if effort_sign.value == EFFORT_UP else -hours)
             return EffortChange(EffortMode.SET, hours)
 
-        forecast = ui.label("").classes("text-caption").mark("bulk-forecast")
-        error = ui.label("").classes("text-negative").mark("bulk-error")
+        ui.separator()
+        with ui.row().classes("w-full items-center no-wrap gap-3 px-5 py-3"):
+            with ui.column().classes("gap-0 flex-1"):
+                forecast = ui.label("").classes("text-caption text-grey").mark("bulk-forecast")
+                error = ui.label("").classes("text-caption text-negative").mark("bulk-error")
+            ui.button("キャンセル", on_click=dialog.close).props("flat no-caps").mark("bulk-cancel")
+            apply_button = ui.button("適用", on_click=lambda: apply()).props("unelevated no-caps color=primary").mark(
+                "bulk-apply"
+            )
 
         def build_changes() -> BulkChanges | str:
             """オンの節だけを BulkChanges にする。入力が不正なら、エラーの文言を返す。"""
@@ -186,7 +212,7 @@ def open_bulk_dialog(
             crew_rate.set_visibility(crew_mode_value is CrewMode.ADD)
             crew_list.container.set_visibility(crew_mode_value is CrewMode.REPLACE)
             crew_help.set_text(CREW_HELP[crew_mode_value])
-            category.set_visibility(bool(category_on.value))
+            category_box.set_visibility(bool(category_on.value))
             end_box.set_visibility(bool(end_on.value))
             date_mode = EndMode(end_mode.value) is EndMode.DATE
             end_date.set_visibility(date_mode)
@@ -213,8 +239,5 @@ def open_bulk_dialog(
                 dialog.close()
                 on_apply(built)
 
-        with ui.row():
-            ui.button("キャンセル", on_click=dialog.close).props("flat").mark("bulk-cancel")
-            apply_button = ui.button("適用", on_click=apply).mark("bulk-apply")
         refresh()
     dialog.open()
