@@ -944,8 +944,30 @@ def test_the_backlog_for_a_team_counts_only_the_team_members() -> None:
     everyone = summarize(project, WEEK, NOW, {}).backlog
     team = summarize(project, WEEK, NOW, {}, team="開発").backlog
     assert {name for name, _ in team.by_member} <= {"田中", "佐藤"}
-    assert team.supply == pytest.approx(2.0)  # 田中と佐藤の相対比率の合計
+    assert team.supply == pytest.approx(1.6)  # 田中 100% + 佐藤 60% の相対比率
     assert team.hours < everyone.hours
+
+
+def test_the_backlog_for_a_weighted_scope_scales_each_members_share() -> None:
+    project = project_of(
+        Task("共同", effort_hours=8, assignees=[Assignee("田中", 0.5), Assignee("佐藤", 0.5)]),
+        members=[Member("田中", 1.0), Member("佐藤", 1.0)],
+    )
+    plain = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {})
+    scaled = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, {"田中": 1.0, "佐藤": 0.25})
+    assert plain.hours == pytest.approx(8)
+    assert dict(scaled.by_member) == {"田中": pytest.approx(4.0), "佐藤": pytest.approx(1.0)}
+    assert scaled.hours == pytest.approx(5.0)
+    assert sum(scaled.by_status.values()) == pytest.approx(5.0)
+    assert scaled.supply == pytest.approx(1.25)
+    assert scaled.days == plain.days  # 日数は、絞ったタスクの日程から決める。重みでは変わらない
+
+
+def test_the_backlog_for_a_single_membership_team_is_the_same_as_the_member_scope() -> None:
+    project = project_of(Task("作業", effort_hours=6, assignees=[Assignee("田中", 1.0)]))
+    by_name = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, "田中")
+    by_team = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, {"田中": 1.0})
+    assert by_team == by_name
 
 
 def test_the_due_rows_for_a_team_only_list_its_tasks() -> None:

@@ -730,17 +730,17 @@ def summarize_backlog(
             portion = rest * fraction * share
             split[key] += portion
             if scoped is None or key in scoped:
-                by_status[task.status] += portion
+                by_status[task.status] += portion * _factor(member, key)
     shown = [name for name in (*names, UNASSIGNED) if scoped is None or name in scoped]
-    hours = sum(split[name] for name in shown)
+    hours = sum(split[name] * _factor(member, name) for name in shown)
     days = _backlog_days(project, period, kind, now, holidays, ends)
     required = hours / (project.daily_hours * days) if days else None
     supply = sum(
-        effective_ratio(m, project.parameters, None, project.ratio_limits)
+        effective_ratio(m, project.parameters, None, project.ratio_limits) * _factor(member, m.name)
         for m in project.members
         if scoped is None or m.name in scoped
     )
-    rows = [(name, split[name]) for name in shown if split[name] > 0]
+    rows = [(name, split[name] * _factor(member, name)) for name in shown if split[name] > 0]
     return Backlog(hours, unset, days, required, supply, rows, {k: v for k, v in by_status.items() if v > 0})
 
 
