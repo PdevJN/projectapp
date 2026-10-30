@@ -6319,7 +6319,7 @@ async def test_export_tsv_writes_the_file_without_touching_the_project(user: Use
     assert lines[1:] == ["\t" * 6, "\t" * 6, "1\t計画\t\t\t\t\t", "1.1\t設計\t田中\t26年 10月 13日\t26年 10月 15日\t2\t50%"]
     assert exporter.asked == ["out.tsv"] and exporter.asked_types == [TSV_FILE_TYPES]
     assert view.is_dirty() == dirty
-    await user.should_see("書き出しました(タスク 1 件、セクション 1 件)")
+    await user.should_see("書き出しました(タスク 1 件、参照 0 件、セクション 1 件)")
 
 
 async def test_export_tsv_needs_something_to_write_and_the_native_window(user: User, tmp_path: Path) -> None:

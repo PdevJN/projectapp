@@ -822,3 +822,59 @@ def test_per_parameter_block_reason_explains_why_it_is_unavailable() -> None:
     assert "2 つ以上" in (parameter_block_reason(param_task(["A"]), settled=False) or "")
     assert "20" in (parameter_block_reason(param_task([f"P{n}" for n in range(21)]), settled=False) or "")
     assert "実績" in (parameter_block_reason(param_task(), settled=True) or "")
+
+
+from projectapp.models import ReferenceValue
+from projectapp.summary import summary_progress, summary_status
+from projectapp.timeline import Schedule
+
+
+def reference_task() -> Task:
+    return Task("参照", id="ref", kind=TaskKind.REFERENCE, ref_project="x")
+
+
+def test_reference_child_finished_counts_as_done() -> None:
+    refs = {"ref": ReferenceValue(finished=True, progress=100)}
+    assert summary_status([reference_task()], refs) is Status.DONE
+
+
+def test_reference_child_with_actuals_counts_as_running() -> None:
+    refs = {"ref": ReferenceValue(actual_start=datetime(2026, 10, 5, 9), progress=30)}
+    assert summary_status([reference_task()], refs) is Status.RUNNING
+
+
+def test_reference_child_without_actuals_counts_as_not_started() -> None:
+    refs = {"ref": ReferenceValue(planned_start=datetime(2026, 10, 5, 9))}
+    assert summary_status([reference_task()], refs) is Status.NOT_STARTED
+
+
+def test_reference_child_without_a_value_counts_as_not_started() -> None:
+    assert summary_status([reference_task()], {}) is Status.NOT_STARTED
+    assert summary_status([reference_task()]) is Status.NOT_STARTED
+    assert summary_progress([reference_task()], {}) is None  # 参照先が見つからなくても落ちない
+
+
+def test_reference_progress_is_averaged_with_weight_one() -> None:
+    refs = {"ref": ReferenceValue(progress=100)}
+    assert summary_progress([Task("a", progress=50), reference_task()], refs) == 75
+
+
+def test_finished_reference_counts_as_100_percent() -> None:
+    refs = {"ref": ReferenceValue(finished=True)}
+    assert summary_progress([Task("a", progress=50), reference_task()], refs) == 75
+
+
+def test_reference_without_progress_does_not_make_a_progress() -> None:
+    refs = {"ref": ReferenceValue()}
+    assert summary_progress([reference_task()], refs) is None
+
+
+def test_summary_span_covers_a_reference_child() -> None:
+    value = ReferenceValue(planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 9, 18))
+    project = Project(
+        "p",
+        tasks=[Task("まとめ", id="s", kind=TaskKind.SUMMARY, children=["ref"]), reference_task()],
+    )
+    schedule = Schedule(project, {}, {"ref": value})
+    assert schedule.start(project.tasks[0]) == value.planned_start
+    assert schedule.end(project.tasks[0]) == value.planned_end

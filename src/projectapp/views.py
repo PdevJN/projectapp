@@ -13,7 +13,8 @@ from nicegui import run, ui
 from nicegui.events import KeyEventArguments
 
 from projectapp.calendar import load_cache
-from projectapp.events import EffectiveHolidays
+from projectapp.events import EffectiveHolidays, effective_holidays
+from projectapp.extract import check as check_extraction, extract, name_error as extract_name_error, selection_error
 from projectapp.categories import CategoryEdit
 from projectapp.icons import ICON_FILE_TYPES, IconError, load_icon
 from projectapp.categories import apply_edit as apply_category_edit
@@ -67,7 +68,7 @@ from projectapp.forms import (
     open_unsaved_dialog,
 )
 from projectapp import arrange
-from projectapp.reference import ReferenceResolver, build_references, missing_references, take_snapshot
+from projectapp.reference import ReferenceResolver, build_references, compute_reference, missing_references, take_snapshot
 from projectapp.shortcuts import Screen, defers_to_inputs, help_entries, key_guard_js, label_for, resolve
 from projectapp.dashboard import MAX_CUSTOM_DAYS, CrossSummary, Period, PeriodKind, custom_period_error, period_for, summarize, summarize_cross_loads
 from projectapp.dashboard_view import DashboardView, ViewActions
@@ -315,6 +316,7 @@ class MainView:
                 decompose_task=self.decompose_task,
                 bulk_edit=self.bulk_edit,
                 bulk_delete=self.confirm_bulk_delete,
+                extract_tasks=self.extract_tasks,
                 copy_task=self.copy_task_below,
                 rename_task=self.rename_task,
                 delete_task=self.confirm_delete_task,
@@ -677,8 +679,14 @@ class MainView:
         if not self.exporter.available:
             ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
             return
-        result = build_tsv(self.project, self.holidays)
-        if result.task_count == 0 and result.section_count == 0:
+        now = datetime.now()
+        values = {
+            tid: ref.value
+            for tid, ref in build_references(self.project, self.reference_resolver, now).items()
+            if ref.value is not None
+        }
+        result = build_tsv(self.project, self.holidays, values)
+        if result.task_count == 0 and result.section_count == 0 and result.references == 0:
             ui.notify("書き出せるタスクがありません", type="warning")
             return
         path = await self.exporter.ask_path(TSV_DEFAULT_FILENAME, TSV_FILE_TYPES)
@@ -690,11 +698,12 @@ class MainView:
             ui.notify(f"保存できませんでした: {exc}", type="negative")
             return
         notes = [
-            f"{result.skipped} 件(まとめ・節目・参照)は書き出していません" if result.skipped else "",
+            f"{result.skipped} 件(まとめ・節目)は書き出していません" if result.skipped else "",
             f"担当者が複数の {result.multiple_owners} 件は筆頭だけを書きました" if result.multiple_owners else "",
+            f"参照先が読めない {result.unresolved} 件は、日付と完了率を空にしました" if result.unresolved else "",
         ]
         detail = "、".join(note for note in notes if note)
-        head = f"書き出しました(タスク {result.task_count} 件、セクション {result.section_count} 件)"
+        head = f"書き出しました(タスク {result.task_count} 件、参照 {result.references} 件、セクション {result.section_count} 件)"
         ui.notify(head + (f"。{detail}" if detail else ""))
 
     def pick_plantuml(self) -> None:
@@ -2027,6 +2036,54 @@ class MainView:
         if result.filled_weeks:
             ui.notify(f"担当のいなくなった週 {result.filled_weeks} 週を、隣の週の担当にしました", type="warning")
         self.warn_overallocation(*result.tasks.values(), limit=3)
+
+    def extract_tasks(self, ids: list[str]) -> None:
+        """選択中のタスクを子プロジェクトに切り出す(名前の入力ダイアログを開く)。"""
+        if self.preview is not None or not ids:
+            return
+        if (reason := selection_error(self.project, ids)) is not None:
+            ui.notify(reason, type="warning")
+            return
+
+        def validate(name: str) -> str | None:
+            existing = {p.stem for p in self.project_dir.glob("*.json")}
+            return extract_name_error(self.project, name, existing) or validate_name(name, self.project_dir, new=True)
+
+        open_name_dialog(
+            lambda name: self.apply_extract(ids, name),
+            validate,
+            title="子プロジェクトに切り出し",
+            label="子プロジェクト名",
+            submit="切り出す",
+        )
+
+    def apply_extract(self, ids: list[str], name: str) -> bool:
+        """子を新規保存し、親を参照行に置き換える(元に戻す 1 ステップ)。失敗は False(親は変えない)。"""
+        try:
+            result = extract(self.project, ids, name)
+            now = self.now()
+            if self.project.reference_mode is ReferenceMode.SNAPSHOT:
+                value = compute_reference(result.child, effective_holidays(result.child, self.base_holidays), now)
+                reference = next(t for t in result.parent.all_tasks() if t.id == result.reference_id)
+                reference.ref_snapshot = replace(value, taken_at=now)
+            check_extraction(result)
+            saved = save_project(result.child, self.project_dir, overwrite=False)  # 子を先に保存する。失敗したら親は変えない
+        except (OSError, ValueError) as exc:
+            ui.notify(f"切り出せませんでした: {exc}", type="negative")
+            return False
+        self.files[saved.stem] = saved
+        self.file_select.set_options(sorted(self.files), value=self.current_name())  # 開いているプロジェクトの選択は変えない
+        self.request_git_refresh()
+        self.project = result.parent
+        self.gantt.clear_selection()
+        self.after_edit()
+        notes = [
+            f"先行 {result.dropped} 件を外しました" if result.dropped else "",
+            "親を保存してください",
+            "元に戻しても子のファイルは残ります",
+        ]
+        ui.notify(f"「{name.strip()}」に {result.moved} 件を切り出しました。" + "。".join(n for n in notes if n))
+        return True
 
     def confirm_bulk_delete(self, ids: list[str]) -> None:
         if not ids:

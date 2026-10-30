@@ -489,6 +489,7 @@ class GanttActions:
     # 選択中の一括操作(見えている選択済みのタスク id。描画順)
     bulk_edit: Callable[[list[str]], object] = lambda ids: None
     bulk_delete: Callable[[list[str]], object] = lambda ids: None
+    extract_tasks: Callable[[list[str]], object] = lambda ids: None
     copy_task: Callable[[SectionPath, int], object] = lambda path, ti: None
     rename_task: Callable[[SectionPath, int], object] = lambda path, ti: None
     delete_task: Callable[[SectionPath, int], object] = lambda path, ti: None
@@ -567,6 +568,8 @@ class GanttChart:
         self.bulk_separator: ui.separator | None = None
         self.bulk_edit_label: ui.label | None = None
         self.bulk_delete_label: ui.label | None = None
+        self.extract_item: ui.menu_item | None = None
+        self.extract_label: ui.label | None = None
         self.weeks_item: ui.menu_item | None = None
         self.refresh_item: ui.menu_item | None = None
         self.weeks_label: ui.label | None = None
@@ -774,7 +777,7 @@ class GanttChart:
         self.bulk.prune(self.tasks_by_id)
         if self.bulk_bar is not None:
             self.bulk_bar.set_visibility(bool(self.bulk.ids))
-        for item in (self.bulk_edit_item, self.bulk_delete_item, self.bulk_separator):
+        for item in (self.bulk_edit_item, self.bulk_delete_item, self.extract_item, self.bulk_separator):
             if not self.bulk.ids:
                 self.show_menu_part(item, False)  # 選択がなければ、右クリックのメニューに一括の項目を出さない
         if self.bulk_count is not None:
@@ -1181,6 +1184,9 @@ class GanttChart:
                 ui.button("削除", icon="delete", on_click=lambda: self.actions.bulk_delete(self.selected_ids())).props(
                     "flat dense size=sm color=negative"
                 ).mark("bulk-delete")
+                ui.button(
+                    "子プロジェクトに切り出し…", icon="call_split", on_click=lambda: self.actions.extract_tasks(self.selected_ids())
+                ).props("flat dense size=sm").mark("bulk-extract")
                 ui.button("解除", icon="close", on_click=self.clear_selection).props("flat dense size=sm").mark("bulk-clear")
             self.bulk_bar.mark("bulk-bar").set_visibility(False)
         scroll_style = (
@@ -1214,8 +1220,12 @@ class GanttChart:
                 with ui.item_section():
                     self.bulk_delete_label = ui.label("選択中を削除")
             self.bulk_delete_item = item
+            with ui.menu_item(on_click=lambda: self.actions.extract_tasks(self.selected_ids())).mark("context-extract") as item:
+                with ui.item_section():
+                    self.extract_label = ui.label("選択中を子プロジェクトに切り出し…")
+            self.extract_item = item
             self.bulk_separator = ui.separator()
-            for part in (self.bulk_edit_item, self.bulk_delete_item, self.bulk_separator):
+            for part in (self.bulk_edit_item, self.bulk_delete_item, self.extract_item, self.bulk_separator):
                 self.show_menu_part(part, False)  # 選択した行の右クリックで、open_menu が出す
             ui.menu_item("編集", on_click=act(lambda p, t: self.actions.edit_task(p, t))).mark("context-edit")
             self.decompose_item = ui.menu_item(
@@ -1290,6 +1300,7 @@ class GanttChart:
         for item, label, text in (
             (self.bulk_edit_item, self.bulk_edit_label, "編集…"),
             (self.bulk_delete_item, self.bulk_delete_label, "削除"),
+            (self.extract_item, self.extract_label, "子プロジェクトに切り出し…"),
         ):
             self.show_menu_part(item, show)
             if show and label is not None:
@@ -1784,7 +1795,7 @@ class GanttChart:
         state = progress_state(task, self.project, self.holidays, now, self.schedule)
         finished = state in (ProgressState.DONE, ProgressState.LATE_DONE)
         if task.kind is TaskKind.SUMMARY:  # 状態は子から算出する
-            finished = summary_status(children_of(task, self.tasks_by_id)) is Status.DONE
+            finished = summary_status(children_of(task, self.tasks_by_id), self.reference_values()) is Status.DONE
         if overdue:
             style += f"; background: {OVERDUE_COLOR}"
         ids = task_ids_of(task, self.tasks_by_id)
@@ -1944,7 +1955,7 @@ class GanttChart:
             shift_tooltip(more, "\n".join(f"{a.name} {round(a.allocation * 100)}%" for a in rest), detail)
             more.mark(f"task-assignee-more-{key}-{ti}")
         if task.kind is TaskKind.SUMMARY:
-            percent = summary_progress(children_of(task, self.tasks_by_id))
+            percent = summary_progress(children_of(task, self.tasks_by_id), self.reference_values())
         else:
             percent = None if task.kind is TaskKind.CHECKPOINT else fill_percent(task)
         if percent is not None:
@@ -1999,13 +2010,13 @@ class GanttChart:
         left, length = span
         band_width = max(length * width, MIN_BAR_PX)
         kids = children_of(task, self.tasks_by_id)
-        percent = summary_progress(kids)
+        percent = summary_progress(kids, self.reference_values())
         band = ui.element("div").style(
             f"position: absolute; left: {from_name(left * width)}; width: {band_width:.1f}px;"
             f" top: {SUMMARY_BAND_TOP_PX}px; height: {SUMMARY_BAND_HEIGHT_PX}px;"
             f" background: {STATUS_COLOR_VAR}; border-radius: 1px"
         )
-        band.classes(STATUS_CLASSES[summary_status(kids)])
+        band.classes(STATUS_CLASSES[summary_status(kids, self.reference_values())])
         band.mark(f"summary-band-{key}-{ti}")
         with band:
             if percent:
