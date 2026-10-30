@@ -677,8 +677,14 @@ class MainView:
         if not self.exporter.available:
             ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
             return
-        result = build_tsv(self.project, self.holidays)
-        if result.task_count == 0 and result.section_count == 0:
+        now = datetime.now()
+        values = {
+            tid: ref.value
+            for tid, ref in build_references(self.project, self.reference_resolver, now).items()
+            if ref.value is not None
+        }
+        result = build_tsv(self.project, self.holidays, values)
+        if result.task_count == 0 and result.section_count == 0 and result.references == 0:
             ui.notify("書き出せるタスクがありません", type="warning")
             return
         path = await self.exporter.ask_path(TSV_DEFAULT_FILENAME, TSV_FILE_TYPES)
@@ -690,11 +696,12 @@ class MainView:
             ui.notify(f"保存できませんでした: {exc}", type="negative")
             return
         notes = [
-            f"{result.skipped} 件(まとめ・節目・参照)は書き出していません" if result.skipped else "",
+            f"{result.skipped} 件(まとめ・節目)は書き出していません" if result.skipped else "",
             f"担当者が複数の {result.multiple_owners} 件は筆頭だけを書きました" if result.multiple_owners else "",
+            f"参照先が読めない {result.unresolved} 件は、日付と完了率を空にしました" if result.unresolved else "",
         ]
         detail = "、".join(note for note in notes if note)
-        head = f"書き出しました(タスク {result.task_count} 件、セクション {result.section_count} 件)"
+        head = f"書き出しました(タスク {result.task_count} 件、参照 {result.references} 件、セクション {result.section_count} 件)"
         ui.notify(head + (f"。{detail}" if detail else ""))
 
     def pick_plantuml(self) -> None:

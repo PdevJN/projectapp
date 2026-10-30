@@ -134,3 +134,37 @@ def test_a_due_date_on_a_sunday_survives_the_round_trip() -> None:
     text = "タスクのタイトル\t開始日\t期限\t期間\nT\t2026-10-12\t2026-10-18\t6"
     row = rows(build_tsv(parse_csv(text, "w", {}).project, {}).text)[3]
     assert row[3:6] == ["26年 10月 12日", "26年 10月 18日", "6"]
+
+
+from projectapp.models import ReferenceValue
+
+
+def reference_project() -> Project:
+    return Project("p", tasks=[Task("基盤", id="r", kind=TaskKind.REFERENCE, ref_project="基盤")])
+
+
+def test_a_reference_row_is_written_with_the_dates_and_progress_of_its_target() -> None:
+    value = ReferenceValue(planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 9, 18), progress=40)
+    out = build_tsv(reference_project(), {}, {"r": value})
+    assert rows(out.text)[3] == ["", "(参照) 基盤", "", "26年 10月 5日", "26年 10月 9日", "4", "40%"]
+    assert (out.task_count, out.references, out.unresolved, out.skipped) == (0, 1, 0, 0)
+
+
+def test_a_finished_reference_without_progress_is_written_as_100_percent() -> None:
+    value = ReferenceValue(planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 5, 18), finished=True)
+    assert rows(build_tsv(reference_project(), {}, {"r": value}).text)[3][-1] == "100%"
+
+
+def test_a_reference_without_progress_is_written_as_0_percent() -> None:
+    value = ReferenceValue(planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 5, 18))
+    assert rows(build_tsv(reference_project(), {}, {"r": value}).text)[3][-1] == "0%"
+
+
+def test_a_reference_that_cannot_be_read_is_written_with_blank_dates_and_progress() -> None:
+    out = build_tsv(reference_project(), {}, {})
+    assert rows(out.text)[3] == ["", "(参照) 基盤", "", "", "", "0", ""]
+    assert (out.references, out.unresolved) == (1, 1)
+
+
+def test_references_default_to_unresolved_when_no_values_are_given() -> None:
+    assert build_tsv(reference_project(), {}).unresolved == 1
