@@ -99,3 +99,20 @@ async def test_the_selection_bar_and_the_context_menu_have_the_entry(user: User,
     view.gantt.open_menu((), 0)
     assert view.gantt.extract_label is not None
     assert view.gantt.extract_label.text == "選択中 2 件を子プロジェクトに切り出し…"
+
+
+async def test_extract_adds_the_child_to_the_file_list_and_refreshes_git(user: User, tmp_path: Path) -> None:
+    view = await open_view(user, tmp_path)
+    refreshed: list[bool] = []
+    view.request_git_refresh = lambda: refreshed.append(True)  # type: ignore[method-assign]
+    view.apply_extract(["a"], "子")
+    assert "子" in view.files and view.files["子"] == view.project_dir / "子.json"
+    assert "子" in view.file_select.options
+    assert view.file_select.value == view.current_name()  # 開いているプロジェクトの選択は変えない
+    assert refreshed == [True]
+
+
+async def test_extract_tells_that_the_child_file_stays_after_undo(user: User, tmp_path: Path) -> None:
+    view = await open_view(user, tmp_path)
+    view.apply_extract(["a"], "子")
+    await user.should_see("元に戻しても子のファイルは残ります")

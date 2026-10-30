@@ -2067,14 +2067,21 @@ class MainView:
                 reference = next(t for t in result.parent.all_tasks() if t.id == result.reference_id)
                 reference.ref_snapshot = replace(value, taken_at=now)
             check_extraction(result)
-            save_project(result.child, self.project_dir, overwrite=False)  # 子を先に保存する。失敗したら親は変えない
+            saved = save_project(result.child, self.project_dir, overwrite=False)  # 子を先に保存する。失敗したら親は変えない
         except (OSError, ValueError) as exc:
             ui.notify(f"切り出せませんでした: {exc}", type="negative")
             return False
+        self.files[saved.stem] = saved
+        self.file_select.set_options(sorted(self.files), value=self.current_name())  # 開いているプロジェクトの選択は変えない
+        self.request_git_refresh()
         self.project = result.parent
         self.gantt.clear_selection()
         self.after_edit()
-        notes = [f"先行 {result.dropped} 件を外しました" if result.dropped else "", "親を保存してください"]
+        notes = [
+            f"先行 {result.dropped} 件を外しました" if result.dropped else "",
+            "親を保存してください",
+            "元に戻しても子のファイルは残ります",
+        ]
         ui.notify(f"「{name.strip()}」に {result.moved} 件を切り出しました。" + "。".join(n for n in notes if n))
         return True
 
