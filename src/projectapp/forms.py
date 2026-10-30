@@ -1059,6 +1059,7 @@ def open_name_dialog(
     title: str = "プロジェクトの保存",
     initial: str = "",
     label: str = "プロジェクト名",
+    submit: str = "保存",
 ) -> None:
     """名前を入力して保存する。on_submitがFalseを返したら(保存に失敗)、入力を残して開いたままにする。"""
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-80"):
@@ -1077,7 +1078,7 @@ def open_name_dialog(
 
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")
-            ui.button("保存", on_click=save).mark("name-save")
+            ui.button(submit, on_click=save).mark("name-save")
     dialog.open()
 
 
