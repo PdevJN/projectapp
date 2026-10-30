@@ -834,7 +834,7 @@ PlantUML は日単位で担当者の割り当てを集計するので、同じ�
 
 ## 要望 89: プロジェクトのタスクを起点に、子プロジェクトのファイルを作成する(2026-10-30 に受領)
 
-> **状態**: 実装済み(PR 番号はマージ後に記入)。[設計書](superpowers/specs/2026-10-31-extract-project-design.md)・[計画](superpowers/plans/2026-10-31-extract-project.md)。
+> **状態**: 完了(実機確認済み。2026-10-31。PR #129〔6f0165e〕で`develop`へマージ)。[設計書](superpowers/specs/2026-10-31-extract-project-design.md)・[計画](superpowers/plans/2026-10-31-extract-project.md)。
 
 ### 要望
 大きなタスクを、独立したプロジェクトファイル(子プロジェクト)に切り出して管理したい。元のタスクは`プロジェクト参照`の行に置き換わり、親から子の進捗が見える。
