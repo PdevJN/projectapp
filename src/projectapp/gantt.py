@@ -1784,7 +1784,7 @@ class GanttChart:
         state = progress_state(task, self.project, self.holidays, now, self.schedule)
         finished = state in (ProgressState.DONE, ProgressState.LATE_DONE)
         if task.kind is TaskKind.SUMMARY:  # 状態は子から算出する
-            finished = summary_status(children_of(task, self.tasks_by_id)) is Status.DONE
+            finished = summary_status(children_of(task, self.tasks_by_id), self.reference_values()) is Status.DONE
         if overdue:
             style += f"; background: {OVERDUE_COLOR}"
         ids = task_ids_of(task, self.tasks_by_id)
@@ -1944,7 +1944,7 @@ class GanttChart:
             shift_tooltip(more, "\n".join(f"{a.name} {round(a.allocation * 100)}%" for a in rest), detail)
             more.mark(f"task-assignee-more-{key}-{ti}")
         if task.kind is TaskKind.SUMMARY:
-            percent = summary_progress(children_of(task, self.tasks_by_id))
+            percent = summary_progress(children_of(task, self.tasks_by_id), self.reference_values())
         else:
             percent = None if task.kind is TaskKind.CHECKPOINT else fill_percent(task)
         if percent is not None:
@@ -1999,13 +1999,13 @@ class GanttChart:
         left, length = span
         band_width = max(length * width, MIN_BAR_PX)
         kids = children_of(task, self.tasks_by_id)
-        percent = summary_progress(kids)
+        percent = summary_progress(kids, self.reference_values())
         band = ui.element("div").style(
             f"position: absolute; left: {from_name(left * width)}; width: {band_width:.1f}px;"
             f" top: {SUMMARY_BAND_TOP_PX}px; height: {SUMMARY_BAND_HEIGHT_PX}px;"
             f" background: {STATUS_COLOR_VAR}; border-radius: 1px"
         )
-        band.classes(STATUS_CLASSES[summary_status(kids)])
+        band.classes(STATUS_CLASSES[summary_status(kids, self.reference_values())])
         band.mark(f"summary-band-{key}-{ti}")
         with band:
             if percent:

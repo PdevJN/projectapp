@@ -6,7 +6,7 @@
 from collections.abc import Mapping, Sequence
 from math import isfinite
 
-from projectapp.models import Project, Status, Task, TaskKind
+from projectapp.models import Project, ReferenceValue, Status, Task, TaskKind
 
 
 def parent_map(project: Project) -> dict[str, str]:
@@ -19,11 +19,25 @@ def children_of(task: Task, by_id: Mapping[str, Task]) -> list[Task]:
     return [by_id[cid] for cid in task.children if cid in by_id]
 
 
-def summary_status(children: Sequence[Task]) -> Status:
-    """全員が終了なら終了、1 つでも着手済み(実行中・一時停止・終了)なら実行中、それ以外は未着手。"""
-    if children and all(c.status is Status.DONE for c in children):
+def _status_of(child: Task, references: Mapping[str, ReferenceValue] | None) -> Status:
+    """子の状態。参照行は、状態を持たないので、参照先の値から出す(値がなければ未着手)。"""
+    if child.kind is not TaskKind.REFERENCE:
+        return child.status
+    value = (references or {}).get(child.id)
+    if value is None:
+        return Status.NOT_STARTED
+    if value.finished:
         return Status.DONE
-    if any(c.status is not Status.NOT_STARTED for c in children):
+    return Status.RUNNING if value.actual_start is not None else Status.NOT_STARTED
+
+
+def summary_status(children: Sequence[Task], references: Mapping[str, ReferenceValue] | None = None) -> Status:
+    """全員が終了なら終了、1 つでも着手済み(実行中・一時停止・終了)なら実行中、それ以外は未着手。
+    参照行は参照先の値(全部終了なら終了、実績があれば実行中)で数える。"""
+    states = [_status_of(c, references) for c in children]
+    if states and all(s is Status.DONE for s in states):
+        return Status.DONE
+    if any(s is not Status.NOT_STARTED for s in states):
         return Status.RUNNING
     return Status.NOT_STARTED
 
@@ -32,17 +46,24 @@ def _weight(effort_hours: float) -> float:
     return effort_hours if isfinite(effort_hours) and effort_hours > 0 else 1.0
 
 
-def summary_progress(children: Sequence[Task]) -> int | None:
+def _percent_of(child: Task, references: Mapping[str, ReferenceValue] | None) -> tuple[int | None, float]:
+    """(進捗度, 重み)。参照行は参照先の進捗(全部終了なら 100)で、重みは 1。進捗度がないものは None。"""
+    if child.kind is TaskKind.REFERENCE:
+        value = (references or {}).get(child.id)
+        if value is None:
+            return None, 1.0
+        return (100 if value.finished else value.progress), 1.0
+    return (100 if child.status is Status.DONE else child.progress), _weight(child.effort_hours)
+
+
+def summary_progress(children: Sequence[Task], references: Mapping[str, ReferenceValue] | None = None) -> int | None:
     """子の進捗度を、工数(なければ 1)で重みづけした平均(四捨五入)。終了は 100、進捗度がないものは 0。
-    どの子にも進捗度がなく、終了もないときは None。"""
-    if not any(c.status is Status.DONE or c.progress is not None for c in children):
+    どの子にも進捗度がなく、終了もないときは None。参照行は参照先の進捗で、重みは 1。"""
+    parts = [_percent_of(c, references) for c in children]
+    if all(percent is None for percent, _ in parts):
         return None
-    weighted = total = 0.0
-    for c in children:
-        weight = _weight(c.effort_hours)
-        percent = 100 if c.status is Status.DONE else (c.progress or 0)
-        weighted += weight * percent
-        total += weight
+    weighted = sum(weight * (percent or 0) for percent, weight in parts)
+    total = sum(weight for _, weight in parts)
     return int(weighted / total + 0.5)  # 四捨五入(round は銀行丸めで、62.5 が 62 になる)
 
 
