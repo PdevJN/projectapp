@@ -1845,12 +1845,32 @@ async def test_the_preview_bar_has_a_view_row_and_an_output_row(user: User, tmp_
 
     view_row = markers_under("preview-bar")
     output_row = markers_under("preview-output")
-    # 1 段目: 期間・スケール・表示項目。保存・戻る・すべて選択は含まない
-    assert {"preview-period", "preview-scale", "preview-chips", "preview-alerts", "preview-events", "preview-today"} <= view_row
-    assert not {"preview-back", "preview-save", "preview-plantuml", "preview-select-all"} & view_row
-    # 2 段目: 出力の選択と、戻る・保存
-    assert {"preview-select-all", "preview-select-count", "preview-back", "preview-save", "preview-plantuml"} <= output_row
-    assert not {"preview-period", "preview-scale"} & output_row
+    # 1 段目: 期間・スケール・表示項目(メニューの中)・戻る。保存・すべて選択は含まない
+    assert {"preview-period", "preview-scale", "preview-display-menu", "preview-back"} <= view_row
+    assert {"preview-chips", "preview-alerts", "preview-events", "preview-today"} <= view_row
+    assert not {"preview-save-menu", "preview-save", "preview-plantuml", "preview-select-all"} & view_row
+    # 2 段目: 出力の選択と、保存(メニューの中)。戻る・期間・スケール・表示項目は含まない
+    assert {"preview-select-all", "preview-select-count", "preview-save-menu", "preview-save", "preview-plantuml"} <= output_row
+    assert not {"preview-back", "preview-period", "preview-scale", "preview-chips", "preview-today"} & output_row
+
+
+async def test_the_display_items_are_in_a_menu_and_the_save_actions_are_in_another(user: User, tmp_path: Path) -> None:
+    await open_preview(user, tmp_path, FakeExporter())
+
+    def menu_children(button_marker: str) -> set[str]:
+        button = user.find(marker=button_marker).elements.pop()
+        return {m for child in button.descendants() for m in child._markers}
+
+    assert {"preview-chips", "preview-alerts", "preview-events", "preview-today"} <= menu_children("preview-display-menu")
+    assert {"preview-save", "preview-plantuml"} <= menu_children("preview-save-menu")
+
+
+async def test_the_save_menu_button_follows_the_save_enabled_state(user: User, tmp_path: Path) -> None:
+    await open_preview(user, tmp_path, FakeExporter())
+    assert user.find(marker="preview-save-menu").elements.pop().enabled
+    set_period(user, start="abc")
+    assert not user.find(marker="preview-save-menu").elements.pop().enabled  # 期間が不正なあいだは、メニューも開けない
+    assert not user.find(marker="preview-save").elements.pop().enabled
 
 
 def emit(user: User, marker: str, event_type: str, args: object = None) -> None:
