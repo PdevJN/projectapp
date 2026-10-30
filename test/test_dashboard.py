@@ -874,6 +874,11 @@ def test_a_set_scope_keeps_tasks_any_of_the_names_is_on() -> None:
     assert progress.by_member == [] and progress.by_team == []  # 絞り込み中は、メンバー別・チーム別を出さない
 
 
+def test_a_weighted_scope_selects_its_keys_like_a_set() -> None:
+    progress = summarize_progress(teamed_project(), {}, NOW, {"田中": 1.0, "鈴木": 1.0})
+    assert progress.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 1}
+
+
 def test_a_string_scope_still_means_one_member() -> None:
     assert summarize_progress(teamed_project(), {}, NOW, "山田").counts[Status.NOT_STARTED] == 1
 

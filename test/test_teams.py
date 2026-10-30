@@ -16,6 +16,7 @@ from projectapp.teams import (
     team_member_names,
     team_name_error,
     team_scope,
+    team_weights,
     teams_with_members,
 )
 
@@ -234,3 +235,24 @@ def test_team_scope_is_none_for_unknown_empty_or_missing() -> None:
     assert team_scope(project, "空") is None
     assert team_scope(project, "ない") is None
     assert team_scope(project, None) is None
+
+
+def test_team_weights_give_each_member_the_share_in_that_team() -> None:
+    project = Project(
+        "P",
+        members=[
+            Member("田中", 1.0, teams=ms(("a", 100))),
+            Member("佐藤", 1.0, teams=ms(("a", 60), ("b", 40))),
+            Member("山田", 1.0),
+        ],
+        teams=[Team("開発", id="a"), Team("QA", id="b"), Team("空", id="z")],
+    )
+    assert team_weights(project, "開発") == {"田中": 1.0, "佐藤": 0.6}
+    assert team_weights(project, "QA") == {"佐藤": 0.4}
+
+
+def test_team_weights_are_none_for_no_unknown_or_empty_team() -> None:
+    project = Project("P", members=[Member("田中", 1.0)], teams=[Team("空", id="z")])
+    assert team_weights(project, None) is None
+    assert team_weights(project, "ない") is None
+    assert team_weights(project, "空") is None

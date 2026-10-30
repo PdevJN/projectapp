@@ -27,7 +27,7 @@ from projectapp.timeline import (
     is_overdue,
     is_workday,
 )
-from projectapp.teams import team_scope, teams_with_members
+from projectapp.teams import team_scope, team_weights, teams_with_members
 from projectapp.workdays import work_day_map
 
 
@@ -122,14 +122,21 @@ class Progress:
     by_team: list[MemberProgress] = field(default_factory=list)  # チームごと(メンバーのいるチームだけ)。絞り込み中は空
 
 
-Scope = str | frozenset[str] | None  # 絞り込み。文字列は 1 人、集合はそのうちの誰か(チーム)。None は全員
+Scope = str | frozenset[str] | Mapping[str, float] | None  # 絞り込み。文字列は 1 人、集合はそのうちの誰か(チーム)、辞書は名前 → 重み(チームの所属の割合)。None は全員
 
 
 def _names(scope: Scope) -> frozenset[str] | None:
     """絞り込みを、メンバー名の集合にする。全員は None。"""
     if scope is None:
         return None
-    return frozenset({scope}) if isinstance(scope, str) else scope
+    if isinstance(scope, str):
+        return frozenset({scope})
+    return frozenset(scope)  # 集合はそのまま、辞書はキー
+
+
+def _factor(scope: Scope, name: str) -> float:
+    """メンバーの値に掛ける重み。チーム(辞書)なら所属の割合、それ以外は 1.0。"""
+    return scope.get(name, 1.0) if isinstance(scope, Mapping) else 1.0
 
 
 def _tasks(project: Project, member: Scope = None) -> list[Task]:
@@ -759,7 +766,7 @@ def summarize(
 ) -> Dashboard:
     """`member`があれば`team`は無視する。存在しない・メンバーのいないチームは絞り込まない。"""
     team_members = team_scope(project, team) if member is None else None
-    scope: Scope = member if member is not None else team_members
+    scope: Scope = member if member is not None else team_weights(project, team)
     return Dashboard(
         period,
         summarize_progress(project, holidays, now, scope),
