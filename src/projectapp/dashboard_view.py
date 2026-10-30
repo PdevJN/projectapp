@@ -220,7 +220,10 @@ class DashboardView:
         self.view_select: ui.select | None = None
         self.dirty_mark: ui.label | None = None
         self.save_button: ui.button | None = None
-        self.revert_button: ui.button | None = None
+        self.save_as_item: ui.menu_item | None = None
+        self.revert_item: ui.menu_item | None = None
+        self.top_bar: ui.row | None = None
+        self.filter_bar: ui.row | None = None
         self.rename_item: ui.menu_item | None = None
         self.delete_item: ui.menu_item | None = None
         self.on_custom_change = on_custom_change
@@ -249,9 +252,10 @@ class DashboardView:
         with ui.column().classes("w-full gap-4") as box:
             self.box = box
             box.mark("dashboard-box")
-            with ui.row().classes("w-full items-center gap-4"):
-                ui.label("ダッシュボード").classes("text-h5")
-                with ui.row().classes("items-center gap-1 no-wrap"):
+            with ui.row().classes("w-full items-center gap-4 justify-between") as self.top_bar:  # 1 段目: ビューの管理と画面操作
+                self.top_bar.mark("dashboard-bar-top")
+                with ui.row().classes("items-center gap-2"):
+                    ui.label("ダッシュボード").classes("text-h5")
                     self.view_select = (
                         ui.select({STANDARD_NAME: STANDARD_NAME}, value=STANDARD_NAME, on_change=self.on_view)
                         .props("dense outlined options-dense")
@@ -264,22 +268,34 @@ class DashboardView:
                     self.save_button = (
                         ui.button("保存", on_click=lambda: self.act("save")).props("flat dense").mark("dashboard-view-save")
                     )
-                    ui.button("名前をつけて保存", on_click=lambda: self.act("save_as")).props("flat dense").mark(
-                        "dashboard-view-save-as"
-                    )
-                    self.revert_button = (
-                        ui.button("元に戻す", on_click=lambda: self.act("revert")).props("flat dense").mark("dashboard-view-revert")
-                    )
                     with ui.button(icon="more_vert").props("flat dense round").mark("dashboard-view-menu"):
                         with ui.menu():
+                            self.save_as_item = ui.menu_item("名前をつけて保存", on_click=lambda: self.act("save_as")).mark(
+                                "dashboard-view-save-as"
+                            )
+                            self.revert_item = ui.menu_item("元に戻す", on_click=lambda: self.act("revert")).mark(
+                                "dashboard-view-revert"
+                            )
+                            ui.separator()
                             self.rename_item = ui.menu_item("名前の変更", on_click=lambda: self.act("rename")).mark(
                                 "dashboard-view-rename"
                             )
                             self.delete_item = ui.menu_item("削除", on_click=lambda: self.act("delete")).mark(
                                 "dashboard-view-delete"
                             )
-                for item in (self.dirty_mark, self.save_button, self.revert_button):
-                    item.set_visibility(False)
+                    for item in (self.dirty_mark, self.save_button):
+                        item.set_visibility(False)
+                with ui.row().classes("items-center gap-2"):
+                    self.edit_button = (
+                        ui.button("カードを編集", icon="edit", on_click=lambda: self.set_edit_mode(not self.edit_mode))
+                        .props("flat dense")
+                        .mark("dashboard-edit-toggle")
+                    )
+                    ui.button("戻る", icon="arrow_back", on_click=lambda: self.on_back()).props("flat").mark(
+                        "dashboard-back"
+                    )
+            with ui.row().classes("w-full items-start gap-4") as self.filter_bar:  # 2 段目: 表示条件の絞り込み
+                self.filter_bar.mark("dashboard-bar-filters")
                 self.toggle = ui.toggle(
                     {kind.value: kind.value for kind in PeriodKind},
                     value=PeriodKind.WEEK.value,
@@ -306,14 +322,6 @@ class DashboardView:
                 )
                 self.cross_switch = ui.switch("全プロジェクト", value=False, on_change=self.on_cross).mark(
                     "dashboard-cross"
-                )
-                self.edit_button = (
-                    ui.button("カードを編集", icon="edit", on_click=lambda: self.set_edit_mode(not self.edit_mode))
-                    .props("flat dense")
-                    .mark("dashboard-edit-toggle")
-                )
-                ui.button("戻る", icon="arrow_back", on_click=lambda: self.on_back()).props("flat").mark(
-                    "dashboard-back"
                 )
             self.cards()
         box.set_visibility(False)
@@ -370,8 +378,8 @@ class DashboardView:
                 self.save_button.props(f'title="{state.save_block}"')  # 押せない理由(ネイティブのヒント)
             else:
                 self.save_button.props(remove="title")
-        if self.revert_button is not None:
-            self.revert_button.set_visibility(state.dirty)
+        if self.revert_item is not None:
+            self.revert_item.set_enabled(state.dirty)  # 元に戻すは、変更があるときだけ押せる(⋮ の中)
         standard = state.current == STANDARD_NAME
         for item in (self.rename_item, self.delete_item):
             if item is not None:
