@@ -574,14 +574,27 @@ async def test_the_toolbar_shows_the_dirty_mark_and_save_buttons_only_when_dirty
     await user.open("/")
     views[0].show(sample(), PeriodKind.WEEK, view_state=full_state(dirty=False))
     await user.should_see(marker="dashboard-view")
-    await user.should_see(marker="dashboard-view-save-as")  # 名前をつけて保存は常に出す
+    await user.should_see(marker="dashboard-view-save-as")  # 名前をつけて保存は常に押せる(⋮ の中)
     await user.should_not_see(marker="dashboard-view-dirty")
     await user.should_not_see(marker="dashboard-view-save")
-    await user.should_not_see(marker="dashboard-view-revert")
+    assert views[0].save_as_item.enabled is True
+    assert views[0].revert_item.enabled is False  # 元に戻すは、変更があるときだけ押せる(⋮ の中)
     views[0].show(sample(), PeriodKind.WEEK, view_state=full_state(current="月次", dirty=True))
     await user.should_see(marker="dashboard-view-dirty")
     await user.should_see(marker="dashboard-view-save")
-    await user.should_see(marker="dashboard-view-revert")
+    assert views[0].revert_item.enabled is True
+
+
+async def test_the_toolbar_has_two_rows_one_for_the_view_and_one_for_the_filters(user: User) -> None:
+    views, _, _ = mount(actions=recording_actions([]))
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK, view_state=full_state(current="月次", dirty=True))
+    top = set(views[0].top_bar.descendants())
+    filters = set(views[0].filter_bar.descendants())
+    assert {views[0].view_select, views[0].dirty_mark, views[0].save_button, views[0].edit_button} <= top
+    assert views[0].save_as_item in top and views[0].revert_item in top  # ⋮ の中のメニュー項目も 1 段目
+    assert {views[0].toggle, views[0].member_select, views[0].cross_switch, views[0].custom_field} <= filters
+    assert top.isdisjoint(filters)
 
 
 async def test_save_is_disabled_when_blocked(user: User) -> None:
