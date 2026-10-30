@@ -59,3 +59,4 @@
 | 2026-10-28 | 稼働日の上書きの拡張(メモ・期間で追加) | [設計](specs/2026-10-28-work-day-notes-design.md) | [計画](plans/2026-10-28-work-day-notes.md) | 44〜46 | PR #114(7d67917。2026-10-28。実機確認済み) | — |
 | 2026-10-28 | イベントの期間を休みにする | [設計](specs/2026-10-28-event-closed-design.md) | [計画](plans/2026-10-28-event-closed.md) | 要望 82 | PR #117(7a6d9e2。2026-10-29。実機確認済み) | — |
 | 2026-10-29 | 設定値のエクスポート・インポート | [設計](specs/2026-10-29-settings-export-import-design.md) | [計画](plans/2026-10-29-settings-export-import.md) | 要望 78 | PR #120(78cc309。2026-10-29。実機確認済み) | — |
+| 2026-10-31 | タスクの子プロジェクトへの切り出し | [設計](specs/2026-10-31-extract-project-design.md) | [計画](plans/2026-10-31-extract-project.md) | 要望 89 | 実装済み(PR 番号はマージ後に記入) | — |

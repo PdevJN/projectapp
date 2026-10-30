@@ -50,6 +50,7 @@
 | `csv_export.py` | プロジェクトを同じ形の TSV に書き出す。`build_tsv`(`TsvExport`)、`split_name`(最初の`#`で分ける)、`format_date`(`26年 10月 5日`)、`DEFAULT_FILENAME`(`out.tsv`)、`write_tsv`。純粋関数。取り込みと往復できる |
 | `scope.py` | メンバー・チームの絞り込みのプルダウンの値(要望 85 段階 2)。`read_scope`・`scope_value`・`scope_options`・`team_key`(チームの値は制御文字の接頭辞 `TEAM_KEY` つき)。ガントチャートとダッシュボードが共有する。NiceGUI に依存しない |
 | `teams.py` | チーム(要望 85)。`team_name_error`・`membership_error`(整数 1〜100・合計 100)・`normalize`(比を保って 100 に揃える。端数は最大の所属)・`even_split`・`settle_memberships`・`membership_summary`・`team_member_names`・`drop_teams`・`TeamRow`/`build_teams`・`replace_teams`・`removal_impacts`・`add_team_members`。NiceGUI に依存しない |
+| `extract.py` | タスクの子プロジェクトへの切り出し(要望 89)。`expand_ids`・`selection_error`・`name_error`・`extract`(子の`Project`と、参照行に置き換えた親の複製を返す。元は変えない)・`check`(保存・読込の検証)。NiceGUI に依存しない。画面は`views.extract_tasks`(名前の入力)・`apply_extract`(子を先に新規保存し、親を置き換える) |
 | `teams_dialog.py` | `チーム`タブ(`teams_panel`)とメンバーの所属ダイアログ(`open_member_teams_dialog`)。`forms.py` から import されるので、`forms` を import しない |
 | `settings_io.py` | 設定値のエクスポート・インポート(要望 78)。`build_settings`・`write_settings`・`parse_settings`(`ImportFile`。設定ファイルを「タスクのないプロジェクト」に組み直して `storage.parse_project` で検証する)、`plan_import`(`ImportPlan`: 区分ごとの追加・重複とプロジェクト設定の違い)、`apply_import`(`ImportResult`。選んだ区分と上書きを、コピーに適用して検証する。元は変えない)、`summary`、`copy_into`(`MainView` の `Project` の参照を保つ)。鍵は名前(イベントは期間と文字列)。NiceGUI に依存しない |
 | `settings_dialog.py` | 取り込みのダイアログ(`open_import_dialog`)。区分のチェック `import-section-<key>`、重複の上書き `import-overwrite-<key>-<index>`、`import-apply`・`import-cancel`。`MainView.apply_settings_import` が `apply_import` と、上限・下限の見直し確認(`ask_limit_review`。`apply_ratio_limits` と共有)、スナップショットの取り直し(`refresh_all_snapshots`。`apply_reference_mode` と共有)につなぐ |
@@ -167,6 +168,7 @@ uv run ty check src
 - イベントの色の層は `opacity` で薄め、ライトとダークで値を変える(`EVENT_CSS`)。`ui.html` に入れるのは検証済みの色と数値だけで、利用者の文字列は `ui.label` と `title` 属性で出す。帯の `overflow: clip` は `sticky` の文字を保つため(`hidden` だと、帯がスクロールの枠になって `sticky` が効かない)。日次の列は最低 42 列あるので、表示期間が短くても列は 42 に満たない分が足される。
 
 - チーム(version 17、2026-10-30)は `Project.teams: list[Team]`(`id`・`name`)と `Member.teams: list[Membership]`(`team_id`・`percent`)。保存は `teams`(`id`・`name`)と `members[].teams`(`team_id`・`percent`)。読込(`storage._teams`・`_memberships`)は、チーム名の空・重複・長さ・制御文字、`id` の不正・重複、存在しないチーム・同じチームの重複・割合が整数 1〜100 でない(bool・小数も不可)・合計が 100 でない所属を拒否する。version 16 以下のファイルにある `teams` は無視する。`Team.id` は `compare=False`。マージは `kind="team"`(鍵は id)とメンバーの `teams`(リスト全体を 1 項目)。設定ファイルには出さない(`settings_io.build_settings` が所属を空にする)。段階 2(絞り込み)は実装済み: `TaskFilter.team`・`team_members`、`dashboard.Scope`(文字列 = 1 人、集合 = チーム)、`ViewSpec.team`(`config.json` の `dashboard_views[].team`)。段階 3(集計の按分、2026-10-30)は実装済み: `teams.team_weights`(名前 → 所属の割合)、`dashboard.Scope` の辞書(名前 → 重み)と `_factor`、`summarize_loads`(平均・最大に掛け、超過日数は掛ける前)・`summarize_workload`・`summarize_backlog` の按分、`Backlog.by_team`(`NO_TEAM`)。全プロジェクトの負荷(`summarize_cross_loads`)は重みを掛けない。
+- 参照行をまとめの子にできる(要望 89)。ファイル形式は変えない(`children`は id のリストで、種別は検証しない)。`summary.summary_status`・`summary_progress`は、参照行を`references`(参照行の id → `ReferenceValue`)から数える。日程は`timeline.Schedule`が子を再帰的に解決するので、`references`を渡すだけでよい。
 
 ## 既知の見送り事項
 
