@@ -297,6 +297,7 @@ def test_both_results_pass_the_load_validation() -> None:
         check(extract(make(), ids, "子"))
     check(extract(summary_project(), ["k1"], "子"))
     check(extract(summary_project(), ["S1"], "子"))
+```
 
 - [ ] **Step 2: 失敗を確認する**
 
