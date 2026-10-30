@@ -3,6 +3,7 @@ from datetime import date, datetime, time, timedelta
 import pytest
 
 from projectapp.dashboard import (
+    NO_TEAM,
     UNASSIGNED,
     DueRow,
     MemberProgress,
@@ -12,6 +13,7 @@ from projectapp.dashboard import (
     custom_period_error,
     period_for,
     summarize,
+    summarize_backlog,
     summarize_cross_loads,
     summarize_due,
     summarize_member_progress,
@@ -849,6 +851,33 @@ def test_cross_load_applies_each_projects_own_closed_events() -> None:
     assert not plain.events  # 開いているほうのイベントは混ざらない
 
 
+def test_loads_for_a_weighted_scope_scale_average_and_peak_but_not_the_overload_days() -> None:
+    project = project_of(span_task("a", 5, 6, 0.8), span_task("b", 5, 6, 0.4))  # 田中は 120%
+    plain = summarize_loads(project, WEEK, {})["田中"]
+    scaled = summarize_loads(project, WEEK, {}, {"田中": 0.6})["田中"]
+    assert scaled.average == pytest.approx(plain.average * 0.6)
+    assert scaled.peak == pytest.approx(plain.peak * 0.6)
+    assert scaled.peak < 1.0 < plain.peak
+    assert scaled.overload_days == plain.overload_days > 0  # 超過は、掛ける前の値で判定する
+
+
+def test_loads_for_a_set_or_a_string_scope_are_not_scaled() -> None:
+    project = project_of(span_task("a", 5, 6, 0.8))
+    plain = summarize_loads(project, WEEK, {})["田中"]
+    assert summarize_loads(project, WEEK, {}, "田中")["田中"] == plain
+    assert summarize_loads(project, WEEK, {}, frozenset({"田中"}))["田中"] == plain
+
+
+def test_workload_for_a_weighted_scope_scales_planned_and_actual() -> None:
+    task = span_task("作業", 5, 6, 1.0, actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 13))])
+    project = project_of(task)
+    plain = summarize_workload(project, WEEK, NOW, {})[0]
+    scaled = summarize_workload(project, WEEK, NOW, {}, {"田中": 0.6})[0]
+    assert plain.planned_hours > 0 and plain.actual_hours == pytest.approx(4)
+    assert scaled.planned_hours == pytest.approx(plain.planned_hours * 0.6)
+    assert scaled.actual_hours == pytest.approx(4 * 0.6)
+
+
 def teamed_project() -> Project:
     members = [
         Member("田中", 1.0, teams=[Membership("a", 100)]),
@@ -872,6 +901,11 @@ def test_a_set_scope_keeps_tasks_any_of_the_names_is_on() -> None:
     progress = summarize_progress(teamed_project(), {}, NOW, frozenset({"田中", "鈴木"}))
     assert progress.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 1}
     assert progress.by_member == [] and progress.by_team == []  # 絞り込み中は、メンバー別・チーム別を出さない
+
+
+def test_a_weighted_scope_selects_its_keys_like_a_set() -> None:
+    progress = summarize_progress(teamed_project(), {}, NOW, {"田中": 1.0, "鈴木": 1.0})
+    assert progress.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 1}
 
 
 def test_a_string_scope_still_means_one_member() -> None:
@@ -911,8 +945,57 @@ def test_the_backlog_for_a_team_counts_only_the_team_members() -> None:
     everyone = summarize(project, WEEK, NOW, {}).backlog
     team = summarize(project, WEEK, NOW, {}, team="開発").backlog
     assert {name for name, _ in team.by_member} <= {"田中", "佐藤"}
-    assert team.supply == pytest.approx(2.0)  # 田中と佐藤の相対比率の合計
+    assert team.supply == pytest.approx(1.6)  # 田中 100% + 佐藤 60% の相対比率
     assert team.hours < everyone.hours
+
+
+def test_the_backlog_for_a_weighted_scope_scales_each_members_share() -> None:
+    project = project_of(
+        Task("共同", effort_hours=8, assignees=[Assignee("田中", 0.5), Assignee("佐藤", 0.5)]),
+        members=[Member("田中", 1.0), Member("佐藤", 1.0)],
+    )
+    plain = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {})
+    scaled = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, {"田中": 1.0, "佐藤": 0.25})
+    assert plain.hours == pytest.approx(8)
+    assert dict(scaled.by_member) == {"田中": pytest.approx(4.0), "佐藤": pytest.approx(1.0)}
+    assert scaled.hours == pytest.approx(5.0)
+    assert sum(scaled.by_status.values()) == pytest.approx(5.0)
+    assert scaled.supply == pytest.approx(1.25)
+    assert scaled.days == plain.days  # 日数は、絞ったタスクの日程から決める。重みでは変わらない
+
+
+def test_the_backlog_for_a_single_membership_team_is_the_same_as_the_member_scope() -> None:
+    project = project_of(Task("作業", effort_hours=6, assignees=[Assignee("田中", 1.0)]))
+    by_name = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, "田中")
+    by_team = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, {"田中": 1.0})
+    assert by_team == by_name
+
+
+def test_backlog_by_team_hands_a_members_hours_to_each_team_by_percent() -> None:
+    project = teamed_project()  # 田中 A100 / 佐藤 A60・B40 / 鈴木 B100 / 山田 チームなし
+    project.tasks = [
+        Task("田中", effort_hours=10, assignees=[Assignee("田中", 1.0)]),
+        Task("佐藤", effort_hours=10, assignees=[Assignee("佐藤", 1.0)]),
+        Task("鈴木", effort_hours=10, assignees=[Assignee("鈴木", 1.0)]),
+        Task("山田", effort_hours=10, assignees=[Assignee("山田", 1.0)]),
+        Task("担当なし", effort_hours=10),
+    ]
+    backlog = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {})
+    rows = dict(backlog.by_team)
+    assert rows["開発"] == pytest.approx(10 + 6)  # 田中 + 佐藤の 60%
+    assert rows["QA"] == pytest.approx(10 + 4)  # 鈴木 + 佐藤の 40%
+    assert rows[NO_TEAM] == pytest.approx(10)
+    assert rows[UNASSIGNED] == pytest.approx(10)
+    assert sum(rows.values()) == pytest.approx(backlog.hours) == pytest.approx(50)
+    assert list(rows) == ["開発", "QA", NO_TEAM, UNASSIGNED]
+
+
+def test_backlog_by_team_is_empty_with_a_filter_or_without_teams() -> None:
+    project = teamed_project()
+    assert summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, "田中").by_team == []
+    assert summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, {"田中": 1.0}).by_team == []
+    bare = project_of(Task("作業", effort_hours=2, assignees=[Assignee("田中", 1.0)]))
+    assert summarize_backlog(bare, WEEK, PeriodKind.ALL, NOW, {}).by_team == []
 
 
 def test_the_due_rows_for_a_team_only_list_its_tasks() -> None:

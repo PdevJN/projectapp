@@ -27,7 +27,7 @@ from projectapp.timeline import (
     is_overdue,
     is_workday,
 )
-from projectapp.teams import team_scope, teams_with_members
+from projectapp.teams import team_scope, team_weights, teams_with_members
 from projectapp.workdays import work_day_map
 
 
@@ -122,14 +122,21 @@ class Progress:
     by_team: list[MemberProgress] = field(default_factory=list)  # チームごと(メンバーのいるチームだけ)。絞り込み中は空
 
 
-Scope = str | frozenset[str] | None  # 絞り込み。文字列は 1 人、集合はそのうちの誰か(チーム)。None は全員
+Scope = str | frozenset[str] | Mapping[str, float] | None  # 絞り込み。文字列は 1 人、集合はそのうちの誰か(チーム)、辞書は名前 → 重み(チームの所属の割合)。None は全員
 
 
 def _names(scope: Scope) -> frozenset[str] | None:
     """絞り込みを、メンバー名の集合にする。全員は None。"""
     if scope is None:
         return None
-    return frozenset({scope}) if isinstance(scope, str) else scope
+    if isinstance(scope, str):
+        return frozenset({scope})
+    return frozenset(scope)  # 集合はそのまま、辞書はキー
+
+
+def _factor(scope: Scope, name: str) -> float:
+    """メンバーの値に掛ける重み。チーム(辞書)なら所属の割合、それ以外は 1.0。"""
+    return scope.get(name, 1.0) if isinstance(scope, Mapping) else 1.0
 
 
 def _tasks(project: Project, member: Scope = None) -> list[Task]:
@@ -276,6 +283,7 @@ def summarize_progress(
 
 
 UNASSIGNED = "未割り当て"
+NO_TEAM = "チームなし"
 DEADLINE = "締切"
 PLANNED_END = "完了予定"
 
@@ -396,13 +404,23 @@ def _load_stats(items: list[Span], days: list[date]) -> LoadStats:
     return _stats_of(_day_totals(items, days))
 
 
+def _scaled(stats: LoadStats, factor: float) -> LoadStats:
+    """平均と最大に重みを掛ける。超過の日数は、掛ける前の値で判定したままにする。"""
+    if factor == 1.0:
+        return stats
+    return LoadStats(stats.average * factor, stats.peak * factor, stats.overload_days)
+
+
 def summarize_loads(
     project: Project, period: Period, holidays: dict[date, str], member: Scope = None
 ) -> dict[str, LoadStats]:
     spans = _member_spans(project, holidays, member)
     scoped = _names(member)
     return {
-        entry.name: _load_stats(spans.get(entry.name, []), _workdays(period, holidays, work_day_map(entry.work_days)))
+        entry.name: _scaled(
+            _load_stats(spans.get(entry.name, []), _workdays(period, holidays, work_day_map(entry.work_days))),
+            _factor(member, entry.name),
+        )
         for entry in project.members
         if scoped is None or entry.name in scoped
     }
@@ -505,7 +523,10 @@ def summarize_workload(
             for key, _, share in _shares(crew, names):
                 actual[key] += seconds / 3600 * share
     shown = [name for name in names if scoped is None or name in scoped]
-    rows = [WorkloadRow(name, planned[name], actual[name]) for name in shown]
+    rows = [
+        WorkloadRow(name, planned[name] * _factor(member, name), actual[name] * _factor(member, name))
+        for name in shown
+    ]
     if member is None and (planned[UNASSIGNED] or actual[UNASSIGNED]):
         rows.append(WorkloadRow(UNASSIGNED, planned[UNASSIGNED], actual[UNASSIGNED]))
     return rows
@@ -539,6 +560,7 @@ class Backlog:
     supply: float  # 今いる人員(相対比率の合計)
     by_member: list[tuple[str, float]]  # (担当者, 残りの工数)。共同タスクは割り当て率の比で按分
     by_status: dict[Status, float] = field(default_factory=dict)  # 状態ごとの残りの工数(0 は除く)
+    by_team: list[tuple[str, float]] = field(default_factory=list)  # (チーム, 残りの工数)。全員のときだけ。メンバーの分を所属の割合で配る
 
     @property
     def shortfall(self) -> float | None:
@@ -672,6 +694,23 @@ def _remaining_hours(task: Task, project: Project, holidays: dict[date, str], no
     return task.effort_hours - done
 
 
+def _backlog_by_team(project: Project, split: dict[str, float]) -> list[tuple[str, float]]:
+    """メンバーごとの残りの工数を、所属の割合で各チームに配る。チームに入っていない人は`チームなし`、担当なしは`未割り当て`。
+    メンバーのいるチームがなければ空(チーム別を出さない)。"""
+    names = {entry.id: entry.name for entry in project.teams}
+    hours: dict[str, float] = {name: 0.0 for name in teams_with_members(project)}
+    if not hours:
+        return []
+    hours[NO_TEAM] = 0.0
+    for member in project.members:
+        if not member.teams:
+            hours[NO_TEAM] += split.get(member.name, 0.0)
+        for membership in member.teams:
+            hours[names[membership.team_id]] += split.get(member.name, 0.0) * membership.percent / 100
+    hours[UNASSIGNED] = split.get(UNASSIGNED, 0.0)
+    return [(name, value) for name, value in hours.items() if value > 0]
+
+
 def summarize_backlog(
     project: Project,
     period: Period,
@@ -710,18 +749,21 @@ def summarize_backlog(
             portion = rest * fraction * share
             split[key] += portion
             if scoped is None or key in scoped:
-                by_status[task.status] += portion
+                by_status[task.status] += portion * _factor(member, key)
     shown = [name for name in (*names, UNASSIGNED) if scoped is None or name in scoped]
-    hours = sum(split[name] for name in shown)
+    hours = sum(split[name] * _factor(member, name) for name in shown)
     days = _backlog_days(project, period, kind, now, holidays, ends)
     required = hours / (project.daily_hours * days) if days else None
     supply = sum(
-        effective_ratio(m, project.parameters, None, project.ratio_limits)
+        effective_ratio(m, project.parameters, None, project.ratio_limits) * _factor(member, m.name)
         for m in project.members
         if scoped is None or m.name in scoped
     )
-    rows = [(name, split[name]) for name in shown if split[name] > 0]
-    return Backlog(hours, unset, days, required, supply, rows, {k: v for k, v in by_status.items() if v > 0})
+    rows = [(name, split[name] * _factor(member, name)) for name in shown if split[name] > 0]
+    by_team = _backlog_by_team(project, split) if scoped is None else []
+    return Backlog(
+        hours, unset, days, required, supply, rows, {k: v for k, v in by_status.items() if v > 0}, by_team
+    )
 
 
 @dataclass
@@ -759,7 +801,7 @@ def summarize(
 ) -> Dashboard:
     """`member`があれば`team`は無視する。存在しない・メンバーのいないチームは絞り込まない。"""
     team_members = team_scope(project, team) if member is None else None
-    scope: Scope = member if member is not None else team_members
+    scope: Scope = member if member is not None else team_weights(project, team)
     return Dashboard(
         period,
         summarize_progress(project, holidays, now, scope),

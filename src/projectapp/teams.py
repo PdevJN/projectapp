@@ -118,6 +118,17 @@ def team_scope(project: Project, team: str | None) -> frozenset[str] | None:
     return None
 
 
+def team_weights(project: Project, team: str | None) -> dict[str, float] | None:
+    """チーム名 → {メンバー名: そのチームの所属の割合(1.0 = 100%)}(メンバーの並び順)。None・存在しない・メンバーがいないチームは None。"""
+    if team is None:
+        return None
+    for entry in project.teams:
+        if entry.name == team:
+            weights = {m.name: s.percent / 100 for m in project.members for s in m.teams if s.team_id == entry.id}
+            return weights or None
+    return None
+
+
 def drop_teams(project: Project, removed: Collection[str]) -> int:
     """削除したチームへの所属を外し、残りの割合を 100% に揃える。所属が変わったメンバーの数を返す。"""
     changed = 0
