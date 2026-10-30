@@ -100,7 +100,7 @@ class PreviewBar:
 
     def build(self) -> None:
         with ui.column().classes("w-full gap-1") as box:
-            with ui.row().classes("w-full items-center gap-4").mark("preview-bar"):
+            with ui.row().classes("w-full items-center gap-4").mark("preview-bar"):  # 1 段目: 出力の条件と戻る
                 self.period = ui.input("期間", placeholder="2026-10-01 〜 2026-10-31").classes("w-72").mark(
                     "preview-period"
                 )
@@ -110,25 +110,31 @@ class PreviewBar:
                     "blur", lambda _e: normalize_field(self.period, lambda t: normalize_period(t, task_dialog.today()))
                 )
                 self.scale = ui.toggle({s.value: s.value for s in Scale}).mark("preview-scale")
-                self.chips = ui.checkbox("チップと進捗", value=True).mark("preview-chips")
-                self.alerts = ui.checkbox("予定超過の赤みと割り当て超過の縞", value=True).mark(
-                    "preview-alerts"
+                with ui.button("表示項目", icon="tune").props("flat dense").mark("preview-display-menu"):
+                    with ui.menu():  # チェックを押してもメニューは閉じない(Quasar の既定。auto-close は付けない)
+                        with ui.column().classes("gap-0 q-pa-sm"):
+                            self.chips = ui.checkbox("チップと進捗", value=True).mark("preview-chips")
+                            self.alerts = ui.checkbox("予定超過の赤みと割り当て超過の縞", value=True).mark(
+                                "preview-alerts"
+                            )
+                            self.events = ui.checkbox("イベント", value=True).mark("preview-events")
+                            self.today = ui.checkbox("今日", value=True).mark("preview-today")
+                ui.space()
+                ui.button("戻る", icon="arrow_back", on_click=lambda: self.on_back()).props("flat").mark(
+                    "preview-back"
                 )
-                self.events = ui.checkbox("イベント", value=True).mark("preview-events")
-                self.today = ui.checkbox("今日", value=True).mark("preview-today")
-            with ui.row().classes("w-full items-center gap-4").mark("preview-output"):
+            with ui.row().classes("w-full items-center gap-4").mark("preview-output"):  # 2 段目: 出力の選択と保存
                 self.select_all = ui.checkbox("すべて選択", value=True).mark("preview-select-all")
                 self.select_count = ui.label("").classes("text-caption").mark("preview-select-count")
                 ui.space()
-                ui.button("戻る", icon="arrow_back", on_click=lambda: self.on_back()).props(
-                    "flat"
-                ).mark("preview-back")
-                self.save_button = ui.button(
-                    "画像として保存", icon="image", on_click=lambda: self.on_save()
-                ).mark("preview-save")
-                self.plantuml_button = ui.button(
-                    "PlantUML として保存", icon="code", on_click=lambda: self.on_save_plantuml()
-                ).mark("preview-plantuml")
+                with ui.button("保存", icon="save").mark("preview-save-menu") as self.save_menu_button:
+                    with ui.menu():
+                        self.save_button = ui.menu_item(
+                            "画像として保存", on_click=lambda: self.on_save()
+                        ).mark("preview-save")
+                        self.plantuml_button = ui.menu_item(
+                            "PlantUML として保存", on_click=lambda: self.on_save_plantuml()
+                        ).mark("preview-plantuml")
             self.error = ui.label("").classes("text-negative text-caption").mark("preview-error")
             self.warning = ui.label("").classes("text-caption text-grey").mark("preview-warning")
         box.set_visibility(False)
@@ -192,5 +198,6 @@ class PreviewBar:
         self.warning.set_text(text or "")
 
     def set_save_enabled(self, enabled: bool) -> None:
+        self.save_menu_button.set_enabled(enabled)
         self.save_button.set_enabled(enabled)
         self.plantuml_button.set_enabled(enabled)
