@@ -283,6 +283,7 @@ def summarize_progress(
 
 
 UNASSIGNED = "未割り当て"
+NO_TEAM = "チームなし"
 DEADLINE = "締切"
 PLANNED_END = "完了予定"
 
@@ -559,6 +560,7 @@ class Backlog:
     supply: float  # 今いる人員(相対比率の合計)
     by_member: list[tuple[str, float]]  # (担当者, 残りの工数)。共同タスクは割り当て率の比で按分
     by_status: dict[Status, float] = field(default_factory=dict)  # 状態ごとの残りの工数(0 は除く)
+    by_team: list[tuple[str, float]] = field(default_factory=list)  # (チーム, 残りの工数)。全員のときだけ。メンバーの分を所属の割合で配る
 
     @property
     def shortfall(self) -> float | None:
@@ -692,6 +694,23 @@ def _remaining_hours(task: Task, project: Project, holidays: dict[date, str], no
     return task.effort_hours - done
 
 
+def _backlog_by_team(project: Project, split: dict[str, float]) -> list[tuple[str, float]]:
+    """メンバーごとの残りの工数を、所属の割合で各チームに配る。チームに入っていない人は`チームなし`、担当なしは`未割り当て`。
+    メンバーのいるチームがなければ空(チーム別を出さない)。"""
+    names = {entry.id: entry.name for entry in project.teams}
+    hours: dict[str, float] = {name: 0.0 for name in teams_with_members(project)}
+    if not hours:
+        return []
+    hours[NO_TEAM] = 0.0
+    for member in project.members:
+        if not member.teams:
+            hours[NO_TEAM] += split.get(member.name, 0.0)
+        for membership in member.teams:
+            hours[names[membership.team_id]] += split.get(member.name, 0.0) * membership.percent / 100
+    hours[UNASSIGNED] = split.get(UNASSIGNED, 0.0)
+    return [(name, value) for name, value in hours.items() if value > 0]
+
+
 def summarize_backlog(
     project: Project,
     period: Period,
@@ -741,7 +760,10 @@ def summarize_backlog(
         if scoped is None or m.name in scoped
     )
     rows = [(name, split[name] * _factor(member, name)) for name in shown if split[name] > 0]
-    return Backlog(hours, unset, days, required, supply, rows, {k: v for k, v in by_status.items() if v > 0})
+    by_team = _backlog_by_team(project, split) if scoped is None else []
+    return Backlog(
+        hours, unset, days, required, supply, rows, {k: v for k, v in by_status.items() if v > 0}, by_team
+    )
 
 
 @dataclass

@@ -663,6 +663,24 @@ def with_backlog(backlog: Backlog) -> Dashboard:
     return data
 
 
+async def test_the_backlog_card_lists_the_team_rows(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    backlog = Backlog(26.0, 0, 3, 2.0, 1.5, [("田中", 16.0)], by_team=[("開発", 16.0), ("チームなし", 10.0)])
+    views[0].show(with_backlog(backlog), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-team-開発")
+    assert text(user, "dashboard-backlog-team-開発") == "開発 16.0h"
+    assert text(user, "dashboard-backlog-team-チームなし") == "チームなし 10.0h"
+
+
+async def test_the_backlog_card_hides_the_team_heading_without_team_rows(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(Backlog(6.5, 0, 3, 1.0, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-member-田中")
+    await user.should_not_see("チーム別")
+
+
 async def test_the_backlog_card_shows_hours_required_people_and_the_shortfall(user: User) -> None:
     views, _, _ = mount()
     await user.open("/")

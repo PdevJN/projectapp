@@ -718,6 +718,12 @@ class DashboardView:
                 for name, hours in backlog.by_member:
                     ui.label(f"{name} {hours:.1f}h").classes("text-caption").mark(f"dashboard-backlog-member-{name}")
                     bar(hours / top, PLANNED_COLOR)
+            if backlog.by_team:
+                ui.label("チーム別").classes("text-subtitle2")
+                top = max(hours for _, hours in backlog.by_team)
+                for name, hours in backlog.by_team:
+                    ui.label(f"{name} {hours:.1f}h").classes("text-caption").mark(f"dashboard-backlog-team-{name}")
+                    bar(hours / top, PLANNED_COLOR)
 
     def due_card(self, data: Dashboard) -> None:
         with card("期限とマイルストーン", "dashboard-due"):

@@ -3,6 +3,7 @@ from datetime import date, datetime, time, timedelta
 import pytest
 
 from projectapp.dashboard import (
+    NO_TEAM,
     UNASSIGNED,
     DueRow,
     MemberProgress,
@@ -968,6 +969,33 @@ def test_the_backlog_for_a_single_membership_team_is_the_same_as_the_member_scop
     by_name = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, "田中")
     by_team = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, {"田中": 1.0})
     assert by_team == by_name
+
+
+def test_backlog_by_team_hands_a_members_hours_to_each_team_by_percent() -> None:
+    project = teamed_project()  # 田中 A100 / 佐藤 A60・B40 / 鈴木 B100 / 山田 チームなし
+    project.tasks = [
+        Task("田中", effort_hours=10, assignees=[Assignee("田中", 1.0)]),
+        Task("佐藤", effort_hours=10, assignees=[Assignee("佐藤", 1.0)]),
+        Task("鈴木", effort_hours=10, assignees=[Assignee("鈴木", 1.0)]),
+        Task("山田", effort_hours=10, assignees=[Assignee("山田", 1.0)]),
+        Task("担当なし", effort_hours=10),
+    ]
+    backlog = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {})
+    rows = dict(backlog.by_team)
+    assert rows["開発"] == pytest.approx(10 + 6)  # 田中 + 佐藤の 60%
+    assert rows["QA"] == pytest.approx(10 + 4)  # 鈴木 + 佐藤の 40%
+    assert rows[NO_TEAM] == pytest.approx(10)
+    assert rows[UNASSIGNED] == pytest.approx(10)
+    assert sum(rows.values()) == pytest.approx(backlog.hours) == pytest.approx(50)
+    assert list(rows) == ["開発", "QA", NO_TEAM, UNASSIGNED]
+
+
+def test_backlog_by_team_is_empty_with_a_filter_or_without_teams() -> None:
+    project = teamed_project()
+    assert summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, "田中").by_team == []
+    assert summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, {"田中": 1.0}).by_team == []
+    bare = project_of(Task("作業", effort_hours=2, assignees=[Assignee("田中", 1.0)]))
+    assert summarize_backlog(bare, WEEK, PeriodKind.ALL, NOW, {}).by_team == []
 
 
 def test_the_due_rows_for_a_team_only_list_its_tasks() -> None:
