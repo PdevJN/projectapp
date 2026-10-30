@@ -403,13 +403,23 @@ def _load_stats(items: list[Span], days: list[date]) -> LoadStats:
     return _stats_of(_day_totals(items, days))
 
 
+def _scaled(stats: LoadStats, factor: float) -> LoadStats:
+    """平均と最大に重みを掛ける。超過の日数は、掛ける前の値で判定したままにする。"""
+    if factor == 1.0:
+        return stats
+    return LoadStats(stats.average * factor, stats.peak * factor, stats.overload_days)
+
+
 def summarize_loads(
     project: Project, period: Period, holidays: dict[date, str], member: Scope = None
 ) -> dict[str, LoadStats]:
     spans = _member_spans(project, holidays, member)
     scoped = _names(member)
     return {
-        entry.name: _load_stats(spans.get(entry.name, []), _workdays(period, holidays, work_day_map(entry.work_days)))
+        entry.name: _scaled(
+            _load_stats(spans.get(entry.name, []), _workdays(period, holidays, work_day_map(entry.work_days))),
+            _factor(member, entry.name),
+        )
         for entry in project.members
         if scoped is None or entry.name in scoped
     }
@@ -512,7 +522,10 @@ def summarize_workload(
             for key, _, share in _shares(crew, names):
                 actual[key] += seconds / 3600 * share
     shown = [name for name in names if scoped is None or name in scoped]
-    rows = [WorkloadRow(name, planned[name], actual[name]) for name in shown]
+    rows = [
+        WorkloadRow(name, planned[name] * _factor(member, name), actual[name] * _factor(member, name))
+        for name in shown
+    ]
     if member is None and (planned[UNASSIGNED] or actual[UNASSIGNED]):
         rows.append(WorkloadRow(UNASSIGNED, planned[UNASSIGNED], actual[UNASSIGNED]))
     return rows

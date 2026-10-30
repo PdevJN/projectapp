@@ -12,6 +12,7 @@ from projectapp.dashboard import (
     custom_period_error,
     period_for,
     summarize,
+    summarize_backlog,
     summarize_cross_loads,
     summarize_due,
     summarize_member_progress,
@@ -847,6 +848,33 @@ def test_cross_load_applies_each_projects_own_closed_events() -> None:
     only_plain = summarize_cross_loads([plain], WEEK, {})["田中"]
     assert both.total == only_plain.total  # 休業のプロジェクトのタスクは数えない
     assert not plain.events  # 開いているほうのイベントは混ざらない
+
+
+def test_loads_for_a_weighted_scope_scale_average_and_peak_but_not_the_overload_days() -> None:
+    project = project_of(span_task("a", 5, 6, 0.8), span_task("b", 5, 6, 0.4))  # 田中は 120%
+    plain = summarize_loads(project, WEEK, {})["田中"]
+    scaled = summarize_loads(project, WEEK, {}, {"田中": 0.6})["田中"]
+    assert scaled.average == pytest.approx(plain.average * 0.6)
+    assert scaled.peak == pytest.approx(plain.peak * 0.6)
+    assert scaled.peak < 1.0 < plain.peak
+    assert scaled.overload_days == plain.overload_days > 0  # 超過は、掛ける前の値で判定する
+
+
+def test_loads_for_a_set_or_a_string_scope_are_not_scaled() -> None:
+    project = project_of(span_task("a", 5, 6, 0.8))
+    plain = summarize_loads(project, WEEK, {})["田中"]
+    assert summarize_loads(project, WEEK, {}, "田中")["田中"] == plain
+    assert summarize_loads(project, WEEK, {}, frozenset({"田中"}))["田中"] == plain
+
+
+def test_workload_for_a_weighted_scope_scales_planned_and_actual() -> None:
+    task = span_task("作業", 5, 6, 1.0, actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 13))])
+    project = project_of(task)
+    plain = summarize_workload(project, WEEK, NOW, {})[0]
+    scaled = summarize_workload(project, WEEK, NOW, {}, {"田中": 0.6})[0]
+    assert plain.planned_hours > 0 and plain.actual_hours == pytest.approx(4)
+    assert scaled.planned_hours == pytest.approx(plain.planned_hours * 0.6)
+    assert scaled.actual_hours == pytest.approx(4 * 0.6)
 
 
 def teamed_project() -> Project:
