@@ -681,6 +681,25 @@ async def test_the_backlog_card_hides_the_team_heading_without_team_rows(user: U
     await user.should_not_see("チーム別")
 
 
+async def test_the_cards_note_the_weighting_only_when_a_team_is_selected(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = with_backlog(Backlog(6.5, 0, 3, 1.0, 1.5, [("田中", 6.5)]))
+    data.team_name = "開発"
+    views[0].show(data, PeriodKind.WEEK)
+    for key in ("load", "hours", "backlog"):
+        await user.should_see(marker=f"dashboard-weighted-note-{key}")
+    assert text(user, "dashboard-weighted-note-backlog") == "チーム「開発」の所属の割合で按分しています"
+
+
+async def test_the_cards_do_not_note_the_weighting_without_a_team(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(Backlog(6.5, 0, 3, 1.0, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-hours")
+    await user.should_not_see(marker="dashboard-weighted-note-backlog")
+
+
 async def test_the_backlog_card_shows_hours_required_people_and_the_shortfall(user: User) -> None:
     views, _, _ = mount()
     await user.open("/")

@@ -1,6 +1,6 @@
 # チームの設計
 
-> **状態**: 設計(2026-10-30 に承認済み)。段階 1 は実装済み(計画 [`plans/2026-10-30-teams-stage1.md`](../plans/2026-10-30-teams-stage1.md))。段階 2 は実装済み(計画 [`plans/2026-10-30-teams-stage2.md`](../plans/2026-10-30-teams-stage2.md))。段階 3 は設計を更新した(2026-10-30。計画は未作成)。
+> **状態**: 設計(2026-10-30 に承認済み)。段階 1 は実装済み(計画 [`plans/2026-10-30-teams-stage1.md`](../plans/2026-10-30-teams-stage1.md))。段階 2 は実装済み(計画 [`plans/2026-10-30-teams-stage2.md`](../plans/2026-10-30-teams-stage2.md))。段階 3 は実装済み(計画 [`plans/2026-10-30-teams-stage3.md`](../plans/2026-10-30-teams-stage3.md))。
 
 ## 目的
 

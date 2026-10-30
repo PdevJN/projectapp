@@ -173,6 +173,14 @@ def empty_message(marker: str) -> None:
     ui.label(EMPTY).classes("text-grey").mark(marker)
 
 
+def weighted_note(data: Dashboard, key: str) -> None:
+    """チームを選んでいるときの注記。`key`はカードごとのマークの末尾(load・hours・backlog)。"""
+    if data.team_name:
+        ui.label(f"チーム「{data.team_name}」の所属の割合で按分しています").classes("text-caption text-grey").mark(
+            f"dashboard-weighted-note-{key}"
+        )
+
+
 def moment_text(moment: datetime) -> str:
     return f"{moment:%m/%d %H:%M}"
 
@@ -600,6 +608,8 @@ class DashboardView:
 
     def load_card(self, data: Dashboard) -> None:
         with card("人ごとの負荷", "dashboard-load"):
+            if data.cross is None:  # 全プロジェクトを重ねる負荷は按分しない
+                weighted_note(data, "load")
             if data.cross is not None:
                 self.cross_load_card(data.cross)
                 return
@@ -657,6 +667,7 @@ class DashboardView:
 
     def hours_card(self, data: Dashboard) -> None:
         with card("工数の予定と実績", "dashboard-hours"):
+            weighted_note(data, "hours")
             if not data.workload:
                 empty_message("dashboard-empty-hours")
                 return
@@ -681,6 +692,7 @@ class DashboardView:
     def backlog_card(self, data: Dashboard) -> None:
         backlog = data.backlog
         with card("残りの工数と必要人数", "dashboard-backlog"):
+            weighted_note(data, "backlog")
             if backlog.hours <= 0 and not backlog.unset_count:
                 empty_message("dashboard-empty-backlog")
                 return
