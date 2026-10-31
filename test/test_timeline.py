@@ -19,6 +19,7 @@ from projectapp.timeline import (
     Overload,
     calc_end,
     Worker,
+    work_capacity,
     crew_of,
     day_hours,
     day_window,
@@ -1220,3 +1221,49 @@ def test_own_end_ignores_the_push_by_predecessors_and_uses_the_planned_start() -
     project = Project("p", base_date=date(2026, 10, 5), tasks=[task])
     assert own_end(task, project, {}) == datetime(2026, 10, 7, 12)
     assert own_end(Task("x"), project, {}) is None
+
+
+def test_work_capacity_counts_the_window_inside_the_range() -> None:
+    start, end = datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 15, 30)
+    assert work_capacity(start, end, 6.5, OPEN, {}) == 6.5
+    assert work_capacity(datetime(2026, 10, 5, 12), end, 6.5, OPEN, {}) == 3.5
+
+
+def test_work_capacity_skips_weekends_and_holidays() -> None:
+    fri, mon = datetime(2026, 10, 9, 9), datetime(2026, 10, 12, 15, 30)
+    assert work_capacity(fri, mon, 6.5, OPEN, {}) == 13.0
+    assert work_capacity(fri, mon, 6.5, OPEN, {date(2026, 10, 12): "休み"}) == 6.5
+
+
+def test_work_capacity_is_weighted_by_the_conversion_rate() -> None:
+    start, end = datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 15, 30)
+    assert work_capacity(start, end, 6.5, OPEN, {}, crew=[Worker(2.0)]) == 13.0
+    assert work_capacity(start, end, 6.5, OPEN, {}, crew=[Worker(1.0), Worker(0.5)]) == 9.75
+
+
+def test_work_capacity_uses_each_workers_day_override() -> None:
+    only_morning = Worker(1.0, work_day_map([WorkDay(date(2026, 10, 5), time(9), time(12))]))
+    start, end = datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 18)
+    assert work_capacity(start, end, 6.5, OPEN, {}, crew=[only_morning]) == 3.0
+    assert work_capacity(start, end, 6.5, OPEN, {}, crew=[only_morning, Worker(1.0)]) == 9.5
+
+
+def test_work_capacity_follows_the_weekly_crews_from_the_task_start() -> None:
+    weeks = [[Worker(1.0)], [Worker(2.0)]]
+    start, end = datetime(2026, 10, 12, 9), datetime(2026, 10, 12, 15, 30)
+    assert work_capacity(start, end, 6.5, OPEN, {}, weeks=weeks, weeks_start=date(2026, 10, 5)) == 13.0
+    assert work_capacity(start, end, 6.5, OPEN, {}, weeks=weeks) == 6.5
+
+
+def test_work_capacity_is_zero_for_an_empty_or_reversed_range() -> None:
+    moment = datetime(2026, 10, 5, 12)
+    assert work_capacity(moment, moment, 6.5, OPEN, {}) == 0.0
+    assert work_capacity(moment, datetime(2026, 10, 5, 9), 6.5, OPEN, {}) == 0.0
+
+
+def test_work_capacity_matches_what_calc_end_consumes() -> None:
+    start = datetime(2026, 10, 5, 9)
+    crew = [Worker(1.5)]
+    end = calc_end(start, 20.0, 6.5, OPEN, {}, crew)
+    assert end is not None
+    assert work_capacity(start, end, 6.5, OPEN, {}, crew=crew) == pytest.approx(20.0)
