@@ -2933,7 +2933,7 @@ async def test_the_late_basis_defaults_to_delay_and_switches_the_backlog_card(us
     assert text_of(user, "dashboard-backlog-hours").endswith("(遅れなし)")
     view.change_dashboard_late_basis(LateBasis.WARNING)
     await asyncio.sleep(0.3)
-    assert "うち遅延・警告 1 件" in text_of(user, "dashboard-backlog-hours")
+    assert "うち警告 1 件" in text_of(user, "dashboard-backlog-hours")
 
 
 async def test_the_late_basis_goes_back_to_delay_when_the_dashboard_is_reopened(user: User, tmp_path: Path) -> None:
