@@ -91,6 +91,9 @@ TODAY_DARK_COLOR = "#ff5252"
 TODAY_COLOR_VAR = "var(--today)"
 TODAY_LINE_WIDTH_PX = 2
 TODAY_CSS = f":root {{ --today: {TODAY_COLOR}; }}\nbody.body--dark {{ --today: {TODAY_DARK_COLOR}; }}"
+WARNING_COLOR = "#fdd835"  # 警告のタスクの行・名前の欄の背景(薄く重ねる)。設定で変えられる(--warning)
+WARNING_BACKGROUND = "color-mix(in srgb, var(--warning) 22%, transparent)"
+WARNING_CSS = f":root {{ --warning: {WARNING_COLOR}; }}"
 OVERLOAD_STRIPES = (  # 割り当て合計が100%を超える期間の縞。タスクの色に依存しないよう白と黒の半透明を重ねる
     "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 4px, rgba(0,0,0,0.35) 4px 8px)"
 )
@@ -1108,6 +1111,7 @@ class GanttChart:
         ui.add_css(PROGRESS_CSS)
         ui.add_css(STATUS_CSS)
         ui.add_css(TODAY_CSS)
+        ui.add_css(WARNING_CSS)
         ui.add_css(PRIORITY_CSS)
         ui.add_css(LINK_CSS)
         ui.add_css(CONTEXT_MENU_CSS)

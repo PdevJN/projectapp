@@ -27,6 +27,7 @@ from projectapp.config import (
     check_project_dir,
     load_custom_theme,
     load_today_color,
+    load_warning_color,
     load_dashboard_view_last,
     load_dashboard_views,
     load_project_dir,
@@ -37,6 +38,7 @@ from projectapp.config import (
     resolve_project_dir,
     save_custom_theme,
     save_today_color,
+    save_warning_color,
     save_dashboard_view_last,
     save_dashboard_views,
     save_name_width,
@@ -174,9 +176,10 @@ from projectapp.storage import (
 from projectapp.summary import parent_map
 from projectapp.task_dialog import open_task_dialog, open_week_crew_dialog
 from projectapp.teams import removal_impacts, replace_teams, team_scope, teams_with_members
-from projectapp.theme import BODY_CSS, CustomTheme, theme_js, today_color_js
+from projectapp.theme import BODY_CSS, CustomTheme, theme_js, today_color_js, warning_color_js
 from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
 from projectapp.theme_dialog import open_today_color_dialog as show_today_color_dialog
+from projectapp.theme_dialog import open_warning_color_dialog as show_warning_color_dialog
 from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
 from projectapp.ratios import ParameterEdit, apply_parameter_edit, impact_lines
 from projectapp.reassign import limit_reviews
@@ -194,6 +197,7 @@ from projectapp.timeline import (
 THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク", "custom": "カスタム"}
 CUSTOM_COLORS_LABEL = "カスタムの色…"
 TODAY_COLOR_LABEL = "今日の線の色…"
+WARNING_COLOR_LABEL = "警告の色…"
 THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode", "custom": "palette"}
 
 
@@ -303,6 +307,7 @@ class MainView:
         self.theme = load_theme(base_dir)
         self.custom_theme = load_custom_theme(base_dir)  # 保存済みのカスタムの色
         self.today_color = load_today_color(base_dir)  # 今日の線の色。None は既定(テーマに従う)
+        self.warning_color = load_warning_color(base_dir)  # 警告の色。None は既定(黄)
         self.dark = ui.dark_mode()
         self.dark.value = self.dark_value(self.theme, self.custom_theme)
         cached = load_cache(base_dir)
@@ -437,6 +442,26 @@ class MainView:
             return False
         self.today_color = color
         self.run_js(today_color_js(color))
+        return True
+
+    def open_warning_color_dialog(self) -> None:
+        """警告の色のダイアログ。色を変えると画面に反映し(プレビュー)、キャンセルで保存済みの色に戻す。"""
+        show_warning_color_dialog(
+            self.warning_color,
+            lambda color: self.run_js(warning_color_js(color)),
+            self.apply_warning_color,
+            lambda: self.run_js(warning_color_js(self.warning_color)),
+        )
+
+    def apply_warning_color(self, color: str | None) -> bool:
+        """警告の色を保存する。失敗したら通知して False(保存済みの色は変えない)。"""
+        try:
+            save_warning_color(color, self.base_dir)
+        except OSError:
+            ui.notify("警告の色を保存できませんでした", type="warning")
+            return False
+        self.warning_color = color
+        self.run_js(warning_color_js(color))
         return True
 
     def set_name_width(self, width: int) -> None:
@@ -2277,6 +2302,8 @@ class MainView:
             self.run_js(theme_js(self.custom_theme))
         if self.today_color is not None:
             self.run_js(today_color_js(self.today_color))
+        if self.warning_color is not None:
+            self.run_js(warning_color_js(self.warning_color))
         ui.keyboard(on_key=self.on_plain_key)  # 入力欄・ボタンにフォーカスがあるときは、受けない
         ui.keyboard(on_key=self.on_modified_key, ignore=[])  # Ctrl/Cmd 付きだけは、入力欄でも受ける(Ctrl/Cmd+Z を除く)
         ui.keyboard(on_key=self.on_undo_key, ignore=["input", "select", "textarea"])  # Ctrl/Cmd+Z: 入力欄では文字の取り消し
@@ -2687,6 +2714,7 @@ class MainView:
                 ui.separator().mark("theme-separator")
                 self.menu_entry(CUSTOM_COLORS_LABEL, "tune", self.open_theme_dialog, "theme-custom-settings")
                 self.menu_entry(TODAY_COLOR_LABEL, "event", self.open_today_color_dialog, "theme-today-color")
+                self.menu_entry(WARNING_COLOR_LABEL, "warning_amber", self.open_warning_color_dialog, "theme-warning-color")
 
     def build_help_dialog(self) -> ui.dialog:
         """ショートカットヘルプのダイアログ(ヘルプメニューから開く)。"""

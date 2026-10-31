@@ -147,19 +147,22 @@ def open_theme_dialog(
     dialog.open()
 
 
-def open_today_color_dialog(
+def open_color_dialog(
+    title: str,
+    hint: str,
+    prefix: str,
     initial: str | None,
     on_preview: Callable[[str | None], object],
     on_apply: Callable[[str | None], bool],
     on_cancel: Callable[[], object],
 ) -> None:
-    """今日の線の色のダイアログ。空欄は既定の色(None)。色を変えるたびに`on_preview`を呼ぶ。
+    """1 色を入れる小さなダイアログ。空欄は既定の色(None)。マークは`{prefix}-color`・`-reset`・`-cancel`・`-apply`。色を変えるたびに`on_preview`を呼ぶ。
     `適用`は`on_apply`が真のときだけ閉じる。適用せずに閉じたら`on_cancel`。"""
     applied = False
     current = initial
 
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-[24rem] max-w-full"):
-        ui.label("今日の線の色").classes("text-h6")
+        ui.label(title).classes("text-h6")
 
         def edit(value: str | None) -> None:
             nonlocal current
@@ -171,8 +174,8 @@ def open_today_color_dialog(
                 current = color
                 on_preview(color)
 
-        field = color_field("色", initial or "", edit, "today-color", allow_empty=True)
-        ui.label("空欄は既定の色(ライトは赤、ダークは明るい赤)です").classes("text-caption text-grey")
+        field = color_field("色", initial or "", edit, f"{prefix}-color", allow_empty=True)
+        ui.label(hint).classes("text-caption text-grey")
 
         def apply() -> None:
             nonlocal applied
@@ -181,9 +184,39 @@ def open_today_color_dialog(
                 dialog.close()
 
         with ui.row().classes("w-full justify-between"):
-            ui.button("既定に戻す", on_click=lambda: field.set_value("")).props("flat no-caps").mark("today-reset")
+            ui.button("既定に戻す", on_click=lambda: field.set_value("")).props("flat no-caps").mark(f"{prefix}-reset")
             with ui.row():
-                ui.button("キャンセル", on_click=dialog.close).props("flat no-caps").mark("today-cancel")
-                apply_button = ui.button("適用", on_click=apply).props("no-caps").mark("today-apply")
+                ui.button("キャンセル", on_click=dialog.close).props("flat no-caps").mark(f"{prefix}-cancel")
+                apply_button = ui.button("適用", on_click=apply).props("no-caps").mark(f"{prefix}-apply")
         dialog.on_value_change(lambda e: None if e.value or applied else on_cancel())
     dialog.open()
+
+
+def open_today_color_dialog(
+    initial: str | None,
+    on_preview: Callable[[str | None], object],
+    on_apply: Callable[[str | None], bool],
+    on_cancel: Callable[[], object],
+) -> None:
+    """今日の線の色のダイアログ。"""
+    open_color_dialog(
+        "今日の線の色", "空欄は既定の色(ライトは赤、ダークは明るい赤)です", "today", initial, on_preview, on_apply, on_cancel
+    )
+
+
+def open_warning_color_dialog(
+    initial: str | None,
+    on_preview: Callable[[str | None], object],
+    on_apply: Callable[[str | None], bool],
+    on_cancel: Callable[[], object],
+) -> None:
+    """警告の色のダイアログ(要望 103)。"""
+    open_color_dialog(
+        "警告の色",
+        "空欄は既定の色(黄)です。警告のタスクの行と名前の欄の背景に、薄く重ねます",
+        "warning",
+        initial,
+        on_preview,
+        on_apply,
+        on_cancel,
+    )

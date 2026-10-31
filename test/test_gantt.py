@@ -4176,3 +4176,11 @@ async def test_set_project_follows_a_roster_change_of_the_chosen_team(user: User
     assert select.value == team_key("開発")
     await user.should_see(marker="task-0-1")
     await user.should_not_see(marker="task-top-0")
+
+
+def test_the_warning_css_defines_the_default_color_and_a_tint_that_follows_it() -> None:
+    from projectapp.gantt import WARNING_BACKGROUND, WARNING_COLOR, WARNING_CSS
+
+    assert WARNING_COLOR == "#fdd835"
+    assert f"--warning: {WARNING_COLOR}" in WARNING_CSS
+    assert "var(--warning)" in WARNING_BACKGROUND
