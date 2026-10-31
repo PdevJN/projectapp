@@ -80,7 +80,7 @@ from projectapp.reference import (
     take_snapshot,
 )
 from projectapp.shortcuts import Screen, defers_to_inputs, help_entries, key_guard_js, label_for, resolve
-from projectapp.dashboard import MAX_CUSTOM_DAYS, CrossSummary, Period, PeriodKind, custom_period_error, period_for, summarize, summarize_cross_backlog, summarize_cross_loads
+from projectapp.dashboard import MAX_CUSTOM_DAYS, CrossSummary, LateBasis, Period, PeriodKind, custom_period_error, period_for, summarize, summarize_cross_backlog, summarize_cross_loads
 from projectapp.dashboard_view import DashboardView, ViewActions
 from projectapp.dashboard_views import (
     DEFAULT_ORDER,
@@ -275,6 +275,7 @@ class MainView:
         self.dashboard_member: str | None = None  # ダッシュボードで絞り込み中のメンバー。保存しない
         self.dashboard_team: str | None = None  # 絞り込み中のチーム名。メンバーとは同時に使わない。保存しない
         self.dashboard_cross = False  # 全プロジェクトを重ねるか。保存しない
+        self.dashboard_late_basis = LateBasis.DELAY  # 残りの工数の遅れの判定。保存しない・ビューに入れない
         self.dashboard_excluded: set[str] = set()  # 重ねるのから外したプロジェクトの名前。保存しない
         self.dashboard_views = load_dashboard_views(base_dir)  # 保存したビュー(`標準` を含まない)。全プロジェクト共通
         self.dashboard_view_name = load_dashboard_view_last(base_dir) or STANDARD_NAME  # 最後に使ったビュー
@@ -362,6 +363,7 @@ class MainView:
             self.change_dashboard_custom,
             on_team_change=self.change_dashboard_team,
             on_tick=lambda: self.refresh_dashboard(sync_field=False),
+            on_late_basis_change=self.change_dashboard_late_basis,
             actions=ViewActions(
                 select=self.select_dashboard_view,
                 save=self.save_dashboard_view,
@@ -1005,6 +1007,7 @@ class MainView:
         if self.preview is not None or self.dashboard_kind is not None:
             return
         self.dashboard_kind = PeriodKind.WEEK
+        self.dashboard_late_basis = LateBasis.DELAY  # 開き直すと遅延のみ
         self.dashboard_custom = None
         self.dashboard_custom_error = ""
         self.set_header_visible(False)
@@ -1040,12 +1043,13 @@ class MainView:
             self.dashboard_member,
             self.dashboard_team,
             load_children(self.project, self.reference_resolver, self.base_holidays),
+            self.dashboard_late_basis,
         )
         if self.dashboard_cross:
             chosen = [p for p in projects if p.name not in self.dashboard_excluded]
             scope = self.dashboard_member if self.dashboard_member is not None else team_scope(self.project, self.dashboard_team)
             loads = summarize_cross_loads(chosen, period, self.base_holidays, scope)
-            data.backlog = summarize_cross_backlog(chosen, projects[0], period, self.dashboard_kind, now, self.base_holidays, scope)
+            data.backlog = summarize_cross_backlog(chosen, projects[0], period, self.dashboard_kind, now, self.base_holidays, scope, self.dashboard_late_basis)
             titles = [p.name for p in projects]
             data.cross = CrossSummary(loads, titles, self.dashboard_excluded & set(titles), failures)
             data.members = names
@@ -1060,6 +1064,13 @@ class MainView:
         if self.dashboard_kind is None:
             return
         self.dashboard_cross = on
+        self.refresh_dashboard()
+
+    def change_dashboard_late_basis(self, basis: LateBasis) -> None:
+        """残りの工数の遅れの判定の基準を切り替える。表示だけで、保存しない(ビューにも入れない)。"""
+        if self.dashboard_kind is None or basis is self.dashboard_late_basis:
+            return
+        self.dashboard_late_basis = basis
         self.refresh_dashboard()
 
     def change_dashboard_project(self, name: str, included: bool) -> None:

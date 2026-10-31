@@ -41,7 +41,7 @@ from projectapp.decompose import ParamMode, Part
 from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.plantuml import PLANTUML_FILE_TYPES
 from projectapp.puml_import import PLANTUML_OPEN_FILE_TYPES
-from projectapp.dashboard import MAX_CUSTOM_DAYS, Period, PeriodKind, period_for
+from projectapp.dashboard import MAX_CUSTOM_DAYS, LateBasis, Period, PeriodKind, period_for
 from projectapp.preview import split_period
 from projectapp.timeline import Scale, Schedule, effective_end, visible_range
 from projectapp.gantt import ViewOptions
@@ -2912,6 +2912,57 @@ async def test_the_cross_switch_overlays_the_other_projects_in_the_storage(user:
     await user.should_see(marker="dashboard-cross-project-別")
     assert "超過 0 日" not in text_of(user, "dashboard-load-田中")
     assert view.dashboard_excluded == set()
+
+
+def warned_dashboard_project(view: MainView) -> None:
+    view.project.members = [Member("田中", 1.0)]
+    view.project.tasks = [
+        Task("警告", planned_start=datetime(2026, 10, 5, 9), effort_hours=19.5, progress=50, status=Status.RUNNING)
+    ]
+    view.now = lambda: datetime(2026, 10, 7, 12)  # 水曜の昼
+
+
+async def test_the_late_basis_defaults_to_delay_and_switches_the_backlog_card(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path, with_task=False)
+    warned_dashboard_project(view)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-backlog-hours")
+    assert view.dashboard_late_basis is LateBasis.DELAY
+    view.change_dashboard_period(PeriodKind.ALL)
+    await asyncio.sleep(0.3)
+    assert text_of(user, "dashboard-backlog-hours").endswith("(遅れなし)")
+    view.change_dashboard_late_basis(LateBasis.WARNING)
+    await asyncio.sleep(0.3)
+    assert "うち遅延・警告 1 件" in text_of(user, "dashboard-backlog-hours")
+
+
+async def test_the_late_basis_goes_back_to_delay_when_the_dashboard_is_reopened(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-backlog-hours")
+    view.change_dashboard_late_basis(LateBasis.WARNING)
+    assert view.dashboard_late_basis is LateBasis.WARNING
+    view.close_dashboard()
+    view.open_dashboard()
+    assert view.dashboard_late_basis is LateBasis.DELAY
+
+
+async def test_switching_the_dashboard_view_keeps_the_late_basis(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-backlog-hours")
+    view.change_dashboard_late_basis(LateBasis.WARNING)
+    view.select_dashboard_view(STANDARD_NAME)
+    assert view.dashboard_late_basis is LateBasis.WARNING
+
+
+async def test_the_late_basis_is_not_part_of_the_dashboard_view(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-backlog-hours")
+    view.change_dashboard_late_basis(LateBasis.WARNING)
+    assert not view.dashboard_dirty()  # 基準を変えても「変更あり」にならない
+    assert not view.is_dirty()  # プロジェクトも変更扱いにならない
 
 
 async def test_excluding_a_project_removes_it_from_the_total(user: User, tmp_path: Path) -> None:
