@@ -1,0 +1,180 @@
+{
+  "version": 17,
+  "name": "週ごと担当の按分確認",
+  "base_date": "2026-11-02",
+  "daily_hours": 6.5,
+  "work_start": "09:00:00",
+  "members": [
+    {
+      "name": "田中",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "1a4c2b56",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": []
+    },
+    {
+      "name": "鈴木",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "06e5ed88",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": []
+    }
+  ],
+  "sections": [],
+  "tasks": [
+    {
+      "name": "週ごと 40h(進捗なし)",
+      "id": "e681b32d",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 40,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "1a4c2b56",
+          "allocation": 1.0
+        },
+        {
+          "member": "06e5ed88",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [
+        [
+          {
+            "member": "1a4c2b56",
+            "allocation": 1.0
+          }
+        ],
+        [
+          {
+            "member": "06e5ed88",
+            "allocation": 1.0
+          }
+        ]
+      ]
+    },
+    {
+      "name": "週ごと 40h(進捗 50%)",
+      "id": "a2eb707a",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 40,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "1a4c2b56",
+          "allocation": 1.0
+        },
+        {
+          "member": "06e5ed88",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": 50,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [
+        [
+          {
+            "member": "1a4c2b56",
+            "allocation": 1.0
+          }
+        ],
+        [
+          {
+            "member": "06e5ed88",
+            "allocation": 1.0
+          }
+        ]
+      ]
+    },
+    {
+      "name": "週ごと 40h(進捗 90%)",
+      "id": "1bbbc028",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 40,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "1a4c2b56",
+          "allocation": 1.0
+        },
+        {
+          "member": "06e5ed88",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": 90,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [
+        [
+          {
+            "member": "1a4c2b56",
+            "allocation": 1.0
+          }
+        ],
+        [
+          {
+            "member": "06e5ed88",
+            "allocation": 1.0
+          }
+        ]
+      ]
+    }
+  ],
+  "actual_mode": "simple",
+  "url_templates": [],
+  "parameters": [],
+  "categories": [],
+  "events": [],
+  "teams": [],
+  "reference_mode": "live",
+  "plantuml_overload_notice": true,
+  "ratio_limit_upper": null,
+  "ratio_limit_lower": null
+}

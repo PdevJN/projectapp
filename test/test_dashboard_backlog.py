@@ -312,3 +312,36 @@ def test_a_not_started_task_with_progress_is_also_prorated_by_the_period() -> No
     project = project_of(half)
     assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 0  # 期間の外は従来どおり数えない
     assert summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}).hours == 5
+
+
+def weekly_task(**kwargs: object) -> Task:
+    # 10/6(火)から 40h。第 1 週(〜10/12)は田中が 5 日 × 6.5h = 32.5h、第 2 週は鈴木が 7.5h
+    tanaka, suzuki = [Assignee("田中")], [Assignee("鈴木")]
+    return todo(
+        "週ごと", 40, assignees=tanaka + suzuki, weekly_crew=[tanaka, suzuki], **kwargs  # type: ignore[arg-type]
+    )
+
+
+def split_of(project: Project, member: str | None = None) -> dict[str, float]:
+    return dict(summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, member).by_member)
+
+
+def test_a_weekly_task_splits_the_whole_by_the_hours_each_week_crew_takes() -> None:
+    project = project_of(weekly_task(), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    assert split_of(project) == {"田中": 32.5, "鈴木": 7.5}
+
+
+def test_a_weekly_task_takes_the_progress_off_the_early_weeks_first() -> None:
+    project = project_of(weekly_task(progress=50), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    assert split_of(project) == {"田中": 12.5, "鈴木": 7.5}  # 20h 消化 → 第 1 週の 32.5h が 12.5h に
+
+
+def test_a_weekly_task_whose_early_weeks_are_done_leaves_the_later_crew_only() -> None:
+    project = project_of(weekly_task(progress=90), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    assert split_of(project) == {"鈴木": 4}  # 36h 消化 → 第 1 週は 0、第 2 週は 7.5 − 3.5
+
+
+def test_a_member_filter_keeps_the_weekly_split() -> None:
+    project = project_of(weekly_task(progress=90), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    assert split_of(project, "鈴木") == {"鈴木": 4}
+    assert split_of(project, "田中") == {}
