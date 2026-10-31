@@ -16,14 +16,18 @@ PLAN = ImportPlan(
 def mount(calls: list[tuple]) -> None:
     @ui.page("/")
     def index() -> None:
-        open_import_dialog(PLAN, lambda sections, overwrite: calls.append((sections, overwrite)))
+        open_import_dialog(
+            PLAN, lambda sections, overwrite: calls.append((sections, overwrite))
+        )
 
 
 def element(user: User, marker: str) -> ui.element:
     return next(iter(user.find(marker=marker).elements))
 
 
-async def test_the_dialog_lists_the_sections_and_the_project_changes(user: User) -> None:
+async def test_the_dialog_lists_the_sections_and_the_project_changes(
+    user: User,
+) -> None:
     mount([])
     await user.open("/")
     await user.should_see("メンバー(追加 1 件・重複 2 件)")

@@ -19,7 +19,18 @@ from projectapp.models import (
 )
 
 UNDECIDED = "未定"  # 保存しない擬似カテゴリ。タスクが選ぶと category_id が None になる
-COLORS = ("blue", "indigo", "purple", "pink", "red", "orange", "amber", "green", "teal", "brown")  # todoapp の色
+COLORS = (
+    "blue",
+    "indigo",
+    "purple",
+    "pink",
+    "red",
+    "orange",
+    "amber",
+    "green",
+    "teal",
+    "brown",
+)  # todoapp の色
 COLOR_LABELS = {
     "blue": "青",
     "indigo": "藍",
@@ -46,7 +57,9 @@ COLOR_HEX = {
 }
 MAX_LABEL_NAME_LENGTH = 12  # 選択肢の名前を省略する文字数(種別と PRJコードは省略しない)
 EXPIRY_FORMAT = re.compile(r"\d{4}-\d{2}-\d{2}")
-PRJ_CODE_FORMAT = re.compile(r"[A-Za-z0-9._-]*")  # PRJコードに使える文字(半角英数字と - _ .)。空は可
+PRJ_CODE_FORMAT = re.compile(
+    r"[A-Za-z0-9._-]*"
+)  # PRJコードに使える文字(半角英数字と - _ .)。空は可
 
 
 def validate_categories(categories: list[Category]) -> None:
@@ -63,7 +76,9 @@ def validate_categories(categories: list[Category]) -> None:
         if name == UNDECIDED:
             raise ValueError(f"「{UNDECIDED}」はカテゴリの名前に使えません")
         if len(name) > MAX_CATEGORY_NAME_LENGTH:
-            raise ValueError(f"カテゴリの名前は{MAX_CATEGORY_NAME_LENGTH}文字以内で入力してください")
+            raise ValueError(
+                f"カテゴリの名前は{MAX_CATEGORY_NAME_LENGTH}文字以内で入力してください"
+            )
         if has_control_char(name):
             raise ValueError("カテゴリの名前に改行・制御文字は使えません")
         if name in names:
@@ -72,11 +87,15 @@ def validate_categories(categories: list[Category]) -> None:
         if category.color not in COLORS:
             raise ValueError(f"カテゴリの色が正しくありません: {category.color!r}")
         if len(category.kind) > MAX_CATEGORY_KIND_LENGTH:
-            raise ValueError(f"カテゴリの種別は{MAX_CATEGORY_KIND_LENGTH}文字以内で入力してください")
+            raise ValueError(
+                f"カテゴリの種別は{MAX_CATEGORY_KIND_LENGTH}文字以内で入力してください"
+            )
         if has_control_char(category.kind):
             raise ValueError("カテゴリの種別に改行・制御文字は使えません")
         if len(category.prj_code) > MAX_PROJECT_CODE_LENGTH:
-            raise ValueError(f"PRJコードは{MAX_PROJECT_CODE_LENGTH}文字以内で入力してください")
+            raise ValueError(
+                f"PRJコードは{MAX_PROJECT_CODE_LENGTH}文字以内で入力してください"
+            )
         if PRJ_CODE_FORMAT.fullmatch(category.prj_code) is None:
             raise ValueError("PRJコードは半角英数字と - _ . だけで入力してください")
 
@@ -91,13 +110,17 @@ def parse_expiry(text: str) -> date | None:
             raise ValueError
         parsed = date.fromisoformat(value)
     except ValueError:
-        raise ValueError(f"有効期限の形式が正しくありません(YYYY-MM-DD): {value}") from None
+        raise ValueError(
+            f"有効期限の形式が正しくありません(YYYY-MM-DD): {value}"
+        ) from None
     if not MIN_YEAR <= parsed.year <= MAX_YEAR:
         raise ValueError(f"有効期限の形式が正しくありません(YYYY-MM-DD): {value}")
     return parsed
 
 
-def migrate_legacy(pairs: list[tuple[Task, str]], taken: Collection[str] = ()) -> list[Category]:
+def migrate_legacy(
+    pairs: list[tuple[Task, str]], taken: Collection[str] = ()
+) -> list[Category]:
     """旧 ProjectCode(version 2 以前)をカテゴリへ移す。同じコードごとに 1 つ、出現順に作り、タスクの category_id を書き換える。
     名前はコードそのまま(制御文字は空白に替える)。PRJコードは、使える文字だけでできているときだけ入れる(それ以外は空。チップは名前を出す)。
     空と「未定」(予約名)のコードは、カテゴリを作らず未定のままにする。色は 10 色を出現順に巡回する。"""
@@ -110,7 +133,14 @@ def migrate_legacy(pairs: list[tuple[Task, str]], taken: Collection[str] = ()) -
         category = by_name.get(name)
         if category is None:
             prj_code = name if PRJ_CODE_FORMAT.fullmatch(name) else ""
-            category = Category(name, "", None, COLORS[len(by_name) % len(COLORS)], prj_code, new_id(used))
+            category = Category(
+                name,
+                "",
+                None,
+                COLORS[len(by_name) % len(COLORS)],
+                prj_code,
+                new_id(used),
+            )
             used.add(category.id)
             by_name[name] = category
         task.category_id = category.id
@@ -154,7 +184,9 @@ def chip_text(category: Category) -> str:
 
 
 def _suffix(category: Category) -> str:
-    parts = [text for text in (category.kind.strip(), category.prj_code.strip()) if text]
+    parts = [
+        text for text in (category.kind.strip(), category.prj_code.strip()) if text
+    ]
     return f"({'・'.join(parts)})" if parts else ""
 
 

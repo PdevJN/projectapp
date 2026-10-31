@@ -35,7 +35,9 @@ def mount(project: Project) -> tuple[Recorder, list[GanttChart]]:
 
     @ui.page("/")
     def index() -> None:
-        chart = GanttChart(project, {}, recorder.actions, now=lambda: datetime(2026, 10, 1))
+        chart = GanttChart(
+            project, {}, recorder.actions, now=lambda: datetime(2026, 10, 1)
+        )
         charts.append(chart)
         chart.build()
 
@@ -46,7 +48,9 @@ def props_of(user: User, marker: str) -> dict:
     return user.find(marker=marker).elements.pop().props
 
 
-async def test_task_labels_are_draggable_handles_and_rows_are_drop_targets(user: User) -> None:
+async def test_task_labels_are_draggable_handles_and_rows_are_drop_targets(
+    user: User,
+) -> None:
     mount(project_with_top())
     await user.open("/")
     label = props_of(user, "task-top-1")
@@ -110,7 +114,9 @@ def test_the_script_is_valid_javascript(tmp_path: Path) -> None:
         pytest.skip("node がないので構文を確かめない")
     script = tmp_path / "drag.js"
     script.write_text(CHART_DRAG_JS, encoding="utf-8")
-    result = subprocess.run([node, "--check", str(script)], capture_output=True, text=True)
+    result = subprocess.run(
+        [node, "--check", str(script)], capture_output=True, text=True
+    )
     assert result.returncode == 0, result.stderr
 
 
@@ -118,18 +124,24 @@ def test_the_script_emits_the_events_the_python_side_listens_to() -> None:
     assert 'emitEvent("chart_move"' in CHART_DRAG_JS
 
 
-async def test_section_name_cells_are_draggable_handles_with_their_parent(user: User) -> None:
+async def test_section_name_cells_are_draggable_handles_with_their_parent(
+    user: User,
+) -> None:
     mount(project_with_top())
     await user.open("/")
     name = props_of(user, "section-name-0")
     assert name["draggable"] == "true"
     assert "data-section-handle" in name
     assert (name["data-si"], name["data-parent"]) == ("0", "top")
-    assert props_of(user, "section-0")["data-parent"] == "top"  # 落とし先の見出しも親を持つ
+    assert (
+        props_of(user, "section-0")["data-parent"] == "top"
+    )  # 落とし先の見出しも親を持つ
 
 
 async def test_nested_section_headers_know_their_parent(user: User) -> None:
-    project = Project("demo", base_date=BASE, sections=[Section("親", [], [Section("子", [])])])
+    project = Project(
+        "demo", base_date=BASE, sections=[Section("親", [], [Section("子", [])])]
+    )
     mount(project)
     await user.open("/")
     assert props_of(user, "section-name-0.0")["data-parent"] == "0"
@@ -146,14 +158,18 @@ async def test_no_section_drag_attributes_while_filtering(user: User) -> None:
     assert "data-section-handle" not in name
 
 
-async def test_handle_move_section_passes_sibling_drops_to_the_action(user: User) -> None:
+async def test_handle_move_section_passes_sibling_drops_to_the_action(
+    user: User,
+) -> None:
     recorder, charts = mount(project_with_top())
     await user.open("/")
     charts[0].handle_move_section({"src": "0", "dst": "1"})
     assert recorder.events == [("move_section", ((0,), (1,)))]
 
 
-async def test_handle_move_section_ignores_bad_events_other_parents_and_filtering(user: User) -> None:
+async def test_handle_move_section_ignores_bad_events_other_parents_and_filtering(
+    user: User,
+) -> None:
     recorder, charts = mount(project_with_top())
     await user.open("/")
     charts[0].handle_move_section({"src": "0", "dst": "0.1"})  # 親が違う
@@ -168,7 +184,9 @@ async def test_handle_move_section_is_ignored_in_read_only(user: User) -> None:
     recorder, charts = mount(project_with_top())
     await user.open("/")
     charts[0].set_options(ViewOptions(read_only=True))
-    await user.should_not_see(marker="section-toggle-0")  # 読み取り専用で描き直されるのを待つ
+    await user.should_not_see(
+        marker="section-toggle-0"
+    )  # 読み取り専用で描き直されるのを待つ
     charts[0].handle_move_section({"src": "0", "dst": "1"})
     assert recorder.events == []
     assert "draggable" not in props_of(user, "section-name-0")
@@ -228,13 +246,20 @@ def test_a_section_drag_does_not_start_from_a_button(tmp_path: Path) -> None:
     if node is None:
         pytest.skip("node がないので動きを確かめない")
     script = tmp_path / "drag.js"
-    script.write_text("global.window = global.window || {};\n" + CHART_DRAG_JS, encoding="utf-8")
+    script.write_text(
+        "global.window = global.window || {};\n" + CHART_DRAG_JS, encoding="utf-8"
+    )
     sim = tmp_path / "sim.js"
     sim.write_text(SECTION_DRAG_SIM, encoding="utf-8")
-    result = subprocess.run([node, str(sim), str(script)], capture_output=True, text=True)
+    result = subprocess.run(
+        [node, str(sim), str(script)], capture_output=True, text=True
+    )
     assert result.returncode == 0, result.stderr
     outcome = json.loads(result.stdout)
-    assert outcome["onButton"] == {"prevented": True, "data": []}  # 矢印・追加のボタンからは始めない
+    assert outcome["onButton"] == {
+        "prevented": True,
+        "data": [],
+    }  # 矢印・追加のボタンからは始めない
     assert outcome["onLabel"]["prevented"] is False
     assert "application/x-gantt-section" in outcome["onLabel"]["data"]
 
@@ -270,10 +295,14 @@ async def test_other_scales_have_no_draggable_bars(user: User) -> None:
     _, charts = mount(project_with_top())
     await user.open("/")
     charts[0].set_scale(Scale.WEEK)
-    await settles(user, lambda cells: "2026-10-05" in cells and cells["2026-10-05"][1] is None)  # 描画し直しを待つ
+    await settles(
+        user, lambda cells: "2026-10-05" in cells and cells["2026-10-05"][1] is None
+    )  # 描画し直しを待つ
     bar = user.find(marker="bar-0-0").elements.pop()
     assert "data-bar" not in bar.props
-    assert bar._style["cursor"] == "default"  # ドラッグできないので、手のカーソルにしない(左クリックの編集もない)
+    assert (
+        bar._style["cursor"] == "default"
+    )  # ドラッグできないので、手のカーソルにしない(左クリックの編集もない)
     charts[0].set_scale(Scale.MONTH)
     await should_see_column(user, "2026-10-01")
     assert "data-bar" not in props_of(user, "bar-0-0")
@@ -292,7 +321,10 @@ async def test_handle_shift_passes_valid_events_on_the_day_scale(user: User) -> 
     await user.open("/")
     charts[0].handle_shift({"si": "0", "ti": 0, "days": -2})
     charts[0].handle_shift({"si": "top", "ti": 1, "days": 5})
-    assert recorder.events == [("shift_task", ((0,), 0, -2)), ("shift_task", ((), 1, 5))]
+    assert recorder.events == [
+        ("shift_task", ((0,), 0, -2)),
+        ("shift_task", ((), 1, 5)),
+    ]
 
 
 async def test_handle_shift_ignores_bad_events_and_other_scales(user: User) -> None:
@@ -562,7 +594,9 @@ def js_scenarios(tmp_path_factory: pytest.TempPathFactory) -> dict:
     return json.loads(result.stdout)
 
 
-def test_js_normal_shift_emits_the_snapped_days_and_swallows_the_click(js_scenarios: dict) -> None:
+def test_js_normal_shift_emits_the_snapped_days_and_swallows_the_click(
+    js_scenarios: dict,
+) -> None:
     normal = js_scenarios["normal"]
     assert normal["emitted"] == [["chart_shift", {"si": "0", "ti": 0, "days": 3}]]
     assert normal["suppressed"] is True
@@ -576,7 +610,9 @@ def test_js_the_bar_keeps_its_place_until_the_redraw_then_a_fallback_resets_it(
     assert js_scenarios["replaced"] == "kept"  # 置き換わった古い要素には触らない
 
 
-def test_js_a_zero_day_move_goes_back_at_once_without_sending(js_scenarios: dict) -> None:
+def test_js_a_zero_day_move_goes_back_at_once_without_sending(
+    js_scenarios: dict,
+) -> None:
     assert js_scenarios["zero"] == {"emitted": [], "transform": ""}
 
 
@@ -592,7 +628,9 @@ def test_js_escape_before_moving_is_still_a_click(js_scenarios: dict) -> None:
     assert js_scenarios["escapeBeforeMove"] == {"emitted": [], "suppressed": False}
 
 
-def test_js_escape_after_moving_sends_nothing_and_swallows_the_click(js_scenarios: dict) -> None:
+def test_js_escape_after_moving_sends_nothing_and_swallows_the_click(
+    js_scenarios: dict,
+) -> None:
     assert js_scenarios["escapeAfterMove"] == {"emitted": [], "suppressed": True}
 
 
@@ -616,10 +654,15 @@ def test_js_resizing_moves_the_name_cells_live_and_updates_the_variable_once_on_
     }
     assert resize["emitted"] == [["chart_name_width", {"width": 300}]]
     assert resize["variable"] == "300px"  # 離したときに、変数を 1 回だけ更新する
-    assert resize["widths"] == ["var(--name-w)", "var(--name-w)"]  # 直接の幅をやめ、変数に任せる
+    assert resize["widths"] == [
+        "var(--name-w)",
+        "var(--name-w)",
+    ]  # 直接の幅をやめ、変数に任せる
     assert resize["draggable"] is True  # 離したら、欄の drag を戻す
     assert resize["cursor"] == ""
-    assert resize["suppressed"] is True  # 離したあとの click で、編集ダイアログを開かない
+    assert (
+        resize["suppressed"] is True
+    )  # 離したあとの click で、編集ダイアログを開かない
 
 
 def test_js_the_width_stops_at_the_range_limits(js_scenarios: dict) -> None:
@@ -629,7 +672,9 @@ def test_js_the_width_stops_at_the_range_limits(js_scenarios: dict) -> None:
     assert clamp["emitted"] == [["chart_name_width", {"width": 120}]]
 
 
-def test_js_releasing_without_moving_sends_nothing_but_swallows_the_click(js_scenarios: dict) -> None:
+def test_js_releasing_without_moving_sends_nothing_but_swallows_the_click(
+    js_scenarios: dict,
+) -> None:
     assert js_scenarios["noMove"] == {
         "emitted": [],
         "variable": "120px",
@@ -660,18 +705,24 @@ def test_js_a_non_primary_pointer_does_not_start_a_resize(js_scenarios: dict) ->
     }
 
 
-def test_js_double_clicking_the_edge_resets_to_the_default_width(js_scenarios: dict) -> None:
+def test_js_double_clicking_the_edge_resets_to_the_default_width(
+    js_scenarios: dict,
+) -> None:
     reset = js_scenarios["reset"]
     assert reset["emitted"] == [["chart_name_width", {"width": 200}]]
     assert reset["variable"] == "200px"
     assert reset["clicks"] == [True, True]  # 2 回の click は、どちらも編集を開かない
 
 
-def test_js_double_clicking_at_the_default_width_sends_nothing(js_scenarios: dict) -> None:
+def test_js_double_clicking_at_the_default_width_sends_nothing(
+    js_scenarios: dict,
+) -> None:
     assert js_scenarios["resetAlreadyDefault"] == {"emitted": [], "variable": "200px"}
 
 
-def test_js_pointercancel_restores_the_cells_without_sending(js_scenarios: dict) -> None:
+def test_js_pointercancel_restores_the_cells_without_sending(
+    js_scenarios: dict,
+) -> None:
     assert js_scenarios["resizeCancel"] == {
         "emitted": [],
         "variable": "200px",
@@ -688,7 +739,9 @@ def test_js_a_pointermove_without_buttons_drops_the_resize(js_scenarios: dict) -
     }
 
 
-def test_js_escape_restores_the_widths_and_still_swallows_the_click(js_scenarios: dict) -> None:
+def test_js_escape_restores_the_widths_and_still_swallows_the_click(
+    js_scenarios: dict,
+) -> None:
     assert js_scenarios["escape"] == {
         "afterEscape": ["var(--name-w)", "var(--name-w)"],
         "stopped": True,  # ほかの Esc の処理(プレビューを閉じるなど)へ渡さない
@@ -699,7 +752,9 @@ def test_js_escape_restores_the_widths_and_still_swallows_the_click(js_scenarios
     }
 
 
-def test_js_escape_is_not_stopped_when_no_resize_is_in_progress(js_scenarios: dict) -> None:
+def test_js_escape_is_not_stopped_when_no_resize_is_in_progress(
+    js_scenarios: dict,
+) -> None:
     assert js_scenarios["idleEscapeStopped"] is False
 
 
@@ -708,7 +763,9 @@ def test_js_the_row_drag_does_not_start_while_resizing(js_scenarios: dict) -> No
 
 
 async def test_min_days_stops_at_the_predecessors_finish(user: User) -> None:
-    a = Task("先行", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=13)
+    a = Task(
+        "先行", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=13
+    )
     b = Task(
         "後続",
         id="bbbbbbbb",
@@ -722,18 +779,32 @@ async def test_min_days_stops_at_the_predecessors_finish(user: User) -> None:
     assert props_of(user, "bar-0-1")["data-min-days"] == "-6"
 
 
-def test_a_zoomed_page_converts_pointer_distances_back_to_css_pixels(js_scenarios: dict) -> None:
+def test_a_zoomed_page_converts_pointer_distances_back_to_css_pixels(
+    js_scenarios: dict,
+) -> None:
     assert js_scenarios["zoomBar"]["during"] == "translateX(80px)"
-    assert js_scenarios["zoomBar"]["emitted"] == [["chart_shift", {"si": "0", "ti": 0, "days": 2}]]
+    assert js_scenarios["zoomBar"]["emitted"] == [
+        ["chart_shift", {"si": "0", "ti": 0, "days": 2}]
+    ]
     assert js_scenarios["zoomResize"]["during"] == "300px"
     assert js_scenarios["zoomResize"]["variable"] == "300px"
-    assert js_scenarios["zoomResize"]["emitted"] == [["chart_name_width", {"width": 300}]]
+    assert js_scenarios["zoomResize"]["emitted"] == [
+        ["chart_name_width", {"width": 300}]
+    ]
     assert js_scenarios["zoomOutsideEdge"]["emitted"] == []
 
 
 def test_a_nested_section_key_survives_the_roundtrip_to_the_server() -> None:
     from projectapp.arrange import parse_move, parse_shift
 
-    assert parse_move({"src": ["0.1", 2], "dst": ["0.1.0", 0], "copy": False}) == (((0, 1), 2), ((0, 1, 0), 0), False)
+    assert parse_move({"src": ["0.1", 2], "dst": ["0.1.0", 0], "copy": False}) == (
+        ((0, 1), 2),
+        ((0, 1, 0), 0),
+        False,
+    )
     assert parse_shift({"si": "0.1", "ti": 0, "days": 1}) == (((0, 1), 0), 1)
-    assert parse_move({"src": ["top", 0], "dst": ["1", 3], "copy": True}) == (((), 0), ((1,), 3), True)
+    assert parse_move({"src": ["top", 0], "dst": ["1", 3], "copy": True}) == (
+        ((), 0),
+        ((1,), 3),
+        True,
+    )

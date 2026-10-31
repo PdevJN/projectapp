@@ -25,7 +25,12 @@ def cat(name: str = "開発", **kwargs: object) -> Category:
 
 
 def test_valid_categories_pass() -> None:
-    validate_categories([cat("開発", kind="業務", expiry_date=date(2026, 12, 31), prj_code="PRJ-1"), cat("保守")])
+    validate_categories(
+        [
+            cat("開発", kind="業務", expiry_date=date(2026, 12, 31), prj_code="PRJ-1"),
+            cat("保守"),
+        ]
+    )
 
 
 def test_empty_list_is_valid() -> None:
@@ -67,7 +72,9 @@ def test_invalid_category_is_rejected(category: Category, message: str) -> None:
 
 
 @pytest.mark.parametrize("code", ["", "PRJ-001", "prj_1.2", "A" * 20, "0", "-_."])
-def test_prj_codes_made_of_ascii_letters_digits_and_dash_underscore_dot_are_accepted(code: str) -> None:
+def test_prj_codes_made_of_ascii_letters_digits_and_dash_underscore_dot_are_accepted(
+    code: str,
+) -> None:
     validate_categories([cat("a", prj_code=code)])
 
 
@@ -92,7 +99,18 @@ def test_parse_expiry() -> None:
     assert parse_expiry("   ") is None
 
 
-@pytest.mark.parametrize("bad", ["2026-13-01", "20261231", "2026-1-1", "2026-12-31T09:00", "1999-01-01", "2101-01-01", "abc"])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "2026-13-01",
+        "20261231",
+        "2026-1-1",
+        "2026-12-31T09:00",
+        "1999-01-01",
+        "2101-01-01",
+        "abc",
+    ],
+)
 def test_parse_expiry_rejects_bad_dates(bad: str) -> None:
     with pytest.raises(ValueError, match="有効期限"):
         parse_expiry(bad)
@@ -100,7 +118,9 @@ def test_parse_expiry_rejects_bad_dates(bad: str) -> None:
 
 def test_migrate_legacy_makes_one_category_per_code_in_order() -> None:
     a1, b, a2, none = Task("a1"), Task("b"), Task("a2"), Task("n")
-    categories = migrate_legacy([(a1, "PRJ-A"), (b, "PRJ-B"), (a2, "PRJ-A"), (none, "")])
+    categories = migrate_legacy(
+        [(a1, "PRJ-A"), (b, "PRJ-B"), (a2, "PRJ-A"), (none, "")]
+    )
     assert [(c.name, c.prj_code, c.kind, c.expiry_date) for c in categories] == [
         ("PRJ-A", "PRJ-A", "", None),
         ("PRJ-B", "PRJ-B", "", None),
@@ -112,10 +132,15 @@ def test_migrate_legacy_makes_one_category_per_code_in_order() -> None:
     validate_categories(categories)
 
 
-def test_migrate_legacy_keeps_a_code_that_is_not_a_valid_prj_code_as_the_name_only() -> None:
+def test_migrate_legacy_keeps_a_code_that_is_not_a_valid_prj_code_as_the_name_only() -> (
+    None
+):
     task = Task("t")
     (category,) = migrate_legacy([(task, "設計 A")])
-    assert (category.name, category.prj_code) == ("設計 A", "")  # チップは名前を出すので、見た目は変わらない
+    assert (category.name, category.prj_code) == (
+        "設計 A",
+        "",
+    )  # チップは名前を出すので、見た目は変わらない
     validate_categories([category])
 
 
@@ -123,7 +148,9 @@ def test_migrate_legacy_replaces_control_characters_in_the_name() -> None:
     first, second = Task("a"), Task("b")
     (category,) = migrate_legacy([(first, "A\nB"), (second, "A B")])
     assert (category.name, category.prj_code) == ("A B", "")
-    assert first.category_id == second.category_id == category.id  # 整えた名前が同じなら 1 つにまとめる
+    assert (
+        first.category_id == second.category_id == category.id
+    )  # 整えた名前が同じなら 1 つにまとめる
     validate_categories([category])
 
 
@@ -169,14 +196,22 @@ def test_count_usage_counts_tasks_in_sections_too() -> None:
     project = Project(
         "p",
         tasks=[Task("1", category_id=category.id), Task("2")],
-        sections=[Section("s", [Task("3", category_id=category.id)], [Section("c", [Task("4", category_id=category.id)])])],
+        sections=[
+            Section(
+                "s",
+                [Task("3", category_id=category.id)],
+                [Section("c", [Task("4", category_id=category.id)])],
+            )
+        ],
         categories=[category],
     )
     assert count_usage(project, category.id) == 3
     assert count_usage(project, "zzzzzzzz") == 0
 
 
-def test_apply_edit_replaces_the_list_and_resets_removed_categories_to_undecided() -> None:
+def test_apply_edit_replaces_the_list_and_resets_removed_categories_to_undecided() -> (
+    None
+):
     keep, drop = cat("keep"), cat("drop")
     project = Project(
         "p",
@@ -220,8 +255,14 @@ def test_project_used_ids_include_the_categories() -> None:
         (cat("開発", prj_code="PRJ-001"), "開発(PRJ-001)"),
         (cat("ドキュメント", kind="社内"), "ドキュメント(社内)"),
         (cat("開発", kind="業務", prj_code="PRJ-001"), "開発(業務・PRJ-001)"),
-        (cat("あ" * 12, kind="業務"), "あ" * 12 + "(業務)"),  # 12 文字ちょうどは省略しない
-        (cat("あ" * 13, kind="業務", prj_code="P1"), "あ" * 12 + "…(業務・P1)"),  # 名前だけを省略し、種別と PRJコードは残す
+        (
+            cat("あ" * 12, kind="業務"),
+            "あ" * 12 + "(業務)",
+        ),  # 12 文字ちょうどは省略しない
+        (
+            cat("あ" * 13, kind="業務", prj_code="P1"),
+            "あ" * 12 + "…(業務・P1)",
+        ),  # 名前だけを省略し、種別と PRJコードは残す
         (cat("あ" * 30), "あ" * 12 + "…"),
         (cat("😀" * 13), "😀" * 12 + "…"),  # 絵文字は 1 文字と数える
     ],
@@ -238,4 +279,3 @@ def test_category_full_label_never_shortens() -> None:
 
 def test_the_undecided_label_is_plain() -> None:
     assert UNDECIDED == "未定"  # 選択肢の「未定」は、そのまま出す(カテゴリではない)
-

@@ -14,7 +14,11 @@ DEFAULT_TIMEOUT = 5.0
 NOT_REPO_MESSAGE = "not a git repository"
 CHANGE_PREFIXES = ("1 ", "2 ", "u ", "? ")  # 変更行(通常・改名・衝突・未追跡)
 PATHSPEC = [":(glob)*.json", *(f":(exclude){name}.json" for name in sorted(RESERVED))]
-REDIRECTING_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")  # `-C`で指した格納先とは別のリポジトリを指させる
+REDIRECTING_ENV = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+)  # `-C`で指した格納先とは別のリポジトリを指させる
 AHEAD_BEHIND = re.compile(r"\+(\d+) -(\d+)")
 
 Runner = Callable[[list[str], float], subprocess.CompletedProcess[str]]
@@ -40,11 +44,17 @@ class GitState:
 
 def run_git(args: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if k not in REDIRECTING_ENV}
-    env |= {"GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C", "GIT_TERMINAL_PROMPT": "0"}  # ロックを取らない。出力の言語を固定。認証の入力待ちで止めない
+    env |= {
+        "GIT_OPTIONAL_LOCKS": "0",
+        "LC_ALL": "C",
+        "GIT_TERMINAL_PROMPT": "0",
+    }  # ロックを取らない。出力の言語を固定。認証の入力待ちで止めない
     return subprocess.run(
         ["git", *args],
         stdin=subprocess.DEVNULL,  # GUI には標準入力がなく、継承すると失敗することがある
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # Windows でコンソール窓を出さない
+        creationflags=getattr(
+            subprocess, "CREATE_NO_WINDOW", 0
+        ),  # Windows でコンソール窓を出さない
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -96,7 +106,9 @@ def parse_status(text: str) -> GitState:
     return GitState(GitKind.OK, branch, head, upstream, ahead, behind, dirty)
 
 
-def read_git_state(project_dir: Path, run: Runner = run_git, timeout: float = DEFAULT_TIMEOUT) -> GitState:
+def read_git_state(
+    project_dir: Path, run: Runner = run_git, timeout: float = DEFAULT_TIMEOUT
+) -> GitState:
     """格納先の git の状態を読む。例外は外へ出さない(読めないときは`error`に理由を入れる)。"""
     where = ["-C", str(project_dir)]
     try:
@@ -108,7 +120,16 @@ def read_git_state(project_dir: Path, run: Runner = run_git, timeout: float = DE
         if inside.stdout.strip() != "true":
             return GitState(GitKind.NOT_REPO)  # .git の中など
         status = run(
-            [*where, "status", "--porcelain=v2", "--branch", "--untracked-files=all", "--", *PATHSPEC], timeout
+            [
+                *where,
+                "status",
+                "--porcelain=v2",
+                "--branch",
+                "--untracked-files=all",
+                "--",
+                *PATHSPEC,
+            ],
+            timeout,
         )
     except FileNotFoundError:
         return GitState(GitKind.NO_GIT)

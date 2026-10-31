@@ -19,28 +19,58 @@ from projectapp.timeline import Scale
 
 
 def test_settings_become_read_only_view_options() -> None:
-    settings = PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK, show_chips=False, show_alerts=True)
+    settings = PreviewSettings(
+        date(2026, 10, 1),
+        date(2026, 10, 31),
+        Scale.WEEK,
+        show_chips=False,
+        show_alerts=True,
+    )
     assert settings.to_options() == ViewOptions(
-        period=(date(2026, 10, 1), date(2026, 10, 31)), scale=Scale.WEEK, show_chips=False, show_alerts=True, read_only=True,
+        period=(date(2026, 10, 1), date(2026, 10, 31)),
+        scale=Scale.WEEK,
+        show_chips=False,
+        show_alerts=True,
+        read_only=True,
         selectable=True,
     )
 
 
 def test_preview_settings_pass_show_events_to_the_options() -> None:
-    settings = PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK, show_events=False)
+    settings = PreviewSettings(
+        date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK, show_events=False
+    )
     assert settings.to_options().show_events is False
-    assert PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK).to_options().show_events is True
+    assert (
+        PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK)
+        .to_options()
+        .show_events
+        is True
+    )
 
 
 def test_preview_settings_pass_show_today_to_the_options() -> None:
-    settings = PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK, show_today=False)
+    settings = PreviewSettings(
+        date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK, show_today=False
+    )
     assert settings.to_options().show_today is False
-    assert PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK).to_options().show_today is True
+    assert (
+        PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK)
+        .to_options()
+        .show_today
+        is True
+    )
 
 
 def test_validate_period_accepts_a_period_and_one_day() -> None:
-    assert validate_period("2026-10-01", "2026-10-31") == (date(2026, 10, 1), date(2026, 10, 31))
-    assert validate_period(" 2026-10-05 ", "2026-10-05") == (date(2026, 10, 5), date(2026, 10, 5))
+    assert validate_period("2026-10-01", "2026-10-31") == (
+        date(2026, 10, 1),
+        date(2026, 10, 31),
+    )
+    assert validate_period(" 2026-10-05 ", "2026-10-05") == (
+        date(2026, 10, 5),
+        date(2026, 10, 5),
+    )
 
 
 @pytest.mark.parametrize(
@@ -69,7 +99,11 @@ def test_check_column_count_allows_up_to_the_limit(scale: Scale) -> None:
 @pytest.mark.parametrize("scale", list(Scale))
 def test_check_column_count_rejects_more_than_the_limit(scale: Scale) -> None:
     message = check_column_count(scale, MAX_COLUMNS[scale] + 1)
-    assert message is not None and "長すぎ" in message and str(MAX_COLUMNS[scale]) in message
+    assert (
+        message is not None
+        and "長すぎ" in message
+        and str(MAX_COLUMNS[scale]) in message
+    )
 
 
 def test_the_limits_allow_a_year_of_days_and_reject_the_whole_century() -> None:
@@ -86,7 +120,9 @@ def project_of_days(days: int) -> Project:
     from datetime import datetime
 
     task.planned_start = datetime.combine(BASE, datetime.min.time())
-    task.planned_end = datetime.combine(BASE + timedelta(days=days - 1), datetime.min.time())
+    task.planned_end = datetime.combine(
+        BASE + timedelta(days=days - 1), datetime.min.time()
+    )
     task.planned_end_manual = True
     return Project("p", base_date=BASE, tasks=[task])
 
@@ -96,7 +132,9 @@ def width_of(project: Project, scale: Scale) -> int:
     from projectapp.gantt import COLUMN_WIDTH_PX
     from projectapp.timeline import build_columns
 
-    return DEFAULT_NAME_WIDTH_PX + COLUMN_WIDTH_PX[scale] * len(build_columns(project, scale, {}))
+    return DEFAULT_NAME_WIDTH_PX + COLUMN_WIDTH_PX[scale] * len(
+        build_columns(project, scale, {})
+    )
 
 
 def test_the_comfort_width_is_six_thousand_pixels() -> None:
@@ -144,7 +182,10 @@ def test_it_never_goes_finer_than_the_current_scale() -> None:
 
 def test_the_period_decides_the_width() -> None:
     project = project_of_days(800)
-    assert fit_scale(project, {}, (BASE, BASE + timedelta(days=30)), Scale.DAY) is Scale.DAY
+    assert (
+        fit_scale(project, {}, (BASE, BASE + timedelta(days=30)), Scale.DAY)
+        is Scale.DAY
+    )
 
 
 def test_fit_scale_uses_the_name_width() -> None:
@@ -153,18 +194,27 @@ def test_fit_scale_uses_the_name_width() -> None:
 
     project = project_of_days(100)
     day_columns = len(build_columns(project, Scale.DAY, {}))
-    exact = PREVIEW_COMFORT_WIDTH_PX - COLUMN_WIDTH_PX[Scale.DAY] * day_columns  # 日次が、ちょうど収まる幅
+    exact = (
+        PREVIEW_COMFORT_WIDTH_PX - COLUMN_WIDTH_PX[Scale.DAY] * day_columns
+    )  # 日次が、ちょうど収まる幅
     assert fit_scale(project, {}, None, Scale.DAY, exact) is Scale.DAY
-    assert fit_scale(project, {}, None, Scale.DAY, exact + 1) is Scale.WEEK  # 1px 広いと、収まらず週次
+    assert (
+        fit_scale(project, {}, None, Scale.DAY, exact + 1) is Scale.WEEK
+    )  # 1px 広いと、収まらず週次
 
 
 def test_nothing_is_excluded_by_default() -> None:
-    assert PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK).excluded == frozenset()
+    assert (
+        PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK).excluded
+        == frozenset()
+    )
 
 
 def test_excluded_ids_and_the_callback_reach_the_options() -> None:
     picks: list = []
-    settings = PreviewSettings(date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK, excluded=frozenset({"a"}))
+    settings = PreviewSettings(
+        date(2026, 10, 1), date(2026, 10, 31), Scale.WEEK, excluded=frozenset({"a"})
+    )
     options = settings.to_options(lambda ids, checked: picks.append((ids, checked)))
     assert options.selectable and options.excluded == frozenset({"a"})
     assert options.on_select is not None
@@ -173,11 +223,17 @@ def test_excluded_ids_and_the_callback_reach_the_options() -> None:
 
 
 def test_parse_range_value_reads_a_complete_range() -> None:
-    assert parse_range_value({"from": "2026-10-01", "to": "2026-10-31"}) == ("2026-10-01", "2026-10-31")
+    assert parse_range_value({"from": "2026-10-01", "to": "2026-10-31"}) == (
+        "2026-10-01",
+        "2026-10-31",
+    )
 
 
 def test_parse_range_value_accepts_the_same_day_as_a_range() -> None:
-    assert parse_range_value({"from": "2026-10-05", "to": "2026-10-05"}) == ("2026-10-05", "2026-10-05")
+    assert parse_range_value({"from": "2026-10-05", "to": "2026-10-05"}) == (
+        "2026-10-05",
+        "2026-10-05",
+    )
 
 
 def test_parse_range_value_reads_a_single_day_string_as_a_one_day_range() -> None:
@@ -187,7 +243,15 @@ def test_parse_range_value_reads_a_single_day_string_as_a_one_day_range() -> Non
 
 @pytest.mark.parametrize(
     "value",
-    [None, "", {}, {"from": "2026-10-05"}, {"from": "2026-10-05", "to": ""}, {"to": "2026-10-05"}, 5],
+    [
+        None,
+        "",
+        {},
+        {"from": "2026-10-05"},
+        {"from": "2026-10-05", "to": ""},
+        {"to": "2026-10-05"},
+        5,
+    ],
 )
 def test_parse_range_value_rejects_an_incomplete_selection(value: object) -> None:
     assert parse_range_value(value) is None

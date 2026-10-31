@@ -32,7 +32,11 @@ from projectapp.theme import DEFAULTS, CustomTheme
 
 
 def test_the_width_constants() -> None:
-    assert (MIN_NAME_WIDTH_PX, DEFAULT_NAME_WIDTH_PX, MAX_NAME_WIDTH_PX) == (120, 200, 480)
+    assert (MIN_NAME_WIDTH_PX, DEFAULT_NAME_WIDTH_PX, MAX_NAME_WIDTH_PX) == (
+        120,
+        200,
+        480,
+    )
 
 
 @pytest.mark.parametrize(
@@ -49,12 +53,26 @@ def test_the_width_constants() -> None:
         (250.6, 251),
     ],
 )
-def test_parse_name_width_accepts_numbers_and_clamps(value: object, expected: int) -> None:
+def test_parse_name_width_accepts_numbers_and_clamps(
+    value: object, expected: int
+) -> None:
     assert parse_name_width(value) == expected
 
 
 @pytest.mark.parametrize(
-    "value", [True, False, None, "200", "abc", [], {}, float("nan"), float("inf"), -float("inf")]
+    "value",
+    [
+        True,
+        False,
+        None,
+        "200",
+        "abc",
+        [],
+        {},
+        float("nan"),
+        float("inf"),
+        -float("inf"),
+    ],
 )
 def test_parse_name_width_rejects_other_values(value: object) -> None:
     assert parse_name_width(value) is None
@@ -65,18 +83,31 @@ def test_load_name_width_defaults_without_a_file(tmp_path: Path) -> None:
 
 
 def test_load_name_width_defaults_without_the_key(tmp_path: Path) -> None:
-    (tmp_path / "config.json").write_text(json.dumps({"theme": "dark"}), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"theme": "dark"}), encoding="utf-8"
+    )
     assert load_name_width(tmp_path) == DEFAULT_NAME_WIDTH_PX
 
 
 @pytest.mark.parametrize(
     ("stored", "expected"),
-    [(300, 300), (9999, 480), (-5, 120), ("abc", 200), (True, 200), (None, 200), (1e999, 200), (10**400, 480)],
+    [
+        (300, 300),
+        (9999, 480),
+        (-5, 120),
+        ("abc", 200),
+        (True, 200),
+        (None, 200),
+        (1e999, 200),
+        (10**400, 480),
+    ],
 )
 def test_load_name_width_reads_the_stored_value_safely(
     tmp_path: Path, stored: object, expected: int
 ) -> None:
-    (tmp_path / "config.json").write_text(json.dumps({"name_width": stored}), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"name_width": stored}), encoding="utf-8"
+    )
     assert load_name_width(tmp_path) == expected
 
 
@@ -84,11 +115,15 @@ def test_save_name_width_creates_the_file_and_round_trips(tmp_path: Path) -> Non
     base = tmp_path / "new"  # まだ存在しない
     save_name_width(260, base)
     assert load_name_width(base) == 260
-    assert json.loads((base / "config.json").read_text(encoding="utf-8")) == {"name_width": 260}
+    assert json.loads((base / "config.json").read_text(encoding="utf-8")) == {
+        "name_width": 260
+    }
 
 
 def test_saving_the_width_keeps_the_theme_and_other_keys(tmp_path: Path) -> None:
-    (tmp_path / "config.json").write_text(json.dumps({"theme": "dark", "other": 1}), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"theme": "dark", "other": 1}), encoding="utf-8"
+    )
     save_name_width(300, tmp_path)
     assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8")) == {
         "theme": "dark",
@@ -105,12 +140,16 @@ def test_saving_the_theme_keeps_the_width(tmp_path: Path) -> None:
     assert load_theme(tmp_path) == "light"
 
 
-def test_a_config_that_is_not_an_object_reads_as_empty_and_is_replaced_on_save(tmp_path: Path) -> None:
+def test_a_config_that_is_not_an_object_reads_as_empty_and_is_replaced_on_save(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "config.json").write_text("[1, 2]", encoding="utf-8")
     assert load_name_width(tmp_path) == DEFAULT_NAME_WIDTH_PX
     assert load_theme(tmp_path) == "auto"
     save_name_width(250, tmp_path)
-    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8")) == {"name_width": 250}
+    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8")) == {
+        "name_width": 250
+    }
 
 
 def test_the_config_is_replaced_through_a_temporary_file_and_a_failure_keeps_the_old_one(
@@ -126,14 +165,28 @@ def test_the_config_is_replaced_through_a_temporary_file_and_a_failure_keeps_the
     monkeypatch.setattr(config_module.os, "replace", failing_replace)
     with pytest.raises(OSError):
         save_theme("dark", tmp_path)
-    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8")) == {"name_width": 300}  # 元のまま
-    assert [p.name for p in tmp_path.iterdir()] == ["config.json"]  # 一時ファイルが残らない
+    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8")) == {
+        "name_width": 300
+    }  # 元のまま
+    assert [p.name for p in tmp_path.iterdir()] == [
+        "config.json"
+    ]  # 一時ファイルが残らない
 
 
 def test_the_zoom_constants() -> None:
-    from projectapp.config import DEFAULT_ZOOM_PERCENT, MAX_ZOOM_PERCENT, MIN_ZOOM_PERCENT, ZOOM_STEP_PERCENT
+    from projectapp.config import (
+        DEFAULT_ZOOM_PERCENT,
+        MAX_ZOOM_PERCENT,
+        MIN_ZOOM_PERCENT,
+        ZOOM_STEP_PERCENT,
+    )
 
-    assert (MIN_ZOOM_PERCENT, DEFAULT_ZOOM_PERCENT, MAX_ZOOM_PERCENT, ZOOM_STEP_PERCENT) == (70, 100, 200, 10)
+    assert (
+        MIN_ZOOM_PERCENT,
+        DEFAULT_ZOOM_PERCENT,
+        MAX_ZOOM_PERCENT,
+        ZOOM_STEP_PERCENT,
+    ) == (70, 100, 200, 10)
 
 
 @pytest.mark.parametrize(
@@ -151,7 +204,9 @@ def test_the_zoom_constants() -> None:
         (150, 0, 100),
     ],
 )
-def test_step_zoom_moves_by_the_step_and_stays_in_range(current: int, direction: int, expected: int) -> None:
+def test_step_zoom_moves_by_the_step_and_stays_in_range(
+    current: int, direction: int, expected: int
+) -> None:
     from projectapp.config import step_zoom
 
     assert step_zoom(current, direction) == expected
@@ -159,9 +214,21 @@ def test_step_zoom_moves_by_the_step_and_stays_in_range(current: int, direction:
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [(100, 100), (130, 130), (69, 70), (201, 200), (125.4, 125), (True, None), ("abc", None), (None, None), (1e999, None)],
+    [
+        (100, 100),
+        (130, 130),
+        (69, 70),
+        (201, 200),
+        (125.4, 125),
+        (True, None),
+        ("abc", None),
+        (None, None),
+        (1e999, None),
+    ],
 )
-def test_parse_zoom_accepts_numbers_and_clamps(value: object, expected: int | None) -> None:
+def test_parse_zoom_accepts_numbers_and_clamps(
+    value: object, expected: int | None
+) -> None:
     from projectapp.config import parse_zoom
 
     assert parse_zoom(value) == expected
@@ -171,7 +238,9 @@ def test_load_zoom_defaults_and_round_trips_keeping_other_keys(tmp_path: Path) -
     from projectapp.config import load_zoom, save_zoom
 
     assert load_zoom(tmp_path) == 100
-    (tmp_path / "config.json").write_text(json.dumps({"theme": "dark", "name_width": 300}), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"theme": "dark", "name_width": 300}), encoding="utf-8"
+    )
     save_zoom(130, tmp_path)
     assert load_zoom(tmp_path) == 130
     assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8")) == {
@@ -195,7 +264,12 @@ def test_the_task_sections_default_to_none(tmp_path: Path) -> None:
 
 
 def test_the_task_sections_round_trip_and_keep_other_keys(tmp_path: Path) -> None:
-    from projectapp.config import load_task_sections, load_zoom, save_task_sections, save_zoom
+    from projectapp.config import (
+        load_task_sections,
+        load_zoom,
+        save_task_sections,
+        save_zoom,
+    )
 
     save_zoom(120, tmp_path)
     save_task_sections(["related", "assignees"], tmp_path)
@@ -205,22 +279,32 @@ def test_the_task_sections_round_trip_and_keep_other_keys(tmp_path: Path) -> Non
     assert load_task_sections(tmp_path) == []  # 全部閉じた状態も保存できる
 
 
-@pytest.mark.parametrize("value", ["assignees", 1, None, ["nope"], ["assignees", "basic"], [["assignees"]]])
+@pytest.mark.parametrize(
+    "value", ["assignees", 1, None, ["nope"], ["assignees", "basic"], [["assignees"]]]
+)
 def test_invalid_task_sections_fall_back_to_none(tmp_path: Path, value: object) -> None:
     from projectapp.config import load_task_sections
 
-    (tmp_path / "config.json").write_text(json.dumps({"task_sections": value}), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"task_sections": value}), encoding="utf-8"
+    )
     assert load_task_sections(tmp_path) is None
 
 
 def test_an_old_task_layout_is_ignored(tmp_path: Path) -> None:
     from projectapp.config import load_task_sections, save_task_sections
 
-    (tmp_path / "config.json").write_text(json.dumps({"task_layout": "schedule"}), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"task_layout": "schedule"}), encoding="utf-8"
+    )
     assert load_task_sections(tmp_path) is None
     save_task_sections(["actuals"], tmp_path)
-    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["task_layout"] == "schedule"
-
+    assert (
+        json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))[
+            "task_layout"
+        ]
+        == "schedule"
+    )
 
 
 def test_project_dir_is_unset_by_default(tmp_path: Path) -> None:
@@ -239,18 +323,26 @@ def test_project_dir_round_trips_and_keeps_the_other_keys(tmp_path: Path) -> Non
 
 @pytest.mark.parametrize("value", [None, "", "   ", 5, ["x"], "relative/dir"])
 def test_an_invalid_project_dir_is_read_as_unset(tmp_path: Path, value: object) -> None:
-    (tmp_path / "config.json").write_text(json.dumps({"project_dir": value}), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"project_dir": value}), encoding="utf-8"
+    )
     assert load_project_dir(tmp_path) is None
 
 
-def test_project_dir_expands_the_home_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_project_dir_expands_the_home_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    (tmp_path / "config.json").write_text(json.dumps({"project_dir": "~/shared"}), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"project_dir": "~/shared"}), encoding="utf-8"
+    )
     assert load_project_dir(tmp_path) == tmp_path / "shared"
 
 
-def test_check_project_dir_accepts_an_existing_folder_even_if_empty(tmp_path: Path) -> None:
+def test_check_project_dir_accepts_an_existing_folder_even_if_empty(
+    tmp_path: Path,
+) -> None:
     assert check_project_dir(tmp_path) is None
 
 
@@ -264,8 +356,12 @@ def test_check_project_dir_rejects_a_file(tmp_path: Path) -> None:
     assert check_project_dir(target) == "フォルダではありません"
 
 
-@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="権限を外せない環境")
-def test_check_project_dir_rejects_a_folder_that_cannot_be_written(tmp_path: Path) -> None:
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0, reason="権限を外せない環境"
+)
+def test_check_project_dir_rejects_a_folder_that_cannot_be_written(
+    tmp_path: Path,
+) -> None:
     folder = tmp_path / "ro"
     folder.mkdir()
     folder.chmod(0o555)
@@ -291,11 +387,15 @@ def test_resolve_project_dir_uses_a_saved_usable_folder(tmp_path: Path) -> None:
     assert resolve_project_dir(tmp_path) == (shared, None)
 
 
-def test_resolve_project_dir_falls_back_without_touching_the_config(tmp_path: Path) -> None:
+def test_resolve_project_dir_falls_back_without_touching_the_config(
+    tmp_path: Path,
+) -> None:
     missing = tmp_path / "ない"
     save_project_dir(missing, tmp_path)
     assert resolve_project_dir(tmp_path) == (tmp_path, PROJECT_DIR_MISSING_MESSAGE)
-    assert load_project_dir(tmp_path) == missing  # 設定は残す(ドライブをつなぎ直せば戻る)
+    assert (
+        load_project_dir(tmp_path) == missing
+    )  # 設定は残す(ドライブをつなぎ直せば戻る)
 
 
 def test_theme_accepts_custom(tmp_path: Path) -> None:
@@ -305,23 +405,33 @@ def test_theme_accepts_custom(tmp_path: Path) -> None:
 
 def test_custom_theme_defaults_to_light_when_missing(tmp_path: Path) -> None:
     assert load_custom_theme(tmp_path) == DEFAULTS["light"]
-    (tmp_path / "config.json").write_text(json.dumps({"theme": "custom"}), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"theme": "custom"}), encoding="utf-8"
+    )
     assert load_theme(tmp_path) == "custom"
     assert load_custom_theme(tmp_path) == DEFAULTS["light"]
 
 
 @pytest.mark.parametrize("raw", [[], "dark", 3, None, True])
-def test_custom_theme_that_is_not_an_object_reads_as_the_default(tmp_path: Path, raw: object) -> None:
-    (tmp_path / "config.json").write_text(json.dumps({"custom_theme": raw}), encoding="utf-8")
+def test_custom_theme_that_is_not_an_object_reads_as_the_default(
+    tmp_path: Path, raw: object
+) -> None:
+    (tmp_path / "config.json").write_text(
+        json.dumps({"custom_theme": raw}), encoding="utf-8"
+    )
     assert load_custom_theme(tmp_path) == DEFAULTS["light"]
 
 
 def test_save_custom_theme_round_trips_and_keeps_other_keys(tmp_path: Path) -> None:
-    (tmp_path / "config.json").write_text(json.dumps({"theme": "dark", "name_width": 300, "other": 1}), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"theme": "dark", "name_width": 300, "other": 1}), encoding="utf-8"
+    )
     theme = CustomTheme("dark", "#7e57c2", None, "#1e1e2e", "#e6e6f0")
     save_custom_theme(theme, tmp_path)
     saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
-    assert saved["theme"] == "dark" and saved["name_width"] == 300 and saved["other"] == 1
+    assert (
+        saved["theme"] == "dark" and saved["name_width"] == 300 and saved["other"] == 1
+    )
     assert load_custom_theme(tmp_path) == theme
 
 
@@ -347,13 +457,17 @@ def test_dashboard_views_round_trip_and_keep_other_keys(tmp_path: Path) -> None:
     assert load_theme(tmp_path) == "dark"
 
 
-def test_dashboard_views_default_to_empty_when_missing_or_unreadable(tmp_path: Path) -> None:
+def test_dashboard_views_default_to_empty_when_missing_or_unreadable(
+    tmp_path: Path,
+) -> None:
     assert load_dashboard_views(tmp_path) == []
     assert load_dashboard_view_last(tmp_path) is None
     (tmp_path / "config.json").write_text("{broken", encoding="utf-8")
     assert load_dashboard_views(tmp_path) == []
     assert load_dashboard_view_last(tmp_path) is None
-    (tmp_path / "config.json").write_text(json.dumps({"dashboard_views": 3, "dashboard_view_last": 4}), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"dashboard_views": 3, "dashboard_view_last": 4}), encoding="utf-8"
+    )
     assert load_dashboard_views(tmp_path) == []
     assert load_dashboard_view_last(tmp_path) is None
 
@@ -380,7 +494,9 @@ def test_the_today_color_round_trips_and_keeps_other_keys(tmp_path: Path) -> Non
 def test_an_invalid_today_color_is_read_as_none(tmp_path: Path, value: object) -> None:
     from projectapp.config import load_today_color
 
-    (tmp_path / "config.json").write_text(json.dumps({"today_color": value}), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"today_color": value}), encoding="utf-8"
+    )
     assert load_today_color(tmp_path) is None
 
 
@@ -391,7 +507,12 @@ def test_the_warning_color_defaults_to_none(tmp_path: Path) -> None:
 
 
 def test_the_warning_color_round_trips_and_keeps_other_keys(tmp_path: Path) -> None:
-    from projectapp.config import load_today_color, load_warning_color, save_today_color, save_warning_color
+    from projectapp.config import (
+        load_today_color,
+        load_warning_color,
+        save_today_color,
+        save_warning_color,
+    )
 
     save_today_color("#1e88e5", tmp_path)
     save_warning_color("#fdd835", tmp_path)
@@ -403,8 +524,12 @@ def test_the_warning_color_round_trips_and_keeps_other_keys(tmp_path: Path) -> N
 
 
 @pytest.mark.parametrize("value", ["yellow", "#12345", 5, [], {}])
-def test_an_invalid_warning_color_is_read_as_none(tmp_path: Path, value: object) -> None:
+def test_an_invalid_warning_color_is_read_as_none(
+    tmp_path: Path, value: object
+) -> None:
     from projectapp.config import load_warning_color
 
-    (tmp_path / "config.json").write_text(json.dumps({"warning_color": value}), encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"warning_color": value}), encoding="utf-8"
+    )
     assert load_warning_color(tmp_path) is None

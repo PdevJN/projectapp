@@ -14,7 +14,10 @@ def tree() -> Project:
     return Project(
         "p",
         tasks=[Task("r")],
-        sections=[Section("親", [Task("p1")], [child, Section("子2", [Task("c2")])]), Section("別", [Task("o")])],
+        sections=[
+            Section("親", [Task("p1")], [child, Section("子2", [Task("c2")])]),
+            Section("別", [Task("o")]),
+        ],
     )
 
 
@@ -30,7 +33,13 @@ def test_a_section_lists_its_own_and_its_descendants_tasks() -> None:
 
 def test_walk_sections_yields_paths_depth_first() -> None:
     paths = [(path, section.name) for path, section in walk_sections(tree().sections)]
-    assert paths == [((0,), "親"), ((0, 0), "子"), ((0, 0, 0), "孫"), ((0, 1), "子2"), ((1,), "別")]
+    assert paths == [
+        ((0,), "親"),
+        ((0, 0), "子"),
+        ((0, 0, 0), "孫"),
+        ((0, 1), "子2"),
+        ((1,), "別"),
+    ]
 
 
 def test_a_flat_project_is_unchanged() -> None:

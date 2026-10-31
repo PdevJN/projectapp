@@ -19,7 +19,11 @@ class EffortUnit(Enum):
 
 
 def _daily(daily_hours: float) -> float:
-    return daily_hours if isfinite(daily_hours) and daily_hours > 0 else DEFAULT_DAILY_HOURS
+    return (
+        daily_hours
+        if isfinite(daily_hours) and daily_hours > 0
+        else DEFAULT_DAILY_HOURS
+    )
 
 
 def _factor(unit: EffortUnit, daily_hours: float) -> float:
@@ -53,7 +57,9 @@ def reference_text(unit: EffortUnit, daily_hours: float, standard_hours: float) 
     if unit is EffortUnit.DAYS:
         return f"1日 = {daily:g}h(稼働可能時間)"
     if unit is EffortUnit.WEEKS:
-        return f"1週 = {WORKDAYS_PER_WEEK}日 × {daily:g}h = {WORKDAYS_PER_WEEK * daily:g}h"
+        return (
+            f"1週 = {WORKDAYS_PER_WEEK}日 × {daily:g}h = {WORKDAYS_PER_WEEK * daily:g}h"
+        )
     if unit is EffortUnit.MONTHS:
         return (
             f"1月 = {WORKDAYS_PER_MONTH}日 × {daily:g}h = {WORKDAYS_PER_MONTH * daily:g}h"

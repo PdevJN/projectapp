@@ -23,13 +23,19 @@ def overlap_hours(
     work_days: Mapping[date, WorkDay] | None = None,
 ) -> float:
     """その日の稼働の枠のうち、[start, end) と重なる時間[h]。work_days があれば、その人の上書きを反映する。"""
-    window = day_window(day, project.daily_hours, project.work_start, holidays, work_days)
+    window = day_window(
+        day, project.daily_hours, project.work_start, holidays, work_days
+    )
     if window is None:
         return 0.0
-    return max(0.0, (min(end, window[1]) - max(start, window[0])).total_seconds() / 3600)
+    return max(
+        0.0, (min(end, window[1]) - max(start, window[0])).total_seconds() / 3600
+    )
 
 
-def open_hours(task: Task, project: Project, holidays: dict[date, str], now: datetime, limit: float) -> float:
+def open_hours(
+    task: Task, project: Project, holidays: dict[date, str], now: datetime, limit: float
+) -> float:
     """終了のない実績の区間が、今までに稼働の枠の中で積んだ時間[h]。`limit` に達したら数えるのをやめる。"""
     total = 0.0
     for interval in task.actuals:
@@ -44,7 +50,9 @@ def open_hours(task: Task, project: Project, holidays: dict[date, str], now: dat
     return total
 
 
-def remaining_hours(task: Task, project: Project, holidays: dict[date, str], now: datetime) -> float:
+def remaining_hours(
+    task: Task, project: Project, holidays: dict[date, str], now: datetime
+) -> float:
     """残りの工数。工数から消化分を引く。消化分は、進捗度があれば工数 × 進捗度、
     なければ実績の区間 × 換算率(開いたままの区間は、今までに稼働の枠で積んだ時間)。
     状態は手入力なので、未着手でも進捗度か実績があれば引く(なければ全量)。"""
@@ -53,5 +61,8 @@ def remaining_hours(task: Task, project: Project, holidays: dict[date, str], now
     done = consumed_hours(task, rate)
     if not task.progress:  # 進捗度があれば、そちらを優先する(None と 0 は進捗度なし)
         factor = combine_rate(rate, 1.0)
-        done = min(done + open_hours(task, project, holidays, now, effort / factor) * factor, effort)
+        done = min(
+            done + open_hours(task, project, holidays, now, effort / factor) * factor,
+            effort,
+        )
     return effort - done

@@ -37,12 +37,21 @@ from projectapp.shortcuts import SHORTCUTS, Screen, help_entries, resolve
     ],
 )
 def test_main_screen_keys_resolve_to_actions(key, ctrl, shift, action):
-    assert resolve(key, ctrl=ctrl, shift=shift, modal=False, screen=Screen.MAIN) == action
+    assert (
+        resolve(key, ctrl=ctrl, shift=shift, modal=False, screen=Screen.MAIN) == action
+    )
 
 
 @pytest.mark.parametrize(
     ("key", "ctrl", "shift"),
-    [("s", False, False), ("d", True, False), ("x", True, False), ("x", False, False), ("e", True, True), ("k", False, False)],
+    [
+        ("s", False, False),
+        ("d", True, False),
+        ("x", True, False),
+        ("x", False, False),
+        ("e", True, True),
+        ("k", False, False),
+    ],
 )
 def test_unassigned_combinations_resolve_to_nothing(key, ctrl, shift):
     assert resolve(key, ctrl=ctrl, shift=shift, modal=False, screen=Screen.MAIN) is None
@@ -74,15 +83,24 @@ def test_nothing_resolves_while_a_dialog_is_open():
 )
 @pytest.mark.parametrize(
     ("modal", "screen"),
-    [(False, Screen.MAIN), (True, Screen.MAIN), (False, Screen.PREVIEW), (False, Screen.DASHBOARD)],
+    [
+        (False, Screen.MAIN),
+        (True, Screen.MAIN),
+        (False, Screen.PREVIEW),
+        (False, Screen.DASHBOARD),
+    ],
 )
 def test_zoom_keys_work_in_every_state(key, shift, action, modal, screen):
     assert resolve(key, ctrl=True, shift=shift, modal=modal, screen=screen) == action
 
 
 def test_zoom_keys_need_ctrl():
-    assert resolve("-", ctrl=False, shift=False, modal=False, screen=Screen.MAIN) is None
-    assert resolve("0", ctrl=False, shift=False, modal=False, screen=Screen.MAIN) is None
+    assert (
+        resolve("-", ctrl=False, shift=False, modal=False, screen=Screen.MAIN) is None
+    )
+    assert (
+        resolve("0", ctrl=False, shift=False, modal=False, screen=Screen.MAIN) is None
+    )
 
 
 def test_help_lists_the_zoom_keys():
@@ -98,14 +116,45 @@ def test_help_lists_every_shortcut_once_with_its_description():
     assert ("Ctrl/Cmd+S", "上書き保存") in entries
     assert ("Ctrl/Cmd+Shift+S", "名前をつけて保存") in entries
     assert ("?", "ショートカットヘルプ") in entries
-    assert ("ESC", "開いているダイアログを閉じる(プレビュー・ダッシュボードから戻る)") in entries
+    assert (
+        "ESC",
+        "開いているダイアログを閉じる(プレビュー・ダッシュボードから戻る)",
+    ) in entries
 
 
 def test_the_key_lists_for_the_browser_guard_come_from_the_table():
     from projectapp.shortcuts import ctrl_keys, plain_keys
 
-    assert ctrl_keys() == {"s", "o", "n", ",", "m", "e", "p", "k", "l", "z", "+", "=", ";", "-", "0"}
-    assert plain_keys() == {"escape", "delete", "d", "/", "?", "t", "b", "g", "f", "[", "]"}
+    assert ctrl_keys() == {
+        "s",
+        "o",
+        "n",
+        ",",
+        "m",
+        "e",
+        "p",
+        "k",
+        "l",
+        "z",
+        "+",
+        "=",
+        ";",
+        "-",
+        "0",
+    }
+    assert plain_keys() == {
+        "escape",
+        "delete",
+        "d",
+        "/",
+        "?",
+        "t",
+        "b",
+        "g",
+        "f",
+        "[",
+        "]",
+    }
 
 
 HARNESS = """
@@ -152,27 +201,49 @@ def test_the_key_guard_blocks_the_browser_default_and_the_beep(tmp_path):
     (tmp_path / "guard.js").write_text(KEY_GUARD_JS)
     (tmp_path / "harness.js").write_text(HARNESS)
     run = subprocess.run(
-        [node, str(tmp_path / "harness.js"), str(tmp_path / "guard.js")], capture_output=True, text=True
+        [node, str(tmp_path / "harness.js"), str(tmp_path / "guard.js")],
+        capture_output=True,
+        text=True,
     )
     assert run.returncode == 0, run.stderr
     out = json.loads(run.stdout)
     for name in ("ctrlS", "cmdP", "d", "slash", "esc"):
-        assert out[name]["prevented"], name  # ブラウザ既定の動き・macOS の警告音を止める
+        assert out[name]["prevented"], (
+            name
+        )  # ブラウザ既定の動き・macOS の警告音を止める
     for name in ("escInInput", "escInTextarea"):
-        assert out[name]["prevented"], name  # ESC は文字を入力しないので、入力欄の中でも止める(止めないと macOS の警告音が鳴る)
+        assert out[name]["prevented"], (
+            name
+        )  # ESC は文字を入力しないので、入力欄の中でも止める(止めないと macOS の警告音が鳴る)
     for name in ("ctrlX", "dInInput", "x", "escComposing"):
-        assert not out[name]["prevented"], name  # 割り当てのないキーと、入力欄の文字、変換の取り消しの ESC は止めない
+        assert not out[name]["prevented"], (
+            name
+        )  # 割り当てのないキーと、入力欄の文字、変換の取り消しの ESC は止めない
     assert out["ctrlZ"]["prevented"]  # 入力欄の外では、ブラウザ既定の動きを止める
-    assert out["ctrlSInInput"]["prevented"]  # ほかの Ctrl 付きのキーは、入力欄の中でも止める
+    assert out["ctrlSInInput"][
+        "prevented"
+    ]  # ほかの Ctrl 付きのキーは、入力欄の中でも止める
     for name in ("ctrlZInInput", "cmdZInTextarea"):
-        assert not out[name]["prevented"], name  # 入力欄の中の Ctrl/Cmd+Z は、標準の文字の取り消しに任せる
+        assert not out[name]["prevented"], (
+            name
+        )  # 入力欄の中の Ctrl/Cmd+Z は、標準の文字の取り消しに任せる
 
 
 def test_members_parameters_shortcut_needs_ctrl_and_shift():
-    assert resolve("m", ctrl=True, shift=True, modal=False, screen=Screen.MAIN) == "members_parameters"
-    assert resolve("m", ctrl=True, shift=False, modal=False, screen=Screen.MAIN) is None  # Ctrl/Cmd+M は割り当てない
-    assert resolve("m", ctrl=True, shift=True, modal=True, screen=Screen.MAIN) is None  # ダイアログが開いているあいだは効かない
-    assert resolve("m", ctrl=True, shift=True, modal=False, screen=Screen.DASHBOARD) is None
+    assert (
+        resolve("m", ctrl=True, shift=True, modal=False, screen=Screen.MAIN)
+        == "members_parameters"
+    )
+    assert (
+        resolve("m", ctrl=True, shift=False, modal=False, screen=Screen.MAIN) is None
+    )  # Ctrl/Cmd+M は割り当てない
+    assert (
+        resolve("m", ctrl=True, shift=True, modal=True, screen=Screen.MAIN) is None
+    )  # ダイアログが開いているあいだは効かない
+    assert (
+        resolve("m", ctrl=True, shift=True, modal=False, screen=Screen.DASHBOARD)
+        is None
+    )
 
 
 def test_help_lists_the_members_parameters_shortcut():
@@ -191,6 +262,7 @@ def test_help_lists_the_git_shortcuts() -> None:
     entries = help_entries()
     assert ("Ctrl/Cmd+K", "コミット") in entries
     assert ("Ctrl/Cmd+Shift+K", "プッシュ") in entries
+
 
 def test_undo_and_redo_do_not_work_while_a_dialog_is_open():
     assert resolve("z", ctrl=True, shift=False, modal=True, screen=Screen.MAIN) is None
@@ -218,9 +290,23 @@ def test_undo_and_redo_are_in_the_help():
     assert ("Ctrl/Cmd+Shift+Z", "やり直す") in entries
 
 
-def test_delete_and_backspace_call_the_bulk_delete_only_on_the_main_screen_without_a_dialog() -> None:
+def test_delete_and_backspace_call_the_bulk_delete_only_on_the_main_screen_without_a_dialog() -> (
+    None
+):
     for key in ("Delete", "Backspace"):
-        assert resolve(key, ctrl=False, shift=False, modal=False, screen=Screen.MAIN) == "bulk_delete"
-        assert resolve(key, ctrl=False, shift=False, modal=True, screen=Screen.MAIN) is None
-        assert resolve(key, ctrl=False, shift=False, modal=False, screen=Screen.DASHBOARD) is None
-    assert ("Delete", "選択中のタスクを削除(macOS の delete キーも可)") in help_entries()
+        assert (
+            resolve(key, ctrl=False, shift=False, modal=False, screen=Screen.MAIN)
+            == "bulk_delete"
+        )
+        assert (
+            resolve(key, ctrl=False, shift=False, modal=True, screen=Screen.MAIN)
+            is None
+        )
+        assert (
+            resolve(key, ctrl=False, shift=False, modal=False, screen=Screen.DASHBOARD)
+            is None
+        )
+    assert (
+        "Delete",
+        "選択中のタスクを削除(macOS の delete キーも可)",
+    ) in help_entries()

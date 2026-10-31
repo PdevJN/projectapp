@@ -12,9 +12,17 @@ from pathlib import Path
 from typing import Any
 
 from projectapp.models import Category, Project, Status, Task
-from projectapp.timeline import consumed_slices, conversion_rate, effective_end, effective_start, weekly_crews
+from projectapp.timeline import (
+    consumed_slices,
+    conversion_rate,
+    effective_end,
+    effective_start,
+    weekly_crews,
+)
 
-NAMESPACE = uuid.UUID("5b0f3c1e-8a42-4d6f-9e17-3c2a7d94b0e8")  # 決定的な id の元。変えると、書き出し直しの id が変わる
+NAMESPACE = uuid.UUID(
+    "5b0f3c1e-8a42-4d6f-9e17-3c2a7d94b0e8"
+)  # 決定的な id の元。変えると、書き出し直しの id が変わる
 JSON_FILE_TYPES = ("JSON ファイル (*.json)",)
 UNSAFE_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
 
@@ -28,7 +36,11 @@ class Handoff:
 
 def tasks_for(project: Project, member_name: str) -> list[Task]:
     """選んだ担当の、終了していないタスク(`all_tasks()` の順)。担当者のどれかが、そのメンバーなら対象。"""
-    return [t for t in project.all_tasks() if member_name in t.assignee_names and t.status != Status.DONE]
+    return [
+        t
+        for t in project.all_tasks()
+        if member_name in t.assignee_names and t.status != Status.DONE
+    ]
 
 
 def _uuid(*parts: str) -> str:
@@ -41,30 +53,43 @@ def _task_keys(project: Project) -> dict[int, str]:
     keys: dict[int, str] = {}
     for task in project.all_tasks():
         seen[task.name] = seen.get(task.name, 0) + 1
-        keys[id(task)] = task.name if seen[task.name] == 1 else f"{task.name}#{seen[task.name]}"
+        keys[id(task)] = (
+            task.name if seen[task.name] == 1 else f"{task.name}#{seen[task.name]}"
+        )
     return keys
 
 
-def _schedule(task: Task, project: Project, holidays: dict[date, str]) -> tuple[str, str]:
+def _schedule(
+    task: Task, project: Project, holidays: dict[date, str]
+) -> tuple[str, str]:
     """(schedule_type, anchor_date)。期間が複数日なら daily、それ以外は one_time。"""
     start = effective_start(task, project, holidays)
     anchor = start.date() if start is not None else project.base_date
-    no_span = task.effort_hours <= 0 and task.planned_end is None and task.deadline is None
+    no_span = (
+        task.effort_hours <= 0 and task.planned_end is None and task.deadline is None
+    )
     if start is None or no_span:
         return "one_time", anchor.isoformat()
     end = effective_end(task, project, holidays)
     if end is None:
         return "one_time", anchor.isoformat()
-    last = end - timedelta(seconds=1) if end.time() == time(0, 0) else end  # 0 時ちょうどは、前日の終わり
+    last = (
+        end - timedelta(seconds=1) if end.time() == time(0, 0) else end
+    )  # 0 時ちょうどは、前日の終わり
     return ("daily" if last.date() > anchor else "one_time"), anchor.isoformat()
 
 
-def _estimate_hours(task: Task, project: Project, member_name: str, holidays: dict[date, str]) -> float:
+def _estimate_hours(
+    task: Task, project: Project, member_name: str, holidays: dict[date, str]
+) -> float:
     """担当者自身の時間での見積もり = 工数 × そのメンバーの割り当て率 ÷ 担当者全員の換算率の合計。
     担当が 1 人なら 工数 ÷ 相対比率 と同じ。週ごとのタスクは、工数を消化する区間のうち、そのメンバーが稼働した時間 × 割り当て率の合計。"""
     if not isfinite(task.effort_hours) or task.effort_hours <= 0:
         return 0.0
-    if task.weekly_crew and (start := effective_start(task, project, holidays)) is not None:
+    if (
+        task.weekly_crew
+        and (start := effective_start(task, project, holidays)) is not None
+    ):
         slices = consumed_slices(
             start,
             task.effort_hours,
@@ -91,13 +116,17 @@ def _category(category: Category) -> dict[str, Any]:
         "id": category.id,
         "name": category.name,
         "kind": category.kind,
-        "expiry_date": category.expiry_date.isoformat() if category.expiry_date else None,
+        "expiry_date": category.expiry_date.isoformat()
+        if category.expiry_date
+        else None,
         "color": category.color,
         "prj_code": category.prj_code,
     }
 
 
-def build_todos(project: Project, member_name: str, holidays: dict[date, str]) -> Handoff:
+def build_todos(
+    project: Project, member_name: str, holidays: dict[date, str]
+) -> Handoff:
     tasks = tasks_for(project, member_name)
     keys = _task_keys(project)
     categories = [_category(c) for c in project.categories]
@@ -143,7 +172,9 @@ def _records(pairs: list[tuple[str, Task]]) -> tuple[list[dict[str, Any]], int]:
                     "item_id": item_id,
                     "item_name": task.name,
                     "start_time": start,
-                    "end_time": actual.end.isoformat(timespec="seconds") if actual.end is not None else None,
+                    "end_time": actual.end.isoformat(timespec="seconds")
+                    if actual.end is not None
+                    else None,
                 }
             )
     return records, skipped

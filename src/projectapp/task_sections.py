@@ -3,7 +3,12 @@
 from projectapp.models import DEFAULT_COLOR, Priority, Task
 
 FOLDABLE = ("assignees", "actuals", "related")  # 折りたためる節。基本は常に開く
-TITLES = {"basic": "基本", "assignees": "担当・パラメータ", "actuals": "実績・進捗", "related": "関連"}
+TITLES = {
+    "basic": "基本",
+    "assignees": "担当・パラメータ",
+    "actuals": "実績・進捗",
+    "related": "関連",
+}
 MAX_SUMMARY_PEOPLE = 3
 ERROR_PREFIXES = {
     "actuals": ("実績", "区間", "進捗度"),
@@ -20,20 +25,28 @@ def has_values(section: str, task: Task) -> bool:
         return bool(task.actuals or task.progress is not None)
     if section == "related":
         return bool(
-            task.predecessors or task.urls or task.priority is not Priority.MEDIUM or task.color != DEFAULT_COLOR
+            task.predecessors
+            or task.urls
+            or task.priority is not Priority.MEDIUM
+            or task.color != DEFAULT_COLOR
         )
     return False
 
 
 def initial_open(task: Task | None, saved: list[str] | None) -> list[str]:
     """開いて始める節。保存した開閉を使い、なければ新規は閉じ、編集は値のある節を開く。編集で値のある節は必ず開く。"""
-    valued = set() if task is None else {key for key in FOLDABLE if has_values(key, task)}
+    valued = (
+        set() if task is None else {key for key in FOLDABLE if has_values(key, task)}
+    )
     base = set(saved) if saved is not None else valued
     return [key for key in FOLDABLE if key in base | valued]
 
 
 def assignees_summary(crew: list[tuple[str, float]], parameters: int) -> str:
-    parts = [f"{name} {allocation * 100:g}%" for name, allocation in crew[:MAX_SUMMARY_PEOPLE]]
+    parts = [
+        f"{name} {allocation * 100:g}%"
+        for name, allocation in crew[:MAX_SUMMARY_PEOPLE]
+    ]
     if len(crew) > MAX_SUMMARY_PEOPLE:
         parts.append(f"ほか {len(crew) - MAX_SUMMARY_PEOPLE} 人")
     if parameters:
@@ -50,7 +63,9 @@ def actuals_summary(count: int, interval_mode: bool, progress: int | None) -> st
     return "・".join(parts)
 
 
-def related_summary(predecessors: int, links: int, priority: Priority, has_color: bool) -> str:
+def related_summary(
+    predecessors: int, links: int, priority: Priority, has_color: bool
+) -> str:
     parts = []
     if predecessors:
         parts.append(f"先行 {predecessors}")

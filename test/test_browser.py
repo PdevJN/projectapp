@@ -9,7 +9,9 @@ def test_open_url_passes_the_url_to_the_opener() -> None:
     assert opened == ["https://example.com/1"]
 
 
-@pytest.mark.parametrize("url", ["javascript:alert(1)", "file:///etc/passwd", "example.com", ""])
+@pytest.mark.parametrize(
+    "url", ["javascript:alert(1)", "file:///etc/passwd", "example.com", ""]
+)
 def test_open_url_refuses_urls_that_are_not_http(url: str) -> None:
     opened: list[str] = []
     with pytest.raises(OSError):

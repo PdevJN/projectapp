@@ -9,10 +9,23 @@ from enum import StrEnum
 from itertools import groupby
 from math import ceil, isfinite
 
-from projectapp.models import MAX_WEEKS, Assignee, Member, Parameter, Project, RatioLimits, ReferenceValue, Status, Task, TaskKind, WorkDay
+from projectapp.models import (
+    MAX_WEEKS,
+    Assignee,
+    Member,
+    Parameter,
+    Project,
+    RatioLimits,
+    ReferenceValue,
+    Status,
+    Task,
+    TaskKind,
+    WorkDay,
+)
 from projectapp.ratios import effective_ratio
 from projectapp.summary import children_of
 from projectapp.workdays import work_day_map
+
 
 class Scale(StrEnum):
     DAY = "日次"
@@ -190,7 +203,9 @@ def date_position(day: date, columns: list[Column], scale: Scale) -> float | Non
     return today_position(datetime.combine(day, time.min), columns, scale)
 
 
-def interval_span(start: datetime, end: datetime, columns: list[Column]) -> tuple[float, float]:
+def interval_span(
+    start: datetime, end: datetime, columns: list[Column]
+) -> tuple[float, float]:
     """区間の(左端, 幅)を列の単位で返す。幅は0以上。"""
     left = _position(start, columns)
     right = _position(end, columns)
@@ -216,7 +231,9 @@ def counted_assignees(task: Task, project: Project) -> list[Assignee]:
     return [a for a in task.assignees if a.name in names]
 
 
-def crew_pieces(task: Task, start: datetime, end: datetime) -> list[tuple[datetime, datetime, list[Assignee]]]:
+def crew_pieces(
+    task: Task, start: datetime, end: datetime
+) -> list[tuple[datetime, datetime, list[Assignee]]]:
     """[start, end) を、担当者の組み合わせごとの区間に切る。週ごとに分けないタスクは、全体で 1 区間。
     週ごとのタスクは、start の日から 7 日ごと(0 時)に切り、最後の週の担当は end まで続く。"""
     if not task.weekly_crew:
@@ -224,8 +241,18 @@ def crew_pieces(task: Task, start: datetime, end: datetime) -> list[tuple[dateti
     pieces: list[tuple[datetime, datetime, list[Assignee]]] = []
     last = len(task.weekly_crew) - 1
     for week, crew in enumerate(task.weekly_crew):
-        left = start if week == 0 else datetime.combine(start.date() + timedelta(days=7 * week), time.min)
-        right = end if week == last else datetime.combine(start.date() + timedelta(days=7 * (week + 1)), time.min)
+        left = (
+            start
+            if week == 0
+            else datetime.combine(start.date() + timedelta(days=7 * week), time.min)
+        )
+        right = (
+            end
+            if week == last
+            else datetime.combine(
+                start.date() + timedelta(days=7 * (week + 1)), time.min
+            )
+        )
         left, right = max(left, start), min(right, end)
         if left < right:
             pieces.append((left, right, crew))
@@ -233,7 +260,10 @@ def crew_pieces(task: Task, start: datetime, end: datetime) -> list[tuple[dateti
 
 
 def counted_span(
-    task: Task, project: Project, holidays: dict[date, str], schedule: Schedule | None = None
+    task: Task,
+    project: Project,
+    holidays: dict[date, str],
+    schedule: Schedule | None = None,
 ) -> tuple[datetime, datetime] | None:
     """割り当ての合計に数えるタスクの期間。数えない(担当者なし・終了・開始予定なしなど)ときはNone。"""
     if task.status is Status.DONE or not counted_assignees(task, project):
@@ -248,14 +278,20 @@ def counted_span(
 
 
 def counted_pieces(
-    task: Task, project: Project, holidays: dict[date, str], schedule: Schedule | None = None
+    task: Task,
+    project: Project,
+    holidays: dict[date, str],
+    schedule: Schedule | None = None,
 ) -> list[tuple[datetime, datetime, list[Assignee]]]:
     """割り当ての合計に数えるタスクの区間と、その区間の担当者(メンバーにいる人だけ)。数えないタスクは空。"""
     span = counted_span(task, project, holidays, schedule)
     if span is None:
         return []
     names = {m.name for m in project.members}
-    return [(left, right, [a for a in crew if a.name in names]) for left, right, crew in crew_pieces(task, *span)]
+    return [
+        (left, right, [a for a in crew if a.name in names])
+        for left, right, crew in crew_pieces(task, *span)
+    ]
 
 
 def overallocations(
@@ -267,7 +303,9 @@ def overallocations(
     for task in project.all_tasks() if tasks is None else tasks:
         for left, right, crew in counted_pieces(task, project, holidays, schedule):
             for assignee in crew:
-                spans.setdefault(assignee.name, []).append((left, right, assignee.allocation))
+                spans.setdefault(assignee.name, []).append(
+                    (left, right, assignee.allocation)
+                )
     result: list[Overload] = []
     for name, items in spans.items():
         points = sorted({p for start, end, _ in items for p in (start, end)})
@@ -276,7 +314,9 @@ def overallocations(
             total = sum(a for start, end, a in items if start <= left and right <= end)
             if total > 1.0 + OVERLOAD_EPSILON:
                 if current is not None and current.end == left:
-                    current = replace(current, end=right, total=max(current.total, total))
+                    current = replace(
+                        current, end=right, total=max(current.total, total)
+                    )
                 else:
                     if current is not None:
                         result.append(current)
@@ -307,15 +347,24 @@ def clip_overloads(
             if left >= right:
                 continue
             item = replace(overload, start=left, end=right)
-            if clipped and clipped[-1].member == item.member and clipped[-1].end == item.start and clipped[-1].total == item.total:
-                clipped[-1] = replace(clipped[-1], end=item.end)  # 週の境目で切れた同じ超過は、1 本の縞にする
+            if (
+                clipped
+                and clipped[-1].member == item.member
+                and clipped[-1].end == item.start
+                and clipped[-1].total == item.total
+            ):
+                clipped[-1] = replace(
+                    clipped[-1], end=item.end
+                )  # 週の境目で切れた同じ超過は、1 本の縞にする
             else:
                 clipped.append(item)
     return clipped
 
 
 def _bands(
-    columns: list[Column], key: Callable[[Column], object], label: Callable[[Column], str]
+    columns: list[Column],
+    key: Callable[[Column], object],
+    label: Callable[[Column], str],
 ) -> list[Band]:
     """keyが同じ(同じ年や月)の連続する列を、1つの帯にまとめる。"""
     bands: list[Band] = []
@@ -341,7 +390,11 @@ def _default_open(day: date, holidays: dict[date, str]) -> bool:
     return day.weekday() < 5 and day not in holidays
 
 
-def is_workday(day: date, holidays: dict[date, str], work_days: Mapping[date, WorkDay] | None = None) -> bool:
+def is_workday(
+    day: date,
+    holidays: dict[date, str],
+    work_days: Mapping[date, WorkDay] | None = None,
+) -> bool:
     """稼働日か。稼働日の上書きがあればそれ(休みは稼働日でない)、なければ月〜金で祝日でない日。"""
     if work_days and day in work_days:
         return work_days[day].start is not None
@@ -391,15 +444,26 @@ def crew_on(task: Task, start: date, day: date) -> list[Assignee]:
 
 
 def _crews(
-    effort_hours: float, daily_hours: float, crew: Sequence[Worker] | None, weeks: Sequence[Sequence[Worker]] | None
+    effort_hours: float,
+    daily_hours: float,
+    crew: Sequence[Worker] | None,
+    weeks: Sequence[Sequence[Worker]] | None,
 ) -> list[list[Worker]] | None:
     """算出に使う週ごとの担当(週ごとに分けないときは 1 週ぶん)。算出できない入力は None。
     担当者のいない週は換算率 1 の 1 人。工数の上限の判定は、最も遅い週(換算率の合計が最小)で行う。"""
-    crews = [list(week) or [Worker()] for week in weeks] if weeks else [list(crew) if crew else [Worker()]]
+    crews = (
+        [list(week) or [Worker()] for week in weeks]
+        if weeks
+        else [list(crew) if crew else [Worker()]]
+    )
     total = min(sum(w.rate for w in c) for c in crews)
     if not isfinite(effort_hours) or effort_hours <= 0 or not 0 < daily_hours <= 24:
         return None
-    if not isfinite(total) or total <= 0 or effort_hours / total > daily_hours * MAX_WORKDAYS:
+    if (
+        not isfinite(total)
+        or total <= 0
+        or effort_hours / total > daily_hours * MAX_WORKDAYS
+    ):
         return None
     return crews
 
@@ -443,7 +507,9 @@ def consumed_slices(
     if crews is None:
         return []
     try:
-        return list(_consume(start, effort_hours, daily_hours, work_start, holidays, crews))
+        return list(
+            _consume(start, effort_hours, daily_hours, work_start, holidays, crews)
+        )
     except OverflowError:
         return []
 
@@ -464,7 +530,11 @@ def work_capacity(
     空の範囲・不正な稼働可能時間は 0。数える日数は MAX_WORKDAYS で打ち切る。"""
     if end <= start or not 0 < daily_hours <= 24:
         return 0.0
-    crews = [list(week) or [Worker()] for week in weeks] if weeks else [list(crew) if crew else [Worker()]]
+    crews = (
+        [list(week) or [Worker()] for week in weeks]
+        if weeks
+        else [list(crew) if crew else [Worker()]]
+    )
     origin = weeks_start or start.date()
     try:
         end = min(end, start + timedelta(days=MAX_WORKDAYS))
@@ -477,11 +547,16 @@ def work_capacity(
         windows = [
             (w, window)
             for w in workers
-            if (window := day_window(day, daily_hours, work_start, holidays, w.days)) is not None
+            if (window := day_window(day, daily_hours, work_start, holidays, w.days))
+            is not None
         ]
-        points = sorted({min(max(p, start), end) for _, window in windows for p in window})
+        points = sorted(
+            {min(max(p, start), end) for _, window in windows for p in window}
+        )
         for left, right in zip(points, points[1:]):
-            active = [w for w, (opens, closes) in windows if opens <= left and right <= closes]
+            active = [
+                w for w, (opens, closes) in windows if opens <= left and right <= closes
+            ]
             total += sum(w.rate for w in active) * (right - left).total_seconds() / 3600
         day += timedelta(days=1)
     return total
@@ -502,17 +577,26 @@ def _consume(
         windows = [
             (w, window)
             for w in workers
-            if (window := day_window(day, daily_hours, work_start, holidays, w.days)) is not None
+            if (window := day_window(day, daily_hours, work_start, holidays, w.days))
+            is not None
         ]
         points = sorted({max(p, cursor) for _, window in windows for p in window})
         for left, right in zip(points, points[1:]):
-            active = [w for w, (opens, closes) in windows if opens <= left and right <= closes]
+            active = [
+                w for w, (opens, closes) in windows if opens <= left and right <= closes
+            ]
             speed = sum(w.rate for w in active)
             if speed <= 0:
                 continue
             capacity = speed * (right - left).total_seconds() / 3600
-            if remaining <= capacity + CAPACITY_EPSILON:  # 浮動小数の丸めで、ちょうど枠の終わりで終わる工数が翌日に回らない
-                yield left, min(left + timedelta(hours=remaining / speed), right), active
+            if (
+                remaining <= capacity + CAPACITY_EPSILON
+            ):  # 浮動小数の丸めで、ちょうど枠の終わりで終わる工数が翌日に回らない
+                yield (
+                    left,
+                    min(left + timedelta(hours=remaining / speed), right),
+                    active,
+                )
                 return
             remaining -= capacity
             yield left, right, active
@@ -529,7 +613,9 @@ def _calc_end(
     crews: list[list[Worker]],
 ) -> datetime:
     end = start
-    for _, end, _ in _consume(start, effort_hours, daily_hours, work_start, holidays, crews):
+    for _, end, _ in _consume(
+        start, effort_hours, daily_hours, work_start, holidays, crews
+    ):
         pass
     return end
 
@@ -552,7 +638,9 @@ def crew_of(
     chosen = parameters or []
     return [
         Worker(
-            combine_rate(effective_ratio(by_name[a.name], chosen, only, limits), a.allocation),
+            combine_rate(
+                effective_ratio(by_name[a.name], chosen, only, limits), a.allocation
+            ),
             work_day_map(by_name[a.name].work_days),
             a.name,
             a.allocation,
@@ -575,13 +663,25 @@ def assignees_rate(
 
 
 def conversion_rate(task: Task, project: Project) -> float:
-    return assignees_rate(task.assignees, project.members, project.parameters, task.parameters, project.ratio_limits)
+    return assignees_rate(
+        task.assignees,
+        project.members,
+        project.parameters,
+        task.parameters,
+        project.ratio_limits,
+    )
 
 
 def weekly_crews(task: Task, project: Project) -> list[list[Worker]]:
     """週ごとの担当を算出用の Worker にしたもの(パラメータを反映)。週ごとに分けないタスクは空。"""
     return [
-        crew_of(week, project.members, project.parameters, task.parameters, project.ratio_limits)
+        crew_of(
+            week,
+            project.members,
+            project.parameters,
+            task.parameters,
+            project.ratio_limits,
+        )
         for week in task.weekly_crew
     ]
 
@@ -609,7 +709,9 @@ def computed_end(
     """手入力を使わない完了予定。工数を換算率で割って算出し、算出できなければ締切、締切もなければ開始予定の1日後。"""
     if start is not None and effort_hours > 0:
         workers = list(crew) if crew else [Worker(combine_rate(rate, 1.0))]
-        end = calc_end(start, effort_hours, daily_hours, work_start, holidays, workers, weeks)
+        end = calc_end(
+            start, effort_hours, daily_hours, work_start, holidays, workers, weeks
+        )
         if end is not None:
             return end
     if deadline is not None:
@@ -626,7 +728,9 @@ def _own_end(
     task: Task, project: Project, holidays: dict[date, str], start: datetime | None
 ) -> datetime | None:
     """開始を `start` としたときの完了予定。手指定・工数なしの planned_end は、押し出された分ずらす。"""
-    if task.planned_end is not None and (task.effort_hours <= 0 or task.planned_end_manual):
+    if task.planned_end is not None and (
+        task.effort_hours <= 0 or task.planned_end_manual
+    ):
         if task.planned_start is None or start is None or start <= task.planned_start:
             return task.planned_end
         try:
@@ -640,7 +744,13 @@ def _own_end(
         project.work_start,
         holidays,
         task.deadline,
-        crew=crew_of(task.assignees, project.members, project.parameters, task.parameters, project.ratio_limits),
+        crew=crew_of(
+            task.assignees,
+            project.members,
+            project.parameters,
+            task.parameters,
+            project.ratio_limits,
+        ),
         weeks=weekly_crews(task, project) or None,
     )
 
@@ -661,7 +771,9 @@ class Schedule:
     ) -> None:
         self.project = project
         self.holidays = holidays
-        self.references: Mapping[str, ReferenceValue] = references or {}  # プロジェクト参照の行(タスクの id)ごとの参照値
+        self.references: Mapping[str, ReferenceValue] = (
+            references or {}
+        )  # プロジェクト参照の行(タスクの id)ごとの参照値
         self._tasks = {task.id: task for task in project.all_tasks()}
         self._done: dict[str, tuple[datetime | None, datetime | None]] = {}
         self._active: set[str] = set()
@@ -683,17 +795,25 @@ class Schedule:
     def finish(self, pred: Task) -> datetime | None:
         """先行としての完了。終了済みで実績の終了があればその時刻、なければ実効の完了。
         まとめは、子の完了の最大(終了済みの子は実績の終了)。"""
-        if pred.kind is TaskKind.REFERENCE:  # 参照先がすべて終了していれば実績の終了、なければ完了予定
+        if (
+            pred.kind is TaskKind.REFERENCE
+        ):  # 参照先がすべて終了していれば実績の終了、なければ完了予定
             value = self.references.get(pred.id)
             if value is None:
                 return None
-            return value.actual_end if value.finished and value.actual_end is not None else value.planned_end
+            return (
+                value.actual_end
+                if value.finished and value.actual_end is not None
+                else value.planned_end
+            )
         if pred.kind is TaskKind.SUMMARY:
             if pred.id in self._active:  # 循環(手編集のファイルなど)
                 return None
             self._active.add(pred.id)
             try:
-                finishes = [self.finish(child) for child in children_of(pred, self._tasks)]
+                finishes = [
+                    self.finish(child) for child in children_of(pred, self._tasks)
+                ]
             finally:
                 self._active.discard(pred.id)
             return max((f for f in finishes if f is not None), default=None)
@@ -722,15 +842,23 @@ class Schedule:
             return result
         if task.kind is TaskKind.REFERENCE:  # 参照先の全体の期間。自分の先行は持たない
             value = self.references.get(task.id)
-            result = (value.planned_start, value.planned_end) if value is not None else (None, None)
+            result = (
+                (value.planned_start, value.planned_end)
+                if value is not None
+                else (None, None)
+            )
             self._done[task.id] = result
             return result
-        if task.kind is TaskKind.SUMMARY:  # 子の最小の開始と最大の完了。自分の先行は持たない
+        if (
+            task.kind is TaskKind.SUMMARY
+        ):  # 子の最小の開始と最大の完了。自分の先行は持たない
             if task.id in self._active:  # 循環(手編集のファイルなど)
                 return None, None
             self._active.add(task.id)
             try:
-                spans = [self._resolve(child) for child in children_of(task, self._tasks)]
+                spans = [
+                    self._resolve(child) for child in children_of(task, self._tasks)
+                ]
             finally:
                 self._active.discard(task.id)
             starts = [start for start, _ in spans if start is not None]
@@ -739,7 +867,9 @@ class Schedule:
             self._done[task.id] = result
             return result
         if task.id in self._active:  # 循環(手編集のファイルなど)。押し出しなしで扱う
-            return task.planned_start, _own_end(task, self.project, self.holidays, task.planned_start)
+            return task.planned_start, _own_end(
+                task, self.project, self.holidays, task.planned_start
+            )
         self._active.add(task.id)
         try:
             floor = self.latest_finish(task)
@@ -760,7 +890,10 @@ def week_count(start: datetime, end: datetime) -> int:
 
 
 def effective_start(
-    task: Task, project: Project, holidays: dict[date, str], schedule: Schedule | None = None
+    task: Task,
+    project: Project,
+    holidays: dict[date, str],
+    schedule: Schedule | None = None,
 ) -> datetime | None:
     """実効の開始。先行がなければ開始予定。あれば、開始予定と先行の完了の遅いほう。チェックポイントは締切。"""
     if task.kind is TaskKind.CHECKPOINT:
@@ -773,7 +906,10 @@ def effective_start(
 
 
 def effective_end(
-    task: Task, project: Project, holidays: dict[date, str], schedule: Schedule | None = None
+    task: Task,
+    project: Project,
+    holidays: dict[date, str],
+    schedule: Schedule | None = None,
 ) -> datetime | None:
     """完了予定。工数が無い、または手で指定のときは planned_end、それ以外は算出する。先行の押し出しを含む。
     チェックポイントは締切。"""
@@ -809,7 +945,9 @@ def is_overdue(
     実績の終了がなければ、状態が「終了」でない間だけ、現在時刻と比べる。"""
     if task.kind is TaskKind.SUMMARY:
         return False  # 超過は子に出る
-    if task.kind is TaskKind.REFERENCE:  # 参照先の完了予定が、自分の締切を超えるときだけ
+    if (
+        task.kind is TaskKind.REFERENCE
+    ):  # 参照先の完了予定が、自分の締切を超えるときだけ
         end = (schedule or Schedule(project, holidays)).end(task)
         return task.deadline is not None and end is not None and end > task.deadline
     moment = actual_end(task)
@@ -817,7 +955,11 @@ def is_overdue(
         if task.status is Status.DONE:
             return False
         moment = now
-    if task.kind is TaskKind.CHECKPOINT and task.deadline is not None and task.predecessors:
+    if (
+        task.kind is TaskKind.CHECKPOINT
+        and task.deadline is not None
+        and task.predecessors
+    ):
         floor = (schedule or Schedule(project, holidays)).latest_finish(task)
         if floor is not None and floor > task.deadline:
             return True  # 先行の完了が締切を超える見込み
@@ -842,7 +984,9 @@ def overdue_reasons(
     moment = actual_end(task) or now
     if task.kind is TaskKind.REFERENCE:  # 参照先の完了予定が、自分の締切を超える
         if task.deadline is not None:
-            reasons.append(f"期限超過(締切 {task.deadline:%m/%d %H:%M} を過ぎる見込みです)")
+            reasons.append(
+                f"期限超過(締切 {task.deadline:%m/%d %H:%M} を過ぎる見込みです)"
+            )
         return reasons
     if task.deadline is not None:
         floor = None

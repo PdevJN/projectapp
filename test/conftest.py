@@ -17,7 +17,9 @@ def class_refreshables() -> list[ui.refreshable]:
             continue
         for cls in list(vars(module).values()):
             if isinstance(cls, type) and cls.__module__ == name:
-                found += [v for v in vars(cls).values() if isinstance(v, ui.refreshable)]
+                found += [
+                    v for v in vars(cls).values() if isinstance(v, ui.refreshable)
+                ]
     return found
 
 
@@ -75,7 +77,10 @@ def freeze_baseline_heap():
 @pytest.fixture(autouse=True)
 def no_real_git(monkeypatch: pytest.MonkeyPatch) -> None:
     """画面のテストは、本物の`git`を呼ばない(既定は、作業ツリーではない格納先)。`gitstate`の単体テストには影響しない。"""
-    monkeypatch.setattr("projectapp.views.read_git_state", lambda project_dir: GitState(GitKind.NOT_REPO))
+    monkeypatch.setattr(
+        "projectapp.views.read_git_state",
+        lambda project_dir: GitState(GitKind.NOT_REPO),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -90,7 +95,11 @@ def make_png():
     """画像のバイト列を作る関数。fmt は Pillow の形式名(PNG・JPEG・GIF・WEBP)。"""
     from PIL import Image
 
-    def build(size: tuple[int, int] = (64, 64), color: tuple[int, ...] = (200, 30, 30, 255), fmt: str = "PNG") -> bytes:
+    def build(
+        size: tuple[int, int] = (64, 64),
+        color: tuple[int, ...] = (200, 30, 30, 255),
+        fmt: str = "PNG",
+    ) -> bytes:
         mode = "RGBA" if fmt in ("PNG", "WEBP") else "RGB"
         image = Image.new(mode, size, color if mode == "RGBA" else color[:3])
         buffer = io.BytesIO()

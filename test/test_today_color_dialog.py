@@ -32,7 +32,10 @@ class Recorder:
             ui.button(
                 "open",
                 on_click=lambda: open_today_color_dialog(
-                    initial, self.previews.append, self.on_apply, lambda: setattr(self, "cancelled", self.cancelled + 1)
+                    initial,
+                    self.previews.append,
+                    self.on_apply,
+                    lambda: setattr(self, "cancelled", self.cancelled + 1),
                 ),
             )
 
@@ -100,7 +103,9 @@ async def test_reset_empties_the_field_and_previews_the_default(user: User) -> N
     assert not field(user).value and rec.previews[-1] is None
 
 
-async def test_an_invalid_color_disables_apply_and_keeps_the_last_preview(user: User) -> None:
+async def test_an_invalid_color_disables_apply_and_keeps_the_last_preview(
+    user: User,
+) -> None:
     rec = Recorder()
     rec.mount(None)
     await user.open("/")
@@ -134,7 +139,9 @@ async def test_closing_without_applying_also_cancels(user: User) -> None:
     assert await wait_until(lambda: rec.cancelled == 1)
 
 
-async def test_a_failed_apply_keeps_the_dialog_open_and_does_not_cancel(user: User) -> None:
+async def test_a_failed_apply_keeps_the_dialog_open_and_does_not_cancel(
+    user: User,
+) -> None:
     rec = Recorder(apply_result=False)
     rec.mount(None)
     await user.open("/")

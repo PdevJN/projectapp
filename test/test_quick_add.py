@@ -2,7 +2,6 @@
 
 from datetime import date
 
-from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.gantt import TaskFilter, ViewOptions
@@ -24,12 +23,18 @@ def quick_project() -> Project:
     return Project(
         "demo",
         base_date=date(2026, 10, 5),
-        sections=[Section("開発", [Task("設計", id="a"), Task("実装", id="b")]), Section("空", []), Section("束", [summary, *kids, Task("末", id="z")])],
+        sections=[
+            Section("開発", [Task("設計", id="a"), Task("実装", id="b")]),
+            Section("空", []),
+            Section("束", [summary, *kids, Task("末", id="z")]),
+        ],
         tasks=[Task("直下", id="t")],
     )
 
 
-async def test_double_clicking_a_task_name_opens_the_input_right_below_it(user: User) -> None:
+async def test_double_clicking_a_task_name_opens_the_input_right_below_it(
+    user: User,
+) -> None:
     mount_chart(quick_project())
     await user.open("/")
     await user.should_not_see(marker=INPUT)
@@ -37,7 +42,9 @@ async def test_double_clicking_a_task_name_opens_the_input_right_below_it(user: 
     await user.should_see(marker=INPUT)
 
 
-async def test_enter_creates_the_task_below_the_clicked_one_and_closes_the_input(user: User) -> None:
+async def test_enter_creates_the_task_below_the_clicked_one_and_closes_the_input(
+    user: User,
+) -> None:
     _, recorder = mount_chart(quick_project())
     await user.open("/")
     await double_click(user, "task-0-0")
@@ -54,15 +61,21 @@ async def test_a_root_task_adds_below_it_in_the_root(user: User) -> None:
     assert recorder.events == [("add_named_task", ((), 1, "新規"))]
 
 
-async def test_a_summary_row_adds_a_child_at_the_end_of_its_children(user: User) -> None:
+async def test_a_summary_row_adds_a_child_at_the_end_of_its_children(
+    user: User,
+) -> None:
     _, recorder = mount_chart(quick_project())
     await user.open("/")
     await double_click(user, "task-2-0")
     user.find(marker=INPUT).trigger("keydown.enter", args="新規")
-    assert recorder.events == [("add_named_child", ((2,), 3, "新規", "s"))]  # まとめの行は、子の末尾に子を作る
+    assert recorder.events == [
+        ("add_named_child", ((2,), 3, "新規", "s"))
+    ]  # まとめの行は、子の末尾に子を作る
 
 
-async def test_the_section_header_adds_at_the_end_of_its_tasks_even_when_empty(user: User) -> None:
+async def test_the_section_header_adds_at_the_end_of_its_tasks_even_when_empty(
+    user: User,
+) -> None:
     _, recorder = mount_chart(quick_project())
     await user.open("/")
     await double_click(user, "section-1")  # 空のセクション
@@ -70,10 +83,15 @@ async def test_the_section_header_adds_at_the_end_of_its_tasks_even_when_empty(u
     await user.should_not_see(marker=INPUT)
     await double_click(user, "section-0")
     user.find(marker=INPUT).trigger("keydown.enter", args="末尾")
-    assert recorder.events == [("add_named_task", ((1,), 0, "最初")), ("add_named_task", ((0,), 2, "末尾"))]
+    assert recorder.events == [
+        ("add_named_task", ((1,), 0, "最初")),
+        ("add_named_task", ((0,), 2, "末尾")),
+    ]
 
 
-async def test_double_clicking_the_header_of_a_collapsed_section_opens_it_and_shows_the_input(user: User) -> None:
+async def test_double_clicking_the_header_of_a_collapsed_section_opens_it_and_shows_the_input(
+    user: User,
+) -> None:
     charts, _ = mount_chart(quick_project())
     await user.open("/")
     charts[0].toggle_section((0,))
@@ -139,24 +157,37 @@ async def test_the_read_only_chart_has_no_double_click(user: User) -> None:
     await user.open("/")
     for marker in ("task-0-0", "task-top-0", "section-0"):
         element = user.find(marker=marker).elements.pop()
-        assert not any(listener.type == "dblclick" for listener in element._event_listeners.values())
+        assert not any(
+            listener.type == "dblclick"
+            for listener in element._event_listeners.values()
+        )
     await user.should_not_see(marker="top-end")
 
 
 # Shift + ダブルクリックは、タスクの代わりにセクション(親のセクションの子の末尾)の入力行を出す
 
+
 def nested_project() -> Project:
     deep = Section("深", [Task("底", id="d")])
     mid = Section("中", [Task("中身", id="m")], sections=[deep])
-    return Project("demo", base_date=date(2026, 10, 5), sections=[Section("上", [Task("上身", id="u")], sections=[mid])], tasks=[Task("直下", id="t")])
+    return Project(
+        "demo",
+        base_date=date(2026, 10, 5),
+        sections=[Section("上", [Task("上身", id="u")], sections=[mid])],
+        tasks=[Task("直下", id="t")],
+    )
 
 
 async def shift_double_click(user: User, marker: str) -> None:
-    user.find(marker=marker).trigger("dblclick", args={"shift": True})  # args は {shift, ctrl}
+    user.find(marker=marker).trigger(
+        "dblclick", args={"shift": True}
+    )  # args は {shift, ctrl}
     await user.should_see(marker=INPUT)
 
 
-async def test_shift_double_click_on_a_section_header_adds_a_subsection_at_its_end(user: User) -> None:
+async def test_shift_double_click_on_a_section_header_adds_a_subsection_at_its_end(
+    user: User,
+) -> None:
     _, recorder = mount_chart(nested_project())
     await user.open("/")
     await shift_double_click(user, "section-0")
@@ -165,7 +196,9 @@ async def test_shift_double_click_on_a_section_header_adds_a_subsection_at_its_e
     await user.should_not_see(marker=INPUT)
 
 
-async def test_shift_double_click_on_a_task_adds_a_subsection_to_its_section(user: User) -> None:
+async def test_shift_double_click_on_a_task_adds_a_subsection_to_its_section(
+    user: User,
+) -> None:
     _, recorder = mount_chart(nested_project())
     await user.open("/")
     await shift_double_click(user, "task-0.0-0")
@@ -173,7 +206,9 @@ async def test_shift_double_click_on_a_task_adds_a_subsection_to_its_section(use
     assert recorder.events == [("add_named_section", ((0, 0), "新"))]
 
 
-async def test_shift_double_click_on_a_root_task_or_the_end_row_adds_a_top_level_section(user: User) -> None:
+async def test_shift_double_click_on_a_root_task_or_the_end_row_adds_a_top_level_section(
+    user: User,
+) -> None:
     _, recorder = mount_chart(nested_project())
     await user.open("/")
     await shift_double_click(user, "task-top-0")
@@ -181,10 +216,15 @@ async def test_shift_double_click_on_a_root_task_or_the_end_row_adds_a_top_level
     await user.should_not_see(marker=INPUT)
     await shift_double_click(user, "top-end")
     user.find(marker=INPUT).trigger("keydown.enter", args="二")
-    assert recorder.events == [("add_named_section", ((), "一")), ("add_named_section", ((), "二"))]
+    assert recorder.events == [
+        ("add_named_section", ((), "一")),
+        ("add_named_section", ((), "二")),
+    ]
 
 
-async def test_shift_double_click_in_a_third_level_section_is_refused_with_a_notice(user: User) -> None:
+async def test_shift_double_click_in_a_third_level_section_is_refused_with_a_notice(
+    user: User,
+) -> None:
     _, recorder = mount_chart(nested_project())
     await user.open("/")
     for marker in ("section-0.0.0", "task-0.0.0-0"):
@@ -194,7 +234,9 @@ async def test_shift_double_click_in_a_third_level_section_is_refused_with_a_not
     assert recorder.events == []
 
 
-async def test_a_section_input_rejects_invalid_names_and_cancels_with_escape(user: User) -> None:
+async def test_a_section_input_rejects_invalid_names_and_cancels_with_escape(
+    user: User,
+) -> None:
     _, recorder = mount_chart(nested_project())
     await user.open("/")
     await shift_double_click(user, "section-0")
@@ -206,7 +248,9 @@ async def test_a_section_input_rejects_invalid_names_and_cancels_with_escape(use
     assert recorder.events == []
 
 
-async def test_the_section_input_and_the_task_input_are_never_open_together(user: User) -> None:
+async def test_the_section_input_and_the_task_input_are_never_open_together(
+    user: User,
+) -> None:
     _, recorder = mount_chart(nested_project())
     await user.open("/")
     await shift_double_click(user, "section-0")
@@ -217,7 +261,9 @@ async def test_the_section_input_and_the_task_input_are_never_open_together(user
     assert recorder.events == [("add_named_task", ((), 1, "タスク"))]
 
 
-async def test_shift_double_click_with_an_active_filter_refuses_with_a_notice(user: User) -> None:
+async def test_shift_double_click_with_an_active_filter_refuses_with_a_notice(
+    user: User,
+) -> None:
     charts, recorder = mount_chart(nested_project())
     await user.open("/")
     charts[0].set_filter(TaskFilter(query="上"))
@@ -242,7 +288,9 @@ async def ctrl_double_click(user: User, marker: str) -> None:
     await user.should_see(marker=INPUT)
 
 
-async def test_double_click_on_a_child_adds_a_sibling_child_right_below_it(user: User) -> None:
+async def test_double_click_on_a_child_adds_a_sibling_child_right_below_it(
+    user: User,
+) -> None:
     _, recorder = mount_chart(quick_project())
     await user.open("/")
     await double_click(user, "task-2-1")
@@ -250,14 +298,18 @@ async def test_double_click_on_a_child_adds_a_sibling_child_right_below_it(user:
     assert recorder.events == [("add_named_child", ((2,), 2, "新", "s"))]
 
 
-async def test_ctrl_double_click_adds_a_summary_below_the_row_behind_a_summary_block(user: User) -> None:
+async def test_ctrl_double_click_adds_a_summary_below_the_row_behind_a_summary_block(
+    user: User,
+) -> None:
     _, recorder = mount_chart(quick_project())
     await user.open("/")
     await ctrl_double_click(user, "task-0-0")  # 通常のタスクの直下
     user.find(marker=INPUT).trigger("keydown.enter", args="一")
     await ctrl_double_click(user, "task-2-0")  # まとめは、子の後ろ
     user.find(marker=INPUT).trigger("keydown.enter", args="二")
-    await ctrl_double_click(user, "task-2-1")  # 子の行は、まとめのブロックの後ろ(まとめの子にはならない)
+    await ctrl_double_click(
+        user, "task-2-1"
+    )  # 子の行は、まとめのブロックの後ろ(まとめの子にはならない)
     user.find(marker=INPUT).trigger("keydown.enter", args="三")
     assert recorder.events == [
         ("add_named_summary", ((0,), 1, "一")),
@@ -266,7 +318,9 @@ async def test_ctrl_double_click_adds_a_summary_below_the_row_behind_a_summary_b
     ]
 
 
-async def test_ctrl_double_click_on_a_header_or_the_end_row_adds_a_summary_at_the_end(user: User) -> None:
+async def test_ctrl_double_click_on_a_header_or_the_end_row_adds_a_summary_at_the_end(
+    user: User,
+) -> None:
     _, recorder = mount_chart(quick_project())
     await user.open("/")
     await ctrl_double_click(user, "section-1")  # 空のセクション
@@ -306,7 +360,10 @@ async def test_shift_on_a_summary_or_a_child_adds_a_section(user: User) -> None:
         user.find(marker=marker).trigger("dblclick", args={"shift": True})
         await user.should_see(marker=INPUT)
         user.find(marker=INPUT).trigger("keydown.enter", args=name)
-    assert recorder.events == [("add_named_section", ((2,), "甲")), ("add_named_section", ((2,), "乙"))]
+    assert recorder.events == [
+        ("add_named_section", ((2,), "甲")),
+        ("add_named_section", ((2,), "乙")),
+    ]
 
 
 async def test_adding_a_child_to_a_folded_summary_opens_it(user: User) -> None:

@@ -47,12 +47,16 @@ def test_resolve_does_not_replace_a_placeholder_typed_as_the_id() -> None:
         ("https://x.test/{", "https://x.test/{"),
     ],
 )
-def test_resolve_handles_patterns_without_formatting_errors(pattern: str, expected: str) -> None:
+def test_resolve_handles_patterns_without_formatting_errors(
+    pattern: str, expected: str
+) -> None:
     assert resolve(by_id("7", "t"), [UrlTemplate("t", pattern)]) == expected
 
 
 def test_resolve_uses_a_plain_url_as_it_is() -> None:
-    assert resolve(plain(" https://example.com/a?b=1 "), []) == "https://example.com/a?b=1"
+    assert (
+        resolve(plain(" https://example.com/a?b=1 "), []) == "https://example.com/a?b=1"
+    )
 
 
 def test_the_scheme_check_ignores_case() -> None:
@@ -61,7 +65,15 @@ def test_the_scheme_check_ignores_case() -> None:
 
 
 @pytest.mark.parametrize(
-    "value", ["javascript:alert(1)", "file:///etc/passwd", "ftp://x.test", "example.com", "  ", ""]
+    "value",
+    [
+        "javascript:alert(1)",
+        "file:///etc/passwd",
+        "ftp://x.test",
+        "example.com",
+        "  ",
+        "",
+    ],
 )
 def test_resolve_rejects_urls_that_are_not_http(value: str) -> None:
     with pytest.raises(ValueError):
@@ -94,7 +106,9 @@ def test_validate_templates_accepts_valid_ones() -> None:
         ([UrlTemplate("a", "")], "http"),
     ],
 )
-def test_validate_templates_rejects_invalid_ones(templates: list[UrlTemplate], message: str) -> None:
+def test_validate_templates_rejects_invalid_ones(
+    templates: list[UrlTemplate], message: str
+) -> None:
     with pytest.raises(ValueError, match=message):
         validate_templates(templates)
 
@@ -109,7 +123,10 @@ def make_project() -> Project:
     first = Task("a", urls=[by_id("1"), TaskUrl("メモ", "Wiki", {"ID": "Top"})])
     second = Task("b", urls=[by_id("2"), plain("https://example.com/x")])
     return Project(
-        "p", sections=[Section("s", [first])], tasks=[second], url_templates=[TICKET, WIKI]
+        "p",
+        sections=[Section("s", [first])],
+        tasks=[second],
+        url_templates=[TICKET, WIKI],
     )
 
 
@@ -125,7 +142,9 @@ def test_expand_template_turns_links_into_plain_urls_and_keeps_titles() -> None:
     assert expand_template(project, "Wiki") == 1
     memo = project.sections[0].tasks[0].urls[1]
     assert memo == TaskUrl("メモ", None, {"URL": "https://wiki.example.com/Top"})
-    assert project.sections[0].tasks[0].urls[0].template == "チケット"  # 他のテンプレートは触らない
+    assert (
+        project.sections[0].tasks[0].urls[0].template == "チケット"
+    )  # 他のテンプレートは触らない
 
 
 def test_rename_templates_swaps_names_in_one_pass() -> None:

@@ -14,7 +14,9 @@ def test_load_others_skips_the_open_project_and_reads_the_rest(tmp_path: Path) -
     assert failures == []
 
 
-def test_load_others_reads_everything_when_the_open_project_is_unsaved(tmp_path: Path) -> None:
+def test_load_others_reads_everything_when_the_open_project_is_unsaved(
+    tmp_path: Path,
+) -> None:
     save_project(Project("甲"), tmp_path)
     save_project(Project("乙"), tmp_path)
     projects, _ = load_others(tmp_path, None)
@@ -43,7 +45,9 @@ def test_load_others_reports_a_missing_directory(tmp_path: Path) -> None:
     assert [f.reason for f in failures] == ["格納先を読めません"]
 
 
-def test_load_others_treats_a_structurally_broken_file_as_a_failure(tmp_path: Path) -> None:
+def test_load_others_treats_a_structurally_broken_file_as_a_failure(
+    tmp_path: Path,
+) -> None:
     save_project(Project("良い"), tmp_path)
     (tmp_path / "崩れた.json").write_text(
         '{"version": 7, "base_date": "2026-10-05", "daily_hours": 6.5, "members": [], "sections": [], "tasks": [[]]}',
@@ -54,7 +58,9 @@ def test_load_others_treats_a_structurally_broken_file_as_a_failure(tmp_path: Pa
     assert [f.name for f in failures] == ["崩れた"]
 
 
-def test_load_others_reports_an_unreadable_directory(tmp_path: Path, monkeypatch) -> None:
+def test_load_others_reports_an_unreadable_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
     def deny(base_dir: Path) -> list[Path]:
         raise PermissionError("denied")
 

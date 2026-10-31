@@ -48,7 +48,9 @@ def test_a_member_has_no_teams_by_default() -> None:
         ("開発", ("開発",), "チームの名前が重複しています: 開発"),
     ],
 )
-def test_team_name_error(name: str, others: tuple[str, ...], expected: str | None) -> None:
+def test_team_name_error(
+    name: str, others: tuple[str, ...], expected: str | None
+) -> None:
     assert team_name_error(name, others) == expected
 
 
@@ -92,7 +94,9 @@ def test_normalize_keeps_the_ratio_and_gives_the_remainder_to_the_largest() -> N
 
 
 def test_normalize_gives_a_tie_remainder_to_the_first() -> None:
-    assert normalize(ms(("a", 1), ("b", 1), ("c", 1))) == ms(("a", 34), ("b", 33), ("c", 33))
+    assert normalize(ms(("a", 1), ("b", 1), ("c", 1))) == ms(
+        ("a", 34), ("b", 33), ("c", 33)
+    )
 
 
 def test_even_split_sums_to_100() -> None:
@@ -102,12 +106,16 @@ def test_even_split_sums_to_100() -> None:
     assert sum(even_split(7)) == 100
 
 
-def test_settle_memberships_gives_a_single_team_100_percent_whatever_the_input() -> None:
+def test_settle_memberships_gives_a_single_team_100_percent_whatever_the_input() -> (
+    None
+):
     assert settle_memberships([("a", None)], {"a"}) == ms(("a", 100))
 
 
 def test_settle_memberships_reads_whole_percents() -> None:
-    assert settle_memberships([("a", 60.0), ("b", 40.0)], {"a", "b"}) == ms(("a", 60), ("b", 40))
+    assert settle_memberships([("a", 60.0), ("b", 40.0)], {"a", "b"}) == ms(
+        ("a", 60), ("b", 40)
+    )
 
 
 def test_settle_memberships_of_nothing_is_nothing() -> None:
@@ -115,9 +123,16 @@ def test_settle_memberships_of_nothing_is_nothing() -> None:
 
 
 @pytest.mark.parametrize(
-    "rows", [[("a", 60.5), ("b", 39.5)], [("a", None), ("b", 100.0)], [("a", float("nan")), ("b", 50.0)]]
+    "rows",
+    [
+        [("a", 60.5), ("b", 39.5)],
+        [("a", None), ("b", 100.0)],
+        [("a", float("nan")), ("b", 50.0)],
+    ],
 )
-def test_settle_memberships_rejects_fractions_and_blanks(rows: list[tuple[str, float | None]]) -> None:
+def test_settle_memberships_rejects_fractions_and_blanks(
+    rows: list[tuple[str, float | None]],
+) -> None:
     with pytest.raises(ValueError, match="1〜100 の整数"):
         settle_memberships(rows, {"a", "b"})
 
@@ -135,7 +150,11 @@ def test_membership_summary() -> None:
 
 
 def test_team_member_names_keeps_member_order() -> None:
-    members = [Member("甲", teams=ms(("a", 100))), Member("乙"), Member("丙", teams=ms(("a", 50), ("b", 50)))]
+    members = [
+        Member("甲", teams=ms(("a", 100))),
+        Member("乙"),
+        Member("丙", teams=ms(("a", 50), ("b", 50))),
+    ]
     assert team_member_names(members, "a") == ["甲", "丙"]
     assert team_member_names(members, "b") == ["丙"]
     assert team_member_names(members, "zzz") == []
@@ -199,9 +218,14 @@ def test_removal_impacts_lists_only_removed_teams_that_have_members() -> None:
     project = Project(
         "p",
         teams=[Team("開発", id="a"), Team("QA", id="b"), Team("空", id="c")],
-        members=[Member("甲", teams=ms(("a", 100))), Member("乙", teams=ms(("a", 50), ("b", 50)))],
+        members=[
+            Member("甲", teams=ms(("a", 100))),
+            Member("乙", teams=ms(("a", 50), ("b", 50))),
+        ],
     )
-    assert removal_impacts(project, [Team("QA", id="b"), Team("空", id="c")]) == ["チーム「開発」: 所属 2 人"]
+    assert removal_impacts(project, [Team("QA", id="b"), Team("空", id="c")]) == [
+        "チーム「開発」: 所属 2 人"
+    ]
     assert removal_impacts(project, project.teams) == []
 
 
@@ -216,7 +240,10 @@ def test_teams_with_members_skips_empty_teams_in_team_order() -> None:
     project = Project(
         "p",
         teams=[Team("空", id="c"), Team("開発", id="a"), Team("QA", id="b")],
-        members=[Member("甲", teams=ms(("b", 100))), Member("乙", teams=ms(("a", 50), ("b", 50)))],
+        members=[
+            Member("甲", teams=ms(("b", 100))),
+            Member("乙", teams=ms(("a", 50), ("b", 50))),
+        ],
     )
     assert teams_with_members(project) == ["開発", "QA"]
 

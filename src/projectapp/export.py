@@ -133,7 +133,9 @@ class ImageExporter(Protocol):
 
     async def capture(self, pixel_ratio: float) -> bytes: ...
 
-    async def ask_path(self, filename: str, file_types: tuple[str, ...]) -> Path | None: ...
+    async def ask_path(
+        self, filename: str, file_types: tuple[str, ...]
+    ) -> Path | None: ...
 
     async def ask_open_path(self, file_types: tuple[str, ...]) -> Path | None: ...
 
@@ -147,7 +149,9 @@ class NativeImageExporter:
     """ネイティブウィンドウ(pywebview)で、画面内の画像化と、保存ダイアログを使う。"""
 
     def __init__(self, run_js: RunJs | None = None) -> None:
-        self.run_js: RunJs = run_js or ui.run_javascript  # テストでは、ブラウザの偽物に差し替える
+        self.run_js: RunJs = (
+            run_js or ui.run_javascript
+        )  # テストでは、ブラウザの偽物に差し替える
 
     @property
     def available(self) -> bool:
@@ -155,15 +159,20 @@ class NativeImageExporter:
 
     async def capture(self, pixel_ratio: float) -> bytes:
         """画像化して、PNG のバイト列を返す。データ URL は、websocket の上限に収まる大きさに分けて受け取る。"""
-        body = CAPTURE_JS.replace("__RATIO__", repr(float(pixel_ratio))).replace("__CSS__", json.dumps(EXPORT_CSS))
+        body = CAPTURE_JS.replace("__RATIO__", repr(float(pixel_ratio))).replace(
+            "__CSS__", json.dumps(EXPORT_CSS)
+        )
         script = f"({body})()"
         try:
-            length = parse_capture_meta(await self.run_js(script, timeout=CAPTURE_TIMEOUT_S))
+            length = parse_capture_meta(
+                await self.run_js(script, timeout=CAPTURE_TIMEOUT_S)
+            )
             parts: list[str] = []
             for start in range(0, length, CAPTURE_CHUNK_CHARS):
                 end = start + CAPTURE_CHUNK_CHARS
                 part = await self.run_js(
-                    f"window.__exportPng.slice({start}, {end})", timeout=CAPTURE_TIMEOUT_S
+                    f"window.__exportPng.slice({start}, {end})",
+                    timeout=CAPTURE_TIMEOUT_S,
                 )
                 if not isinstance(part, str):
                     raise ExportError("画像のデータを受け取れませんでした")
@@ -226,4 +235,6 @@ class NativeImageExporter:
 
 def register_static_files() -> None:
     """同梱の JS を配る。アプリの起動時に一度だけ呼ぶ。"""
-    app.add_static_file(local_file=STATIC_DIR / "html-to-image.js", url_path=HTML_TO_IMAGE_URL)
+    app.add_static_file(
+        local_file=STATIC_DIR / "html-to-image.js", url_path=HTML_TO_IMAGE_URL
+    )

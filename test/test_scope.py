@@ -1,4 +1,11 @@
-from projectapp.scope import ALL, TEAM_KEY, read_scope, scope_options, scope_value, team_key
+from projectapp.scope import (
+    ALL,
+    TEAM_KEY,
+    read_scope,
+    scope_options,
+    scope_value,
+    team_key,
+)
 
 
 def test_a_member_name_is_its_own_value() -> None:
@@ -33,8 +40,16 @@ def test_an_empty_team_name_means_everyone() -> None:
 
 def test_options_list_everyone_then_members_then_labelled_teams() -> None:
     options = scope_options("全員", ["田中", "鈴木"], ["開発"])
-    assert list(options.items()) == [("", "全員"), ("田中", "田中"), ("鈴木", "鈴木"), (team_key("開発"), "チーム: 開発")]
+    assert list(options.items()) == [
+        ("", "全員"),
+        ("田中", "田中"),
+        ("鈴木", "鈴木"),
+        (team_key("開発"), "チーム: 開発"),
+    ]
 
 
 def test_options_without_teams_are_the_member_list_only() -> None:
-    assert scope_options("すべての担当者", ["田中"], []) == {"": "すべての担当者", "田中": "田中"}
+    assert scope_options("すべての担当者", ["田中"], []) == {
+        "": "すべての担当者",
+        "田中": "田中",
+    }

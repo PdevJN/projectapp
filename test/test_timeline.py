@@ -3,7 +3,21 @@ from datetime import date, datetime, time, timedelta
 import pytest
 
 from projectapp.events import effective_holidays
-from projectapp.models import Assignee, Actual, Event, Level, Member, Parameter, Project, ReferenceValue, Section, Status, Task, TaskKind, WorkDay
+from projectapp.models import (
+    Assignee,
+    Actual,
+    Event,
+    Level,
+    Member,
+    Parameter,
+    Project,
+    ReferenceValue,
+    Section,
+    Status,
+    Task,
+    TaskKind,
+    WorkDay,
+)
 from projectapp.workdays import work_day_map
 from projectapp.timeline import (
     Schedule,
@@ -70,14 +84,22 @@ def test_day_columns_start_at_base_and_are_contiguous() -> None:
 
 
 def test_range_extends_to_the_day_after_last_end() -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 12, 31, 18))
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 5, 9),
+        planned_end=datetime(2026, 12, 31, 18),
+    )
     columns = build_columns(project_with(task), Scale.DAY)
     assert len(columns) == 88
     assert columns[-1].end == date(2027, 1, 1)
 
 
 def test_range_extends_before_base_date() -> None:
-    task = Task("t", planned_start=datetime(2026, 9, 20, 9), planned_end=datetime(2026, 9, 22, 9))
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 9, 20, 9),
+        planned_end=datetime(2026, 9, 22, 9),
+    )
     assert build_columns(project_with(task), Scale.DAY)[0].start == date(2026, 9, 20)
 
 
@@ -89,7 +111,9 @@ def test_week_columns_start_on_monday() -> None:
 
 
 def test_month_columns_cross_the_year() -> None:
-    task = Task("t", planned_start=datetime(2026, 11, 15), planned_end=datetime(2027, 2, 10))
+    task = Task(
+        "t", planned_start=datetime(2026, 11, 15), planned_end=datetime(2027, 2, 10)
+    )
     columns = build_columns(project_with(task, base=date(2026, 11, 15)), Scale.MONTH)
     assert [c.label for c in columns[:4]] == ["11月", "12月", "1月", "2月"]
     assert (columns[2].start, columns[2].end) == (date(2027, 1, 1), date(2027, 2, 1))
@@ -97,21 +121,32 @@ def test_month_columns_cross_the_year() -> None:
 
 
 def test_bar_span_in_day_scale() -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12))
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 5, 12),
+        planned_end=datetime(2026, 10, 7, 12),
+    )
     columns = build_columns(project_with(task), Scale.DAY)
     assert bar_span(task.planned_start, task.planned_end, columns) == (0.5, 2.0)
 
 
 def test_bar_span_in_week_scale() -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 12))
+    task = Task(
+        "t", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 12)
+    )
     columns = build_columns(project_with(task), Scale.WEEK)
     assert bar_span(task.planned_start, task.planned_end, columns) == (0.0, 1.0)
 
 
 def test_bar_span_in_month_scale_is_proportional() -> None:
-    task = Task("t", planned_start=datetime(2026, 1, 16), planned_end=datetime(2026, 2, 1))
+    task = Task(
+        "t", planned_start=datetime(2026, 1, 16), planned_end=datetime(2026, 2, 1)
+    )
     columns = build_columns(project_with(task, base=date(2026, 1, 1)), Scale.MONTH)
-    left, width = bar_span(task.planned_start, task.planned_end, columns) or (-1.0, -1.0)
+    left, width = bar_span(task.planned_start, task.planned_end, columns) or (
+        -1.0,
+        -1.0,
+    )
     assert left == pytest.approx(15 / 31)
     assert width == pytest.approx(16 / 31)
 
@@ -124,13 +159,19 @@ def test_bar_span_is_none_without_start_or_end() -> None:
 
 
 def test_end_before_start_gives_zero_width_without_error() -> None:
-    task = Task("bad", planned_start=datetime(2026, 10, 8), planned_end=datetime(2026, 10, 6))
+    task = Task(
+        "bad", planned_start=datetime(2026, 10, 8), planned_end=datetime(2026, 10, 6)
+    )
     columns = build_columns(project_with(task), Scale.DAY)
     assert bar_span(task.planned_start, task.planned_end, columns) == (3.0, 0.0)
 
 
 def test_top_level_task_extends_the_range() -> None:
-    task = Task("t", planned_start=datetime(2026, 9, 20, 9), planned_end=datetime(2026, 12, 31, 18))
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 9, 20, 9),
+        planned_end=datetime(2026, 12, 31, 18),
+    )
     columns = build_columns(Project("p", base_date=BASE, tasks=[task]), Scale.DAY)
     assert columns[0].start == date(2026, 9, 20)
     assert columns[-1].end == date(2027, 1, 1)
@@ -218,7 +259,9 @@ def test_calc_end_holiday_after_a_workday_slot() -> None:
 def test_calc_end_across_the_new_year() -> None:
     holidays = {date(2027, 1, 1): "元日"}
     # 水12/30・木12/31で13h、残り6.5hは金1/1祝・土日を飛ばして月1/4
-    assert end_of(datetime(2026, 12, 30, 9), 19.5, holidays) == datetime(2027, 1, 4, 15, 30)
+    assert end_of(datetime(2026, 12, 30, 9), 19.5, holidays) == datetime(
+        2027, 1, 4, 15, 30
+    )
 
 
 def test_calc_end_with_another_work_start() -> None:
@@ -226,7 +269,9 @@ def test_calc_end_with_another_work_start() -> None:
     assert result == datetime(2026, 10, 5, 15, 0)
 
 
-@pytest.mark.parametrize("effort", [float("nan"), float("inf"), float("-inf"), 1e9, 1e12])
+@pytest.mark.parametrize(
+    "effort", [float("nan"), float("inf"), float("-inf"), 1e9, 1e12]
+)
 def test_calc_end_with_absurd_effort_is_none_and_fast(effort: float) -> None:
     assert end_of(datetime(2026, 10, 5, 9), effort) is None
 
@@ -256,7 +301,9 @@ MANUAL_END = datetime(2026, 10, 20, 18, 0)
 
 
 def eff(
-    project: Project | None = None, holidays: dict[date, str] | None = None, **fields: object
+    project: Project | None = None,
+    holidays: dict[date, str] | None = None,
+    **fields: object,
 ) -> datetime | None:
     values: dict[str, object] = {"planned_start": FRI_START}
     values.update(fields)
@@ -273,7 +320,10 @@ def test_effective_end_ignores_planned_end_when_effort_is_not_manual() -> None:
 
 
 def test_effective_end_uses_planned_end_when_manual() -> None:
-    assert eff(planned_end=MANUAL_END, planned_end_manual=True, effort_hours=15.0) == MANUAL_END
+    assert (
+        eff(planned_end=MANUAL_END, planned_end_manual=True, effort_hours=15.0)
+        == MANUAL_END
+    )
 
 
 def test_effective_end_computes_when_manual_but_planned_end_is_empty() -> None:
@@ -287,13 +337,21 @@ def test_effective_end_follows_the_project_settings_and_holidays() -> None:
         2026, 10, 14, 11
     )
     project.work_start = time(10, 0)
-    assert eff(project, effort_hours=15.0) == datetime(2026, 10, 12, 17)  # 金10-18時の8h + 月7h
+    assert eff(project, effort_hours=15.0) == datetime(
+        2026, 10, 12, 17
+    )  # 金10-18時の8h + 月7h
 
 
 def test_effective_end_skips_the_days_of_a_closed_event() -> None:
-    project = Project("p", daily_hours=8.0, events=[Event(date(2026, 10, 12), date(2026, 10, 13), "休業", closed=True)])
+    project = Project(
+        "p",
+        daily_hours=8.0,
+        events=[Event(date(2026, 10, 12), date(2026, 10, 13), "休業", closed=True)],
+    )
     holidays = effective_holidays(project, {})
-    assert eff(project, holidays, effort_hours=15.0) == datetime(2026, 10, 14, 16)  # 金 8h + 水 7h(月・火は休業)
+    assert eff(project, holidays, effort_hours=15.0) == datetime(
+        2026, 10, 14, 16
+    )  # 金 8h + 水 7h(月・火は休業)
 
 
 def test_a_members_override_beats_a_closed_event() -> None:
@@ -306,7 +364,9 @@ def test_a_members_override_beats_a_closed_event() -> None:
     )
     holidays = effective_holidays(project, {})
     end = eff(project, holidays, effort_hours=15.0, assignees=[Assignee("甲", 1.0)])
-    assert end == datetime(2026, 10, 12, 16)  # 金 8h + 月 7h。月曜は上書きで稼働(休業より優先)
+    assert end == datetime(
+        2026, 10, 12, 16
+    )  # 金 8h + 月 7h。月曜は上書きで稼働(休業より優先)
 
 
 def test_effective_end_is_the_next_day_without_effort_and_planned_end() -> None:
@@ -314,7 +374,9 @@ def test_effective_end_is_the_next_day_without_effort_and_planned_end() -> None:
 
 
 @pytest.mark.parametrize("effort", [float("inf"), float("nan"), 10**9])
-def test_effective_end_falls_back_to_the_next_day_when_it_cannot_compute(effort: float) -> None:
+def test_effective_end_falls_back_to_the_next_day_when_it_cannot_compute(
+    effort: float,
+) -> None:
     assert eff(effort_hours=effort) == datetime(2026, 10, 10, 9, 0)
 
 
@@ -332,14 +394,18 @@ def test_effective_end_does_not_crash_at_the_end_of_time() -> None:
 
 
 def test_computed_end_ignores_planned_end_fields() -> None:
-    assert computed_end(FRI_START, 15.0, 6.5, time(9, 0), {}) == datetime(2026, 10, 13, 11)
+    assert computed_end(FRI_START, 15.0, 6.5, time(9, 0), {}) == datetime(
+        2026, 10, 13, 11
+    )
     assert computed_end(None, 15.0, 6.5, time(9, 0), {}) is None
 
 
 OVERDUE_NOW = datetime(2026, 10, 10, 12)
 
 
-def overdue(task: Task, project: Project | None = None, holidays: dict[date, str] | None = None) -> bool:
+def overdue(
+    task: Task, project: Project | None = None, holidays: dict[date, str] | None = None
+) -> bool:
     return is_overdue(task, project or Project("p"), holidays or {}, OVERDUE_NOW)
 
 
@@ -348,7 +414,9 @@ def test_overdue_by_deadline() -> None:
 
 
 def test_overdue_by_planned_end() -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 1, 9), planned_end=datetime(2026, 10, 2))
+    task = Task(
+        "t", planned_start=datetime(2026, 10, 1, 9), planned_end=datetime(2026, 10, 2)
+    )
     assert overdue(task) is True
 
 
@@ -359,7 +427,10 @@ def test_overdue_by_the_computed_end_without_a_planned_end() -> None:
 
 def test_not_overdue_when_neither_has_passed() -> None:
     task = Task(
-        "t", planned_start=datetime(2026, 10, 10, 9), deadline=datetime(2026, 10, 30), effort_hours=1.0
+        "t",
+        planned_start=datetime(2026, 10, 10, 9),
+        deadline=datetime(2026, 10, 30),
+        effort_hours=1.0,
     )
     assert overdue(task) is False
 
@@ -370,28 +441,39 @@ def test_not_overdue_exactly_at_the_limit() -> None:
 
 def test_not_overdue_when_done_or_without_any_date() -> None:
     done = Task(
-        "t", planned_start=datetime(2026, 10, 1, 9), deadline=datetime(2026, 10, 2), status=Status.DONE
+        "t",
+        planned_start=datetime(2026, 10, 1, 9),
+        deadline=datetime(2026, 10, 2),
+        status=Status.DONE,
     )
     assert overdue(done) is False
     assert overdue(Task("t")) is False
 
 
 def test_visible_range_uses_the_effective_end() -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0)  # 完了予定は 10/13 11:00
+    task = Task(
+        "t", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0
+    )  # 完了予定は 10/13 11:00
     first, last = visible_range(project_with(task))
     assert last == date(2026, 10, 14)
 
 
 def test_visible_range_covers_a_reference_row() -> None:
     ref = Task("基盤", id="ref", kind=TaskKind.REFERENCE, ref_project="基盤")
-    value = ReferenceValue(planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 30, 17))
+    value = ReferenceValue(
+        planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 30, 17)
+    )
     project = project_with(ref)
     assert visible_range(project)[1] < date(2026, 10, 30)
     assert visible_range(project, references={"ref": value})[1] == date(2026, 10, 31)
 
 
 def test_visible_range_survives_a_planned_end_before_the_start() -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 9, 9), planned_end=datetime(2026, 10, 1, 9))
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 9, 9),
+        planned_end=datetime(2026, 10, 1, 9),
+    )
     first, last = visible_range(project_with(task))
     assert first == date(2026, 10, 1)
 
@@ -404,7 +486,9 @@ def test_deadline_position_inside_the_range() -> None:
 def test_deadline_position_outside_the_range_is_none() -> None:
     columns = build_columns(Project("p", base_date=BASE), Scale.DAY)
     assert deadline_position(datetime(2026, 10, 4, 23, 59), columns) is None
-    assert deadline_position(datetime.combine(columns[-1].end, time.min), columns) is None
+    assert (
+        deadline_position(datetime.combine(columns[-1].end, time.min), columns) is None
+    )
 
 
 def test_deadline_position_at_the_boundaries() -> None:
@@ -429,21 +513,38 @@ def test_today_position_week_is_the_middle_of_the_day() -> None:
 
 def test_today_position_month_is_the_middle_of_the_column() -> None:
     columns = build_columns(Project("p", base_date=BASE), Scale.MONTH)
-    index = next(i for i, c in enumerate(columns) if c.start <= date(2026, 10, 20) < c.end)
+    index = next(
+        i for i, c in enumerate(columns) if c.start <= date(2026, 10, 20) < c.end
+    )
     assert today_position(datetime(2026, 10, 2, 9), columns, Scale.MONTH) == index + 0.5
-    assert today_position(datetime(2026, 10, 31, 23), columns, Scale.MONTH) == index + 0.5
+    assert (
+        today_position(datetime(2026, 10, 31, 23), columns, Scale.MONTH) == index + 0.5
+    )
 
 
 @pytest.mark.parametrize("scale", [Scale.DAY, Scale.WEEK, Scale.MONTH])
 def test_today_position_outside_the_range_is_none(scale: Scale) -> None:
     columns = build_columns(Project("p", base_date=BASE), scale)
-    assert today_position(datetime.combine(columns[0].start, time.min) - timedelta(minutes=1), columns, scale) is None
-    assert today_position(datetime.combine(columns[-1].end, time.min), columns, scale) is None
+    assert (
+        today_position(
+            datetime.combine(columns[0].start, time.min) - timedelta(minutes=1),
+            columns,
+            scale,
+        )
+        is None
+    )
+    assert (
+        today_position(datetime.combine(columns[-1].end, time.min), columns, scale)
+        is None
+    )
 
 
 def test_today_position_at_the_first_instant_is_zero() -> None:
     columns = build_columns(Project("p", base_date=BASE), Scale.DAY)
-    assert today_position(datetime.combine(columns[0].start, time.min), columns, Scale.DAY) == 0.0
+    assert (
+        today_position(datetime.combine(columns[0].start, time.min), columns, Scale.DAY)
+        == 0.0
+    )
 
 
 def test_visible_range_survives_a_planned_end_at_the_end_of_time() -> None:
@@ -469,17 +570,31 @@ def test_effective_end_prefers_the_computed_end_over_the_deadline() -> None:
 
 
 @pytest.mark.parametrize("effort", [float("inf"), 10**9])
-def test_effective_end_falls_back_to_the_deadline_when_it_cannot_compute(effort: float) -> None:
+def test_effective_end_falls_back_to_the_deadline_when_it_cannot_compute(
+    effort: float,
+) -> None:
     assert eff(deadline=DEADLINE, effort_hours=effort) == DEADLINE
 
 
 def test_effective_end_prefers_the_planned_end_over_the_deadline() -> None:
     assert eff(planned_end=MANUAL_END, deadline=DEADLINE) == MANUAL_END
-    assert eff(planned_end=MANUAL_END, planned_end_manual=True, effort_hours=15.0, deadline=DEADLINE) == MANUAL_END
+    assert (
+        eff(
+            planned_end=MANUAL_END,
+            planned_end_manual=True,
+            effort_hours=15.0,
+            deadline=DEADLINE,
+        )
+        == MANUAL_END
+    )
 
 
-def test_effective_end_with_manual_but_empty_planned_end_computes_before_the_deadline() -> None:
-    assert eff(planned_end_manual=True, effort_hours=15.0, deadline=DEADLINE) == datetime(2026, 10, 13, 11)
+def test_effective_end_with_manual_but_empty_planned_end_computes_before_the_deadline() -> (
+    None
+):
+    assert eff(
+        planned_end_manual=True, effort_hours=15.0, deadline=DEADLINE
+    ) == datetime(2026, 10, 13, 11)
 
 
 def test_effective_end_is_the_deadline_even_without_a_start() -> None:
@@ -488,7 +603,9 @@ def test_effective_end_is_the_deadline_even_without_a_start() -> None:
 
 def test_computed_end_takes_the_deadline_as_the_fallback() -> None:
     assert computed_end(FRI_START, 0.0, 6.5, time(9, 0), {}, DEADLINE) == DEADLINE
-    assert computed_end(FRI_START, 0.0, 6.5, time(9, 0), {}, None) == datetime(2026, 10, 10, 9)
+    assert computed_end(FRI_START, 0.0, 6.5, time(9, 0), {}, None) == datetime(
+        2026, 10, 10, 9
+    )
     assert computed_end(None, 0.0, 6.5, time(9, 0), {}, DEADLINE) == DEADLINE
     assert computed_end(None, 0.0, 6.5, time(9, 0), {}, None) is None
 
@@ -506,9 +623,13 @@ def test_combine_rate_multiplies_and_guards_bad_values() -> None:
 
 def test_conversion_rate_uses_the_member_ratio_and_the_task_allocation() -> None:
     project = member_project(Member("田中", 1.2))
-    assert conversion_rate(Task("t", assignees=[Assignee("田中", 0.5)]), project) == pytest.approx(0.6)
+    assert conversion_rate(
+        Task("t", assignees=[Assignee("田中", 0.5)]), project
+    ) == pytest.approx(0.6)
     assert conversion_rate(Task("t"), project) == 1.0  # 担当者なし
-    assert conversion_rate(Task("t", assignees=[Assignee("不明", 0.5)]), project) == 1.0  # メンバーにいない
+    assert (
+        conversion_rate(Task("t", assignees=[Assignee("不明", 0.5)]), project) == 1.0
+    )  # メンバーにいない
 
 
 def test_conversion_rate_adds_up_every_assignee() -> None:
@@ -527,7 +648,9 @@ def test_conversion_rate_skips_assignees_who_are_not_members() -> None:
 
 def test_assignees_rate_works_on_a_member_list() -> None:
     members = [Member("A", 1.0), Member("B", 2.0)]
-    assert assignees_rate([Assignee("A", 1.0), Assignee("B", 0.25)], members) == pytest.approx(1.375)  # B は 200% → 150%
+    assert assignees_rate(
+        [Assignee("A", 1.0), Assignee("B", 0.25)], members
+    ) == pytest.approx(1.375)  # B は 200% → 150%
     assert assignees_rate([], members) == 1.0
 
 
@@ -536,13 +659,17 @@ def test_assignees_rate_uses_the_effective_ratio() -> None:
     members = [Member("A", 1.0, {"経験": "上級"}), Member("B", 1.0)]
     assignees = [Assignee("A", 1.0), Assignee("B", 0.5)]
     assert assignees_rate(assignees, members, parameters) == pytest.approx(1.2 + 0.5)
-    assert assignees_rate(assignees, members) == pytest.approx(1.0 + 0.5)  # パラメータなしは基本比率
+    assert assignees_rate(assignees, members) == pytest.approx(
+        1.0 + 0.5
+    )  # パラメータなしは基本比率
 
 
 def test_the_computed_end_follows_the_parameters() -> None:
     project = member_project(Member("田中", 1.0, {"経験": "上級"}))
     project.parameters = [Parameter("経験", [Level("上級", 0.5)])]
-    task = Task("t", planned_start=FRI_START, effort_hours=15.0, assignees=[Assignee("田中")])
+    task = Task(
+        "t", planned_start=FRI_START, effort_hours=15.0, assignees=[Assignee("田中")]
+    )
     # 15h / 1.5 = 10h → 金6.5h + 月3.5h
     assert effective_end(task, project, {}) == datetime(2026, 10, 12, 12, 30)
     assert conversion_rate(task, project) == pytest.approx(1.5)
@@ -550,8 +677,15 @@ def test_the_computed_end_follows_the_parameters() -> None:
 
 def test_two_assignees_finish_earlier_than_one() -> None:
     project = member_project(Member("田中", 1.0), Member("鈴木", 1.0))
-    alone = Task("t", planned_start=FRI_START, effort_hours=13.0, assignees=[Assignee("田中")])
-    pair = Task("t", planned_start=FRI_START, effort_hours=13.0, assignees=[Assignee("田中"), Assignee("鈴木")])
+    alone = Task(
+        "t", planned_start=FRI_START, effort_hours=13.0, assignees=[Assignee("田中")]
+    )
+    pair = Task(
+        "t",
+        planned_start=FRI_START,
+        effort_hours=13.0,
+        assignees=[Assignee("田中"), Assignee("鈴木")],
+    )
     # 13h / 1.0 = 13h → 金6.5h + 月6.5h
     assert effective_end(alone, project, {}) == datetime(2026, 10, 12, 15, 30)
     # 13h / 2.0 = 6.5h → 金のうちに終わる
@@ -566,21 +700,30 @@ def test_counted_assignees_keeps_only_members_in_order() -> None:
 
 def test_a_faster_member_finishes_earlier() -> None:
     project = member_project(Member("田中", 1.5))
-    task = Task("t", planned_start=FRI_START, effort_hours=15.0, assignees=[Assignee("田中")])
+    task = Task(
+        "t", planned_start=FRI_START, effort_hours=15.0, assignees=[Assignee("田中")]
+    )
     # 15h / 1.5 = 10h → 金6.5h + 月3.5h
     assert effective_end(task, project, {}) == datetime(2026, 10, 12, 12, 30)
 
 
 def test_a_smaller_allocation_finishes_later() -> None:
     project = member_project(Member("田中", 1.0))
-    task = Task("t", planned_start=FRI_START, effort_hours=6.5, assignees=[Assignee("田中", 0.5)])
+    task = Task(
+        "t",
+        planned_start=FRI_START,
+        effort_hours=6.5,
+        assignees=[Assignee("田中", 0.5)],
+    )
     # 6.5h / 0.5 = 13h → 金6.5h + 月6.5h
     assert effective_end(task, project, {}) == datetime(2026, 10, 12, 15, 30)
 
 
 def test_a_rate_of_one_changes_nothing() -> None:
     project = member_project(Member("田中", 1.0))
-    task = Task("t", planned_start=FRI_START, effort_hours=15.0, assignees=[Assignee("田中")])
+    task = Task(
+        "t", planned_start=FRI_START, effort_hours=15.0, assignees=[Assignee("田中")]
+    )
     assert effective_end(task, project, {}) == datetime(2026, 10, 13, 11)
 
 
@@ -608,14 +751,19 @@ def test_an_extreme_rate_falls_back_instead_of_raising() -> None:
     )
     assert effective_end(task, project, {}) == DEADLINE  # 1,000,000h は算出できない
     no_deadline = Task(
-        "t", planned_start=FRI_START, effort_hours=1000.0, assignees=[Assignee("田中", 0.01)]
+        "t",
+        planned_start=FRI_START,
+        effort_hours=1000.0,
+        assignees=[Assignee("田中", 0.01)],
     )
     assert effective_end(no_deadline, project, {}) == datetime(2026, 10, 10, 9)
 
 
 @pytest.mark.parametrize("rate", [0.0, -1.0, float("nan"), float("inf")])
 def test_computed_end_ignores_an_unusable_rate(rate: float) -> None:
-    assert computed_end(FRI_START, 15.0, 6.5, time(9, 0), {}, None, rate) == datetime(2026, 10, 13, 11)
+    assert computed_end(FRI_START, 15.0, 6.5, time(9, 0), {}, None, rate) == datetime(
+        2026, 10, 13, 11
+    )
 
 
 def test_effort_days() -> None:
@@ -627,7 +775,9 @@ def test_effort_days() -> None:
     assert effort_days(8.0, 1.0, 0.0) is None
 
 
-def alloc_task(name: str, start_day: int, end_day: int, allocation: float, **fields: object) -> Task:
+def alloc_task(
+    name: str, start_day: int, end_day: int, allocation: float, **fields: object
+) -> Task:
     return Task(
         name,
         planned_start=datetime(2026, 10, start_day),
@@ -642,23 +792,45 @@ def over(*tasks: Task) -> list[Overload]:
 
 
 def test_no_overload_when_the_periods_do_not_overlap() -> None:
-    assert over(alloc_task("a", 5, 7, 1.0), alloc_task("b", 7, 9, 1.0)) == []  # 端が接するだけ
+    assert (
+        over(alloc_task("a", 5, 7, 1.0), alloc_task("b", 7, 9, 1.0)) == []
+    )  # 端が接するだけ
 
 
 def test_exactly_one_hundred_percent_is_not_an_overload() -> None:
     assert over(alloc_task("a", 5, 9, 0.7), alloc_task("b", 5, 9, 0.3)) == []
-    assert over(alloc_task("a", 5, 9, 0.1), alloc_task("b", 5, 9, 0.2), alloc_task("c", 5, 9, 0.7)) == []
+    assert (
+        over(
+            alloc_task("a", 5, 9, 0.1),
+            alloc_task("b", 5, 9, 0.2),
+            alloc_task("c", 5, 9, 0.7),
+        )
+        == []
+    )
 
 
 def test_an_overload_is_reported_with_the_overlapping_period_and_total() -> None:
     result = over(alloc_task("a", 5, 9, 0.6), alloc_task("b", 7, 12, 0.6))
-    assert result == [Overload("田中", datetime(2026, 10, 7), datetime(2026, 10, 9), pytest.approx(1.2))]
+    assert result == [
+        Overload(
+            "田中", datetime(2026, 10, 7), datetime(2026, 10, 9), pytest.approx(1.2)
+        )
+    ]
 
 
-def test_three_tasks_partially_overlapping_merge_into_one_period_with_the_peak() -> None:
-    result = over(alloc_task("a", 5, 9, 0.6), alloc_task("b", 7, 12, 0.6), alloc_task("c", 8, 10, 0.3))
+def test_three_tasks_partially_overlapping_merge_into_one_period_with_the_peak() -> (
+    None
+):
+    result = over(
+        alloc_task("a", 5, 9, 0.6),
+        alloc_task("b", 7, 12, 0.6),
+        alloc_task("c", 8, 10, 0.3),
+    )
     assert len(result) == 1
-    assert (result[0].start, result[0].end) == (datetime(2026, 10, 7), datetime(2026, 10, 9))
+    assert (result[0].start, result[0].end) == (
+        datetime(2026, 10, 7),
+        datetime(2026, 10, 9),
+    )
     assert result[0].total == pytest.approx(1.5)  # 10/8〜10/9 が 0.6+0.6+0.3
 
 
@@ -672,10 +844,16 @@ def test_separate_overload_periods_stay_separate() -> None:
     assert [(o.start.day, o.end.day) for o in result] == [(6, 8), (13, 15)]
 
 
-def test_done_tasks_unassigned_tasks_and_tasks_without_a_start_are_not_counted() -> None:
+def test_done_tasks_unassigned_tasks_and_tasks_without_a_start_are_not_counted() -> (
+    None
+):
     done = alloc_task("a", 5, 9, 0.6, status=Status.DONE)
-    other = Task("b", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9))
-    no_start = Task("c", planned_end=datetime(2026, 10, 9), assignees=[Assignee("田中", 0.6)])
+    other = Task(
+        "b", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9)
+    )
+    no_start = Task(
+        "c", planned_end=datetime(2026, 10, 9), assignees=[Assignee("田中", 0.6)]
+    )
     assert over(done, other, no_start, alloc_task("d", 5, 9, 0.6)) == []
 
 
@@ -699,8 +877,12 @@ def test_clip_overloads_returns_the_part_inside_the_task() -> None:
     a, b = alloc_task("a", 5, 9, 0.6), alloc_task("b", 7, 12, 0.6)
     project = member_project(Member("田中"), tasks=[a, b])
     overloads = overallocations(project, {})
-    assert [(o.start.day, o.end.day) for o in clip_overloads(a, project, {}, overloads)] == [(7, 9)]
-    assert [(o.start.day, o.end.day) for o in clip_overloads(b, project, {}, overloads)] == [(7, 9)]
+    assert [
+        (o.start.day, o.end.day) for o in clip_overloads(a, project, {}, overloads)
+    ] == [(7, 9)]
+    assert [
+        (o.start.day, o.end.day) for o in clip_overloads(b, project, {}, overloads)
+    ] == [(7, 9)]
 
 
 def test_clip_overloads_is_empty_for_tasks_that_are_not_counted() -> None:
@@ -715,10 +897,19 @@ def test_clip_overloads_is_empty_for_tasks_that_are_not_counted() -> None:
 def test_interval_span_matches_bar_span() -> None:
     columns = build_columns(Project("p", base_date=BASE), Scale.DAY)
     start, end = datetime(2026, 10, 5, 12), datetime(2026, 10, 7, 12)
-    assert interval_span(start, end, columns) == bar_span(start, end, columns) == (0.5, 2.0)
+    assert (
+        interval_span(start, end, columns)
+        == bar_span(start, end, columns)
+        == (0.5, 2.0)
+    )
 
 
-def done_task(end: datetime | None, *, status: Status = Status.DONE, deadline: datetime | None = None) -> Task:
+def done_task(
+    end: datetime | None,
+    *,
+    status: Status = Status.DONE,
+    deadline: datetime | None = None,
+) -> Task:
     return Task(
         "t",
         planned_start=datetime(2026, 10, 5, 9),
@@ -771,7 +962,9 @@ def test_not_done_without_an_actual_end_uses_now() -> None:
 
 def test_current_progress_is_none_without_actuals_or_values() -> None:
     assert current_progress(Task("t")) is None
-    assert current_progress(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9))])) is None
+    assert (
+        current_progress(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9))])) is None
+    )
 
 
 def test_current_progress_keeps_zero() -> None:
@@ -780,7 +973,12 @@ def test_current_progress_keeps_zero() -> None:
 
 def test_current_progress_is_the_task_value() -> None:
     assert current_progress(Task("t", progress=40)) == 40
-    assert current_progress(Task("t", actuals=[Actual(datetime(2026, 10, 5, 9))], progress=30)) == 30
+    assert (
+        current_progress(
+            Task("t", actuals=[Actual(datetime(2026, 10, 5, 9))], progress=30)
+        )
+        == 30
+    )
 
 
 P_START = datetime(2026, 10, 5, 12)
@@ -831,7 +1029,9 @@ def test_tolerance_is_ten_points() -> None:
         (61, ProgressState.AHEAD),
     ],
 )
-def test_progress_against_the_expected_ratio(progress: int, expected: ProgressState) -> None:
+def test_progress_against_the_expected_ratio(
+    progress: int, expected: ProgressState
+) -> None:
     assert state_of(running(progress), P_MID) is expected
 
 
@@ -858,7 +1058,9 @@ def test_no_state_without_progress_or_plan() -> None:
 def test_missing_planned_end_falls_back_like_the_bar_does() -> None:
     # 完了予定が空でも、effective_end は開始予定の翌日で補う(棒もその終了で描かれる)
     task = running(50, planned_end=None)
-    assert state_of(task, P_MID) is ProgressState.DELAYED  # 翌日 = P_MID。進んでいるはずの割合は100%
+    assert (
+        state_of(task, P_MID) is ProgressState.DELAYED
+    )  # 翌日 = P_MID。進んでいるはずの割合は100%
 
 
 def test_zero_length_plan_does_not_crash() -> None:
@@ -868,40 +1070,74 @@ def test_zero_length_plan_does_not_crash() -> None:
 
 
 def test_done_in_time_is_done() -> None:
-    task = running(100, status=Status.DONE, actuals=[Actual(P_START, datetime(2026, 10, 7, 10))])
+    task = running(
+        100, status=Status.DONE, actuals=[Actual(P_START, datetime(2026, 10, 7, 10))]
+    )
     assert state_of(task, datetime(2026, 10, 20)) is ProgressState.DONE
 
 
 def test_done_after_the_planned_end_is_late_done() -> None:
-    task = running(100, status=Status.DONE, actuals=[Actual(P_START, datetime(2026, 10, 8, 12))])
+    task = running(
+        100, status=Status.DONE, actuals=[Actual(P_START, datetime(2026, 10, 8, 12))]
+    )
     assert state_of(task, datetime(2026, 10, 20)) is ProgressState.LATE_DONE
 
 
 def test_done_without_an_actual_end_is_done_not_late_done() -> None:
-    assert state_of(running(None, status=Status.DONE), datetime(2026, 10, 20)) is ProgressState.DONE
-    assert state_of(Task("t", status=Status.DONE), datetime(2026, 10, 20)) is ProgressState.DONE
+    assert (
+        state_of(running(None, status=Status.DONE), datetime(2026, 10, 20))
+        is ProgressState.DONE
+    )
+    assert (
+        state_of(Task("t", status=Status.DONE), datetime(2026, 10, 20))
+        is ProgressState.DONE
+    )
 
 
 def test_period_sets_the_first_and_last_columns() -> None:
-    columns = build_columns(Project("p", base_date=date(2026, 10, 5)), Scale.DAY, period=(date(2026, 10, 6), date(2026, 10, 8)))
+    columns = build_columns(
+        Project("p", base_date=date(2026, 10, 5)),
+        Scale.DAY,
+        period=(date(2026, 10, 6), date(2026, 10, 8)),
+    )
     assert columns[0].start == date(2026, 10, 6)
-    assert [c.start for c in columns] == [date(2026, 10, 6), date(2026, 10, 7), date(2026, 10, 8)]  # 期間の日数ちょうど(下限で足さない)
+    assert [c.start for c in columns] == [
+        date(2026, 10, 6),
+        date(2026, 10, 7),
+        date(2026, 10, 8),
+    ]  # 期間の日数ちょうど(下限で足さない)
 
 
 def test_a_period_is_not_padded_to_the_minimum_columns_at_any_scale() -> None:
     project = Project("p", base_date=date(2026, 10, 5))
     period = (date(2026, 10, 1), date(2026, 10, 31))
     days = build_columns(project, Scale.DAY, period=period)
-    assert (days[0].start, days[-1].start, len(days)) == (date(2026, 10, 1), date(2026, 10, 31), 31)
-    weeks = build_columns(project, Scale.WEEK, period=period)  # 週は月曜で区切る。期間にかかる週だけ
-    assert (weeks[0].start, weeks[-1].end, len(weeks)) == (date(2026, 9, 28), date(2026, 11, 2), 5)
+    assert (days[0].start, days[-1].start, len(days)) == (
+        date(2026, 10, 1),
+        date(2026, 10, 31),
+        31,
+    )
+    weeks = build_columns(
+        project, Scale.WEEK, period=period
+    )  # 週は月曜で区切る。期間にかかる週だけ
+    assert (weeks[0].start, weeks[-1].end, len(weeks)) == (
+        date(2026, 9, 28),
+        date(2026, 11, 2),
+        5,
+    )
     months = build_columns(project, Scale.MONTH, period=period)
     assert [c.start for c in months] == [date(2026, 10, 1)]
-    assert len(build_columns(project, Scale.DAY)) >= 42  # 自動のときは、これまでどおり下限まで足す
+    assert (
+        len(build_columns(project, Scale.DAY)) >= 42
+    )  # 自動のときは、これまでどおり下限まで足す
 
 
 def test_period_includes_the_end_date_beyond_the_minimum() -> None:
-    columns = build_columns(Project("p", base_date=date(2026, 10, 5)), Scale.DAY, period=(date(2026, 10, 1), date(2026, 12, 31)))
+    columns = build_columns(
+        Project("p", base_date=date(2026, 10, 5)),
+        Scale.DAY,
+        period=(date(2026, 10, 1), date(2026, 12, 31)),
+    )
     assert columns[0].start == date(2026, 10, 1)
     assert columns[-1].start == date(2026, 12, 31)  # 終了日の列まで含む
     assert columns[-1].end == date(2027, 1, 1)
@@ -909,10 +1145,14 @@ def test_period_includes_the_end_date_beyond_the_minimum() -> None:
 
 def test_period_for_week_and_month_scales() -> None:
     project = Project("p", base_date=date(2026, 10, 5))
-    weeks = build_columns(project, Scale.WEEK, period=(date(2026, 10, 7), date(2026, 12, 31)))
+    weeks = build_columns(
+        project, Scale.WEEK, period=(date(2026, 10, 7), date(2026, 12, 31))
+    )
     assert weeks[0].start == date(2026, 10, 5)  # 月曜に合わせる
     assert weeks[-1].end >= date(2027, 1, 1)
-    months = build_columns(project, Scale.MONTH, period=(date(2026, 10, 7), date(2027, 3, 1)))
+    months = build_columns(
+        project, Scale.MONTH, period=(date(2026, 10, 7), date(2027, 3, 1))
+    )
     assert months[0].start == date(2026, 10, 1)
     assert months[-1].start >= date(2027, 3, 1)
 
@@ -924,25 +1164,45 @@ def test_without_a_period_the_columns_are_unchanged() -> None:
 
 def test_a_reversed_period_is_rejected() -> None:
     with pytest.raises(ValueError):
-        build_columns(Project("p", base_date=date(2026, 10, 5)), Scale.DAY, period=(date(2026, 10, 9), date(2026, 10, 8)))
+        build_columns(
+            Project("p", base_date=date(2026, 10, 5)),
+            Scale.DAY,
+            period=(date(2026, 10, 9), date(2026, 10, 8)),
+        )
 
 
 def test_a_one_day_period_is_allowed() -> None:
-    columns = build_columns(Project("p", base_date=date(2026, 10, 5)), Scale.DAY, period=(date(2026, 10, 8), date(2026, 10, 8)))
+    columns = build_columns(
+        Project("p", base_date=date(2026, 10, 5)),
+        Scale.DAY,
+        period=(date(2026, 10, 8), date(2026, 10, 8)),
+    )
     assert columns[0].start == date(2026, 10, 8)
 
 
 def _period_columns() -> list:  # 10/6〜10/8 の 3 日
-    return build_columns(Project("p", base_date=date(2026, 10, 5)), Scale.DAY, period=(date(2026, 10, 6), date(2026, 10, 8)))
+    return build_columns(
+        Project("p", base_date=date(2026, 10, 5)),
+        Scale.DAY,
+        period=(date(2026, 10, 6), date(2026, 10, 8)),
+    )
 
 
 def test_in_range_for_bars_inside_overlapping_and_outside() -> None:
     cols = _period_columns()  # [10/6 0:00, 10/9 0:00)
     assert in_range(datetime(2026, 10, 7), datetime(2026, 10, 8), cols)
-    assert in_range(datetime(2026, 10, 5, 12), datetime(2026, 10, 6, 12), cols)  # 左端をまたぐ
-    assert in_range(datetime(2026, 10, 8, 12), datetime(2026, 10, 10), cols)  # 右端をまたぐ
-    assert not in_range(datetime(2026, 10, 1), datetime(2026, 10, 6), cols)  # 終了がちょうど左端
-    assert not in_range(datetime(2026, 10, 9), datetime(2026, 10, 12), cols)  # 開始がちょうど右端
+    assert in_range(
+        datetime(2026, 10, 5, 12), datetime(2026, 10, 6, 12), cols
+    )  # 左端をまたぐ
+    assert in_range(
+        datetime(2026, 10, 8, 12), datetime(2026, 10, 10), cols
+    )  # 右端をまたぐ
+    assert not in_range(
+        datetime(2026, 10, 1), datetime(2026, 10, 6), cols
+    )  # 終了がちょうど左端
+    assert not in_range(
+        datetime(2026, 10, 9), datetime(2026, 10, 12), cols
+    )  # 開始がちょうど右端
     assert not in_range(datetime(2026, 9, 1), datetime(2026, 9, 5), cols)
 
 
@@ -950,65 +1210,111 @@ def test_in_range_for_zero_length_and_reversed_bars() -> None:
     cols = _period_columns()
     assert in_range(datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 9), cols)
     assert not in_range(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 9), cols)
-    assert in_range(datetime(2026, 10, 8), datetime(2026, 10, 7), cols)  # 逆順(手編集)でも落ちない
+    assert in_range(
+        datetime(2026, 10, 8), datetime(2026, 10, 7), cols
+    )  # 逆順(手編集)でも落ちない
 
 
 def test_counted_span_is_the_span_that_overallocation_counts() -> None:
     counted = alloc_task("a", 5, 7, 0.5)
     project = Project("P", members=[Member("田中", 1.0)], tasks=[counted])
-    assert counted_span(counted, project, {}) == (counted.planned_start, counted.planned_end)
+    assert counted_span(counted, project, {}) == (
+        counted.planned_start,
+        counted.planned_end,
+    )
     done = alloc_task("b", 5, 7, 0.5, status=Status.DONE)
-    unassigned = Task("c", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 7))
+    unassigned = Task(
+        "c", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 7)
+    )
     for task in (done, unassigned):
         assert counted_span(task, project, {}) is None
 
 
 def test_each_assignee_counts_against_his_own_total() -> None:
     a = Task(
-        "a", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9),
+        "a",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 9),
         assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.3)],
     )
-    b = Task("b", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9), assignees=[Assignee("田中", 0.6)])
+    b = Task(
+        "b",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 9),
+        assignees=[Assignee("田中", 0.6)],
+    )
     project = member_project(Member("田中"), Member("鈴木"), tasks=[a, b])
     result = overallocations(project, {})
-    assert [(o.member, round(o.total, 2)) for o in result] == [("田中", 1.2)]  # 鈴木は 30% だけ
+    assert [(o.member, round(o.total, 2)) for o in result] == [
+        ("田中", 1.2)
+    ]  # 鈴木は 30% だけ
 
 
 def test_a_task_with_two_overloaded_assignees_is_reported_for_both() -> None:
     a = Task(
-        "a", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9),
+        "a",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 9),
         assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.6)],
     )
     b = Task(
-        "b", planned_start=datetime(2026, 10, 7), planned_end=datetime(2026, 10, 12),
+        "b",
+        planned_start=datetime(2026, 10, 7),
+        planned_end=datetime(2026, 10, 12),
         assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.6)],
     )
     project = member_project(Member("田中"), Member("鈴木"), tasks=[a, b])
     overloads = overallocations(project, {})
     assert sorted(o.member for o in overloads) == ["田中", "鈴木"]
-    assert sorted(o.member for o in clip_overloads(a, project, {}, overloads)) == ["田中", "鈴木"]
+    assert sorted(o.member for o in clip_overloads(a, project, {}, overloads)) == [
+        "田中",
+        "鈴木",
+    ]
 
 
 def test_clip_overloads_ignores_members_who_are_not_on_the_task() -> None:
     a = alloc_task("a", 5, 9, 0.6)
     b = alloc_task("b", 7, 12, 0.6)
-    other = Task("o", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 12), assignees=[Assignee("鈴木", 0.5)])
+    other = Task(
+        "o",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 12),
+        assignees=[Assignee("鈴木", 0.5)],
+    )
     project = member_project(Member("田中"), Member("鈴木"), tasks=[a, b, other])
     overloads = overallocations(project, {})
     assert clip_overloads(other, project, {}, overloads) == []
 
 
 def test_an_assignee_who_is_not_a_member_is_not_counted_for_overload() -> None:
-    a = Task("a", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9), assignees=[Assignee("不明", 0.7)])
-    b = Task("b", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9), assignees=[Assignee("不明", 0.7)])
+    a = Task(
+        "a",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 9),
+        assignees=[Assignee("不明", 0.7)],
+    )
+    b = Task(
+        "b",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 9),
+        assignees=[Assignee("不明", 0.7)],
+    )
     project = member_project(Member("田中"), tasks=[a, b])
     assert overallocations(project, {}) == []
     assert counted_span(a, project, {}) is None
 
 
 def test_visible_range_includes_tasks_in_nested_sections() -> None:
-    far = Task("遠い", planned_start=datetime(2026, 12, 1, 9), planned_end=datetime(2026, 12, 3, 9))
-    project = Project("p", base_date=date(2026, 10, 5), sections=[Section("親", sections=[Section("子", [far])])])
+    far = Task(
+        "遠い",
+        planned_start=datetime(2026, 12, 1, 9),
+        planned_end=datetime(2026, 12, 3, 9),
+    )
+    project = Project(
+        "p",
+        base_date=date(2026, 10, 5),
+        sections=[Section("親", sections=[Section("子", [far])])],
+    )
     start, end = visible_range(project)
     assert start == date(2026, 10, 5)
     assert end >= date(2026, 12, 4)  # 入れ子のタスクのバーまで、範囲が広がる
@@ -1042,56 +1348,93 @@ def end(start: datetime, effort: float, work_days=None) -> datetime | None:  # n
 
 
 def test_day_window_default_override_and_rest() -> None:
-    assert day_window(FRI, 6.5, OPEN, HOLIDAYS) == (datetime(2026, 10, 16, 9), datetime(2026, 10, 16, 15, 30))
+    assert day_window(FRI, 6.5, OPEN, HOLIDAYS) == (
+        datetime(2026, 10, 16, 9),
+        datetime(2026, 10, 16, 15, 30),
+    )
     assert day_window(SAT, 6.5, OPEN, HOLIDAYS) is None
-    assert day_window(SAT, 6.5, OPEN, HOLIDAYS, SAT_AFTERNOON) == (datetime(2026, 10, 17, 13), datetime(2026, 10, 17, 16))
+    assert day_window(SAT, 6.5, OPEN, HOLIDAYS, SAT_AFTERNOON) == (
+        datetime(2026, 10, 17, 13),
+        datetime(2026, 10, 17, 16),
+    )
     rest = work_day_map([WorkDay(FRI)])
     assert day_window(FRI, 6.5, OPEN, HOLIDAYS, rest) is None
     working_holiday = work_day_map([WorkDay(MON, time(10), time(12))])
-    assert day_window(MON, 6.5, OPEN, HOLIDAYS, working_holiday) == (datetime(2026, 10, 12, 10), datetime(2026, 10, 12, 12))
+    assert day_window(MON, 6.5, OPEN, HOLIDAYS, working_holiday) == (
+        datetime(2026, 10, 12, 10),
+        datetime(2026, 10, 12, 12),
+    )
 
 
 def test_day_hours_and_is_workday_follow_overrides() -> None:
     assert day_hours(FRI, 6.5, HOLIDAYS) == 6.5
     assert day_hours(SAT, 6.5, HOLIDAYS) == 0
     assert day_hours(SAT, 6.5, HOLIDAYS, SAT_AFTERNOON) == 3
-    assert is_workday(SAT, HOLIDAYS) is False and is_workday(SAT, HOLIDAYS, SAT_AFTERNOON) is True
+    assert (
+        is_workday(SAT, HOLIDAYS) is False
+        and is_workday(SAT, HOLIDAYS, SAT_AFTERNOON) is True
+    )
     assert is_workday(FRI, HOLIDAYS, work_day_map([WorkDay(FRI)])) is False
-    assert is_workday(MON, HOLIDAYS, work_day_map([WorkDay(MON, time(9), time(10))])) is True
+    assert (
+        is_workday(MON, HOLIDAYS, work_day_map([WorkDay(MON, time(9), time(10))]))
+        is True
+    )
 
 
 def test_effort_overflows_the_friday_slot_into_the_saturday_window() -> None:
     # 金曜 9:00〜15:30 の 6.5h を使い切り、残り 2h は土曜 13:00 から
-    assert end(datetime(2026, 10, 16, 9), 8.5, SAT_AFTERNOON) == datetime(2026, 10, 17, 15)
+    assert end(datetime(2026, 10, 16, 9), 8.5, SAT_AFTERNOON) == datetime(
+        2026, 10, 17, 15
+    )
     # 土曜の枠は 3h。9.5h なら土曜 16:00 ちょうどで終わる
-    assert end(datetime(2026, 10, 16, 9), 9.5, SAT_AFTERNOON) == datetime(2026, 10, 17, 16)
+    assert end(datetime(2026, 10, 16, 9), 9.5, SAT_AFTERNOON) == datetime(
+        2026, 10, 17, 16
+    )
     # 10h なら残り 0.5h は日曜を飛ばして月曜(10/19)9:30
-    assert end(datetime(2026, 10, 16, 9), 10, SAT_AFTERNOON) == datetime(2026, 10, 19, 9, 30)
+    assert end(datetime(2026, 10, 16, 9), 10, SAT_AFTERNOON) == datetime(
+        2026, 10, 19, 9, 30
+    )
 
 
 def test_without_overrides_the_result_is_unchanged() -> None:
-    assert end(datetime(2026, 10, 16, 9), 8.5) == end(datetime(2026, 10, 16, 9), 8.5, {})
-    assert end(datetime(2026, 10, 16, 9), 8.5) == datetime(2026, 10, 19, 11)  # 金曜 6.5h、残り 2h は土日を飛ばして月曜 9:00 から
+    assert end(datetime(2026, 10, 16, 9), 8.5) == end(
+        datetime(2026, 10, 16, 9), 8.5, {}
+    )
+    assert end(datetime(2026, 10, 16, 9), 8.5) == datetime(
+        2026, 10, 19, 11
+    )  # 金曜 6.5h、残り 2h は土日を飛ばして月曜 9:00 から
 
 
 @pytest.mark.parametrize(
     ("start", "expected"),
     [
-        (datetime(2026, 10, 17, 10), datetime(2026, 10, 17, 14)),  # 枠の前から始まる → 枠の開始(13:00)から 1h
+        (
+            datetime(2026, 10, 17, 10),
+            datetime(2026, 10, 17, 14),
+        ),  # 枠の前から始まる → 枠の開始(13:00)から 1h
         (datetime(2026, 10, 17, 14), datetime(2026, 10, 17, 15)),  # 枠の途中から
-        (datetime(2026, 10, 17, 16), datetime(2026, 10, 19, 10)),  # 枠の終了ちょうど → 次に枠のある日(月曜 10/19)の 9:00 から 1h
+        (
+            datetime(2026, 10, 17, 16),
+            datetime(2026, 10, 19, 10),
+        ),  # 枠の終了ちょうど → 次に枠のある日(月曜 10/19)の 9:00 から 1h
         (datetime(2026, 10, 17, 18), datetime(2026, 10, 19, 10)),  # 枠の後
     ],
 )
-def test_start_before_inside_at_the_end_of_and_after_the_window(start: datetime, expected: datetime) -> None:
+def test_start_before_inside_at_the_end_of_and_after_the_window(
+    start: datetime, expected: datetime
+) -> None:
     assert end(start, 1, SAT_AFTERNOON) == expected
 
 
 def test_a_rest_weekday_is_skipped_and_a_working_holiday_is_used() -> None:
     rest_friday = work_day_map([WorkDay(FRI)])
-    assert end(datetime(2026, 10, 16, 9), 1, rest_friday) == datetime(2026, 10, 19, 10)  # 金曜が休み、土日も枠なし → 月曜 10/19
+    assert end(datetime(2026, 10, 16, 9), 1, rest_friday) == datetime(
+        2026, 10, 19, 10
+    )  # 金曜が休み、土日も枠なし → 月曜 10/19
     working_monday = work_day_map([WorkDay(MON, time(10), time(12))])
-    assert end(datetime(2026, 10, 10, 9), 1, working_monday) == datetime(2026, 10, 12, 11)  # 土曜開始 → 月曜(稼働に上書き)の 10:00 から 1h
+    assert end(datetime(2026, 10, 10, 9), 1, working_monday) == datetime(
+        2026, 10, 12, 11
+    )  # 土曜開始 → 月曜(稼働に上書き)の 10:00 から 1h
 
 
 def test_invalid_effort_still_returns_none_with_overrides() -> None:
@@ -1100,41 +1443,68 @@ def test_invalid_effort_still_returns_none_with_overrides() -> None:
 
 
 def test_the_schedule_uses_the_assignees_work_days() -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 16, 9), effort_hours=8.5, id="t1", assignees=[Assignee("甲", 1.0)])
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 16, 9),
+        effort_hours=8.5,
+        id="t1",
+        assignees=[Assignee("甲", 1.0)],
+    )
     kou = Member("甲", work_days=[WorkDay(SAT, time(13), time(16))])
-    assert Schedule(Project("p", tasks=[task], members=[kou]), {}).end(task) == datetime(2026, 10, 17, 15)
-    assert Schedule(Project("p", tasks=[task], members=[Member("甲")]), {}).end(task) == datetime(2026, 10, 19, 11)
+    assert Schedule(Project("p", tasks=[task], members=[kou]), {}).end(
+        task
+    ) == datetime(2026, 10, 17, 15)
+    assert Schedule(Project("p", tasks=[task], members=[Member("甲")]), {}).end(
+        task
+    ) == datetime(2026, 10, 19, 11)
     # 担当者がいないタスクは通常のカレンダー
     bare = Task("u", planned_start=datetime(2026, 10, 16, 9), effort_hours=8.5, id="t2")
-    assert Schedule(Project("p", tasks=[bare], members=[kou]), {}).end(bare) == datetime(2026, 10, 19, 11)
+    assert Schedule(Project("p", tasks=[bare], members=[kou]), {}).end(
+        bare
+    ) == datetime(2026, 10, 19, 11)
 
 
 def test_two_workers_with_the_same_calendar_match_the_summed_rate() -> None:
     one = calc_end(datetime(2026, 10, 12, 9), 9.0, 6.5, OPEN, {}, [Worker(1.5)])
-    assert calc_end(datetime(2026, 10, 12, 9), 9.0, 6.5, OPEN, {}, [Worker(1.0), Worker(0.5)]) == one
+    assert (
+        calc_end(
+            datetime(2026, 10, 12, 9), 9.0, 6.5, OPEN, {}, [Worker(1.0), Worker(0.5)]
+        )
+        == one
+    )
 
 
 def test_only_the_worker_who_works_on_the_override_day_burns_effort() -> None:
     a = Worker(1.0, SAT_AFTERNOON)
     b = Worker(1.0)
     # 金曜 9:00 から 8h: 2 人で 4h → 13:00 に終わり、土曜は使わない
-    assert calc_end(datetime(2026, 10, 16, 9), 8.0, 6.5, OPEN, {}, [a, b]) == datetime(2026, 10, 16, 13)
+    assert calc_end(datetime(2026, 10, 16, 9), 8.0, 6.5, OPEN, {}, [a, b]) == datetime(
+        2026, 10, 16, 13
+    )
     # 30h: 金曜 13h → 残り 17h。土曜は A だけが 13–16 の 3h → 残り 14h。月曜は 2 人で 13h → 残り 1h は火曜の 0.5h 後
-    assert calc_end(datetime(2026, 10, 16, 9), 30.0, 6.5, OPEN, {}, [a, b]) == datetime(2026, 10, 20, 9, 30)
+    assert calc_end(datetime(2026, 10, 16, 9), 30.0, 6.5, OPEN, {}, [a, b]) == datetime(
+        2026, 10, 20, 9, 30
+    )
     # A に土曜の上書きがなければ、残り 4h を火曜の 2h で終える
-    assert calc_end(datetime(2026, 10, 16, 9), 30.0, 6.5, OPEN, {}, [Worker(1.0), b]) == datetime(2026, 10, 20, 11)
+    assert calc_end(
+        datetime(2026, 10, 16, 9), 30.0, 6.5, OPEN, {}, [Worker(1.0), b]
+    ) == datetime(2026, 10, 20, 11)
 
 
 def test_shifted_windows_are_stacked_by_time() -> None:
     a = Worker(1.0, work_day_map([WorkDay(SAT, time(9), time(12))]))
     b = Worker(1.0, work_day_map([WorkDay(SAT, time(10), time(15))]))
     # 9–10 は A だけ 1h、10–12 は 2 人で 4h(計 5h)、残り 2h は B だけの 12–14
-    assert calc_end(datetime(2026, 10, 17, 0), 7.0, 6.5, OPEN, {}, [a, b]) == datetime(2026, 10, 17, 14)
+    assert calc_end(datetime(2026, 10, 17, 0), 7.0, 6.5, OPEN, {}, [a, b]) == datetime(
+        2026, 10, 17, 14
+    )
 
 
 def test_a_rest_day_for_every_worker_is_skipped() -> None:
     rest = work_day_map([WorkDay(date(2026, 10, 19))])
-    assert calc_end(datetime(2026, 10, 19, 9), 1.0, 6.5, OPEN, {}, [Worker(1.0, rest)]) == datetime(2026, 10, 20, 10)
+    assert calc_end(
+        datetime(2026, 10, 19, 9), 1.0, 6.5, OPEN, {}, [Worker(1.0, rest)]
+    ) == datetime(2026, 10, 20, 10)
 
 
 def test_no_crew_uses_the_default_calendar() -> None:
@@ -1150,14 +1520,26 @@ def test_crew_of_skips_unknown_assignees_and_carries_member_calendars() -> None:
     assert SAT in crew[0].days
 
 
-@pytest.mark.parametrize(("rate", "effort", "expected"), [
-    (0.4, 13.0, datetime(2026, 10, 23, 15, 30)),  # 32.5h = 6.5h × 5 日。ちょうど金曜の終業で終わる
-    (0.1, 6.5, datetime(2026, 10, 30, 15, 30)),  # 65h = 10 稼働日
-    (0.7, 13.65, datetime(2026, 10, 21, 15, 30)),
-])
-def test_an_effort_that_ends_exactly_at_the_close_stays_on_that_day(rate: float, effort: float, expected: datetime) -> None:
+@pytest.mark.parametrize(
+    ("rate", "effort", "expected"),
+    [
+        (
+            0.4,
+            13.0,
+            datetime(2026, 10, 23, 15, 30),
+        ),  # 32.5h = 6.5h × 5 日。ちょうど金曜の終業で終わる
+        (0.1, 6.5, datetime(2026, 10, 30, 15, 30)),  # 65h = 10 稼働日
+        (0.7, 13.65, datetime(2026, 10, 21, 15, 30)),
+    ],
+)
+def test_an_effort_that_ends_exactly_at_the_close_stays_on_that_day(
+    rate: float, effort: float, expected: datetime
+) -> None:
     # 浮動小数の丸めで、ちょうど終業で終わる工数が翌稼働日の始業に回らない
-    assert calc_end(datetime(2026, 10, 19, 9), effort, 6.5, OPEN, {}, [Worker(rate)]) == expected
+    assert (
+        calc_end(datetime(2026, 10, 19, 9), effort, 6.5, OPEN, {}, [Worker(rate)])
+        == expected
+    )
 
 
 def test_week_count_counts_seven_day_weeks_from_the_start_date() -> None:
@@ -1171,15 +1553,25 @@ def test_week_count_counts_seven_day_weeks_from_the_start_date() -> None:
     assert week_count(start, datetime(2030, 1, 1)) == 52  # 上限
 
 
-def test_the_sample_project_shows_exactly_the_period_and_clips_the_bars_at_its_edges() -> None:
+def test_the_sample_project_shows_exactly_the_period_and_clips_the_bars_at_its_edges() -> (
+    None
+):
     """docs/samples/期間確認.json(手で開いて確認する用)を 2026-10-01 〜 2026-10-31 で描いたときの列と、描く棒。"""
     from pathlib import Path
 
     from projectapp.storage import load_project
 
-    project = load_project(Path(__file__).parent.parent / "docs" / "samples" / "期間確認.json")
-    columns = build_columns(project, Scale.DAY, period=(date(2026, 10, 1), date(2026, 10, 31)))
-    assert (columns[0].start, columns[-1].start, len(columns)) == (date(2026, 10, 1), date(2026, 10, 31), 31)
+    project = load_project(
+        Path(__file__).parent.parent / "docs" / "samples" / "期間確認.json"
+    )
+    columns = build_columns(
+        project, Scale.DAY, period=(date(2026, 10, 1), date(2026, 10, 31))
+    )
+    assert (columns[0].start, columns[-1].start, len(columns)) == (
+        date(2026, 10, 1),
+        date(2026, 10, 31),
+        31,
+    )
     schedule = Schedule(project, {})
     drawn = [
         task.name
@@ -1189,15 +1581,27 @@ def test_the_sample_project_shows_exactly_the_period_and_clips_the_bars_at_its_e
         and in_range(start, end, columns)
     ]
     assert [name.split("]")[0] for name in drawn] == [
-        "[左端をまたぐ", "[ちょうど月初", "[中", "[中", "[ちょうど月末", "[右端をまたぐ",
+        "[左端をまたぐ",
+        "[ちょうど月初",
+        "[中",
+        "[中",
+        "[ちょうど月末",
+        "[右端をまたぐ",
     ]  # 前の月・後の月・遠い月だけのタスクは描かない
 
 
 def _limited_project(**limits: float) -> tuple[Project, Task]:
     parameters = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
     member = Member("田中", 1.0, {"a": "高", "b": "高", "c": "高"})
-    task = Task("t", assignees=[Assignee("田中", 1.0)], effort_hours=10.0, planned_start=datetime(2026, 10, 5, 9))
-    return Project("p", members=[member], parameters=parameters, tasks=[task], **limits), task
+    task = Task(
+        "t",
+        assignees=[Assignee("田中", 1.0)],
+        effort_hours=10.0,
+        planned_start=datetime(2026, 10, 5, 9),
+    )
+    return Project(
+        "p", members=[member], parameters=parameters, tasks=[task], **limits
+    ), task
 
 
 def test_conversion_rate_uses_the_project_ratio_limits() -> None:
@@ -1218,7 +1622,11 @@ def test_the_planned_end_follows_the_ratio_limits() -> None:
 def test_own_end_ignores_the_push_by_predecessors_and_uses_the_planned_start() -> None:
     from projectapp.timeline import own_end
 
-    task = Task("t", planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 7, 12))
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 5, 9),
+        planned_end=datetime(2026, 10, 7, 12),
+    )
     project = Project("p", base_date=date(2026, 10, 5), tasks=[task])
     assert own_end(task, project, {}) == datetime(2026, 10, 7, 12)
     assert own_end(Task("x"), project, {}) is None
@@ -1239,20 +1647,33 @@ def test_work_capacity_skips_weekends_and_holidays() -> None:
 def test_work_capacity_is_weighted_by_the_conversion_rate() -> None:
     start, end = datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 15, 30)
     assert work_capacity(start, end, 6.5, OPEN, {}, crew=[Worker(2.0)]) == 13.0
-    assert work_capacity(start, end, 6.5, OPEN, {}, crew=[Worker(1.0), Worker(0.5)]) == 9.75
+    assert (
+        work_capacity(start, end, 6.5, OPEN, {}, crew=[Worker(1.0), Worker(0.5)])
+        == 9.75
+    )
 
 
 def test_work_capacity_uses_each_workers_day_override() -> None:
-    only_morning = Worker(1.0, work_day_map([WorkDay(date(2026, 10, 5), time(9), time(12))]))
+    only_morning = Worker(
+        1.0, work_day_map([WorkDay(date(2026, 10, 5), time(9), time(12))])
+    )
     start, end = datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 18)
     assert work_capacity(start, end, 6.5, OPEN, {}, crew=[only_morning]) == 3.0
-    assert work_capacity(start, end, 6.5, OPEN, {}, crew=[only_morning, Worker(1.0)]) == 9.5
+    assert (
+        work_capacity(start, end, 6.5, OPEN, {}, crew=[only_morning, Worker(1.0)])
+        == 9.5
+    )
 
 
 def test_work_capacity_follows_the_weekly_crews_from_the_task_start() -> None:
     weeks = [[Worker(1.0)], [Worker(2.0)]]
     start, end = datetime(2026, 10, 12, 9), datetime(2026, 10, 12, 15, 30)
-    assert work_capacity(start, end, 6.5, OPEN, {}, weeks=weeks, weeks_start=date(2026, 10, 5)) == 13.0
+    assert (
+        work_capacity(
+            start, end, 6.5, OPEN, {}, weeks=weeks, weeks_start=date(2026, 10, 5)
+        )
+        == 13.0
+    )
     assert work_capacity(start, end, 6.5, OPEN, {}, weeks=weeks) == 6.5
 
 
@@ -1275,17 +1696,32 @@ def reasons(task: Task) -> list[str]:
 
 
 def test_the_reason_is_the_deadline_when_only_the_deadline_has_passed() -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 9, 9), planned_end=datetime(2026, 10, 20), deadline=datetime(2026, 10, 9, 18))
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 9, 9),
+        planned_end=datetime(2026, 10, 20),
+        deadline=datetime(2026, 10, 9, 18),
+    )
     assert reasons(task) == ["期限超過(締切 10/09 18:00 を過ぎています)"]
 
 
 def test_the_reason_is_the_plan_when_only_the_planned_end_has_passed() -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 1, 9), planned_end=datetime(2026, 10, 2), deadline=datetime(2026, 10, 20))
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 1, 9),
+        planned_end=datetime(2026, 10, 2),
+        deadline=datetime(2026, 10, 20),
+    )
     assert reasons(task) == ["予定超過(完了予定 10/02 00:00 を過ぎています)"]
 
 
 def test_both_reasons_are_listed_when_both_have_passed() -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 1, 9), planned_end=datetime(2026, 10, 2), deadline=datetime(2026, 10, 3))
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 1, 9),
+        planned_end=datetime(2026, 10, 2),
+        deadline=datetime(2026, 10, 3),
+    )
     assert [r[:4] for r in reasons(task)] == ["期限超過", "予定超過"]
 
 

@@ -24,7 +24,9 @@ from projectapp.models import (
 @dataclass(frozen=True)
 class RatioDetail:
     base: float  # 基本比率
-    adjustments: list[tuple[str, str, float]]  # (パラメータ名, 段階名, 判定値)。パラメータの定義の順。存在する選択だけ
+    adjustments: list[
+        tuple[str, str, float]
+    ]  # (パラメータ名, 段階名, 判定値)。パラメータの定義の順。存在する選択だけ
     raw: float  # 丸める前の合計
     ratio: float  # 丸めたあと(計算に使う値)
     clamped: bool  # 範囲に丸めたか
@@ -48,7 +50,11 @@ def ratio_detail(
         if counted is not None and parameter.name not in counted:
             continue
         chosen = member.levels.get(parameter.name)
-        level = next((lv for lv in parameter.levels if lv.name == chosen), None) if chosen is not None else None
+        level = (
+            next((lv for lv in parameter.levels if lv.name == chosen), None)
+            if chosen is not None
+            else None
+        )
         if level is not None:
             adjustments.append((parameter.name, level.name, level.value))
     # 保存する値は小数点以下 4 桁までなので、足し算の誤差(0.3 - 0.2 = 0.0999…)で境界を外さないよう丸める
@@ -56,12 +62,19 @@ def ratio_detail(
     if member.ratio_unclamped:
         # 丸め対象外: 既定の 50〜150% も設定の上限・下限も使わず、安全範囲(10〜300%)だけで収める
         ratio = min(max(raw, MIN_RATIO), MAX_RATIO) if isfinite(raw) else member.ratio
-        return RatioDetail(member.ratio, adjustments, raw, ratio, ratio != raw, ratio != raw, True)
-    lower = DEFAULT_RATIO_MIN if limits is None or limits.lower is None else limits.lower
-    upper = DEFAULT_RATIO_MAX if limits is None or limits.upper is None else limits.upper
+        return RatioDetail(
+            member.ratio, adjustments, raw, ratio, ratio != raw, ratio != raw, True
+        )
+    lower = (
+        DEFAULT_RATIO_MIN if limits is None or limits.lower is None else limits.lower
+    )
+    upper = (
+        DEFAULT_RATIO_MAX if limits is None or limits.upper is None else limits.upper
+    )
     ratio = min(max(raw, lower), upper) if isfinite(raw) else member.ratio
     limited = limits is not None and (
-        (limits.upper is not None and raw > limits.upper) or (limits.lower is not None and raw < limits.lower)
+        (limits.upper is not None and raw > limits.upper)
+        or (limits.lower is not None and raw < limits.lower)
     )
     return RatioDetail(member.ratio, adjustments, raw, ratio, ratio != raw, limited)
 
@@ -97,7 +110,9 @@ class ParameterEdit:
 
     parameters: list[Parameter]  # 新しい定義
     parameter_map: dict[str, str | None]  # 旧パラメータ名 → 新しい名前(削除は None)
-    level_map: dict[str, dict[str, str | None]]  # 旧パラメータ名 → {旧段階名: 新しい段階名(削除は None)}
+    level_map: dict[
+        str, dict[str, str | None]
+    ]  # 旧パラメータ名 → {旧段階名: 新しい段階名(削除は None)}
 
     def changes(self, current: list[Parameter]) -> bool:
         """定義が変わる、または改名・削除がある。"""
@@ -105,7 +120,11 @@ class ParameterEdit:
             return True
         if any(old != new for old, new in self.parameter_map.items()):
             return True
-        return any(old != new for levels in self.level_map.values() for old, new in levels.items())
+        return any(
+            old != new
+            for levels in self.level_map.values()
+            for old, new in levels.items()
+        )
 
 
 def validate_parameters(parameters: list[Parameter]) -> None:
@@ -126,7 +145,10 @@ def validate_parameters(parameters: list[Parameter]) -> None:
             if level_name in level_names:
                 raise ValueError(f"{name} の段階名が重複しています: {level_name}")
             level_names.add(level_name)
-            if not isfinite(level.value) or not MIN_LEVEL_VALUE - 1e-9 <= level.value <= MAX_LEVEL_VALUE + 1e-9:
+            if (
+                not isfinite(level.value)
+                or not MIN_LEVEL_VALUE - 1e-9 <= level.value <= MAX_LEVEL_VALUE + 1e-9
+            ):
                 raise ValueError(
                     f"判定値は{MIN_LEVEL_VALUE * 100:g}〜+{MAX_LEVEL_VALUE * 100:g}%で入力してください"
                 )
@@ -154,7 +176,9 @@ def apply_parameter_edit(project: Project, edit: ParameterEdit) -> None:
     for task in project.all_tasks():
         # 対応表にない名前(登録外)は触らない。改名は新しい名前に、削除(None)は外す
         renamed = (edit.parameter_map.get(name, name) for name in task.parameters)
-        task.parameters = list(dict.fromkeys(name for name in renamed if name is not None))
+        task.parameters = list(
+            dict.fromkeys(name for name in renamed if name is not None)
+        )
     project.parameters = edit.parameters
 
 
@@ -169,13 +193,19 @@ def deletion_impacts(project: Project, edit: ParameterEdit) -> list[tuple[str, i
             continue
         for old_level, new_level in edit.level_map.get(old_parameter, {}).items():
             if new_level is None:
-                count = sum(1 for m in project.members if m.levels.get(old_parameter) == old_level)
+                count = sum(
+                    1
+                    for m in project.members
+                    if m.levels.get(old_parameter) == old_level
+                )
                 if count:
                     impacts.append((f"「{old_parameter}」の「{old_level}」", count))
     return impacts
 
 
-def task_deletion_impacts(project: Project, edit: ParameterEdit) -> list[tuple[str, int]]:
+def task_deletion_impacts(
+    project: Project, edit: ParameterEdit
+) -> list[tuple[str, int]]:
     """パラメータの削除で外れるタスクの数(パラメータの定義の順)。数が 0 のものは含めない。"""
     impacts: list[tuple[str, int]] = []
     for old_parameter, new_parameter in edit.parameter_map.items():
@@ -188,6 +218,12 @@ def task_deletion_impacts(project: Project, edit: ParameterEdit) -> list[tuple[s
 
 def impact_lines(project: Project, edit: ParameterEdit) -> list[str]:
     """削除の確認ダイアログに出す行。メンバーの選択、続いてタスクに付けたもの。"""
-    members = [f"{label}を選んでいるメンバーが{count}人います" for label, count in deletion_impacts(project, edit)]
-    tasks = [f"{label}を付けているタスクが{count}件あります" for label, count in task_deletion_impacts(project, edit)]
+    members = [
+        f"{label}を選んでいるメンバーが{count}人います"
+        for label, count in deletion_impacts(project, edit)
+    ]
+    tasks = [
+        f"{label}を付けているタスクが{count}件あります"
+        for label, count in task_deletion_impacts(project, edit)
+    ]
     return members + tasks

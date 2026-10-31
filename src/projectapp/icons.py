@@ -11,7 +11,9 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 ICON_SIZE = 128
 MAX_SOURCE_BYTES = 10 * 1024 * 1024  # 取り込む元ファイルの上限
 MAX_ICON_BYTES = 64 * 1024  # 保存するアイコン(デコード後)の上限
-MAX_PIXELS = 40_000_000  # 元画像の画素数の上限(小さなファイルで巨大な画像を作る攻撃を避ける)
+MAX_PIXELS = (
+    40_000_000  # 元画像の画素数の上限(小さなファイルで巨大な画像を作る攻撃を避ける)
+)
 DATA_PREFIX = "data:image/png;base64,"
 ICON_FILE_TYPES = ("画像ファイル (*.png;*.jpg;*.jpeg;*.gif;*.webp)",)
 SOURCE_FORMATS = {"PNG", "JPEG", "GIF", "WEBP"}  # SVG は取り込まない
@@ -30,16 +32,26 @@ def make_icon(data: bytes) -> str:
     try:
         image = Image.open(io.BytesIO(data))
         if image.format not in SOURCE_FORMATS:
-            raise IconError("PNG・JPEG・GIF・WebP の画像を選んでください(対応しない形式です)")
+            raise IconError(
+                "PNG・JPEG・GIF・WebP の画像を選んでください(対応しない形式です)"
+            )
         if image.width * image.height > MAX_PIXELS:
             raise IconError("画像の画素数が多すぎます")
         image.load()  # 最初のフレームだけ読む(アニメーションでも)
         square = ImageOps.fit(
-            ImageOps.exif_transpose(image).convert("RGBA"), (ICON_SIZE, ICON_SIZE), Image.Resampling.LANCZOS
+            ImageOps.exif_transpose(image).convert("RGBA"),
+            (ICON_SIZE, ICON_SIZE),
+            Image.Resampling.LANCZOS,
         )
     except IconError:
         raise
-    except (UnidentifiedImageError, OSError, ValueError, SyntaxError, Image.DecompressionBombError) as exc:
+    except (
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+        SyntaxError,
+        Image.DecompressionBombError,
+    ) as exc:
         raise IconError("画像として読めません") from exc
     buffer = io.BytesIO()
     square.save(buffer, "PNG", optimize=True)
@@ -59,7 +71,10 @@ def load_icon(path: Path) -> str:
 @lru_cache(maxsize=256)
 def is_valid_icon(value: str) -> bool:
     """保存してよいアイコンか(PNG の data URI で、64KB 以下の 128×128 で、画素まで読める)。表示のたびに呼ぶので、結果を覚える。"""
-    if not value.startswith(DATA_PREFIX) or len(value) > len(DATA_PREFIX) + MAX_ICON_BYTES * 4 // 3 + 4:
+    if (
+        not value.startswith(DATA_PREFIX)
+        or len(value) > len(DATA_PREFIX) + MAX_ICON_BYTES * 4 // 3 + 4
+    ):
         return False
     try:
         raw = base64.b64decode(value[len(DATA_PREFIX) :], validate=True)
@@ -69,9 +84,18 @@ def is_valid_icon(value: str) -> bool:
         return False
     try:
         with Image.open(io.BytesIO(raw)) as image:
-            if image.format != "PNG" or image.size != (ICON_SIZE, ICON_SIZE):  # 読み込む前に大きさを見る
+            if image.format != "PNG" or image.size != (
+                ICON_SIZE,
+                ICON_SIZE,
+            ):  # 読み込む前に大きさを見る
                 return False
             image.load()  # 画素の中身まで読めるか
             return True
-    except (UnidentifiedImageError, OSError, SyntaxError, ValueError, Image.DecompressionBombError):
+    except (
+        UnidentifiedImageError,
+        OSError,
+        SyntaxError,
+        ValueError,
+        Image.DecompressionBombError,
+    ):
         return False

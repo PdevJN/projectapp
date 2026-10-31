@@ -12,7 +12,16 @@ from projectapp.dashboard import (
     summarize_backlog,
     summarize_cross_backlog,
 )
-from projectapp.models import Actual, Assignee, Member, Project, Status, Task, TaskKind, WorkDay
+from projectapp.models import (
+    Actual,
+    Assignee,
+    Member,
+    Project,
+    Status,
+    Task,
+    TaskKind,
+    WorkDay,
+)
 
 NOW = datetime(2026, 10, 7, 12)  # 水曜。稼働の枠は 9:00〜15:30(残り 3.5h)
 MORNING = datetime(2026, 10, 7, 8)  # 始業前。今日の枠は丸ごと残る
@@ -26,10 +35,14 @@ def project_of(*tasks: Task, members: list[Member] | None = None) -> Project:
 
 
 def todo(name: str, effort: float, **kwargs: object) -> Task:
-    return Task(name, planned_start=datetime(2026, 10, 6, 9), effort_hours=effort, **kwargs)  # type: ignore[arg-type]
+    return Task(
+        name, planned_start=datetime(2026, 10, 6, 9), effort_hours=effort, **kwargs
+    )  # type: ignore[arg-type]
 
 
-def test_not_started_counts_in_full_and_done_checkpoints_and_summaries_are_left_out() -> None:
+def test_not_started_counts_in_full_and_done_checkpoints_and_summaries_are_left_out() -> (
+    None
+):
     project = project_of(
         todo("未着手", 6.5),
         todo("終了", 10, status=Status.DONE),
@@ -48,24 +61,46 @@ def test_running_and_paused_tasks_count_the_rest_after_the_progress() -> None:
     )
     backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {})
     assert backlog.hours == 6.5 + 6 + 7.5
-    assert backlog.by_status == {Status.NOT_STARTED: 6.5, Status.RUNNING: 6, Status.PAUSED: 7.5}
+    assert backlog.by_status == {
+        Status.NOT_STARTED: 6.5,
+        Status.RUNNING: 6,
+        Status.PAUSED: 7.5,
+    }
 
 
-def test_without_progress_the_worked_intervals_are_taken_off_by_the_conversion_rate() -> None:
+def test_without_progress_the_worked_intervals_are_taken_off_by_the_conversion_rate() -> (
+    None
+):
     worked = [Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 13))]  # 4h
     project = project_of(
-        todo("実行中", 10, status=Status.RUNNING, assignees=[Assignee("田中")], actuals=worked),
+        todo(
+            "実行中",
+            10,
+            status=Status.RUNNING,
+            assignees=[Assignee("田中")],
+            actuals=worked,
+        ),
         members=[Member("田中", 1.0)],
     )
     assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 6
     half = project_of(
-        todo("実行中", 10, status=Status.RUNNING, assignees=[Assignee("田中")], actuals=worked),
+        todo(
+            "実行中",
+            10,
+            status=Status.RUNNING,
+            assignees=[Assignee("田中")],
+            actuals=worked,
+        ),
         members=[Member("田中", 0.5)],
     )
-    assert summarize_backlog(half, WEEK, PeriodKind.WEEK, NOW, {}).hours == 8  # 4h × 0.5 = 2h 消化
+    assert (
+        summarize_backlog(half, WEEK, PeriodKind.WEEK, NOW, {}).hours == 8
+    )  # 4h × 0.5 = 2h 消化
 
 
-def test_an_open_interval_counts_the_working_hours_until_now_when_there_is_no_progress() -> None:
+def test_an_open_interval_counts_the_working_hours_until_now_when_there_is_no_progress() -> (
+    None
+):
     # 10/6 9:00 から開いたまま。10/6 の 6.5h + 10/7 の 9:00〜12:00 の 3h = 9.5h を消化とみなす
     running = [Actual(datetime(2026, 10, 6, 9), None)]
     project = project_of(todo("実行中", 20, status=Status.RUNNING, actuals=running))
@@ -75,24 +110,49 @@ def test_an_open_interval_counts_the_working_hours_until_now_when_there_is_no_pr
 def test_an_open_interval_is_scaled_by_the_conversion_rate() -> None:
     running = [Actual(datetime(2026, 10, 6, 9), None)]
     project = project_of(
-        todo("実行中", 20, status=Status.RUNNING, assignees=[Assignee("田中")], actuals=running),
+        todo(
+            "実行中",
+            20,
+            status=Status.RUNNING,
+            assignees=[Assignee("田中")],
+            actuals=running,
+        ),
         members=[Member("田中", 0.5)],
     )
     # 全期間は期間で按分しないので、消化の換算だけを確かめられる
-    assert summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}).hours == 20 - 9.5 * 0.5
+    assert (
+        summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}).hours
+        == 20 - 9.5 * 0.5
+    )
 
 
 def test_the_open_interval_adds_to_the_closed_ones_and_never_goes_below_zero() -> None:
-    mixed = [Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 15)), Actual(datetime(2026, 10, 7, 9), None)]
+    mixed = [
+        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 15)),
+        Actual(datetime(2026, 10, 7, 9), None),
+    ]
     project = project_of(todo("再開", 20, status=Status.RUNNING, actuals=mixed))
-    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 20 - 6 - 3
+    assert (
+        summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 20 - 6 - 3
+    )
     stale = [Actual(datetime(2026, 9, 1, 9), None)]  # 1 か月以上前に開いたまま
-    assert summarize_backlog(project_of(todo("放置", 20, status=Status.RUNNING, actuals=stale)), WEEK, PeriodKind.WEEK, NOW, {}).hours == 0
+    assert (
+        summarize_backlog(
+            project_of(todo("放置", 20, status=Status.RUNNING, actuals=stale)),
+            WEEK,
+            PeriodKind.WEEK,
+            NOW,
+            {},
+        ).hours
+        == 0
+    )
 
 
 def test_the_progress_wins_over_the_open_interval() -> None:
     running = [Actual(datetime(2026, 10, 6, 9), None)]
-    project = project_of(todo("実行中", 20, status=Status.RUNNING, progress=25, actuals=running))
+    project = project_of(
+        todo("実行中", 20, status=Status.RUNNING, progress=25, actuals=running)
+    )
     assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 15
 
 
@@ -103,17 +163,28 @@ def test_a_running_task_at_full_progress_adds_nothing() -> None:
 
 
 def test_running_and_paused_tasks_without_effort_are_counted_as_unset() -> None:
-    project = project_of(todo("実行中", 0, status=Status.RUNNING), todo("停止", 0, status=Status.PAUSED))
+    project = project_of(
+        todo("実行中", 0, status=Status.RUNNING), todo("停止", 0, status=Status.PAUSED)
+    )
     assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).unset_count == 2
 
 
 def test_the_member_filter_takes_the_members_share_of_the_rest() -> None:
     project = project_of(
-        todo("共同", 10, status=Status.RUNNING, progress=50, assignees=[Assignee("田中", 0.75), Assignee("鈴木", 0.25)]),
+        todo(
+            "共同",
+            10,
+            status=Status.RUNNING,
+            progress=50,
+            assignees=[Assignee("田中", 0.75), Assignee("鈴木", 0.25)],
+        ),
         members=[Member("田中", 1.0), Member("鈴木", 1.0)],
     )
     backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}, "田中")
-    assert (backlog.hours, backlog.by_status) == (3.75, {Status.RUNNING: 3.75})  # 残り 5h の 75%
+    assert (backlog.hours, backlog.by_status) == (
+        3.75,
+        {Status.RUNNING: 3.75},
+    )  # 残り 5h の 75%
 
 
 def test_tasks_without_effort_are_counted_apart_not_as_one_hour() -> None:
@@ -132,7 +203,9 @@ def test_required_people_divide_by_the_remaining_workdays_of_the_period() -> Non
 
 def test_holidays_are_not_workdays() -> None:
     project = project_of(todo("a", 13))
-    backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, MORNING, {date(2026, 10, 8): "休"})
+    backlog = summarize_backlog(
+        project, WEEK, PeriodKind.WEEK, MORNING, {date(2026, 10, 8): "休"}
+    )
     assert backlog.days == 2
     assert backlog.required == 1.0
 
@@ -157,20 +230,34 @@ def test_all_period_without_an_end_has_no_required_people() -> None:
 
 
 def test_all_period_ending_in_the_past_still_counts_the_rest_of_today() -> None:
-    project = project_of(Task("過去", planned_start=datetime(2026, 9, 1, 9), effort_hours=5))
+    project = project_of(
+        Task("過去", planned_start=datetime(2026, 9, 1, 9), effort_hours=5)
+    )
     backlog = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {})
-    assert (backlog.days, backlog.required) == (3.5 / 6.5, 5 / 3.5)  # 全部が遅れていても、今日の残りで終える場合を示す
+    assert (backlog.days, backlog.required) == (
+        3.5 / 6.5,
+        5 / 3.5,
+    )  # 全部が遅れていても、今日の残りで終える場合を示す
 
 
-def test_all_period_with_everything_overdue_starts_at_the_next_workday_on_a_weekend() -> None:
+def test_all_period_with_everything_overdue_starts_at_the_next_workday_on_a_weekend() -> (
+    None
+):
     sunday = datetime(2026, 10, 11, 12)
-    project = project_of(Task("過去", planned_start=datetime(2026, 9, 1, 9), effort_hours=6.5))
+    project = project_of(
+        Task("過去", planned_start=datetime(2026, 9, 1, 9), effort_hours=6.5)
+    )
     backlog = summarize_backlog(project, WEEK, PeriodKind.ALL, sunday, {})
     assert (backlog.days, backlog.required) == (1, 1.0)
 
 
 def test_supply_is_the_sum_of_relative_ratios_and_shortfall_follows() -> None:
-    project = project_of(todo("a", 13), todo("b", 13), todo("c", 13), members=[Member("田中", 1.0), Member("鈴木", 0.5)])
+    project = project_of(
+        todo("a", 13),
+        todo("b", 13),
+        todo("c", 13),
+        members=[Member("田中", 1.0), Member("鈴木", 0.5)],
+    )
     backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, MORNING, {})
     assert backlog.supply == 1.5
     assert backlog.required == 2.0
@@ -220,7 +307,9 @@ def test_member_filter_counts_only_that_members_share_of_a_shared_task() -> None
     assert backlog.required == 7.5 / 16.5  # 今日の残り 3.5h + 木・金の 13h
 
 
-def test_a_task_running_past_the_period_counts_only_the_part_up_to_the_period_end() -> None:
+def test_a_task_running_past_the_period_counts_only_the_part_up_to_the_period_end() -> (
+    None
+):
     # 金曜 6.5h + 翌月曜 6.5h。今週(〜日曜)に入るのは金曜の半分
     spanning = Task("またぐ", planned_start=datetime(2026, 10, 9, 9), effort_hours=13)
     backlog = summarize_backlog(project_of(spanning), WEEK, PeriodKind.WEEK, NOW, {})
@@ -229,53 +318,76 @@ def test_a_task_running_past_the_period_counts_only_the_part_up_to_the_period_en
 
 def test_a_task_that_started_before_today_keeps_its_past_part() -> None:
     # 月曜に始める予定の未着手。まだ手を付けていないので、月・火の分も残っている
-    late = Task("遅れ気味", planned_start=datetime(2026, 10, 5, 9), effort_hours=26)  # 月〜木
-    assert summarize_backlog(project_of(late), WEEK, PeriodKind.WEEK, NOW, {}).hours == 26
+    late = Task(
+        "遅れ気味", planned_start=datetime(2026, 10, 5, 9), effort_hours=26
+    )  # 月〜木
+    assert (
+        summarize_backlog(project_of(late), WEEK, PeriodKind.WEEK, NOW, {}).hours == 26
+    )
 
 
 def test_an_overdue_task_is_counted_in_full() -> None:
     overdue = Task("先月の遅れ", planned_start=datetime(2026, 9, 1, 9), effort_hours=8)
-    assert summarize_backlog(project_of(overdue), WEEK, PeriodKind.WEEK, NOW, {}).hours == 8
+    assert (
+        summarize_backlog(project_of(overdue), WEEK, PeriodKind.WEEK, NOW, {}).hours
+        == 8
+    )
 
 
 def test_a_task_without_a_schedule_is_counted_in_a_limited_period() -> None:
-    backlog = summarize_backlog(project_of(Task("日程なし", effort_hours=5)), WEEK, PeriodKind.WEEK, NOW, {})
+    backlog = summarize_backlog(
+        project_of(Task("日程なし", effort_hours=5)), WEEK, PeriodKind.WEEK, NOW, {}
+    )
     assert backlog.hours == 5
 
 
-def test_a_task_without_a_schedule_whose_deadline_is_after_the_period_is_left_out() -> None:
+def test_a_task_without_a_schedule_whose_deadline_is_after_the_period_is_left_out() -> (
+    None
+):
     later = Task("来月締切", effort_hours=5, deadline=datetime(2026, 11, 20, 17))
-    assert summarize_backlog(project_of(later), WEEK, PeriodKind.WEEK, NOW, {}).hours == 0
+    assert (
+        summarize_backlog(project_of(later), WEEK, PeriodKind.WEEK, NOW, {}).hours == 0
+    )
 
 
 def test_a_task_before_a_future_period_but_not_overdue_is_left_out() -> None:
     soon = Task("明日", planned_start=datetime(2026, 10, 8, 9), effort_hours=6.5)
     nov = Period(date(2026, 11, 9), date(2026, 11, 13))
-    assert summarize_backlog(project_of(soon), nov, PeriodKind.CUSTOM, NOW, {}).hours == 0
+    assert (
+        summarize_backlog(project_of(soon), nov, PeriodKind.CUSTOM, NOW, {}).hours == 0
+    )
 
 
 def test_no_workday_left_in_the_period_uses_the_next_workday() -> None:
     # 水・木・金が休みで、今週の稼働日が残っていない。次の稼働日(月曜)の 1 日で終える場合を示す
     holidays = {date(2026, 10, d): "休" for d in (7, 8, 9)}
-    backlog = summarize_backlog(project_of(todo("a", 6.5)), WEEK, PeriodKind.WEEK, NOW, holidays)
+    backlog = summarize_backlog(
+        project_of(todo("a", 6.5)), WEEK, PeriodKind.WEEK, NOW, holidays
+    )
     assert (backlog.days, backlog.required) == (1, 1.0)
 
 
 def test_opening_on_a_weekend_uses_the_next_workday_for_this_week() -> None:
     saturday = datetime(2026, 10, 10, 12)
-    backlog = summarize_backlog(project_of(todo("a", 6.5)), WEEK, PeriodKind.WEEK, saturday, {})
+    backlog = summarize_backlog(
+        project_of(todo("a", 6.5)), WEEK, PeriodKind.WEEK, saturday, {}
+    )
     assert (backlog.days, backlog.required) == (1, 1.0)
 
 
 def test_a_period_already_over_gives_zero_days() -> None:
     past = Period(date(2026, 9, 1), date(2026, 9, 30))
-    backlog = summarize_backlog(project_of(todo("a", 6.5)), past, PeriodKind.CUSTOM, NOW, {})
+    backlog = summarize_backlog(
+        project_of(todo("a", 6.5)), past, PeriodKind.CUSTOM, NOW, {}
+    )
     assert backlog.days == 0
 
 
 def test_the_partial_first_day_is_weighed_by_the_hours_actually_in_the_period() -> None:
     # 金曜 14:00 開始の 13h は、金 1.5h + 月 6.5h + 火 5h。今週(〜日曜)に入るのは金曜の 1.5h だけ
-    afternoon = Task("午後開始", planned_start=datetime(2026, 10, 9, 14), effort_hours=13)
+    afternoon = Task(
+        "午後開始", planned_start=datetime(2026, 10, 9, 14), effort_hours=13
+    )
     backlog = summarize_backlog(project_of(afternoon), WEEK, PeriodKind.WEEK, NOW, {})
     assert backlog.hours == 1.5
 
@@ -284,8 +396,13 @@ def test_many_tasks_with_a_far_end_are_summed_quickly() -> None:
     from time import perf_counter
 
     far = [
-        Task(f"t{i}", planned_start=datetime(2026, 10, 8, 9), planned_end=datetime(2100, 1, 1, 9),
-             planned_end_manual=True, effort_hours=8)
+        Task(
+            f"t{i}",
+            planned_start=datetime(2026, 10, 8, 9),
+            planned_end=datetime(2100, 1, 1, 9),
+            planned_end_manual=True,
+            effort_hours=8,
+        )
         for i in range(300)
     ]
     started = perf_counter()
@@ -296,34 +413,52 @@ def test_many_tasks_with_a_far_end_are_summed_quickly() -> None:
 
 def test_a_task_ending_at_midnight_does_not_reach_into_the_next_day() -> None:
     # 木曜 9:00 から 6.5h → 木曜 15:30 で終わる。1 日だけにかかり、今週の分は全量
-    one_day = Task("1日", planned_start=datetime(2026, 10, 8, 9), planned_end=datetime(2026, 10, 9, 0),
-                   planned_end_manual=True, effort_hours=6.5)
-    assert summarize_backlog(project_of(one_day), WEEK, PeriodKind.WEEK, NOW, {}).hours == 6.5
+    one_day = Task(
+        "1日",
+        planned_start=datetime(2026, 10, 8, 9),
+        planned_end=datetime(2026, 10, 9, 0),
+        planned_end_manual=True,
+        effort_hours=6.5,
+    )
+    assert (
+        summarize_backlog(project_of(one_day), WEEK, PeriodKind.WEEK, NOW, {}).hours
+        == 6.5
+    )
 
 
 def test_a_not_started_task_with_progress_counts_only_the_rest() -> None:
     project = project_of(todo("未着手", 10, progress=40))
     backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {})
     assert backlog.hours == 6
-    assert backlog.by_status == {Status.NOT_STARTED: 6}  # 状態は手入力のまま、残った分だけ未着手の欄に入る
+    assert backlog.by_status == {
+        Status.NOT_STARTED: 6
+    }  # 状態は手入力のまま、残った分だけ未着手の欄に入る
 
 
 def test_a_not_started_task_with_actuals_takes_off_the_worked_intervals() -> None:
     worked = [Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 13))]  # 4h
-    project = project_of(todo("未着手", 10, assignees=[Assignee("田中")], actuals=worked))
+    project = project_of(
+        todo("未着手", 10, assignees=[Assignee("田中")], actuals=worked)
+    )
     assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 6
 
 
-def test_a_not_started_task_with_an_open_interval_counts_the_hours_worked_until_now() -> None:
+def test_a_not_started_task_with_an_open_interval_counts_the_hours_worked_until_now() -> (
+    None
+):
     running = [Actual(datetime(2026, 10, 6, 9), None)]  # 9.5h(実行中と同じ規則)
     project = project_of(todo("未着手", 20, actuals=running))
     assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 10.5
 
 
 def test_a_not_started_task_with_progress_is_also_prorated_by_the_period() -> None:
-    half = Task("未着手", planned_start=datetime(2026, 10, 12, 9), effort_hours=10, progress=50)  # 来週の予定
+    half = Task(
+        "未着手", planned_start=datetime(2026, 10, 12, 9), effort_hours=10, progress=50
+    )  # 来週の予定
     project = project_of(half)
-    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 0  # 期間の外は従来どおり数えない
+    assert (
+        summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 0
+    )  # 期間の外は従来どおり数えない
     assert summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}).hours == 5
 
 
@@ -331,49 +466,74 @@ def weekly_task(**kwargs: object) -> Task:
     # 10/6(火)から 40h。第 1 週(〜10/12)は田中が 5 日 × 6.5h = 32.5h、第 2 週は鈴木が 7.5h
     tanaka, suzuki = [Assignee("田中")], [Assignee("鈴木")]
     return todo(
-        "週ごと", 40, assignees=tanaka + suzuki, weekly_crew=[tanaka, suzuki], **kwargs  # type: ignore[arg-type]
+        "週ごと",
+        40,
+        assignees=tanaka + suzuki,
+        weekly_crew=[tanaka, suzuki],
+        **kwargs,  # type: ignore[arg-type]
     )
 
 
 def split_of(project: Project, member: str | None = None) -> dict[str, float]:
-    return dict(summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, member).by_member)
+    return dict(
+        summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, member).by_member
+    )
 
 
 def test_a_weekly_task_splits_the_whole_by_the_hours_each_week_crew_takes() -> None:
-    project = project_of(weekly_task(), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    project = project_of(
+        weekly_task(), members=[Member("田中", 1.0), Member("鈴木", 1.0)]
+    )
     assert split_of(project) == {"田中": 32.5, "鈴木": 7.5}
 
 
 def test_a_weekly_task_takes_the_progress_off_the_early_weeks_first() -> None:
-    project = project_of(weekly_task(progress=50), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
-    assert split_of(project) == {"田中": 12.5, "鈴木": 7.5}  # 20h 消化 → 第 1 週の 32.5h が 12.5h に
+    project = project_of(
+        weekly_task(progress=50), members=[Member("田中", 1.0), Member("鈴木", 1.0)]
+    )
+    assert split_of(project) == {
+        "田中": 12.5,
+        "鈴木": 7.5,
+    }  # 20h 消化 → 第 1 週の 32.5h が 12.5h に
 
 
 def test_a_weekly_task_whose_early_weeks_are_done_leaves_the_later_crew_only() -> None:
-    project = project_of(weekly_task(progress=90), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
-    assert split_of(project) == {"鈴木": 4}  # 36h 消化 → 第 1 週は 0、第 2 週は 7.5 − 3.5
+    project = project_of(
+        weekly_task(progress=90), members=[Member("田中", 1.0), Member("鈴木", 1.0)]
+    )
+    assert split_of(project) == {
+        "鈴木": 4
+    }  # 36h 消化 → 第 1 週は 0、第 2 週は 7.5 − 3.5
 
 
 def test_a_member_filter_keeps_the_weekly_split() -> None:
-    project = project_of(weekly_task(progress=90), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    project = project_of(
+        weekly_task(progress=90), members=[Member("田中", 1.0), Member("鈴木", 1.0)]
+    )
     assert split_of(project, "鈴木") == {"鈴木": 4}
     assert split_of(project, "田中") == {}
 
 
 def test_today_counts_only_the_rest_of_the_working_window() -> None:
     # 12:00。今日の残り 3.5h + 木・金の 13h = 16.5h
-    backlog = summarize_backlog(project_of(todo("a", 16.5)), WEEK, PeriodKind.WEEK, NOW, {})
+    backlog = summarize_backlog(
+        project_of(todo("a", 16.5)), WEEK, PeriodKind.WEEK, NOW, {}
+    )
     assert backlog.days == 16.5 / 6.5
     assert backlog.required == 1.0
 
 
 def test_today_counts_the_whole_window_before_work_starts() -> None:
-    backlog = summarize_backlog(project_of(todo("a", 19.5)), WEEK, PeriodKind.WEEK, MORNING, {})
+    backlog = summarize_backlog(
+        project_of(todo("a", 19.5)), WEEK, PeriodKind.WEEK, MORNING, {}
+    )
     assert (backlog.days, backlog.required) == (3, 1.0)
 
 
 def test_today_counts_nothing_after_work_ends() -> None:
-    backlog = summarize_backlog(project_of(todo("a", 13)), WEEK, PeriodKind.WEEK, EVENING, {})
+    backlog = summarize_backlog(
+        project_of(todo("a", 13)), WEEK, PeriodKind.WEEK, EVENING, {}
+    )
     assert (backlog.days, backlog.required) == (2, 1.0)  # 木・金だけ
 
 
@@ -385,19 +545,25 @@ def test_the_rest_of_today_is_cut_at_the_window_end_with_the_all_period() -> Non
 def test_after_work_with_only_holidays_left_uses_the_next_workday() -> None:
     # 金曜の夕方。今週の残りは土日だけ(今日は終業後)。次の稼働日(月曜)の 1 日で終える場合を示す
     friday_evening = datetime(2026, 10, 9, 18)
-    backlog = summarize_backlog(project_of(todo("a", 6.5)), WEEK, PeriodKind.WEEK, friday_evening, {})
+    backlog = summarize_backlog(
+        project_of(todo("a", 6.5)), WEEK, PeriodKind.WEEK, friday_evening, {}
+    )
     assert (backlog.days, backlog.required) == (1, 1.0)
 
 
 def spanning(**kwargs: object) -> Task:
     # 金曜 6.5h + 翌月曜 6.5h の 13h。今週(〜日曜)に予定が入るのは金曜の半分(6.5h)
-    return Task("またぐ", planned_start=datetime(2026, 10, 9, 9), effort_hours=13, **kwargs)  # type: ignore[arg-type]
+    return Task(
+        "またぐ", planned_start=datetime(2026, 10, 9, 9), effort_hours=13, **kwargs
+    )  # type: ignore[arg-type]
 
 
 def test_a_task_ahead_of_plan_leaves_nothing_due_in_the_period() -> None:
     # 今週の終わりまでの予定 6.5h に対し、6.5h(50%)消化済み
     task = spanning(status=Status.RUNNING, progress=50)
-    assert summarize_backlog(project_of(task), WEEK, PeriodKind.WEEK, NOW, {}).hours == 0
+    assert (
+        summarize_backlog(project_of(task), WEEK, PeriodKind.WEEK, NOW, {}).hours == 0
+    )
 
 
 def test_a_task_behind_plan_counts_the_planned_amount_minus_the_done_part() -> None:
@@ -410,21 +576,50 @@ def test_a_task_behind_plan_counts_the_planned_amount_minus_the_done_part() -> N
 
 def test_progress_does_not_change_the_all_period() -> None:
     task = spanning(status=Status.RUNNING, progress=50)
-    assert summarize_backlog(project_of(task), WEEK, PeriodKind.ALL, NOW, {}).hours == 6.5
+    assert (
+        summarize_backlog(project_of(task), WEEK, PeriodKind.ALL, NOW, {}).hours == 6.5
+    )
 
 
 def test_an_overdue_task_with_progress_still_counts_the_whole_rest() -> None:
-    overdue = Task("遅れ", planned_start=datetime(2026, 9, 1, 9), effort_hours=8, status=Status.RUNNING, progress=25)
-    assert summarize_backlog(project_of(overdue), WEEK, PeriodKind.WEEK, NOW, {}).hours == 6
+    overdue = Task(
+        "遅れ",
+        planned_start=datetime(2026, 9, 1, 9),
+        effort_hours=8,
+        status=Status.RUNNING,
+        progress=25,
+    )
+    assert (
+        summarize_backlog(project_of(overdue), WEEK, PeriodKind.WEEK, NOW, {}).hours
+        == 6
+    )
 
 
-def named(name: str, *tasks: Task, members: list[Member] | None = None, daily_hours: float = 6.5) -> Project:
+def named(
+    name: str,
+    *tasks: Task,
+    members: list[Member] | None = None,
+    daily_hours: float = 6.5,
+) -> Project:
     chosen = [Member("田中", 1.0)] if members is None else members
-    return Project(name, base_date=date(2026, 10, 5), members=chosen, tasks=list(tasks), daily_hours=daily_hours)
+    return Project(
+        name,
+        base_date=date(2026, 10, 5),
+        members=chosen,
+        tasks=list(tasks),
+        daily_hours=daily_hours,
+    )
 
 
-def cross(*projects: Project, base: Project | None = None, kind: PeriodKind = PeriodKind.WEEK, member: str | None = None):  # type: ignore[no-untyped-def]
-    return summarize_cross_backlog(list(projects), base or projects[0], WEEK, kind, MORNING, {}, member)
+def cross(
+    *projects: Project,
+    base: Project | None = None,
+    kind: PeriodKind = PeriodKind.WEEK,
+    member: str | None = None,
+):  # type: ignore[no-untyped-def]
+    return summarize_cross_backlog(
+        list(projects), base or projects[0], WEEK, kind, MORNING, {}, member
+    )
 
 
 def test_cross_backlog_sums_the_remaining_hours_of_every_project_by_name() -> None:
@@ -437,13 +632,22 @@ def test_cross_backlog_sums_the_remaining_hours_of_every_project_by_name() -> No
 
 def test_cross_backlog_counts_each_project_with_its_own_schedule() -> None:
     far = Task("来月", planned_start=datetime(2026, 11, 2, 9), effort_hours=8)
-    assert cross(named("甲", todo("a", 4)), named("乙", far)).hours == 4  # 乙は今週に予定がない
-    assert cross(named("甲", todo("a", 4)), named("乙", far), kind=PeriodKind.ALL).hours == 12
+    assert (
+        cross(named("甲", todo("a", 4)), named("乙", far)).hours == 4
+    )  # 乙は今週に予定がない
+    assert (
+        cross(named("甲", todo("a", 4)), named("乙", far), kind=PeriodKind.ALL).hours
+        == 12
+    )
 
 
-def test_cross_backlog_supply_counts_each_name_once_preferring_the_open_project() -> None:
+def test_cross_backlog_supply_counts_each_name_once_preferring_the_open_project() -> (
+    None
+):
     first = named("甲", todo("a", 6.5), members=[Member("田中", 1.0)])
-    second = named("乙", todo("b", 3), members=[Member("田中", 0.5), Member("鈴木", 0.5)])
+    second = named(
+        "乙", todo("b", 3), members=[Member("田中", 0.5), Member("鈴木", 0.5)]
+    )
     assert cross(first, second).supply == 1.5  # 田中は甲の 1.0、鈴木は乙の 0.5
 
 
@@ -455,7 +659,9 @@ def test_cross_backlog_divides_by_the_calendar_of_the_open_project() -> None:
     assert backlog.required == (6.5 + 13) / 19.5
 
 
-def test_cross_backlog_leaves_out_projects_that_are_not_chosen_but_keeps_the_base_calendar() -> None:
+def test_cross_backlog_leaves_out_projects_that_are_not_chosen_but_keeps_the_base_calendar() -> (
+    None
+):
     first, second = named("甲", todo("a", 6.5)), named("乙", todo("b", 3))
     backlog = cross(second, base=first)
     assert backlog.hours == 3
@@ -463,8 +669,14 @@ def test_cross_backlog_leaves_out_projects_that_are_not_chosen_but_keeps_the_bas
 
 
 def test_cross_backlog_filters_the_member_by_name_across_projects() -> None:
-    first = named("甲", todo("a", 6.5, assignees=[Assignee("田中")]), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
-    second = named("乙", todo("b", 3, assignees=[Assignee("鈴木")]), members=[Member("鈴木", 1.0)])
+    first = named(
+        "甲",
+        todo("a", 6.5, assignees=[Assignee("田中")]),
+        members=[Member("田中", 1.0), Member("鈴木", 1.0)],
+    )
+    second = named(
+        "乙", todo("b", 3, assignees=[Assignee("鈴木")]), members=[Member("鈴木", 1.0)]
+    )
     backlog = cross(first, second, member="鈴木")
     assert backlog.hours == 3
     assert backlog.by_member == [("鈴木", 3)]
@@ -473,17 +685,25 @@ def test_cross_backlog_filters_the_member_by_name_across_projects() -> None:
 
 def test_cross_backlog_counts_a_non_member_assignee_as_unassigned_per_project() -> None:
     first = named("甲", todo("a", 6.5, assignees=[Assignee("外部")]))
-    second = named("乙", todo("b", 3, assignees=[Assignee("田中")]), members=[Member("田中", 1.0)])
+    second = named(
+        "乙", todo("b", 3, assignees=[Assignee("田中")]), members=[Member("田中", 1.0)]
+    )
     assert dict(cross(first, second).by_member) == {"田中": 3, UNASSIGNED: 6.5}
 
 
 def test_cross_backlog_of_one_project_equals_the_plain_backlog() -> None:
-    project = named("甲", todo("a", 6.5), todo("b", 10, status=Status.RUNNING, progress=40))
-    assert cross(project) == summarize_backlog(project, WEEK, PeriodKind.WEEK, MORNING, {})
+    project = named(
+        "甲", todo("a", 6.5), todo("b", 10, status=Status.RUNNING, progress=40)
+    )
+    assert cross(project) == summarize_backlog(
+        project, WEEK, PeriodKind.WEEK, MORNING, {}
+    )
 
 
 def test_cross_backlog_with_nothing_chosen_is_empty() -> None:
-    backlog = summarize_cross_backlog([], named("甲", todo("a", 6.5)), WEEK, PeriodKind.WEEK, MORNING, {})
+    backlog = summarize_cross_backlog(
+        [], named("甲", todo("a", 6.5)), WEEK, PeriodKind.WEEK, MORNING, {}
+    )
     assert (backlog.hours, backlog.supply, backlog.by_member) == (0, 0, [])
 
 
@@ -491,7 +711,9 @@ def with_days(*days: WorkDay, ratio: float = 1.0, name: str = "田中") -> Membe
     return Member(name, ratio, work_days=list(days))
 
 
-def supply_of(*members: Member, now: datetime = MORNING, kind: PeriodKind = PeriodKind.WEEK) -> float:
+def supply_of(
+    *members: Member, now: datetime = MORNING, kind: PeriodKind = PeriodKind.WEEK
+) -> float:
     project = project_of(todo("a", 19.5), members=list(members))
     return summarize_backlog(project, WEEK, kind, now, {}).supply
 
@@ -507,12 +729,16 @@ def test_a_member_without_overrides_keeps_the_plain_supply_exactly() -> None:
 
 
 def test_a_weekend_workday_raises_the_supply() -> None:
-    saturday = WorkDay(date(2026, 10, 10), time(9), time(15, 30))  # 土曜に 6.5h 出る → 26 / 19.5
+    saturday = WorkDay(
+        date(2026, 10, 10), time(9), time(15, 30)
+    )  # 土曜に 6.5h 出る → 26 / 19.5
     assert supply_of(with_days(saturday)) == 26 / 19.5
 
 
 def test_a_shorter_window_scales_the_supply_by_its_length() -> None:
-    half = WorkDay(date(2026, 10, 8), time(9), time(12, 15))  # 木曜は 3.25h → (6.5 + 3.25 + 6.5) / 19.5
+    half = WorkDay(
+        date(2026, 10, 8), time(9), time(12, 15)
+    )  # 木曜は 3.25h → (6.5 + 3.25 + 6.5) / 19.5
     assert supply_of(with_days(half)) == (6.5 + 3.25 + 6.5) / 19.5
 
 
@@ -531,14 +757,24 @@ def test_a_member_off_for_the_whole_range_adds_nothing() -> None:
 
 
 def test_the_supply_note_shows_the_unadjusted_total_only_when_it_changes() -> None:
-    project = project_of(todo("a", 19.5), members=[with_days(WorkDay(date(2026, 10, 8))), Member("鈴木", 1.0)])
+    project = project_of(
+        todo("a", 19.5),
+        members=[with_days(WorkDay(date(2026, 10, 8))), Member("鈴木", 1.0)],
+    )
     backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, MORNING, {})
     assert backlog.nominal_supply == 2.0
-    assert summarize_backlog(project_of(todo("a", 6.5)), WEEK, PeriodKind.WEEK, MORNING, {}).nominal_supply is None
+    assert (
+        summarize_backlog(
+            project_of(todo("a", 6.5)), WEEK, PeriodKind.WEEK, MORNING, {}
+        ).nominal_supply
+        is None
+    )
 
 
 def test_the_required_people_do_not_change_with_overrides() -> None:
-    plain = summarize_backlog(project_of(todo("a", 19.5)), WEEK, PeriodKind.WEEK, MORNING, {})
+    plain = summarize_backlog(
+        project_of(todo("a", 19.5)), WEEK, PeriodKind.WEEK, MORNING, {}
+    )
     off = project_of(todo("a", 19.5), members=[with_days(WorkDay(date(2026, 10, 8)))])
     adjusted = summarize_backlog(off, WEEK, PeriodKind.WEEK, MORNING, {})
     assert (adjusted.required, adjusted.days) == (plain.required, plain.days)
@@ -546,22 +782,33 @@ def test_the_required_people_do_not_change_with_overrides() -> None:
 
 def test_the_scale_is_one_when_only_the_next_workday_is_used() -> None:
     holidays = {date(2026, 10, d): "休" for d in (7, 8, 9)}
-    project = project_of(todo("a", 6.5), members=[with_days(WorkDay(date(2026, 10, 7), time(9), time(12)))])
-    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, MORNING, holidays).supply == 1.0
+    project = project_of(
+        todo("a", 6.5),
+        members=[with_days(WorkDay(date(2026, 10, 7), time(9), time(12)))],
+    )
+    assert (
+        summarize_backlog(project, WEEK, PeriodKind.WEEK, MORNING, holidays).supply
+        == 1.0
+    )
 
 
 def test_the_member_filter_and_the_scale_combine() -> None:
     project = project_of(
-        todo("a", 19.5), members=[with_days(WorkDay(date(2026, 10, 8))), Member("鈴木", 1.0)]
+        todo("a", 19.5),
+        members=[with_days(WorkDay(date(2026, 10, 8))), Member("鈴木", 1.0)],
     )
-    backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, MORNING, {}, {"田中": 1.0, "鈴木": 0.25})
+    backlog = summarize_backlog(
+        project, WEEK, PeriodKind.WEEK, MORNING, {}, {"田中": 1.0, "鈴木": 0.25}
+    )
     assert backlog.supply == 2 / 3 + 0.25
 
 
 def test_cross_backlog_uses_the_overrides_of_the_open_project_member() -> None:
     off = WorkDay(date(2026, 10, 8))
     first = named("甲", todo("a", 19.5), members=[with_days(off)])
-    second = named("乙", todo("b", 3), members=[Member("田中", 1.0)])  # 同名。先頭の甲の田中を使う
+    second = named(
+        "乙", todo("b", 3), members=[Member("田中", 1.0)]
+    )  # 同名。先頭の甲の田中を使う
     assert cross(first, second).supply == 2 / 3
 
 
@@ -591,7 +838,9 @@ def test_the_overdue_part_is_the_rest_after_the_progress() -> None:
 
 
 def test_no_overdue_tasks_leave_the_overdue_part_empty() -> None:
-    project = project_of(Task("間に合う", planned_start=datetime(2026, 10, 7, 9), effort_hours=6.5))
+    project = project_of(
+        Task("間に合う", planned_start=datetime(2026, 10, 7, 9), effort_hours=6.5)
+    )
     backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {})
     assert backlog.overdue_hours == 0
     assert backlog.overdue_count == 0
@@ -623,7 +872,9 @@ def test_the_member_filter_counts_only_the_overdue_tasks_of_that_member() -> Non
 
 def test_a_shared_overdue_task_counts_by_the_assignee_ratio() -> None:
     project = project_of(
-        todo("共同の遅れ", 10, assignees=[Assignee("田中", 1.0), Assignee("鈴木", 1.0)]),
+        todo(
+            "共同の遅れ", 10, assignees=[Assignee("田中", 1.0), Assignee("鈴木", 1.0)]
+        ),
         members=[Member("田中", 1.0), Member("鈴木", 1.0)],
     )
     backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}, "田中")
@@ -636,11 +887,17 @@ def test_the_overdue_people_are_the_overdue_hours_over_the_same_capacity() -> No
 
 
 def test_the_shortfall_without_the_overdue_part_takes_the_overdue_people_off() -> None:
-    short = Backlog(20.0, 0, 2, 4.0, 3.0, [], overdue_hours=10.0, overdue_count=2)  # 不足 1.0、遅れの分は 2.0 人
+    short = Backlog(
+        20.0, 0, 2, 4.0, 3.0, [], overdue_hours=10.0, overdue_count=2
+    )  # 不足 1.0、遅れの分は 2.0 人
     assert short.shortfall_without_overdue == -1.0  # 遅れがなければ余裕 1.0
-    roomy = Backlog(20.0, 0, 2, 4.0, 5.0, [], overdue_hours=10.0, overdue_count=2)  # 余裕 1.0 → 遅れがなければ余裕 3.0
+    roomy = Backlog(
+        20.0, 0, 2, 4.0, 5.0, [], overdue_hours=10.0, overdue_count=2
+    )  # 余裕 1.0 → 遅れがなければ余裕 3.0
     assert roomy.shortfall_without_overdue == -3.0
-    thin = Backlog(20.0, 0, 2, 4.0, 1.0, [], overdue_hours=10.0, overdue_count=2)  # 不足 3.0 → 遅れがなくても不足 1.0
+    thin = Backlog(
+        20.0, 0, 2, 4.0, 1.0, [], overdue_hours=10.0, overdue_count=2
+    )  # 不足 3.0 → 遅れがなくても不足 1.0
     assert thin.shortfall_without_overdue == 1.0
 
 
@@ -653,7 +910,9 @@ def test_the_shortfall_without_the_overdue_part_is_unknown_without_a_period() ->
 def test_cross_backlog_adds_the_overdue_part_of_every_project() -> None:
     first = late_and_on_time()
     second = late_and_on_time()
-    backlog = summarize_cross_backlog([first, second], first, WEEK, PeriodKind.WEEK, NOW, {})
+    backlog = summarize_cross_backlog(
+        [first, second], first, WEEK, PeriodKind.WEEK, NOW, {}
+    )
     assert backlog.overdue_hours == 13
     assert backlog.overdue_count == 2
 
@@ -662,16 +921,31 @@ MON = datetime(2026, 10, 5, 9)
 
 
 def warned_todo(name: str = "警告") -> Task:
-    return Task(name, planned_start=MON, effort_hours=19.5, progress=50, status=Status.RUNNING)
+    return Task(
+        name, planned_start=MON, effort_hours=19.5, progress=50, status=Status.RUNNING
+    )
 
 
 def test_the_default_basis_leaves_a_warning_task_out_of_the_late_part() -> None:
-    backlog = summarize_backlog(project_of(warned_todo()), WEEK, PeriodKind.ALL, NOW, {})
-    assert (backlog.overdue_hours, backlog.overdue_count, backlog.late_basis) == (0, 0, LateBasis.DELAY)
+    backlog = summarize_backlog(
+        project_of(warned_todo()), WEEK, PeriodKind.ALL, NOW, {}
+    )
+    assert (backlog.overdue_hours, backlog.overdue_count, backlog.late_basis) == (
+        0,
+        0,
+        LateBasis.DELAY,
+    )
 
 
 def test_the_warning_basis_counts_a_warning_task_as_late_with_its_whole_rest() -> None:
-    backlog = summarize_backlog(project_of(warned_todo()), WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING)
+    backlog = summarize_backlog(
+        project_of(warned_todo()),
+        WEEK,
+        PeriodKind.ALL,
+        NOW,
+        {},
+        basis=LateBasis.WARNING,
+    )
     assert backlog.hours == pytest.approx(9.75)
     assert (backlog.overdue_hours, backlog.overdue_count) == (0, 0)  # 予定超過ではない
     assert (backlog.warning_hours, backlog.warning_count) == (pytest.approx(9.75), 1)
@@ -681,24 +955,42 @@ def test_the_warning_basis_counts_a_warning_task_as_late_with_its_whole_rest() -
 
 def test_an_overdue_task_is_counted_once_on_the_warning_basis() -> None:
     project = project_of(todo("遅れた", 6.5), warned_todo())
-    delay = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.DELAY)
-    both = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING)
-    assert (delay.overdue_count, delay.overdue_hours, delay.warning_count, delay.warning_hours) == (1, 6.5, 0, 0)
-    assert (both.overdue_count, both.overdue_hours) == (1, 6.5)  # 予定超過は警告に二重に数えない
+    delay = summarize_backlog(
+        project, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.DELAY
+    )
+    both = summarize_backlog(
+        project, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING
+    )
+    assert (
+        delay.overdue_count,
+        delay.overdue_hours,
+        delay.warning_count,
+        delay.warning_hours,
+    ) == (1, 6.5, 0, 0)
+    assert (both.overdue_count, both.overdue_hours) == (
+        1,
+        6.5,
+    )  # 予定超過は警告に二重に数えない
     assert (both.warning_count, both.warning_hours) == (1, pytest.approx(9.75))
     assert (both.late_count, both.late_hours) == (2, pytest.approx(6.5 + 9.75))
 
 
 def test_the_late_part_never_exceeds_the_total_when_the_period_cuts_the_task() -> None:
     project = project_of(warned_todo(), todo("先の作業", 8))
-    backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}, basis=LateBasis.WARNING)
+    backlog = summarize_backlog(
+        project, WEEK, PeriodKind.WEEK, NOW, {}, basis=LateBasis.WARNING
+    )
     assert 0 <= backlog.late_hours <= backlog.hours + 1e-9
 
 
 def test_shortfall_without_late_uses_the_chosen_basis() -> None:
     project = project_of(warned_todo())
-    delay = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.DELAY)
-    both = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING)
+    delay = summarize_backlog(
+        project, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.DELAY
+    )
+    both = summarize_backlog(
+        project, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING
+    )
     assert delay.shortfall_without_overdue == delay.shortfall
     assert both.shortfall_without_overdue is not None and both.shortfall is not None
     assert both.shortfall_without_overdue < both.shortfall
@@ -706,23 +998,50 @@ def test_shortfall_without_late_uses_the_chosen_basis() -> None:
 
 def test_summarize_passes_the_basis_to_the_backlog() -> None:
     project = project_of(warned_todo())
-    data = summarize(project, WEEK, NOW, {}, PeriodKind.ALL, late_basis=LateBasis.WARNING)
-    assert (data.backlog.warning_count, data.backlog.late_basis) == (1, LateBasis.WARNING)
+    data = summarize(
+        project, WEEK, NOW, {}, PeriodKind.ALL, late_basis=LateBasis.WARNING
+    )
+    assert (data.backlog.warning_count, data.backlog.late_basis) == (
+        1,
+        LateBasis.WARNING,
+    )
 
 
 def test_cross_backlog_judges_each_project_with_its_own_settings() -> None:
     own = project_of(warned_todo())
-    other = Project("別", base_date=date(2026, 10, 5), daily_hours=3.25, members=[Member("田中", 1.0)], tasks=[warned_todo()])
-    only_own = summarize_cross_backlog([own], own, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING)
-    both = summarize_cross_backlog([own, other], own, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING)
+    other = Project(
+        "別",
+        base_date=date(2026, 10, 5),
+        daily_hours=3.25,
+        members=[Member("田中", 1.0)],
+        tasks=[warned_todo()],
+    )
+    only_own = summarize_cross_backlog(
+        [own], own, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING
+    )
+    both = summarize_cross_backlog(
+        [own, other], own, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING
+    )
     assert only_own.warning_count == 1
-    assert both.warning_count == 1  # 別のプロジェクトのタスクは、そのプロジェクトの設定では警告にならない
+    assert (
+        both.warning_count == 1
+    )  # 別のプロジェクトのタスクは、そのプロジェクトの設定では警告にならない
 
 
 def test_the_required_people_split_between_overdue_and_warning() -> None:
     project = project_of(todo("遅れた", 6.5), warned_todo())
-    backlog = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING)
-    assert backlog.required is not None and backlog.overdue_required is not None and backlog.warning_required is not None
-    assert backlog.overdue_required + backlog.warning_required == pytest.approx(backlog.late_required)
+    backlog = summarize_backlog(
+        project, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING
+    )
+    assert (
+        backlog.required is not None
+        and backlog.overdue_required is not None
+        and backlog.warning_required is not None
+    )
+    assert backlog.overdue_required + backlog.warning_required == pytest.approx(
+        backlog.late_required
+    )
     assert backlog.overdue_required > 0 and backlog.warning_required > 0
-    assert backlog.shortfall_without_overdue == pytest.approx(backlog.shortfall - backlog.late_required)  # type: ignore[operator]
+    assert backlog.shortfall_without_overdue == pytest.approx(
+        backlog.shortfall - backlog.late_required
+    )  # type: ignore[operator]

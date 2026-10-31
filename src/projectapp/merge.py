@@ -115,7 +115,9 @@ class _Merger:
     def __init__(self, choices: Choices | None) -> None:
         self.choices = choices or {}
         self.conflicts: list[Conflict] = []
-        self.titles: dict[str, str] = {}  # 記録の鍵 → 画面に出す名前(名前の項目がない記録用)
+        self.titles: dict[
+            str, str
+        ] = {}  # 記録の鍵 → 画面に出す名前(名前の項目がない記録用)
 
     def pick(self, conflict: Conflict) -> str:
         self.conflicts.append(conflict)
@@ -135,7 +137,9 @@ class _Merger:
         if ours is None and theirs is None:
             return None
         shown = ours or theirs or base or {}
-        label = str(shown.get("name") or shown.get("text") or self.titles.get(key) or key)
+        label = str(
+            shown.get("name") or shown.get("text") or self.titles.get(key) or key
+        )
         if base is None:
             if ours is None:
                 return theirs
@@ -159,7 +163,14 @@ class _Merger:
             elif b == t:
                 merged[name] = o
             else:
-                conflict = Conflict(kind, key, label, labels.get(name, name), display(name, o), display(name, t))
+                conflict = Conflict(
+                    kind,
+                    key,
+                    label,
+                    labels.get(name, name),
+                    display(name, o),
+                    display(name, t),
+                )
                 merged[name] = o if self.pick(conflict) == OURS else t
         return merged
 
@@ -175,20 +186,57 @@ class _Merger:
         """キーごとに記録をマージする。並びは`_order`。"""
         result: dict[str, Record] = {}
         for key in _order(list(base), list(ours), list(theirs)):
-            merged = self.record(kind, key, labels, base.get(key), ours.get(key), theirs.get(key), display)
+            merged = self.record(
+                kind,
+                key,
+                labels,
+                base.get(key),
+                ours.get(key),
+                theirs.get(key),
+                display,
+            )
             if merged is not None:
                 result[key] = merged
         return result
 
 
-MEMBER_LABELS = {"name": "名前", "ratio": "基本比率", "levels": "段階の選択", "icon": "アイコン", "ratio_unclamped": "丸め対象外", "teams": "所属チーム", "warning_limit": "警告の件数"}
+MEMBER_LABELS = {
+    "name": "名前",
+    "ratio": "基本比率",
+    "levels": "段階の選択",
+    "icon": "アイコン",
+    "ratio_unclamped": "丸め対象外",
+    "teams": "所属チーム",
+    "warning_limit": "警告の件数",
+}
 TEAM_LABELS = {"name": "名前"}
-CATEGORY_LABELS = {"name": "名前", "kind": "種別", "expiry_date": "有効期限", "color": "色", "prj_code": "PRJコード"}
+CATEGORY_LABELS = {
+    "name": "名前",
+    "kind": "種別",
+    "expiry_date": "有効期限",
+    "color": "色",
+    "prj_code": "PRJコード",
+}
 PARAMETER_LABELS = {"levels": "段階"}
 TEMPLATE_LABELS = {"pattern": "URLの型"}
-EVENT_LABELS = {"start": "開始日", "end": "終了日", "text": "文字列", "color": "色", "closed": "休み"}
+EVENT_LABELS = {
+    "start": "開始日",
+    "end": "終了日",
+    "text": "文字列",
+    "color": "色",
+    "closed": "休み",
+}
 WORK_DAY_LABELS = {"window": "時間帯", "note": "メモ"}
-SETTING_LABELS = {"base_date": "基準日", "daily_hours": "稼働可能時間", "work_start": "始業時刻", "actual_mode": "実績の記録方式", "reference_mode": "参照の方式", "plantuml_overload_notice": "PlantUML の通知", "ratio_limit_upper": "相対比率の上限", "ratio_limit_lower": "相対比率の下限"}
+SETTING_LABELS = {
+    "base_date": "基準日",
+    "daily_hours": "稼働可能時間",
+    "work_start": "始業時刻",
+    "actual_mode": "実績の記録方式",
+    "reference_mode": "参照の方式",
+    "plantuml_overload_notice": "PlantUML の通知",
+    "ratio_limit_upper": "相対比率の上限",
+    "ratio_limit_lower": "相対比率の下限",
+}
 
 
 def _members(project: Project) -> dict[str, Record]:
@@ -218,7 +266,13 @@ def _teams(project: Project) -> dict[str, Record]:
 
 def _categories(project: Project) -> dict[str, Record]:
     return {
-        c.id: {"name": c.name, "kind": c.kind, "expiry_date": c.expiry_date, "color": c.color, "prj_code": c.prj_code}
+        c.id: {
+            "name": c.name,
+            "kind": c.kind,
+            "expiry_date": c.expiry_date,
+            "color": c.color,
+            "prj_code": c.prj_code,
+        }
         for c in project.categories
     }
 
@@ -240,11 +294,23 @@ def _member_work_days(project: Project) -> dict[str, Record]:
 
 
 def _events(project: Project) -> dict[str, Record]:
-    return {e.id: {"start": e.start, "end": e.end, "text": e.text, "color": e.color, "closed": e.closed} for e in project.events}
+    return {
+        e.id: {
+            "start": e.start,
+            "end": e.end,
+            "text": e.text,
+            "color": e.color,
+            "closed": e.closed,
+        }
+        for e in project.events
+    }
 
 
 def _parameters(project: Project) -> dict[str, Record]:
-    return {p.name: {"levels": [(lv.name, lv.value) for lv in p.levels]} for p in project.parameters}
+    return {
+        p.name: {"levels": [(lv.name, lv.value) for lv in p.levels]}
+        for p in project.parameters
+    }
 
 
 def _templates(project: Project) -> dict[str, Record]:
@@ -256,11 +322,28 @@ def _settings(project: Project) -> Record:
 
 
 TASK_LABELS = {
-    "name": "名前", "planned_start": "開始予定", "effort_hours": "工数", "priority": "優先度", "status": "状態",
-    "color": "色", "assignees": "担当", "predecessors": "先行", "deadline": "締切", "planned_end": "完了予定",
-    "planned_end_manual": "完了予定を手で指定", "actuals": "実績", "progress": "進捗度", "category_id": "カテゴリ", "kind": "種別",
-    "urls": "リンク", "children": "子", "parameters": "パラメータ", "weekly_crew": "週ごとの担当", "parent": "所属",
-    "ref_project": "参照先", "ref_snapshot": "スナップショット",
+    "name": "名前",
+    "planned_start": "開始予定",
+    "effort_hours": "工数",
+    "priority": "優先度",
+    "status": "状態",
+    "color": "色",
+    "assignees": "担当",
+    "predecessors": "先行",
+    "deadline": "締切",
+    "planned_end": "完了予定",
+    "planned_end_manual": "完了予定を手で指定",
+    "actuals": "実績",
+    "progress": "進捗度",
+    "category_id": "カテゴリ",
+    "kind": "種別",
+    "urls": "リンク",
+    "children": "子",
+    "parameters": "パラメータ",
+    "weekly_crew": "週ごとの担当",
+    "parent": "所属",
+    "ref_project": "参照先",
+    "ref_snapshot": "スナップショット",
 }
 SECTION_LABELS = {"name": "名前", "parent": "所属"}
 
@@ -281,16 +364,27 @@ def _flatten(project: Project) -> _Flat:
         ids.setdefault(member.name, member.id)  # 同名は最初の 1 件(保存・読込と同じ)
     flat = _Flat({}, {}, {}, {})
 
-    def visit(container: str | None, tasks: list[Task], sections: list[Section]) -> None:
+    def visit(
+        container: str | None, tasks: list[Task], sections: list[Section]
+    ) -> None:
         flat.task_order[container] = [t.id for t in tasks]
         flat.section_order[container] = [s.id for s in sections]
         for t in tasks:
             record: Record = {
-                f.name: getattr(t, f.name) for f in fields(Task) if f.name not in ("id", "assignees", "weekly_crew")
+                f.name: getattr(t, f.name)
+                for f in fields(Task)
+                if f.name not in ("id", "assignees", "weekly_crew")
             }
             # 週ごとのタスクの担当は週の表が正(和集合は持たない)なので、「担当」は空にして衝突させない
-            record["assignees"] = [] if t.weekly_crew else [(ids.get(a.name, a.name), a.allocation) for a in t.assignees]
-            record["weekly_crew"] = [[(ids.get(a.name, a.name), a.allocation) for a in week] for week in t.weekly_crew]
+            record["assignees"] = (
+                []
+                if t.weekly_crew
+                else [(ids.get(a.name, a.name), a.allocation) for a in t.assignees]
+            )
+            record["weekly_crew"] = [
+                [(ids.get(a.name, a.name), a.allocation) for a in week]
+                for week in t.weekly_crew
+            ]
             record["parent"] = container
             flat.tasks[t.id] = record
         for s in sections:
@@ -309,7 +403,9 @@ def _member_names(*projects: Project) -> dict[str, str]:
     return names
 
 
-def fill_empty_weeks(weeks: list[list[Assignee]]) -> tuple[list[list[Assignee]], list[int]]:
+def fill_empty_weeks(
+    weeks: list[list[Assignee]],
+) -> tuple[list[list[Assignee]], list[int]]:
     """担当者のいなくなった週を、前の週(なければ次の週)の担当にする。埋めた週の番号(1 始まり)も返す。
     すべての週が空なら空のリスト(週ごとに分けない)。"""
     if not any(weeks):
@@ -319,35 +415,68 @@ def fill_empty_weeks(weeks: list[list[Assignee]]) -> tuple[list[list[Assignee]],
     for index, week in enumerate(result):
         if week:
             continue
-        source = next((result[i] for i in range(index - 1, -1, -1) if result[i]), None) or next(w for w in result if w)
+        source = next(
+            (result[i] for i in range(index - 1, -1, -1) if result[i]), None
+        ) or next(w for w in result if w)
         result[index] = [Assignee(a.name, a.allocation) for a in source]
         filled.append(index + 1)
     return result, filled
 
 
-def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choices | None = None) -> MergeResult:
+def merge_projects(
+    base: Project, ours: Project, theirs: Project, choices: Choices | None = None
+) -> MergeResult:
     """共通祖先`base`・自分`ours`・相手`theirs`を統合する。選択のない衝突は「自分」になり、`conflicts`に残る。"""
     merger = _Merger(choices)
     notes: list[str] = []
     settings = merger.record(
-        "setting", "設定", SETTING_LABELS, _settings(base), _settings(ours), _settings(theirs)
+        "setting",
+        "設定",
+        SETTING_LABELS,
+        _settings(base),
+        _settings(ours),
+        _settings(theirs),
     )
     assert settings is not None
-    teams = merger.collection("team", TEAM_LABELS, _teams(base), _teams(ours), _teams(theirs))
-    team_names = {t.id: t.name for source in (base, theirs, ours) for t in source.teams}  # 自分の名前を優先
+    teams = merger.collection(
+        "team", TEAM_LABELS, _teams(base), _teams(ours), _teams(theirs)
+    )
+    team_names = {
+        t.id: t.name for source in (base, theirs, ours) for t in source.teams
+    }  # 自分の名前を優先
 
     def show_member(name: str, value: Any) -> Any:
         if name == "teams":
-            return [f"{team_names.get(team_id, team_id)} {percent}%" for team_id, percent in value]
+            return [
+                f"{team_names.get(team_id, team_id)} {percent}%"
+                for team_id, percent in value
+            ]
         return value
 
-    members = merger.collection("member", MEMBER_LABELS, _members(base), _members(ours), _members(theirs), show_member)
-    categories = merger.collection("category", CATEGORY_LABELS, _categories(base), _categories(ours), _categories(theirs))
-    events = merger.collection("event", EVENT_LABELS, _events(base), _events(ours), _events(theirs))
+    members = merger.collection(
+        "member",
+        MEMBER_LABELS,
+        _members(base),
+        _members(ours),
+        _members(theirs),
+        show_member,
+    )
+    categories = merger.collection(
+        "category",
+        CATEGORY_LABELS,
+        _categories(base),
+        _categories(ours),
+        _categories(theirs),
+    )
+    events = merger.collection(
+        "event", EVENT_LABELS, _events(base), _events(ours), _events(theirs)
+    )
     for source in (theirs, ours):  # 自分の名前を優先する
         for member in source.members:
             for row in member.work_days:
-                merger.titles[f"{member.id}:{row.day.isoformat()}"] = f"{member.name}: {row.day.isoformat()}"
+                merger.titles[f"{member.id}:{row.day.isoformat()}"] = (
+                    f"{member.name}: {row.day.isoformat()}"
+                )
     member_days = merger.collection(
         "work_day",
         WORK_DAY_LABELS,
@@ -356,21 +485,41 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
         _member_work_days(theirs),
         _show_work_day,
     )
-    parameters = merger.collection("parameter", PARAMETER_LABELS, _parameters(base), _parameters(ours), _parameters(theirs))
-    templates = merger.collection("url_template", TEMPLATE_LABELS, _templates(base), _templates(ours), _templates(theirs))
-    team_seen: set[str] = set()  # 同名で id の違うチームも、読み直すと拒否されるので、名前を変えて両方残す
+    parameters = merger.collection(
+        "parameter",
+        PARAMETER_LABELS,
+        _parameters(base),
+        _parameters(ours),
+        _parameters(theirs),
+    )
+    templates = merger.collection(
+        "url_template",
+        TEMPLATE_LABELS,
+        _templates(base),
+        _templates(ours),
+        _templates(theirs),
+    )
+    team_seen: set[str] = (
+        set()
+    )  # 同名で id の違うチームも、読み直すと拒否されるので、名前を変えて両方残す
     team_taken = {record["name"] for record in teams.values()}
     for record in teams.values():
         name = record["name"]
         if name in team_seen:
             number = 2
-            while _numbered(name, number, MAX_TEAM_NAME_LENGTH) in team_taken | team_seen:
+            while (
+                _numbered(name, number, MAX_TEAM_NAME_LENGTH) in team_taken | team_seen
+            ):
                 number += 1
             renamed = _numbered(name, number, MAX_TEAM_NAME_LENGTH)
-            notes.append(f"同名のチームがいたため、名前を変えました: {name} → {renamed}")
+            notes.append(
+                f"同名のチームがいたため、名前を変えました: {name} → {renamed}"
+            )
             record["name"] = name = renamed
         team_seen.add(name)
-    seen: set[str] = set()  # 同名で id の違うメンバーは、読み直すと片方が捨てられるので、名前を変えて両方残す
+    seen: set[str] = (
+        set()
+    )  # 同名で id の違うメンバーは、読み直すと片方が捨てられるので、名前を変えて両方残す
     taken = {record["name"] for record in members.values()}
     for record in members.values():
         name = record["name"]
@@ -379,7 +528,9 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
             while f"{name} ({number})" in taken | seen:
                 number += 1
             renamed = f"{name} ({number})"
-            notes.append(f"同名のメンバーがいたため、名前を変えました: {name} → {renamed}")
+            notes.append(
+                f"同名のメンバーがいたため、名前を変えました: {name} → {renamed}"
+            )
             record["name"] = name = renamed
         seen.add(name)
     flats = [_flatten(p) for p in (base, ours, theirs)]
@@ -395,17 +546,34 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
             ]
         return value
 
-    sections = merger.collection("section", SECTION_LABELS, flats[0].sections, flats[1].sections, flats[2].sections)
-    tasks = merger.collection("task", TASK_LABELS, flats[0].tasks, flats[1].tasks, flats[2].tasks, display=display)
+    sections = merger.collection(
+        "section",
+        SECTION_LABELS,
+        flats[0].sections,
+        flats[1].sections,
+        flats[2].sections,
+    )
+    tasks = merger.collection(
+        "task",
+        TASK_LABELS,
+        flats[0].tasks,
+        flats[1].tasks,
+        flats[2].tasks,
+        display=display,
+    )
     names = {key: r["name"] for key, r in members.items()}
 
     for key, record in sections.items():  # 親が消えたセクションは、ルートへ移す
         if record["parent"] is not None and record["parent"] not in sections:
-            notes.append(f"削除されたセクションにあった「{record['name']}」をルートへ移しました")
+            notes.append(
+                f"削除されたセクションにあった「{record['name']}」をルートへ移しました"
+            )
             record["parent"] = None
     for key, record in tasks.items():
         if record["parent"] is not None and record["parent"] not in sections:
-            notes.append(f"削除されたセクションにあった「{record['name']}」をルートへ移しました")
+            notes.append(
+                f"削除されたセクションにあった「{record['name']}」をルートへ移しました"
+            )
             record["parent"] = None
 
     def make_task(key: str, record: Record) -> Task:
@@ -414,7 +582,9 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
             if member_id in names:
                 assignees.append(Assignee(names[member_id], allocation))
             else:
-                notes.append(f"担当者を外しました: 「{record['name']}」の{shown.get(member_id, member_id)}")
+                notes.append(
+                    f"担当者を外しました: 「{record['name']}」の{shown.get(member_id, member_id)}"
+                )
         weeks: list[list[Assignee]] = []
         for number, week in enumerate(record["weekly_crew"], start=1):
             crew = []
@@ -422,17 +592,29 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
                 if member_id in names:
                     crew.append(Assignee(names[member_id], allocation))
                 else:
-                    notes.append(f"担当者を外しました: 「{record['name']}」の第{number}週の{shown.get(member_id, member_id)}")
+                    notes.append(
+                        f"担当者を外しました: 「{record['name']}」の第{number}週の{shown.get(member_id, member_id)}"
+                    )
             weeks.append(crew)
         weeks, filled = fill_empty_weeks(weeks)
         for number in filled:
-            notes.append(f"担当者がいなくなった週を、隣の週と同じにしました: 「{record['name']}」の第{number}週")
+            notes.append(
+                f"担当者がいなくなった週を、隣の週と同じにしました: 「{record['name']}」の第{number}週"
+            )
         if record["weekly_crew"] and not weeks:
             notes.append(f"週ごとの担当をすべて外しました: 「{record['name']}」")
         data = {
             k: v
             for k, v in record.items()
-            if k not in ("assignees", "weekly_crew", "parent", "predecessors", "category_id", "children")
+            if k
+            not in (
+                "assignees",
+                "weekly_crew",
+                "parent",
+                "predecessors",
+                "category_id",
+                "children",
+            )
         }
         category = record["category_id"]
         if category is not None and category not in categories:
@@ -457,7 +639,11 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
     task_orders = [f.task_order for f in flats]  # base, ours, theirs の順
     section_orders = [f.section_order for f in flats]
 
-    def children(orders: list[dict[str | None, list[str]]], records: dict[str, Record], container: str | None) -> list[str]:
+    def children(
+        orders: list[dict[str | None, list[str]]],
+        records: dict[str, Record],
+        container: str | None,
+    ) -> list[str]:
         wanted = [k for k, r in records.items() if r["parent"] == container]
         base_o, ours_o, theirs_o = (o.get(container, []) for o in orders)
         ordered = [k for k in _order(base_o, ours_o, theirs_o) if k in wanted]
@@ -501,7 +687,9 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
         member_id, day = key.split(":", 1)
         if member_id in by_id:  # 削除されたメンバーの上書きは捨てる
             start, end = r["window"]
-            by_id[member_id].work_days.append(WorkDay(date.fromisoformat(day), start, end, r["note"]))
+            by_id[member_id].work_days.append(
+                WorkDay(date.fromisoformat(day), start, end, r["note"])
+            )
     for member in built_members:
         member.work_days = sort_work_days(member.work_days)
 
@@ -520,11 +708,33 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
         members=built_members,
         teams=[Team(r["name"], id=key) for key, r in teams.items()],
         categories=[
-            Category(r["name"], r["kind"], r["expiry_date"], r["color"], r["prj_code"], id=key)
+            Category(
+                r["name"],
+                r["kind"],
+                r["expiry_date"],
+                r["color"],
+                r["prj_code"],
+                id=key,
+            )
             for key, r in categories.items()
         ],
-        events=sort_events([Event(r["start"], r["end"], r["text"], r["color"], id=key, closed=r["closed"]) for key, r in events.items()]),
-        parameters=[Parameter(key, [Level(n, v) for n, v in r["levels"]]) for key, r in parameters.items()],
+        events=sort_events(
+            [
+                Event(
+                    r["start"],
+                    r["end"],
+                    r["text"],
+                    r["color"],
+                    id=key,
+                    closed=r["closed"],
+                )
+                for key, r in events.items()
+            ]
+        ),
+        parameters=[
+            Parameter(key, [Level(n, v) for n, v in r["levels"]])
+            for key, r in parameters.items()
+        ],
         url_templates=[UrlTemplate(key, r["pattern"]) for key, r in templates.items()],
     )
     return MergeResult(copy.deepcopy(project), merger.conflicts, notes)
@@ -537,11 +747,15 @@ class FileMerge:
     notes: list[str]
 
 
-def merge_files(name: str, base: str, ours: str, theirs: str, choices: Choices | None = None) -> FileMerge:
+def merge_files(
+    name: str, base: str, ours: str, theirs: str, choices: Choices | None = None
+) -> FileMerge:
     """プロジェクトファイル 1 つの、3 者の本文を統合する。読めない・統合結果が検証を通らないときは`ValueError`。"""
     stem = name.removesuffix(".json")
     try:
-        base_p, ours_p, theirs_p = (parse_project(text, stem) for text in (base, ours, theirs))
+        base_p, ours_p, theirs_p = (
+            parse_project(text, stem) for text in (base, ours, theirs)
+        )
     except KeyError as exc:  # 読込は、キーの欠けを KeyError で知らせる
         raise ValueError(f"キーがありません: {exc}") from exc
     result = merge_projects(base_p, ours_p, theirs_p, choices)

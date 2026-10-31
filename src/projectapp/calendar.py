@@ -52,18 +52,28 @@ def day_kind(day: date, holidays: dict[date, str]) -> DayKind:
 
 
 def work_day_note(
-    day: date, holidays: dict[date, str], work_days: Mapping[date, WorkDay] | None = None
+    day: date,
+    holidays: dict[date, str],
+    work_days: Mapping[date, WorkDay] | None = None,
 ) -> str | None:
     """日付ヘッダーのマウスオーバー。上書きがあるときだけ(`稼働 13:00〜16:00`・`休み`。メモと祝日の名前を添える)。"""
     if not work_days or day not in work_days:
         return None
     row = work_days[day]
-    text = "休み" if row.start is None or row.end is None else f"稼働 {row.start:%H:%M}〜{row.end:%H:%M}"
-    details = ([row.note] if row.note else []) + ([f"祝日: {holidays[day]}"] if day in holidays else [])
+    text = (
+        "休み"
+        if row.start is None or row.end is None
+        else f"稼働 {row.start:%H:%M}〜{row.end:%H:%M}"
+    )
+    details = ([row.note] if row.note else []) + (
+        [f"祝日: {holidays[day]}"] if day in holidays else []
+    )
     return f"{text}({'。'.join(details)})" if details else text
 
 
-def member_notes(task: Task, project: Project, holidays: dict[date, str]) -> dict[date, str]:
+def member_notes(
+    task: Task, project: Project, holidays: dict[date, str]
+) -> dict[date, str]:
     """担当者が上書きした日 → 説明(`田中: 稼働 13:00〜16:00`)。複数なら ` / ` で結ぶ。メンバーでない担当者は数えない。"""
     by_name = {m.name: m for m in project.members}
     notes: dict[date, list[str]] = {}

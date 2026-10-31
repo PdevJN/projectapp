@@ -29,7 +29,9 @@ def slots(
     collapsed: set[tuple[int, ...]] | None = None,
     read_only: bool = False,
 ) -> list[RowSlot]:
-    return row_slots(project(), task_filter or TaskFilter(), collapsed or set(), read_only, ROW, ADD)
+    return row_slots(
+        project(), task_filter or TaskFilter(), collapsed or set(), read_only, ROW, ADD
+    )
 
 
 def test_slots_follow_the_render_order() -> None:
@@ -55,7 +57,10 @@ def test_centers_use_each_rows_height() -> None:
     assert centers["t0"] == 100 + ROW / 2
     assert centers["t1"] == 100 + ROW + ROW / 2
     assert centers["a0"] == 100 + 2 * ROW + ADD + ROW + ROW / 2  # 追加行と見出しを挟む
-    assert total_height(slots(), top=100) == 100 + 2 * ROW + ADD + ROW + 2 * ROW + ROW + ROW
+    assert (
+        total_height(slots(), top=100)
+        == 100 + 2 * ROW + ADD + ROW + 2 * ROW + ROW + ROW
+    )
 
 
 def test_a_collapsed_section_has_hidden_rows_that_take_no_space() -> None:
@@ -79,7 +84,12 @@ def test_a_filter_keeps_only_matching_tasks_and_ignores_collapse() -> None:
 def test_link_points_for_a_normal_arrow() -> None:
     pred = Bar(left=40, right=100)
     succ = Bar(left=160, right=200)
-    assert link_points(pred, 16, succ, 48, ROW) == [(100, 16), (106, 16), (106, 48), (160, 48)]
+    assert link_points(pred, 16, succ, 48, ROW) == [
+        (100, 16),
+        (106, 16),
+        (106, 48),
+        (160, 48),
+    ]
 
 
 def test_link_points_for_a_close_arrow_go_between_the_rows() -> None:
@@ -113,13 +123,19 @@ def nested_project() -> Project:
         "p",
         tasks=[Task("r", id="r")],
         sections=[
-            Section("親", [Task("p", id="p")], [child, Section("子2", [Task("c2", id="c2")])]),
+            Section(
+                "親",
+                [Task("p", id="p")],
+                [child, Section("子2", [Task("c2", id="c2")])],
+            ),
             Section("別", [Task("o", id="o")]),
         ],
     )
 
 
-def summary(result: list[RowSlot]) -> list[tuple[str, tuple[int, ...], int | None, bool]]:
+def summary(
+    result: list[RowSlot],
+) -> list[tuple[str, tuple[int, ...], int | None, bool]]:
     return [(slot.kind, slot.path, slot.ti, slot.shown) for slot in result]
 
 
@@ -141,17 +157,26 @@ def test_nested_sections_make_slots_depth_first() -> None:
     ]
 
 
-def test_collapsing_a_parent_hides_its_descendants_but_keeps_the_childs_own_state() -> None:
-    def shown(collapsed: set[tuple[int, ...]]) -> dict[tuple[str, tuple[int, ...], int | None], bool]:
+def test_collapsing_a_parent_hides_its_descendants_but_keeps_the_childs_own_state() -> (
+    None
+):
+    def shown(
+        collapsed: set[tuple[int, ...]],
+    ) -> dict[tuple[str, tuple[int, ...], int | None], bool]:
         result = row_slots(nested_project(), TaskFilter(), collapsed, False, ROW, ADD)
         return {(s.kind, s.path, s.ti): s.shown for s in result}
 
     parent_closed = shown({(0,)})
-    assert parent_closed[("section", (0,), None)] is True  # 閉じた親の見出し自身は見える
+    assert (
+        parent_closed[("section", (0,), None)] is True
+    )  # 閉じた親の見出し自身は見える
     assert parent_closed[("task", (0,), 0)] is False
     assert parent_closed[("section", (0, 0), None)] is False
     assert parent_closed[("task", (0, 0, 0), 0)] is False
-    assert parent_closed[("section", (1,), None)] is True and parent_closed[("task", (1,), 0)] is True
+    assert (
+        parent_closed[("section", (1,), None)] is True
+        and parent_closed[("task", (1,), 0)] is True
+    )
     reopened = shown({(0, 0)})  # 親を開いても、子は閉じたまま
     assert reopened[("section", (0, 0), None)] is True
     assert reopened[("task", (0, 0), 0)] is False
@@ -162,7 +187,9 @@ def test_collapsing_a_parent_hides_its_descendants_but_keeps_the_childs_own_stat
 
 
 def test_a_filter_ignores_collapse_and_keeps_the_parents_of_matches() -> None:
-    result = row_slots(nested_project(), TaskFilter(query="g"), {(0,), (0, 0)}, False, ROW, ADD)
+    result = row_slots(
+        nested_project(), TaskFilter(query="g"), {(0,), (0, 0)}, False, ROW, ADD
+    )
     assert [(s.kind, s.path, s.ti) for s in result if s.kind != "top-add"] == [
         ("section", (0,), None),
         ("section", (0, 0), None),
@@ -185,7 +212,9 @@ def test_row_centers_skip_hidden_nested_rows() -> None:
 
 
 def quick_slots(position: tuple[tuple[int, ...], int]) -> list[RowSlot]:
-    return row_slots(project(), TaskFilter(), set(), False, ROW, ADD, quick_add=position)
+    return row_slots(
+        project(), TaskFilter(), set(), False, ROW, ADD, quick_add=position
+    )
 
 
 def test_the_quick_add_row_takes_a_slot_after_the_task_above_it() -> None:
@@ -204,29 +233,77 @@ def test_the_quick_add_row_shifts_everything_below_it() -> None:
 
 def test_the_quick_add_row_in_the_root_and_in_an_empty_position() -> None:
     root = [(s.kind, s.task_id) for s in quick_slots(((), 2))]
-    assert root[2:4] == [("quick-add", None), ("top-add", None)]  # ルートの末尾は、追加行の手前
+    assert root[2:4] == [
+        ("quick-add", None),
+        ("top-add", None),
+    ]  # ルートの末尾は、追加行の手前
     end = [(s.kind, s.task_id) for s in quick_slots(((1,), 1))]
     assert end[-2:] == [("task", "b0"), ("quick-add", None)]
     empty = row_slots(
-        Project("p", sections=[Section("空", [])]), TaskFilter(), set(), False, ROW, ADD, quick_add=((0,), 0)
+        Project("p", sections=[Section("空", [])]),
+        TaskFilter(),
+        set(),
+        False,
+        ROW,
+        ADD,
+        quick_add=((0,), 0),
     )
     assert [s.kind for s in empty] == ["top-add", "section", "quick-add"]
 
 
 def test_no_quick_add_row_when_filtering_or_read_only() -> None:
-    assert all(s.kind != "quick-add" for s in row_slots(project(), TaskFilter(query="a"), set(), False, ROW, ADD, quick_add=((0,), 1)))
-    assert all(s.kind != "quick-add" for s in row_slots(project(), TaskFilter(), set(), True, ROW, ADD, quick_add=((0,), 1)))
+    assert all(
+        s.kind != "quick-add"
+        for s in row_slots(
+            project(),
+            TaskFilter(query="a"),
+            set(),
+            False,
+            ROW,
+            ADD,
+            quick_add=((0,), 1),
+        )
+    )
+    assert all(
+        s.kind != "quick-add"
+        for s in row_slots(
+            project(), TaskFilter(), set(), True, ROW, ADD, quick_add=((0,), 1)
+        )
+    )
 
 
-def test_the_section_input_row_takes_a_slot_after_the_last_child_of_its_parent() -> None:
+def test_the_section_input_row_takes_a_slot_after_the_last_child_of_its_parent() -> (
+    None
+):
     def kinds(parent: tuple[int, ...]) -> list[tuple[str, tuple[int, ...]]]:
-        slots = row_slots(nested_project(), TaskFilter(), set(), False, ROW, ADD, quick_section=parent)
+        slots = row_slots(
+            nested_project(), TaskFilter(), set(), False, ROW, ADD, quick_section=parent
+        )
         return [(s.kind, s.path) for s in slots]
 
     inside = kinds((0,))
     assert inside.count(("quick-add", (0,))) == 1
     after_children = inside.index(("quick-add", (0,)))
-    assert inside[after_children - 1][1][:1] == (0,) and len(inside[after_children - 1][1]) >= 2  # 最後のサブセクションの中身の後ろ
+    assert (
+        inside[after_children - 1][1][:1] == (0,)
+        and len(inside[after_children - 1][1]) >= 2
+    )  # 最後のサブセクションの中身の後ろ
     assert kinds(())[-1] == ("quick-add", ())  # 最上位は、最後のセクションの後ろ
-    assert all(s.kind != "quick-add" for s in row_slots(nested_project(), TaskFilter(query="g"), set(), False, ROW, ADD, quick_section=(0,)))
-    assert all(s.kind != "quick-add" for s in row_slots(nested_project(), TaskFilter(), set(), True, ROW, ADD, quick_section=(0,)))
+    assert all(
+        s.kind != "quick-add"
+        for s in row_slots(
+            nested_project(),
+            TaskFilter(query="g"),
+            set(),
+            False,
+            ROW,
+            ADD,
+            quick_section=(0,),
+        )
+    )
+    assert all(
+        s.kind != "quick-add"
+        for s in row_slots(
+            nested_project(), TaskFilter(), set(), True, ROW, ADD, quick_section=(0,)
+        )
+    )

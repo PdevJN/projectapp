@@ -2,7 +2,16 @@ import pytest
 
 from datetime import date, datetime
 
-from projectapp.models import Assignee, Actual, Level, Member, Parameter, Project, Status, Task
+from projectapp.models import (
+    Assignee,
+    Actual,
+    Level,
+    Member,
+    Parameter,
+    Project,
+    Status,
+    Task,
+)
 from projectapp.timeline import (
     Schedule,
     counted_span,
@@ -48,7 +57,9 @@ def test_a_late_predecessor_pushes_the_start() -> None:
     b = task("b", "a", planned_start=MON, effort_hours=6.5)
     proj = project(a, b)
     assert start_of(proj, "b") == datetime(2026, 10, 6, 15, 30)
-    assert end_of(proj, "b") == datetime(2026, 10, 7, 15, 30)  # 火 15:30 は枠の終わり → 水
+    assert end_of(proj, "b") == datetime(
+        2026, 10, 7, 15, 30
+    )  # 火 15:30 は枠の終わり → 水
 
 
 def test_an_early_predecessor_does_not_pull_the_start_back() -> None:
@@ -141,13 +152,23 @@ def test_a_manual_end_without_a_planned_start_is_not_shifted() -> None:
 
 def test_the_deadline_never_moves() -> None:
     a = task("a", planned_start=MON, effort_hours=13)
-    b = task("b", "a", planned_start=MON, effort_hours=1, deadline=datetime(2026, 10, 6, 12, 0))
+    b = task(
+        "b",
+        "a",
+        planned_start=MON,
+        effort_hours=1,
+        deadline=datetime(2026, 10, 6, 12, 0),
+    )
     proj = project(a, b)
     found = proj.tasks[1]
     assert found.deadline == datetime(2026, 10, 6, 12, 0)
     end = end_of(proj, "b")
-    assert end is not None and end > found.deadline  # 押し出されて、完了予定が締切を過ぎる
-    assert not is_overdue(found, proj, HOLIDAYS, datetime(2026, 10, 1))  # 超過は現在時刻と比べる(既存)
+    assert (
+        end is not None and end > found.deadline
+    )  # 押し出されて、完了予定が締切を過ぎる
+    assert not is_overdue(
+        found, proj, HOLIDAYS, datetime(2026, 10, 1)
+    )  # 超過は現在時刻と比べる(既存)
     assert is_overdue(found, proj, HOLIDAYS, datetime(2026, 10, 6, 13, 0))
 
 
@@ -187,7 +208,12 @@ def test_latest_finish_is_none_without_predecessors() -> None:
 def test_counted_span_and_overallocations_use_the_pushed_start() -> None:
     a = task("a", planned_start=MON, effort_hours=13)
     b = task("b", "a", planned_start=MON, effort_hours=2, assignees=[Assignee("x")])
-    c = task("c", planned_start=datetime(2026, 10, 6, 15, 30), effort_hours=2, assignees=[Assignee("x")])
+    c = task(
+        "c",
+        planned_start=datetime(2026, 10, 6, 15, 30),
+        effort_hours=2,
+        assignees=[Assignee("x")],
+    )
     proj = Project("p", tasks=[a, b, c], members=[Member("x")])
     span = counted_span(b, proj, HOLIDAYS)
     assert span is not None and span[0] == datetime(2026, 10, 6, 15, 30)
@@ -202,10 +228,31 @@ def test_visible_range_includes_the_pushed_end() -> None:
 
 
 def test_a_task_with_parameters_uses_only_those_levels_for_its_end() -> None:
-    parameters = [Parameter("Python", [Level("上級", 0.5)]), Parameter("Java", [Level("初級", -0.5)])]
+    parameters = [
+        Parameter("Python", [Level("上級", 0.5)]),
+        Parameter("Java", [Level("初級", -0.5)]),
+    ]
     member = Member("田中", 1.0, {"Python": "上級", "Java": "初級"})  # 全合計は 100%
-    plain = task("a", planned_start=MON, effort_hours=13.0, assignees=[Assignee("田中", 1.0)])
-    tagged = task("b", planned_start=MON, effort_hours=13.0, assignees=[Assignee("田中", 1.0)], parameters=["Python"])
-    proj = Project("p", members=[member], parameters=parameters, tasks=[plain, tagged], daily_hours=6.5)
-    assert effective_end(plain, proj, HOLIDAYS) == datetime(2026, 10, 6, 15, 30)  # 100%: 13h = 2 日(6.5h × 2)
-    assert effective_end(tagged, proj, HOLIDAYS) == datetime(2026, 10, 6, 11, 10)  # 150%: 8.667h = 6.5h + 2h10m
+    plain = task(
+        "a", planned_start=MON, effort_hours=13.0, assignees=[Assignee("田中", 1.0)]
+    )
+    tagged = task(
+        "b",
+        planned_start=MON,
+        effort_hours=13.0,
+        assignees=[Assignee("田中", 1.0)],
+        parameters=["Python"],
+    )
+    proj = Project(
+        "p",
+        members=[member],
+        parameters=parameters,
+        tasks=[plain, tagged],
+        daily_hours=6.5,
+    )
+    assert effective_end(plain, proj, HOLIDAYS) == datetime(
+        2026, 10, 6, 15, 30
+    )  # 100%: 13h = 2 日(6.5h × 2)
+    assert effective_end(tagged, proj, HOLIDAYS) == datetime(
+        2026, 10, 6, 11, 10
+    )  # 150%: 8.667h = 6.5h + 2h10m

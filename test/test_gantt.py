@@ -15,14 +15,17 @@ from nicegui.testing import User
 from header_cells import header_cells, settles, should_not_see_column, should_see_column
 from projectapp.arrange import section_key
 from projectapp.calendar import DayKind
-from projectapp.config import DEFAULT_NAME_WIDTH_PX, MAX_NAME_WIDTH_PX, MIN_NAME_WIDTH_PX
+from projectapp.config import (
+    DEFAULT_NAME_WIDTH_PX,
+    MAX_NAME_WIDTH_PX,
+    MIN_NAME_WIDTH_PX,
+)
 from projectapp.filtering import TaskFilter
 from projectapp.gantt_drag import CHART_DRAG_CSS
 from projectapp.gantt import (
     CHECKPOINT_MARKER_PX,
     COLUMN_WIDTH_PX,
     SHOW_CHART_JS,
-    STICKY_CSS,
     TRACK_SCROLL_JS,
     TODAY_COLOR,
     TODAY_CSS,
@@ -90,7 +93,6 @@ from projectapp.timeline import Column, build_columns, today_position
 from projectapp.models import (
     Assignee,
     Category,
-    DEFAULT_COLOR,
     Actual,
     Event,
     Member,
@@ -124,29 +126,61 @@ class Recorder:
             add_task=lambda si: self.events.append(("add_task", (si,))),
             add_top_task=lambda: self.events.append(("add_top_task", ())),
             edit_task=lambda si, ti: self.events.append(("edit_task", (si, ti))),
-            move_task=lambda src, dst, copy: self.events.append(("move_task", (src, dst, copy))),
-            shift_task=lambda si, ti, days: self.events.append(("shift_task", (si, ti, days))),
-            set_name_width=lambda width: self.events.append(("set_name_width", (width,))),
+            move_task=lambda src, dst, copy: self.events.append(
+                ("move_task", (src, dst, copy))
+            ),
+            shift_task=lambda si, ti, days: self.events.append(
+                ("shift_task", (si, ti, days))
+            ),
+            set_name_width=lambda width: self.events.append(
+                ("set_name_width", (width,))
+            ),
             add_subsection=lambda path: self.events.append(("add_subsection", (path,))),
-            decompose_task=lambda path, ti: self.events.append(("decompose_task", (path, ti))),
+            decompose_task=lambda path, ti: self.events.append(
+                ("decompose_task", (path, ti))
+            ),
             bulk_edit=lambda ids: self.events.append(("bulk_edit", (ids,))),
             bulk_delete=lambda ids: self.events.append(("bulk_delete", (ids,))),
             copy_task=lambda path, ti: self.events.append(("copy_task", (path, ti))),
-            rename_task=lambda path, ti: self.events.append(("rename_task", (path, ti))),
-            delete_task=lambda path, ti: self.events.append(("delete_task", (path, ti))),
+            rename_task=lambda path, ti: self.events.append(
+                ("rename_task", (path, ti))
+            ),
+            delete_task=lambda path, ti: self.events.append(
+                ("delete_task", (path, ti))
+            ),
             copy_section=lambda path: self.events.append(("copy_section", (path,))),
             rename_section=lambda path: self.events.append(("rename_section", (path,))),
             delete_section=lambda path: self.events.append(("delete_section", (path,))),
-            move_section=lambda src, dst: self.events.append(("move_section", (src, dst))),
-            add_named_task=lambda path, index, name: self.events.append(("add_named_task", (path, index, name))),
-            add_named_child=lambda path, index, name, parent: self.events.append(("add_named_child", (path, index, name, parent))),
-            add_named_summary=lambda path, index, name: self.events.append(("add_named_summary", (path, index, name))),
-            add_named_section=lambda parent, name: self.events.append(("add_named_section", (parent, name))),
-            toggle_weeks=lambda path, ti: self.events.append(("toggle_weeks", (path, ti))),
-            edit_week_crew=lambda path, ti, week: self.events.append(("edit_week_crew", (path, ti, week))),
-            edit_progress=lambda path, ti: self.events.append(("edit_progress", (path, ti))),
-            open_reference=lambda task_id: self.events.append(("open_reference", (task_id,))),
-            refresh_reference=lambda path, ti: self.events.append(("refresh_reference", (path, ti))),
+            move_section=lambda src, dst: self.events.append(
+                ("move_section", (src, dst))
+            ),
+            add_named_task=lambda path, index, name: self.events.append(
+                ("add_named_task", (path, index, name))
+            ),
+            add_named_child=lambda path, index, name, parent: self.events.append(
+                ("add_named_child", (path, index, name, parent))
+            ),
+            add_named_summary=lambda path, index, name: self.events.append(
+                ("add_named_summary", (path, index, name))
+            ),
+            add_named_section=lambda parent, name: self.events.append(
+                ("add_named_section", (parent, name))
+            ),
+            toggle_weeks=lambda path, ti: self.events.append(
+                ("toggle_weeks", (path, ti))
+            ),
+            edit_week_crew=lambda path, ti, week: self.events.append(
+                ("edit_week_crew", (path, ti, week))
+            ),
+            edit_progress=lambda path, ti: self.events.append(
+                ("edit_progress", (path, ti))
+            ),
+            open_reference=lambda task_id: self.events.append(
+                ("open_reference", (task_id,))
+            ),
+            refresh_reference=lambda path, ti: self.events.append(
+                ("refresh_reference", (path, ti))
+            ),
         )
 
     @property
@@ -165,7 +199,9 @@ def sample_project() -> Project:
         planned_end=datetime(2026, 10, 7, 12),
         color="#ff0000",
     )
-    return Project("demo", base_date=BASE, sections=[Section("開発", [task, Task("未設定")])])
+    return Project(
+        "demo", base_date=BASE, sections=[Section("開発", [task, Task("未設定")])]
+    )
 
 
 def mount(
@@ -227,18 +263,25 @@ async def test_day_scale_draws_the_today_line_at_the_current_time(user: User) ->
     mount(sample_project(), now=NOON)
     await user.open("/")
     line = user.find(marker="today-line").elements.pop()
-    assert line._style["left"] == from_name(2.5 * COLUMN_WIDTH_PX[Scale.DAY] - TODAY_LINE_WIDTH_PX / 2)
+    assert line._style["left"] == from_name(
+        2.5 * COLUMN_WIDTH_PX[Scale.DAY] - TODAY_LINE_WIDTH_PX / 2
+    )
     assert line._style["width"] == f"{TODAY_LINE_WIDTH_PX}px"
     assert line._style["pointer-events"] == "none"
 
 
-async def test_week_and_month_scales_draw_the_today_line_in_the_middle(user: User) -> None:
+async def test_week_and_month_scales_draw_the_today_line_in_the_middle(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project(), now=NOON)
     await user.open("/")
     for scale in (Scale.WEEK, Scale.MONTH):
         charts[0].set_scale(scale)
         columns = build_columns(charts[0].project, scale, {})
-        expected = from_name(today_position(NOON, columns, scale) * COLUMN_WIDTH_PX[scale] - TODAY_LINE_WIDTH_PX / 2)
+        expected = from_name(
+            today_position(NOON, columns, scale) * COLUMN_WIDTH_PX[scale]
+            - TODAY_LINE_WIDTH_PX / 2
+        )
         for _ in range(10):  # 描き直しは背景タスクで起きる
             line = user.find(marker="today-line").elements.pop()
             if line._style["left"] == expected:
@@ -309,8 +352,12 @@ async def test_left_click_does_not_edit_the_task(user: User) -> None:
     # (バーは Shift クリックだけが進捗度・実績の簡易入力を呼ぶ。ふつうのクリックを送らないことは、下のスクリプトのテストで確かめる)
     project = sample_project()
     project.sections[0].tasks[0].deadline = datetime(2026, 10, 8, 12)
-    project.sections[0].tasks[0].actuals = [Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))]
-    project.sections[0].tasks.append(Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 12)))
+    project.sections[0].tasks[0].actuals = [
+        Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))
+    ]
+    project.sections[0].tasks.append(
+        Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 12))
+    )
     recorder = mount(project)
     await user.open("/")
     for marker in ("task-0-1", "deadline-0-0", "actual-0-0-0", "checkpoint-0-2"):
@@ -318,7 +365,9 @@ async def test_left_click_does_not_edit_the_task(user: User) -> None:
     assert recorder.events == []
 
 
-async def test_empty_section_and_html_like_names_are_shown_literally(user: User) -> None:
+async def test_empty_section_and_html_like_names_are_shown_literally(
+    user: User,
+) -> None:
     project = Project("p", base_date=BASE, sections=[Section("<b>空</b>")])
     mount(project)
     await user.open("/")
@@ -326,12 +375,18 @@ async def test_empty_section_and_html_like_names_are_shown_literally(user: User)
     await user.should_see(marker="add-task-0")
 
 
-async def test_day_header_shows_weekday_in_parentheses_under_the_date(user: User) -> None:
+async def test_day_header_shows_weekday_in_parentheses_under_the_date(
+    user: User,
+) -> None:
     mount(sample_project())
     await user.open("/")
     cells = header_cells(user)
     assert cells["2026-10-05"][0] == "5"
-    for day, weekday in (("2026-10-05", "（月）"), ("2026-10-10", "（土）"), ("2026-10-11", "（日）")):
+    for day, weekday in (
+        ("2026-10-05", "（月）"),
+        ("2026-10-10", "（土）"),
+        ("2026-10-11", "（日）"),
+    ):
         assert cells[day][1] == weekday
 
 
@@ -339,9 +394,15 @@ async def test_the_header_dates_are_one_html_element(user: User) -> None:
     charts, _ = mount_chart(sample_project())
     await user.open("/")
     chart = charts[0]
-    htmls = [e for e in chart.client.elements.values() if "label-row-cells" in e._markers]
+    htmls = [
+        e for e in chart.client.elements.values() if "label-row-cells" in e._markers
+    ]
     assert len(htmls) == 1  # 日付と曜日は、列ごとの要素ではなく、1 つの HTML
-    assert [e for e in chart.client.elements.values() if any(m.startswith(("col-", "weekday-")) for m in e._markers)] == []
+    assert [
+        e
+        for e in chart.client.elements.values()
+        if any(m.startswith(("col-", "weekday-")) for m in e._markers)
+    ] == []
     assert htmls[0]._style["flex"] == "none"  # 行の中で縮めない
     assert len(header_cells(user)) > 7
 
@@ -362,7 +423,7 @@ async def test_header_cells_have_the_column_width_in_every_scale(user: User) -> 
 
 
 def test_header_cell_escapes_the_text_and_has_no_weekday_line_unless_asked() -> None:
-    column = Column(date(2026, 10, 5), date(2026, 10, 6), "<b>&\"")
+    column = Column(date(2026, 10, 5), date(2026, 10, 6), '<b>&"')
     cell = header_cell_html(column, 40, weekday=False)
     assert "<b>" not in cell and "&lt;b&gt;&amp;&quot;" in cell
     assert 'data-col="2026-10-05"' in cell and "width:40px" in cell
@@ -376,11 +437,17 @@ async def test_week_and_month_headers_have_no_weekday(user: User) -> None:
     await user.open("/")
     toggle = user.find(kind=ui.toggle).elements.pop()
     toggle.set_value(Scale.WEEK)
-    await settles(user, lambda cells: "2026-10-05" in cells and cells["2026-10-05"][1] is None)
+    await settles(
+        user, lambda cells: "2026-10-05" in cells and cells["2026-10-05"][1] is None
+    )
     toggle.set_value(Scale.MONTH)
-    await settles(user, lambda cells: "2026-10-01" in cells and all(c[1] is None for c in cells.values()))
+    await settles(
+        user,
+        lambda cells: (
+            "2026-10-01" in cells and all(c[1] is None for c in cells.values())
+        ),
+    )
     assert header_cells(user)["2026-10-01"][0] == "10月"
-
 
 
 def top_project() -> Project:
@@ -431,7 +498,10 @@ async def test_vertical_grid_lines_in_every_scale(user: User) -> None:
     for scale, columns in ((Scale.DAY, 42), (Scale.WEEK, 26), (Scale.MONTH, 12)):
         toggle.set_value(scale)
         for _ in range(60):  # 再描画を待つ
-            counts = [e.content.count("border-left") for e in user.find(marker="gridlines").elements]
+            counts = [
+                e.content.count("border-left")
+                for e in user.find(marker="gridlines").elements
+            ]
             if counts == [columns]:
                 break
             await asyncio.sleep(0.05)
@@ -447,7 +517,10 @@ async def test_horizontal_grid_lines_under_every_row(user: User) -> None:
         return label.parent_slot.parent
 
     assert row_of(marker="task-0-0")._style["border-bottom"] == GRID_BORDER
-    assert user.find(marker="section-0").elements.pop()._style["border-bottom"] == GRID_BORDER
+    assert (
+        user.find(marker="section-0").elements.pop()._style["border-bottom"]
+        == GRID_BORDER
+    )
     header = row_of(marker="label-row-cells")
     assert header._style["border-bottom"] == GRID_BORDER
 
@@ -507,7 +580,9 @@ async def test_no_toolbar_add_task_button(user: User) -> None:
     await user.open("/")
     await user.should_see(marker="add-section")
     button = user.find(marker="add-section").elements.pop()
-    assert user.find(marker="chart-toolbar").elements.pop() not in button.ancestors()  # ツールバーではなく、チャートの中
+    assert (
+        user.find(marker="chart-toolbar").elements.pop() not in button.ancestors()
+    )  # ツールバーではなく、チャートの中
     await user.should_not_see(marker="add-top-task")  # ツールバーにはない
     await user.should_not_see(marker="refresh-holidays")  # 祝日更新はヘッダー側
 
@@ -538,7 +613,9 @@ async def test_add_row_stays_when_tasks_exist(user: User) -> None:
     assert recorder.events == [("add_top_task", ())]
 
 
-async def test_add_row_comes_after_top_level_tasks_and_before_sections(user: User) -> None:
+async def test_add_row_comes_after_top_level_tasks_and_before_sections(
+    user: User,
+) -> None:
     project = top_project()
     project.sections.append(Section("開発"))
     mount(project)
@@ -547,10 +624,14 @@ async def test_add_row_comes_after_top_level_tasks_and_before_sections(user: Use
     def element_id(marker: str) -> int:
         return user.find(marker=marker).elements.pop().id
 
-    assert element_id("task-top-1") < element_id("add-task-top") < element_id("add-task-0")
+    assert (
+        element_id("task-top-1") < element_id("add-task-top") < element_id("add-task-0")
+    )
 
 
-async def test_the_section_add_row_is_right_aligned_in_the_name_column(user: User) -> None:
+async def test_the_section_add_row_is_right_aligned_in_the_name_column(
+    user: User,
+) -> None:
     recorder = mount(Project("p", base_date=BASE))
     await user.open("/")
     await user.should_see(marker="add-section")
@@ -563,7 +644,9 @@ async def test_the_section_add_row_is_right_aligned_in_the_name_column(user: Use
     assert recorder.events == [("add_section", ())]
 
 
-async def test_the_section_add_row_comes_after_the_last_section_and_its_children(user: User) -> None:
+async def test_the_section_add_row_comes_after_the_last_section_and_its_children(
+    user: User,
+) -> None:
     mount(nested_chart_project())
     await user.open("/")
 
@@ -584,7 +667,9 @@ async def test_the_section_add_row_stays_while_filtering(user: User) -> None:
     await user.should_see(marker="add-section")
 
 
-async def test_add_buttons_use_a_task_icon_and_a_folder_icon_to_tell_them_apart(user: User) -> None:
+async def test_add_buttons_use_a_task_icon_and_a_folder_icon_to_tell_them_apart(
+    user: User,
+) -> None:
     mount(nested_chart_project())
     await user.open("/")
     await user.should_see(marker="add-section")
@@ -592,9 +677,18 @@ async def test_add_buttons_use_a_task_icon_and_a_folder_icon_to_tell_them_apart(
     def icon(marker: str) -> str:
         return user.find(marker=marker).elements.pop().props["icon"]
 
-    for marker in ("add-task-top", "add-task-0", "add-task-0.0", "add-task-0.0.0"):  # タスクを足す
+    for marker in (
+        "add-task-top",
+        "add-task-0",
+        "add-task-0.0",
+        "add-task-0.0.0",
+    ):  # タスクを足す
         assert icon(marker) == "add_task", marker
-    for marker in ("add-section", "add-subsection-0", "add-subsection-0.0"):  # セクションを足す
+    for marker in (
+        "add-section",
+        "add-subsection-0",
+        "add-subsection-0.0",
+    ):  # セクションを足す
         assert icon(marker) == "create_new_folder", marker
 
 
@@ -627,7 +721,9 @@ async def test_done_task_is_not_red(user: User) -> None:
 async def test_overdue_keeps_the_bar_color(user: User) -> None:
     mount(sample_project(), now=datetime(2026, 10, 8))
     await user.open("/")
-    assert user.find(marker="bar-0-0").elements.pop()._style["background"] == planned_background(STATUS_COLOR_VAR)
+    assert user.find(marker="bar-0-0").elements.pop()._style[
+        "background"
+    ] == planned_background(STATUS_COLOR_VAR)
 
 
 async def test_overdue_applies_to_top_level_tasks(user: User) -> None:
@@ -636,8 +732,9 @@ async def test_overdue_applies_to_top_level_tasks(user: User) -> None:
     assert row_background(user, "task-top-0") == OVERDUE_COLOR
 
 
-
-async def test_a_task_that_ends_before_it_starts_still_shows_a_thin_bar(user: User) -> None:
+async def test_a_task_that_ends_before_it_starts_still_shows_a_thin_bar(
+    user: User,
+) -> None:
     project = sample_project()
     task = project.sections[0].tasks[0]
     task.planned_start, task.planned_end = task.planned_end, task.planned_start
@@ -666,9 +763,13 @@ async def test_the_deadline_marker_is_placed_at_the_deadline(user: User) -> None
     assert marker._style["left"] == from_name(3.5 * 40 - DEADLINE_MARKER_HALF_PX)
 
 
-async def test_a_task_without_a_start_still_shows_its_deadline_marker(user: User) -> None:
+async def test_a_task_without_a_start_still_shows_its_deadline_marker(
+    user: User,
+) -> None:
     project = Project(
-        "demo", base_date=BASE, tasks=[Task("締切のみ", deadline=datetime(2026, 10, 8, 12))]
+        "demo",
+        base_date=BASE,
+        tasks=[Task("締切のみ", deadline=datetime(2026, 10, 8, 12))],
     )
     mount(project)
     await user.open("/")
@@ -677,7 +778,9 @@ async def test_a_task_without_a_start_still_shows_its_deadline_marker(user: User
 
 
 async def test_a_deadline_outside_the_range_has_no_marker(user: User) -> None:
-    project = Project("demo", base_date=BASE, tasks=[Task("遠い", deadline=datetime(2030, 1, 1))])
+    project = Project(
+        "demo", base_date=BASE, tasks=[Task("遠い", deadline=datetime(2030, 1, 1))]
+    )
     mount(project)
     await user.open("/")
     await user.should_see("遠い")
@@ -733,7 +836,10 @@ async def test_stripes_cover_only_the_overloaded_part_of_each_bar(user: User) ->
 async def test_stripes_do_not_block_the_bar_events(user: User) -> None:
     mount(overloaded_project())
     await user.open("/")
-    assert user.find(marker="overload-top-0-0").elements.pop()._style["pointer-events"] == "none"
+    assert (
+        user.find(marker="overload-top-0-0").elements.pop()._style["pointer-events"]
+        == "none"
+    )
 
 
 async def test_the_bar_tooltip_names_the_member_and_the_peak(user: User) -> None:
@@ -746,7 +852,9 @@ async def test_the_bar_tooltip_names_the_member_and_the_peak(user: User) -> None
     assert "10/7〜10/9" in tooltips[0].text
 
 
-async def test_the_bar_tooltip_names_each_overloaded_member_with_his_own_peak(user: User) -> None:
+async def test_the_bar_tooltip_names_each_overloaded_member_with_his_own_peak(
+    user: User,
+) -> None:
     a = Task(
         "A",
         planned_start=datetime(2026, 10, 5),
@@ -759,7 +867,14 @@ async def test_the_bar_tooltip_names_each_overloaded_member_with_his_own_peak(us
         planned_end=datetime(2026, 10, 12),
         assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.9)],
     )
-    mount(Project("demo", base_date=BASE, members=[Member("田中"), Member("鈴木")], tasks=[a, b]))
+    mount(
+        Project(
+            "demo",
+            base_date=BASE,
+            members=[Member("田中"), Member("鈴木")],
+            tasks=[a, b],
+        )
+    )
     await user.open("/")
     bar = user.find(marker="bar-top-0").elements.pop()
     tooltips = [c for c in bar.default_slot.children if isinstance(c, ui.tooltip)]
@@ -773,9 +888,23 @@ async def test_the_bar_tooltip_names_each_overloaded_member_with_his_own_peak(us
 async def test_the_overload_tooltip_wraps_every_three_members(user: User) -> None:
     names = ["田中", "鈴木", "佐藤", "高橋"]
     crew = [Assignee(name, 0.6) for name in names]
-    a = Task("A", planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 9), assignees=list(crew))
-    b = Task("B", planned_start=datetime(2026, 10, 7), planned_end=datetime(2026, 10, 12), assignees=list(crew))
-    mount(Project("demo", base_date=BASE, members=[Member(n) for n in names], tasks=[a, b]))
+    a = Task(
+        "A",
+        planned_start=datetime(2026, 10, 5),
+        planned_end=datetime(2026, 10, 9),
+        assignees=list(crew),
+    )
+    b = Task(
+        "B",
+        planned_start=datetime(2026, 10, 7),
+        planned_end=datetime(2026, 10, 12),
+        assignees=list(crew),
+    )
+    mount(
+        Project(
+            "demo", base_date=BASE, members=[Member(n) for n in names], tasks=[a, b]
+        )
+    )
     await user.open("/")
     bar = user.find(marker="bar-top-0").elements.pop()
     text = next(c for c in bar.default_slot.children if isinstance(c, ui.tooltip)).text
@@ -813,7 +942,14 @@ async def test_stripes_stay_inside_a_thin_bar(user: User) -> None:
             assignees=[Assignee("田中", 0.6)],
         )
 
-    mount(Project("demo", base_date=BASE, members=[Member("田中")], tasks=[thin("A"), thin("B")]))
+    mount(
+        Project(
+            "demo",
+            base_date=BASE,
+            members=[Member("田中")],
+            tasks=[thin("A"), thin("B")],
+        )
+    )
     await user.open("/")
     stripe = user.find(marker="overload-top-0-0").elements.pop()
     bar = user.find(marker="bar-top-0").elements.pop()
@@ -824,16 +960,16 @@ async def test_stripes_stay_inside_a_thin_bar(user: User) -> None:
 
 
 def mount_chart(
-    project: Project, holidays: dict[date, str] | None = None, now: datetime = datetime(2026, 10, 1)
+    project: Project,
+    holidays: dict[date, str] | None = None,
+    now: datetime = datetime(2026, 10, 1),
 ) -> tuple[list[GanttChart], Recorder]:
     charts: list[GanttChart] = []
     recorder = Recorder()
 
     @ui.page("/")
     def index() -> None:
-        chart = GanttChart(
-            project, holidays or {}, recorder.actions, now=lambda: now
-        )
+        chart = GanttChart(project, holidays or {}, recorder.actions, now=lambda: now)
         charts.append(chart)
         chart.build()
 
@@ -909,7 +1045,9 @@ async def test_a_collapsed_header_stays_a_drop_target(user: User) -> None:
     assert props["data-drop"] == "section"
 
 
-async def test_a_filter_opens_collapsed_sections_and_clearing_it_collapses_again(user: User) -> None:
+async def test_a_filter_opens_collapsed_sections_and_clearing_it_collapses_again(
+    user: User,
+) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
     user.find(marker="section-toggle-0").click()
@@ -922,7 +1060,9 @@ async def test_a_filter_opens_collapsed_sections_and_clearing_it_collapses_again
     await user.should_not_see(marker="task-0-1")
 
 
-async def test_a_filter_with_no_match_hides_a_collapsed_section_header(user: User) -> None:
+async def test_a_filter_with_no_match_hides_a_collapsed_section_header(
+    user: User,
+) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
     user.find(marker="section-toggle-1").click()
@@ -953,7 +1093,9 @@ async def test_an_empty_section_can_be_collapsed_and_expanded(user: User) -> Non
     await user.should_see(marker="add-task-2")
 
 
-async def test_read_only_shows_every_row_without_arrows_and_keeps_the_state(user: User) -> None:
+async def test_read_only_shows_every_row_without_arrows_and_keeps_the_state(
+    user: User,
+) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
     user.find(marker="section-toggle-0").click()
@@ -1017,10 +1159,15 @@ async def test_a_section_collapsed_before_drawing_is_drawn_hidden(user: User) ->
     await charts[0].render.refresh()
     (row,) = elements_marked(charts[0], "row-0-1")
     assert not row.visible
-    assert user.find(marker="section-toggle-0").elements.pop().props["icon"] == "chevron_right"
+    assert (
+        user.find(marker="section-toggle-0").elements.pop().props["icon"]
+        == "chevron_right"
+    )
 
 
-async def test_toggling_while_filtering_keeps_the_rows_and_applies_after_clearing(user: User) -> None:
+async def test_toggling_while_filtering_keeps_the_rows_and_applies_after_clearing(
+    user: User,
+) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
     charts[0].set_filter(TaskFilter(query="実"))
@@ -1087,7 +1234,9 @@ async def test_query_and_assignee_are_combined(user: User) -> None:
     await user.should_not_see(marker="task-1-0")
 
 
-async def test_a_section_without_a_match_is_hidden_with_its_add_button(user: User) -> None:
+async def test_a_section_without_a_match_is_hidden_with_its_add_button(
+    user: User,
+) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
     charts[0].set_filter(TaskFilter(query="設計"))
@@ -1123,7 +1272,9 @@ async def test_no_match_message_appears_only_when_nothing_matches(user: User) ->
     await user.should_see("条件に一致するタスクがありません")
 
 
-async def test_no_match_message_is_not_shown_for_a_project_without_tasks(user: User) -> None:
+async def test_no_match_message_is_not_shown_for_a_project_without_tasks(
+    user: User,
+) -> None:
     charts, _ = mount_chart(Project("空", base_date=BASE))
     await user.open("/")
     charts[0].set_filter(TaskFilter(query="何か"))
@@ -1148,7 +1299,9 @@ async def test_the_filter_survives_a_scale_change(user: User) -> None:
     await user.should_not_see(marker="task-0-0")
 
 
-async def test_set_project_keeps_the_filter_but_drops_a_vanished_assignee(user: User) -> None:
+async def test_set_project_keeps_the_filter_but_drops_a_vanished_assignee(
+    user: User,
+) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
     chart = charts[0]
@@ -1161,7 +1314,9 @@ async def test_set_project_keeps_the_filter_but_drops_a_vanished_assignee(user: 
     assert chart.task_filter == TaskFilter(query="設", assignee=None)
 
 
-async def test_typing_in_the_search_input_does_not_filter_until_enter(user: User) -> None:
+async def test_typing_in_the_search_input_does_not_filter_until_enter(
+    user: User,
+) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
     await user.should_see(marker="search-input")
@@ -1231,7 +1386,9 @@ async def test_set_project_updates_the_assignee_options_and_resets_a_vanished_ch
     assert charts[0].task_filter.assignee is None
 
 
-async def test_set_project_keeps_a_chosen_assignee_that_still_exists(user: User) -> None:
+async def test_set_project_keeps_a_chosen_assignee_that_still_exists(
+    user: User,
+) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
     select = user.find(marker="assignee-filter").elements.pop()
@@ -1282,13 +1439,19 @@ async def test_the_toolbar_never_wraps_and_the_filters_shrink(user: User) -> Non
         assert style["min-width"]
 
 
-async def test_the_chart_scroll_box_has_room_for_the_horizontal_scrollbar(user: User) -> None:
+async def test_the_chart_scroll_box_has_room_for_the_horizontal_scrollbar(
+    user: User,
+) -> None:
     mount_chart(filter_project())
     await user.open("/")
     style = user.find(marker="chart-scroll").elements.pop()._style
-    assert style["overflow"] == "auto"  # 縦横とも枠の中でスクロールする(見出しの固定の基準になる)
+    assert (
+        style["overflow"] == "auto"
+    )  # 縦横とも枠の中でスクロールする(見出しの固定の基準になる)
     assert style["max-height"] == CHART_MAX_HEIGHT
-    assert style["padding-bottom"] == f"{SCROLLBAR_ROOM_PX}px"  # 横のスクロールバーが最下行に重ならない
+    assert (
+        style["padding-bottom"] == f"{SCROLLBAR_ROOM_PX}px"
+    )  # 横のスクロールバーが最下行に重ならない
 
 
 def actual_project(*actuals: Actual) -> Project:
@@ -1302,7 +1465,9 @@ def actual_project(*actuals: Actual) -> Project:
     return Project("demo", base_date=BASE, sections=[Section("開発", [task])])
 
 
-async def test_planned_bar_is_semi_transparent_without_fading_its_children(user: User) -> None:
+async def test_planned_bar_is_semi_transparent_without_fading_its_children(
+    user: User,
+) -> None:
     mount(sample_project())
     await user.open("/")
     bar = user.find(marker="bar-0-0").elements.pop()
@@ -1313,7 +1478,9 @@ async def test_planned_bar_is_semi_transparent_without_fading_its_children(user:
     assert f"{PLANNED_OPACITY * 100:g}%" in bar._style["background"]
 
 
-async def test_actual_bar_is_drawn_in_the_lower_half_with_the_task_color(user: User) -> None:
+async def test_actual_bar_is_drawn_in_the_lower_half_with_the_task_color(
+    user: User,
+) -> None:
     mount(actual_project(Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))))
     await user.open("/")
     bar = user.find(marker="actual-0-0-0").elements.pop()
@@ -1332,21 +1499,31 @@ async def test_no_actual_bar_without_actuals(user: User) -> None:
 
 
 async def test_in_progress_actual_bar_extends_to_now(user: User) -> None:
-    mount(actual_project(Actual(datetime(2026, 10, 6, 12), None)), now=datetime(2026, 10, 8, 12))
+    mount(
+        actual_project(Actual(datetime(2026, 10, 6, 12), None)),
+        now=datetime(2026, 10, 8, 12),
+    )
     await user.open("/")
     bar = user.find(marker="actual-0-0-0").elements.pop()
     assert bar._style["width"] == "80.0px"
 
 
-async def test_in_progress_actual_starting_in_the_future_is_a_minimum_width_bar(user: User) -> None:
-    mount(actual_project(Actual(datetime(2026, 10, 9, 12), None)), now=datetime(2026, 10, 6))
+async def test_in_progress_actual_starting_in_the_future_is_a_minimum_width_bar(
+    user: User,
+) -> None:
+    mount(
+        actual_project(Actual(datetime(2026, 10, 9, 12), None)),
+        now=datetime(2026, 10, 6),
+    )
     await user.open("/")
     bar = user.find(marker="actual-0-0-0").elements.pop()
     assert bar._style["width"] == f"{MIN_BAR_PX:.1f}px"
 
 
 async def test_actual_bar_is_drawn_without_a_planned_bar(user: User) -> None:
-    task = Task("設計", actuals=[Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 7, 12))])
+    task = Task(
+        "設計", actuals=[Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 7, 12))]
+    )
     mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
     await user.open("/")
     await user.should_see(marker="actual-0-0-0")
@@ -1420,7 +1597,9 @@ async def test_no_fill_without_progress(user: User) -> None:
 async def test_done_without_progress_is_filled_completely(user: User) -> None:
     mount(progress_project(None, status=Status.DONE))
     await user.open("/")
-    assert user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "100%"
+    assert (
+        user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "100%"
+    )
 
 
 async def test_no_fill_without_a_planned_bar(user: User) -> None:
@@ -1431,12 +1610,16 @@ async def test_no_fill_without_a_planned_bar(user: User) -> None:
     await user.should_not_see(marker="progress-fill-0-0")
 
 
-async def test_fill_is_inside_the_bar_and_below_the_overload_stripes(user: User) -> None:
+async def test_fill_is_inside_the_bar_and_below_the_overload_stripes(
+    user: User,
+) -> None:
     mount(progress_project(40))
     await user.open("/")
     bar = user.find(marker="bar-0-0").elements.pop()
     markers = [m for child in bar.default_slot.children for m in child._markers]
-    assert markers[0].startswith("progress-fill-")  # 縞(overload-)より先に置く = 縞が手前
+    assert markers[0].startswith(
+        "progress-fill-"
+    )  # 縞(overload-)より先に置く = 縞が手前
 
 
 MID = datetime(2026, 10, 6, 12)  # 予定の中間(進んでいるはずの割合は50%)
@@ -1494,14 +1677,20 @@ async def test_no_state_without_progress_has_no_outline_and_no_mark(user: User) 
 
 async def test_done_state_is_marked(user: User) -> None:
     in_time = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 7, 10))
-    mount(progress_project(100, status=Status.DONE, actuals=[in_time]), now=datetime(2026, 10, 20))
+    mount(
+        progress_project(100, status=Status.DONE, actuals=[in_time]),
+        now=datetime(2026, 10, 20),
+    )
     await user.open("/")
     assert user.find(marker="progress-state-0-0").elements.pop().text == "✓"
 
 
 async def test_late_done_state_is_marked(user: User) -> None:
     late = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 8, 12))
-    mount(progress_project(100, status=Status.DONE, actuals=[late]), now=datetime(2026, 10, 20))
+    mount(
+        progress_project(100, status=Status.DONE, actuals=[late]),
+        now=datetime(2026, 10, 20),
+    )
     await user.open("/")
     assert user.find(marker="progress-state-0-0").elements.pop().text == "✓!"
     bar = user.find(marker="bar-0-0").elements.pop()
@@ -1535,7 +1724,12 @@ async def test_done_mark_tooltip_has_no_progress_part(user: User) -> None:
 
 
 async def test_no_outline_or_mark_without_a_planned_bar(user: User) -> None:
-    task = Task("設計", status=Status.DONE, actuals=[Actual(datetime(2026, 10, 6, 12), None)], progress=40)
+    task = Task(
+        "設計",
+        status=Status.DONE,
+        actuals=[Actual(datetime(2026, 10, 6, 12), None)],
+        progress=40,
+    )
     mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])]))
     await user.open("/")
     await user.should_see(marker="actual-0-0-0")
@@ -1544,7 +1738,10 @@ async def test_no_outline_or_mark_without_a_planned_bar(user: User) -> None:
 
 async def test_overdue_background_and_state_outline_coexist(user: User) -> None:
     late = Actual(datetime(2026, 10, 5, 12), datetime(2026, 10, 8, 12))
-    mount(progress_project(100, status=Status.DONE, actuals=[late]), now=datetime(2026, 10, 20))
+    mount(
+        progress_project(100, status=Status.DONE, actuals=[late]),
+        now=datetime(2026, 10, 20),
+    )
     await user.open("/")
     row = user.find(marker="row-0-0").elements.pop()
     assert OVERDUE_COLOR in row._style["background"]
@@ -1557,7 +1754,9 @@ def finished_project(end: datetime) -> Project:
 
 
 @pytest.mark.parametrize(
-    "end", [datetime(2026, 10, 7, 10), datetime(2026, 10, 8, 12)], ids=["done", "late-done"]
+    "end",
+    [datetime(2026, 10, 7, 10), datetime(2026, 10, 8, 12)],
+    ids=["done", "late-done"],
 )
 async def test_finished_task_has_a_gray_actual_bar_and_a_struck_through_name(
     user: User, end: datetime
@@ -1574,8 +1773,13 @@ async def test_finished_task_has_a_gray_actual_bar_and_a_struck_through_name(
 async def test_running_task_keeps_its_color_and_name(user: User) -> None:
     mount(progress_project(50), now=MID)
     await user.open("/")
-    assert user.find(marker="actual-0-0-0").elements.pop()._style["background"] == STATUS_COLOR_VAR
-    assert "text-decoration" not in user.find(marker="task-name-0-0").elements.pop()._style
+    assert (
+        user.find(marker="actual-0-0-0").elements.pop()._style["background"]
+        == STATUS_COLOR_VAR
+    )
+    assert (
+        "text-decoration" not in user.find(marker="task-name-0-0").elements.pop()._style
+    )
 
 
 async def test_finished_task_without_a_planned_bar_is_also_grayed(user: User) -> None:
@@ -1590,18 +1794,27 @@ async def test_finished_task_without_a_planned_bar_is_also_grayed(user: User) ->
     bar = user.find(marker="actual-0-0-0").elements.pop()
     assert bar._style["background"] == STATUS_COLOR_VAR
     assert "status-done" in bar.classes
-    assert user.find(marker="task-name-0-0").elements.pop()._style["text-decoration"] == "line-through"
+    assert (
+        user.find(marker="task-name-0-0").elements.pop()._style["text-decoration"]
+        == "line-through"
+    )
 
 
-async def test_finished_task_keeps_the_planned_fill_and_the_overdue_background(user: User) -> None:
+async def test_finished_task_keeps_the_planned_fill_and_the_overdue_background(
+    user: User,
+) -> None:
     mount(finished_project(datetime(2026, 10, 8, 12)), now=datetime(2026, 10, 20))
     await user.open("/")
     fill = user.find(marker="progress-fill-0-0").elements.pop()
     assert fill._style["background"] == STATUS_COLOR_VAR  # 予定の棒の塗りも状態の色
-    assert OVERDUE_COLOR in user.find(marker="row-0-0").elements.pop()._style["background"]
+    assert (
+        OVERDUE_COLOR in user.find(marker="row-0-0").elements.pop()._style["background"]
+    )
 
 
-async def test_late_done_mark_does_not_overlap_the_longer_actual_bar(user: User) -> None:
+async def test_late_done_mark_does_not_overlap_the_longer_actual_bar(
+    user: User,
+) -> None:
     mount(finished_project(datetime(2026, 10, 8, 12)), now=datetime(2026, 10, 20))
     await user.open("/")
     actual = user.find(marker="actual-0-0-0").elements.pop()
@@ -1611,16 +1824,22 @@ async def test_late_done_mark_does_not_overlap_the_longer_actual_bar(user: User)
     assert mark._style["left"] == from_name(144.0)  # 実績の棒の右端 + 4
 
 
-async def test_mark_follows_the_bar_that_ends_at_the_actual_end_when_done_early(user: User) -> None:
+async def test_mark_follows_the_bar_that_ends_at_the_actual_end_when_done_early(
+    user: User,
+) -> None:
     mount(finished_project(datetime(2026, 10, 7, 10)), now=datetime(2026, 10, 20))
     await user.open("/")
-    assert user.find(marker="progress-state-0-0").elements.pop()._style["left"] == from_name(100.7)  # 棒の右端は実績の終了
+    assert user.find(marker="progress-state-0-0").elements.pop()._style[
+        "left"
+    ] == from_name(100.7)  # 棒の右端は実績の終了
 
 
 async def test_delayed_mark_clears_an_in_progress_actual_bar_that_runs_past_the_plan(
     user: User,
 ) -> None:
-    mount(progress_project(10), now=datetime(2026, 10, 9, 12))  # 進行中の実績が、予定の終了より先まで伸びる
+    mount(
+        progress_project(10), now=datetime(2026, 10, 9, 12)
+    )  # 進行中の実績が、予定の終了より先まで伸びる
     await user.open("/")
     actual = user.find(marker="actual-0-0-0").elements.pop()
     actual_right = offset(actual._style["left"]) + float(actual._style["width"][:-2])
@@ -1640,12 +1859,16 @@ async def test_mark_does_not_overlap_the_deadline_diamond(user: User) -> None:
 async def test_mark_ignores_a_far_away_deadline(user: User) -> None:
     mount(progress_project(10, deadline=datetime(2026, 10, 20, 12)), now=MID)
     await user.open("/")
-    assert user.find(marker="progress-state-0-0").elements.pop()._style["left"] == from_name(104.0)
+    assert user.find(marker="progress-state-0-0").elements.pop()._style[
+        "left"
+    ] == from_name(104.0)
 
 
 def luminance(color: str) -> float:
     r, g, b = (int(color[i : i + 2], 16) / 255 for i in (1, 3, 5))
-    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in (r, g, b)]
+    lin = [
+        c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in (r, g, b)
+    ]
     return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
 
 
@@ -1682,14 +1905,21 @@ def test_light_state_colors_are_readable_on_white(state: ProgressState) -> None:
 
 def test_dark_state_colors_cover_the_same_states_and_differ_from_light() -> None:
     assert PROGRESS_STATE_DARK_COLORS.keys() == PROGRESS_STATE_COLORS.keys()
-    assert all(PROGRESS_STATE_DARK_COLORS[s] != PROGRESS_STATE_COLORS[s] for s in PROGRESS_STATE_COLORS)
+    assert all(
+        PROGRESS_STATE_DARK_COLORS[s] != PROGRESS_STATE_COLORS[s]
+        for s in PROGRESS_STATE_COLORS
+    )
 
 
 @pytest.mark.parametrize("state", list(PROGRESS_STATE_COLORS))
-def test_progress_css_defines_the_variable_for_both_themes(state: ProgressState) -> None:
+def test_progress_css_defines_the_variable_for_both_themes(
+    state: ProgressState,
+) -> None:
     cls = PROGRESS_STATE_CLASSES[state]
     assert f".{cls} {{ --pstate: {PROGRESS_STATE_COLORS[state]}; }}" in PROGRESS_CSS
-    dark = f"body.body--dark .{cls} {{ --pstate: {PROGRESS_STATE_DARK_COLORS[state]}; }}"
+    dark = (
+        f"body.body--dark .{cls} {{ --pstate: {PROGRESS_STATE_DARK_COLORS[state]}; }}"
+    )
     assert dark in PROGRESS_CSS
 
 
@@ -1698,7 +1928,9 @@ async def test_progress_css_is_added_to_the_page(user: User) -> None:
     response = await user.http_client.get("/")
     rules = PROGRESS_CSS.splitlines()
     assert len(rules) == 2 * len(PROGRESS_STATE_CLASSES)
-    for rule in rules:  # ページでは add_css が改行を \\n に変えて埋め込むので、ルールごとに確かめる
+    for rule in (
+        rules
+    ):  # ページでは add_css が改行を \\n に変えて埋め込むので、ルールごとに確かめる
         assert rule in response.text
 
 
@@ -1706,7 +1938,9 @@ async def test_actual_bar_follows_the_week_scale(user: User) -> None:
     mount(actual_project(Actual(datetime(2026, 10, 5, 0), datetime(2026, 10, 12, 0))))
     await user.open("/")
     user.find(kind=ui.toggle).elements.pop().set_value(Scale.WEEK)
-    await user.should_not_see(marker="stripes")  # 週次に切り替わった(再描画の完了を待つ)
+    await user.should_not_see(
+        marker="stripes"
+    )  # 週次に切り替わった(再描画の完了を待つ)
     bar = user.find(marker="actual-0-0-0").elements.pop()
     assert bar._style["width"] == "56.0px"  # 1週 = 1列
 
@@ -1722,7 +1956,9 @@ async def test_task_name_is_pinned_to_the_left(user: User) -> None:
     assert label._style["position"] == "sticky"
     assert label._style["left"] == "0px"
     assert label._style["z-index"] == str(STICKY_Z_NAME)
-    assert label._style["align-self"] == "stretch"  # 行の高さいっぱいを不透明な背景で覆う
+    assert (
+        label._style["align-self"] == "stretch"
+    )  # 行の高さいっぱいを不透明な背景で覆う
     assert "gantt-sticky" in label.classes
 
 
@@ -1741,7 +1977,9 @@ async def test_header_is_pinned_to_the_top(user: User) -> None:
     assert header._style["top"] == "0px"
     assert header._style["z-index"] == str(STICKY_Z_HEADER)
     assert "gantt-sticky" in header.classes
-    assert STICKY_Z_HEADER > STICKY_Z_NAME  # 見出しは、スクロールしてくるタスク名の列より手前
+    assert (
+        STICKY_Z_HEADER > STICKY_Z_NAME
+    )  # 見出しは、スクロールしてくるタスク名の列より手前
 
 
 async def test_header_left_spacers_are_pinned_to_the_left(user: User) -> None:
@@ -1766,7 +2004,9 @@ async def test_section_name_is_pinned_to_the_left(user: User) -> None:
     # 名前の列(200px)の全体を覆い、それを越えない。狭いと縞や格子線が見え、広いと棒を隠す
     assert name._style["width"] == "var(--name-w)"
     assert name._style["overflow"] == "hidden"
-    assert pinned(user, "add-task-0").parent_slot.parent is name  # 追加ボタンも一緒に固定される
+    assert (
+        pinned(user, "add-task-0").parent_slot.parent is name
+    )  # 追加ボタンも一緒に固定される
 
 
 async def test_add_row_cell_is_pinned_to_the_left(user: User) -> None:
@@ -1802,8 +2042,16 @@ def test_the_chart_scrollbars_follow_the_dark_theme() -> None:
     assert "body.body--dark [data-chart-scroll]" in STICKY_CSS
     assert "color-scheme: dark" in STICKY_CSS
     # 枠の余白(横スクロールバーの下)やトラックが、白いまま残らないように、暗い色を明示する
-    assert "body.body--dark [data-chart-scroll] { color-scheme: dark; background-color:" in STICKY_CSS
-    for part in ("::-webkit-scrollbar {", "::-webkit-scrollbar-track", "::-webkit-scrollbar-thumb", "::-webkit-scrollbar-corner"):
+    assert (
+        "body.body--dark [data-chart-scroll] { color-scheme: dark; background-color:"
+        in STICKY_CSS
+    )
+    for part in (
+        "::-webkit-scrollbar {",
+        "::-webkit-scrollbar-track",
+        "::-webkit-scrollbar-thumb",
+        "::-webkit-scrollbar-corner",
+    ):
         assert f"body.body--dark [data-chart-scroll]{part}" in STICKY_CSS, part
 
 
@@ -1814,14 +2062,18 @@ def test_drop_marks_are_repeated_on_pinned_cells() -> None:
     assert ".drop-into > .gantt-sticky" in CHART_DRAG_CSS
 
 
-async def test_a_long_section_name_is_shortened_inside_the_name_column(user: User) -> None:
+async def test_a_long_section_name_is_shortened_inside_the_name_column(
+    user: User,
+) -> None:
     project = sample_project()
     project.sections[0].name = "とても長いセクション名" * 10
     mount(project)
     await user.open("/")
     label = pinned(user, "section-label-0")
     assert "ellipsis" in label.classes
-    assert label._style["min-width"] == "0"  # 縮められる(縮まないと追加ボタンが列の外へ出る)
+    assert (
+        label._style["min-width"] == "0"
+    )  # 縮められる(縮まないと追加ボタンが列の外へ出る)
     assert "shrink-0" in pinned(user, "add-task-0").classes  # 追加ボタンは常に見える
     assert pinned(user, "section-name-0")._style["width"] == "var(--name-w)"
 
@@ -1835,7 +2087,9 @@ def test_refreshing_the_scrollbars_keeps_the_scroll_position() -> None:
     # overflow を一度切り替えて描き直させ、スクロール位置は戻す
     assert "[data-chart-scroll]" in REFRESH_SCROLLBARS_JS
     assert "style.overflow" in REFRESH_SCROLLBARS_JS
-    assert "scrollTop" in REFRESH_SCROLLBARS_JS and "scrollLeft" in REFRESH_SCROLLBARS_JS
+    assert (
+        "scrollTop" in REFRESH_SCROLLBARS_JS and "scrollLeft" in REFRESH_SCROLLBARS_JS
+    )
     assert "scrollTo" in REFRESH_SCROLLBARS_JS
 
 
@@ -1847,7 +2101,9 @@ def record_javascript(chart: GanttChart) -> list[str]:
     return sent
 
 
-async def test_the_scroll_box_survives_a_redraw_so_the_scroll_position_is_kept(user: User) -> None:
+async def test_the_scroll_box_survives_a_redraw_so_the_scroll_position_is_kept(
+    user: User,
+) -> None:
     # 行の移動などで描き直しても、スクロールする枠は作り直さない(作り直すと位置が先頭に戻る)
     charts, _ = mount_chart(filter_project())
     await user.open("/")
@@ -1888,10 +2144,14 @@ async def test_today_button_scrolls_to_the_line(user: User) -> None:
     await user.open("/")
     sent = record_javascript(charts[0])
     user.find(marker="today-button").click()
-    assert sent == [today_scroll_js(2.5 * COLUMN_WIDTH_PX[Scale.DAY], charts[0].name_width)]
+    assert sent == [
+        today_scroll_js(2.5 * COLUMN_WIDTH_PX[Scale.DAY], charts[0].name_width)
+    ]
 
 
-async def test_today_button_is_disabled_outside_the_range_and_follows_the_period(user: User) -> None:
+async def test_today_button_is_disabled_outside_the_range_and_follows_the_period(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project(), now=NOON)
     await user.open("/")
     button = user.find(marker="today-button").elements.pop()
@@ -1908,7 +2168,9 @@ async def test_today_button_uses_the_time_of_the_click(user: User) -> None:
 
     @ui.page("/")
     def index() -> None:
-        chart = GanttChart(sample_project(), {}, Recorder().actions, now=lambda: clock[0])
+        chart = GanttChart(
+            sample_project(), {}, Recorder().actions, now=lambda: clock[0]
+        )
         charts.append(chart)
         chart.build()
 
@@ -1926,10 +2188,15 @@ async def test_scroll_on_open_resets_then_goes_to_today(user: User) -> None:
     await user.open("/")
     sent = record_javascript(charts[0])
     charts[0].scroll_on_open()
-    assert sent == [SCROLL_RESET_JS, today_scroll_js(2.5 * COLUMN_WIDTH_PX[Scale.DAY], charts[0].name_width)]
+    assert sent == [
+        SCROLL_RESET_JS,
+        today_scroll_js(2.5 * COLUMN_WIDTH_PX[Scale.DAY], charts[0].name_width),
+    ]
 
 
-async def test_scroll_on_open_stays_at_the_left_when_today_is_outside(user: User) -> None:
+async def test_scroll_on_open_stays_at_the_left_when_today_is_outside(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project(), now=datetime(2026, 10, 1))
     await user.open("/")
     sent = record_javascript(charts[0])
@@ -1937,7 +2204,9 @@ async def test_scroll_on_open_stays_at_the_left_when_today_is_outside(user: User
     assert sent == [SCROLL_RESET_JS]
 
 
-async def test_changing_the_scale_still_resets_to_the_left_not_today(user: User) -> None:
+async def test_changing_the_scale_still_resets_to_the_left_not_today(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project(), now=NOON)
     await user.open("/")
     sent = record_javascript(charts[0])
@@ -1970,11 +2239,19 @@ def test_scroll_scripts_target_the_chart_box() -> None:
 
 
 def test_status_colors_cover_every_status_in_both_themes() -> None:
-    assert set(STATUS_COLORS) == set(Status) == set(STATUS_DARK_COLORS) == set(STATUS_CLASSES)
+    assert (
+        set(STATUS_COLORS)
+        == set(Status)
+        == set(STATUS_DARK_COLORS)
+        == set(STATUS_CLASSES)
+    )
     assert len(set(STATUS_COLORS.values())) == len(Status)
     for status, cls in STATUS_CLASSES.items():
         assert f".{cls} {{ --scolor: {STATUS_COLORS[status]}; }}" in STATUS_CSS
-        assert f"body.body--dark .{cls} {{ --scolor: {STATUS_DARK_COLORS[status]}; }}" in STATUS_CSS
+        assert (
+            f"body.body--dark .{cls} {{ --scolor: {STATUS_DARK_COLORS[status]}; }}"
+            in STATUS_CSS
+        )
 
 
 @pytest.mark.parametrize("status", list(Status))
@@ -1994,8 +2271,13 @@ async def test_bars_use_the_status_color_instead_of_the_task_color(
     await user.open("/")
     for marker in ("bar-0-0", "actual-0-0-0"):
         assert STATUS_CLASSES[status] in user.find(marker=marker).elements.pop().classes
-    assert user.find(marker="actual-0-0-0").elements.pop()._style["background"] == STATUS_COLOR_VAR
-    assert "url(x)" not in user.find(marker="bar-0-0").elements.pop()._style["background"]
+    assert (
+        user.find(marker="actual-0-0-0").elements.pop()._style["background"]
+        == STATUS_COLOR_VAR
+    )
+    assert (
+        "url(x)" not in user.find(marker="bar-0-0").elements.pop()._style["background"]
+    )
 
 
 async def test_a_dashed_line_joins_two_intervals(user: User) -> None:
@@ -2008,7 +2290,9 @@ async def test_a_dashed_line_joins_two_intervals(user: User) -> None:
     await user.open("/")
     gap = user.find(marker="actual-gap-0-0-0").elements.pop()
     assert gap._style["left"] == from_name(20.0)  # 前の区間の終了 10/5 12:00 = 0.5日
-    assert gap._style["width"] == "75.0px"  # 次の開始 10/7 9:00 = 2.375日。(2.375 - 0.5) * 40
+    assert (
+        gap._style["width"] == "75.0px"
+    )  # 次の開始 10/7 9:00 = 2.375日。(2.375 - 0.5) * 40
     assert gap._style["top"] == f"{ACTUAL_TOP_PX}px"
     assert gap._style["height"] == f"{ACTUAL_HEIGHT_PX}px"
     assert "repeating-linear-gradient" in gap._style["background"]
@@ -2074,15 +2358,25 @@ async def test_the_line_is_in_the_status_color(user: User) -> None:
 
 
 def test_priority_backgrounds_cover_every_priority_in_both_themes() -> None:
-    assert set(PRIORITY_BACKGROUNDS) == set(Priority) == set(PRIORITY_DARK_BACKGROUNDS) == set(PRIORITY_CLASSES)
+    assert (
+        set(PRIORITY_BACKGROUNDS)
+        == set(Priority)
+        == set(PRIORITY_DARK_BACKGROUNDS)
+        == set(PRIORITY_CLASSES)
+    )
     assert len(set(PRIORITY_BACKGROUNDS.values())) == len(Priority)
     for priority, cls in PRIORITY_CLASSES.items():
         assert f".{cls} {{ --pbg: {PRIORITY_BACKGROUNDS[priority]}; }}" in PRIORITY_CSS
-        assert f"body.body--dark .{cls} {{ --pbg: {PRIORITY_DARK_BACKGROUNDS[priority]}; }}" in PRIORITY_CSS
+        assert (
+            f"body.body--dark .{cls} {{ --pbg: {PRIORITY_DARK_BACKGROUNDS[priority]}; }}"
+            in PRIORITY_CSS
+        )
 
 
 @pytest.mark.parametrize("priority", list(Priority))
-async def test_the_name_cell_has_the_priority_background(user: User, priority: Priority) -> None:
+async def test_the_name_cell_has_the_priority_background(
+    user: User, priority: Priority
+) -> None:
     project = sample_project()
     project.sections[0].tasks[0].priority = priority
     mount(project)
@@ -2090,8 +2384,12 @@ async def test_the_name_cell_has_the_priority_background(user: User, priority: P
     cell = user.find(marker="task-0-0").elements.pop()
     assert PRIORITY_CLASSES[priority] in cell.classes
     assert cell._style["background-color"] == PRIORITY_BACKGROUND_VAR
-    assert "background-color" not in user.find(marker="row-0-0").elements.pop()._style  # 行は変えない
-    assert "background-color" not in user.find(marker="bar-0-0").elements.pop()._style  # 棒は変えない
+    assert (
+        "background-color" not in user.find(marker="row-0-0").elements.pop()._style
+    )  # 行は変えない
+    assert (
+        "background-color" not in user.find(marker="bar-0-0").elements.pop()._style
+    )  # 棒は変えない
 
 
 async def test_the_name_cell_is_one_row_with_the_name_inside(user: User) -> None:
@@ -2102,14 +2400,20 @@ async def test_the_name_cell_is_one_row_with_the_name_inside(user: User) -> None
     assert isinstance(cell, ui.row)
     assert name.parent_slot.parent is cell
     assert name.text == "設計"
-    assert cell.parent_slot.parent is user.find(marker="row-0-0").elements.pop()  # 行の直接の子
+    assert (
+        cell.parent_slot.parent is user.find(marker="row-0-0").elements.pop()
+    )  # 行の直接の子
     assert cell._style["width"] == "var(--name-w)"
     assert "padding-left" in cell._style
-    assert "flex" in name._style and "min-width" in name._style  # チップの分だけ名前が縮む
+    assert (
+        "flex" in name._style and "min-width" in name._style
+    )  # チップの分だけ名前が縮む
     assert "ellipsis" in name.classes
 
 
-async def test_the_overdue_tint_is_laid_over_the_priority_background(user: User) -> None:
+async def test_the_overdue_tint_is_laid_over_the_priority_background(
+    user: User,
+) -> None:
     mount(sample_project(), now=datetime(2026, 10, 8))
     await user.open("/")
     cell = user.find(marker="task-0-0").elements.pop()
@@ -2131,7 +2435,12 @@ def categorized(task: Task, prj_code: str = "PRJ-001", name: str = "開発A") ->
     """タスクにカテゴリを 1 つ付けたプロジェクト。"""
     category = Category(name, prj_code=prj_code)
     task.category_id = category.id
-    return Project("demo", base_date=BASE, sections=[Section("開発", [task])], categories=[category])
+    return Project(
+        "demo",
+        base_date=BASE,
+        sections=[Section("開発", [task])],
+        categories=[category],
+    )
 
 
 def chip(user: User, marker: str):  # noqa: ANN202
@@ -2148,7 +2457,11 @@ def tooltips_targeting(element: ui.element) -> list[str]:
 
 
 def click_listeners(element: ui.element) -> list[object]:
-    return [listener for listener in element._event_listeners.values() if listener.type == "click"]
+    return [
+        listener
+        for listener in element._event_listeners.values()
+        if listener.type == "click"
+    ]
 
 
 async def test_no_chips_for_a_plain_task(user: User) -> None:
@@ -2165,12 +2478,16 @@ async def test_category_chip(user: User) -> None:
     assert code.text == "PRJ-001"
     assert code._style["max-width"] == "56px"
     assert "ellipsis" in code.classes
-    assert "code-chip" in code.classes  # 書き出しの間だけ、省略を切るための印(export.EXPORT_CSS)
+    assert (
+        "code-chip" in code.classes
+    )  # 書き出しの間だけ、省略を切るための印(export.EXPORT_CSS)
     assert tooltips_targeting(code) == ["開発A"]  # ツールチップはカテゴリ名
     assert code.parent_slot.parent is chip(user, "task-0-0")  # 名前の欄の枠の中
 
 
-async def test_category_chip_falls_back_to_the_name_when_there_is_no_prj_code(user: User) -> None:
+async def test_category_chip_falls_back_to_the_name_when_there_is_no_prj_code(
+    user: User,
+) -> None:
     mount(categorized(Task("設計"), "", "開発A"))
     await user.open("/")
     assert chip(user, "task-code-0-0").text == "開発A"
@@ -2179,7 +2496,14 @@ async def test_category_chip_falls_back_to_the_name_when_there_is_no_prj_code(us
 async def test_no_category_chip_for_an_undecided_task(user: User) -> None:
     category = Category("開発A", prj_code="PRJ-001")
     task = Task("設計")  # category_id は None(未定)
-    mount(Project("demo", base_date=BASE, sections=[Section("開発", [task])], categories=[category]))
+    mount(
+        Project(
+            "demo",
+            base_date=BASE,
+            sections=[Section("開発", [task])],
+            categories=[category],
+        )
+    )
     await user.open("/")
     await user.should_not_see(marker="task-code-0-0")
 
@@ -2190,13 +2514,17 @@ async def test_no_category_chip_when_the_category_no_longer_exists(user: User) -
     await user.should_not_see(marker="task-code-0-0")
 
 
-async def test_chip_follows_a_category_rename_after_the_project_is_set_again(user: User) -> None:
+async def test_chip_follows_a_category_rename_after_the_project_is_set_again(
+    user: User,
+) -> None:
     project = categorized(Task("設計"), "", "開発A")
     charts: list[GanttChart] = []
 
     @ui.page("/")
     def index() -> None:
-        chart = GanttChart(project, {}, Recorder().actions, now=lambda: datetime(2026, 10, 1))
+        chart = GanttChart(
+            project, {}, Recorder().actions, now=lambda: datetime(2026, 10, 1)
+        )
         chart.build()
         charts.append(chart)
 
@@ -2206,7 +2534,9 @@ async def test_chip_follows_a_category_rename_after_the_project_is_set_again(use
     await user.should_see("開発B")
 
 
-async def test_assignee_chip_shows_the_first_character_and_the_name_on_hover(user: User) -> None:
+async def test_assignee_chip_shows_the_first_character_and_the_name_on_hover(
+    user: User,
+) -> None:
     mount(project_with(Task("設計", assignees=[Assignee("山田太郎")])))
     await user.open("/")
     who = chip(user, "task-assignee-0-0")
@@ -2216,7 +2546,9 @@ async def test_assignee_chip_shows_the_first_character_and_the_name_on_hover(use
     assert who.parent_slot.parent is chip(user, "task-0-0")
 
 
-async def test_assignee_chip_shows_the_member_icon_and_keeps_the_hover(user: User, icon: str) -> None:
+async def test_assignee_chip_shows_the_member_icon_and_keeps_the_hover(
+    user: User, icon: str
+) -> None:
     project = project_with(Task("設計", assignees=[Assignee("山田太郎", 0.5)]))
     project.members = [Member("山田太郎", 1.0, icon=icon)]
     mount(project)
@@ -2226,7 +2558,9 @@ async def test_assignee_chip_shows_the_member_icon_and_keeps_the_hover(user: Use
     assert tooltips_targeting(who) == ["山田太郎 50%"]
 
 
-async def test_assignee_chip_without_an_icon_keeps_the_first_character_for_other_members(user: User, icon: str) -> None:
+async def test_assignee_chip_without_an_icon_keeps_the_first_character_for_other_members(
+    user: User, icon: str
+) -> None:
     project = project_with(Task("設計", assignees=[Assignee("山田"), Assignee("佐藤")]))
     project.members = [Member("山田", 1.0, icon=icon), Member("佐藤", 1.0)]
     mount(project)
@@ -2259,7 +2593,11 @@ async def test_the_read_only_chart_shows_the_member_icon(user: User, icon: str) 
 
 
 async def test_several_assignees_get_one_chip_each(user: User) -> None:
-    mount(project_with(Task("設計", assignees=[Assignee("山田", 1.0), Assignee("鈴木", 0.5)])))
+    mount(
+        project_with(
+            Task("設計", assignees=[Assignee("山田", 1.0), Assignee("鈴木", 0.5)])
+        )
+    )
     await user.open("/")
     first, second = chip(user, "task-assignee-0-0"), chip(user, "task-assignee-0-0-1")
     assert (first.text, second.text) == ("山", "鈴")
@@ -2267,7 +2605,9 @@ async def test_several_assignees_get_one_chip_each(user: User) -> None:
     assert tooltips_targeting(second) == ["鈴木 50%"]
 
 
-async def test_more_than_three_assignees_are_summarized_in_a_plus_chip(user: User) -> None:
+async def test_more_than_three_assignees_are_summarized_in_a_plus_chip(
+    user: User,
+) -> None:
     names = ["山田", "鈴木", "佐藤", "高橋", "伊藤"]
     mount(project_with(Task("設計", assignees=[Assignee(n, 0.5) for n in names])))
     await user.open("/")
@@ -2279,7 +2619,11 @@ async def test_more_than_three_assignees_are_summarized_in_a_plus_chip(user: Use
 
 
 async def test_exactly_three_assignees_have_no_plus_chip(user: User) -> None:
-    mount(project_with(Task("設計", assignees=[Assignee(n) for n in ("山田", "鈴木", "佐藤")])))
+    mount(
+        project_with(
+            Task("設計", assignees=[Assignee(n) for n in ("山田", "鈴木", "佐藤")])
+        )
+    )
     await user.open("/")
     await user.should_see(marker="task-assignee-0-0-2")
     await user.should_not_see(marker="task-assignee-more-0-0")
@@ -2294,7 +2638,9 @@ async def test_a_task_without_assignees_has_no_chip(user: User) -> None:
 async def test_an_assignee_who_is_not_a_member_and_an_emoji_name_do_not_break_the_chart(
     user: User,
 ) -> None:
-    mount(project_with(Task("設計", assignees=[Assignee("👨‍👩‍👧 家族")])))  # メンバーにいない・複数のコードポイント
+    mount(
+        project_with(Task("設計", assignees=[Assignee("👨‍👩‍👧 家族")]))
+    )  # メンバーにいない・複数のコードポイント
     await user.open("/")
     assert chip(user, "task-assignee-0-0").text == "👨"
 
@@ -2333,16 +2679,26 @@ async def test_a_zero_progress_is_shown(user: User) -> None:
 
 
 async def test_the_strike_through_covers_the_name_only(user: User) -> None:
-    mount(categorized(Task("設計", status=Status.DONE, assignees=[Assignee("山")]), "P"))
+    mount(
+        categorized(Task("設計", status=Status.DONE, assignees=[Assignee("山")]), "P")
+    )
     await user.open("/")
     assert chip(user, "task-name-0-0")._style["text-decoration"] == "line-through"
-    for marker in ("task-0-0", "task-code-0-0", "task-assignee-0-0", "task-progress-0-0"):
+    for marker in (
+        "task-0-0",
+        "task-code-0-0",
+        "task-assignee-0-0",
+        "task-progress-0-0",
+    ):
         assert "text-decoration" not in chip(user, marker)._style
 
 
 async def test_the_chips_do_not_shrink_and_the_name_does(user: User) -> None:
     mount(
-        categorized(Task("とても長いタスクの名前" * 3, assignees=[Assignee("山")]), "PRJ-LONG-CODE-0001")
+        categorized(
+            Task("とても長いタスクの名前" * 3, assignees=[Assignee("山")]),
+            "PRJ-LONG-CODE-0001",
+        )
     )
     await user.open("/")
     for marker in ("task-code-0-0", "task-assignee-0-0"):
@@ -2354,10 +2710,17 @@ async def test_the_chips_do_not_shrink_and_the_name_does(user: User) -> None:
 async def test_the_name_cell_and_its_chips_have_no_click_handler(user: User) -> None:
     # 左クリックでは何もしない(編集は右クリックのメニュー)。
     recorder = mount(
-        categorized(Task("設計", assignees=[Assignee("山")], status=Status.DONE), "PRJ-1")
+        categorized(
+            Task("設計", assignees=[Assignee("山")], status=Status.DONE), "PRJ-1"
+        )
     )
     await user.open("/")
-    for marker in ("task-name-0-0", "task-code-0-0", "task-assignee-0-0", "task-progress-0-0"):
+    for marker in (
+        "task-name-0-0",
+        "task-code-0-0",
+        "task-assignee-0-0",
+        "task-progress-0-0",
+    ):
         assert click_listeners(chip(user, marker)) == []
     # 名前の欄のクリックは、Cmd/Ctrl・Shift つきのときだけ一括操作の選択になる(修飾なしは何も起きない)
     assert len(click_listeners(chip(user, "task-0-0"))) == 1
@@ -2365,7 +2728,9 @@ async def test_the_name_cell_and_its_chips_have_no_click_handler(user: User) -> 
     assert recorder.events == []
 
 
-def mount_with(project: Project, options: ViewOptions, now: datetime = datetime(2026, 10, 1)) -> None:
+def mount_with(
+    project: Project, options: ViewOptions, now: datetime = datetime(2026, 10, 1)
+) -> None:
     @ui.page("/")
     def index() -> None:
         chart = GanttChart(project, {}, Recorder().actions, now=lambda: now)
@@ -2375,22 +2740,40 @@ def mount_with(project: Project, options: ViewOptions, now: datetime = datetime(
 
 def test_view_options_defaults_mean_today_s_chart() -> None:
     options = ViewOptions()
-    assert (options.period, options.scale, options.show_chips, options.show_alerts, options.read_only) == (
-        None, None, True, True, False,
+    assert (
+        options.period,
+        options.scale,
+        options.show_chips,
+        options.show_alerts,
+        options.read_only,
+    ) == (
+        None,
+        None,
+        True,
+        True,
+        False,
     )
 
 
-async def test_period_sets_the_first_column_and_clips_bars_at_the_edge(user: User) -> None:
-    mount_with(sample_project(), ViewOptions(period=(date(2026, 10, 6), date(2026, 10, 8))))
+async def test_period_sets_the_first_column_and_clips_bars_at_the_edge(
+    user: User,
+) -> None:
+    mount_with(
+        sample_project(), ViewOptions(period=(date(2026, 10, 6), date(2026, 10, 8)))
+    )
     await user.open("/")
     await should_see_column(user, "2026-10-06")
     await should_not_see_column(user, "2026-10-05")
-    bar = user.find(marker="bar-0-0").elements.pop()  # 10/5 12:00 → 10/7 12:00。左は端で切る
+    bar = user.find(
+        marker="bar-0-0"
+    ).elements.pop()  # 10/5 12:00 → 10/7 12:00。左は端で切る
     assert bar._style["left"] == from_name(0.0)
     assert bar._style["width"] == "60.0px"  # 10/6 0:00 から 10/7 12:00 = 1.5 日 * 40
 
 
-async def test_bars_outside_the_period_are_not_drawn_but_the_rows_stay(user: User) -> None:
+async def test_bars_outside_the_period_are_not_drawn_but_the_rows_stay(
+    user: User,
+) -> None:
     outside = Task(
         "範囲外",
         planned_start=datetime(2026, 9, 20),
@@ -2405,7 +2788,14 @@ async def test_bars_outside_the_period_are_not_drawn_but_the_rows_stay(user: Use
     mount_with(project, ViewOptions(period=(date(2026, 10, 6), date(2026, 10, 8))))
     await user.open("/")
     await user.should_see(marker="task-0-0")  # 行は残る
-    for marker in ("bar-0-0", "actual-0-0-0", "actual-0-0-1", "actual-gap-0-0-0", "deadline-0-0", "progress-state-0-0"):
+    for marker in (
+        "bar-0-0",
+        "actual-0-0-0",
+        "actual-0-0-1",
+        "actual-gap-0-0-0",
+        "deadline-0-0",
+        "progress-state-0-0",
+    ):
         await user.should_not_see(marker=marker)
 
 
@@ -2429,14 +2819,20 @@ async def test_actual_bars_and_gap_lines_inside_the_period_are_kept(user: User) 
 async def test_preview_scale_is_separate_from_the_toolbar_scale(user: User) -> None:
     mount_with(sample_project(), ViewOptions(scale=Scale.WEEK))
     await user.open("/")
-    assert user.find(kind=ui.toggle).elements.pop().value == Scale.DAY  # ツールバーは変わらない
+    assert (
+        user.find(kind=ui.toggle).elements.pop().value == Scale.DAY
+    )  # ツールバーは変わらない
     bar = user.find(marker="bar-0-0").elements.pop()
-    assert bar._style["width"] != "80.0px"  # 週次の幅で描かれる(日次なら 2.0 日 * 40 = 80px)
+    assert (
+        bar._style["width"] != "80.0px"
+    )  # 週次の幅で描かれる(日次なら 2.0 日 * 40 = 80px)
     await user.should_not_see(marker="stripes")  # 土日の背景は日次だけ
 
 
 async def test_show_chips_false_hides_the_chips_and_progress(user: User) -> None:
-    project = categorized(Task("設計", assignees=[Assignee("山")], status=Status.DONE), "PRJ-1")
+    project = categorized(
+        Task("設計", assignees=[Assignee("山")], status=Status.DONE), "PRJ-1"
+    )
     mount_with(project, ViewOptions(show_chips=False))
     await user.open("/")
     await user.should_see(marker="task-name-0-0")
@@ -2445,7 +2841,9 @@ async def test_show_chips_false_hides_the_chips_and_progress(user: User) -> None
 
 
 async def test_show_alerts_false_hides_the_overdue_tint(user: User) -> None:
-    mount_with(sample_project(), ViewOptions(show_alerts=False), now=datetime(2026, 10, 8))
+    mount_with(
+        sample_project(), ViewOptions(show_alerts=False), now=datetime(2026, 10, 8)
+    )
     await user.open("/")
     cell = user.find(marker="task-0-0").elements.pop()
     assert "background-image" not in cell._style
@@ -2470,7 +2868,9 @@ async def test_set_options_rerenders_and_the_view_scale_follows(user: User) -> N
 
     @ui.page("/")
     def index() -> None:
-        chart = GanttChart(sample_project(), {}, Recorder().actions, now=lambda: datetime(2026, 10, 1))
+        chart = GanttChart(
+            sample_project(), {}, Recorder().actions, now=lambda: datetime(2026, 10, 1)
+        )
         charts.append(chart)
         chart.build()
 
@@ -2489,18 +2889,28 @@ async def test_set_options_rerenders_and_the_view_scale_follows(user: User) -> N
 async def test_read_only_removes_the_edit_parts(user: User) -> None:
     mount_with(sample_project(), ViewOptions(read_only=True))
     await user.open("/")
-    for marker in ("add-task-top", "add-task-0", "top-end", "add-section", "bottom-end"):
+    for marker in (
+        "add-task-top",
+        "add-task-0",
+        "top-end",
+        "add-section",
+        "bottom-end",
+    ):
         await user.should_not_see(marker=marker)
     await user.should_see(marker="section-name-0")  # セクションの見出しは残る
     await user.should_see(marker="task-0-0")
 
 
-async def test_read_only_hides_the_toolbar_and_set_options_restores_it(user: User) -> None:
+async def test_read_only_hides_the_toolbar_and_set_options_restores_it(
+    user: User,
+) -> None:
     charts: list[GanttChart] = []
 
     @ui.page("/")
     def index() -> None:
-        chart = GanttChart(sample_project(), {}, Recorder().actions, now=lambda: datetime(2026, 10, 1))
+        chart = GanttChart(
+            sample_project(), {}, Recorder().actions, now=lambda: datetime(2026, 10, 1)
+        )
         charts.append(chart)
         chart.build()
 
@@ -2513,7 +2923,9 @@ async def test_read_only_hides_the_toolbar_and_set_options_restores_it(user: Use
     assert chart.toolbar.visible
 
 
-async def test_read_only_has_no_click_handlers_and_no_drag_attributes(user: User) -> None:
+async def test_read_only_has_no_click_handlers_and_no_drag_attributes(
+    user: User,
+) -> None:
     task = Task(
         "設計",
         planned_start=datetime(2026, 10, 5, 12),
@@ -2527,7 +2939,13 @@ async def test_read_only_has_no_click_handlers_and_no_drag_attributes(user: User
     project = Project("demo", base_date=BASE, sections=[Section("開発", [task])])
     mount_with(project, ViewOptions(read_only=True))
     await user.open("/")
-    for marker in ("task-0-0", "bar-0-0", "actual-0-0-0", "actual-gap-0-0-0", "deadline-0-0"):
+    for marker in (
+        "task-0-0",
+        "bar-0-0",
+        "actual-0-0-0",
+        "actual-gap-0-0-0",
+        "deadline-0-0",
+    ):
         assert click_listeners(user.find(marker=marker).elements.pop()) == [], marker
     cell = user.find(marker="task-0-0").elements.pop()
     assert "draggable" not in cell.props and "data-drag-handle" not in cell.props
@@ -2542,20 +2960,28 @@ async def test_content_width_and_the_content_attribute(user: User) -> None:
 
     @ui.page("/")
     def index() -> None:
-        chart = GanttChart(sample_project(), {}, Recorder().actions, now=lambda: datetime(2026, 10, 1))
+        chart = GanttChart(
+            sample_project(), {}, Recorder().actions, now=lambda: datetime(2026, 10, 1)
+        )
         charts.append(chart)
         chart.build()
 
     await user.open("/")
     chart = charts[0]
     columns = build_columns(chart.project, Scale.DAY, {})
-    assert chart.content_width() == DEFAULT_NAME_WIDTH_PX + COLUMN_WIDTH_PX[Scale.DAY] * len(columns)
+    assert chart.content_width() == DEFAULT_NAME_WIDTH_PX + COLUMN_WIDTH_PX[
+        Scale.DAY
+    ] * len(columns)
     content = user.find(marker="chart-content").elements.pop()
     assert "data-chart-content" in content.props
-    assert content._style["width"] == from_name(COLUMN_WIDTH_PX[Scale.DAY] * len(columns))
+    assert content._style["width"] == from_name(
+        COLUMN_WIDTH_PX[Scale.DAY] * len(columns)
+    )
     chart.set_options(ViewOptions(scale=Scale.WEEK))
     weeks = build_columns(chart.project, Scale.WEEK, {})
-    assert chart.content_width() == DEFAULT_NAME_WIDTH_PX + COLUMN_WIDTH_PX[Scale.WEEK] * len(weeks)
+    assert chart.content_width() == DEFAULT_NAME_WIDTH_PX + COLUMN_WIDTH_PX[
+        Scale.WEEK
+    ] * len(weeks)
 
 
 def long_running_task(progress: int) -> Task:
@@ -2571,7 +2997,9 @@ def long_running_task(progress: int) -> Task:
     )
 
 
-async def test_a_state_mark_beyond_the_right_edge_of_the_period_is_not_drawn(user: User) -> None:
+async def test_a_state_mark_beyond_the_right_edge_of_the_period_is_not_drawn(
+    user: User,
+) -> None:
     mount_with(
         project_with(long_running_task(0)),
         ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 10))),
@@ -2583,12 +3011,16 @@ async def test_a_state_mark_beyond_the_right_edge_of_the_period_is_not_drawn(use
 
 
 async def test_the_state_mark_is_still_drawn_without_a_period(user: User) -> None:
-    mount_with(project_with(long_running_task(0)), ViewOptions(), now=datetime(2026, 10, 20))
+    mount_with(
+        project_with(long_running_task(0)), ViewOptions(), now=datetime(2026, 10, 20)
+    )
     await user.open("/")
     await user.should_see(marker="progress-state-0-0")
 
 
-async def test_a_state_mark_does_not_follow_an_actual_bar_outside_the_period(user: User) -> None:
+async def test_a_state_mark_does_not_follow_an_actual_bar_outside_the_period(
+    user: User,
+) -> None:
     task = Task(
         "設計",
         planned_start=datetime(2026, 10, 5),
@@ -2597,11 +3029,17 @@ async def test_a_state_mark_does_not_follow_an_actual_bar_outside_the_period(use
         status=Status.RUNNING,
         actuals=[
             Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
-            Actual(datetime(2027, 6, 1, 9), datetime(2027, 6, 1, 12)),  # 期間よりずっと後ろ
+            Actual(
+                datetime(2027, 6, 1, 9), datetime(2027, 6, 1, 12)
+            ),  # 期間よりずっと後ろ
         ],
         progress=0,
     )
-    mount_with(project_with(task), ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 20))), now=datetime(2026, 10, 12))
+    mount_with(
+        project_with(task),
+        ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 20))),
+        now=datetime(2026, 10, 12),
+    )
     await user.open("/")
     mark = user.find(marker="progress-state-0-0").elements.pop()
     assert offset(mark._style["left"]) < 42 * 40  # 描画の幅(42 日)の内側
@@ -2619,7 +3057,9 @@ def clipped_task(progress: int, start: datetime, end: datetime) -> Task:
     )
 
 
-async def test_the_progress_fill_of_a_bar_clipped_at_the_left_edge_reflects_the_hidden_part(user: User) -> None:
+async def test_the_progress_fill_of_a_bar_clipped_at_the_left_edge_reflects_the_hidden_part(
+    user: User,
+) -> None:
     # 10/1〜10/11 の 10 日で進捗 50% = 10/6 まで塗る。期間は 10/6 から = 見えている部分(5日)に、塗りはない
     mount_with(
         project_with(clipped_task(50, datetime(2026, 10, 1), datetime(2026, 10, 11))),
@@ -2646,15 +3086,21 @@ async def test_the_progress_fill_of_a_bar_clipped_at_the_right_edge_covers_all_w
     user: User,
 ) -> None:
     mount_with(
-        project_with(long_running_task(50)),  # 10/5〜1/31 の 50% = 12/7 まで。右端は 11/11
+        project_with(
+            long_running_task(50)
+        ),  # 10/5〜1/31 の 50% = 12/7 まで。右端は 11/11
         ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 10))),
         now=datetime(2026, 10, 20),
     )
     await user.open("/")
-    assert user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "100%"
+    assert (
+        user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "100%"
+    )
 
 
-async def test_the_progress_fill_without_a_period_is_the_plain_percentage(user: User) -> None:
+async def test_the_progress_fill_without_a_period_is_the_plain_percentage(
+    user: User,
+) -> None:
     mount_with(
         project_with(clipped_task(40, datetime(2026, 10, 5), datetime(2026, 10, 15))),
         ViewOptions(),
@@ -2664,7 +3110,9 @@ async def test_the_progress_fill_without_a_period_is_the_plain_percentage(user: 
     assert user.find(marker="progress-fill-0-0").elements.pop()._style["width"] == "40%"
 
 
-async def test_the_progress_fill_of_an_unclipped_bar_in_a_period_is_the_plain_percentage(user: User) -> None:
+async def test_the_progress_fill_of_an_unclipped_bar_in_a_period_is_the_plain_percentage(
+    user: User,
+) -> None:
     mount_with(
         project_with(clipped_task(40, datetime(2026, 10, 5), datetime(2026, 10, 15))),
         ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 31))),
@@ -2692,7 +3140,9 @@ def test_the_chart_defaults_to_the_default_name_width() -> None:
     assert chart.name_width == DEFAULT_NAME_WIDTH_PX == 200
 
 
-async def test_the_content_carries_the_name_width_variable_and_its_range(user: User) -> None:
+async def test_the_content_carries_the_name_width_variable_and_its_range(
+    user: User,
+) -> None:
     mount(sample_project())
     await user.open("/")
     content = user.find(marker="chart-content").elements.pop()
@@ -2726,10 +3176,14 @@ async def test_the_variable_follows_the_chart_name_width(user: User) -> None:
     await wait_until(lambda: name_variable(user) == "300px")
 
 
-def mount_with_width(project: Project, name_width: int, now: datetime = datetime(2026, 10, 1)) -> None:
+def mount_with_width(
+    project: Project, name_width: int, now: datetime = datetime(2026, 10, 1)
+) -> None:
     @ui.page("/")
     def index() -> None:
-        GanttChart(project, {}, Recorder().actions, now=lambda: now, name_width=name_width).build()
+        GanttChart(
+            project, {}, Recorder().actions, now=lambda: now, name_width=name_width
+        ).build()
 
 
 async def test_positions_do_not_depend_on_the_name_width(user: User) -> None:
@@ -2738,22 +3192,35 @@ async def test_positions_do_not_depend_on_the_name_width(user: User) -> None:
     project.sections[0].tasks[0].deadline = datetime(2026, 10, 8, 12)
     mount_with_width(project, 300)
     await user.open("/")
-    assert user.find(marker="chart-content").elements.pop()._style["--name-w"] == "300px"
+    assert (
+        user.find(marker="chart-content").elements.pop()._style["--name-w"] == "300px"
+    )
     bar = user.find(marker="bar-0-0").elements.pop()
     assert bar._style["left"] == from_name(20.0)
     marker = user.find(marker="deadline-0-0").elements.pop()
     assert marker._style["left"] == from_name(3.5 * 40 - DEADLINE_MARKER_HALF_PX)
 
 
-async def test_the_name_columns_and_the_chart_edges_use_the_variable(user: User) -> None:
+async def test_the_name_columns_and_the_chart_edges_use_the_variable(
+    user: User,
+) -> None:
     mount(sample_project())
     await user.open("/")
-    assert user.find(marker="task-0-0").elements.pop()._style["width"] == "var(--name-w)"
-    assert user.find(marker="section-name-0").elements.pop()._style["width"] == "var(--name-w)"
+    assert (
+        user.find(marker="task-0-0").elements.pop()._style["width"] == "var(--name-w)"
+    )
+    assert (
+        user.find(marker="section-name-0").elements.pop()._style["width"]
+        == "var(--name-w)"
+    )
     for marker in ("label-row-spacer", "month-band-spacer", "year-band-spacer"):
-        assert user.find(marker=marker).elements.pop()._style["width"] == "var(--name-w)", marker
+        assert (
+            user.find(marker=marker).elements.pop()._style["width"] == "var(--name-w)"
+        ), marker
     for marker in ("gridlines", "stripes"):
-        assert user.find(marker=marker).elements.pop()._style["left"] == "var(--name-w)", marker
+        assert (
+            user.find(marker=marker).elements.pop()._style["left"] == "var(--name-w)"
+        ), marker
 
 
 async def test_the_content_width_is_the_name_width_plus_the_columns(user: User) -> None:
@@ -2761,15 +3228,23 @@ async def test_the_content_width_is_the_name_width_plus_the_columns(user: User) 
     await user.open("/")
     columns = build_columns(charts[0].project, Scale.DAY, {})
     content = user.find(marker="chart-content").elements.pop()
-    assert content._style["width"] == from_name(COLUMN_WIDTH_PX[Scale.DAY] * len(columns))
+    assert content._style["width"] == from_name(
+        COLUMN_WIDTH_PX[Scale.DAY] * len(columns)
+    )
     charts[0].name_width = 300
     assert charts[0].content_width() == 300 + COLUMN_WIDTH_PX[Scale.DAY] * len(columns)
 
 
 @pytest.mark.parametrize("name_width", [120, 480])
-async def test_the_late_done_mark_position_does_not_depend_on_the_name_width(user: User, name_width: int) -> None:
+async def test_the_late_done_mark_position_does_not_depend_on_the_name_width(
+    user: User, name_width: int
+) -> None:
     # 印の位置は、境界からの距離。幅によらない
-    mount_with_width(finished_project(datetime(2026, 10, 8, 12)), name_width, now=datetime(2026, 10, 20))
+    mount_with_width(
+        finished_project(datetime(2026, 10, 8, 12)),
+        name_width,
+        now=datetime(2026, 10, 20),
+    )
     await user.open("/")
     mark = user.find(marker="progress-state-0-0").elements.pop()
     assert mark._style["left"] == from_name(144.0)  # 実績の棒の右端 140 + 4
@@ -2794,7 +3269,9 @@ async def test_the_period_edge_check_for_the_state_mark_does_not_depend_on_the_n
 
     await user.open("/")
     await user.should_see(marker="bar-0-0")
-    await user.should_not_see(marker="progress-state-0-0")  # 既存の、幅 200px での結果と同じ
+    await user.should_not_see(
+        marker="progress-state-0-0"
+    )  # 既存の、幅 200px での結果と同じ
 
 
 async def test_handle_name_width_updates_the_width_and_reports_it(user: User) -> None:
@@ -2816,7 +3293,17 @@ async def test_handle_name_width_clamps_out_of_range_values(user: User) -> None:
 
 @pytest.mark.parametrize(
     "args",
-    [None, 300, "300", [300], {}, {"width": None}, {"width": "300"}, {"width": True}, {"width": float("nan")}],
+    [
+        None,
+        300,
+        "300",
+        [300],
+        {},
+        {"width": None},
+        {"width": "300"},
+        {"width": True},
+        {"width": float("nan")},
+    ],
 )
 async def test_handle_name_width_ignores_bad_events(user: User, args: object) -> None:
     charts, recorder = mount_chart(sample_project())
@@ -2832,7 +3319,9 @@ async def test_handle_name_width_does_not_redraw(user: User) -> None:
     before = user.find(marker="chart-content").elements.pop()
     charts[0].handle_name_width({"width": 300})
     await asyncio.sleep(0.05)
-    assert user.find(marker="chart-content").elements.pop() is before  # 描き直されていない
+    assert (
+        user.find(marker="chart-content").elements.pop() is before
+    )  # 描き直されていない
 
 
 async def test_the_saved_width_survives_a_redraw(user: User) -> None:
@@ -2875,7 +3364,9 @@ async def test_the_read_only_chart_has_no_resize_handle(user: User) -> None:
         assert RESIZABLE not in user.find(marker=marker).elements.pop().classes, marker
 
 
-async def test_set_visible_hides_and_shows_the_toolbar_and_the_chart_box(user: User) -> None:
+async def test_set_visible_hides_and_shows_the_toolbar_and_the_chart_box(
+    user: User,
+) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
     chart = charts[0]
@@ -2883,19 +3374,25 @@ async def test_set_visible_hides_and_shows_the_toolbar_and_the_chart_box(user: U
     sent = record_javascript(chart)
     chart.set_visible(False)
     assert not chart.toolbar.visible and not chart.scroll_box.visible
-    assert sent == []  # 位置は、スクロールのたびに覚えているので、隠すときは何も送らない
+    assert (
+        sent == []
+    )  # 位置は、スクロールのたびに覚えているので、隠すときは何も送らない
     chart.set_visible(True)
     assert chart.toolbar.visible and chart.scroll_box.visible
     assert sent == [SHOW_CHART_JS]  # 出したあとに、位置を戻す
 
 
-async def test_the_scroll_box_remembers_its_position_on_every_scroll(user: User) -> None:
+async def test_the_scroll_box_remembers_its_position_on_every_scroll(
+    user: User,
+) -> None:
     # 要素の更新(隠す)は、run_javascript より先にブラウザへ届くので、隠す直前には読めない
     charts, _ = mount_chart(filter_project())
     await user.open("/")
     assert charts[0].scroll_box is not None
     listeners = charts[0].scroll_box._event_listeners.values()
-    assert any(l.type == "scroll" and l.js_handler == TRACK_SCROLL_JS for l in listeners)
+    assert any(
+        ev.type == "scroll" and ev.js_handler == TRACK_SCROLL_JS for ev in listeners
+    )
 
 
 async def test_set_visible_does_not_redraw_the_chart(user: User) -> None:
@@ -2920,13 +3417,17 @@ async def test_set_visible_keeps_the_toolbar_hidden_when_read_only(user: User) -
 
 def test_the_scroll_position_is_remembered_while_visible_and_restored() -> None:
     assert "scrollTop" in TRACK_SCROLL_JS and "scrollLeft" in TRACK_SCROLL_JS
-    assert "offsetHeight > 0" in TRACK_SCROLL_JS  # 隠れていて 0 を返すときは、上書きしない
+    assert (
+        "offsetHeight > 0" in TRACK_SCROLL_JS
+    )  # 隠れていて 0 を返すときは、上書きしない
     assert "[data-chart-scroll]" in SHOW_CHART_JS
     assert "scrollTo" in SHOW_CHART_JS and "requestAnimationFrame" in SHOW_CHART_JS
 
 
 async def test_a_pushed_task_is_drawn_from_its_effective_start(user: User) -> None:
-    a = Task("先行", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=13)
+    a = Task(
+        "先行", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=13
+    )
     b = Task(
         "後続",
         id="bbbbbbbb",
@@ -2943,7 +3444,9 @@ async def test_a_pushed_task_is_drawn_from_its_effective_start(user: User) -> No
 
 
 def linked_project() -> Project:
-    a = Task("先行", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5)
+    a = Task(
+        "先行", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5
+    )
     b = Task(
         "後続",
         id="bbbbbbbb",
@@ -2995,7 +3498,9 @@ async def test_the_arrow_connects_the_bars(user: User) -> None:
     day = COLUMN_WIDTH_PX[Scale.DAY]
     pred_right = 15.5 / 24 * day  # 月 15:30(基準日の月曜が 0 列目)
     succ_left = (2 + 9 / 24) * day  # 水 9:00
-    first = ADD_ROW_HEIGHT_PX + ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2  # 行の上端から: 追加行・見出しの次
+    first = (
+        ADD_ROW_HEIGHT_PX + ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2
+    )  # 行の上端から: 追加行・見出しの次
     second = first + ROW_HEIGHT_PX
     found = re.search(r'<path data-link="aaaaaaaa-bbbbbbbb" d="([^"]+)"', content)
     assert found is not None
@@ -3018,14 +3523,18 @@ async def test_collapsing_the_section_updates_only_the_arrows(user: User) -> Non
     before = user.find(marker="links").elements.pop()
     charts[0].toggle_section((0,))
     assert link_paths(user) == []
-    assert user.find(marker="links").elements.pop() is before  # 同じ要素の内容だけ変わる
+    assert (
+        user.find(marker="links").elements.pop() is before
+    )  # 同じ要素の内容だけ変わる
     charts[0].toggle_section((0,))
     assert link_paths(user) == ["aaaaaaaa-bbbbbbbb"]
 
 
 async def test_an_arrow_is_hidden_when_a_bar_is_outside_the_period(user: User) -> None:
     project = linked_project()
-    project.sections[0].tasks[1].planned_start = datetime(2026, 12, 1, 9)  # 最小列数(42 日)の外
+    project.sections[0].tasks[1].planned_start = datetime(
+        2026, 12, 1, 9
+    )  # 最小列数(42 日)の外
     charts, _ = mount_chart(project)
     await user.open("/")
     charts[0].set_options(
@@ -3034,7 +3543,9 @@ async def test_an_arrow_is_hidden_when_a_bar_is_outside_the_period(user: User) -
     await links_become(user, [])  # 後続の棒が期間外
 
 
-async def test_the_arrows_are_drawn_in_every_scale_and_in_the_preview(user: User) -> None:
+async def test_the_arrows_are_drawn_in_every_scale_and_in_the_preview(
+    user: User,
+) -> None:
     charts, _ = mount_chart(linked_project())
     await user.open("/")
     for scale in (Scale.WEEK, Scale.MONTH, Scale.DAY):
@@ -3057,7 +3568,9 @@ async def test_the_arrows_are_anchored_where_the_rows_start(user: User) -> None:
     assert links._style["top"] == "0"
 
 
-async def test_the_arrow_svg_uses_theme_variables_and_ignores_the_pointer(user: User) -> None:
+async def test_the_arrow_svg_uses_theme_variables_and_ignores_the_pointer(
+    user: User,
+) -> None:
     mount(linked_project())
     await user.open("/")
     element = user.find(marker="links").elements.pop()
@@ -3075,7 +3588,9 @@ async def test_the_slots_match_the_rendered_rows(user: User) -> None:
         marker = (
             f"row-{section_key(slot.path)}-{slot.ti}"
             if slot.kind == "task"
-            else {"top-add": "top-end", "section": f"section-{section_key(slot.path)}"}[slot.kind]
+            else {"top-add": "top-end", "section": f"section-{section_key(slot.path)}"}[
+                slot.kind
+            ]
         )
         if slot.shown:
             await user.should_see(marker=marker)
@@ -3091,7 +3606,9 @@ def checkpoint_project(**fields: object) -> Project:
         deadline=datetime(2026, 10, 7, 12, 0),
         **fields,  # type: ignore[arg-type]
     )
-    normal = Task("通常", id="nnnnnnnn", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5)
+    normal = Task(
+        "通常", id="nnnnnnnn", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5
+    )
     return Project("demo", base_date=BASE, sections=[Section("開発", [cp, normal])])
 
 
@@ -3100,7 +3617,9 @@ async def test_a_checkpoint_is_a_diamond_without_a_bar(user: User) -> None:
     await user.open("/")
     marker = user.find(marker="checkpoint-0-0").elements.pop()
     day = COLUMN_WIDTH_PX[Scale.DAY]
-    assert marker._style["left"] == from_name(2.5 * day - CHECKPOINT_MARKER_PX / 2)  # 10/7 12:00
+    assert marker._style["left"] == from_name(
+        2.5 * day - CHECKPOINT_MARKER_PX / 2
+    )  # 10/7 12:00
     assert marker._style["color"] == STATUS_COLOR_VAR
     assert marker._style["font-size"] == f"{CHECKPOINT_MARKER_PX}px"
     assert "status-not-started" in marker.classes
@@ -3110,26 +3629,41 @@ async def test_a_checkpoint_is_a_diamond_without_a_bar(user: User) -> None:
     user.find(marker="bar-0-1")  # 通常タスクは、これまでどおり
 
 
-async def test_a_finished_checkpoint_is_grey_and_struck_through_without_chips(user: User) -> None:
+async def test_a_finished_checkpoint_is_grey_and_struck_through_without_chips(
+    user: User,
+) -> None:
     mount(checkpoint_project(status=Status.DONE))
     await user.open("/")
     assert "status-done" in user.find(marker="checkpoint-0-0").elements.pop().classes
-    assert user.find(marker="task-name-0-0").elements.pop()._style["text-decoration"] == "line-through"
-    await user.should_not_see(marker="task-progress-0-0")  # 進捗度はないので、100% のチップも出さない
+    assert (
+        user.find(marker="task-name-0-0").elements.pop()._style["text-decoration"]
+        == "line-through"
+    )
+    await user.should_not_see(
+        marker="task-progress-0-0"
+    )  # 進捗度はないので、100% のチップも出さない
 
 
 async def test_a_checkpoint_row_is_red_after_its_deadline(user: User) -> None:
     mount(checkpoint_project(), now=datetime(2026, 10, 8))
     await user.open("/")
-    assert user.find(marker="row-0-0").elements.pop()._style["background"] == OVERDUE_COLOR
+    assert (
+        user.find(marker="row-0-0").elements.pop()._style["background"] == OVERDUE_COLOR
+    )
 
 
-async def test_a_checkpoint_row_is_red_when_its_predecessors_will_miss_it(user: User) -> None:
+async def test_a_checkpoint_row_is_red_when_its_predecessors_will_miss_it(
+    user: User,
+) -> None:
     project = checkpoint_project(predecessors=["nnnnnnnn"])
-    project.sections[0].tasks[1].effort_hours = 26  # 木曜 15:30 まで。締切(水曜 12:00)に間に合わない
+    project.sections[0].tasks[
+        1
+    ].effort_hours = 26  # 木曜 15:30 まで。締切(水曜 12:00)に間に合わない
     mount(project)  # 現在時刻は 10/1(締切の前)
     await user.open("/")
-    assert user.find(marker="row-0-0").elements.pop()._style["background"] == OVERDUE_COLOR
+    assert (
+        user.find(marker="row-0-0").elements.pop()._style["background"] == OVERDUE_COLOR
+    )
 
 
 async def test_a_checkpoint_row_is_not_red_before_its_deadline(user: User) -> None:
@@ -3168,7 +3702,9 @@ async def test_a_checkpoint_is_hidden_by_the_assignee_filter(user: User) -> None
 
 async def test_a_checkpoint_outside_the_period_has_no_diamond(user: User) -> None:
     project = checkpoint_project()
-    project.sections[0].tasks[0].deadline = datetime(2026, 12, 1, 12, 0)  # 最小列数(42 日)の外
+    project.sections[0].tasks[0].deadline = datetime(
+        2026, 12, 1, 12, 0
+    )  # 最小列数(42 日)の外
     charts, _ = mount_chart(project)
     await user.open("/")
     charts[0].set_options(
@@ -3183,13 +3719,29 @@ def nested_chart_project() -> Project:
 
     grandchild = Section("孫", [task("孫タスク")])
     child = Section("子", [task("子タスク")], [grandchild])
-    parent = Section("親", [task("親タスク")], [child, Section("子2", [task("子2タスク")])])
-    return Project("demo", base_date=BASE, tasks=[task("根タスク")], sections=[parent, Section("別", [task("別タスク")])])
+    parent = Section(
+        "親", [task("親タスク")], [child, Section("子2", [task("子2タスク")])]
+    )
+    return Project(
+        "demo",
+        base_date=BASE,
+        tasks=[task("根タスク")],
+        sections=[parent, Section("別", [task("別タスク")])],
+    )
 
 
 NESTED_MARKERS = [
-    "task-top-0", "section-0", "task-0-0", "section-0.0", "task-0.0-0", "section-0.0.0",
-    "task-0.0.0-0", "section-0.1", "task-0.1-0", "section-1", "task-1-0",
+    "task-top-0",
+    "section-0",
+    "task-0-0",
+    "section-0.0",
+    "task-0.0-0",
+    "section-0.0.0",
+    "task-0.0.0-0",
+    "section-0.1",
+    "task-0.1-0",
+    "section-1",
+    "task-1-0",
 ]
 
 
@@ -3203,8 +3755,17 @@ async def test_nested_sections_render_depth_first_with_their_keys(user: User) ->
 async def test_a_section_header_counts_every_task_below_it(user: User) -> None:
     mount(nested_chart_project())
     await user.open("/")
-    counts = {key: chip(user, f"section-count-{key}").text for key in ("0", "0.0", "0.0.0", "0.1", "1")}
-    assert counts == {"0": "(4)", "0.0": "(2)", "0.0.0": "(1)", "0.1": "(1)", "1": "(1)"}
+    counts = {
+        key: chip(user, f"section-count-{key}").text
+        for key in ("0", "0.0", "0.0.0", "0.1", "1")
+    }
+    assert counts == {
+        "0": "(4)",
+        "0.0": "(2)",
+        "0.0.0": "(1)",
+        "0.1": "(1)",
+        "1": "(1)",
+    }
 
 
 async def test_each_level_is_indented_by_12px(user: User) -> None:
@@ -3224,13 +3785,23 @@ async def test_collapsing_a_parent_hides_every_descendant(user: User) -> None:
     await user.open("/")
     charts[0].toggle_section((0,))
     await user.should_see(marker="section-0")
-    for marker in ("task-0-0", "section-0.0", "task-0.0-0", "section-0.0.0", "task-0.0.0-0", "section-0.1", "task-0.1-0"):
+    for marker in (
+        "task-0-0",
+        "section-0.0",
+        "task-0.0-0",
+        "section-0.0.0",
+        "task-0.0.0-0",
+        "section-0.1",
+        "task-0.1-0",
+    ):
         await user.should_not_see(marker=marker)
     await user.should_see(marker="section-1")
     await user.should_see(marker="task-1-0")
 
 
-async def test_reopening_a_parent_keeps_the_childs_own_collapsed_state(user: User) -> None:
+async def test_reopening_a_parent_keeps_the_childs_own_collapsed_state(
+    user: User,
+) -> None:
     charts, _ = mount_chart(nested_chart_project())
     await user.open("/")
     charts[0].toggle_section((0, 0))  # 子を閉じる
@@ -3248,10 +3819,14 @@ async def test_expand_section_opens_every_ancestor(user: User) -> None:
     chart = charts[0]
     chart.collapsed.update({(0,), (0, 0), (0, 0, 0), (1,)})
     chart.expand_section((0, 0, 0))
-    assert chart.collapsed == {(1,)}  # 親すべてと自分を開き、無関係なセクションは閉じたまま
+    assert chart.collapsed == {
+        (1,)
+    }  # 親すべてと自分を開き、無関係なセクションは閉じたまま
 
 
-async def test_a_filter_shows_the_parents_of_a_match_and_ignores_collapse(user: User) -> None:
+async def test_a_filter_shows_the_parents_of_a_match_and_ignores_collapse(
+    user: User,
+) -> None:
     charts, _ = mount_chart(nested_chart_project())
     await user.open("/")
     charts[0].collapsed.update({(0,), (0, 0)})
@@ -3270,7 +3845,9 @@ async def test_the_menu_of_a_nested_task_reports_its_path(user: User) -> None:
     assert recorder.events == [("edit_task", ((0, 0), 0))]
 
 
-async def test_the_add_task_button_of_a_nested_section_reports_its_path(user: User) -> None:
+async def test_the_add_task_button_of_a_nested_section_reports_its_path(
+    user: User,
+) -> None:
     recorder = mount(nested_chart_project())
     await user.open("/")
     user.find(marker="add-task-0.0.0").click()
@@ -3326,7 +3903,9 @@ async def test_event_bar_is_placed_under_the_dates_with_its_text(user: User) -> 
     mount_with(event_project(release), ViewOptions(period=EVENT_PERIOD))
     await user.open("/")
     bar = user.find(marker="event-bar-e1").elements.pop()
-    assert bar._style["left"] == "80px" and bar._style["width"] == "80px"  # 10/8 は 3 列目から 2 日
+    assert (
+        bar._style["left"] == "80px" and bar._style["width"] == "80px"
+    )  # 10/8 は 3 列目から 2 日
     await user.should_see("リリース")
     assert bar._props.get("title") == "リリース"
 
@@ -3342,7 +3921,9 @@ async def test_overlapping_events_stack_in_separate_rows(user: User) -> None:
     await user.should_not_see(marker="event-row-2")
     row0 = {e.id for e in user.find(marker="event-row-0").elements.pop().descendants()}
     assert user.find(marker="event-bar-e1").elements.pop().id in row0
-    assert user.find(marker="event-bar-e3").elements.pop().id in row0  # 重ならないイベントは同じ段
+    assert (
+        user.find(marker="event-bar-e3").elements.pop().id in row0
+    )  # 重ならないイベントは同じ段
     assert user.find(marker="event-bar-e2").elements.pop().id not in row0
 
 
@@ -3352,9 +3933,13 @@ async def test_event_cells_are_tinted_and_later_event_wins(user: User) -> None:
     mount_with(event_project(a, b), ViewOptions(period=EVENT_PERIOD))
     await user.open("/")
     html = user.find(marker="event-tints").elements.pop().content
-    assert html.count("--ev:#ff0000") == 2 and html.count("--ev:#0000ff") == 2  # 10/6・10/7 が赤、10/8・10/9 が青
+    assert (
+        html.count("--ev:#ff0000") == 2 and html.count("--ev:#0000ff") == 2
+    )  # 10/6・10/7 が赤、10/8・10/9 が青
     assert html.index("--ev:#ff0000") < html.index("--ev:#0000ff")
-    assert html.count('class="event-tint"') == 4  # 色のある列だけ。日次の列は最低 42 列あるので、色のない列の数は見ない
+    assert (
+        html.count('class="event-tint"') == 4
+    )  # 色のある列だけ。日次の列は最低 42 列あるので、色のない列の数は見ない
 
 
 async def test_no_events_means_no_event_rows_or_tints(user: User) -> None:
@@ -3379,21 +3964,31 @@ async def test_event_is_clipped_to_the_period_edge(user: User) -> None:
     mount_with(event_project(long), ViewOptions(period=EVENT_PERIOD))
     await user.open("/")
     bar = user.find(marker="event-bar-e1").elements.pop()
-    assert bar._style["left"] == "0px" and bar._style["width"] == "80px"  # 10/6・10/7 の 2 列
+    assert (
+        bar._style["left"] == "0px" and bar._style["width"] == "80px"
+    )  # 10/6・10/7 の 2 列
 
 
 async def test_event_is_drawn_on_week_and_month_scales(user: User) -> None:
     one_day = make_event("2026-10-14", "2026-10-14", "水曜", "orange", "e1")
-    mount_with(event_project(one_day), ViewOptions(period=(date(2026, 10, 5), date(2026, 11, 29)), scale=Scale.WEEK))
+    mount_with(
+        event_project(one_day),
+        ViewOptions(period=(date(2026, 10, 5), date(2026, 11, 29)), scale=Scale.WEEK),
+    )
     await user.open("/")
     bar = user.find(marker="event-bar-e1").elements.pop()
     week_width = COLUMN_WIDTH_PX[Scale.WEEK]
-    assert bar._style["left"] == f"{week_width}px" and bar._style["width"] == f"{week_width}px"
+    assert (
+        bar._style["left"] == f"{week_width}px"
+        and bar._style["width"] == f"{week_width}px"
+    )
 
 
 async def test_show_events_false_hides_them(user: User) -> None:
     release = make_event("2026-10-08", "2026-10-09", "リリース", "red", "e1")
-    mount_with(event_project(release), ViewOptions(period=EVENT_PERIOD, show_events=False))
+    mount_with(
+        event_project(release), ViewOptions(period=EVENT_PERIOD, show_events=False)
+    )
     await user.open("/")
     await user.should_not_see(marker="event-bar-e1")
     await user.should_not_see(marker="event-tints")
@@ -3414,7 +4009,10 @@ async def test_user_text_is_not_injected_as_html(user: User) -> None:
 async def test_week_scale_stacks_events_that_fall_in_the_same_week(user: User) -> None:
     a = make_event("2026-10-05", "2026-10-05", "月曜", "red", "e1")
     b = make_event("2026-10-07", "2026-10-07", "水曜", "blue", "e2")
-    mount_with(event_project(a, b), ViewOptions(period=(date(2026, 10, 5), date(2026, 11, 29)), scale=Scale.WEEK))
+    mount_with(
+        event_project(a, b),
+        ViewOptions(period=(date(2026, 10, 5), date(2026, 11, 29)), scale=Scale.WEEK),
+    )
     await user.open("/")
     await user.should_see(marker="event-row-1")  # 同じ列に入るので、2 段になる
     row0 = {e.id for e in user.find(marker="event-row-0").elements.pop().descendants()}
@@ -3424,14 +4022,21 @@ async def test_week_scale_stacks_events_that_fall_in_the_same_week(user: User) -
 
 def test_sticky_css_reads_the_app_variables_and_keeps_the_current_defaults() -> None:
     assert ".gantt-sticky { background-color: var(--app-bg, #fff); }" in STICKY_CSS
-    assert "body.body--dark .gantt-sticky { background-color: var(--app-bg, var(--q-dark-page, #121212)); }" in STICKY_CSS
-    assert "var(--q-dark-page, #121212)" not in STICKY_CSS.replace("var(--app-bg, var(--q-dark-page, #121212))", "")
+    assert (
+        "body.body--dark .gantt-sticky { background-color: var(--app-bg, var(--q-dark-page, #121212)); }"
+        in STICKY_CSS
+    )
+    assert "var(--q-dark-page, #121212)" not in STICKY_CSS.replace(
+        "var(--app-bg, var(--q-dark-page, #121212))", ""
+    )
 
 
 # --- リンクのアイコン ---
 
 
-def mount_links(project: Project, opened: list[str], options: ViewOptions | None = None) -> None:
+def mount_links(
+    project: Project, opened: list[str], options: ViewOptions | None = None
+) -> None:
     @ui.page("/")
     def index() -> None:
         chart = GanttChart(project, {}, Recorder().actions, open_url=opened.append)
@@ -3494,7 +4099,12 @@ async def test_a_failed_open_notifies(user: User) -> None:
 
     @ui.page("/")
     def index() -> None:
-        GanttChart(linked(TaskUrl("", None, {"URL": "https://example.com/a"})), {}, Recorder().actions, open_url=fail).build()
+        GanttChart(
+            linked(TaskUrl("", None, {"URL": "https://example.com/a"})),
+            {},
+            Recorder().actions,
+            open_url=fail,
+        ).build()
 
     await user.open("/")
     user.find(marker="task-link-0-0").click()
@@ -3532,9 +4142,27 @@ def test_header_cell_html_has_no_title_or_override_mark() -> None:
 
 
 def member_project() -> Project:
-    task = Task("設計", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12), assignees=[Assignee("甲", 1.0)])
-    members = [Member("甲", work_days=[WorkDay(date(2026, 10, 10), time(13), time(16)), WorkDay(date(2026, 10, 7))])]
-    return Project("demo", base_date=BASE, members=members, sections=[Section("開発", [task, Task("未設定")])])
+    task = Task(
+        "設計",
+        planned_start=datetime(2026, 10, 5, 12),
+        planned_end=datetime(2026, 10, 7, 12),
+        assignees=[Assignee("甲", 1.0)],
+    )
+    members = [
+        Member(
+            "甲",
+            work_days=[
+                WorkDay(date(2026, 10, 10), time(13), time(16)),
+                WorkDay(date(2026, 10, 7)),
+            ],
+        )
+    ]
+    return Project(
+        "demo",
+        base_date=BASE,
+        members=members,
+        sections=[Section("開発", [task, Task("未設定")])],
+    )
 
 
 async def test_assignees_overrides_get_a_mark_on_the_task_row(user: User) -> None:
@@ -3560,7 +4188,10 @@ async def test_day_header_and_background_ignore_member_overrides(user: User) -> 
     await user.open("/")
     assert "title=" not in user.find(marker="label-row-cells").elements.pop().content
     html = user.find(marker="stripes").elements.pop().content
-    assert html.count(KIND_COLORS[DayKind.SATURDAY]) == 6 and html.count(KIND_COLORS[DayKind.SUNDAY]) == 6
+    assert (
+        html.count(KIND_COLORS[DayKind.SATURDAY]) == 6
+        and html.count(KIND_COLORS[DayKind.SUNDAY]) == 6
+    )
 
 
 async def test_no_work_day_mark_in_the_week_scale(user: User) -> None:
@@ -3579,20 +4210,38 @@ def mount_selectable(
     excluded_names: tuple[str, ...] = (), picks: list | None = None
 ) -> tuple[list[GanttChart], list[Task]]:
     tasks = [
-        Task("甲", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12)),
-        Task("乙", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12)),
+        Task(
+            "甲",
+            planned_start=datetime(2026, 10, 5, 12),
+            planned_end=datetime(2026, 10, 7, 12),
+        ),
+        Task(
+            "乙",
+            planned_start=datetime(2026, 10, 5, 12),
+            planned_end=datetime(2026, 10, 7, 12),
+        ),
     ]
-    project = Project("demo", base_date=BASE, sections=[Section("開発", tasks), Section("試験", [Task("丙")])])
+    project = Project(
+        "demo",
+        base_date=BASE,
+        sections=[Section("開発", tasks), Section("試験", [Task("丙")])],
+    )
     charts: list[GanttChart] = []
 
     @ui.page("/")
     def index() -> None:
-        chart = GanttChart(project, {}, Recorder().actions, now=lambda: datetime(2026, 10, 1))
+        chart = GanttChart(
+            project, {}, Recorder().actions, now=lambda: datetime(2026, 10, 1)
+        )
         chart.options = ViewOptions(
             read_only=True,
             selectable=True,
-            excluded=frozenset(t.id for t in project.all_tasks() if t.name in excluded_names),
-            on_select=(lambda ids, checked: picks.append((ids, checked))) if picks is not None else None,
+            excluded=frozenset(
+                t.id for t in project.all_tasks() if t.name in excluded_names
+            ),
+            on_select=(lambda ids, checked: picks.append((ids, checked)))
+            if picks is not None
+            else None,
         )
         charts.append(chart)
         chart.build()
@@ -3611,14 +4260,24 @@ async def test_no_checkboxes_unless_selectable(user: User) -> None:
     await user.should_not_see(marker="select-section-0")
 
 
-async def test_selectable_chart_has_a_checked_checkbox_on_each_task_and_section(user: User) -> None:
+async def test_selectable_chart_has_a_checked_checkbox_on_each_task_and_section(
+    user: User,
+) -> None:
     mount_selectable()
     await user.open("/")
-    for marker in ("select-task-0-0", "select-task-0-1", "select-task-1-0", "select-section-0", "select-section-1"):
+    for marker in (
+        "select-task-0-0",
+        "select-task-0-1",
+        "select-task-1-0",
+        "select-section-0",
+        "select-section-1",
+    ):
         assert checkbox(user, marker).value is True
 
 
-async def test_an_excluded_task_is_unchecked_and_its_section_is_mixed(user: User) -> None:
+async def test_an_excluded_task_is_unchecked_and_its_section_is_mixed(
+    user: User,
+) -> None:
     mount_selectable(("乙",))
     await user.open("/")
     assert checkbox(user, "select-task-0-0").value is True
@@ -3640,7 +4299,9 @@ async def test_a_section_with_every_task_excluded_is_unchecked(user: User) -> No
     assert checkbox(user, "select-section-0").value is False
 
 
-async def test_clicking_a_task_checkbox_reports_its_id_and_the_new_state(user: User) -> None:
+async def test_clicking_a_task_checkbox_reports_its_id_and_the_new_state(
+    user: User,
+) -> None:
     picks: list = []
     _, tasks = mount_selectable(picks=picks)
     await user.open("/")
@@ -3660,11 +4321,15 @@ async def test_clicking_a_mixed_section_checks_everything(user: User) -> None:
     picks: list = []
     _, tasks = mount_selectable(("乙",), picks=picks)
     await user.open("/")
-    checkbox(user, "select-section-0").set_value(False)  # 中間から押すと、値に関わらず全部を出力にする
+    checkbox(user, "select-section-0").set_value(
+        False
+    )  # 中間から押すと、値に関わらず全部を出力にする
     assert picks == [([tasks[0].id, tasks[1].id], True)]
 
 
-async def test_hide_excluded_removes_the_rows_checkboxes_and_empty_sections(user: User) -> None:
+async def test_hide_excluded_removes_the_rows_checkboxes_and_empty_sections(
+    user: User,
+) -> None:
     charts, _ = mount_selectable(("乙", "丙"))
     await user.open("/")
     charts[0].set_options(replace(charts[0].options, hide_excluded=True))
@@ -3684,21 +4349,30 @@ def weekly_chart_project() -> Project:
         assignees=[Assignee("田中"), Assignee("鈴木", 0.5)],
         weekly_crew=weeks,
     )
-    return Project("demo", base_date=BASE, members=[Member("田中"), Member("鈴木")], tasks=[task])
+    return Project(
+        "demo", base_date=BASE, members=[Member("田中"), Member("鈴木")], tasks=[task]
+    )
 
 
 def test_week_chip_text_shows_initials_only_on_the_day_scale_with_room() -> None:
     assert week_chip_text(["田中", "鈴木"], 200.0, Scale.DAY) == "田鈴"
-    assert week_chip_text(["田中", "鈴木", "佐藤", "高橋", "伊藤"], 200.0, Scale.DAY) == "田鈴佐+2"
+    assert (
+        week_chip_text(["田中", "鈴木", "佐藤", "高橋", "伊藤"], 200.0, Scale.DAY)
+        == "田鈴佐+2"
+    )
     assert week_chip_text(["田中"], 10.0, Scale.DAY) == ""  # 幅が足りない
-    assert week_chip_text(["田中", "鈴木"], 200.0, Scale.WEEK) == "田鈴"  # 週次も、幅があれば頭文字を出す
+    assert (
+        week_chip_text(["田中", "鈴木"], 200.0, Scale.WEEK) == "田鈴"
+    )  # 週次も、幅があれば頭文字を出す
     assert week_chip_text(["田中"], 10.0, Scale.WEEK) == ""
     assert week_chip_text(["田中"], 200.0, Scale.MONTH) == ""  # 月次は区切りだけ
     assert week_chip_text([], 200.0, Scale.DAY) == ""
 
 
 def test_week_summary_lists_each_week_for_the_hover() -> None:
-    task = Task("w", weekly_crew=[[Assignee("田中")], [Assignee("田中", 0.5), Assignee("鈴木")]])
+    task = Task(
+        "w", weekly_crew=[[Assignee("田中")], [Assignee("田中", 0.5), Assignee("鈴木")]]
+    )
     assert week_summary(task) == "第1週: 田中 100%\n第2週: 田中 50%、鈴木 100%"
     assert week_summary(Task("p", assignees=[Assignee("田中")])) == ""
 
@@ -3712,7 +4386,9 @@ async def test_the_bar_carries_one_chip_per_week(user: User) -> None:
     assert (first._style["left"], first._style["width"]) == ("0.0px", "280.0px")
     assert (second._style["left"], second._style["width"]) == ("280.0px", "280.0px")
     assert (first.text, second.text) == ("田", "鈴")
-    assert "border-left" not in first._style and "border-left" in second._style  # 区切り線は 2 つ目から
+    assert (
+        "border-left" not in first._style and "border-left" in second._style
+    )  # 区切り線は 2 つ目から
 
 
 async def test_the_chips_follow_the_chip_option(user: User) -> None:
@@ -3734,7 +4410,10 @@ async def test_a_bar_that_ends_in_the_first_week_has_one_chip(user: User) -> Non
     await user.open("/")
     await user.should_see(marker="week-chip-top-0-0")
     await user.should_not_see(marker="week-chip-top-0-1")
-    assert user.find(marker="week-chip-top-0-0").elements.pop()._style["width"] == "120.0px"  # 3 日
+    assert (
+        user.find(marker="week-chip-top-0-0").elements.pop()._style["width"]
+        == "120.0px"
+    )  # 3 日
 
 
 async def test_clicking_a_week_chip_asks_to_edit_that_week(user: User) -> None:
@@ -3757,7 +4436,9 @@ async def test_week_chips_do_not_edit_in_the_read_only_preview(user: User) -> No
 
     @ui.page("/")
     def index() -> None:
-        chart = GanttChart(project, {}, recorder.actions, now=lambda: datetime(2026, 10, 1))
+        chart = GanttChart(
+            project, {}, recorder.actions, now=lambda: datetime(2026, 10, 1)
+        )
         chart.options = ViewOptions(read_only=True)
         chart.build()
 
@@ -3788,40 +4469,59 @@ async def test_week_chips_and_the_overload_tooltip_do_not_overlap(user: User) ->
     assert not own  # 棒そのものには負荷のヒントを付けない(チップの上で重なるため)
     chip = user.find(marker="week-chip-top-0-0").elements.pop()
     chip_tip = next(t for t in tips if t.props.get("target") == f"#{chip.html_id}")
-    assert "第1週" in chip_tip.text and "田中 最大150%" in chip_tip.text  # チップの上でも負荷が分かる
-    area = user.find(marker="overload-tip-top-0").elements.pop()  # チップの行より下だけで、負荷の説明を出す
+    assert (
+        "第1週" in chip_tip.text and "田中 最大150%" in chip_tip.text
+    )  # チップの上でも負荷が分かる
+    area = user.find(
+        marker="overload-tip-top-0"
+    ).elements.pop()  # チップの行より下だけで、負荷の説明を出す
     assert area._style["top"] == "12px"
-    assert "田中 最大150%" in [c for c in area.default_slot.children if isinstance(c, ui.tooltip)][0].text
+    assert (
+        "田中 最大150%"
+        in [c for c in area.default_slot.children if isinstance(c, ui.tooltip)][0].text
+    )
 
 
-async def test_context_menu_toggles_weekly_crew_and_names_the_action(user: User) -> None:
+async def test_context_menu_toggles_weekly_crew_and_names_the_action(
+    user: User,
+) -> None:
     charts, recorder = mount_chart(weekly_chart_project())
     await user.open("/")
     charts[0].open_menu((), 0)
-    assert user.find(marker="context-weeks-label").elements.pop().text == "週ごとをやめる"  # 週ごとのタスク
+    assert (
+        user.find(marker="context-weeks-label").elements.pop().text == "週ごとをやめる"
+    )  # 週ごとのタスク
     user.find(marker="context-weeks").click()
     assert recorder.events == [("toggle_weeks", ((), 0))]
 
 
-async def test_context_menu_weeks_item_is_disabled_without_assignees(user: User) -> None:
+async def test_context_menu_weeks_item_is_disabled_without_assignees(
+    user: User,
+) -> None:
     charts, _ = mount_chart(top_project())
     await user.open("/")
     charts[0].open_menu((), 1)  # 担当者のいない通常タスク
     item = user.find(marker="context-weeks").elements.pop()
-    assert user.find(marker="context-weeks-label").elements.pop().text == "週ごとに分ける"
+    assert (
+        user.find(marker="context-weeks-label").elements.pop().text == "週ごとに分ける"
+    )
     assert item.props.get("disable") is True
 
 
 def test_crew_text_breaks_the_line_every_three_members() -> None:
     crew = [Assignee(n) for n in "ABCDEFG"]
-    assert crew_text(crew) == "A 100%、B 100%、C 100%\n　D 100%、E 100%、F 100%\n　G 100%"
+    assert (
+        crew_text(crew) == "A 100%、B 100%、C 100%\n　D 100%、E 100%、F 100%\n　G 100%"
+    )
     assert crew_text(crew[:3]) == "A 100%、B 100%、C 100%"  # 3 人までは 1 行
     assert crew_text([]) == ""
 
 
 def test_week_summary_breaks_each_week_every_three_members() -> None:
     task = Task("w", weekly_crew=[[Assignee(n) for n in "ABCD"], [Assignee("E")]])
-    assert week_summary(task) == "第1週: A 100%、B 100%、C 100%\n　D 100%\n第2週: E 100%"
+    assert (
+        week_summary(task) == "第1週: A 100%、B 100%、C 100%\n　D 100%\n第2週: E 100%"
+    )
 
 
 async def test_the_week_chip_hover_breaks_every_three_members(user: User) -> None:
@@ -3831,12 +4531,17 @@ async def test_the_week_chip_hover_breaks_every_three_members(user: User) -> Non
     await user.open("/")
     bar = user.find(marker="bar-top-0").elements.pop()
     chip = user.find(marker="week-chip-top-0-0").elements.pop()
-    tip = next(t for t in bar.default_slot.children if isinstance(t, ui.tooltip) and t.props.get("target") == f"#{chip.html_id}")
+    tip = next(
+        t
+        for t in bar.default_slot.children
+        if isinstance(t, ui.tooltip) and t.props.get("target") == f"#{chip.html_id}"
+    )
     assert tip.text.startswith("第1週 10/5〜10/11\nA 100%、B 100%、C 100%\n　D 100%")
 
 
-
-async def test_week_chip_shows_the_icon_image_for_members_who_have_one(user: User, icon: str) -> None:
+async def test_week_chip_shows_the_icon_image_for_members_who_have_one(
+    user: User, icon: str
+) -> None:
     project = weekly_chart_project()
     project.tasks[0].weekly_crew[0] = [Assignee("田中"), Assignee("鈴木")]
     project.members = [Member("田中", 1.0, icon=icon), Member("鈴木", 1.0)]
@@ -3844,11 +4549,15 @@ async def test_week_chip_shows_the_icon_image_for_members_who_have_one(user: Use
     await user.open("/")
     chip = user.find(marker="week-chip-top-0-0").elements.pop()
     children = list(chip.default_slot.children)
-    assert children[0].tag == "img" and children[0]._props["src"] == icon  # アイコンのある人は画像
+    assert (
+        children[0].tag == "img" and children[0]._props["src"] == icon
+    )  # アイコンのある人は画像
     assert children[1].text == "鈴"  # ない人は頭文字のまま
 
 
-async def test_assignee_hover_shows_the_week_summary_only_while_shift_is_held(user: User) -> None:
+async def test_assignee_hover_shows_the_week_summary_only_while_shift_is_held(
+    user: User,
+) -> None:
     project = weekly_chart_project()
     mount(project)
     await user.open("/")
@@ -3859,7 +4568,9 @@ async def test_assignee_hover_shows_the_week_summary_only_while_shift_is_held(us
         if isinstance(c, ui.tooltip) and c.props.get("target") == f"#{who.html_id}"
     )
     plain, detail = (child for child in tip.default_slot.children)
-    assert "第1週" not in plain.text and plain.text.endswith(SHIFT_HINT)  # 普通は、その人の率と案内だけ
+    assert "第1週" not in plain.text and plain.text.endswith(
+        SHIFT_HINT
+    )  # 普通は、その人の率と案内だけ
     assert "第1週 10/5〜10/11: 田中 100%" in detail.text  # Shift で、週ごとの担当
     assert "shift-held" in SHIFT_TOOLTIP_CSS and "shiftKey" in SHIFT_TRACK_JS
 
@@ -3872,10 +4583,16 @@ async def test_assignee_hover_of_a_task_without_weeks_stays_plain(user: User) ->
 
 
 def reference_chart(
-    value: ReferenceValue | None, problem: str = "", *, mode: ReferenceMode = ReferenceMode.LIVE, stale: bool = False
+    value: ReferenceValue | None,
+    problem: str = "",
+    *,
+    mode: ReferenceMode = ReferenceMode.LIVE,
+    stale: bool = False,
 ) -> tuple[list[GanttChart], Recorder]:
     ref = Task("基盤開発", id="ref", kind=TaskKind.REFERENCE, ref_project="基盤")
-    project = Project("p", base_date=date(2026, 10, 1), reference_mode=mode, tasks=[ref])
+    project = Project(
+        "p", base_date=date(2026, 10, 1), reference_mode=mode, tasks=[ref]
+    )
     refs = {"ref": Reference(value, problem, mode, stale)}
     recorder = Recorder()
     charts: list[GanttChart] = []
@@ -3883,7 +4600,13 @@ def reference_chart(
     @ui.page("/")
     def index() -> None:
         charts.append(
-            GanttChart(project, {}, recorder.actions, now=lambda: datetime(2026, 10, 8), references=lambda: refs)
+            GanttChart(
+                project,
+                {},
+                recorder.actions,
+                now=lambda: datetime(2026, 10, 8),
+                references=lambda: refs,
+            )
         )
         charts[0].build()
 
@@ -3891,13 +4614,22 @@ def reference_chart(
 
 
 SPAN = ReferenceValue(
-    planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 16, 17), progress=45, delayed=3, warned=2,
-    peak_load=1.3, peak_member="田中",
-    overloads=(OverloadSpan("田中", datetime(2026, 10, 8, 9), datetime(2026, 10, 9, 17), 1.3),),
+    planned_start=datetime(2026, 10, 5, 9),
+    planned_end=datetime(2026, 10, 16, 17),
+    progress=45,
+    delayed=3,
+    warned=2,
+    peak_load=1.3,
+    peak_member="田中",
+    overloads=(
+        OverloadSpan("田中", datetime(2026, 10, 8, 9), datetime(2026, 10, 9, 17), 1.3),
+    ),
 )
 
 
-async def test_a_reference_row_draws_one_band_with_delay_and_load_chips(user: User) -> None:
+async def test_a_reference_row_draws_one_band_with_delay_and_load_chips(
+    user: User,
+) -> None:
     reference_chart(SPAN)
     await user.open("/")
     await user.should_see(marker="bar-top-0")
@@ -3928,12 +4660,18 @@ async def test_the_reference_hover_lists_the_warning_count(user: User) -> None:
     assert "警告 2 件" in tooltips_targeting(bar)[0]
 
 
-async def test_the_reference_hover_says_it_opens_on_click_and_the_band_underlines(user: User) -> None:
+async def test_the_reference_hover_says_it_opens_on_click_and_the_band_underlines(
+    user: User,
+) -> None:
     reference_chart(SPAN)
     await user.open("/")
     bar = user.find(marker="bar-top-0").elements.pop()
     text = tooltips_targeting(bar)[0]
-    assert "基盤開発 10/5〜10/16" in text and "遅れ 3 件" in text and "ピーク負荷 130%(田中)" in text
+    assert (
+        "基盤開発 10/5〜10/16" in text
+        and "遅れ 3 件" in text
+        and "ピーク負荷 130%(田中)" in text
+    )
     assert text.endswith("クリックすると「基盤」プロジェクトを開く")
     assert "ref-link" in bar.classes
 
@@ -3951,7 +4689,10 @@ async def test_a_missing_reference_keeps_the_row_without_a_band(user: User) -> N
     await user.open("/")
     await user.should_not_see(marker="bar-top-0")
     await user.should_see(marker="ref-missing-top-0")
-    assert "参照先が見つかりません" in user.find(marker="ref-missing-top-0").elements.pop().text
+    assert (
+        "参照先が見つかりません"
+        in user.find(marker="ref-missing-top-0").elements.pop().text
+    )
 
 
 async def test_a_snapshot_row_shows_the_saved_value_with_its_date(user: User) -> None:
@@ -3962,7 +4703,9 @@ async def test_a_snapshot_row_shows_the_saved_value_with_its_date(user: User) ->
     assert "スナップショット 10/7" in text
 
 
-async def test_the_refresh_menu_item_is_only_enabled_for_snapshot_references(user: User) -> None:
+async def test_the_refresh_menu_item_is_only_enabled_for_snapshot_references(
+    user: User,
+) -> None:
     charts, recorder = reference_chart(SPAN, mode=ReferenceMode.SNAPSHOT)
     await user.open("/")
     charts[0].open_menu((), 0)
@@ -3972,22 +4715,31 @@ async def test_the_refresh_menu_item_is_only_enabled_for_snapshot_references(use
     assert recorder.refreshed == [((), 0)]
 
 
-async def test_the_refresh_menu_item_is_disabled_for_live_references(user: User) -> None:
+async def test_the_refresh_menu_item_is_disabled_for_live_references(
+    user: User,
+) -> None:
     charts, _ = reference_chart(SPAN)
     await user.open("/")
     charts[0].open_menu((), 0)
-    assert user.find(marker="context-refresh").elements.pop().props.get("disable") is True
+    assert (
+        user.find(marker="context-refresh").elements.pop().props.get("disable") is True
+    )
 
 
 async def test_decompose_and_weeks_are_disabled_on_a_reference_row(user: User) -> None:
     charts, _ = reference_chart(SPAN)
     await user.open("/")
     charts[0].open_menu((), 0)
-    assert user.find(marker="context-decompose").elements.pop().props.get("disable") is True
+    assert (
+        user.find(marker="context-decompose").elements.pop().props.get("disable")
+        is True
+    )
     assert user.find(marker="context-weeks").elements.pop().props.get("disable") is True
 
 
-async def test_reference_chips_are_text_pills_not_the_16px_assignee_circle(user: User) -> None:
+async def test_reference_chips_are_text_pills_not_the_16px_assignee_circle(
+    user: User,
+) -> None:
     reference_chart(SPAN)
     await user.open("/")
     for marker in ("ref-delay-top-0", "ref-load-top-0"):
@@ -3996,7 +4748,9 @@ async def test_reference_chips_are_text_pills_not_the_16px_assignee_circle(user:
         assert "width" not in style  # 丸い担当者チップの固定幅だと、文字が見切れる
 
 
-async def test_a_reference_row_name_starts_with_the_calendar_mark_without_changing_the_name(user: User) -> None:
+async def test_a_reference_row_name_starts_with_the_calendar_mark_without_changing_the_name(
+    user: User,
+) -> None:
     charts, _ = reference_chart(SPAN)
     await user.open("/")
     assert user.find(marker="task-name-top-0").elements.pop().text == "📅 基盤開発"
@@ -4010,7 +4764,9 @@ async def test_the_reference_name_hover_says_which_project_opens(user: User) -> 
     assert tooltips_targeting(name) == ["クリックすると「基盤」プロジェクトを開く"]
 
 
-async def test_the_period_field_limits_the_chart_to_the_typed_range_and_empty_means_auto(user: User) -> None:
+async def test_the_period_field_limits_the_chart_to_the_typed_range_and_empty_means_auto(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project())
     await user.open("/")
     chart = charts[0]
@@ -4025,38 +4781,58 @@ async def test_the_period_field_limits_the_chart_to_the_typed_range_and_empty_me
     assert user.find(marker="chart-period-error").elements.pop().text == ""
 
 
-async def test_the_period_field_reports_bad_input_and_keeps_the_previous_period(user: User) -> None:
+async def test_the_period_field_reports_bad_input_and_keeps_the_previous_period(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project())
     await user.open("/")
     chart = charts[0]
     field = user.find(marker="chart-period").elements.pop()
     field.set_value("2026-10-06 〜 2026-10-08")
-    field.set_value("2026-10-09 〜 2026-10-01")  # 開始が終了より後(空にせず、直接置き換える)
+    field.set_value(
+        "2026-10-09 〜 2026-10-01"
+    )  # 開始が終了より後(空にせず、直接置き換える)
     assert chart.period == (date(2026, 10, 6), date(2026, 10, 8))
-    assert "開始日が終了日以前" in user.find(marker="chart-period-error").elements.pop().text
+    assert (
+        "開始日が終了日以前"
+        in user.find(marker="chart-period-error").elements.pop().text
+    )
     field.set_value("abc")
     assert chart.period == (date(2026, 10, 6), date(2026, 10, 8))
-    assert "日付の形式が正しくありません" in user.find(marker="chart-period-error").elements.pop().text
+    assert (
+        "日付の形式が正しくありません"
+        in user.find(marker="chart-period-error").elements.pop().text
+    )
     field.set_value("2026-10-07 〜 2026-10-09")  # 直すとエラーが消える
     assert chart.period == (date(2026, 10, 7), date(2026, 10, 9))
     assert user.find(marker="chart-period-error").elements.pop().text == ""
 
 
-async def test_the_period_field_rejects_a_period_with_too_many_columns(user: User) -> None:
+async def test_the_period_field_rejects_a_period_with_too_many_columns(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project())
     await user.open("/")
     chart = charts[0]
-    user.find(marker="chart-period").clear().type("2026-01-01 〜 2029-12-31")  # 日次で約 1,460 列(上限 800)
+    user.find(marker="chart-period").clear().type(
+        "2026-01-01 〜 2029-12-31"
+    )  # 日次で約 1,460 列(上限 800)
     assert chart.period is None
-    assert "期間が長すぎます" in user.find(marker="chart-period-error").elements.pop().text
+    assert (
+        "期間が長すぎます" in user.find(marker="chart-period-error").elements.pop().text
+    )
 
 
-async def test_changing_the_scale_resets_a_period_that_becomes_too_long(user: User) -> None:
+async def test_changing_the_scale_resets_a_period_that_becomes_too_long(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project())
     await user.open("/")
     chart = charts[0]
     chart.set_scale(Scale.MONTH)
-    user.find(marker="chart-period").clear().type("2026-01-01 〜 2029-12-31")  # 月次なら 48 列
+    user.find(marker="chart-period").clear().type(
+        "2026-01-01 〜 2029-12-31"
+    )  # 月次なら 48 列
     assert chart.period == (date(2026, 1, 1), date(2029, 12, 31))
     chart.set_scale(Scale.DAY)  # 日次では長すぎる
     assert chart.period is None
@@ -4064,54 +4840,87 @@ async def test_changing_the_scale_resets_a_period_that_becomes_too_long(user: Us
     user.notify.contains("期間が長すぎる")
 
 
-async def test_a_period_survives_the_preview_options_and_a_redraw_of_the_same_project(user: User) -> None:
+async def test_a_period_survives_the_preview_options_and_a_redraw_of_the_same_project(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project())
     await user.open("/")
     chart = charts[0]
     chart.set_period((date(2026, 10, 6), date(2026, 10, 8)))
-    assert user.find(marker="chart-period").elements.pop().value == "2026-10-06 〜 2026-10-08"
-    chart.set_options(ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 3))))  # プレビュー
+    assert (
+        user.find(marker="chart-period").elements.pop().value
+        == "2026-10-06 〜 2026-10-08"
+    )
+    chart.set_options(
+        ViewOptions(period=(date(2026, 10, 1), date(2026, 10, 3)))
+    )  # プレビュー
     assert chart.view_period == (date(2026, 10, 1), date(2026, 10, 3))
     chart.set_options(ViewOptions())  # 戻る
     assert chart.view_period == (date(2026, 10, 6), date(2026, 10, 8))
-    chart.set_project(sample_project())  # 編集のたびに呼ばれる。期間は保つ(別のプロジェクトへの切り替えは MainView が自動に戻す)
+    chart.set_project(
+        sample_project()
+    )  # 編集のたびに呼ばれる。期間は保つ(別のプロジェクトへの切り替えは MainView が自動に戻す)
     assert chart.period == (date(2026, 10, 6), date(2026, 10, 8))
-    assert user.find(marker="chart-period").elements.pop().value == "2026-10-06 〜 2026-10-08"
+    assert (
+        user.find(marker="chart-period").elements.pop().value
+        == "2026-10-06 〜 2026-10-08"
+    )
 
 
 async def test_the_chart_range_picker_sets_the_period(user: User) -> None:
     charts, _ = mount_chart(sample_project())
     await user.open("/")
     user.find(marker="open-chart-range-picker").click()
-    user.find(marker="chart-range-picker").elements.pop().set_value({"from": "2026-10-06", "to": "2026-10-08"})
+    user.find(marker="chart-range-picker").elements.pop().set_value(
+        {"from": "2026-10-06", "to": "2026-10-08"}
+    )
     user.find(marker="chart-range-picker-ok").click()
     assert charts[0].period == (date(2026, 10, 6), date(2026, 10, 8))
-    assert user.find(marker="chart-period").elements.pop().value == "2026-10-06 〜 2026-10-08"
+    assert (
+        user.find(marker="chart-period").elements.pop().value
+        == "2026-10-06 〜 2026-10-08"
+    )
 
 
-async def test_a_too_long_period_typed_at_a_fine_scale_is_applied_when_the_scale_gets_coarser(user: User) -> None:
+async def test_a_too_long_period_typed_at_a_fine_scale_is_applied_when_the_scale_gets_coarser(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project())
     await user.open("/")
     chart = charts[0]
     field = user.find(marker="chart-period").elements.pop()
     field.set_value("2026-01-01 〜 2029-12-31")  # 日次では長すぎる
     assert chart.period is None
-    assert "期間が長すぎます" in user.find(marker="chart-period-error").elements.pop().text
+    assert (
+        "期間が長すぎます" in user.find(marker="chart-period-error").elements.pop().text
+    )
     chart.set_scale(Scale.MONTH)  # エラー文が勧めるとおり、スケールを粗くする
     assert chart.period == (date(2026, 1, 1), date(2029, 12, 31))
     assert user.find(marker="chart-period-error").elements.pop().text == ""
 
 
 async def test_closed_event_days_are_not_painted_as_holidays(user: User) -> None:
-    project = Project("p", base_date=BASE, events=[Event(date(2026, 10, 7), date(2026, 10, 7), "休業", closed=True)])
+    project = Project(
+        "p",
+        base_date=BASE,
+        events=[Event(date(2026, 10, 7), date(2026, 10, 7), "休業", closed=True)],
+    )
     mount(project, {date(2026, 10, 8): "祝"})
     await user.open("/")
     html = user.find(marker="stripes").elements.pop().content
-    assert html.count(KIND_COLORS[DayKind.HOLIDAY]) == 1  # 10/8 の祝日だけ。休業の 10/7 は緑にしない
+    assert (
+        html.count(KIND_COLORS[DayKind.HOLIDAY]) == 1
+    )  # 10/8 の祝日だけ。休業の 10/7 は緑にしない
 
 
-async def test_the_chart_computes_with_closed_event_days_but_keeps_the_base(user: User) -> None:
-    project = Project("p", base_date=BASE, events=[Event(date(2026, 10, 7), date(2026, 10, 7), "休業", closed=True)])
+async def test_the_chart_computes_with_closed_event_days_but_keeps_the_base(
+    user: User,
+) -> None:
+    project = Project(
+        "p",
+        base_date=BASE,
+        events=[Event(date(2026, 10, 7), date(2026, 10, 7), "休業", closed=True)],
+    )
     charts, _ = mount_chart(project)
     await user.open("/")
     assert charts[0].holidays == {date(2026, 10, 7): "休業"}
@@ -4121,7 +4930,9 @@ async def test_the_chart_computes_with_closed_event_days_but_keeps_the_base(user
 
 
 async def test_closed_event_bar_has_a_mark_and_a_tooltip(user: User) -> None:
-    event = Event(date(2026, 10, 8), date(2026, 10, 9), "夏季休業", "gray", id="e1", closed=True)
+    event = Event(
+        date(2026, 10, 8), date(2026, 10, 9), "夏季休業", "gray", id="e1", closed=True
+    )
     mount_with(event_project(event), ViewOptions(period=EVENT_PERIOD))
     await user.open("/")
     bar = user.find(marker="event-bar-e1").elements.pop()
@@ -4131,7 +4942,9 @@ async def test_closed_event_bar_has_a_mark_and_a_tooltip(user: User) -> None:
 
 async def test_work_day_mark_does_not_call_a_closed_event_a_holiday(user: User) -> None:
     project = member_project()
-    project.events = [Event(date(2026, 10, 7), date(2026, 10, 7), "夏季休業", closed=True)]
+    project.events = [
+        Event(date(2026, 10, 7), date(2026, 10, 7), "夏季休業", closed=True)
+    ]
     mount(project)
     await user.open("/")
     content = user.find(marker="workmark-0-0").elements.pop().content
@@ -4145,7 +4958,9 @@ def teamed_project() -> Project:
     return project
 
 
-async def test_the_assignee_select_lists_teams_that_have_members_and_filters_by_team(user: User) -> None:
+async def test_the_assignee_select_lists_teams_that_have_members_and_filters_by_team(
+    user: User,
+) -> None:
     from projectapp.scope import team_key
 
     mount_chart(teamed_project())
@@ -4165,7 +4980,9 @@ async def test_the_assignee_select_lists_teams_that_have_members_and_filters_by_
     await user.should_see(marker="task-0-1")
 
 
-async def test_choosing_a_member_after_a_team_replaces_the_team_filter(user: User) -> None:
+async def test_choosing_a_member_after_a_team_replaces_the_team_filter(
+    user: User,
+) -> None:
     from projectapp.scope import team_key
 
     charts, _ = mount_chart(teamed_project())
@@ -4173,7 +4990,9 @@ async def test_choosing_a_member_after_a_team_replaces_the_team_filter(user: Use
     select = user.find(marker="assignee-filter").elements.pop()
     select.set_value(team_key("開発"))
     select.set_value("鈴木")
-    assert charts[0].task_filter.assignee == "鈴木" and charts[0].task_filter.team is None
+    assert (
+        charts[0].task_filter.assignee == "鈴木" and charts[0].task_filter.team is None
+    )
     await user.should_see(marker="task-0-1")
     await user.should_not_see(marker="task-top-0")
 
@@ -4188,12 +5007,17 @@ async def test_set_project_drops_a_team_that_lost_its_members(user: User) -> Non
     other = teamed_project()
     other.members = [Member("田中"), Member("鈴木")]
     charts[0].set_project(other)
-    assert charts[0].task_filter.team is None and charts[0].task_filter.team_members == frozenset()
+    assert (
+        charts[0].task_filter.team is None
+        and charts[0].task_filter.team_members == frozenset()
+    )
     assert select.value == ""
     assert team_key("開発") not in select.options
 
 
-async def test_set_project_follows_a_roster_change_of_the_chosen_team(user: User) -> None:
+async def test_set_project_follows_a_roster_change_of_the_chosen_team(
+    user: User,
+) -> None:
     from projectapp.scope import team_key
 
     charts, _ = mount_chart(teamed_project())
@@ -4222,22 +5046,41 @@ WARN_NOW = datetime(2026, 10, 7, 12)  # 水曜の昼
 
 
 def warning_project() -> Project:
-    behind = Task("遅れ気味", planned_start=datetime(2026, 10, 5, 9), effort_hours=19.5, progress=50)
-    on_plan = Task("予定どおり", planned_start=datetime(2026, 10, 5, 9), effort_hours=19.5, progress=82)
-    return Project("demo", base_date=date(2026, 10, 5), sections=[Section("開発", [behind, on_plan])])
+    behind = Task(
+        "遅れ気味",
+        planned_start=datetime(2026, 10, 5, 9),
+        effort_hours=19.5,
+        progress=50,
+    )
+    on_plan = Task(
+        "予定どおり",
+        planned_start=datetime(2026, 10, 5, 9),
+        effort_hours=19.5,
+        progress=82,
+    )
+    return Project(
+        "demo",
+        base_date=date(2026, 10, 5),
+        sections=[Section("開発", [behind, on_plan])],
+    )
 
 
 def name_cell_image(user: User, marker: str) -> str | None:
     return user.find(marker=marker).elements.pop()._style.get("background-image")
 
 
-async def test_a_warning_task_row_and_name_cell_get_the_warning_tint(user: User) -> None:
+async def test_a_warning_task_row_and_name_cell_get_the_warning_tint(
+    user: User,
+) -> None:
     from projectapp.gantt import WARNING_BACKGROUND
 
     mount(warning_project(), now=WARN_NOW)
     await user.open("/")
     assert row_background(user, "task-0-0") == WARNING_BACKGROUND
-    assert name_cell_image(user, "task-0-0") == f"linear-gradient({WARNING_BACKGROUND}, {WARNING_BACKGROUND})"
+    assert (
+        name_cell_image(user, "task-0-0")
+        == f"linear-gradient({WARNING_BACKGROUND}, {WARNING_BACKGROUND})"
+    )
     assert row_background(user, "task-0-1") is None
     assert name_cell_image(user, "task-0-1") is None
 
@@ -4281,7 +5124,9 @@ async def test_show_alerts_false_hides_the_warning_tint(user: User) -> None:
     assert name_cell_image(user, "task-0-0") is None
 
 
-async def test_the_move_menu_goes_to_the_base_date_and_the_first_task(user: User) -> None:
+async def test_the_move_menu_goes_to_the_base_date_and_the_first_task(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project(), now=NOON)
     await user.open("/")
     chart = charts[0]
@@ -4301,7 +5146,10 @@ async def test_the_move_menu_shifts_by_a_week_on_every_scale(user: User) -> None
     sent = record_javascript(chart)
     user.find(marker="move-next").click()
     user.find(marker="move-prev").click()
-    assert sent == [week_scroll_js(WEEK_PX[Scale.DAY]), week_scroll_js(-WEEK_PX[Scale.DAY])]
+    assert sent == [
+        week_scroll_js(WEEK_PX[Scale.DAY]),
+        week_scroll_js(-WEEK_PX[Scale.DAY]),
+    ]
     chart.set_scale(Scale.MONTH)
     sent.clear()
     chart.shift_weeks(1)
@@ -4310,7 +5158,9 @@ async def test_the_move_menu_shifts_by_a_week_on_every_scale(user: User) -> None
     assert WEEK_PX[Scale.WEEK] == COLUMN_WIDTH_PX[Scale.WEEK]
 
 
-async def test_go_to_date_reads_short_forms_and_explains_what_it_cannot_do(user: User) -> None:
+async def test_go_to_date_reads_short_forms_and_explains_what_it_cannot_do(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project(), now=NOON)
     await user.open("/")
     chart = charts[0]
@@ -4324,7 +5174,9 @@ async def test_go_to_date_reads_short_forms_and_explains_what_it_cannot_do(user:
     assert sent == []  # 移れないときは動かさない
 
 
-async def test_the_goto_dialog_moves_on_apply_and_shows_the_error_otherwise(user: User) -> None:
+async def test_the_goto_dialog_moves_on_apply_and_shows_the_error_otherwise(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project(), now=NOON)
     await user.open("/")
     chart = charts[0]
@@ -4339,7 +5191,9 @@ async def test_the_goto_dialog_moves_on_apply_and_shows_the_error_otherwise(user
     assert len([code for code in sent if "scrollTo" in code]) == 1
 
 
-async def test_move_items_are_disabled_with_a_reason_when_they_cannot_go(user: User) -> None:
+async def test_move_items_are_disabled_with_a_reason_when_they_cannot_go(
+    user: User,
+) -> None:
     charts, _ = mount_chart(sample_project(), now=NOON)
     await user.open("/")
     chart = charts[0]
@@ -4353,8 +5207,13 @@ async def test_move_items_are_disabled_with_a_reason_when_they_cannot_go(user: U
     await settled(lambda: base.enabled and first.enabled)
 
 
-async def test_the_first_task_item_is_disabled_without_scheduled_tasks(user: User) -> None:
-    charts, _ = mount_chart(Project("p", base_date=BASE, sections=[Section("s", [Task("日程なし")])]), now=NOON)
+async def test_the_first_task_item_is_disabled_without_scheduled_tasks(
+    user: User,
+) -> None:
+    charts, _ = mount_chart(
+        Project("p", base_date=BASE, sections=[Section("s", [Task("日程なし")])]),
+        now=NOON,
+    )
     await user.open("/")
     assert charts[0].first_task_day() is None
     assert not charts[0].move_items["first"][0].enabled
@@ -4364,11 +5223,15 @@ async def test_the_first_task_item_is_disabled_without_scheduled_tasks(user: Use
 async def test_a_normal_bar_asks_for_the_quick_progress_edit(user: User) -> None:
     recorder = mount(sample_project())
     await user.open("/")
-    user.find(marker="bar-0-0").click()  # 修飾キーの判定はブラウザ側(下のスクリプトのテスト)
+    user.find(
+        marker="bar-0-0"
+    ).click()  # 修飾キーの判定はブラウザ側(下のスクリプトのテスト)
     assert recorder.events == [("edit_progress", ((0,), 0))]
 
 
-async def test_the_quick_edit_is_not_offered_in_the_read_only_preview(user: User) -> None:
+async def test_the_quick_edit_is_not_offered_in_the_read_only_preview(
+    user: User,
+) -> None:
     charts, recorder = mount_chart(sample_project(), now=NOON)
     await user.open("/")
     charts[0].set_options(ViewOptions(read_only=True))
@@ -4377,7 +5240,9 @@ async def test_the_quick_edit_is_not_offered_in_the_read_only_preview(user: User
     assert recorder.events == []
 
 
-def test_the_bar_click_script_sends_only_for_shift_and_not_over_buttons(tmp_path: Path) -> None:
+def test_the_bar_click_script_sends_only_for_shift_and_not_over_buttons(
+    tmp_path: Path,
+) -> None:
     node = shutil.which("node")
     if node is None:
         pytest.skip("node がないので動きを確かめない")
@@ -4390,7 +5255,9 @@ def test_the_bar_click_script_sends_only_for_shift_and_not_over_buttons(tmp_path
         "console.log(JSON.stringify({ plain: run(false, false), shift: run(true, false), button: run(true, true) }));\n",
         encoding="utf-8",
     )
-    result = subprocess.run([node, str(sim), BAR_SHIFT_CLICK_JS], capture_output=True, text=True)
+    result = subprocess.run(
+        [node, str(sim), BAR_SHIFT_CLICK_JS], capture_output=True, text=True
+    )
     assert result.returncode == 0, result.stderr
     out = json.loads(result.stdout)
     assert out["plain"] == {"sent": 0, "stopped": False}  # ふつうのクリックは何もしない
@@ -4400,18 +5267,26 @@ def test_the_bar_click_script_sends_only_for_shift_and_not_over_buttons(tmp_path
 
 def click_scripts(user: User, marker: str) -> list[str | None]:
     element = user.find(marker=marker).elements.pop()
-    return [listener.js_handler for listener in element._event_listeners.values() if listener.type == "click"]
+    return [
+        listener.js_handler
+        for listener in element._event_listeners.values()
+        if listener.type == "click"
+    ]
 
 
 async def test_a_week_chip_leaves_modified_clicks_to_the_bar(user: User) -> None:
     # チップの上の Shift クリックは、チップの編集ではなく、棒の簡易入力だけを開く(両方開かない)
     mount(weekly_chart_project())
     await user.open("/")
-    assert click_scripts(user, "week-chip-top-0-1") == [PLAIN_CLICK_JS]  # 修飾キーつきは送らず、棒へ伝える
+    assert click_scripts(user, "week-chip-top-0-1") == [
+        PLAIN_CLICK_JS
+    ]  # 修飾キーつきは送らず、棒へ伝える
     assert click_scripts(user, "bar-top-0") == [BAR_SHIFT_CLICK_JS]
 
 
-def test_the_plain_click_script_ignores_modified_clicks_and_lets_them_bubble(tmp_path: Path) -> None:
+def test_the_plain_click_script_ignores_modified_clicks_and_lets_them_bubble(
+    tmp_path: Path,
+) -> None:
     node = shutil.which("node")
     if node is None:
         pytest.skip("node がないので動きを確かめない")
@@ -4424,9 +5299,14 @@ def test_the_plain_click_script_ignores_modified_clicks_and_lets_them_bubble(tmp
         "console.log(JSON.stringify({ plain: run({}), shift: run({ shift: true }), ctrl: run({ ctrl: true }), meta: run({ meta: true }) }));\n",
         encoding="utf-8",
     )
-    result = subprocess.run([node, str(sim), PLAIN_CLICK_JS], capture_output=True, text=True)
+    result = subprocess.run(
+        [node, str(sim), PLAIN_CLICK_JS], capture_output=True, text=True
+    )
     assert result.returncode == 0, result.stderr
     out = json.loads(result.stdout)
-    assert out["plain"] == {"sent": 1, "stopped": True}  # ふつうのクリックは送り、棒へ伝えない
+    assert out["plain"] == {
+        "sent": 1,
+        "stopped": True,
+    }  # ふつうのクリックは送り、棒へ伝えない
     for key in ("shift", "ctrl", "meta"):
         assert out[key] == {"sent": 0, "stopped": False}  # 修飾キーつきは送らず、伝える

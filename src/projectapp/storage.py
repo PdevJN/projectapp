@@ -14,7 +14,12 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from projectapp.categories import COLORS, migrate_legacy, parse_expiry, validate_categories
+from projectapp.categories import (
+    COLORS,
+    migrate_legacy,
+    parse_expiry,
+    validate_categories,
+)
 from projectapp.events import normalize_color, validate_events
 from projectapp.icons import is_valid_icon
 from projectapp.linkgraph import validate_links
@@ -84,7 +89,8 @@ def list_project_files(base_dir: Path = BASE_DIR) -> list[Path]:
     return sorted(
         p
         for p in base_dir.glob("*.json")
-        if p.stem == p.stem.strip() and validate_name(p.stem, base_dir, new=False) is None
+        if p.stem == p.stem.strip()
+        and validate_name(p.stem, base_dir, new=False) is None
     )
 
 
@@ -95,7 +101,9 @@ def _encode(value: object) -> str:
     raise TypeError(f"{type(value).__name__}はJSONに保存できません")
 
 
-def _task_dicts(tasks: list[dict[str, Any]], sections: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+def _task_dicts(
+    tasks: list[dict[str, Any]], sections: list[dict[str, Any]]
+) -> Iterator[dict[str, Any]]:
     yield from tasks
     for section in sections:
         yield from _task_dicts(section["tasks"], section["sections"])
@@ -128,7 +136,9 @@ def _dump(project: Project) -> dict[str, Any]:
         saved["work_days"] = [asdict(row) for row in sort_work_days(member.work_days)]
     ids: dict[str, str] = {}
     for member in data["members"]:
-        ids.setdefault(member["name"], member["id"])  # 同名は最初の 1 件を指す(読込が残すのも最初の 1 件)
+        ids.setdefault(
+            member["name"], member["id"]
+        )  # 同名は最初の 1 件を指す(読込が残すのも最初の 1 件)
     taken = project.used_ids()
 
     def refs_of(assignees: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -138,7 +148,17 @@ def _dump(project: Project) -> dict[str, Any]:
             if name not in ids:
                 ids[name] = new_id(taken)
                 taken.add(ids[name])
-                data["members"].append({"name": name, "ratio": 1.0, "levels": {}, "id": ids[name], "icon": "", "work_days": [], "teams": []})
+                data["members"].append(
+                    {
+                        "name": name,
+                        "ratio": 1.0,
+                        "levels": {},
+                        "id": ids[name],
+                        "icon": "",
+                        "work_days": [],
+                        "teams": [],
+                    }
+                )
             refs.append({"member": ids[name], "allocation": assignee["allocation"]})
         return refs
 
@@ -176,7 +196,9 @@ def _create_temp(base_dir: Path) -> _Temp:
     while True:
         path = base_dir / f".save-{secrets.token_hex(8)}.tmp"
         try:
-            return _Temp(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666), path)
+            return _Temp(
+                os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666), path
+            )
         except FileExistsError:
             continue
 
@@ -263,7 +285,9 @@ def _datetime(text: str | None) -> datetime | None:
         return None
     moment = datetime.fromisoformat(text)
     if not MIN_YEAR <= moment.year <= MAX_YEAR:
-        raise ValueError(f"日時の年は{MIN_YEAR}〜{MAX_YEAR}の範囲で指定してください: {text}")
+        raise ValueError(
+            f"日時の年は{MIN_YEAR}〜{MAX_YEAR}の範囲で指定してください: {text}"
+        )
     return moment
 
 
@@ -281,7 +305,9 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
     kind = _kind(raw.get("kind"))
     actuals, legacy_progress = _actuals(raw.get("actuals"))
     weekly = _weekly_crew(raw.get("weekly_crew"), ctx) if ctx.version >= 10 else []
-    assignees = union_assignees(weekly) if weekly else _assignees(raw, ctx)  # 週ごとのタスクの担当は週の表が正
+    assignees = (
+        union_assignees(weekly) if weekly else _assignees(raw, ctx)
+    )  # 週ごとのタスクの担当は週の表が正
     task = Task(
         name=_task_name(raw.get("name")),
         id=_task_id(raw.get("id")),
@@ -303,8 +329,12 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         category_id=_category_id(raw.get("category_id")) if ctx.version >= 3 else None,
         children=_children(raw.get("children")) if ctx.version >= 6 else [],
         parameters=_parameter_names(raw.get("parameters")),
-        ref_project=_ref_project(raw.get("ref_project")) if kind is TaskKind.REFERENCE else "",
-        ref_snapshot=_reference_value(raw.get("ref_snapshot")) if ctx.version >= 11 else None,
+        ref_project=_ref_project(raw.get("ref_project"))
+        if kind is TaskKind.REFERENCE
+        else "",
+        ref_snapshot=_reference_value(raw.get("ref_snapshot"))
+        if ctx.version >= 11
+        else None,
     )
     if kind is TaskKind.CHECKPOINT:
         result = _checkpoint(task)
@@ -315,9 +345,13 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
     else:
         result = task
     if ctx.version < 3:
-        ctx.legacy_codes[id(result)] = _project_code(raw.get("project_code"))  # 読込の最後に、カテゴリへ移す
+        ctx.legacy_codes[id(result)] = _project_code(
+            raw.get("project_code")
+        )  # 読込の最後に、カテゴリへ移す
     if raw.get("id") is None:
-        ctx.pending.append(result)  # 読込の最後に、ファイルの他の id と重ならない id を振る
+        ctx.pending.append(
+            result
+        )  # 読込の最後に、ファイルの他の id と重ならない id を振る
     return result
 
 
@@ -518,19 +552,31 @@ def _events(value: Any, version: int = FORMAT_VERSION) -> list[Event]:
     for raw in value:
         if not isinstance(raw, dict):
             raise ValueError("イベントの形式が正しくありません")
-        dates = [_iso_date(raw.get("start"), "開始日"), _iso_date(raw.get("end"), "終了日")]
+        dates = [
+            _iso_date(raw.get("start"), "開始日"),
+            _iso_date(raw.get("end"), "終了日"),
+        ]
         text = raw.get("text")
         if not isinstance(text, str):
             raise ValueError(f"イベントの文字列が文字列ではありません: {text!r}")
         color = raw.get("color", "gray")
         normalized = normalize_color(color) if isinstance(color, str) else None
         if normalized is None:
-            raise ValueError(f"イベントの色が正しくありません: {color!r}(#RRGGBB か、red・orange・gray などの色名)")
+            raise ValueError(
+                f"イベントの色が正しくありません: {color!r}(#RRGGBB か、red・orange・gray などの色名)"
+            )
         closed = raw.get("closed", False) if version >= 15 else False
         if not isinstance(closed, bool):
             raise ValueError(f"イベントの休みが真偽値ではありません: {closed!r}")
         events.append(
-            Event(dates[0], dates[1], text.strip(), normalized, _entity_id(raw.get("id"), "イベント"), closed=closed)
+            Event(
+                dates[0],
+                dates[1],
+                text.strip(),
+                normalized,
+                _entity_id(raw.get("id"), "イベント"),
+                closed=closed,
+            )
         )
     validate_events(events)
     return events
@@ -561,7 +607,9 @@ def _work_days(value: Any, version: int = FORMAT_VERSION) -> list[WorkDay]:
                         raise ValueError(text)
                     times.append(time.fromisoformat(text))
                 except ValueError:
-                    raise ValueError(f"稼働日の{key}の形式が正しくありません: {text!r}") from None
+                    raise ValueError(
+                        f"稼働日の{key}の形式が正しくありません: {text!r}"
+                    ) from None
             else:
                 raise ValueError(f"稼働日の{key}が文字列ではありません: {text!r}")
         note = raw.get("note") if version >= 14 else None
@@ -574,7 +622,9 @@ def _work_days(value: Any, version: int = FORMAT_VERSION) -> list[WorkDay]:
     return sort_work_days(rows)
 
 
-_CLOCK = re.compile(r"\d{2}:\d{2}(:00)?")  # 時刻は HH:MM か HH:MM:00(秒未満・タイムゾーンは不可)
+_CLOCK = re.compile(
+    r"\d{2}:\d{2}(:00)?"
+)  # 時刻は HH:MM か HH:MM:00(秒未満・タイムゾーンは不可)
 
 
 def _kind(value: Any) -> TaskKind:
@@ -654,10 +704,16 @@ def _ratio_limit(value: Any, name: str) -> float | None:
     """相対比率の上限・下限。null は設定なし(既定の 50〜150%)。数値以外・非有限・範囲外は ValueError。"""
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, int | float) or not isfinite(value):
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not isfinite(value)
+    ):
         raise ValueError(f"{name}が正しくありません: {value!r}")
     if not DEFAULT_RATIO_MIN - 1e-9 <= value <= DEFAULT_RATIO_MAX + 1e-9:
-        raise ValueError(f"{name}は{DEFAULT_RATIO_MIN * 100:g}〜{DEFAULT_RATIO_MAX * 100:g}%で指定してください: {value!r}")
+        raise ValueError(
+            f"{name}は{DEFAULT_RATIO_MIN * 100:g}〜{DEFAULT_RATIO_MAX * 100:g}%で指定してください: {value!r}"
+        )
     return round(float(value), 4)
 
 
@@ -669,8 +725,14 @@ def _ratio_limits(raw: dict[str, Any], version: int) -> RatioLimits:
         upper=_ratio_limit(raw.get("ratio_limit_upper"), "相対比率の上限"),
         lower=_ratio_limit(raw.get("ratio_limit_lower"), "相対比率の下限"),
     )
-    if limits.upper is not None and limits.lower is not None and limits.lower > limits.upper:
-        raise ValueError(f"相対比率の下限が上限を上回っています: {limits.lower!r} > {limits.upper!r}")
+    if (
+        limits.upper is not None
+        and limits.lower is not None
+        and limits.lower > limits.upper
+    ):
+        raise ValueError(
+            f"相対比率の下限が上限を上回っています: {limits.lower!r} > {limits.upper!r}"
+        )
     return limits
 
 
@@ -708,7 +770,12 @@ def _reference_value(raw: Any) -> ReferenceValue | None:
         if isinstance(warned, bool) or not isinstance(warned, int) or warned < 0:
             raise ValueError("スナップショットの警告の件数が正しくありません")
         peak = raw.get("peak_load", 0.0)
-        if isinstance(peak, bool) or not isinstance(peak, int | float) or not isfinite(peak) or peak < 0:
+        if (
+            isinstance(peak, bool)
+            or not isinstance(peak, int | float)
+            or not isfinite(peak)
+            or peak < 0
+        ):
             raise ValueError("スナップショットの負荷が正しくありません")
         spans = raw.get("overloads") or []
         if not isinstance(spans, list):
@@ -822,11 +889,21 @@ def _task_urls(value: Any) -> list[TaskUrl]:
     for raw in value:
         if not isinstance(raw, dict):
             raise ValueError("リンクがオブジェクトではありません")
-        title, template, values = raw.get("title", ""), raw.get("template"), raw.get("values")
-        if not isinstance(title, str) or not (template is None or isinstance(template, str)):
+        title, template, values = (
+            raw.get("title", ""),
+            raw.get("template"),
+            raw.get("values"),
+        )
+        if not isinstance(title, str) or not (
+            template is None or isinstance(template, str)
+        ):
             raise ValueError("リンクの表示名かテンプレート名が文字列ではありません")
         key = URL_KEY if template is None else ID_KEY
-        if not isinstance(values, dict) or set(values) != {key} or not isinstance(values[key], str):
+        if (
+            not isinstance(values, dict)
+            or set(values) != {key}
+            or not isinstance(values[key], str)
+        ):
             raise ValueError(f"リンクの値が正しくありません(キーは {key} だけです)")
         urls.append(TaskUrl(title, template, dict(values)))
     return urls
@@ -886,7 +963,9 @@ def _assignees(raw: dict[str, Any], ctx: "_Context") -> list[Assignee]:
         return _member_assignees(raw.get("assignees"), ctx.member_names)
     value = raw.get("assignees")
     if value is None:
-        allocation = _allocation(raw.get("allocation", 1.0))  # 古いファイルも、不正な値は拒否する
+        allocation = _allocation(
+            raw.get("allocation", 1.0)
+        )  # 古いファイルも、不正な値は拒否する
         name = _assignee(raw.get("assignee"))
         return [Assignee(name, allocation)] if name else []
     if not isinstance(value, list):
@@ -944,7 +1023,12 @@ def _parameters(value: Any) -> list[Parameter]:
                 raise ValueError(f"段階名が重複しています: {name} の {level_name}")
             level_names.add(level_name)
             levels.append(
-                Level(level_name, _number_in_range(item.get("value"), MIN_LEVEL_VALUE, MAX_LEVEL_VALUE, "判定値"))
+                Level(
+                    level_name,
+                    _number_in_range(
+                        item.get("value"), MIN_LEVEL_VALUE, MAX_LEVEL_VALUE, "判定値"
+                    ),
+                )
             )
         parameters.append(Parameter(name, levels))
     return parameters
@@ -954,7 +1038,9 @@ def _member_levels(value: Any) -> dict[str, str]:
     """メンバーが選んだ段階(パラメータ名 → 段階名)。キーがない・null は空。存在しない参照は拒否しない。"""
     if value is None:
         return {}
-    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+    if not isinstance(value, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in value.items()
+    ):
         raise ValueError("メンバーの段階の選択が正しくありません")
     return dict(value)
 
@@ -977,7 +1063,9 @@ def _section(raw: Any, depth: int, ctx: "_Context") -> Section:
             raise ValueError(f"セクションの id が重複しています: {section_id}")
         ctx.section_ids.add(section_id)
     section = Section(
-        raw["name"], [_task(t, ctx) for t in raw["tasks"]], [_section(c, depth + 1, ctx) for c in children]
+        raw["name"],
+        [_task(t, ctx) for t in raw["tasks"]],
+        [_section(c, depth + 1, ctx) for c in children],
     )
     if section_id is not None:
         section.id = section_id
@@ -1000,7 +1088,9 @@ def _warning_limit(value: Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"メンバーの警告の件数が整数ではありません: {value!r}")
     if not MIN_WARNING_LIMIT <= value <= MAX_WARNING_LIMIT:
-        raise ValueError(f"メンバーの警告の件数は{MIN_WARNING_LIMIT}〜{MAX_WARNING_LIMIT}で指定してください: {value}")
+        raise ValueError(
+            f"メンバーの警告の件数は{MIN_WARNING_LIMIT}〜{MAX_WARNING_LIMIT}で指定してください: {value}"
+        )
     return value
 
 
@@ -1011,15 +1101,25 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
     ids: set[str] = set()
     for raw in raw_members:
         name = str(raw["name"]).strip()
-        ratio = _number_in_range(raw.get("ratio", 1.0), MIN_RATIO, MAX_RATIO, "相対比率")
+        ratio = _number_in_range(
+            raw.get("ratio", 1.0), MIN_RATIO, MAX_RATIO, "相対比率"
+        )
         levels = _member_levels(raw.get("levels"))
         icon = _icon(raw.get("icon")) if ctx.version >= 7 else ""
-        work_days = _work_days(raw.get("work_days"), ctx.version) if ctx.version >= 8 else []
+        work_days = (
+            _work_days(raw.get("work_days"), ctx.version) if ctx.version >= 8 else []
+        )
         unclamped = raw.get("ratio_unclamped", False) if ctx.version >= 16 else False
         if not isinstance(unclamped, bool):
-            raise ValueError(f"メンバーの丸め対象外の設定が真偽値ではありません: {unclamped!r}")
-        teams = _memberships(raw.get("teams"), ctx.team_ids) if ctx.version >= 17 else []
-        warning_limit = _warning_limit(raw.get("warning_limit")) if ctx.version >= 19 else None
+            raise ValueError(
+                f"メンバーの丸め対象外の設定が真偽値ではありません: {unclamped!r}"
+            )
+        teams = (
+            _memberships(raw.get("teams"), ctx.team_ids) if ctx.version >= 17 else []
+        )
+        warning_limit = (
+            _warning_limit(raw.get("warning_limit")) if ctx.version >= 19 else None
+        )
         member_id = None
         if ctx.version >= 2:
             member_id = _entity_id(raw.get("id"), "メンバー")
@@ -1027,11 +1127,22 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
                 raise ValueError(f"メンバーの id が重複しています: {member_id}")
             ids.add(member_id)
             if name:
-                ctx.member_names[member_id] = name  # 捨てる同名のメンバーを指す担当者も、名前で残ったメンバーへ読める
+                ctx.member_names[member_id] = (
+                    name  # 捨てる同名のメンバーを指す担当者も、名前で残ったメンバーへ読める
+                )
         if not name or name in seen:
             continue
         seen.add(name)
-        member = Member(name, ratio, levels, icon=icon, work_days=work_days, ratio_unclamped=unclamped, teams=teams, warning_limit=warning_limit)
+        member = Member(
+            name,
+            ratio,
+            levels,
+            icon=icon,
+            work_days=work_days,
+            ratio_unclamped=unclamped,
+            teams=teams,
+            warning_limit=warning_limit,
+        )
         if member_id is not None:
             member.id = member_id
         members.append(member)
@@ -1084,11 +1195,19 @@ class _Context:
     """読込の途中で持ち回るもの。version 2 の担当者の解決と、id の重複・振り直しに使う。"""
 
     version: int
-    member_names: dict[str, str] = field(default_factory=dict)  # version 2: メンバー id → 名前(名前が空のメンバーは入れない)
+    member_names: dict[str, str] = field(
+        default_factory=dict
+    )  # version 2: メンバー id → 名前(名前が空のメンバーは入れない)
     section_ids: set[str] = field(default_factory=set)
-    pending: list[Task] = field(default_factory=list)  # id のないタスク(古いファイル)。読込の最後に id を振る
-    team_ids: set[str] = field(default_factory=set)  # version 17: 読んだチームの id(メンバーの所属の検証に使う)
-    legacy_codes: dict[int, str] = field(default_factory=dict)  # version 2 以前: タスク(id())→ 旧 ProjectCode。読込の最後にカテゴリへ移す
+    pending: list[Task] = field(
+        default_factory=list
+    )  # id のないタスク(古いファイル)。読込の最後に id を振る
+    team_ids: set[str] = field(
+        default_factory=set
+    )  # version 17: 読んだチームの id(メンバーの所属の検証に使う)
+    legacy_codes: dict[int, str] = field(
+        default_factory=dict
+    )  # version 2 以前: タスク(id())→ 旧 ProjectCode。読込の最後にカテゴリへ移す
 
 
 def _entity_id(value: Any, label: str) -> str:
@@ -1106,7 +1225,9 @@ def _check_version(raw: dict[str, Any]) -> int:
     if isinstance(version, bool) or not isinstance(version, int) or version < 1:
         raise ValueError(f"version が正しくありません: {version!r}")
     if version > FORMAT_VERSION:
-        raise ValueError(f"このアプリより新しい形式です(version {version})。アプリを更新してください")
+        raise ValueError(
+            f"このアプリより新しい形式です(version {version})。アプリを更新してください"
+        )
     return version
 
 
@@ -1124,7 +1245,9 @@ def parse_project(text: str, name: str) -> Project:
     ctx = _Context(_check_version(raw))
     teams = _teams(raw.get("teams")) if ctx.version >= 17 else []
     ctx.team_ids = {t.id for t in teams}
-    members = _members(raw["members"], ctx)  # version 2 の担当者の解決に要るので、タスクより先に読む
+    members = _members(
+        raw["members"], ctx
+    )  # version 2 の担当者の解決に要るので、タスクより先に読む
     sections = [_section(s, 1, ctx) for s in raw["sections"]]
     ratio_limits = _ratio_limits(raw, ctx.version)
     project = Project(
@@ -1141,9 +1264,13 @@ def parse_project(text: str, name: str) -> Project:
         parameters=_parameters(raw.get("parameters")),
         categories=_categories(raw.get("categories")) if ctx.version >= 3 else [],
         events=_events(raw.get("events"), ctx.version) if ctx.version >= 4 else [],
-        reference_mode=_reference_mode(raw.get("reference_mode")) if ctx.version >= 11 else ReferenceMode.LIVE,
+        reference_mode=_reference_mode(raw.get("reference_mode"))
+        if ctx.version >= 11
+        else ReferenceMode.LIVE,
         plantuml_overload_notice=(
-            _plantuml_overload_notice(raw.get("plantuml_overload_notice", True)) if ctx.version >= 12 else True
+            _plantuml_overload_notice(raw.get("plantuml_overload_notice", True))
+            if ctx.version >= 12
+            else True
         ),
         ratio_limit_upper=ratio_limits.upper,
         ratio_limit_lower=ratio_limits.lower,
@@ -1153,24 +1280,32 @@ def parse_project(text: str, name: str) -> Project:
             if task.ref_project == name:
                 raise ValueError(f"参照先が自分自身です: {task.name}")
             if project.reference_mode is ReferenceMode.LIVE:
-                task.ref_snapshot = None  # 常に最新のプロジェクトは、スナップショットを持たない
+                task.ref_snapshot = (
+                    None  # 常に最新のプロジェクトは、スナップショットを持たない
+                )
         else:
             task.ref_snapshot = None
     known = {m.name for m in project.members}
-    for task in project.all_tasks():  # 古いファイルの自由入力の担当者を、メンバーとして補う
+    for (
+        task
+    ) in project.all_tasks():  # 古いファイルの自由入力の担当者を、メンバーとして補う
         for assignee in task.assignees:
             if assignee.name not in known:
                 known.add(assignee.name)
                 project.members.append(Member(assignee.name, 1.0))
     _assign_ids(project, ctx)
-    if ctx.version < 3:  # 旧 ProjectCode をカテゴリへ移す(id は、振り終えた他の id と重ならないようにする)
+    if (
+        ctx.version < 3
+    ):  # 旧 ProjectCode をカテゴリへ移す(id は、振り終えた他の id と重ならないようにする)
         pairs = [(t, ctx.legacy_codes.get(id(t), "")) for t in project.all_tasks()]
         project.categories = migrate_legacy(pairs, project.used_ids())
     else:
         known = {c.id for c in project.categories}
         for task in project.all_tasks():
             if task.category_id is not None and task.category_id not in known:
-                raise ValueError(f"タスクのカテゴリが見つかりません: {task.category_id!r}")
+                raise ValueError(
+                    f"タスクのカテゴリが見つかりません: {task.category_id!r}"
+                )
     validate_links(project.all_tasks())
     for task in project.all_tasks():
         validate_urls(task.urls, project.url_templates)

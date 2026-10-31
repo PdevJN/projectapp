@@ -13,7 +13,9 @@ CONFLICTS = [
 def mount(applied: list[dict], cancelled: list[bool]) -> None:
     @ui.page("/")
     def index() -> None:
-        open_merge_conflict_dialog("甲.json", CONFLICTS, applied.append, lambda: cancelled.append(True))
+        open_merge_conflict_dialog(
+            "甲.json", CONFLICTS, applied.append, lambda: cancelled.append(True)
+        )
 
 
 def element(user: User, marker: str) -> ui.element:
@@ -50,7 +52,9 @@ async def test_abort_cancels_once(user: User) -> None:
     assert cancelled == [True] and applied == []
 
 
-async def test_hide_cancels_even_though_disposable_deletes_the_dialog(user: User) -> None:
+async def test_hide_cancels_even_though_disposable_deletes_the_dialog(
+    user: User,
+) -> None:
     """ESC・外側のクリックは`hide`で届く。`disposable`の削除より前に、中止が呼ばれること。"""
     applied: list[dict] = []
     cancelled: list[bool] = []
@@ -59,5 +63,7 @@ async def test_hide_cancels_even_though_disposable_deletes_the_dialog(user: User
     dialog = next(e for e in user.client.elements.values() if isinstance(e, ui.dialog))
     for listener in list(dialog._event_listeners.values()):
         if listener.type == "hide":
-            user.client.handle_event({"id": dialog.id, "listener_id": listener.id, "args": []})
+            user.client.handle_event(
+                {"id": dialog.id, "listener_id": listener.id, "args": []}
+            )
     assert cancelled == [True] and applied == []

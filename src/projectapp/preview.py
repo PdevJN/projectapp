@@ -27,7 +27,9 @@ from projectapp.periodfield import (  # noqa: F401  (他の画面とテストが
 from projectapp.task_dialog import normalize_field
 from projectapp.timeline import Scale, build_columns
 
-LARGE_IMAGE_MESSAGE = "画像が大きいため、縮小して保存されます(期間かスケールを変えると小さくできます)"
+LARGE_IMAGE_MESSAGE = (
+    "画像が大きいため、縮小して保存されます(期間かスケールを変えると小さくできます)"
+)
 NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、画像として保存できます"
 # 資料に貼ると、画像の幅に合わせて縮む。これを超えると、文字が小さくなりすぎるので、粗いスケールで開く
 PREVIEW_COMFORT_WIDTH_PX = 6000
@@ -42,10 +44,14 @@ class PreviewSettings:
     show_chips: bool = True
     show_alerts: bool = True
     show_events: bool = True
-    excluded: frozenset[str] = frozenset()  # PlantUML と画像に出さないタスクの id(チェックを外したもの)
+    excluded: frozenset[str] = (
+        frozenset()
+    )  # PlantUML と画像に出さないタスクの id(チェックを外したもの)
     show_today: bool = True
 
-    def to_options(self, on_select: Callable[[list[str], bool], object] | None = None) -> ViewOptions:
+    def to_options(
+        self, on_select: Callable[[list[str], bool], object] | None = None
+    ) -> ViewOptions:
         return ViewOptions(
             period=(self.start, self.end),
             scale=self.scale,
@@ -71,7 +77,10 @@ def fit_scale(
     """全期間の画像の幅が快適な幅に収まるまで、スケールを 1 段ずつ粗くする。細かくはしない。月次は、広くても月次。"""
     for candidate in COARSER[COARSER.index(scale) :]:
         columns = build_columns(project, candidate, holidays, period, references)
-        if name_width + COLUMN_WIDTH_PX[candidate] * len(columns) <= PREVIEW_COMFORT_WIDTH_PX:
+        if (
+            name_width + COLUMN_WIDTH_PX[candidate] * len(columns)
+            <= PREVIEW_COMFORT_WIDTH_PX
+        ):
             return candidate
     return Scale.MONTH
 
@@ -100,46 +109,85 @@ class PreviewBar:
 
     def build(self) -> None:
         with ui.column().classes("w-full gap-1") as box:
-            with ui.row().classes("w-full items-center gap-4").mark("preview-bar"):  # 1 段目: 出力の条件と戻る
-                self.period = ui.input("期間", placeholder="2026-10-01 〜 2026-10-31").classes("w-72").mark(
-                    "preview-period"
+            with (
+                ui.row().classes("w-full items-center gap-4").mark("preview-bar")
+            ):  # 1 段目: 出力の条件と戻る
+                self.period = (
+                    ui.input("期間", placeholder="2026-10-01 〜 2026-10-31")
+                    .classes("w-72")
+                    .mark("preview-period")
                 )
                 add_range_picker(self.period, "preview")
                 # 両端の 10/15・1015・20261015 を YYYY-MM-DD に整える
                 self.period.on(
-                    "blur", lambda _e: normalize_field(self.period, lambda t: normalize_period(t, task_dialog.today()))
+                    "blur",
+                    lambda _e: normalize_field(
+                        self.period, lambda t: normalize_period(t, task_dialog.today())
+                    ),
                 )
-                self.scale = ui.toggle({s.value: s.value for s in Scale}).mark("preview-scale")
-                with ui.button("表示項目", icon="tune").props("flat dense").mark("preview-display-menu"):
+                self.scale = ui.toggle({s.value: s.value for s in Scale}).mark(
+                    "preview-scale"
+                )
+                with (
+                    ui.button("表示項目", icon="tune")
+                    .props("flat dense")
+                    .mark("preview-display-menu")
+                ):
                     with ui.menu():  # チェックを押してもメニューは閉じない(Quasar の既定。auto-close は付けない)
                         with ui.column().classes("gap-0 q-pa-sm"):
-                            self.chips = ui.checkbox("チップと進捗", value=True).mark("preview-chips")
-                            self.alerts = ui.checkbox("遅れの赤みと割り当て超過の縞", value=True).mark(
-                                "preview-alerts"
+                            self.chips = ui.checkbox("チップと進捗", value=True).mark(
+                                "preview-chips"
                             )
-                            self.events = ui.checkbox("イベント", value=True).mark("preview-events")
-                            self.today = ui.checkbox("今日", value=True).mark("preview-today")
+                            self.alerts = ui.checkbox(
+                                "遅れの赤みと割り当て超過の縞", value=True
+                            ).mark("preview-alerts")
+                            self.events = ui.checkbox("イベント", value=True).mark(
+                                "preview-events"
+                            )
+                            self.today = ui.checkbox("今日", value=True).mark(
+                                "preview-today"
+                            )
                 ui.space()
-                ui.button("戻る", icon="arrow_back", on_click=lambda: self.on_back()).props("flat").mark(
-                    "preview-back"
+                ui.button(
+                    "戻る", icon="arrow_back", on_click=lambda: self.on_back()
+                ).props("flat").mark("preview-back")
+            with (
+                ui.row().classes("w-full items-center gap-4").mark("preview-output")
+            ):  # 2 段目: 出力の選択と保存
+                self.select_all = ui.checkbox("すべて選択", value=True).mark(
+                    "preview-select-all"
                 )
-            with ui.row().classes("w-full items-center gap-4").mark("preview-output"):  # 2 段目: 出力の選択と保存
-                self.select_all = ui.checkbox("すべて選択", value=True).mark("preview-select-all")
-                self.select_count = ui.label("").classes("text-caption").mark("preview-select-count")
+                self.select_count = (
+                    ui.label("").classes("text-caption").mark("preview-select-count")
+                )
                 ui.space()
-                with ui.button("保存", icon="save").mark("preview-save-menu") as self.save_menu_button:
+                with ui.button("保存", icon="save").mark(
+                    "preview-save-menu"
+                ) as self.save_menu_button:
                     with ui.menu():
                         self.save_button = ui.menu_item(
                             "画像として保存", on_click=lambda: self.on_save()
                         ).mark("preview-save")
                         self.plantuml_button = ui.menu_item(
-                            "PlantUML として保存", on_click=lambda: self.on_save_plantuml()
+                            "PlantUML として保存",
+                            on_click=lambda: self.on_save_plantuml(),
                         ).mark("preview-plantuml")
-            self.error = ui.label("").classes("text-negative text-caption").mark("preview-error")
-            self.warning = ui.label("").classes("text-caption text-grey").mark("preview-warning")
+            self.error = (
+                ui.label("").classes("text-negative text-caption").mark("preview-error")
+            )
+            self.warning = (
+                ui.label("").classes("text-caption text-grey").mark("preview-warning")
+            )
         box.set_visibility(False)
         self.box = box
-        for widget in (self.period, self.scale, self.chips, self.alerts, self.events, self.today):
+        for widget in (
+            self.period,
+            self.scale,
+            self.chips,
+            self.alerts,
+            self.events,
+            self.today,
+        ):
             widget.on_value_change(lambda _event: self.on_change())
         self.select_all.on_value_change(self.on_select_all_changed)
 
@@ -149,11 +197,19 @@ class PreviewBar:
 
     def set_selection(self, selected: int, total: int) -> None:
         """出力するタスクの数を表す。「すべて選択」は、全部で ON・全部外れで OFF・混在で中間。"""
-        state = CheckState.ON if selected == total else CheckState.OFF if selected == 0 else CheckState.MIXED
+        state = (
+            CheckState.ON
+            if selected == total
+            else CheckState.OFF
+            if selected == 0
+            else CheckState.MIXED
+        )
         self.select_state = state
         self.syncing = True  # 値を入れ直すときは、通知しない
         try:
-            self.select_all.set_value(None if state is CheckState.MIXED else state is CheckState.ON)
+            self.select_all.set_value(
+                None if state is CheckState.MIXED else state is CheckState.ON
+            )
         finally:
             self.syncing = False
         self.select_count.set_text(f"{selected} / {total} 件を出力")

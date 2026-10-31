@@ -22,15 +22,21 @@ def validate_work_days(days: list[WorkDay]) -> None:
     seen: set[date] = set()
     for row in days:
         if not MIN_YEAR <= row.day.year <= MAX_YEAR:
-            raise ValueError(f"稼働日の日付は {MIN_YEAR}〜{MAX_YEAR} 年にしてください: {row.day.isoformat()}")
+            raise ValueError(
+                f"稼働日の日付は {MIN_YEAR}〜{MAX_YEAR} 年にしてください: {row.day.isoformat()}"
+            )
         if row.day in seen:
             raise ValueError(f"稼働日の日付が重複しています: {row.day.isoformat()}")
         seen.add(row.day)
         validate_note(row.note)
         if (row.start is None) != (row.end is None):
-            raise ValueError(f"稼働日の開始と終了は、両方入れるか休みにしてください: {row.day.isoformat()}")
+            raise ValueError(
+                f"稼働日の開始と終了は、両方入れるか休みにしてください: {row.day.isoformat()}"
+            )
         if row.start is not None and row.end is not None and row.start >= row.end:
-            raise ValueError(f"稼働日の終了は開始より後にしてください: {row.day.isoformat()}")
+            raise ValueError(
+                f"稼働日の終了は開始より後にしてください: {row.day.isoformat()}"
+            )
 
 
 def sort_work_days(days: list[WorkDay]) -> list[WorkDay]:
@@ -69,7 +75,9 @@ def expand_range(
     for offset in range(count):
         day = start + timedelta(days=offset)
         if not MIN_YEAR <= day.year <= MAX_YEAR:
-            raise ValueError(f"稼働日の日付は {MIN_YEAR}〜{MAX_YEAR} 年にしてください: {day.isoformat()}")
+            raise ValueError(
+                f"稼働日の日付は {MIN_YEAR}〜{MAX_YEAR} 年にしてください: {day.isoformat()}"
+            )
         if skip_off and (day.weekday() >= 5 or day in holidays):
             off += 1
         elif day in taken:

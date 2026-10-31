@@ -7,7 +7,15 @@ from datetime import date, datetime, timedelta
 from enum import Enum
 
 from projectapp.effortunits import DECIMALS
-from projectapp.models import MAX_YEAR, MIN_YEAR, Assignee, Project, Task, TaskKind, walk_sections
+from projectapp.models import (
+    MAX_YEAR,
+    MIN_YEAR,
+    Assignee,
+    Project,
+    Task,
+    TaskKind,
+    walk_sections,
+)
 from projectapp.linkgraph import drop_task_links
 from projectapp.merge import fill_empty_weeks
 from projectapp.models import union_assignees
@@ -34,7 +42,9 @@ class CrewMode(Enum):
 @dataclass(frozen=True)
 class CrewChange:
     mode: CrewMode
-    members: tuple[Assignee, ...] = ()  # ADD・REMOVE は 1 人(REMOVE は名前だけ使う)。REPLACE は一覧
+    members: tuple[
+        Assignee, ...
+    ] = ()  # ADD・REMOVE は 1 人(REMOVE は名前だけ使う)。REPLACE は一覧
 
 
 @dataclass(frozen=True)
@@ -74,12 +84,16 @@ class BulkChanges:
 
     @property
     def any_change(self) -> bool:
-        return any(c is not None for c in (self.crew, self.category, self.end, self.effort))
+        return any(
+            c is not None for c in (self.crew, self.category, self.end, self.effort)
+        )
 
 
 @dataclass
 class BulkResult:
-    tasks: dict[str, Task] = field(default_factory=dict)  # 変わったタスクだけ(id → 変更後)。描画順
+    tasks: dict[str, Task] = field(
+        default_factory=dict
+    )  # 変わったタスクだけ(id → 変更後)。描画順
     skips: Counter[str] = field(default_factory=Counter)  # 理由 → 項目の数
     review_needed: int = 0  # 換算率が変わり、完了予定の見直しが要るタスク
     manual_switched: int = 0  # 自動算出から手で指定に変わったタスク(工数あり)
@@ -123,15 +137,26 @@ def _effort(task: Task, change: EffortChange, result: BulkResult) -> Task:
     return replace(task, effort_hours=hours)
 
 
-def _end(task: Task, original: Task, change: EndChange, project: Project, holidays: dict[date, str], result: BulkResult) -> Task:
+def _end(
+    task: Task,
+    original: Task,
+    change: EndChange,
+    project: Project,
+    holidays: dict[date, str],
+    result: BulkResult,
+) -> Task:
     if task.kind is not TaskKind.NORMAL:
         result.skip(SKIP_KIND)
         return task
     if change.mode is EndMode.DATE:
         assert change.day is not None
-        new_end = datetime.combine(change.day, project.work_start) + timedelta(hours=project.daily_hours)
+        new_end = datetime.combine(change.day, project.work_start) + timedelta(
+            hours=project.daily_hours
+        )
     else:
-        base = own_end(original, project, holidays)  # 押し出しを含めない(手指定にすると押し出しは二重に掛かるため)
+        base = own_end(
+            original, project, holidays
+        )  # 押し出しを含めない(手指定にすると押し出しは二重に掛かるため)
         if base is None:
             result.skip(SKIP_NO_END)
             return task
@@ -151,7 +176,12 @@ def _end(task: Task, original: Task, change: EndChange, project: Project, holida
     return replace(task, planned_end=new_end, planned_end_manual=True)
 
 
-def apply_bulk(project: Project, ids: Sequence[str], changes: BulkChanges, holidays: dict[date, str]) -> BulkResult:
+def apply_bulk(
+    project: Project,
+    ids: Sequence[str],
+    changes: BulkChanges,
+    holidays: dict[date, str],
+) -> BulkResult:
     """ids(描画順)のタスクに changes を当てた結果を返す。project は変えない(ダイアログの見込みにも使う)。
     項目の順は 担当 → カテゴリ → 工数 → 完了予定。ずらしの基準は、元のタスクの完了予定。"""
     by_id = project.task_map()
@@ -175,7 +205,10 @@ def apply_bulk(project: Project, ids: Sequence[str], changes: BulkChanges, holid
 
 
 def _task_lists(project: Project) -> list[list[Task]]:
-    return [project.tasks, *(section.tasks for _, section in walk_sections(project.sections))]
+    return [
+        project.tasks,
+        *(section.tasks for _, section in walk_sections(project.sections)),
+    ]
 
 
 def store(project: Project, result: BulkResult) -> None:
@@ -190,7 +223,9 @@ def forecast_text(result: BulkResult, total: int) -> str:
     """ダイアログの適用前の見込み。"""
     text = f"対象 {total} 件 / 変更 {result.changed} 件"
     if result.skips:
-        reasons = "・".join(f"{reason} {count}" for reason, count in result.skips.items())
+        reasons = "・".join(
+            f"{reason} {count}" for reason, count in result.skips.items()
+        )
         text += f" / スキップ {result.skipped} 項目({reasons})"
     return text
 
@@ -199,14 +234,14 @@ def _copy(crew: Sequence[Assignee]) -> list[Assignee]:
     return [Assignee(a.name, a.allocation) for a in crew]
 
 
-def _crew(
-    task: Task, change: CrewChange, project: Project, result: BulkResult
-) -> Task:
+def _crew(task: Task, change: CrewChange, project: Project, result: BulkResult) -> Task:
     if task.kind is not TaskKind.NORMAL:
         result.skip(SKIP_KIND)
         return task
     new = _crew_applied(task, change, project, result)
-    if new != task and needs_review(new, conversion_rate(task, project), conversion_rate(new, project)):
+    if new != task and needs_review(
+        new, conversion_rate(task, project), conversion_rate(new, project)
+    ):
         result.review_needed += 1
     return new
 
@@ -219,8 +254,15 @@ def _crew_applied(
         who = change.members[0]
 
         def add(crew: Sequence[Assignee]) -> list[Assignee]:
-            merged = [Assignee(a.name, who.allocation if a.name == who.name else a.allocation) for a in crew]
-            return merged if any(a.name == who.name for a in crew) else [*merged, Assignee(who.name, who.allocation)]
+            merged = [
+                Assignee(a.name, who.allocation if a.name == who.name else a.allocation)
+                for a in crew
+            ]
+            return (
+                merged
+                if any(a.name == who.name for a in crew)
+                else [*merged, Assignee(who.name, who.allocation)]
+            )
 
         if weeks:
             added = [add(w) for w in weeks]

@@ -19,8 +19,12 @@ class Shortcut:
     desc: str
     ctrl: bool = False  # Ctrl(macOS では Cmd)
     shift: bool = False  # ctrl のときだけ区別する(文字キーでは、`?` のように Shift が要るため見ない)
-    aliases: tuple[str, ...] = ()  # 同じ操作にする別のキー(配列によって `+` を打つキーが違う)
-    any_shift: bool = False  # Shift の有無を見ない(`+` は、配列によって Shift が要る・要らない)
+    aliases: tuple[
+        str, ...
+    ] = ()  # 同じ操作にする別のキー(配列によって `+` を打つキーが違う)
+    any_shift: bool = (
+        False  # Shift の有無を見ない(`+` は、配列によって Shift が要る・要らない)
+    )
     always: bool = False  # ダイアログが開いていても、プレビュー・ダッシュボードでも効く
     in_inputs: bool = True  # False のキーは、入力欄にフォーカスがあるとき、アプリが受けず、ブラウザの標準動作も止めない(Ctrl/Cmd+Z の文字の取り消し)
 
@@ -30,7 +34,11 @@ class Shortcut:
         if self.key == "delete":
             return "Delete"
         prefix = ("Ctrl/Cmd+" if self.ctrl else "") + ("Shift+" if self.shift else "")
-        return prefix + self.key.upper() if len(self.key) == 1 and self.key.isalpha() else prefix + self.key
+        return (
+            prefix + self.key.upper()
+            if len(self.key) == 1 and self.key.isalpha()
+            else prefix + self.key
+        )
 
 
 SHORTCUTS: tuple[Shortcut, ...] = (
@@ -47,7 +55,12 @@ SHORTCUTS: tuple[Shortcut, ...] = (
     Shortcut("l", "git_pull", "プル", ctrl=True, shift=True),
     Shortcut("z", "undo", "元に戻す", ctrl=True, in_inputs=False),
     Shortcut("z", "redo", "やり直す", ctrl=True, shift=True, in_inputs=False),
-    Shortcut("delete", "bulk_delete", "選択中のタスクを削除(macOS の delete キーも可)", aliases=("backspace",)),
+    Shortcut(
+        "delete",
+        "bulk_delete",
+        "選択中のタスクを削除(macOS の delete キーも可)",
+        aliases=("backspace",),
+    ),
     Shortcut("d", "dashboard", "ダッシュボード"),
     Shortcut("/", "search", "タスク名の検索欄へ移る"),
     Shortcut("t", "go_today", "ガントチャートを当日へ移す"),
@@ -57,14 +70,28 @@ SHORTCUTS: tuple[Shortcut, ...] = (
     Shortcut("[", "go_prev_week", "ガントチャートを前の週へ移す"),
     Shortcut("]", "go_next_week", "ガントチャートを次の週へ移す"),
     Shortcut("?", "help", "ショートカットヘルプ"),
-    Shortcut("+", "zoom_in", "画面を拡大(=・; でも可)", ctrl=True, aliases=("=", ";"), always=True, any_shift=True),
+    Shortcut(
+        "+",
+        "zoom_in",
+        "画面を拡大(=・; でも可)",
+        ctrl=True,
+        aliases=("=", ";"),
+        always=True,
+        any_shift=True,
+    ),
     Shortcut("-", "zoom_out", "画面を縮小", ctrl=True, always=True),
     Shortcut("0", "zoom_reset", "画面の大きさを 100% に戻す", ctrl=True, always=True),
-    Shortcut("escape", "escape", "開いているダイアログを閉じる(プレビュー・ダッシュボードから戻る)"),
+    Shortcut(
+        "escape",
+        "escape",
+        "開いているダイアログを閉じる(プレビュー・ダッシュボードから戻る)",
+    ),
 )
 
 
-def resolve(key: str, *, ctrl: bool, shift: bool, modal: bool, screen: Screen) -> str | None:
+def resolve(
+    key: str, *, ctrl: bool, shift: bool, modal: bool, screen: Screen
+) -> str | None:
     """押されたキーに対応する操作名を返す。割り当てがない・今は効かないときは None。
 
     ESC は常に `escape`(何を閉じるかは呼び出し側が決める)。倍率の操作は、常に効く。それ以外は、
@@ -102,12 +129,17 @@ def ctrl_keys() -> set[str]:
 def defers_to_inputs(key: str, ctrl: bool) -> bool:
     """押されたキーが、入力欄のあいだは入力欄に任せる割り当て(`in_inputs=False`)か。"""
     key = key.lower()
-    return any(not s.in_inputs and s.ctrl == ctrl and key in (s.key, *s.aliases) for s in SHORTCUTS)
+    return any(
+        not s.in_inputs and s.ctrl == ctrl and key in (s.key, *s.aliases)
+        for s in SHORTCUTS
+    )
 
 
 def input_owned_keys() -> set[str]:
     """入力欄のあいだは入力欄に任せる、Ctrl/Cmd と組み合わせるキー。"""
-    return {k for s in SHORTCUTS if s.ctrl and not s.in_inputs for k in (s.key, *s.aliases)}
+    return {
+        k for s in SHORTCUTS if s.ctrl and not s.in_inputs for k in (s.key, *s.aliases)
+    }
 
 
 def plain_keys() -> set[str]:

@@ -15,11 +15,10 @@ from pathlib import Path
 
 import httpx
 import pytest
-from nicegui import context, ui
+from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.calendar import save_cache
-from projectapp.forms import open_section_dialog
 from projectapp.gantt import GanttActions, GanttChart
 from projectapp.models import Project
 from projectapp.views import MainView
@@ -39,12 +38,16 @@ async def test_a_gantt_chart_does_not_outlive_its_test(user: User, round_: int) 
 
 
 @pytest.mark.parametrize("round_", [1, 2])
-async def test_a_main_view_does_not_outlive_its_test(user: User, tmp_path: Path, round_: int) -> None:
+async def test_a_main_view_does_not_outlive_its_test(
+    user: User, tmp_path: Path, round_: int
+) -> None:
     save_cache({}, tmp_path)  # 祝日の取得を起こさない
 
     @ui.page("/")
     def index() -> None:
-        MainView(tmp_path, httpx.MockTransport(lambda request: httpx.Response(200))).build()
+        MainView(
+            tmp_path, httpx.MockTransport(lambda request: httpx.Response(200))
+        ).build()
 
     await user.open("/")
     assert len(MainView.title.targets) == 1
@@ -65,19 +68,27 @@ def live_main_views() -> int:
 # ボタンが `MainView` のメソッドを持つ)の 2 つの経路は、片方だけ断っても、もう片方が同じ `MainView` を保持する。
 # どちらかが残ると、`MainView` がテストの数だけ積まれる。
 @pytest.mark.parametrize("round_", range(ROUNDS))
-async def test_main_views_do_not_pile_up_across_tests(user: User, tmp_path: Path, round_: int) -> None:
-    assert live_main_views() <= MAX_LIVE_VIEWS, f"前のテストの MainView が残っている(round {round_})"
+async def test_main_views_do_not_pile_up_across_tests(
+    user: User, tmp_path: Path, round_: int
+) -> None:
+    assert live_main_views() <= MAX_LIVE_VIEWS, (
+        f"前のテストの MainView が残っている(round {round_})"
+    )
     save_cache({}, tmp_path)  # 祝日の取得を起こさない
     captured: list[MainView] = []  # ページ関数のクロージャが持つ
 
     @ui.page("/")
     def index() -> None:
-        captured.append(MainView(tmp_path, httpx.MockTransport(lambda request: httpx.Response(200))))
+        captured.append(
+            MainView(tmp_path, httpx.MockTransport(lambda request: httpx.Response(200)))
+        )
         captured[0].build()
 
     await user.open("/")
     user.find(marker="add-section").click()
-    await user.should_see(marker="section-name")  # ダイアログを開いたまま、テストが終わる
+    await user.should_see(
+        marker="section-name"
+    )  # ダイアログを開いたまま、テストが終わる
 
 
 def test_the_baseline_heap_is_frozen_out_of_the_full_gc() -> None:

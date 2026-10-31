@@ -106,8 +106,15 @@ def test_build_task_normalizes_input() -> None:
 
 
 def test_blank_assignee_and_dates_become_none() -> None:
-    task = make(planned_start="", planned_end="", assignees=[("  ", None)], effort_hours=None)
-    assert (task.planned_start, task.planned_end, task.assignees, task.effort_hours) == (None, None, [], 0.0)
+    task = make(
+        planned_start="", planned_end="", assignees=[("  ", None)], effort_hours=None
+    )
+    assert (
+        task.planned_start,
+        task.planned_end,
+        task.assignees,
+        task.effort_hours,
+    ) == (None, None, [], 0.0)
 
 
 @pytest.mark.parametrize("name", ["", "   ", "　"])
@@ -118,8 +125,16 @@ def test_blank_name_is_rejected(name: str) -> None:
 
 def test_end_before_start_is_rejected_but_equal_is_allowed() -> None:
     with pytest.raises(ValueError, match="完了予定は開始予定以降"):
-        make(effort_hours=0.0, planned_start="2026-10-07T09:00", planned_end="2026-10-05T09:00")
-    same = make(effort_hours=0.0, planned_start="2026-10-05T09:00", planned_end="2026-10-05T09:00")
+        make(
+            effort_hours=0.0,
+            planned_start="2026-10-07T09:00",
+            planned_end="2026-10-05T09:00",
+        )
+    same = make(
+        effort_hours=0.0,
+        planned_start="2026-10-05T09:00",
+        planned_end="2026-10-05T09:00",
+    )
     assert same.name == "設計"
 
 
@@ -131,7 +146,10 @@ def test_bad_or_timezone_aware_datetime_is_rejected(text: str) -> None:
         make(planned_start=text)
 
 
-@pytest.mark.parametrize("text", ["0026-10-05T09:00", "1999-12-31T23:59", "2101-01-01T00:00", "2926-10-05T09:00"])
+@pytest.mark.parametrize(
+    "text",
+    ["0026-10-05T09:00", "1999-12-31T23:59", "2101-01-01T00:00", "2926-10-05T09:00"],
+)
 def test_year_outside_range_is_rejected(text: str) -> None:
     with pytest.raises(ValueError, match="年"):
         make(planned_start=text, planned_end="")
@@ -202,7 +220,11 @@ async def test_task_dialog_shows_error_and_does_not_save(user: User) -> None:
 async def test_task_dialog_prefills_when_editing(user: User) -> None:
     @ui.page("/")
     def index() -> None:
-        task = Task("既存", planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 6, 9))
+        task = Task(
+            "既存",
+            planned_start=datetime(2026, 10, 5, 9),
+            planned_end=datetime(2026, 10, 6, 9),
+        )
         ui.button("open", on_click=lambda: open_task_dialog(task, lambda t: None))
 
     await user.open("/")
@@ -260,7 +282,9 @@ async def test_task_dialog_priority_prefills_when_editing(user: User) -> None:
     assert _selected_priorities(user) == ["低"]
 
 
-async def test_task_dialog_priority_chip_click_selects_only_that_chip(user: User) -> None:
+async def test_task_dialog_priority_chip_click_selects_only_that_chip(
+    user: User,
+) -> None:
     saved: list[Task] = []
 
     @ui.page("/")
@@ -323,7 +347,9 @@ async def test_file_dialog_lists_names_and_selects_one(user: User) -> None:
 
     @ui.page("/")
     def index() -> None:
-        ui.button("open", on_click=lambda: open_file_dialog(["甲", "乙"], chosen.append))
+        ui.button(
+            "open", on_click=lambda: open_file_dialog(["甲", "乙"], chosen.append)
+        )
 
     await user.open("/")
     user.find("open").click()
@@ -343,8 +369,12 @@ async def test_file_dialog_shows_a_message_when_empty(user: User) -> None:
     await user.should_see("プロジェクトファイルがありません")
 
 
-@pytest.mark.parametrize("marker", ["unsaved-save", "unsaved-discard", "unsaved-cancel"])
-async def test_unsaved_dialog_calls_the_matching_action(user: User, marker: str) -> None:
+@pytest.mark.parametrize(
+    "marker", ["unsaved-save", "unsaved-discard", "unsaved-cancel"]
+)
+async def test_unsaved_dialog_calls_the_matching_action(
+    user: User, marker: str
+) -> None:
     calls: list[str] = []
 
     @ui.page("/")
@@ -365,7 +395,14 @@ async def test_unsaved_dialog_calls_the_matching_action(user: User, marker: str)
 
 @pytest.mark.parametrize(
     ("hours", "start"),
-    [(6.5, "09:00"), (1.0, "09:00"), (8.0, "16:00"), (1.0, "23:00"), (6.5, "17:30"), (8.0, "9:00")],
+    [
+        (6.5, "09:00"),
+        (1.0, "09:00"),
+        (8.0, "16:00"),
+        (1.0, "23:00"),
+        (6.5, "17:30"),
+        (8.0, "9:00"),
+    ],
 )
 def test_build_work_settings_accepts_valid_values(hours: float, start: str) -> None:
     assert build_work_settings(hours, start)[0] == hours
@@ -396,7 +433,9 @@ def test_build_work_settings_returns_hours_and_time() -> None:
         (1.0, "23:01"),
     ],
 )
-def test_build_work_settings_rejects_invalid_values(hours: float | None, start: str) -> None:
+def test_build_work_settings_rejects_invalid_values(
+    hours: float | None, start: str
+) -> None:
     with pytest.raises(ValueError):
         build_work_settings(hours, start)
 
@@ -457,7 +496,12 @@ async def test_settings_dialog_time_picker_and_field_stay_in_sync(user: User) ->
 async def test_clock_icon_opens_a_picker_dialog_and_ok_closes_it(user: User) -> None:
     @ui.page("/")
     def index() -> None:
-        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s, m: None))
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda h, s, m: None
+            ),
+        )
 
     await user.open("/")
     user.find("open").click()
@@ -482,15 +526,32 @@ def test_build_work_settings_rejects_more_than_two_decimal_places(hours: float) 
         build_work_settings(hours, "09:00")
 
 
-@pytest.mark.parametrize(("hours", "expected"), [(6.25, False), (6.17, False), (7.0, False), (6.123, True), (6.005, True), (1.001, True)])
+@pytest.mark.parametrize(
+    ("hours", "expected"),
+    [
+        (6.25, False),
+        (6.17, False),
+        (7.0, False),
+        (6.123, True),
+        (6.005, True),
+        (1.001, True),
+    ],
+)
 def test_exceeds_decimals(hours: float, expected: bool) -> None:
     assert exceeds_decimals(hours) is expected
 
 
-async def test_settings_dialog_hours_field_warns_instead_of_rounding(user: User) -> None:
+async def test_settings_dialog_hours_field_warns_instead_of_rounding(
+    user: User,
+) -> None:
     @ui.page("/")
     def index() -> None:
-        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s, m: None))
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda h, s, m: None
+            ),
+        )
 
     await user.open("/")
     user.find("open").click()
@@ -507,7 +568,18 @@ async def test_settings_dialog_hours_field_warns_instead_of_rounding(user: User)
         assert hours.error is None
 
 
-@pytest.mark.parametrize(("hours", "ok"), [(1.0, True), (8.0, True), (0.99, False), (8.01, False), (0.0, False), (-1.0, False), (24.0, False)])
+@pytest.mark.parametrize(
+    ("hours", "ok"),
+    [
+        (1.0, True),
+        (8.0, True),
+        (0.99, False),
+        (8.01, False),
+        (0.0, False),
+        (-1.0, False),
+        (24.0, False),
+    ],
+)
 def test_in_hours_range(hours: float, ok: bool) -> None:
     assert in_hours_range(hours) is ok
 
@@ -515,7 +587,12 @@ def test_in_hours_range(hours: float, ok: bool) -> None:
 async def test_settings_dialog_hours_field_warns_when_out_of_range(user: User) -> None:
     @ui.page("/")
     def index() -> None:
-        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s, m: None))
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda h, s, m: None
+            ),
+        )
 
     await user.open("/")
     user.find("open").click()
@@ -625,7 +702,9 @@ def test_effort_with_more_than_two_decimals_is_rejected(hours: float) -> None:
 
 
 def test_an_existing_effort_with_three_decimals_is_kept_when_unchanged() -> None:
-    existing = Task("旧", effort_hours=1.234)  # 古いファイルの値は、触らなければ保存できる
+    existing = Task(
+        "旧", effort_hours=1.234
+    )  # 古いファイルの値は、触らなければ保存できる
     assert make(existing, effort_hours=1.234).effort_hours == 1.234
 
 
@@ -681,8 +760,12 @@ def test_planned_end_before_the_start_is_rejected_when_manual() -> None:
 
 
 def test_a_hidden_planned_end_is_not_validated() -> None:
-    task = make(effort_hours=8.0, planned_end_manual=False, planned_end="2026-10-04T09:00")
-    assert task.planned_end == datetime(2026, 10, 4, 9)  # 工数あり・手で指定なしなので無視される値
+    task = make(
+        effort_hours=8.0, planned_end_manual=False, planned_end="2026-10-04T09:00"
+    )
+    assert task.planned_end == datetime(
+        2026, 10, 4, 9
+    )  # 工数あり・手で指定なしなので無視される値
     assert task.planned_end_manual is False
 
 
@@ -718,7 +801,9 @@ def test_a_hidden_planned_end_with_a_bad_format_does_not_block_saving() -> None:
 
 
 def test_a_hidden_planned_end_outside_the_year_range_does_not_block_saving() -> None:
-    task = make(effort_hours=8.0, planned_end_manual=False, planned_end="9999-01-01T00:00")
+    task = make(
+        effort_hours=8.0, planned_end_manual=False, planned_end="9999-01-01T00:00"
+    )
     assert task.planned_end is None
 
 
@@ -751,7 +836,11 @@ def test_build_members_carries_the_icon(icon: str) -> None:
 
 def test_build_members_rejects_a_broken_icon() -> None:
     with pytest.raises(ValueError, match="アイコン"):
-        build_members([MemberRow(None, "甲", 100.0, icon="data:image/png;base64,AAAA")], [], lambda _: 0)
+        build_members(
+            [MemberRow(None, "甲", 100.0, icon="data:image/png;base64,AAAA")],
+            [],
+            lambda _: 0,
+        )
 
 
 def test_build_members_rejects_a_blank_name() -> None:
@@ -764,7 +853,9 @@ def test_build_members_rejects_duplicate_names() -> None:
         build_members(rows((None, "田中", 100.0), (None, "田中 ", 80.0)), [], no_tasks)
 
 
-@pytest.mark.parametrize("ratio", [None, 9.99, 300.01, 0.0, -10.0, float("nan"), float("inf"), 100.123])
+@pytest.mark.parametrize(
+    "ratio", [None, 9.99, 300.01, 0.0, -10.0, float("nan"), float("inf"), 100.123]
+)
 def test_build_members_rejects_a_bad_ratio(ratio: float | None) -> None:
     with pytest.raises(ValueError, match="相対比率"):
         build_members(rows((None, "田中", ratio)), [], no_tasks)
@@ -782,7 +873,9 @@ def test_build_members_reports_renames() -> None:
 
 
 def test_build_members_allows_swapping_two_names() -> None:
-    _, renames = build_members(rows(("A", "B", 100.0), ("B", "A", 100.0)), ["A", "B"], no_tasks)
+    _, renames = build_members(
+        rows(("A", "B", 100.0), ("B", "A", 100.0)), ["A", "B"], no_tasks
+    )
     assert renames == {"A": "B", "B": "A"}
 
 
@@ -797,10 +890,14 @@ def test_build_members_allows_deleting_a_member_without_tasks() -> None:
     assert members == []
 
 
-def test_build_members_rejects_taking_the_name_of_a_member_that_is_deleted_with_tasks() -> None:
+def test_build_members_rejects_taking_the_name_of_a_member_that_is_deleted_with_tasks() -> (
+    None
+):
     counts = {"B": 1}
     with pytest.raises(ValueError, match="B.*1件"):
-        build_members(rows(("A", "B", 100.0)), ["A", "B"], lambda name: counts.get(name, 0))
+        build_members(
+            rows(("A", "B", 100.0)), ["A", "B"], lambda name: counts.get(name, 0)
+        )
 
 
 def test_allocation_is_stored_as_a_fraction() -> None:
@@ -813,14 +910,18 @@ def test_blank_rows_are_dropped() -> None:
 
 
 @pytest.mark.parametrize("percent", [None, 0.0, 0.5, 100.5, float("nan"), float("inf")])
-def test_a_bad_allocation_is_rejected_for_a_chosen_member(percent: float | None) -> None:
+def test_a_bad_allocation_is_rejected_for_a_chosen_member(
+    percent: float | None,
+) -> None:
     with pytest.raises(ValueError, match="割り当て率"):
         make(assignees=[("田中", percent)])
 
 
 @pytest.mark.parametrize("percent", [1.0, 100.0, 33.33])
 def test_allocation_boundaries_are_accepted(percent: float) -> None:
-    assert make(assignees=[("田中", percent)]).assignees[0].allocation == pytest.approx(percent / 100)
+    assert make(assignees=[("田中", percent)]).assignees[0].allocation == pytest.approx(
+        percent / 100
+    )
 
 
 def test_several_assignees_keep_their_order_and_allocations() -> None:
@@ -839,11 +940,15 @@ def test_actuals_default_to_none() -> None:
 
 def test_start_and_end_make_one_actual() -> None:
     task = make(actual_start="2026-10-05T09:00", actual_end="2026-10-05T17:30")
-    assert task.actuals == [Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 17, 30))]
+    assert task.actuals == [
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 17, 30))
+    ]
 
 
 def test_start_only_is_in_progress() -> None:
-    assert make(actual_start="2026-10-05T09:00").actuals == [Actual(datetime(2026, 10, 5, 9, 0), None)]
+    assert make(actual_start="2026-10-05T09:00").actuals == [
+        Actual(datetime(2026, 10, 5, 9, 0), None)
+    ]
 
 
 def test_end_without_start_is_rejected() -> None:
@@ -856,7 +961,9 @@ def test_actual_end_before_start_is_rejected() -> None:
         make(actual_start="2026-10-05T09:00", actual_end="2026-10-05T08:59")
 
 
-@pytest.mark.parametrize("bad", ["2026-10-05T09:00+09:00", "abc", "1999-10-05T09:00", "2101-01-01T09:00"])
+@pytest.mark.parametrize(
+    "bad", ["2026-10-05T09:00+09:00", "abc", "1999-10-05T09:00", "2101-01-01T09:00"]
+)
 def test_bad_actual_start_is_rejected(bad: str) -> None:
     with pytest.raises(ValueError):
         make(actual_start=bad)
@@ -945,9 +1052,16 @@ def test_compose_actual() -> None:
 
 @pytest.mark.parametrize(
     ("has_start", "has_end", "expected"),
-    [(False, False, None), (True, False, Status.RUNNING), (True, True, Status.DONE), (False, True, None)],
+    [
+        (False, False, None),
+        (True, False, Status.RUNNING),
+        (True, True, Status.DONE),
+        (False, True, None),
+    ],
 )
-def test_suggest_status(has_start: bool, has_end: bool, expected: Status | None) -> None:
+def test_suggest_status(
+    has_start: bool, has_end: bool, expected: Status | None
+) -> None:
     assert suggest_status(has_start, has_end) is expected
 
 
@@ -1006,14 +1120,22 @@ def test_only_the_last_interval_may_be_open() -> None:
 
 def test_build_task_uses_the_rows_when_given() -> None:
     existing = Task("t", actuals=[Actual(datetime(2026, 1, 1, 9))])
-    task = make(existing, actual_rows=[(S1, E1), (S2, "")], actual_start="2030-01-01T09:00")
-    assert [a.start for a in task.actuals] == [datetime(2026, 10, 5, 9), datetime(2026, 10, 6, 9)]
+    task = make(
+        existing, actual_rows=[(S1, E1), (S2, "")], actual_start="2030-01-01T09:00"
+    )
+    assert [a.start for a in task.actuals] == [
+        datetime(2026, 10, 5, 9),
+        datetime(2026, 10, 6, 9),
+    ]
     assert make(existing, actual_rows=[]).actuals == []
     assert make(existing, actual_rows=[("", "")]).actuals == []
 
 
 def test_build_task_without_rows_keeps_the_simple_behaviour() -> None:
-    kept = [Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)), Actual(datetime(2026, 10, 6, 9), None)]
+    kept = [
+        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
+        Actual(datetime(2026, 10, 6, 9), None),
+    ]
     assert make(Task("t", actuals=list(kept)), actual_start="").actuals == kept
 
 
@@ -1114,13 +1236,19 @@ async def test_settings_dialog_has_no_lock_when_it_was_simple(user: User) -> Non
         ui.button(
             "open",
             on_click=lambda: open_settings_dialog(
-                6.5, time(9, 0), lambda h, s, m: None, ActualMode.SIMPLE, multi_interval_tasks=1
+                6.5,
+                time(9, 0),
+                lambda h, s, m: None,
+                ActualMode.SIMPLE,
+                multi_interval_tasks=1,
             ),
         )
 
     await user.open("/")
     user.find("open").click()
-    await user.should_not_see(marker="settings-mode-locked")  # 簡易のままなら、制限はない
+    await user.should_not_see(
+        marker="settings-mode-locked"
+    )  # 簡易のままなら、制限はない
 
 
 def test_category_id_is_saved() -> None:
@@ -1129,11 +1257,18 @@ def test_category_id_is_saved() -> None:
 
 def test_category_defaults_to_undecided_and_can_be_cleared() -> None:
     assert make().category_id is None
-    assert make(Task("t", category_id="abcd1234")).category_id is None  # 入力が未定なら未定にできる
+    assert (
+        make(Task("t", category_id="abcd1234")).category_id is None
+    )  # 入力が未定なら未定にできる
 
 
 def test_checkpoint_keeps_the_category() -> None:
-    task = make(kind=TaskKind.CHECKPOINT, deadline="2026-10-09T17:00", status=Status.NOT_STARTED, category_id="abcd1234")
+    task = make(
+        kind=TaskKind.CHECKPOINT,
+        deadline="2026-10-09T17:00",
+        status=Status.NOT_STARTED,
+        category_id="abcd1234",
+    )
     assert task.category_id == "abcd1234"
 
 
@@ -1169,7 +1304,11 @@ TICKET = UrlTemplate("チケット", "https://example.com/{ID}")
 
 
 def test_build_urls_builds_links_and_ignores_empty_rows() -> None:
-    rows = [("メモ", "チケット", " 231 "), ("", None, ""), ("", None, " https://example.com/a ")]
+    rows = [
+        ("メモ", "チケット", " 231 "),
+        ("", None, ""),
+        ("", None, " https://example.com/a "),
+    ]
     assert build_urls(rows, [TICKET]) == [
         TaskUrl("メモ", "チケット", {"ID": "231"}),
         TaskUrl("", None, {"URL": "https://example.com/a"}),
@@ -1233,13 +1372,17 @@ async def test_adding_a_template_applies_it(user: User) -> None:
     user.find(marker="settings-template-0-pattern").type("https://example.com/{ID}")
     user.find(marker="settings-apply").click()
     assert applied == [1]
-    assert edits == [TemplateEdit([UrlTemplate("チケット", "https://example.com/{ID}")], {}, [])]
+    assert edits == [
+        TemplateEdit([UrlTemplate("チケット", "https://example.com/{ID}")], {}, [])
+    ]
 
 
 async def test_unchanged_templates_do_not_call_on_templates(user: User) -> None:
     applied: list[int] = []
     edits: list[TemplateEdit] = []
-    mount_settings([UrlTemplate("チケット", "https://example.com/{ID}")], {}, applied, edits)
+    mount_settings(
+        [UrlTemplate("チケット", "https://example.com/{ID}")], {}, applied, edits
+    )
     await user.open("/")
     user.find("open").click()
     user.find(marker="settings-apply").click()
@@ -1271,7 +1414,9 @@ async def test_invalid_templates_keep_the_dialog_and_call_nothing(
 ) -> None:
     applied: list[int] = []
     edits: list[TemplateEdit] = []
-    mount_settings([UrlTemplate("チケット", "https://example.com/{ID}")], {}, applied, edits)
+    mount_settings(
+        [UrlTemplate("チケット", "https://example.com/{ID}")], {}, applied, edits
+    )
     await user.open("/")
     user.find("open").click()
     user.find(marker="settings-template-add").click()
@@ -1287,21 +1432,28 @@ async def test_renaming_a_template_is_reported_as_a_rename(user: User) -> None:
     applied: list[int] = []
     edits: list[TemplateEdit] = []
     mount_settings(
-        [UrlTemplate("チケット", "https://example.com/{ID}")], {"チケット": 3}, applied, edits
+        [UrlTemplate("チケット", "https://example.com/{ID}")],
+        {"チケット": 3},
+        applied,
+        edits,
     )
     await user.open("/")
     user.find("open").click()
     user.find(marker="settings-template-0-name").clear().type("課題")
     user.find(marker="settings-apply").click()
     assert edits == [
-        TemplateEdit([UrlTemplate("課題", "https://example.com/{ID}")], {"チケット": "課題"}, [])
+        TemplateEdit(
+            [UrlTemplate("課題", "https://example.com/{ID}")], {"チケット": "課題"}, []
+        )
     ]
 
 
 async def test_deleting_an_unused_template_needs_no_confirmation(user: User) -> None:
     applied: list[int] = []
     edits: list[TemplateEdit] = []
-    mount_settings([UrlTemplate("チケット", "https://example.com/{ID}")], {}, applied, edits)
+    mount_settings(
+        [UrlTemplate("チケット", "https://example.com/{ID}")], {}, applied, edits
+    )
     await user.open("/")
     user.find("open").click()
     user.find(marker="settings-template-0-remove").click()
@@ -1313,7 +1465,10 @@ async def test_deleting_a_used_template_asks_with_the_count(user: User) -> None:
     applied: list[int] = []
     edits: list[TemplateEdit] = []
     mount_settings(
-        [UrlTemplate("チケット", "https://example.com/{ID}")], {"チケット": 3}, applied, edits
+        [UrlTemplate("チケット", "https://example.com/{ID}")],
+        {"チケット": 3},
+        applied,
+        edits,
     )
     await user.open("/")
     user.find("open").click()
@@ -1330,7 +1485,10 @@ async def test_cancelling_the_delete_confirmation_changes_nothing(user: User) ->
     applied: list[int] = []
     edits: list[TemplateEdit] = []
     mount_settings(
-        [UrlTemplate("チケット", "https://example.com/{ID}")], {"チケット": 3}, applied, edits
+        [UrlTemplate("チケット", "https://example.com/{ID}")],
+        {"チケット": 3},
+        applied,
+        edits,
     )
     await user.open("/")
     user.find("open").click()
@@ -1341,21 +1499,32 @@ async def test_cancelling_the_delete_confirmation_changes_nothing(user: User) ->
     await user.should_see(marker="settings-apply")  # 設定ダイアログは開いたまま
 
 
-def prow(original: str | None, name: str, *levels: tuple[str | None, str, float | None]) -> ParameterRow:
+def prow(
+    original: str | None, name: str, *levels: tuple[str | None, str, float | None]
+) -> ParameterRow:
     return ParameterRow(original, name, [LevelRow(o, n, v) for o, n, v in levels])
 
 
-BEFORE = [Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)]), Parameter("専門", [Level("高", 0.1)])]
+BEFORE = [
+    Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)]),
+    Parameter("専門", [Level("高", 0.1)]),
+]
 
 
 def test_build_parameter_edit_converts_percent_to_a_fraction_and_trims_names() -> None:
-    edit = build_parameter_edit([prow(None, " 経験 ", (None, " 上級 ", 20.0), (None, "初級", -20.0))], [])
-    assert edit.parameters == [Parameter("経験", [Level("上級", 0.2), Level("初級", -0.2)])]
+    edit = build_parameter_edit(
+        [prow(None, " 経験 ", (None, " 上級 ", 20.0), (None, "初級", -20.0))], []
+    )
+    assert edit.parameters == [
+        Parameter("経験", [Level("上級", 0.2), Level("初級", -0.2)])
+    ]
     assert edit.parameter_map == {} and edit.level_map == {}
 
 
 def test_build_parameter_edit_maps_renames_and_deletions_by_the_old_names() -> None:
-    rows = [prow("経験", "スキル", ("初級", "初級", -20.0), (None, "中級", 0.0))]  # 上級を削除、中級を追加
+    rows = [
+        prow("経験", "スキル", ("初級", "初級", -20.0), (None, "中級", 0.0))
+    ]  # 上級を削除、中級を追加
     edit = build_parameter_edit(rows, BEFORE)
     assert edit.parameter_map == {"経験": "スキル", "専門": None}
     assert edit.level_map == {"経験": {"初級": "初級", "上級": None}}
@@ -1383,13 +1552,18 @@ def test_build_parameter_edit_keeps_swapped_names_apart() -> None:
         ([prow(None, "A", (None, "x", 10.005))], "小数点"),
     ],
 )
-def test_build_parameter_edit_rejects_bad_rows(rows: list[ParameterRow], message: str) -> None:
+def test_build_parameter_edit_rejects_bad_rows(
+    rows: list[ParameterRow], message: str
+) -> None:
     with pytest.raises(ValueError, match=message):
         build_parameter_edit(rows, [])
 
 
 def test_build_parameter_edit_accepts_the_boundaries() -> None:
-    edit = build_parameter_edit([prow(None, "A", (None, "lo", -90.0), (None, "hi", 290.0), (None, "z", 12.5))], [])
+    edit = build_parameter_edit(
+        [prow(None, "A", (None, "lo", -90.0), (None, "hi", 290.0), (None, "z", 12.5))],
+        [],
+    )
     assert [lv.value for lv in edit.parameters[0].levels] == [-0.9, 2.9, 0.125]
 
 
@@ -1409,7 +1583,9 @@ def test_build_members_drops_a_level_that_no_longer_exists() -> None:
 
 
 def test_build_members_without_parameters_has_no_levels() -> None:
-    members, _ = build_members([MemberRow(None, "田中", 100.0, {"経験": "上級"})], [], no_tasks)
+    members, _ = build_members(
+        [MemberRow(None, "田中", 100.0, {"経験": "上級"})], [], no_tasks
+    )
     assert members[0].levels == {}
 
 
@@ -1434,18 +1610,29 @@ def test_a_renamed_member_keeps_the_levels() -> None:
         (float("nan"), {}, ""),
     ],
 )
-def test_effective_ratio_text(percent: float | None, levels: dict[str, str], text: str) -> None:
-    assert effective_ratio_text(MemberRow(None, "a", percent, levels), [EXPERIENCE]) == text
+def test_effective_ratio_text(
+    percent: float | None, levels: dict[str, str], text: str
+) -> None:
+    assert (
+        effective_ratio_text(MemberRow(None, "a", percent, levels), [EXPERIENCE])
+        == text
+    )
 
 
 def test_build_members_carries_ratio_unclamped() -> None:
-    rows = [MemberRow(None, "田中", 200.0, ratio_unclamped=True), MemberRow(None, "鈴木", 100.0)]
+    rows = [
+        MemberRow(None, "田中", 200.0, ratio_unclamped=True),
+        MemberRow(None, "鈴木", 100.0),
+    ]
     members, _ = build_members(rows, [], lambda _: 0)
     assert [m.ratio_unclamped for m in members] == [True, False]
 
 
 def test_build_members_carries_the_warning_limit_as_an_int() -> None:
-    rows = [MemberRow(None, "田中", 100.0, warning_limit=3.0), MemberRow(None, "鈴木", 100.0)]
+    rows = [
+        MemberRow(None, "田中", 100.0, warning_limit=3.0),
+        MemberRow(None, "鈴木", 100.0),
+    ]
     members, _ = build_members(rows, [], lambda _: 0)
     assert [m.warning_limit for m in members] == [3, None]
     assert isinstance(members[0].warning_limit, int)
@@ -1454,12 +1641,16 @@ def test_build_members_carries_the_warning_limit_as_an_int() -> None:
 @pytest.mark.parametrize("bad", [0.0, -1.0, 1000.0, 1.5, float("nan"), float("inf")])
 def test_build_members_rejects_a_bad_warning_limit(bad: float) -> None:
     with pytest.raises(ValueError, match="警告の件数は1〜999の整数"):
-        build_members([MemberRow(None, "田中", 100.0, warning_limit=bad)], [], lambda _: 0)
+        build_members(
+            [MemberRow(None, "田中", 100.0, warning_limit=bad)], [], lambda _: 0
+        )
 
 
 @pytest.mark.parametrize("good", [1.0, 999.0])
 def test_build_members_accepts_the_edges_of_the_warning_limit(good: float) -> None:
-    members, _ = build_members([MemberRow(None, "田中", 100.0, warning_limit=good)], [], lambda _: 0)
+    members, _ = build_members(
+        [MemberRow(None, "田中", 100.0, warning_limit=good)], [], lambda _: 0
+    )
     assert members[0].warning_limit == int(good)
 
 
@@ -1467,12 +1658,20 @@ def test_effective_ratio_text_for_an_unclamped_member() -> None:
     row = MemberRow(None, "a", 200.0, ratio_unclamped=True)
     assert effective_ratio_text(row, [EXPERIENCE]) == "相対比率 200%(丸め対象外)"
     over = MemberRow(None, "a", 290.0, {"経験": "上級"}, ratio_unclamped=True)
-    assert effective_ratio_text(over, [EXPERIENCE]) == "相対比率 300%(丸め対象外・相対比率 310% → 安全範囲の上限 300% に制限)"
-    assert effective_ratio_text(MemberRow(None, "a", 200.0), [EXPERIENCE]) == "相対比率 150%(範囲に丸めました)"
+    assert (
+        effective_ratio_text(over, [EXPERIENCE])
+        == "相対比率 300%(丸め対象外・相対比率 310% → 安全範囲の上限 300% に制限)"
+    )
+    assert (
+        effective_ratio_text(MemberRow(None, "a", 200.0), [EXPERIENCE])
+        == "相対比率 150%(範囲に丸めました)"
+    )
 
 
 def test_build_members_keeps_the_id_of_a_renamed_row() -> None:
-    members, renames = build_members([MemberRow("田中", "田中二郎", 100.0, id="m1")], ["田中"], lambda name: 0)
+    members, renames = build_members(
+        [MemberRow("田中", "田中二郎", 100.0, id="m1")], ["田中"], lambda name: 0
+    )
     assert [(m.name, m.id) for m in members] == [("田中二郎", "m1")]
     assert renames == {"田中": "田中二郎"}
 
@@ -1483,7 +1682,9 @@ def test_build_members_keeps_each_rows_id_when_names_are_swapped() -> None:
     assert [(m.name, m.id) for m in members] == [("B", "ida"), ("A", "idb")]
 
 
-def test_build_members_gives_a_new_row_an_id_that_is_not_taken(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_members_gives_a_new_row_an_id_that_is_not_taken(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     values = iter(["aaaaaaaa", "bbbbbbbb", "cccccccc"])
     monkeypatch.setattr(models.secrets, "token_hex", lambda nbytes: next(values))
     rows = [MemberRow(None, "田中", 100.0), MemberRow(None, "鈴木", 100.0)]
@@ -1492,23 +1693,52 @@ def test_build_members_gives_a_new_row_an_id_that_is_not_taken(monkeypatch: pyte
 
 
 def test_a_deleted_and_re_added_member_gets_a_new_id() -> None:
-    members, _ = build_members([MemberRow(None, "田中", 100.0)], ["田中"], lambda name: 0, taken={"old"})
+    members, _ = build_members(
+        [MemberRow(None, "田中", 100.0)], ["田中"], lambda name: 0, taken={"old"}
+    )
     assert members[0].id != "old"
 
 
 def row(name: str = "開発", **kwargs: object) -> CategoryRow:
-    values: dict[str, object] = {"original": None, "name": name, "kind": "", "expiry": "", "color": "blue", "prj_code": ""}
+    values: dict[str, object] = {
+        "original": None,
+        "name": name,
+        "kind": "",
+        "expiry": "",
+        "color": "blue",
+        "prj_code": "",
+    }
     values.update(kwargs)
     return CategoryRow(**values)  # type: ignore[arg-type]
 
 
 def test_build_category_edit_makes_categories_with_new_ids() -> None:
     edit = build_category_edit(
-        [row(" 開発 ", kind=" 業務 ", expiry="2026-12-31", color="red", prj_code=" P ")], [], {"aaaaaaaa"}
+        [
+            row(
+                " 開発 ",
+                kind=" 業務 ",
+                expiry="2026-12-31",
+                color="red",
+                prj_code=" P ",
+            )
+        ],
+        [],
+        {"aaaaaaaa"},
     )
     (category,) = edit.categories
-    assert (category.name, category.kind, category.expiry_date, category.color, category.prj_code) == (
-        "開発", "業務", date(2026, 12, 31), "red", "P",
+    assert (
+        category.name,
+        category.kind,
+        category.expiry_date,
+        category.color,
+        category.prj_code,
+    ) == (
+        "開発",
+        "業務",
+        date(2026, 12, 31),
+        "red",
+        "P",
     )
     assert category.id != "aaaaaaaa" and len(category.id) == 8
     assert edit.removed_ids == []
@@ -1545,7 +1775,9 @@ def test_build_category_edit_ignores_a_blank_new_row() -> None:
         ([row("a", kind="業務\n開発")], "種別"),
     ],
 )
-def test_build_category_edit_rejects_bad_input(rows: list[CategoryRow], message: str | None) -> None:
+def test_build_category_edit_rejects_bad_input(
+    rows: list[CategoryRow], message: str | None
+) -> None:
     if message is None:  # 完全に空の新しい行は無視する
         assert build_category_edit(rows, [], set()).categories == []
         return
@@ -1606,8 +1838,18 @@ async def test_adding_a_category_applies_it(user: User) -> None:
     assert applied == [1]
     (edit,) = edits
     (category,) = edit.categories
-    assert (category.name, category.kind, category.expiry_date, category.color, category.prj_code) == (
-        "開発", "業務", date(2026, 12, 31), "red", "PRJ-1",
+    assert (
+        category.name,
+        category.kind,
+        category.expiry_date,
+        category.color,
+        category.prj_code,
+    ) == (
+        "開発",
+        "業務",
+        date(2026, 12, 31),
+        "red",
+        "PRJ-1",
     )
     assert edit.removed_ids == []
 
@@ -1618,7 +1860,9 @@ async def test_a_new_row_gets_the_first_unused_color(user: User) -> None:
     user.find("open").click()
     user.find(marker="settings-category-add").click()
     await asyncio.sleep(0.2)
-    assert user.find(marker="settings-category-1-color").elements.pop().value == "indigo"
+    assert (
+        user.find(marker="settings-category-1-color").elements.pop().value == "indigo"
+    )
 
 
 async def test_the_color_select_shows_a_colored_dot_with_the_name(user: User) -> None:
@@ -1626,15 +1870,21 @@ async def test_the_color_select_shows_a_colored_dot_with_the_name(user: User) ->
     await user.open("/")
     user.find("open").click()
     select = user.find(marker="settings-category-0-color").elements.pop()
-    assert list(select.options.values()) == [COLOR_LABELS[c] for c in COLORS]  # 名前が選択肢の文字
+    assert list(select.options.values()) == [
+        COLOR_LABELS[c] for c in COLORS
+    ]  # 名前が選択肢の文字
     for slot in ("option", "selected-item"):  # 選択肢も、選んだあとの表示も、丸 + 名前
         template = select.slots[slot].template
         assert 'name="circle"' in template and "props.opt.label" in template
         # NiceGUI の select は、選択肢の value に色名ではなく番号(0〜9)を渡す。色は、一意なラベル(名前)で引く
         assert "[props.opt.label]" in template and "[props.opt.value]" not in template
         for color in COLORS:
-            assert f"'{COLOR_LABELS[color]}':'{COLOR_HEX[color]}'" in template  # 名前 → 色コード、10 色すべて
-    await user.should_not_see(marker="settings-category-0-swatch")  # 別の色見本は置かない
+            assert (
+                f"'{COLOR_LABELS[color]}':'{COLOR_HEX[color]}'" in template
+            )  # 名前 → 色コード、10 色すべて
+    await user.should_not_see(
+        marker="settings-category-0-swatch"
+    )  # 別の色見本は置かない
 
 
 async def test_choosing_a_color_changes_the_category_color(user: User) -> None:
@@ -1673,7 +1923,9 @@ async def test_a_blank_added_category_row_is_ignored(user: User) -> None:
     ("name", "message"),
     [("", "名前"), ("未定", "未定"), ("開発", "重複")],
 )
-async def test_invalid_categories_keep_the_dialog_and_call_nothing(user: User, name: str, message: str) -> None:
+async def test_invalid_categories_keep_the_dialog_and_call_nothing(
+    user: User, name: str, message: str
+) -> None:
     applied: list[int] = []
     edits: list[CategoryEdit] = []
     mount_category_settings([Category("開発")], {}, applied, edits)
@@ -1682,7 +1934,9 @@ async def test_invalid_categories_keep_the_dialog_and_call_nothing(user: User, n
     user.find(marker="settings-category-add").click()
     await asyncio.sleep(0.2)
     user.find(marker="settings-category-1-name").type(name)
-    user.find(marker="settings-category-1-prj").type("X")  # 名前が空でも、行を無視しない
+    user.find(marker="settings-category-1-prj").type(
+        "X"
+    )  # 名前が空でも、行を無視しない
     user.find(marker="settings-apply").click()
     await user.should_see(message)
     assert applied == [] and edits == []
@@ -1722,7 +1976,9 @@ async def test_deleting_a_used_category_asks_first(user: User) -> None:
     user.find("open").click()
     user.find(marker="settings-category-0-remove").click()
     user.find(marker="settings-apply").click()
-    await user.should_see("削除するカテゴリを使っているタスクが3件あります。未定に戻ります。")
+    await user.should_see(
+        "削除するカテゴリを使っているタスクが3件あります。未定に戻ります。"
+    )
     assert applied == [] and edits == []
     user.find(marker="settings-confirm-delete").click()
     assert applied == [1]
@@ -1742,21 +1998,32 @@ async def test_cancelling_the_confirmation_changes_nothing(user: User) -> None:
     assert applied == [] and edits == []
 
 
-async def test_template_and_category_deletions_are_confirmed_together(user: User) -> None:
+async def test_template_and_category_deletions_are_confirmed_together(
+    user: User,
+) -> None:
     category = Category("開発")
     template = UrlTemplate("チケット", "https://example.com/{ID}")
     applied: list[int] = []
     edits: list[CategoryEdit] = []
     mount_category_settings(
-        [category], {category.id: 2}, applied, edits, templates=[template], template_usage={"チケット": 4}
+        [category],
+        {category.id: 2},
+        applied,
+        edits,
+        templates=[template],
+        template_usage={"チケット": 4},
     )
     await user.open("/")
     user.find("open").click()
     user.find(marker="settings-category-0-remove").click()
     user.find(marker="settings-template-0-remove").click()
     user.find(marker="settings-apply").click()
-    await user.should_see("削除するテンプレートを使っているリンクが4件あります。URL としてそのまま残ります。")
-    await user.should_see("削除するカテゴリを使っているタスクが2件あります。未定に戻ります。")
+    await user.should_see(
+        "削除するテンプレートを使っているリンクが4件あります。URL としてそのまま残ります。"
+    )
+    await user.should_see(
+        "削除するカテゴリを使っているタスクが2件あります。未定に戻ります。"
+    )
     user.find(marker="settings-confirm-delete").click()
     assert applied == [1] and len(edits) == 1
 
@@ -1774,7 +2041,9 @@ def test_task_name_length_is_checked_after_trimming() -> None:
     assert make(name=" " + "あ" * 50 + " ").name == "あ" * 50
 
 
-@pytest.mark.parametrize("name", ["a\nb", "a\tb", "a\x00b", "a\x7fb", "a\u200bb", "a\ufeffb", "a\u2028b"])
+@pytest.mark.parametrize(
+    "name", ["a\nb", "a\tb", "a\x00b", "a\x7fb", "a\u200bb", "a\ufeffb", "a\u2028b"]
+)
 def test_task_name_with_control_characters_is_rejected(name: str) -> None:
     with pytest.raises(ValueError, match="制御文字"):
         make(name=name)
@@ -1785,14 +2054,20 @@ def test_a_trailing_newline_is_trimmed_not_rejected() -> None:
 
 
 def test_the_name_rules_apply_to_a_checkpoint_too() -> None:
-    kwargs = {"kind": TaskKind.CHECKPOINT, "deadline": "2026-10-09T17:00", "status": Status.NOT_STARTED}
+    kwargs = {
+        "kind": TaskKind.CHECKPOINT,
+        "deadline": "2026-10-09T17:00",
+        "status": Status.NOT_STARTED,
+    }
     with pytest.raises(ValueError, match="50文字"):
         make(name="あ" * 51, **kwargs)
     with pytest.raises(ValueError, match="制御文字"):
         make(name="a\nb", **kwargs)
 
 
-async def test_deleting_a_used_category_and_adding_an_identical_row_still_applies(user: User) -> None:
+async def test_deleting_a_used_category_and_adding_an_identical_row_still_applies(
+    user: User,
+) -> None:
     category = Category("開発", "業務", date(2026, 12, 31), "indigo", "P1")
     applied: list[int] = []
     edits: list[CategoryEdit] = []
@@ -1808,21 +2083,29 @@ async def test_deleting_a_used_category_and_adding_an_identical_row_still_applie
     user.find(marker="settings-category-0-color").elements.pop().set_value("indigo")
     user.find(marker="settings-category-0-prj").type("P1")
     user.find(marker="settings-apply").click()
-    await user.should_see("削除するカテゴリを使っているタスクが3件あります。未定に戻ります。")
+    await user.should_see(
+        "削除するカテゴリを使っているタスクが3件あります。未定に戻ります。"
+    )
     user.find(marker="settings-confirm-delete").click()
     assert applied == [1]
-    (edit,) = edits  # 確認の文言どおり、削除が適用される(内容が同じでも、別の id の新しいカテゴリ)
+    (edit,) = (
+        edits  # 確認の文言どおり、削除が適用される(内容が同じでも、別の id の新しいカテゴリ)
+    )
     assert edit.removed_ids == [category.id]
     assert edit.categories == [category] and edit.categories[0].id != category.id
 
 
 @pytest.mark.parametrize(("part", "limit"), [("name", 30), ("kind", 20), ("prj", 20)])
-async def test_category_inputs_are_cut_to_the_limit_in_characters(user: User, part: str, limit: int) -> None:
+async def test_category_inputs_are_cut_to_the_limit_in_characters(
+    user: User, part: str, limit: int
+) -> None:
     mount_category_settings([Category("a")], {}, [], [])
     await user.open("/")
     user.find("open").click()
     field = user.find(marker=f"settings-category-0-{part}").elements.pop()
-    assert field._props.get("maxlength") is None  # ブラウザの maxlength は UTF-16 単位で、文字数とずれる
+    assert (
+        field._props.get("maxlength") is None
+    )  # ブラウザの maxlength は UTF-16 単位で、文字数とずれる
     field.set_value("A" * (limit + 5))
     assert field.value == "A" * limit
     field.set_value("😀" * limit)  # 絵文字は 1 文字と数える(UTF-16 では 2 単位)
@@ -1849,13 +2132,28 @@ async def test_a_category_is_laid_out_in_two_rows_so_long_text_fits(user: User) 
     def element(part: str):  # noqa: ANN202
         return user.find(marker=f"settings-category-0-{part}").elements.pop()
 
-    first, second = element("name").parent_slot.parent, element("kind").parent_slot.parent
+    first, second = (
+        element("name").parent_slot.parent,
+        element("kind").parent_slot.parent,
+    )
     assert first is not second
-    assert element("color").parent_slot.parent is first and element("remove").parent_slot.parent is first
-    assert element("expiry").parent_slot.parent is second and element("prj").parent_slot.parent is second
-    assert first.parent_slot.parent is second.parent_slot.parent  # 1 つのカテゴリは、1 つのブロックにまとまる
-    assert "grow" in element("name").classes  # 名前は、1 段目の残りの幅を使う(全角 30 文字)
-    assert "grow" in element("kind").classes  # 種別は、2 段目の残りの幅を使う(全角 20 文字)
+    assert (
+        element("color").parent_slot.parent is first
+        and element("remove").parent_slot.parent is first
+    )
+    assert (
+        element("expiry").parent_slot.parent is second
+        and element("prj").parent_slot.parent is second
+    )
+    assert (
+        first.parent_slot.parent is second.parent_slot.parent
+    )  # 1 つのカテゴリは、1 つのブロックにまとまる
+    assert (
+        "grow" in element("name").classes
+    )  # 名前は、1 段目の残りの幅を使う(全角 30 文字)
+    assert (
+        "grow" in element("kind").classes
+    )  # 種別は、2 段目の残りの幅を使う(全角 20 文字)
     assert "w-48" in element("prj").classes  # PRJコードは、半角 20 文字が収まる幅
 
 
@@ -1880,17 +2178,24 @@ def test_event_row_is_open_by_default() -> None:
 
 
 def test_build_event_list_carries_closed() -> None:
-    rows = [EventRow(None, "10/26", "10/28", "夏季休業", "gray", True), EventRow(None, "10/1", "10/1", "x", "gray")]
+    rows = [
+        EventRow(None, "10/26", "10/28", "夏季休業", "gray", True),
+        EventRow(None, "10/1", "10/1", "x", "gray"),
+    ]
     built = build_event_list(rows, set(), TODAY)
     assert [(e.text, e.closed) for e in built] == [("x", False), ("夏季休業", True)]
 
 
 def test_build_event_list_does_not_roll_dates_into_next_year() -> None:
-    (built,) = build_event_list([EventRow(None, "10/1", "10/2", "x", "red")], set(), TODAY)  # 10/1 は過ぎた日
+    (built,) = build_event_list(
+        [EventRow(None, "10/1", "10/2", "x", "red")], set(), TODAY
+    )  # 10/1 は過ぎた日
     assert built.start == date(2026, 10, 1)
 
 
-def test_build_event_list_ignores_a_blank_new_row_but_not_a_blank_existing_one() -> None:
+def test_build_event_list_ignores_a_blank_new_row_but_not_a_blank_existing_one() -> (
+    None
+):
     assert build_event_list([EventRow(None, "", "", "", "gray")], set(), TODAY) == []
     with pytest.raises(ValueError):
         build_event_list([EventRow("e1", "", "", "", "gray")], {"e1"}, TODAY)
@@ -1916,7 +2221,9 @@ def test_build_event_list_rejects_invalid_rows(row: EventRow, message: str) -> N
         build_event_list([row], set(), TODAY)
 
 
-def mount_event_settings(events: list[Event], applied: list[int], received: list[list[Event]]) -> None:
+def mount_event_settings(
+    events: list[Event], applied: list[int], received: list[list[Event]]
+) -> None:
     @ui.page("/")
     def index() -> None:
         ui.button(
@@ -1947,7 +2254,12 @@ async def test_adding_an_event_applies_it(user: User) -> None:
     user.find(marker="settings-apply").click()
     assert applied == [1]
     ((event,),) = received
-    assert (event.start, event.end, event.text, event.color) == (date(2026, 10, 20), date(2026, 10, 24), "リリース", "orange")
+    assert (event.start, event.end, event.text, event.color) == (
+        date(2026, 10, 20),
+        date(2026, 10, 24),
+        "リリース",
+        "orange",
+    )
 
 
 async def test_closing_an_event_applies_it(user: User) -> None:
@@ -1971,7 +2283,9 @@ async def test_closing_an_event_applies_it(user: User) -> None:
 async def test_changing_only_closed_counts_as_an_event_change(user: User) -> None:
     applied: list[int] = []
     received: list[list[Event]] = []
-    existing = [Event(date(2026, 10, 26), date(2026, 10, 28), "夏季休業", "gray", id="e1")]
+    existing = [
+        Event(date(2026, 10, 26), date(2026, 10, 28), "夏季休業", "gray", id="e1")
+    ]
     mount_event_settings(existing, applied, received)
     await user.open("/")
     user.find("open").click()
@@ -1989,7 +2303,9 @@ async def test_event_color_field_is_a_color_input_that_takes_a_code(user: User) 
     user.find(marker="settings-event-add").click()
     await asyncio.sleep(0.2)
     field = user.find(marker="settings-event-0-color").elements.pop()
-    assert isinstance(field, ui.color_input)  # タスクの`色`と同じ、コードの入力と色の選択
+    assert isinstance(
+        field, ui.color_input
+    )  # タスクの`色`と同じ、コードの入力と色の選択
     user.find(marker="settings-event-0-start").type("2026-10-20")
     user.find(marker="settings-event-0-end").type("2026-10-24")
     user.find(marker="settings-event-0-text").type("リリース")
@@ -2001,7 +2317,9 @@ async def test_event_color_field_is_a_color_input_that_takes_a_code(user: User) 
 
 
 async def test_event_color_picker_is_compact_and_returns_a_hex_code(user: User) -> None:
-    mount_event_settings([Event(date(2026, 10, 1), date(2026, 10, 2), "x", "red", id="e1")], [], [])
+    mount_event_settings(
+        [Event(date(2026, 10, 1), date(2026, 10, 2), "x", "red", id="e1")], [], []
+    )
     await user.open("/")
     user.find("open").click()
     await asyncio.sleep(0.2)
@@ -2015,7 +2333,9 @@ async def test_event_color_picker_is_compact_and_returns_a_hex_code(user: User) 
 
 
 async def test_event_swatch_follows_a_color_code_too(user: User) -> None:
-    mount_event_settings([Event(date(2026, 10, 1), date(2026, 10, 2), "x", "red", id="e1")], [], [])
+    mount_event_settings(
+        [Event(date(2026, 10, 1), date(2026, 10, 2), "x", "red", id="e1")], [], []
+    )
     await user.open("/")
     user.find("open").click()
     swatch = user.find(marker="settings-event-0-swatch").elements.pop()
@@ -2024,7 +2344,9 @@ async def test_event_swatch_follows_a_color_code_too(user: User) -> None:
 
 
 async def test_event_swatch_follows_the_color_text(user: User) -> None:
-    mount_event_settings([Event(date(2026, 10, 1), date(2026, 10, 2), "x", "red", id="e1")], [], [])
+    mount_event_settings(
+        [Event(date(2026, 10, 1), date(2026, 10, 2), "x", "red", id="e1")], [], []
+    )
     await user.open("/")
     user.find("open").click()
     swatch = user.find(marker="settings-event-0-swatch").elements.pop()
@@ -2064,7 +2386,9 @@ async def test_invalid_event_keeps_the_dialog_and_calls_nothing(user: User) -> N
 
 async def test_unchanged_events_are_not_reapplied(user: User) -> None:
     received: list[list[Event]] = []
-    mount_event_settings([Event(date(2026, 10, 1), date(2026, 10, 2), "a", "red", id="e1")], [], received)
+    mount_event_settings(
+        [Event(date(2026, 10, 1), date(2026, 10, 2), "a", "red", id="e1")], [], received
+    )
     await user.open("/")
     user.find("open").click()
     user.find(marker="settings-apply").click()
@@ -2074,7 +2398,9 @@ async def test_unchanged_events_are_not_reapplied(user: User) -> None:
 def test_end_gap_hint_compares_calendar_days() -> None:
     computed = datetime(2026, 10, 13, 11, 0)
     assert end_gap_hint(datetime(2026, 10, 20, 9, 0), computed) == "算出値より 7 日遅い"
-    assert end_gap_hint(datetime(2026, 10, 12, 18, 0), computed) == "算出値より 1 日前倒し"
+    assert (
+        end_gap_hint(datetime(2026, 10, 12, 18, 0), computed) == "算出値より 1 日前倒し"
+    )
     assert end_gap_hint(datetime(2026, 10, 13, 18, 0), computed) == "算出値と同じ日"
     assert end_gap_hint(None, computed) == ""
     assert end_gap_hint(computed, None) == ""
@@ -2093,17 +2419,23 @@ TODAY = date(2026, 10, 18)
         ("2020-01-01", date(2020, 1, 1)),  # 過去の基準日も許可する
     ],
 )
-def test_build_base_date_reads_shortened_forms_and_keeps_past_days(text: str, expected: date) -> None:
+def test_build_base_date_reads_shortened_forms_and_keeps_past_days(
+    text: str, expected: date
+) -> None:
     assert build_base_date(text, TODAY) == expected
 
 
-@pytest.mark.parametrize("text", ["", "   ", "あした", "2026-02-30", "1999-12-31", "2101-01-01"])
+@pytest.mark.parametrize(
+    "text", ["", "   ", "あした", "2026-02-30", "1999-12-31", "2101-01-01"]
+)
 def test_build_base_date_rejects_unreadable_or_out_of_range_days(text: str) -> None:
     with pytest.raises(ValueError, match="基準日"):
         build_base_date(text, TODAY)
 
 
-async def test_settings_dialog_applies_the_base_date_only_when_given(user: User) -> None:
+async def test_settings_dialog_applies_the_base_date_only_when_given(
+    user: User,
+) -> None:
     bases: list[date] = []
 
     @ui.page("/")
@@ -2111,7 +2443,11 @@ async def test_settings_dialog_applies_the_base_date_only_when_given(user: User)
         ui.button(
             "open",
             on_click=lambda: open_settings_dialog(
-                6.5, time(9, 0), lambda h, s, m: None, base_date=date(2026, 10, 5), on_base_date=bases.append
+                6.5,
+                time(9, 0),
+                lambda h, s, m: None,
+                base_date=date(2026, 10, 5),
+                on_base_date=bases.append,
             ),
         )
 
@@ -2123,7 +2459,9 @@ async def test_settings_dialog_applies_the_base_date_only_when_given(user: User)
     assert bases == [date(date.today().year, 10, 20)]  # 年を省くと今年
 
 
-async def test_settings_dialog_rejects_a_bad_base_date_and_keeps_the_dialog(user: User) -> None:
+async def test_settings_dialog_rejects_a_bad_base_date_and_keeps_the_dialog(
+    user: User,
+) -> None:
     bases: list[date] = []
 
     @ui.page("/")
@@ -2131,7 +2469,11 @@ async def test_settings_dialog_rejects_a_bad_base_date_and_keeps_the_dialog(user
         ui.button(
             "open",
             on_click=lambda: open_settings_dialog(
-                6.5, time(9, 0), lambda h, s, m: None, base_date=date(2026, 10, 5), on_base_date=bases.append
+                6.5,
+                time(9, 0),
+                lambda h, s, m: None,
+                base_date=date(2026, 10, 5),
+                on_base_date=bases.append,
             ),
         )
 
@@ -2146,7 +2488,12 @@ async def test_settings_dialog_rejects_a_bad_base_date_and_keeps_the_dialog(user
 async def test_settings_dialog_has_no_base_date_field_without_one(user: User) -> None:
     @ui.page("/")
     def index() -> None:
-        ui.button("open", on_click=lambda: open_settings_dialog(6.5, time(9, 0), lambda h, s, m: None))
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5, time(9, 0), lambda h, s, m: None
+            ),
+        )
 
     await user.open("/")
     user.find("open").click()
@@ -2155,12 +2502,35 @@ async def test_settings_dialog_has_no_base_date_field_without_one(user: User) ->
 
 def test_build_task_for_a_summary_updates_only_the_shared_fields() -> None:
     existing = Task("m", id="m", kind=TaskKind.SUMMARY, children=["a"], color="#112233")
-    built = make(existing, name=" 新 ", priority=Priority.HIGH, category_id="c", kind=TaskKind.SUMMARY, effort_hours=5.0,
-                 status=Status.RUNNING, color="#ffffff")
-    assert (built.kind, built.children, built.name, built.priority, built.category_id) == (
-        TaskKind.SUMMARY, ["a"], "新", Priority.HIGH, "c",
+    built = make(
+        existing,
+        name=" 新 ",
+        priority=Priority.HIGH,
+        category_id="c",
+        kind=TaskKind.SUMMARY,
+        effort_hours=5.0,
+        status=Status.RUNNING,
+        color="#ffffff",
     )
-    assert (built.effort_hours, built.status, built.color, built.predecessors) == (0.0, Status.NOT_STARTED, "#112233", [])
+    assert (
+        built.kind,
+        built.children,
+        built.name,
+        built.priority,
+        built.category_id,
+    ) == (
+        TaskKind.SUMMARY,
+        ["a"],
+        "新",
+        Priority.HIGH,
+        "c",
+    )
+    assert (built.effort_hours, built.status, built.color, built.predecessors) == (
+        0.0,
+        Status.NOT_STARTED,
+        "#112233",
+        [],
+    )
 
 
 def test_a_summary_cannot_be_made_from_a_form() -> None:
@@ -2181,7 +2551,11 @@ def test_build_work_day_list_parses_shortcuts_sorts_and_skips_empty_rows() -> No
         WorkDayRow("10/12", "", "", True),  # 休みは時刻を見ない
     ]
     built = build_work_day_list(rows, WORK_TODAY)
-    assert [w.day for w in built] == [date(2026, 10, 12), date(2026, 10, 17), date(2026, 10, 18)]
+    assert [w.day for w in built] == [
+        date(2026, 10, 12),
+        date(2026, 10, 17),
+        date(2026, 10, 18),
+    ]
     assert built[0].start is None and built[0].end is None
     assert (built[1].start, built[1].end) == (time(13), time(16))
     assert (built[2].start, built[2].end) == (time(9, 30), time(12))
@@ -2205,21 +2579,47 @@ def test_build_work_day_list_rejects_bad_rows(row: WorkDayRow) -> None:
 
 def test_build_work_day_list_rejects_a_duplicate_date() -> None:
     with pytest.raises(ValueError, match="重複"):
-        build_work_day_list([WorkDayRow("10/17", "9", "10", False), WorkDayRow("2026-10-17", "", "", True)], WORK_TODAY)
+        build_work_day_list(
+            [
+                WorkDayRow("10/17", "9", "10", False),
+                WorkDayRow("2026-10-17", "", "", True),
+            ],
+            WORK_TODAY,
+        )
 
 
-def test_build_members_carries_work_day_rows_and_prefixes_errors_with_the_name() -> None:
-    row = MemberRow("甲", "甲", 100.0, work_days=[WorkDayRow("10/17", "13", "16", False), WorkDayRow("10/18", "", "", True)])
+def test_build_members_carries_work_day_rows_and_prefixes_errors_with_the_name() -> (
+    None
+):
+    row = MemberRow(
+        "甲",
+        "甲",
+        100.0,
+        work_days=[
+            WorkDayRow("10/17", "13", "16", False),
+            WorkDayRow("10/18", "", "", True),
+        ],
+    )
     members, _ = build_members([row], ["甲"], lambda name: 0, today=WORK_TODAY)
-    assert members[0].work_days == [WorkDay(date(2026, 10, 17), time(13), time(16)), WorkDay(date(2026, 10, 18))]
-    bad = MemberRow("甲", "甲", 100.0, work_days=[WorkDayRow("10/17", "16", "13", False)])
+    assert members[0].work_days == [
+        WorkDay(date(2026, 10, 17), time(13), time(16)),
+        WorkDay(date(2026, 10, 18)),
+    ]
+    bad = MemberRow(
+        "甲", "甲", 100.0, work_days=[WorkDayRow("10/17", "16", "13", False)]
+    )
     with pytest.raises(ValueError, match="甲"):
         build_members([bad], ["甲"], lambda name: 0, today=WORK_TODAY)
 
 
 def test_member_columns_include_the_work_days_column() -> None:
-    assert len(member_columns(0, False)) == 7  # アイコン・名前・比率・丸めない・警告の件数・稼働日・削除
-    assert member_table_min_rem(0, False) > MEMBER_ICON_COLUMN_REM + MEMBER_NAME_COLUMN_REM + MEMBER_RATIO_COLUMN_REM
+    assert (
+        len(member_columns(0, False)) == 7
+    )  # アイコン・名前・比率・丸めない・警告の件数・稼働日・削除
+    assert (
+        member_table_min_rem(0, False)
+        > MEMBER_ICON_COLUMN_REM + MEMBER_NAME_COLUMN_REM + MEMBER_RATIO_COLUMN_REM
+    )
 
 
 def test_build_task_takes_the_parameters_and_keeps_them_when_omitted() -> None:
@@ -2230,7 +2630,12 @@ def test_build_task_takes_the_parameters_and_keeps_them_when_omitted() -> None:
 
 
 def test_build_task_clears_the_parameters_of_a_checkpoint() -> None:
-    made = make(kind=TaskKind.CHECKPOINT, deadline="2026-10-09T17:00", status=Status.NOT_STARTED, parameters=["P"])
+    made = make(
+        kind=TaskKind.CHECKPOINT,
+        deadline="2026-10-09T17:00",
+        status=Status.NOT_STARTED,
+        parameters=["P"],
+    )
     assert made.parameters == []
 
 
@@ -2242,32 +2647,51 @@ async def test_the_settings_dialog_reports_a_changed_reference_mode(user: User) 
         ui.button(
             "open",
             on_click=lambda: open_settings_dialog(
-                6.5, time(9, 0), lambda *a: None, reference_mode=ReferenceMode.LIVE, on_reference_mode=applied.append
+                6.5,
+                time(9, 0),
+                lambda *a: None,
+                reference_mode=ReferenceMode.LIVE,
+                on_reference_mode=applied.append,
             ),
         )
 
     await user.open("/")
     user.find("open").click()
-    user.find(marker="settings-reference-mode").elements.pop().set_value(ReferenceMode.SNAPSHOT.value)
+    user.find(marker="settings-reference-mode").elements.pop().set_value(
+        ReferenceMode.SNAPSHOT.value
+    )
     user.find(marker="settings-apply").click()
     assert applied == [ReferenceMode.SNAPSHOT]
 
 
-async def test_the_stale_reference_dialog_offers_update_skip_and_cancel(user: User) -> None:
+async def test_the_stale_reference_dialog_offers_update_skip_and_cancel(
+    user: User,
+) -> None:
     done: list[str] = []
 
     @ui.page("/")
     def index() -> None:
-        ui.button("open", on_click=lambda: open_stale_reference_dialog("基盤", lambda: done.append("update"), lambda: done.append("skip")))
+        ui.button(
+            "open",
+            on_click=lambda: open_stale_reference_dialog(
+                "基盤", lambda: done.append("update"), lambda: done.append("skip")
+            ),
+        )
 
     await user.open("/")
-    for marker, expected in (("stale-update", ["update"]), ("stale-skip", ["update", "skip"]), ("stale-cancel", ["update", "skip"])):
+    for marker, expected in (
+        ("stale-update", ["update"]),
+        ("stale-skip", ["update", "skip"]),
+        ("stale-cancel", ["update", "skip"]),
+    ):
         user.find("open").click()
         user.find(marker=marker).click()
         assert done == expected
 
 
-async def test_the_settings_dialog_does_not_report_an_unchanged_reference_mode(user: User) -> None:
+async def test_the_settings_dialog_does_not_report_an_unchanged_reference_mode(
+    user: User,
+) -> None:
     applied: list[ReferenceMode] = []
 
     @ui.page("/")
@@ -2275,7 +2699,11 @@ async def test_the_settings_dialog_does_not_report_an_unchanged_reference_mode(u
         ui.button(
             "open",
             on_click=lambda: open_settings_dialog(
-                6.5, time(9, 0), lambda *a: None, reference_mode=ReferenceMode.LIVE, on_reference_mode=applied.append
+                6.5,
+                time(9, 0),
+                lambda *a: None,
+                reference_mode=ReferenceMode.LIVE,
+                on_reference_mode=applied.append,
             ),
         )
 
@@ -2285,7 +2713,9 @@ async def test_the_settings_dialog_does_not_report_an_unchanged_reference_mode(u
     assert applied == []
 
 
-async def test_the_stale_snapshot_dialog_names_the_targets_and_offers_three_choices(user: User) -> None:
+async def test_the_stale_snapshot_dialog_names_the_targets_and_offers_three_choices(
+    user: User,
+) -> None:
     done: list[str] = []
 
     @ui.page("/")
@@ -2293,7 +2723,10 @@ async def test_the_stale_snapshot_dialog_names_the_targets_and_offers_three_choi
         ui.button(
             "open",
             on_click=lambda: open_stale_snapshot_dialog(
-                ["基盤", "共通"], "保存", lambda: done.append("update"), lambda: done.append("skip")
+                ["基盤", "共通"],
+                "保存",
+                lambda: done.append("update"),
+                lambda: done.append("skip"),
             ),
         )
 
@@ -2305,7 +2738,9 @@ async def test_the_stale_snapshot_dialog_names_the_targets_and_offers_three_choi
     assert done == ["skip"]
 
 
-async def test_the_settings_dialog_reports_a_changed_plantuml_notice(user: User) -> None:
+async def test_the_settings_dialog_reports_a_changed_plantuml_notice(
+    user: User,
+) -> None:
     applied: list[bool] = []
 
     @ui.page("/")
@@ -2313,7 +2748,11 @@ async def test_the_settings_dialog_reports_a_changed_plantuml_notice(user: User)
         ui.button(
             "open",
             on_click=lambda: open_settings_dialog(
-                6.5, time(9, 0), lambda *a: None, plantuml_notice=True, on_plantuml_notice=applied.append
+                6.5,
+                time(9, 0),
+                lambda *a: None,
+                plantuml_notice=True,
+                on_plantuml_notice=applied.append,
             ),
         )
 
@@ -2326,7 +2765,9 @@ async def test_the_settings_dialog_reports_a_changed_plantuml_notice(user: User)
     assert applied == [False]
 
 
-async def test_the_settings_dialog_does_not_report_an_unchanged_plantuml_notice(user: User) -> None:
+async def test_the_settings_dialog_does_not_report_an_unchanged_plantuml_notice(
+    user: User,
+) -> None:
     applied: list[bool] = []
 
     @ui.page("/")
@@ -2334,7 +2775,11 @@ async def test_the_settings_dialog_does_not_report_an_unchanged_plantuml_notice(
         ui.button(
             "open",
             on_click=lambda: open_settings_dialog(
-                6.5, time(9, 0), lambda *a: None, plantuml_notice=False, on_plantuml_notice=applied.append
+                6.5,
+                time(9, 0),
+                lambda *a: None,
+                plantuml_notice=False,
+                on_plantuml_notice=applied.append,
             ),
         )
 
@@ -2363,8 +2808,17 @@ def test_build_ratio_limits_reads_percent_text() -> None:
 @pytest.mark.parametrize(
     ("upper", "lower"),
     [
-        ("abc", ""), ("", "x"), ("49", ""), ("151", ""), ("", "49"), ("", "151"), ("nan", ""), ("inf", ""),
-        ("", "-inf"), ("", "-50"), ("100", "120"),
+        ("abc", ""),
+        ("", "x"),
+        ("49", ""),
+        ("151", ""),
+        ("", "49"),
+        ("", "151"),
+        ("nan", ""),
+        ("inf", ""),
+        ("", "-inf"),
+        ("", "-50"),
+        ("100", "120"),
     ],
 )
 def test_build_ratio_limits_rejects_invalid_input(upper: str, lower: str) -> None:
@@ -2378,7 +2832,11 @@ def _open_limits_dialog(limits: RatioLimits, applied: list[RatioLimits]) -> None
         ui.button(
             "open",
             on_click=lambda: open_settings_dialog(
-                6.5, time(9, 0), lambda *a: None, ratio_limits=limits, on_ratio_limits=applied.append
+                6.5,
+                time(9, 0),
+                lambda *a: None,
+                ratio_limits=limits,
+                on_ratio_limits=applied.append,
             ),
         )
 
@@ -2403,7 +2861,9 @@ async def test_the_preset_button_fills_fifty_to_one_fifty(user: User) -> None:
     assert user.find(marker="settings-limit-lower").elements.pop().value == "50"
 
 
-async def test_the_settings_dialog_does_not_report_unchanged_ratio_limits(user: User) -> None:
+async def test_the_settings_dialog_does_not_report_unchanged_ratio_limits(
+    user: User,
+) -> None:
     applied: list[RatioLimits] = []
     _open_limits_dialog(RatioLimits(upper=1.5), applied)
     await user.open("/")
@@ -2413,7 +2873,9 @@ async def test_the_settings_dialog_does_not_report_unchanged_ratio_limits(user: 
     assert applied == []
 
 
-async def test_an_invalid_ratio_limit_shows_an_error_and_keeps_the_dialog(user: User) -> None:
+async def test_an_invalid_ratio_limit_shows_an_error_and_keeps_the_dialog(
+    user: User,
+) -> None:
     applied: list[RatioLimits] = []
     _open_limits_dialog(RatioLimits(), applied)
     await user.open("/")
@@ -2437,7 +2899,10 @@ def test_work_day_row_has_an_empty_note_by_default() -> None:
 
 
 def test_build_work_day_list_carries_the_note_and_strips_it() -> None:
-    rows = [WorkDayRow("10/17", "13", "16", False, " 通院 "), WorkDayRow("10/18", "", "", True, "夏季休暇")]
+    rows = [
+        WorkDayRow("10/17", "13", "16", False, " 通院 "),
+        WorkDayRow("10/18", "", "", True, "夏季休暇"),
+    ]
     built = build_work_day_list(rows, WORK_TODAY)
     assert [w.note for w in built] == ["通院", "夏季休暇"]
 
@@ -2454,14 +2919,26 @@ def test_build_work_day_list_rejects_a_long_note() -> None:
 
 def test_plan_work_day_range_adds_rest_rows_and_skips_registered_days() -> None:
     existing = [WorkDayRow("10/27", "", "", True)]
-    plan = plan_work_day_range("10/26 〜 10/30", True, "", "", "夏季休暇", True, existing, {}, WORK_TODAY)
-    assert [r.day for r in plan.rows] == ["2026-10-26", "2026-10-28", "2026-10-29", "2026-10-30"]
-    assert all(r.rest and r.note == "夏季休暇" and r.start == "" and r.end == "" for r in plan.rows)
+    plan = plan_work_day_range(
+        "10/26 〜 10/30", True, "", "", "夏季休暇", True, existing, {}, WORK_TODAY
+    )
+    assert [r.day for r in plan.rows] == [
+        "2026-10-26",
+        "2026-10-28",
+        "2026-10-29",
+        "2026-10-30",
+    ]
+    assert all(
+        r.rest and r.note == "夏季休暇" and r.start == "" and r.end == ""
+        for r in plan.rows
+    )
     assert (plan.registered, plan.off) == (1, 0)
 
 
 def test_plan_work_day_range_with_a_window_formats_the_times() -> None:
-    plan = plan_work_day_range("2026-10-26 〜 2026-10-26", False, "9", "1230", "", True, [], {}, WORK_TODAY)
+    plan = plan_work_day_range(
+        "2026-10-26 〜 2026-10-26", False, "9", "1230", "", True, [], {}, WORK_TODAY
+    )
     assert [(r.start, r.end, r.rest) for r in plan.rows] == [("09:00", "12:30", False)]
 
 
@@ -2475,31 +2952,45 @@ def test_plan_work_day_range_with_a_window_formats_the_times() -> None:
         ("10/26 〜 10/30", False, "12", "9", "開始"),  # 逆
     ],
 )
-def test_plan_work_day_range_rejects_bad_input(period: str, rest: bool, start: str, end: str, message: str) -> None:
+def test_plan_work_day_range_rejects_bad_input(
+    period: str, rest: bool, start: str, end: str, message: str
+) -> None:
     with pytest.raises(ValueError, match=message):
         plan_work_day_range(period, rest, start, end, "", True, [], {}, WORK_TODAY)
 
 
 def test_plan_work_day_range_with_nothing_to_add_returns_no_rows() -> None:
-    plan = plan_work_day_range("10/31 〜 11/1", True, "", "", "", True, [], {}, WORK_TODAY)  # 土日だけ
+    plan = plan_work_day_range(
+        "10/31 〜 11/1", True, "", "", "", True, [], {}, WORK_TODAY
+    )  # 土日だけ
     assert plan.rows == [] and plan.off == 2
 
 
 def test_work_day_range_summary() -> None:
     row = WorkDayRow("2026-10-26", "", "", True)
-    assert work_day_range_summary(RangeAdd([row] * 3, 1, 2)) == "3 日を追加しました(1 日は登録済みのため飛ばしました。土日祝 2 日を除きました)"
+    assert (
+        work_day_range_summary(RangeAdd([row] * 3, 1, 2))
+        == "3 日を追加しました(1 日は登録済みのため飛ばしました。土日祝 2 日を除きました)"
+    )
     assert work_day_range_summary(RangeAdd([row], 0, 0)) == "1 日を追加しました"
-    assert work_day_range_summary(RangeAdd([], 2, 0)) == "追加する日がありません(2 日は登録済みのため飛ばしました)"
+    assert (
+        work_day_range_summary(RangeAdd([], 2, 0))
+        == "追加する日がありません(2 日は登録済みのため飛ばしました)"
+    )
 
 
 def test_build_members_carries_memberships_and_checks_them() -> None:
-    rows_ = [MemberRow(None, "甲", 100.0, teams=[Membership("a", 60), Membership("b", 40)])]
+    rows_ = [
+        MemberRow(None, "甲", 100.0, teams=[Membership("a", 60), Membership("b", 40)])
+    ]
     members, _ = build_members(rows_, [], no_tasks, team_ids={"a", "b"})
     assert members[0].teams == [Membership("a", 60), Membership("b", 40)]
 
 
 def test_build_members_rejects_a_bad_membership_with_the_member_name() -> None:
-    rows_ = [MemberRow(None, "甲", 100.0, teams=[Membership("a", 60), Membership("b", 30)])]
+    rows_ = [
+        MemberRow(None, "甲", 100.0, teams=[Membership("a", 60), Membership("b", 30)])
+    ]
     with pytest.raises(ValueError, match="甲: 所属の割合の合計を 100%"):
         build_members(rows_, [], no_tasks, team_ids={"a", "b"})
 
@@ -2521,7 +3012,11 @@ def quick_task(**kwargs: object) -> models.Task:
 
 def test_quick_progress_sets_only_the_progress_without_touching_the_status() -> None:
     saved = apply_quick_progress(quick_task(status=models.Status.PAUSED), 40, "", "")
-    assert (saved.progress, saved.status, saved.actuals) == (40, models.Status.PAUSED, [])
+    assert (saved.progress, saved.status, saved.actuals) == (
+        40,
+        models.Status.PAUSED,
+        [],
+    )
 
 
 def test_quick_progress_clears_the_progress_when_empty() -> None:
@@ -2538,15 +3033,20 @@ def test_quick_progress_records_the_actual_and_follows_the_status() -> None:
     running = apply_quick_progress(quick_task(), None, "2026-10-05T09:00", "")
     assert running.actuals == [models.Actual(datetime(2026, 10, 5, 9))]
     assert running.status is models.Status.RUNNING
-    done = apply_quick_progress(quick_task(), None, "2026-10-05T09:00", "2026-10-05T17:00")
+    done = apply_quick_progress(
+        quick_task(), None, "2026-10-05T09:00", "2026-10-05T17:00"
+    )
     assert done.status is models.Status.DONE
-    paused = apply_quick_progress(quick_task(), 40, "2026-10-05T09:00", "2026-10-05T17:00", intervals=True)
+    paused = apply_quick_progress(
+        quick_task(), 40, "2026-10-05T09:00", "2026-10-05T17:00", intervals=True
+    )
     assert paused.status is models.Status.PAUSED
 
 
 def test_quick_progress_keeps_the_status_when_the_actual_is_unchanged() -> None:
     task = quick_task(
-        actuals=[models.Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 17))], status=models.Status.PAUSED
+        actuals=[models.Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 17))],
+        status=models.Status.PAUSED,
     )
     saved = apply_quick_progress(task, 50, "2026-10-05T09:00", "2026-10-05T17:00")
     assert saved.status is models.Status.PAUSED and saved.progress == 50
@@ -2564,4 +3064,8 @@ def test_quick_progress_leaves_several_intervals_alone() -> None:
     second = models.Actual(datetime(2026, 10, 6, 9))
     task = quick_task(actuals=[first, second], status=models.Status.RUNNING)
     saved = apply_quick_progress(task, 60, "", "")  # 開始・終了の入力は読まない
-    assert saved.actuals == [first, second] and saved.progress == 60 and saved.status is models.Status.RUNNING
+    assert (
+        saved.actuals == [first, second]
+        and saved.progress == 60
+        and saved.status is models.Status.RUNNING
+    )

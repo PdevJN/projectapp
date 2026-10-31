@@ -4,7 +4,13 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
+from projectapp.filtering import (
+    TaskFilter,
+    hidden_by_summary,
+    matches,
+    section_has_match,
+    visible_task_indexes,
+)
 from projectapp.models import Project, Section, SectionPath, Task
 
 STUB_PX = 6  # 先行の棒の右端から出る長さ。後続の棒の左端へ入る手前も同じ長さ
@@ -42,19 +48,35 @@ def row_slots(
     if read_only or task_filter.active:
         quick_add = quick_section = None
     by_id = project.task_map()
-    folded = hidden_by_summary(project, collapsed_summaries) if not task_filter.active and not read_only else set()
+    folded = (
+        hidden_by_summary(project, collapsed_summaries)
+        if not task_filter.active and not read_only
+        else set()
+    )
     if quick_add == ((), 0):
         slots.append(RowSlot("quick-add", (), None, None, True, row_height))
     for ti, task in enumerate(project.tasks):
         if matches(task, task_filter, by_id):
-            slots.append(RowSlot("task", (), ti, task.id, task.id not in folded, row_height))
+            slots.append(
+                RowSlot("task", (), ti, task.id, task.id not in folded, row_height)
+            )
             if quick_add == ((), ti + 1):
                 slots.append(RowSlot("quick-add", (), None, None, True, row_height))
     if not read_only:
         slots.append(RowSlot("top-add", (), None, None, True, add_height))
     for index, section in enumerate(project.sections):
         _section_slots(
-            slots, section, (index,), task_filter, collapsed, read_only, False, row_height, by_id, folded, quick_add,
+            slots,
+            section,
+            (index,),
+            task_filter,
+            collapsed,
+            read_only,
+            False,
+            row_height,
+            by_id,
+            folded,
+            quick_add,
             quick_section,
         )
     if quick_section == ():
@@ -88,14 +110,31 @@ def _section_slots(
         if task_filter.active and ti not in visible:
             continue
         slots.append(
-            RowSlot("task", path, ti, task.id, not hidden and ti in visible and task.id not in folded, row_height)
+            RowSlot(
+                "task",
+                path,
+                ti,
+                task.id,
+                not hidden and ti in visible and task.id not in folded,
+                row_height,
+            )
         )
         if quick_add == (path, ti + 1):
             slots.append(RowSlot("quick-add", path, None, None, not hidden, row_height))
     for index, child in enumerate(section.sections):
         _section_slots(
-            slots, child, (*path, index), task_filter, collapsed, read_only, hidden or own_collapsed, row_height,
-            by_id, folded, quick_add, quick_section,
+            slots,
+            child,
+            (*path, index),
+            task_filter,
+            collapsed,
+            read_only,
+            hidden or own_collapsed,
+            row_height,
+            by_id,
+            folded,
+            quick_add,
+            quick_section,
         )
     if quick_section == path:
         slots.append(RowSlot("quick-add", path, None, None, not hidden, row_height))
@@ -136,7 +175,14 @@ def link_points(
         return [out, (elbow, pred_y), (elbow, succ_y), (succ.left, succ_y)]
     between = pred_y + row_height / 2 if succ_y > pred_y else pred_y - row_height / 2
     right, left = pred.right + STUB_PX, succ.left - STUB_PX
-    return [out, (right, pred_y), (right, between), (left, between), (left, succ_y), (succ.left, succ_y)]
+    return [
+        out,
+        (right, pred_y),
+        (right, between),
+        (left, between),
+        (left, succ_y),
+        (succ.left, succ_y),
+    ]
 
 
 def path_data(points: list[tuple[float, float]]) -> str:
