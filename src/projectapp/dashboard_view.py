@@ -39,6 +39,8 @@ OVER_COLOR = "#ef5350"  # 100% を超える日がある負荷(予定超過の赤
 PLANNED_COLOR = "#1e88e5"  # 予定の時間。dataviz の検証で、灰青は「灰色に見える」ため不合格。青と緑の組は全項目 PASS
 ACTUAL_COLOR = "#43a047"  # 実績の時間
 NEED_COLOR = "#6250d6"  # 残りの工数と必要人数: これから要る量(必要人数・担当別・チーム別の残りの工数)。予定の青と混ざらないすみれ
+WARNING_FILL = "var(--warning)"  # 必要人数のうち警告の分。警告の色の設定に従う
+WARNING_OUTLINE = "box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35)"  # 黄は明るい背景で薄いので、輪郭で補う(凡例とホバーの値も出す)
 HAVE_COLOR = "#1baf7a"  # 残りの工数と必要人数: 稼働できる人員。実績の緑と混ざらない青緑(ライトでは背景との比が 3:1 未満なので、値は文字でも出す)
 LATE_COLOR = "#e0562f"  # 残りの工数と必要人数: 必要人数のうち遅れの分(必要のすみれの隣で、青緑とも区別できる赤橙。凡例と文字の数値で補う)
 EMPTY = "データがありません"
@@ -159,18 +161,30 @@ def bar(fraction: float, color: str, tick: float | None = None, marker: str | No
             ui.element("div").style(f"{TICK_STYLE}; left: {percent_width(tick)}")
 
 
-def stacked_bar(parts: list[tuple[float, str, str | None, str | None]]) -> None:
-    """積み上げの横棒。(割合, 色, マーク, ホバーの文字)を左から並べ、区切りに 2px の隙間を空ける。割合の合計が 1 を超えないこと。"""
+def stacked_bar(parts: list[tuple[float, str, str | None, str | None] | tuple[float, str, str | None, str | None, str]]) -> None:
+    """積み上げの横棒。(割合, 色, マーク, ホバーの文字[, 追加の CSS])を左から並べ、区切りに 2px の隙間を空ける。割合の合計が 1 を超えないこと。"""
     with ui.element("div").style(TRACK_STYLE + "; display: flex; gap: 2px"):
-        for fraction, color, marker, tip in parts:
+        for fraction, color, marker, tip, *extra in parts:
             if fraction <= 0:
                 continue
-            fill = ui.element("div").style(f"height: 100%; width: {percent_width(fraction)}; background: {color}")
+            fill = ui.element("div").style(
+                f"height: 100%; width: {percent_width(fraction)}; background: {color}" + (f"; {extra[0]}" if extra else "")
+            )
             if marker is not None:
                 fill.mark(marker)
             if tip is not None:
                 with fill:
                     ui.tooltip(tip)
+
+
+def late_summary(backlog: Backlog) -> str:
+    """残りの工数の見出しの括弧の中身。予定超過と警告(`警告を含む`のときだけ)の件数と工数。なければ`遅れなし`。"""
+    parts = []
+    if backlog.overdue_count:
+        parts.append(f"遅延 {backlog.overdue_count} 件・{backlog.overdue_hours:.1f}h")
+    if backlog.warning_count:
+        parts.append(f"警告 {backlog.warning_count} 件・{backlog.warning_hours:.1f}h")
+    return "うち" + "、".join(parts) if parts else "遅れなし"
 
 
 def legend(prefix: str, entries: tuple[tuple[str, str, str], ...]) -> None:
@@ -792,9 +806,7 @@ class DashboardView:
                 ui.label(shortage_text(backlog.shortfall)).classes(
                     "text-h6" + (" text-negative" if round(backlog.shortfall, 1) > 0 else "")
                 ).mark("dashboard-backlog-gap")
-            label = "遅延・警告" if backlog.late_basis is LateBasis.WARNING else "遅延"
-            late = f"うち{label} {backlog.overdue_count} 件・{backlog.overdue_hours:.1f}h" if backlog.overdue_count else "遅れなし"
-            ui.label(f"残りの工数 {backlog.hours:.1f}h({late})").classes("text-subtitle2" if known else "text-h6").mark(
+            ui.label(f"残りの工数 {backlog.hours:.1f}h({late_summary(backlog)})").classes("text-subtitle2" if known else "text-h6").mark(
                 "dashboard-backlog-hours"
             )
             self.hours_graph(backlog)
@@ -810,15 +822,26 @@ class DashboardView:
                 ui.label(f"稼働 {days_text(backlog.days)} 日で終える場合").classes("text-caption").mark("dashboard-backlog-days")
                 scale = max(backlog.required, backlog.supply) or 1.0
                 overdue = min(backlog.overdue_required or 0.0, backlog.required)
+                warned = min(backlog.warning_required or 0.0, backlog.required - overdue)
                 ui.label(f"必要 {backlog.required:.1f} 人").mark("dashboard-backlog-need")
                 stacked_bar(
                     [
-                        ((backlog.required - overdue) / scale, NEED_COLOR, "dashboard-backlog-bar-need", None),
-                        (overdue / scale, LATE_COLOR, "dashboard-backlog-bar-late", None),
+                        ((backlog.required - overdue - warned) / scale, NEED_COLOR, "dashboard-backlog-bar-need", None),
+                        (
+                            warned / scale,
+                            WARNING_FILL,
+                            "dashboard-backlog-bar-warning",
+                            f"警告 {backlog.warning_hours:.1f}h({warned:.1f} 人)",
+                            WARNING_OUTLINE,
+                        ),
+                        (overdue / scale, LATE_COLOR, "dashboard-backlog-bar-late", f"遅れ {backlog.overdue_hours:.1f}h({overdue:.1f} 人)"),
                     ]
                 )
-                if backlog.overdue_count and overdue > 0:  # 凡例は、積み上げの棒のすぐ下に置く
-                    legend("dashboard-backlog", (("うち遅れ", LATE_COLOR, "late"),))
+                entries = (
+                    (("うち警告", WARNING_FILL, "warning"),) if backlog.warning_count and warned > 0 else ()
+                ) + ((("うち遅れ", LATE_COLOR, "late"),) if backlog.overdue_count and overdue > 0 else ())
+                if entries:  # 凡例は、積み上げの棒のすぐ下に置く
+                    legend("dashboard-backlog", entries)
                 ui.label(f"稼働できる人員 {backlog.supply:.1f} 人").mark("dashboard-backlog-have")
                 bar(backlog.supply / scale, HAVE_COLOR, marker="dashboard-backlog-bar-have")
                 ui.label("人は、100% の人に換算した数です。今日は、今から稼働の枠の終わりまでの残り時間で数えます。").classes(
@@ -860,9 +883,10 @@ class DashboardView:
     def late_line(self, backlog: Backlog) -> None:
         """遅れがなかった場合の不足(遅れがあり、期間が決まっているときだけ)。遅れの判定の選択も置く。
         選んでいる側は塗りつぶし、押すと on_late_basis_change で基準を切り替える(選択は保存しない)。"""
-        required, without = backlog.overdue_required, backlog.shortfall_without_overdue
-        if backlog.overdue_count and required is not None and without is not None:
-            ui.label(f"遅れがなければ {shortage_text(without)}").classes("text-caption").mark("dashboard-backlog-late")
+        required, without = backlog.late_required, backlog.shortfall_without_overdue
+        if backlog.late_count and required is not None and without is not None:
+            name = "遅延・警告" if backlog.late_basis is LateBasis.WARNING else "遅れ"
+            ui.label(f"{name}がなければ {shortage_text(without)}").classes("text-caption").mark("dashboard-backlog-late")
         with ui.button_group().props("flat dense").mark("dashboard-backlog-late-basis"):
             for basis, marker in ((LateBasis.DELAY, "delay"), (LateBasis.WARNING, "warning")):
                 props = "dense no-caps color=primary size=sm" + ("" if backlog.late_basis is basis else " outline")

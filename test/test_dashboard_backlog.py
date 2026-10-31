@@ -673,7 +673,9 @@ def test_the_default_basis_leaves_a_warning_task_out_of_the_late_part() -> None:
 def test_the_warning_basis_counts_a_warning_task_as_late_with_its_whole_rest() -> None:
     backlog = summarize_backlog(project_of(warned_todo()), WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING)
     assert backlog.hours == pytest.approx(9.75)
-    assert (backlog.overdue_hours, backlog.overdue_count) == (pytest.approx(9.75), 1)
+    assert (backlog.overdue_hours, backlog.overdue_count) == (0, 0)  # 予定超過ではない
+    assert (backlog.warning_hours, backlog.warning_count) == (pytest.approx(9.75), 1)
+    assert (backlog.late_hours, backlog.late_count) == (pytest.approx(9.75), 1)
     assert backlog.late_basis is LateBasis.WARNING
 
 
@@ -681,14 +683,16 @@ def test_an_overdue_task_is_counted_once_on_the_warning_basis() -> None:
     project = project_of(todo("遅れた", 6.5), warned_todo())
     delay = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.DELAY)
     both = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING)
-    assert (delay.overdue_count, delay.overdue_hours) == (1, 6.5)
-    assert (both.overdue_count, both.overdue_hours) == (2, pytest.approx(6.5 + 9.75))
+    assert (delay.overdue_count, delay.overdue_hours, delay.warning_count, delay.warning_hours) == (1, 6.5, 0, 0)
+    assert (both.overdue_count, both.overdue_hours) == (1, 6.5)  # 予定超過は警告に二重に数えない
+    assert (both.warning_count, both.warning_hours) == (1, pytest.approx(9.75))
+    assert (both.late_count, both.late_hours) == (2, pytest.approx(6.5 + 9.75))
 
 
 def test_the_late_part_never_exceeds_the_total_when_the_period_cuts_the_task() -> None:
     project = project_of(warned_todo(), todo("先の作業", 8))
     backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}, basis=LateBasis.WARNING)
-    assert 0 <= backlog.overdue_hours <= backlog.hours + 1e-9
+    assert 0 <= backlog.late_hours <= backlog.hours + 1e-9
 
 
 def test_shortfall_without_late_uses_the_chosen_basis() -> None:
@@ -703,7 +707,7 @@ def test_shortfall_without_late_uses_the_chosen_basis() -> None:
 def test_summarize_passes_the_basis_to_the_backlog() -> None:
     project = project_of(warned_todo())
     data = summarize(project, WEEK, NOW, {}, PeriodKind.ALL, late_basis=LateBasis.WARNING)
-    assert (data.backlog.overdue_count, data.backlog.late_basis) == (1, LateBasis.WARNING)
+    assert (data.backlog.warning_count, data.backlog.late_basis) == (1, LateBasis.WARNING)
 
 
 def test_cross_backlog_judges_each_project_with_its_own_settings() -> None:
@@ -711,5 +715,14 @@ def test_cross_backlog_judges_each_project_with_its_own_settings() -> None:
     other = Project("別", base_date=date(2026, 10, 5), daily_hours=3.25, members=[Member("田中", 1.0)], tasks=[warned_todo()])
     only_own = summarize_cross_backlog([own], own, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING)
     both = summarize_cross_backlog([own, other], own, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING)
-    assert only_own.overdue_count == 1
-    assert both.overdue_count == 1  # 別のプロジェクトのタスクは、そのプロジェクトの設定では警告にならない
+    assert only_own.warning_count == 1
+    assert both.warning_count == 1  # 別のプロジェクトのタスクは、そのプロジェクトの設定では警告にならない
+
+
+def test_the_required_people_split_between_overdue_and_warning() -> None:
+    project = project_of(todo("遅れた", 6.5), warned_todo())
+    backlog = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, basis=LateBasis.WARNING)
+    assert backlog.required is not None and backlog.overdue_required is not None and backlog.warning_required is not None
+    assert backlog.overdue_required + backlog.warning_required == pytest.approx(backlog.late_required)
+    assert backlog.overdue_required > 0 and backlog.warning_required > 0
+    assert backlog.shortfall_without_overdue == pytest.approx(backlog.shortfall - backlog.late_required)  # type: ignore[operator]

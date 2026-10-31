@@ -1,3 +1,4 @@
+import asyncio
 import re
 from datetime import date, datetime, timedelta
 
@@ -1156,12 +1157,42 @@ async def test_pressing_the_other_basis_notifies_and_the_current_one_does_nothin
     assert changes == [LateBasis.WARNING]
 
 
-async def test_the_headline_names_warnings_on_the_warning_basis(user: User) -> None:
+async def test_the_headline_lists_overdue_and_warning_separately(user: User) -> None:
     views, _, _ = mount()
     await user.open("/")
-    backlog = Backlog(
-        20.0, 0, 2, 4.0, 3.0, [("田中", 20.0)], overdue_hours=10.0, overdue_count=2, late_basis=LateBasis.WARNING
-    )
-    views[0].show(with_backlog(backlog), PeriodKind.WEEK)
+    both = Backlog(
+        20.0, 0, 2, 4.0, 3.0, [("田中", 20.0)], overdue_hours=6.5, overdue_count=1,
+        late_basis=LateBasis.WARNING, warning_hours=3.5, warning_count=2,
+    )  # fmt: skip
+    views[0].show(with_backlog(both), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-hours")
-    assert text(user, "dashboard-backlog-hours") == "残りの工数 20.0h(うち遅延・警告 2 件・10.0h)"
+    assert text(user, "dashboard-backlog-hours") == "残りの工数 20.0h(うち遅延 1 件・6.5h、警告 2 件・3.5h)"
+    only_warning = Backlog(20.0, 0, 2, 4.0, 3.0, [("田中", 20.0)], late_basis=LateBasis.WARNING, warning_hours=3.5, warning_count=2)
+    views[0].show(with_backlog(only_warning), PeriodKind.WEEK)
+    await asyncio.sleep(0.3)  # 描き直しを待つ
+    assert text(user, "dashboard-backlog-hours") == "残りの工数 20.0h(うち警告 2 件・3.5h)"
+    clean = Backlog(6.5, 0, 3, 1.0, 1.5, [("田中", 6.5)], late_basis=LateBasis.WARNING)
+    views[0].show(with_backlog(clean), PeriodKind.WEEK)
+    await asyncio.sleep(0.3)
+    assert text(user, "dashboard-backlog-hours") == "残りの工数 6.5h(遅れなし)"
+
+
+async def test_the_need_bar_has_a_warning_segment_and_legend_only_for_warnings(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    both = Backlog(
+        20.0, 0, 2, 4.0, 3.0, [("田中", 20.0)], overdue_hours=6.0, overdue_count=1,
+        late_basis=LateBasis.WARNING, warning_hours=4.0, warning_count=1,
+    )  # fmt: skip
+    views[0].show(with_backlog(both), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-bar-warning")
+    await user.should_see(marker="dashboard-backlog-bar-late")
+    assert text(user, "dashboard-backlog-legend-warning") == "うち警告"
+    assert text(user, "dashboard-backlog-legend-late") == "うち遅れ"
+    assert text(user, "dashboard-backlog-late").startswith("遅延・警告がなければ")
+    delay = Backlog(20.0, 0, 2, 4.0, 3.0, [("田中", 20.0)], overdue_hours=6.0, overdue_count=1)
+    views[0].show(with_backlog(delay), PeriodKind.WEEK)
+    await asyncio.sleep(0.3)
+    await user.should_not_see(marker="dashboard-backlog-bar-warning")
+    await user.should_not_see(marker="dashboard-backlog-legend-warning")
+    assert text(user, "dashboard-backlog-late").startswith("遅れがなければ")

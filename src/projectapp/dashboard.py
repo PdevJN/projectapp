@@ -633,26 +633,50 @@ class Backlog:
     by_status: dict[Status, float] = field(default_factory=dict)  # 状態ごとの残りの工数(0 は除く)
     by_team: list[tuple[str, float]] = field(default_factory=list)  # (チーム, 残りの工数)。全員のときだけ。メンバーの分を所属の割合で配る
     nominal_supply: float | None = None  # 稼働日の上書きで調整する前の稼働できる人員。調整で値が変わるときだけ
-    overdue_hours: float = 0.0  # hours のうち、遅れたタスクの残りの工数(要望 98)
-    overdue_count: int = 0  # 遅れたタスクの件数
+    overdue_hours: float = 0.0  # hours のうち、予定超過のタスクの残りの工数(要望 98)
+    overdue_count: int = 0  # 予定超過のタスクの件数
     late_basis: LateBasis = LateBasis.DELAY  # 遅れの判定の基準
+    warning_hours: float = 0.0  # hours のうち、警告のタスクの残りの工数(`警告を含む`のときだけ。要望 108)
+    warning_count: int = 0  # 警告のタスクの件数(`警告を含む`のときだけ)
+
+    @property
+    def late_hours(self) -> float:
+        """予定超過と警告を合わせた、遅れの残りの工数。"""
+        return self.overdue_hours + self.warning_hours
+
+    @property
+    def late_count(self) -> int:
+        return self.overdue_count + self.warning_count
 
     @property
     def shortfall(self) -> float | None:
         """不足する人数。負なら余裕。"""
         return None if self.required is None else self.required - self.supply
 
-    @property
-    def overdue_required(self) -> float | None:
-        """遅れの分だけで要る人数(必要人数と同じ期間で割る)。必要人数が出せないときは None。"""
+    def _required_for(self, hours: float) -> float | None:
         if self.required is None:
             return None
-        return self.required * self.overdue_hours / self.hours if self.hours > 0 else 0.0
+        return self.required * hours / self.hours if self.hours > 0 else 0.0
+
+    @property
+    def overdue_required(self) -> float | None:
+        """予定超過の分だけで要る人数(必要人数と同じ期間で割る)。必要人数が出せないときは None。"""
+        return self._required_for(self.overdue_hours)
+
+    @property
+    def warning_required(self) -> float | None:
+        """警告の分だけで要る人数。必要人数が出せないときは None。"""
+        return self._required_for(self.warning_hours)
+
+    @property
+    def late_required(self) -> float | None:
+        """予定超過と警告を合わせた分で要る人数。"""
+        return self._required_for(self.late_hours)
 
     @property
     def shortfall_without_overdue(self) -> float | None:
-        """遅れがなかった場合の不足する人数(負なら余裕)。遅れの分の人数を、不足から引く。"""
-        shortfall, overdue = self.shortfall, self.overdue_required
+        """遅れ(予定超過と、`警告を含む`なら警告)がなかった場合の不足する人数(負なら余裕)。遅れの分の人数を、不足から引く。"""
+        shortfall, overdue = self.shortfall, self.late_required
         if shortfall is None or overdue is None:
             return None
         return shortfall - overdue
@@ -819,18 +843,20 @@ def _backlog_by_team(project: Project, split: dict[str, float]) -> list[tuple[st
     return [(name, value) for name, value in hours.items() if value > 0]
 
 
-def _is_late(
+def _late_kind(
     task: Task,
     project: Project,
     holidays: dict[date, str],
     now: datetime,
     schedule: Schedule,
     basis: LateBasis = LateBasis.DELAY,
-) -> bool:
-    """遅れたタスクか(要望 98)。予定超過(ガントチャートの赤みと同じ判定)。`警告を含む`なら、警告のタスクも数える。"""
+) -> str | None:
+    """遅れの種類(要望 98・108)。予定超過(ガントチャートの赤みと同じ判定)なら`overdue`、`警告を含む`で警告なら`warning`、それ以外は None。"""
     if is_overdue(task, project, holidays, now, schedule):
-        return True
-    return basis is LateBasis.WARNING and warning_pace(task, project, holidays, now, schedule) is not None
+        return "overdue"
+    if basis is LateBasis.WARNING and warning_pace(task, project, holidays, now, schedule) is not None:
+        return "warning"
+    return None
 
 
 @dataclass
@@ -842,7 +868,9 @@ class _BacklogParts:
     unset: int  # 工数のない未終了のタスク
     ends: list[datetime]  # 数えたタスクの完了予定・締切(必要人数の期間を決める)
     overdue_split: dict[str, float] = field(default_factory=dict)  # split のうち、遅れたタスクの分
-    overdue_count: int = 0  # 遅れたタスクの件数(絞り込みの範囲に担当がいるもの)
+    overdue_count: int = 0  # 予定超過のタスクの件数(絞り込みの範囲に担当がいるもの)
+    warning_split: dict[str, float] = field(default_factory=dict)  # split のうち、警告のタスクの分
+    warning_count: int = 0  # 警告のタスクの件数
 
 
 def _backlog_parts(
@@ -863,6 +891,8 @@ def _backlog_parts(
     by_status = {status: 0.0 for status in OPEN_STATUSES}
     overdue_split = {name: 0.0 for name in (*names, UNASSIGNED)}
     overdue_count = 0
+    warning_split = {name: 0.0 for name in (*names, UNASSIGNED)}
+    warning_count = 0
     targets = [
         task for task in _tasks(project, member) if task.status in OPEN_STATUSES and task.kind is TaskKind.NORMAL
     ]
@@ -881,18 +911,23 @@ def _backlog_parts(
         ends.extend(moment for moment in (schedule.end(task), task.deadline) if moment is not None)
         rest = remaining_hours(task, project, holidays, now)
         due = max(0.0, rest - total_effort(task) * (1 - fraction))  # 期間の終わりまでに予定した工数 − 消化分
-        late = _is_late(task, project, holidays, now, schedule, basis)
+        late = _late_kind(task, project, holidays, now, schedule, basis)
         counted = False
         for key, _, share in _remaining_shares(task, project, schedule, holidays, rest, names):
             portion = due * share
             split[key] += portion
-            if late:
+            if late == "overdue":
                 overdue_split[key] += portion
+            elif late == "warning":
+                warning_split[key] += portion
             if scoped is None or key in scoped:
                 by_status[task.status] += portion * _factor(member, key)
-                counted = counted or (late and portion > 0)
-        overdue_count += counted
-    return _BacklogParts(split, by_status, unset, ends, overdue_split, overdue_count)
+                counted = counted or (late is not None and portion > 0)
+        if late == "overdue":
+            overdue_count += counted
+        elif late == "warning":
+            warning_count += counted
+    return _BacklogParts(split, by_status, unset, ends, overdue_split, overdue_count, warning_split, warning_count)
 
 
 def _assemble_backlog(
@@ -921,6 +956,11 @@ def _assemble_backlog(
         for key, value in part.overdue_split.items():
             overdue_split[key] = overdue_split.get(key, 0.0) + value
     overdue_hours = sum(overdue_split.get(name, 0.0) * _factor(member, name) for name in shown)
+    warning_split: dict[str, float] = {}
+    for part in parts:
+        for key, value in part.warning_split.items():
+            warning_split[key] = warning_split.get(key, 0.0) + value
+    warning_hours = sum(warning_split.get(name, 0.0) * _factor(member, name) for name in shown)
     ends = [moment for part in parts for moment in part.ends]
     window = _backlog_window(base, period, kind, now, holidays, ends)
     standard = 0.0 if window is None else _window_hours(base, holidays, window, now)
@@ -954,6 +994,8 @@ def _assemble_backlog(
         overdue_hours,
         sum(part.overdue_count for part in parts),
         basis,
+        warning_hours,
+        sum(part.warning_count for part in parts),
     )
 
 
