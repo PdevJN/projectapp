@@ -16,6 +16,7 @@ from projectapp.timeline import (
     OVERLOAD_EPSILON,
     Schedule,
     actual_end,
+    assignees_rate,
     combine_rate,
     conversion_rate,
     counted_pieces,
@@ -734,6 +735,37 @@ def _remaining_hours(task: Task, project: Project, holidays: dict[date, str], no
     return task.effort_hours - done
 
 
+def _remaining_shares(
+    task: Task, project: Project, schedule: Schedule, holidays: dict[date, str], rest: float, names: list[str]
+) -> list[tuple[str, float, float]]:
+    """残りの工数を担当者へ按分する比(`_shares`と同じ形)。週ごとのタスクは、消化分を先の週から差し引き、
+    残った分を、その週の担当(割り当て率の比)で配る。週の重みは、週の稼働時間 × その週の換算率。"""
+    start, end = schedule.start(task), schedule.end(task)
+    if not task.weekly_crew or start is None or end is None or rest <= 0:
+        return _shares(task.assignees, names)
+    pieces = crew_pieces(task, start, end)
+    capacity = [
+        sum(_overlap_hours(project, holidays, day, left, right) for day in Period(left.date(), right.date()).days())
+        * assignees_rate(crew, project.members, project.parameters, task.parameters, project.ratio_limits)
+        for left, right, crew in pieces
+    ]
+    total = sum(capacity)
+    if not total > 0:
+        return _shares(task.assignees, names)
+    done = task.effort_hours - rest
+    weights: dict[str, float] = {}
+    for (_, _, crew), hours in zip(pieces, capacity):
+        hours *= task.effort_hours / total  # 工数に合わせる(週の重みの比は変えない)
+        left_over = max(0.0, hours - done)
+        done = max(0.0, done - hours)
+        for key, _, share in _shares(crew, names):
+            weights[key] = weights.get(key, 0.0) + left_over * share
+    whole = sum(weights.values())
+    if not whole > 0:
+        return _shares(task.assignees, names)
+    return [(key, 0.0, value / whole) for key, value in weights.items()]
+
+
 def _backlog_by_team(project: Project, split: dict[str, float]) -> list[tuple[str, float]]:
     """メンバーごとの残りの工数を、所属の割合で各チームに配る。チームに入っていない人は`チームなし`、担当なしは`未割り当て`。
     メンバーのいるチームがなければ空(チーム別を出さない)。"""
@@ -785,7 +817,7 @@ def summarize_backlog(
             continue
         ends.extend(moment for moment in (schedule.end(task), task.deadline) if moment is not None)
         rest = _remaining_hours(task, project, holidays, now)
-        for key, _, share in _shares(task.assignees, names):
+        for key, _, share in _remaining_shares(task, project, schedule, holidays, rest, names):
             portion = rest * fraction * share
             split[key] += portion
             if scoped is None or key in scoped:
