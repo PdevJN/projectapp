@@ -11,20 +11,17 @@ from typing import NamedTuple
 from projectapp.events import effective_holidays
 from projectapp.models import Assignee, Member, Project, Status, Task, TaskKind, WorkDay
 from projectapp.ratios import effective_ratio
-from projectapp.reassign import consumed_hours
+from projectapp.remaining import overlap_hours, remaining_hours, total_effort
 from projectapp.timeline import (
     OVERLOAD_EPSILON,
     Schedule,
     actual_end,
     assignees_rate,
-    combine_rate,
-    conversion_rate,
     counted_pieces,
     crew_on,
     crew_pieces,
     current_progress,
     day_hours,
-    day_window,
     is_overdue,
     is_workday,
 )
@@ -663,7 +660,7 @@ def _window_hours(
     today = now.date()
     rest_of_today = datetime.combine(today + timedelta(days=1), time.min)
     return sum(
-        _overlap_hours(project, holidays, day, now, rest_of_today, work_days)
+        overlap_hours(project, holidays, day, now, rest_of_today, work_days)
         if day == today
         else day_hours(day, project.daily_hours, holidays, work_days)
         for day in Period(start, end).days()
@@ -689,21 +686,6 @@ class _WorkHours:
         if low > high:
             return 0.0
         return self.cumulative[(high - self.first).days + 1] - self.cumulative[(low - self.first).days]
-
-
-def _overlap_hours(
-    project: Project,
-    holidays: dict[date, str],
-    day: date,
-    start: datetime,
-    end: datetime,
-    work_days: Mapping[date, WorkDay] | None = None,
-) -> float:
-    """その日の稼働の枠のうち、[start, end) と重なる時間[h]。work_days があれば、その人の上書きを反映する。"""
-    window = day_window(day, project.daily_hours, project.work_start, holidays, work_days)
-    if window is None:
-        return 0.0
-    return max(0.0, (min(end, window[1]) - max(start, window[0])).total_seconds() / 3600)
 
 
 def _counted_fraction(
@@ -733,12 +715,12 @@ def _counted_fraction(
         if low > high:
             return 0.0
         if first == last:
-            return _overlap_hours(project, holidays, first, start, end)
+            return overlap_hours(project, holidays, first, start, end)
         total = table.between(low, high)
         if low == first:
-            total += _overlap_hours(project, holidays, first, start, end) - table.between(first, first)
+            total += overlap_hours(project, holidays, first, start, end) - table.between(first, first)
         if high == last:
-            total += _overlap_hours(project, holidays, last, start, end) - table.between(last, last)
+            total += overlap_hours(project, holidays, last, start, end) - table.between(last, last)
         return total
 
     def days(low: date, high: date) -> int:
@@ -756,32 +738,6 @@ def _counted_fraction(
 OPEN_STATUSES = (Status.NOT_STARTED, Status.RUNNING, Status.PAUSED)  # 残りの工数に数える状態
 
 
-def _open_hours(task: Task, project: Project, holidays: dict[date, str], now: datetime, limit: float) -> float:
-    """終了のない実績の区間が、今までに稼働の枠の中で積んだ時間[h]。`limit` に達したら数えるのをやめる。"""
-    total = 0.0
-    for interval in task.actuals:
-        if interval.end is not None or interval.start >= now:
-            continue
-        for day in Period(interval.start.date(), now.date()).days():
-            total += _overlap_hours(project, holidays, day, interval.start, now)
-            if total >= limit:
-                return total
-    return total
-
-
-def _remaining_hours(task: Task, project: Project, holidays: dict[date, str], now: datetime) -> float:
-    """残りの工数。工数から消化分を引く。消化分は、進捗度があれば工数 × 進捗度、
-    なければ実績の区間 × 換算率(開いたままの区間は、今までに稼働の枠で積んだ時間)。
-    状態は手入力なので、未着手でも進捗度か実績があれば引く(なければ全量)。"""
-    rate = conversion_rate(task, project)
-    done = consumed_hours(task, rate)
-    if not task.progress:  # 進捗度があれば、そちらを優先する(None と 0 は進捗度なし)
-        factor = combine_rate(rate, 1.0)
-        open_hours = _open_hours(task, project, holidays, now, task.effort_hours / factor)
-        done = min(done + open_hours * factor, task.effort_hours)
-    return task.effort_hours - done
-
-
 def _remaining_shares(
     task: Task, project: Project, schedule: Schedule, holidays: dict[date, str], rest: float, names: list[str]
 ) -> list[tuple[str, float, float]]:
@@ -792,17 +748,17 @@ def _remaining_shares(
         return _shares(task.assignees, names)
     pieces = crew_pieces(task, start, end)
     capacity = [
-        sum(_overlap_hours(project, holidays, day, left, right) for day in Period(left.date(), right.date()).days())
+        sum(overlap_hours(project, holidays, day, left, right) for day in Period(left.date(), right.date()).days())
         * assignees_rate(crew, project.members, project.parameters, task.parameters, project.ratio_limits)
         for left, right, crew in pieces
     ]
     total = sum(capacity)
     if not total > 0:
         return _shares(task.assignees, names)
-    done = task.effort_hours - rest
+    done = total_effort(task) - rest
     weights: dict[str, float] = {}
     for (_, _, crew), hours in zip(pieces, capacity):
-        hours *= task.effort_hours / total  # 工数に合わせる(週の重みの比は変えない)
+        hours *= total_effort(task) / total  # 工数に合わせる(週の重みの比は変えない)
         left_over = max(0.0, hours - done)
         done = max(0.0, done - hours)
         for key, _, share in _shares(crew, names):
@@ -876,12 +832,12 @@ def _backlog_parts(
         )
         if fraction <= 0:
             continue
-        if not (isfinite(task.effort_hours) and task.effort_hours > 0):
+        if not (isfinite(total_effort(task)) and total_effort(task) > 0):
             unset += 1
             continue
         ends.extend(moment for moment in (schedule.end(task), task.deadline) if moment is not None)
-        rest = _remaining_hours(task, project, holidays, now)
-        due = max(0.0, rest - task.effort_hours * (1 - fraction))  # 期間の終わりまでに予定した工数 − 消化分
+        rest = remaining_hours(task, project, holidays, now)
+        due = max(0.0, rest - total_effort(task) * (1 - fraction))  # 期間の終わりまでに予定した工数 − 消化分
         late = _is_late(task, project, holidays, now, schedule)
         counted = False
         for key, _, share in _remaining_shares(task, project, schedule, holidays, rest, names):
