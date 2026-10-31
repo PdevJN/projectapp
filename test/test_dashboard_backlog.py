@@ -286,3 +286,29 @@ def test_a_task_ending_at_midnight_does_not_reach_into_the_next_day() -> None:
     one_day = Task("1日", planned_start=datetime(2026, 10, 8, 9), planned_end=datetime(2026, 10, 9, 0),
                    planned_end_manual=True, effort_hours=6.5)
     assert summarize_backlog(project_of(one_day), WEEK, PeriodKind.WEEK, NOW, {}).hours == 6.5
+
+
+def test_a_not_started_task_with_progress_counts_only_the_rest() -> None:
+    project = project_of(todo("未着手", 10, progress=40))
+    backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {})
+    assert backlog.hours == 6
+    assert backlog.by_status == {Status.NOT_STARTED: 6}  # 状態は手入力のまま、残った分だけ未着手の欄に入る
+
+
+def test_a_not_started_task_with_actuals_takes_off_the_worked_intervals() -> None:
+    worked = [Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 13))]  # 4h
+    project = project_of(todo("未着手", 10, assignees=[Assignee("田中")], actuals=worked))
+    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 6
+
+
+def test_a_not_started_task_with_an_open_interval_counts_the_hours_worked_until_now() -> None:
+    running = [Actual(datetime(2026, 10, 6, 9), None)]  # 9.5h(実行中と同じ規則)
+    project = project_of(todo("未着手", 20, actuals=running))
+    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 10.5
+
+
+def test_a_not_started_task_with_progress_is_also_prorated_by_the_period() -> None:
+    half = Task("未着手", planned_start=datetime(2026, 10, 12, 9), effort_hours=10, progress=50)  # 来週の予定
+    project = project_of(half)
+    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).hours == 0  # 期間の外は従来どおり数えない
+    assert summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}).hours == 5

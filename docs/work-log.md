@@ -165,3 +165,4 @@
 
 - 要望 90 ダッシュボードの参照行の進捗(2026-10-31): brainstorming(architectural)で設計を確定(目的は切り出し前と同じ進捗を戻すこと・参照先を展開して数える・スナップショットでも参照先を読む・対象は`チーム全体の進捗`と`進捗と遅れ`)。設計書 `2026-10-31-dashboard-references-design.md`、計画 `plans/2026-10-31-dashboard-references.md` を `executing-plans`(native)で実装: `ChildProject`・`Entry`・`_entries`(`dashboard.py`)、`ReferenceResolver.project`・`load_children`(`reference.py`)、`参照先 n 件を含む`の注記。設計からの修正: `summarize` に渡すのは参照先自身の休みを持つ`ChildProject`。切り出し前後の数字が一致することを`extract.extract`のテストで確認。テスト 4,458 件・`ty check` 通過。実機確認と最終レビューは未実施。
 - 要望 90 のマージ(2026-10-31): 実機確認済み。PR #135(d895d4a)で`develop`へマージ。見送った Minor は PR 本文に記録。
+- 要望 80 の項 4(未着手の進捗度・実績。2026-10-31): チャットで設計を確認(bounded)。`_remaining_hours`の「未着手は全量」の早期 return を外し、状態に関わらず進捗度・実績の消化分を引く(なければ全量のまま)。内訳の状態は手入力のまま。残りの項 2・3・5・6 は未着手。テストを4件足した。

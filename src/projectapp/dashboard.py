@@ -722,10 +722,9 @@ def _open_hours(task: Task, project: Project, holidays: dict[date, str], now: da
 
 
 def _remaining_hours(task: Task, project: Project, holidays: dict[date, str], now: datetime) -> float:
-    """残りの工数。未着手は全量、実行中・一時停止は工数から消化分を引く。消化分は、進捗度があれば工数 × 進捗度、
-    なければ実績の区間 × 換算率(開いたままの区間は、今までに稼働の枠で積んだ時間)。"""
-    if task.status is Status.NOT_STARTED:
-        return task.effort_hours
+    """残りの工数。工数から消化分を引く。消化分は、進捗度があれば工数 × 進捗度、
+    なければ実績の区間 × 換算率(開いたままの区間は、今までに稼働の枠で積んだ時間)。
+    状態は手入力なので、未着手でも進捗度か実績があれば引く(なければ全量)。"""
     rate = conversion_rate(task, project)
     done = consumed_hours(task, rate)
     if not task.progress:  # 進捗度があれば、そちらを優先する(None と 0 は進捗度なし)
