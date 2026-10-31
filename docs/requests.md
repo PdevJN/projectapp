@@ -1045,7 +1045,7 @@ PlantUML は日単位で担当者の割り当てを集計するので、同じ�
 
 ## 要望 103: 遅延のほかに、`警告`の意味を持つ状態を足す(2026-10-31 に受領)
 
-> **状態**: 段階 1(判定・ガントチャート・警告の色)を実装済み(PR #161)。設計書は[`2026-10-31-warning-status-design.md`](superpowers/specs/2026-10-31-warning-status-design.md)、計画は[`2026-10-31-warning-stage1.md`](superpowers/plans/2026-10-31-warning-stage1.md)。残りは段階 2(ダッシュボード・メンバーの閾値。version 19)・段階 3(要望 98 の`警告を含む`ボタン)。
+> **状態**: 段階 1(判定・ガントチャート・警告の色)はマージ済み(PR #161)。段階 2(ダッシュボード・メンバーの閾値〔version 19〕・参照行の`警告 n件`)を実装済み(PR 作成中)。計画は[`2026-10-31-warning-stage2.md`](superpowers/plans/2026-10-31-warning-stage2.md)。設計書は[`2026-10-31-warning-status-design.md`](superpowers/specs/2026-10-31-warning-status-design.md)、計画は[`2026-10-31-warning-stage1.md`](superpowers/plans/2026-10-31-warning-stage1.md)。残りは段階 2(ダッシュボード・メンバーの閾値。version 19)・段階 3(要望 98 の`警告を含む`ボタン)。
 
 ### 要望
 遅延のほかに、`警告`の意味を持つステータスを足したい。進捗率と残りの工数の開きを、パーセンテージで判断する。
