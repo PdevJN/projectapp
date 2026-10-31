@@ -1,7 +1,7 @@
 """ダッシュボードの集計。NiceGUI に依存しない純粋関数。"""
 
 from calendar import monthrange
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
@@ -10,6 +10,7 @@ from typing import NamedTuple
 
 from projectapp.events import effective_holidays
 from projectapp.models import Assignee, Member, Project, Status, Task, TaskKind, WorkDay
+from projectapp.pace import warning_pace
 from projectapp.ratios import effective_ratio
 from projectapp.remaining import overlap_hours, remaining_hours, total_effort
 from projectapp.timeline import (
@@ -109,6 +110,12 @@ class MemberProgress:
     name: str
     percent: float | None  # 工数で重みづけした進捗率(0〜100)。担当のタスクがなければ None
     counts: dict[Status, int]
+    warnings: int = 0  # 警告のタスクの数(共同タスクは担当者それぞれの行に数える)
+    limit: int | None = None  # そのメンバーの警告の件数の閾値(メンバー別の行だけ)
+
+    @property
+    def over_limit(self) -> bool:
+        return self.limit is not None and self.warnings >= self.limit
 
 
 @dataclass
@@ -118,6 +125,7 @@ class Progress:
     overdue: list[OverdueRow]
     by_member: list[MemberProgress] = field(default_factory=list)  # メンバーごと。絞り込み中は空
     by_team: list[MemberProgress] = field(default_factory=list)  # チームごと(メンバーのいるチームだけ)。絞り込み中は空
+    warnings: int = 0  # 警告のタスクの数(絞り込みに従う。共同タスクも 1 件)
 
 
 Scope = str | frozenset[str] | Mapping[str, float] | None  # 絞り込み。文字列は 1 人、集合はそのうちの誰か(チーム)、辞書は名前 → 重み(チームの所属の割合)。None は全員
@@ -182,6 +190,15 @@ def _entries(
         schedule = Schedule(child.project, child.holidays)
         entries += [Entry(task, child.project, schedule, name) for task in _tasks(child.project, member)]
     return entries
+
+
+def warning_tasks(entries: Sequence[Entry], now: datetime) -> frozenset[int]:
+    """警告のタスクの `id(task)`。判定は、各タスクが属するプロジェクト自身の稼働設定・祝日・イベントで行う(参照先も同じ)。"""
+    return frozenset(
+        id(entry.task)
+        for entry in entries
+        if warning_pace(entry.task, entry.project, entry.schedule.holidays, now, entry.schedule) is not None
+    )
 
 
 def _weight(effort_hours: float) -> float:
@@ -252,7 +269,7 @@ def summarize_team_progress(
     return TeamProgress(weighted / total if total else None, hours, period, counts, names)
 
 
-def _member_row(name: str, tasks: list[Task]) -> MemberProgress:
+def _member_row(name: str, tasks: list[Task], warned: Collection[int] = (), limit: int | None = None) -> MemberProgress:
     counts = {status: 0 for status in Status}
     weighted = total = 0.0
     for task in tasks:
@@ -261,31 +278,35 @@ def _member_row(name: str, tasks: list[Task]) -> MemberProgress:
             weight, percent = weight_and_percent
             weighted += weight * percent
             total += weight
-    return MemberProgress(name, weighted / total if total else None, counts)
+    return MemberProgress(name, weighted / total if total else None, counts, sum(1 for t in tasks if id(t) in warned), limit)
 
 
-def summarize_member_progress(project: Project, children: Mapping[str, ChildProject] | None = None) -> list[MemberProgress]:
+def summarize_member_progress(
+    project: Project, children: Mapping[str, ChildProject] | None = None, warned: Collection[int] = ()
+) -> list[MemberProgress]:
     """メンバーごとの進捗。共同タスクは担当の全員の行に数える。メンバーが担当にいないタスクは`未割り当て`。参照先のタスクは名前で当てる。"""
     if not project.members:
         return []
     tasks = [entry.task for entry in _entries(project, {}, None, children)]
     names = {member.name for member in project.members}
-    rows = [_member_row(m.name, [t for t in tasks if m.name in t.assignee_names]) for m in project.members]
+    rows = [_member_row(m.name, [t for t in tasks if m.name in t.assignee_names], warned, m.warning_limit) for m in project.members]
     # 節目は担当を持てず、進捗の重みもないので、割り当て漏れには数えない
     nobody = [t for t in tasks if t.kind not in (TaskKind.CHECKPOINT, TaskKind.REFERENCE) and not names.intersection(t.assignee_names)]
     if nobody:
-        rows.append(_member_row(UNASSIGNED, nobody))
+        rows.append(_member_row(UNASSIGNED, nobody, warned))
     return rows
 
 
-def summarize_team_rows(project: Project, children: Mapping[str, ChildProject] | None = None) -> list[MemberProgress]:
+def summarize_team_rows(
+    project: Project, children: Mapping[str, ChildProject] | None = None, warned: Collection[int] = ()
+) -> list[MemberProgress]:
     """チームごとの進捗(メンバーのいるチームだけ)。共同タスクは、担当が所属する全チームの行に数える。"""
     tasks = [entry.task for entry in _entries(project, {}, None, children)]
     rows = []
     for name in teams_with_members(project):
         scoped = team_scope(project, name)
         assert scoped is not None
-        rows.append(_member_row(name, [t for t in tasks if not scoped.isdisjoint(t.assignee_names)]))
+        rows.append(_member_row(name, [t for t in tasks if not scoped.isdisjoint(t.assignee_names)], warned))
     return rows
 
 
@@ -299,7 +320,9 @@ def summarize_progress(
     counts = {status: 0 for status in Status}
     weighted = total = 0.0
     overdue: list[OverdueRow] = []
-    for entry in _entries(project, holidays, member, children):
+    entries = _entries(project, holidays, member, children)
+    warned = warning_tasks(entries, now)
+    for entry in entries:
         task = entry.task
         counts[task.status] += 1
         if (weight_and_percent := _progress_weight(task)) is not None:  # 節目は進捗率の重みに入れない
@@ -316,9 +339,9 @@ def summarize_progress(
             limit = min(limits, default=task.deadline or now)  # 見込みの超過は、締切を基準にする
             overdue.append(OverdueRow(entry.label, assignee_label(task), limit))
     overdue.sort(key=lambda row: row.limit)
-    by_member = summarize_member_progress(project, children) if member is None else []
-    by_team = summarize_team_rows(project, children) if member is None else []
-    return Progress(weighted / total if total else None, counts, overdue, by_member, by_team)
+    by_member = summarize_member_progress(project, children, warned) if member is None else []
+    by_team = summarize_team_rows(project, children, warned) if member is None else []
+    return Progress(weighted / total if total else None, counts, overdue, by_member, by_team, sum(1 for e in entries if id(e.task) in warned))
 
 
 UNASSIGNED = "未割り当て"
@@ -388,6 +411,7 @@ class DueRow:
     name: str
     assignee: str | None
     overdue: bool
+    warning: bool = False  # 警告(完了予定を過ぎる見込み)。予定超過の行は警告にしない
 
 
 def _workdays(
@@ -581,11 +605,12 @@ def summarize_due(
         if task.status is Status.DONE:
             continue
         late = is_overdue(task, project, holidays, now, schedule)
+        warning = not late and warning_pace(task, project, holidays, now, schedule) is not None
         for kind, moment in ((DEADLINE, task.deadline), (PLANNED_END, schedule.end(task))):
             if kind == PLANNED_END and moment == task.deadline:
                 continue  # 締切だけのタスクは、完了予定が締切と同じになる。同じ日時の 2 行にしない
             if moment is not None and low <= moment < high:
-                rows.append(DueRow(moment, kind, task.name, assignee_label(task), late))
+                rows.append(DueRow(moment, kind, task.name, assignee_label(task), late, warning))
     rows.sort(key=lambda row: (row.moment, row.kind))
     return rows
 
