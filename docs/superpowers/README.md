@@ -1,6 +1,6 @@
 # 設計書と実装計画
 
-機能ごとに、設計 → 設計書 → 実装計画の順で進めた記録。**当時の判断の記録で、後の変更は本文に反映していない**(各ファイルの先頭の「状態」と「後の変更」で示す)。現在の仕様は [`CLAUDE.md`](../../CLAUDE.md)、実装の注意は [`docs/development.md`](../development.md) を正とする。
+機能ごとに、設計 → 設計書 → 実装計画の順で進めた記録。**当時の判断の記録で、後の変更は本文に反映していない**(各ファイルの先頭の「状態」と「後の変更」で示す)。現在の仕様は [`CLAUDE.md`](../../CLAUDE.md)(入口)と [`.claude/spec/`](../../.claude/spec/)、実装の注意は [`docs/development.md`](../development.md) を正とする。
 
 範囲が小さい要望(26 ショートカット、27 画面の拡大・縮小、34 完了予定の参考値など)は、チャットで設計を承認して実装したので、設計書はない。要望の一覧と実績は [`docs/request-history.md`](../request-history.md)。
 
@@ -60,3 +60,18 @@
 | 2026-10-28 | イベントの期間を休みにする | [設計](specs/2026-10-28-event-closed-design.md) | [計画](plans/2026-10-28-event-closed.md) | 要望 82 | PR #117(7a6d9e2。2026-10-29。実機確認済み) | — |
 | 2026-10-29 | 設定値のエクスポート・インポート | [設計](specs/2026-10-29-settings-export-import-design.md) | [計画](plans/2026-10-29-settings-export-import.md) | 要望 78 | PR #120(78cc309。2026-10-29。実機確認済み) | — |
 | 2026-10-31 | タスクの子プロジェクトへの切り出し | [設計](specs/2026-10-31-extract-project-design.md) | [計画](plans/2026-10-31-extract-project.md) | 要望 89 | PR #129(6f0165e。2026-10-31。実機確認済み) | — |
+| 2026-10-18 | メンバーのアイコン | [設計](specs/2026-10-18-member-icon-design.md) | [計画](plans/2026-10-18-member-icon.md) | 要望 41 | PR #51(2026-10-18。実機確認済み) | — |
+| 2026-10-21 | 付け替え時の完了予定の見直し | [設計](specs/2026-10-21-reassign-recalc-design.md) | [計画](plans/2026-10-21-reassign-recalc.md) | 要望 32 | PR #60(ab64f36。2026-10-21) | — |
+| 2026-10-21 | 複数プロジェクトの並行稼働による負荷 | [設計](specs/2026-10-21-cross-project-load-design.md) | [計画](plans/2026-10-21-cross-project-load.md) | 要望 31 | PR #64(b5ee565。2026-10-22。実機確認済み) | — |
+| 2026-10-22 | 負荷の日ごとのヒートマップ | [設計](specs/2026-10-22-load-heatmap-design.md) | [計画](plans/2026-10-22-load-heatmap.md) | 要望 47 | PR #66(cd5dba5。2026-10-22。実機確認済み) | — |
+| 2026-10-24 | タスクのパラメータ(分類) | [設計](specs/2026-10-24-task-parameters-design.md) | [計画](plans/2026-10-24-task-parameters.md) | 要望 51 | PR #80(39dd404。2026-10-24。実機確認済み) | — |
+| 2026-10-24 | タスクの週ごとの担当割り当て | [設計](specs/2026-10-24-weekly-crew-design.md) | [計画](plans/2026-10-24-weekly-crew.md) | 要望 54 | PR #81(758a379。2026-10-25) | — |
+| 2026-10-25 | プロジェクト参照 | [設計](specs/2026-10-25-project-reference-design.md) | [計画](plans/2026-10-25-project-reference.md) | 要望 56 | PR #83(87e02c3。2026-10-25) | — |
+| 2026-10-27 | ダッシュボードのカスタムビュー | [設計](specs/2026-10-27-dashboard-views-design.md) | [計画](plans/2026-10-27-dashboard-views.md) | 要望 40 | PR #98(2026-10-27。実機確認済み) | — |
+| 2026-10-27 | ガントチャートの今日の線 | [設計](specs/2026-10-27-today-marker-design.md) | [計画](plans/2026-10-27-today-marker.md) | 要望 71 | PR #100(31da447。2026-10-27。実機確認済み) | — |
+| 2026-10-28 | 相対比率の上限・下限 | [設計](specs/2026-10-28-ratio-limits-design.md) | [計画](plans/2026-10-28-ratio-limits.md) | 要望 73・75 | PR #108(cbdd424。2026-10-28。実機確認済み) | — |
+| 2026-10-29 | 複数タスクの一括編集・一括削除 | [設計](specs/2026-10-29-bulk-edit-design.md) | [計画](plans/2026-10-29-bulk-edit.md) | 要望 35 | PR #123(cd2c4d3。2026-10-29) | — |
+| 2026-10-29 | 相対比率の丸めの対象外メンバー | [設計](specs/2026-10-29-ratio-unclamped-design.md) | [計画](plans/2026-10-29-ratio-unclamped.md) | 要望 76 | PR #122(ef67800。2026-10-29。実機確認済み) | — |
+| 2026-10-30 | チーム | [設計](specs/2026-10-30-teams-design.md) | [段階 1](plans/2026-10-30-teams-stage1.md)・[段階 2](plans/2026-10-30-teams-stage2.md)・[段階 3](plans/2026-10-30-teams-stage3.md) | 要望 85 | PR #126(段階 1・2)・#127(段階 3)。2026-10-30〜31。実機確認済み | — |
+| 2026-10-31 | ダッシュボードにプロジェクト参照行の進捗を載せる | [設計](specs/2026-10-31-dashboard-references-design.md) | [計画](plans/2026-10-31-dashboard-references.md) | 要望 90 | PR #135(2026-10-31。実機確認済み) | — |
+| 2026-10-31 | 警告の状態 | [設計](specs/2026-10-31-warning-status-design.md) | [段階 1](plans/2026-10-31-warning-stage1.md)・[段階 2](plans/2026-10-31-warning-stage2.md)・[段階 3](plans/2026-10-31-warning-stage3.md) | 要望 103 | PR #161・#162・#163(2026-10-31) | — |

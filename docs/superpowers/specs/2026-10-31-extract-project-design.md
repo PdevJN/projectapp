@@ -1,6 +1,6 @@
 # タスクの子プロジェクトへの切り出しの設計
 
-> **状態**: 設計(2026-10-31 に承認済み)。実装済み(計画 [`plans/2026-10-31-extract-project.md`](../plans/2026-10-31-extract-project.md))。要望 89。
+> **状態**: 完了(PR #129。実機確認済み。2026-10-31)。計画 [`plans/2026-10-31-extract-project.md`](../plans/2026-10-31-extract-project.md) — 要望 89。現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) に反映済み。
 
 ## 目的
 

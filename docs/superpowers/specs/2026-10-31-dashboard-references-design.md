@@ -1,6 +1,6 @@
 # ダッシュボードのプロジェクト参照行の進捗の設計
 
-> **状態**: 設計(2026-10-31 に承認済み)。実装済み(計画 [`plans/2026-10-31-dashboard-references.md`](../plans/2026-10-31-dashboard-references.md))。要望 90。
+> **状態**: 完了(PR #135。実機確認済み。2026-10-31)。計画 [`plans/2026-10-31-dashboard-references.md`](../plans/2026-10-31-dashboard-references.md) — 要望 90。現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) に反映済み。
 
 ## 目的
 
