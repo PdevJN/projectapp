@@ -39,13 +39,28 @@ def test_css_colors_has_named_colors() -> None:
     assert len(CSS_COLORS) >= 140
 
 
-@pytest.mark.parametrize(("name", "expected"), [("red", "red"), (" Red ", "red"), ("LightBlue", "lightblue"), ("#fff", None), ("transparent", None), ("", None), ("あか", None)])
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("red", "red"), (" Red ", "red"), ("LightBlue", "lightblue"),
+        ("#FFFFFF", "#ffffff"), (" #A0b1C2 ", "#a0b1c2"), ("#4c8bf5", "#4c8bf5"),
+        ("#fff", None), ("#12345", None), ("#12345g", None), ("#ffffff80", None), ("ffffff", None),
+        ("rgb(1,2,3)", None), ("transparent", None), ("", None), ("あか", None),
+    ],
+)
 def test_normalize_color(name: str, expected: str | None) -> None:
     assert normalize_color(name) == expected
 
 
 def test_color_hex() -> None:
     assert color_hex("red") == "#ff0000"
+    assert color_hex("#a0b1c2") == "#a0b1c2"  # コードは、そのまま返す
+
+
+def test_events_accept_a_color_code_and_reject_an_invalid_one() -> None:
+    validate_events([event("2026-10-01", "2026-10-01", color="#ff8800", id="a")])
+    with pytest.raises(ValueError, match="色が正しくありません"):
+        validate_events([event("2026-10-01", "2026-10-01", color="#ff88", id="a")])
 
 
 def test_valid_events_pass() -> None:
@@ -61,7 +76,8 @@ def test_valid_events_pass() -> None:
         (Event(date(2026, 10, 1), date(2026, 10, 1), "あ" * 31, "red", id="a"), "30"),
         (Event(date(2026, 10, 1), date(2026, 10, 1), "a\nb", "red", id="a"), "制御文字"),
         (Event(date(2026, 10, 1), date(2026, 10, 1), "a​b", "red", id="a"), "制御文字"),
-        (Event(date(2026, 10, 1), date(2026, 10, 1), "e", "#ff0000", id="a"), "色"),
+        (Event(date(2026, 10, 1), date(2026, 10, 1), "e", "#ff00", id="a"), "色"),
+        (Event(date(2026, 10, 1), date(2026, 10, 1), "e", "#FF0000", id="a"), "色"),  # 保存は小文字
         (Event(date(2026, 10, 1), date(2026, 10, 1), "e", "Red", id="a"), "色"),
         (Event(date(2026, 10, 1), date(2026, 10, 1), "e", "red", id=""), "id"),
     ],

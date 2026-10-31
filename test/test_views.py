@@ -6940,3 +6940,64 @@ async def test_the_cross_switch_adds_the_other_projects_remaining_hours(user: Us
     assert view.dashboard_view.data.backlog.hours == 0
     view.change_dashboard_cross(False)
     assert view.dashboard_view.data.backlog.hours == 0
+
+
+def legacy_color_setup(tmp_path: Path, version: int = 17, colors: tuple[str, ...] = ("red", "orange")) -> None:
+    events = [Event(date(2026, 10, 1 + i), date(2026, 10, 2 + i), f"e{i}", c, id=f"e{i}") for i, c in enumerate(colors)]
+    path = save_project(Project("古い", events=events), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["version"] = version
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+
+async def test_a_legacy_file_with_color_names_asks_to_convert_them(user: User, tmp_path: Path) -> None:
+    legacy_color_setup(tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    with view.client:
+        view.request_open("古い")
+    await user.should_see(marker="color-convert")
+    await user.should_see("2 件")
+    user.find(marker="color-convert").click()
+    assert [e.color for e in view.project.events] == ["#ff0000", "#ffa500"]
+    assert view.is_dirty()
+    view.undo()
+    assert [e.color for e in view.project.events] == ["red", "orange"]  # 元に戻せる
+
+
+async def test_keeping_the_color_names_changes_nothing(user: User, tmp_path: Path) -> None:
+    legacy_color_setup(tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    with view.client:
+        view.request_open("古い")
+    await user.should_see(marker="color-keep")
+    user.find(marker="color-keep").click()
+    assert [e.color for e in view.project.events] == ["red", "orange"]
+    assert not view.is_dirty()
+
+
+async def test_a_current_file_or_one_without_color_names_does_not_ask(user: User, tmp_path: Path) -> None:
+    legacy_color_setup(tmp_path, version=18)  # 18 で保存したファイルは、色名が残っていても促さない
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    with views[0].client:
+        views[0].request_open("古い")
+    assert views[0].current_name() == "古い"
+    await user.should_not_see(marker="color-convert")
+
+
+async def test_a_legacy_file_without_events_does_not_ask(user: User, tmp_path: Path) -> None:
+    legacy_color_setup(tmp_path, colors=())
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    with views[0].client:
+        views[0].request_open("古い")
+    assert views[0].current_name() == "古い"
+    await user.should_not_see(marker="color-convert")

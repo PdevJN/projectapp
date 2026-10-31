@@ -1,5 +1,7 @@
 """イベントカレンダーの規則(検証・段の割り当て・列との重なり・セルの色)。NiceGUI に依存しない。"""
 
+import re
+from dataclasses import replace
 from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
 
@@ -48,15 +50,33 @@ CSS_COLORS: dict[str, str] = {
 }
 
 
+HEX_COLOR = re.compile(r"#[0-9a-f]{6}")  # #RRGGBB のみ(#RGB・透明度つき・rgb() は受け付けない)
+
+
 def normalize_color(name: str) -> str | None:
-    """色名を小文字にして返す。前後の空白は除く。CSS の色名でなければ None。"""
+    """CSS の色名か #RRGGBB を、小文字にして返す。前後の空白は除く。どちらでもなければ None。"""
     key = name.strip().lower()
-    return key if key in CSS_COLORS else None
+    return key if key in CSS_COLORS or HEX_COLOR.fullmatch(key) else None
 
 
 def color_hex(name: str) -> str:
-    """色名の #rrggbb。検証済みの色名だけを渡す。"""
-    return CSS_COLORS[name]
+    """色の #rrggbb。色名は対応するコードに、コードはそのまま返す。検証済みの色だけを渡す。"""
+    return name if HEX_COLOR.fullmatch(name) else CSS_COLORS[name]
+
+
+def color_name_events(events: list[Event]) -> list[Event]:
+    """色が名前(`gray` など)のイベント。"""
+    return [e for e in events if is_color_name(e.color)]
+
+
+def with_color_codes(events: list[Event]) -> list[Event]:
+    """色名のイベントを `#rrggbb` に置き換えた写しを返す(ほかは変えない)。"""
+    return [replace(e, color=color_hex(e.color)) if is_color_name(e.color) else e for e in events]
+
+
+def is_color_name(color: str) -> bool:
+    """CSS の色名か(#rrggbb のコードでないか)。"""
+    return color in CSS_COLORS
 
 
 def validate_events(events: Sequence[Event]) -> None:
@@ -74,8 +94,8 @@ def validate_events(events: Sequence[Event]) -> None:
             raise ValueError(f"イベントの文字列は{MAX_EVENT_TEXT_LENGTH}文字以内で入力してください")
         if has_control_char(e.text):
             raise ValueError("イベントの文字列に改行・制御文字は使えません")
-        if e.color not in CSS_COLORS:
-            raise ValueError(f"イベントの色が正しくありません: {e.color!r}(red・orange・gray などの色名)")
+        if normalize_color(e.color) != e.color:
+            raise ValueError(f"イベントの色が正しくありません: {e.color!r}(#RRGGBB か、red・orange・gray などの色名)")
 
 
 def sort_events(events: Sequence[Event]) -> list[Event]:

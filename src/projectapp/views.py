@@ -13,7 +13,7 @@ from nicegui import run, ui
 from nicegui.events import KeyEventArguments
 
 from projectapp.calendar import load_cache
-from projectapp.events import EffectiveHolidays, effective_holidays
+from projectapp.events import EffectiveHolidays, color_name_events, effective_holidays, with_color_codes
 from projectapp.extract import check as check_extraction, extract, name_error as extract_name_error, selection_error
 from projectapp.categories import CategoryEdit
 from projectapp.icons import ICON_FILE_TYPES, IconError, load_icon
@@ -63,6 +63,7 @@ from projectapp.forms import (
     task_name_error,
     open_section_dialog,
     open_settings_dialog,
+    open_color_convert_dialog,
     open_stale_reference_dialog,
     open_stale_snapshot_dialog,
     open_unsaved_dialog,
@@ -164,6 +165,7 @@ from projectapp.storage import (
     backup_file,
     check_external_change,
     file_digest,
+    file_version,
     list_project_files,
     load_project,
     save_project,
@@ -527,6 +529,16 @@ class MainView:
             return
         self.show_project(project, path, digest)
         self.request_git_refresh()
+        self.offer_color_codes(path)
+
+    def offer_color_codes(self, path: Path) -> None:
+        """version 18 未満のファイルに色名のイベントがあれば、色のコードへの変換を促す(上書き保存すると 18 になり、出なくなる)。"""
+        try:
+            old = file_version(path) < 18
+        except (OSError, ValueError):
+            return
+        if old and (named := color_name_events(self.project.events)):
+            open_color_convert_dialog(len(named), lambda: self.apply_events(with_color_codes(self.project.events)))
 
     def show_project(self, project: Project, path: Path | None, digest: str | None = None) -> None:
         """別のプロジェクトに切り替える(開いたとき・新規作成のとき)。保存済みの状態から始める。"""
