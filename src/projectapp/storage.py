@@ -23,6 +23,8 @@ from projectapp.models import (
     ReferenceMode,
     ReferenceValue,
     FORMAT_VERSION,
+    MAX_WARNING_LIMIT,
+    MIN_WARNING_LIMIT,
     MAX_WEEKS,
     union_assignees,
     CHECKPOINT_STATUSES,
@@ -987,6 +989,17 @@ def _icon(value: Any) -> str:
     return value
 
 
+def _warning_limit(value: Any) -> int | None:
+    """メンバーの警告の件数の閾値。null・キーなしは閾値なし。整数(boolは不可)で 1〜999。"""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"メンバーの警告の件数が整数ではありません: {value!r}")
+    if not MIN_WARNING_LIMIT <= value <= MAX_WARNING_LIMIT:
+        raise ValueError(f"メンバーの警告の件数は{MIN_WARNING_LIMIT}〜{MAX_WARNING_LIMIT}で指定してください: {value}")
+    return value
+
+
 def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]:
     """メンバーを読む。相対比率は検証し、空の名前と重複は(最初の1件を残して)捨てる。"""
     members: list[Member] = []
@@ -1002,6 +1015,7 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
         if not isinstance(unclamped, bool):
             raise ValueError(f"メンバーの丸め対象外の設定が真偽値ではありません: {unclamped!r}")
         teams = _memberships(raw.get("teams"), ctx.team_ids) if ctx.version >= 17 else []
+        warning_limit = _warning_limit(raw.get("warning_limit")) if ctx.version >= 19 else None
         member_id = None
         if ctx.version >= 2:
             member_id = _entity_id(raw.get("id"), "メンバー")
@@ -1013,7 +1027,7 @@ def _members(raw_members: list[dict[str, Any]], ctx: "_Context") -> list[Member]
         if not name or name in seen:
             continue
         seen.add(name)
-        member = Member(name, ratio, levels, icon=icon, work_days=work_days, ratio_unclamped=unclamped, teams=teams)
+        member = Member(name, ratio, levels, icon=icon, work_days=work_days, ratio_unclamped=unclamped, teams=teams, warning_limit=warning_limit)
         if member_id is not None:
             member.id = member_id
         members.append(member)
