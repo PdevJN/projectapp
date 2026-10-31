@@ -10,6 +10,7 @@ from nicegui.events import ValueChangeEventArguments
 
 from projectapp.avatar import avatar
 from projectapp.dashboard import (
+    Backlog,
     CrossSummary,
     Dashboard,
     DayLoad,
@@ -38,6 +39,7 @@ PLANNED_COLOR = "#1e88e5"  # 予定の時間。dataviz の検証で、灰青は�
 ACTUAL_COLOR = "#43a047"  # 実績の時間
 NEED_COLOR = "#6250d6"  # 残りの工数と必要人数: これから要る量(必要人数・担当別・チーム別の残りの工数)。予定の青と混ざらないすみれ
 HAVE_COLOR = "#1baf7a"  # 残りの工数と必要人数: 稼働できる人員。実績の緑と混ざらない青緑(ライトでは背景との比が 3:1 未満なので、値は文字でも出す)
+LATE_COLOR = "#e0562f"  # 残りの工数と必要人数: 必要人数のうち遅れの分(必要のすみれの隣で、青緑とも区別できる赤橙。凡例と文字の数値で補う)
 EMPTY = "データがありません"
 CARD_TITLES = {
     CardId.TEAM: "チーム全体の進捗",
@@ -156,6 +158,20 @@ def bar(fraction: float, color: str, tick: float | None = None, marker: str | No
             ui.element("div").style(f"{TICK_STYLE}; left: {percent_width(tick)}")
 
 
+def stacked_bar(parts: list[tuple[float, str, str | None, str | None]]) -> None:
+    """積み上げの横棒。(割合, 色, マーク, ホバーの文字)を左から並べ、区切りに 2px の隙間を空ける。割合の合計が 1 を超えないこと。"""
+    with ui.element("div").style(TRACK_STYLE + "; display: flex; gap: 2px"):
+        for fraction, color, marker, tip in parts:
+            if fraction <= 0:
+                continue
+            fill = ui.element("div").style(f"height: 100%; width: {percent_width(fraction)}; background: {color}")
+            if marker is not None:
+                fill.mark(marker)
+            if tip is not None:
+                with fill:
+                    ui.tooltip(tip)
+
+
 def legend(prefix: str, entries: tuple[tuple[str, str, str], ...]) -> None:
     """2 系列以上の凡例。(ラベル, 色, キー)。ラベルは`{prefix}-legend-{キー}`、色の四角は`{prefix}-swatch-{キー}`。"""
     with ui.row().classes("items-center gap-4 text-caption"):
@@ -210,6 +226,12 @@ def cross_note(data: Dashboard) -> None:
         ui.label(f"全 {count} プロジェクトを重ねています。稼働時間と祝日は開いているプロジェクトの設定で数えます").classes(
             "text-caption text-grey"
         ).mark("dashboard-backlog-cross-note")
+
+
+def shortage_text(value: float) -> str:
+    """不足する人数の表示。負は余裕。表示の桁で 0 になるときは「あと 0.0 人」と出さず「ちょうど」にする。"""
+    short = round(value, 1)
+    return f"あと {short:.1f} 人" if short > 0 else f"余裕 {-short:.1f} 人" if short < 0 else "ちょうど"
 
 
 def days_text(days: float) -> str:
@@ -747,11 +769,17 @@ class DashboardView:
             if backlog.hours <= 0 and not backlog.unset_count:
                 empty_message("dashboard-empty-backlog")
                 return
-            ui.label(f"残りの工数 {backlog.hours:.1f}h").classes("text-h6").mark("dashboard-backlog-hours")
-            if backlog.by_status:
-                ui.label(" / ".join(f"{status.value} {hours:.1f}h" for status, hours in backlog.by_status.items())).classes(
-                    "text-caption"
-                ).mark("dashboard-backlog-by-status")
+            known = backlog.required is not None and backlog.shortfall is not None
+            if backlog.shortfall is not None:  # 答え(あと何人)を先頭に出す
+                ui.label(shortage_text(backlog.shortfall)).classes(
+                    "text-h6" + (" text-negative" if round(backlog.shortfall, 1) > 0 else "")
+                ).mark("dashboard-backlog-gap")
+            late = f"うち遅延 {backlog.overdue_count} 件・{backlog.overdue_hours:.1f}h" if backlog.overdue_count else "遅れなし"
+            ui.label(f"残りの工数 {backlog.hours:.1f}h({late})").classes("text-subtitle2" if known else "text-h6").mark(
+                "dashboard-backlog-hours"
+            )
+            self.hours_graph(backlog)
+            self.late_line(backlog)
             if backlog.unset_count:
                 ui.label(f"工数未設定 {backlog.unset_count} 件(合計に入れていません)").classes(
                     "text-caption text-grey"
@@ -761,25 +789,26 @@ class DashboardView:
                 ui.label(f"{reason}ため、必要な人数は出せません").classes("text-grey").mark("dashboard-backlog-nodays")
             else:
                 ui.label(f"稼働 {days_text(backlog.days)} 日で終える場合").classes("text-caption").mark("dashboard-backlog-days")
-                ui.label(f"必要 {backlog.required:.1f} 人 / 稼働できる人員 {backlog.supply:.1f} 人").mark(
-                    "dashboard-backlog-people"
+                scale = max(backlog.required, backlog.supply) or 1.0
+                overdue = min(backlog.overdue_required or 0.0, backlog.required)
+                ui.label(f"必要 {backlog.required:.1f} 人").mark("dashboard-backlog-need")
+                stacked_bar(
+                    [
+                        ((backlog.required - overdue) / scale, NEED_COLOR, "dashboard-backlog-bar-need", None),
+                        (overdue / scale, LATE_COLOR, "dashboard-backlog-bar-late", None),
+                    ]
                 )
+                if backlog.overdue_count and overdue > 0:  # 凡例は、積み上げの棒のすぐ下に置く
+                    legend("dashboard-backlog", (("うち遅れ", LATE_COLOR, "late"),))
+                ui.label(f"稼働できる人員 {backlog.supply:.1f} 人").mark("dashboard-backlog-have")
+                bar(backlog.supply / scale, HAVE_COLOR, marker="dashboard-backlog-bar-have")
+                ui.label("人は、100% の人に換算した数です。今日は、今から稼働の枠の終わりまでの残り時間で数えます。").classes(
+                    "text-caption text-grey"
+                ).mark("dashboard-backlog-unit")
                 if backlog.nominal_supply is not None:
                     ui.label(
                         f"相対比率の合計 {backlog.nominal_supply:.1f} 人 → 稼働を反映して {backlog.supply:.1f} 人"
                     ).classes("text-caption text-grey").mark("dashboard-backlog-supply-note")
-                scale = max(backlog.required, backlog.supply) or 1.0
-                legend("dashboard-backlog", (("必要", NEED_COLOR, "need"), ("稼働可能", HAVE_COLOR, "have")))
-                bar(backlog.required / scale, NEED_COLOR)
-                bar(backlog.supply / scale, HAVE_COLOR)
-                short = round(backlog.shortfall, 1)  # 表示の桁で 0 になるときは「あと 0.0 人」と出さない
-                gap = f"あと {short:.1f} 人" if short > 0 else f"余裕 {-short:.1f} 人" if short < 0 else "ちょうど"
-                ui.label(gap).classes("text-subtitle2" + (" text-negative" if short > 0 else "")).mark(
-                    "dashboard-backlog-gap"
-                )
-                ui.label("稼働できる人員は、メンバーの稼働日の上書き(休み・短時間・追加の稼働日)を反映しています。今日は、今から稼働の枠の終わりまでの残り時間で数えます。").classes(
-                    "text-caption text-grey"
-                ).mark("dashboard-backlog-note")
             if backlog.by_member:
                 ui.label("担当別").classes("text-subtitle2")
                 top = max(hours for _, hours in backlog.by_member)
@@ -792,6 +821,35 @@ class DashboardView:
                 for name, hours in backlog.by_team:
                     ui.label(f"{name} {hours:.1f}h").classes("text-caption").mark(f"dashboard-backlog-team-{name}")
                     bar(hours / top, NEED_COLOR)
+
+    def hours_graph(self, backlog: Backlog) -> None:
+        """残りの工数の内訳(状態ごと)の積み上げ棒。値はホバーに出し、色は円グラフと同じ状態色。"""
+        total = sum(backlog.by_status.values())
+        if total <= 0:
+            return
+        stacked_bar(
+            [
+                (hours / total, f"var({PIE_VARS[status]})", f"dashboard-backlog-hours-bar-{status.name.lower()}", f"{status.value} {hours:.1f}h")
+                for status, hours in backlog.by_status.items()
+            ]
+        )
+        legend(
+            "dashboard-backlog-hours",
+            tuple((status.value, f"var({PIE_VARS[status]})", status.name.lower()) for status in backlog.by_status),
+        )
+
+    def late_line(self, backlog: Backlog) -> None:
+        """遅れがなかった場合の不足(遅れがあり、期間が決まっているときだけ)。遅れの判定の選択も置く。
+        警告を含める選択は、警告の状態が未実装のため押せない。"""
+        required, without = backlog.overdue_required, backlog.shortfall_without_overdue
+        if backlog.overdue_count and required is not None and without is not None:
+            ui.label(f"遅れがなければ {shortage_text(without)}").classes("text-caption").mark("dashboard-backlog-late")
+        with ui.button_group().props("flat dense").mark("dashboard-backlog-late-basis"):
+            ui.button("遅延のみ").props("dense no-caps color=primary size=sm").mark("dashboard-backlog-late-delay")
+            with ui.button("警告を含む(未実装)").props("dense no-caps outline disable size=sm").mark(
+                "dashboard-backlog-late-warning"
+            ):
+                ui.tooltip("未実装です。警告の状態ができたら選べるようになります")
 
     def due_card(self, data: Dashboard) -> None:
         with card("期限とマイルストーン", "dashboard-due"):
