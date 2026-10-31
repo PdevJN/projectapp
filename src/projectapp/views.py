@@ -354,6 +354,7 @@ class MainView:
             self.change_dashboard_project,
             self.change_dashboard_custom,
             on_team_change=self.change_dashboard_team,
+            on_tick=lambda: self.refresh_dashboard(sync_field=False),
             actions=ViewActions(
                 select=self.select_dashboard_view,
                 save=self.save_dashboard_view,
