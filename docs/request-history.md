@@ -118,6 +118,7 @@
 | 112 | `当日`と`移動`を、上部のメニューの`移動`に集約する | 未着手 | 2026-11-01 | — | — | [`requests.md`](requests.md) |
 | 113 | `エクスポート`メニューを`ファイル`メニューに集約する | 未着手 | 2026-11-01 | — | — | [`requests.md`](requests.md) |
 | 114 | チャートプレビューをメニューから切り離し、ヘッダーのダッシュボードのアイコンの左隣に置く(要望 112・113 の完了後) | 未着手 | 2026-11-01 | — | — | [`requests.md`](requests.md) |
+| 115 | 全体の設定に、`今日の線の色`・`警告の色`・`倍率`を統合する(要望 111・95 の`全体の設定`ダイアログができてから) | 未着手 | 2026-11-01 | — | — | [`requests.md`](requests.md) |
 | 82 | イベントごとのチェックボックスで、その期間を全員の稼働日の休みにする | 完了(PR #117。実機確認済み。テスト 4,121 件) | 2026-10-28 | [設計](superpowers/specs/2026-10-28-event-closed-design.md)・[計画](superpowers/plans/2026-10-28-event-closed.md) | PR #117(7a6d9e2。2026-10-29) | `Event.closed`(`version` 15)。祝日と同じ休みに混ぜる(`effective_holidays`)。メンバーの上書きが優先。[`requests.md`](requests.md) |
 | 78 | プロジェクトの設定値とメンバーの設定値のエクスポート・インポート | 完了(PR #120。実機確認済み。テスト 4,166 件) | 2026-10-28 | [設計](superpowers/specs/2026-10-29-settings-export-import-design.md)・[計画](superpowers/plans/2026-10-29-settings-export-import.md) | PR #120(78cc309。2026-10-29) | 専用の設定ファイル(`kind: projectapp-settings`)。`settings_io.py`・`settings_dialog.py`。取り込みは項目ごとに上書き/スキップ、未保存の編集で元に戻す 1 ステップ。要望 77 は、この突き合わせと検証を呼ぶ形で後から足せる。[`requests.md`](requests.md) |
 
