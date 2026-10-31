@@ -295,6 +295,18 @@ def test_apply_overwrite_also_replaces_ratio_unclamped() -> None:
     assert result.project.members[0].ratio_unclamped is True
 
 
+def test_apply_overwrite_also_replaces_warning_limit() -> None:
+    current = Project("現", members=[Member("田中", 1.0, warning_limit=2)])
+    source = Project("入", members=[Member("田中", 1.0, warning_limit=7)])
+    result = apply_import(current, incoming_of(source), {"members"}, {("members", "田中")})
+    assert result.project.members[0].warning_limit == 7
+
+
+def test_settings_file_round_trips_warning_limit() -> None:
+    incoming = incoming_of(Project("p", members=[Member("田中", 1.0, warning_limit=4)]))
+    assert incoming.project.members[0].warning_limit == 4
+
+
 def test_settings_file_round_trips_ratio_unclamped() -> None:
     incoming = incoming_of(Project("p", members=[Member("田中", 2.0, ratio_unclamped=True)]))
     assert incoming.project.members[0].ratio_unclamped is True

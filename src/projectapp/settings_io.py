@@ -188,6 +188,7 @@ def _overwrite(target: Item, item: Item) -> None:
     if isinstance(target, Member) and isinstance(item, Member):
         target.ratio, target.levels, target.icon, target.work_days = item.ratio, item.levels, item.icon, item.work_days
         target.ratio_unclamped = item.ratio_unclamped
+        target.warning_limit = item.warning_limit
     elif isinstance(target, Parameter) and isinstance(item, Parameter):
         target.levels = item.levels
     elif isinstance(target, Category) and isinstance(item, Category):

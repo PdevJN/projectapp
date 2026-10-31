@@ -181,7 +181,7 @@ class _Merger:
         return result
 
 
-MEMBER_LABELS = {"name": "名前", "ratio": "基本比率", "levels": "段階の選択", "icon": "アイコン", "ratio_unclamped": "丸め対象外", "teams": "所属チーム"}
+MEMBER_LABELS = {"name": "名前", "ratio": "基本比率", "levels": "段階の選択", "icon": "アイコン", "ratio_unclamped": "丸め対象外", "teams": "所属チーム", "warning_limit": "警告の件数"}
 TEAM_LABELS = {"name": "名前"}
 CATEGORY_LABELS = {"name": "名前", "kind": "種別", "expiry_date": "有効期限", "color": "色", "prj_code": "PRJコード"}
 PARAMETER_LABELS = {"levels": "段階"}
@@ -200,6 +200,7 @@ def _members(project: Project) -> dict[str, Record]:
             "icon": m.icon,
             "ratio_unclamped": m.ratio_unclamped,
             "teams": [(s.team_id, s.percent) for s in m.teams],
+            "warning_limit": m.warning_limit,
         }
         for m in project.members
     }
@@ -491,6 +492,7 @@ def merge_projects(base: Project, ours: Project, theirs: Project, choices: Choic
             icon=r["icon"],
             ratio_unclamped=r["ratio_unclamped"],
             teams=settle_teams(r),
+            warning_limit=r["warning_limit"],
         )
         for key, r in members.items()
     ]
