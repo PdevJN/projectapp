@@ -4184,3 +4184,64 @@ def test_the_warning_css_defines_the_default_color_and_a_tint_that_follows_it() 
     assert WARNING_COLOR == "#fdd835"
     assert f"--warning: {WARNING_COLOR}" in WARNING_CSS
     assert "var(--warning)" in WARNING_BACKGROUND
+
+
+WARN_NOW = datetime(2026, 10, 7, 12)  # 水曜の昼
+
+
+def warning_project() -> Project:
+    behind = Task("遅れ気味", planned_start=datetime(2026, 10, 5, 9), effort_hours=19.5, progress=50)
+    on_plan = Task("予定どおり", planned_start=datetime(2026, 10, 5, 9), effort_hours=19.5, progress=82)
+    return Project("demo", base_date=date(2026, 10, 5), sections=[Section("開発", [behind, on_plan])])
+
+
+def name_cell_image(user: User, marker: str) -> str | None:
+    return user.find(marker=marker).elements.pop()._style.get("background-image")
+
+
+async def test_a_warning_task_row_and_name_cell_get_the_warning_tint(user: User) -> None:
+    from projectapp.gantt import WARNING_BACKGROUND
+
+    mount(warning_project(), now=WARN_NOW)
+    await user.open("/")
+    assert row_background(user, "task-0-0") == WARNING_BACKGROUND
+    assert name_cell_image(user, "task-0-0") == f"linear-gradient({WARNING_BACKGROUND}, {WARNING_BACKGROUND})"
+    assert row_background(user, "task-0-1") is None
+    assert name_cell_image(user, "task-0-1") is None
+
+
+def name_tooltips(user: User, marker: str) -> list[str]:
+    name = user.find(marker=marker).elements.pop()
+    return [
+        c.text
+        for c in name.parent_slot.children
+        if isinstance(c, ui.tooltip) and c.props.get("target") == f"#{name.html_id}"
+    ]
+
+
+async def test_the_warning_name_has_a_tooltip_with_the_numbers(user: User) -> None:
+    mount(warning_project(), now=WARN_NOW)
+    await user.open("/")
+    assert name_tooltips(user, "task-name-0-0") == ["警告: 残り 9.8h / 稼働 3.5h(279%)"]
+    assert name_tooltips(user, "task-name-0-1") == []
+
+
+async def test_an_overdue_task_stays_red_and_gets_no_warning(user: User) -> None:
+    mount(warning_project(), now=datetime(2026, 10, 8))
+    await user.open("/")
+    assert row_background(user, "task-0-0") == OVERDUE_COLOR
+
+
+async def test_a_done_task_gets_no_warning(user: User) -> None:
+    project = warning_project()
+    project.sections[0].tasks[0].status = Status.DONE
+    mount(project, now=WARN_NOW)
+    await user.open("/")
+    assert row_background(user, "task-0-0") is None
+
+
+async def test_show_alerts_false_hides_the_warning_tint(user: User) -> None:
+    mount_with(warning_project(), ViewOptions(show_alerts=False), now=WARN_NOW)
+    await user.open("/")
+    assert row_background(user, "task-0-0") is None
+    assert name_cell_image(user, "task-0-0") is None

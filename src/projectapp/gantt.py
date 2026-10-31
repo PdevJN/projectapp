@@ -37,6 +37,7 @@ from projectapp.periodfield import (
     split_period,
     validate_period,
 )
+from projectapp.pace import warning_pace
 from projectapp.models import ID_KEY, MAX_SECTION_DEPTH, URL_KEY, Assignee, Category, Event, Priority, Project, ReferenceMode, ReferenceValue, Section, SectionPath, Status, Task, TaskKind, TaskUrl
 from projectapp.reference import Reference
 from projectapp.scope import read_scope, scope_options, scope_value
@@ -1800,8 +1801,13 @@ class GanttChart:
         finished = state in (ProgressState.DONE, ProgressState.LATE_DONE)
         if task.kind is TaskKind.SUMMARY:  # 状態は子から算出する
             finished = summary_status(children_of(task, self.tasks_by_id), self.reference_values()) is Status.DONE
+        warning = None
+        if self.options.show_alerts and not overdue:  # 予定超過(赤)を優先する
+            warning = warning_pace(task, self.project, self.holidays, now, self.schedule)
         if overdue:
             style += f"; background: {OVERDUE_COLOR}"
+        elif warning is not None:
+            style += f"; background: {WARNING_BACKGROUND}"
         ids = task_ids_of(task, self.tasks_by_id)
         if self.selecting and ids and all(i in self.options.excluded for i in ids):
             style += "; opacity: 0.4"  # 出力しない行は薄く描く
@@ -1827,6 +1833,8 @@ class GanttChart:
                 cell_style += (
                     f"; background-image: linear-gradient({OVERDUE_COLOR}, {OVERDUE_COLOR})"
                 )
+            elif warning is not None:  # 警告の色も、同じ場所に重ねる
+                cell_style += f"; background-image: linear-gradient({WARNING_BACKGROUND}, {WARNING_BACKGROUND})"
             cell.style(cell_style)
             cell.mark(f"task-{key}-{ti}")
             if not self.options.read_only:
@@ -1870,6 +1878,8 @@ class GanttChart:
                         lambda tid=task.id: self.actions.open_reference(tid),
                         js_handler=PLAIN_CLICK_JS,
                     )
+                if warning is not None:
+                    name.tooltip(warning.hint())
                 if finished:  # 終了したタスクは、名前に取り消し線を引く
                     name.style("text-decoration: line-through")
                 name.mark(f"task-name-{key}-{ti}")
