@@ -822,8 +822,9 @@ def summarize_backlog(
             continue
         ends.extend(moment for moment in (schedule.end(task), task.deadline) if moment is not None)
         rest = _remaining_hours(task, project, holidays, now)
+        due = max(0.0, rest - task.effort_hours * (1 - fraction))  # 期間の終わりまでに予定した工数 − 消化分
         for key, _, share in _remaining_shares(task, project, schedule, holidays, rest, names):
-            portion = rest * fraction * share
+            portion = due * share
             split[key] += portion
             if scoped is None or key in scoped:
                 by_status[task.status] += portion * _factor(member, key)

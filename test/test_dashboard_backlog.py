@@ -376,3 +376,32 @@ def test_after_work_with_only_holidays_left_uses_the_next_workday() -> None:
     friday_evening = datetime(2026, 10, 9, 18)
     backlog = summarize_backlog(project_of(todo("a", 6.5)), WEEK, PeriodKind.WEEK, friday_evening, {})
     assert (backlog.days, backlog.required) == (1, 1.0)
+
+
+def spanning(**kwargs: object) -> Task:
+    # 金曜 6.5h + 翌月曜 6.5h の 13h。今週(〜日曜)に予定が入るのは金曜の半分(6.5h)
+    return Task("またぐ", planned_start=datetime(2026, 10, 9, 9), effort_hours=13, **kwargs)  # type: ignore[arg-type]
+
+
+def test_a_task_ahead_of_plan_leaves_nothing_due_in_the_period() -> None:
+    # 今週の終わりまでの予定 6.5h に対し、6.5h(50%)消化済み
+    task = spanning(status=Status.RUNNING, progress=50)
+    assert summarize_backlog(project_of(task), WEEK, PeriodKind.WEEK, NOW, {}).hours == 0
+
+
+def test_a_task_behind_plan_counts_the_planned_amount_minus_the_done_part() -> None:
+    # 予定 6.5h に対し 3.25h(25%)消化済み。残り 9.75h のうち、期間内に要るのは 6.5 − 3.25
+    task = spanning(status=Status.RUNNING, progress=25)
+    backlog = summarize_backlog(project_of(task), WEEK, PeriodKind.WEEK, NOW, {})
+    assert backlog.hours == 3.25
+    assert backlog.by_status == {Status.RUNNING: 3.25}
+
+
+def test_progress_does_not_change_the_all_period() -> None:
+    task = spanning(status=Status.RUNNING, progress=50)
+    assert summarize_backlog(project_of(task), WEEK, PeriodKind.ALL, NOW, {}).hours == 6.5
+
+
+def test_an_overdue_task_with_progress_still_counts_the_whole_rest() -> None:
+    overdue = Task("遅れ", planned_start=datetime(2026, 9, 1, 9), effort_hours=8, status=Status.RUNNING, progress=25)
+    assert summarize_backlog(project_of(overdue), WEEK, PeriodKind.WEEK, NOW, {}).hours == 6
