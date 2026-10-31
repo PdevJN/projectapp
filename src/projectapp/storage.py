@@ -704,6 +704,9 @@ def _reference_value(raw: Any) -> ReferenceValue | None:
         delayed = raw.get("delayed", 0)
         if isinstance(delayed, bool) or not isinstance(delayed, int) or delayed < 0:
             raise ValueError("スナップショットの遅延の件数が正しくありません")
+        warned = raw.get("warned", 0)
+        if isinstance(warned, bool) or not isinstance(warned, int) or warned < 0:
+            raise ValueError("スナップショットの警告の件数が正しくありません")
         peak = raw.get("peak_load", 0.0)
         if isinstance(peak, bool) or not isinstance(peak, int | float) or not isfinite(peak) or peak < 0:
             raise ValueError("スナップショットの負荷が正しくありません")
@@ -727,6 +730,7 @@ def _reference_value(raw: Any) -> ReferenceValue | None:
             progress=progress,
             finished=raw.get("finished") is True,
             delayed=delayed,
+            warned=warned,
             peak_load=float(peak),
             peak_member=str(raw.get("peak_member") or ""),
             overloads=overloads,

@@ -239,6 +239,7 @@ class ReferenceValue:
     peak_member: str = ""
     overloads: tuple[OverloadSpan, ...] = ()
     taken_at: datetime | None = None  # スナップショットを取った日時(保存した値だけ)
+    warned: int = 0  # 警告(完了予定を過ぎる見込み)のタスク数。参照先自身の設定で数える
 
     def same_as(self, other: "ReferenceValue") -> bool:
         """取得日時を除いて同じ値か(スナップショットが古いかの判定)。"""
