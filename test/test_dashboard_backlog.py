@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from projectapp.dashboard import (
     UNASSIGNED,
@@ -8,7 +8,7 @@ from projectapp.dashboard import (
     summarize_backlog,
     summarize_cross_backlog,
 )
-from projectapp.models import Actual, Assignee, Member, Project, Status, Task, TaskKind
+from projectapp.models import Actual, Assignee, Member, Project, Status, Task, TaskKind, WorkDay
 
 NOW = datetime(2026, 10, 7, 12)  # 水曜。稼働の枠は 9:00〜15:30(残り 3.5h)
 MORNING = datetime(2026, 10, 7, 8)  # 始業前。今日の枠は丸ごと残る
@@ -481,3 +481,81 @@ def test_cross_backlog_of_one_project_equals_the_plain_backlog() -> None:
 def test_cross_backlog_with_nothing_chosen_is_empty() -> None:
     backlog = summarize_cross_backlog([], named("甲", todo("a", 6.5)), WEEK, PeriodKind.WEEK, MORNING, {})
     assert (backlog.hours, backlog.supply, backlog.by_member) == (0, 0, [])
+
+
+def with_days(*days: WorkDay, ratio: float = 1.0, name: str = "田中") -> Member:
+    return Member(name, ratio, work_days=list(days))
+
+
+def supply_of(*members: Member, now: datetime = MORNING, kind: PeriodKind = PeriodKind.WEEK) -> float:
+    project = project_of(todo("a", 19.5), members=list(members))
+    return summarize_backlog(project, WEEK, kind, now, {}).supply
+
+
+def test_a_day_off_lowers_the_supply_by_that_days_share() -> None:
+    # 水・木・金の 19.5h のうち、木曜の 6.5h を休む → 2/3
+    assert supply_of(with_days(WorkDay(date(2026, 10, 8)))) == 2 / 3
+
+
+def test_a_member_without_overrides_keeps_the_plain_supply_exactly() -> None:
+    assert supply_of(Member("田中", 1.0)) == 1.0
+    assert supply_of(Member("田中", 1.0), Member("鈴木", 0.5)) == 1.5
+
+
+def test_a_weekend_workday_raises_the_supply() -> None:
+    saturday = WorkDay(date(2026, 10, 10), time(9), time(15, 30))  # 土曜に 6.5h 出る → 26 / 19.5
+    assert supply_of(with_days(saturday)) == 26 / 19.5
+
+
+def test_a_shorter_window_scales_the_supply_by_its_length() -> None:
+    half = WorkDay(date(2026, 10, 8), time(9), time(12, 15))  # 木曜は 3.25h → (6.5 + 3.25 + 6.5) / 19.5
+    assert supply_of(with_days(half)) == (6.5 + 3.25 + 6.5) / 19.5
+
+
+def test_the_supply_scale_uses_only_the_rest_of_today() -> None:
+    # 12:00。今日の残り 3.5h + 木・金 13h = 16.5h。木曜を休むと (3.5 + 6.5) / 16.5
+    assert supply_of(with_days(WorkDay(date(2026, 10, 8))), now=NOW) == 10 / 16.5
+
+
+def test_the_supply_scale_applies_to_the_relative_ratio() -> None:
+    assert supply_of(with_days(WorkDay(date(2026, 10, 8)), ratio=0.5)) == 0.5 * 2 / 3
+
+
+def test_a_member_off_for_the_whole_range_adds_nothing() -> None:
+    off = [WorkDay(date(2026, 10, d)) for d in (7, 8, 9)]
+    assert supply_of(with_days(*off), Member("鈴木", 1.0)) == 1.0
+
+
+def test_the_supply_note_shows_the_unadjusted_total_only_when_it_changes() -> None:
+    project = project_of(todo("a", 19.5), members=[with_days(WorkDay(date(2026, 10, 8))), Member("鈴木", 1.0)])
+    backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, MORNING, {})
+    assert backlog.nominal_supply == 2.0
+    assert summarize_backlog(project_of(todo("a", 6.5)), WEEK, PeriodKind.WEEK, MORNING, {}).nominal_supply is None
+
+
+def test_the_required_people_do_not_change_with_overrides() -> None:
+    plain = summarize_backlog(project_of(todo("a", 19.5)), WEEK, PeriodKind.WEEK, MORNING, {})
+    off = project_of(todo("a", 19.5), members=[with_days(WorkDay(date(2026, 10, 8)))])
+    adjusted = summarize_backlog(off, WEEK, PeriodKind.WEEK, MORNING, {})
+    assert (adjusted.required, adjusted.days) == (plain.required, plain.days)
+
+
+def test_the_scale_is_one_when_only_the_next_workday_is_used() -> None:
+    holidays = {date(2026, 10, d): "休" for d in (7, 8, 9)}
+    project = project_of(todo("a", 6.5), members=[with_days(WorkDay(date(2026, 10, 7), time(9), time(12)))])
+    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, MORNING, holidays).supply == 1.0
+
+
+def test_the_member_filter_and_the_scale_combine() -> None:
+    project = project_of(
+        todo("a", 19.5), members=[with_days(WorkDay(date(2026, 10, 8))), Member("鈴木", 1.0)]
+    )
+    backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, MORNING, {}, {"田中": 1.0, "鈴木": 0.25})
+    assert backlog.supply == 2 / 3 + 0.25
+
+
+def test_cross_backlog_uses_the_overrides_of_the_open_project_member() -> None:
+    off = WorkDay(date(2026, 10, 8))
+    first = named("甲", todo("a", 19.5), members=[with_days(off)])
+    second = named("乙", todo("b", 3), members=[Member("田中", 1.0)])  # 同名。先頭の甲の田中を使う
+    assert cross(first, second).supply == 2 / 3
