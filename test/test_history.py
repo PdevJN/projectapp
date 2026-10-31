@@ -1,8 +1,12 @@
 """元に戻す・やり直しの履歴(NiceGUI に依存しない)。"""
 
+import pytest
+
 from projectapp.history import HISTORY_LIMIT, History
 from projectapp.models import Project, Task
 
+
+pytestmark = pytest.mark.smoke
 
 def project_with(*names: str) -> Project:
     return Project("p", tasks=[Task(name) for name in names])

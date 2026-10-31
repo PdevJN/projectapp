@@ -89,6 +89,7 @@ async def open_dialog(user: User) -> None:
     user.find("open").click()
 
 
+@pytest.mark.smoke
 async def test_dates_only_fill_the_default_times(user: User) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved)
@@ -125,6 +126,7 @@ async def test_time_inputs_are_hidden_until_the_checkbox_is_checked(user: User) 
     await user.should_see(marker="task-end-time")
 
 
+@pytest.mark.smoke
 async def test_checked_times_are_used(user: User) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved)
@@ -287,6 +289,7 @@ async def test_checked_but_empty_time_is_rejected(user: User) -> None:
     assert saved == []
 
 
+@pytest.mark.smoke
 async def test_an_end_date_before_the_start_date_is_rejected(user: User) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved)

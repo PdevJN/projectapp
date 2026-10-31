@@ -5,6 +5,8 @@ import pytest
 import projectapp.models as models
 from projectapp.models import Member, Project, Section, Task, new_id, walk_sections
 
+pytestmark = pytest.mark.smoke
+
 
 def tree() -> Project:
     deep = Section("孫", [Task("g")])

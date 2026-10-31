@@ -1,3 +1,5 @@
+import pytest
+
 from datetime import date, datetime
 
 from projectapp.models import Assignee, Actual, Level, Member, Parameter, Project, Status, Task
@@ -11,6 +13,8 @@ from projectapp.timeline import (
     visible_range,
 )
 
+
+pytestmark = pytest.mark.smoke
 HOLIDAYS: dict[date, str] = {}
 MON = datetime(2026, 10, 5, 9, 0)  # 月曜 9:00
 

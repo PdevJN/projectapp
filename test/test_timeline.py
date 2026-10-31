@@ -44,6 +44,8 @@ from projectapp.timeline import (
     year_bands,
 )
 
+pytestmark = pytest.mark.smoke
+
 BASE = date(2026, 10, 5)  # 月曜
 
 

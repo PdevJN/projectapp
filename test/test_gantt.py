@@ -173,6 +173,7 @@ def mount(
     return recorder
 
 
+@pytest.mark.smoke
 async def test_renders_sections_tasks_and_bars(user: User) -> None:
     mount(sample_project())
     await user.open("/")
@@ -183,6 +184,7 @@ async def test_renders_sections_tasks_and_bars(user: User) -> None:
     await user.should_not_see(marker="bar-0-1")
 
 
+@pytest.mark.smoke
 async def test_bar_geometry_and_color(user: User) -> None:
     mount(sample_project())
     await user.open("/")
@@ -261,6 +263,7 @@ def test_today_line_colors_are_red_in_both_themes() -> None:
     assert "body.body--dark" in TODAY_CSS
 
 
+@pytest.mark.smoke
 async def test_week_scale_has_no_stripes_and_scales_bars(user: User) -> None:
     mount(sample_project())
     await user.open("/")
@@ -380,6 +383,7 @@ def top_project() -> Project:
     return Project("demo", base_date=BASE, tasks=[task, Task("未設定の単独")])
 
 
+@pytest.mark.smoke
 async def test_top_level_tasks_render_without_any_section(user: User) -> None:
     mount(top_project())
     await user.open("/")

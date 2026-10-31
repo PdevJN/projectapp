@@ -4,6 +4,8 @@ import pytest
 
 from projectapp.main import LaunchOptions, parse_args, run_kwargs
 
+pytestmark = pytest.mark.smoke
+
 
 def test_default_is_native() -> None:
     assert parse_args([]) == LaunchOptions(mode="native", port=8080)

@@ -4,6 +4,8 @@ import pytest
 
 from projectapp.filemanager import open_command, open_folder
 
+pytestmark = pytest.mark.smoke
+
 
 @pytest.mark.parametrize(
     ("platform", "command"),

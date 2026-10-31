@@ -47,6 +47,7 @@ from projectapp.storage import (
 )
 
 
+@pytest.mark.smoke
 def test_save_and_load_roundtrip(tmp_path: Path) -> None:
     project = Project("demo", sections=[Section("s1", [Task("t1")])])
     path = save_project(project, tmp_path)
@@ -67,6 +68,7 @@ def test_theme_default(tmp_path: Path) -> None:
     assert load_theme(tmp_path) == "dark"
 
 
+@pytest.mark.smoke
 def test_roundtrip_restores_dates_enums_and_base_date(tmp_path: Path) -> None:
     task = Task(
         "t1",
@@ -157,6 +159,7 @@ def test_save_project_creates_a_missing_base_dir(tmp_path: Path) -> None:
     assert path.is_file()
 
 
+@pytest.mark.smoke
 def test_save_project_leaves_the_original_when_writing_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -179,6 +182,7 @@ def test_save_project_without_overwrite_creates_a_new_file(tmp_path: Path) -> No
     assert sorted(p.name for p in tmp_path.iterdir()) == ["new.json"]
 
 
+@pytest.mark.smoke
 def test_save_project_without_overwrite_refuses_an_existing_file(tmp_path: Path) -> None:
     path = save_project(Project("demo", sections=[Section("元")]), tmp_path)
     with pytest.raises(FileExistsError):
@@ -187,6 +191,7 @@ def test_save_project_without_overwrite_refuses_an_existing_file(tmp_path: Path)
     assert sorted(p.name for p in tmp_path.iterdir()) == ["demo.json"]
 
 
+@pytest.mark.smoke
 def test_load_project_uses_the_file_name_as_the_name(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     renamed = path.rename(tmp_path / "other.json")
@@ -319,6 +324,7 @@ def test_planned_start_is_saved_and_the_legacy_start_key_is_still_read(tmp_path:
     assert load_project(path).tasks[0].planned_start == datetime(2026, 10, 5, 9)
 
 
+@pytest.mark.smoke
 def test_deadline_roundtrip(tmp_path: Path) -> None:
     project = Project(
         "d",
@@ -372,6 +378,7 @@ def test_legacy_end_without_a_start_still_becomes_the_deadline(tmp_path: Path) -
     assert (task.planned_start, task.deadline) == (None, datetime(2026, 10, 7, 18))
 
 
+@pytest.mark.smoke
 def test_new_format_roundtrip_keeps_the_planned_fields(tmp_path: Path) -> None:
     task = Task(
         "a",
@@ -431,6 +438,7 @@ def test_an_explicit_deadline_wins_over_a_legacy_end(tmp_path: Path) -> None:
     assert load_project(path).tasks[0].deadline == datetime(2026, 10, 20, 18)
 
 
+@pytest.mark.smoke
 def test_allocation_roundtrip_and_default(tmp_path: Path) -> None:
     project = Project(
         "r",
@@ -512,6 +520,7 @@ def _project_with_actuals(*actuals: Actual) -> Project:
     return Project("demo", tasks=[Task("t", actuals=list(actuals))])
 
 
+@pytest.mark.smoke
 def test_actuals_roundtrip(tmp_path: Path) -> None:
     project = _project_with_actuals(
         Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 17, 30)),
@@ -521,6 +530,7 @@ def test_actuals_roundtrip(tmp_path: Path) -> None:
     assert loaded.tasks[0].actuals == project.tasks[0].actuals
 
 
+@pytest.mark.smoke
 def test_file_without_actuals_loads_as_empty(tmp_path: Path) -> None:
     path = save_project(_project_with_actuals(), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
@@ -628,6 +638,7 @@ def test_not_started_status_is_saved_as_the_new_name(tmp_path: Path) -> None:
     assert load_project(path).tasks[0].status is Status.NOT_STARTED
 
 
+@pytest.mark.smoke
 def test_legacy_status_started_loads_as_not_started(tmp_path: Path) -> None:
     path = save_project(Project("demo", tasks=[Task("t")]), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
@@ -651,6 +662,7 @@ def test_unknown_status_is_still_rejected(tmp_path: Path) -> None:
         load_project(path)
 
 
+@pytest.mark.smoke
 def test_actual_mode_roundtrip(tmp_path: Path) -> None:
     project = Project("demo", actual_mode=ActualMode.INTERVALS)
     assert load_project(save_project(project, tmp_path)).actual_mode is ActualMode.INTERVALS
@@ -1306,6 +1318,7 @@ def _rewrite_version(path: Path, version: object, *, remove: bool = False) -> No
     path.write_text(json.dumps(raw), encoding="utf-8")
 
 
+@pytest.mark.smoke
 def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
@@ -1313,12 +1326,14 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     assert raw["version"] == FORMAT_VERSION == 18
 
 
+@pytest.mark.smoke
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
     path = save_project(Project("old", sections=[Section("s1", [Task("t1")])]), tmp_path)
     _rewrite_version(path, None, remove=True)
     assert load_project(path).sections[0].tasks[0].name == "t1"
 
 
+@pytest.mark.smoke
 def test_file_with_a_newer_version_is_rejected_with_a_clear_message(tmp_path: Path) -> None:
     path = save_project(Project("future"), tmp_path)
     _rewrite_version(path, FORMAT_VERSION + 1)
@@ -1326,6 +1341,7 @@ def test_file_with_a_newer_version_is_rejected_with_a_clear_message(tmp_path: Pa
         load_project(path)
 
 
+@pytest.mark.smoke
 @pytest.mark.parametrize("version", [0, -1, True, False, 1.5, "1", None, [1]])
 def test_file_with_an_invalid_version_is_rejected(version: object, tmp_path: Path) -> None:
     path = save_project(Project("bad"), tmp_path)
@@ -1334,6 +1350,7 @@ def test_file_with_an_invalid_version_is_rejected(version: object, tmp_path: Pat
         load_project(path)
 
 
+@pytest.mark.smoke
 def test_resave_keeps_the_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     loaded = load_project(path)
