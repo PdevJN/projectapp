@@ -1768,6 +1768,32 @@ async def test_the_date_move_keys_reach_the_chart_and_are_ignored_while_a_dialog
     assert calls == []
 
 
+async def test_the_quick_progress_dialog_saves_one_undo_step(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    task = view.project.all_tasks()[0]
+    path = () if task in view.project.tasks else (0,)
+    index = view.tasks_in(path).index(task)
+    with user.client:
+        view.edit_progress(path, index)
+    await user.should_see(marker="quick-progress")
+    with user.client:
+        user.find(marker="quick-progress").elements.pop().set_value(55)
+    user.find(marker="quick-save").click()
+    assert view.tasks_in(path)[index].progress == 55
+    assert view.is_dirty()
+    with user.client:
+        view.undo()
+    assert view.tasks_in(path)[index].progress == task.progress  # 元に戻す 1 ステップ
+
+
+async def test_the_quick_progress_dialog_does_not_open_for_a_checkpoint(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path, with_task=False)
+    view.project.tasks = [Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17))]
+    with user.client:
+        view.edit_progress((), 0)
+    await user.should_not_see(marker="quick-progress")
+
+
 async def test_the_preview_replaces_the_header_and_toolbar(user: User, tmp_path: Path) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     assert view.preview is not None

@@ -28,7 +28,7 @@ from projectapp.models import (
     UrlTemplate,
     WorkDay,
 )
-from projectapp.task_dialog import open_task_dialog, open_week_crew_dialog
+from projectapp.task_dialog import open_quick_progress_dialog, open_task_dialog, open_week_crew_dialog
 
 
 def mount_dialog(
@@ -2944,3 +2944,50 @@ async def test_the_team_row_follows_the_assignee_fields_when_the_task_is_weekly(
     mount_dialog(task, [], members=teamed_members(), teams=[Team("開発", id="t1")])
     await open_dialog(user)
     await user.should_not_see(marker="task-team-add")
+
+
+def mount_quick_dialog(task: Task, saved: list[Task], intervals: bool = False) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button("open", on_click=lambda: open_quick_progress_dialog(task, intervals, saved.append)).mark("open")
+
+
+async def test_the_quick_dialog_saves_the_progress_and_the_actual(user: User) -> None:
+    saved: list[Task] = []
+    mount_quick_dialog(Task("作業", progress=20), saved)
+    await open_dialog(user)
+    assert user.find(marker="quick-title").elements.pop().text == "作業"
+    assert user.find(marker="quick-progress").elements.pop().value == 20
+    with user.client:
+        user.find(marker="quick-progress").elements.pop().set_value(60)
+        user.find(marker="task-actual-start-date").elements.pop().set_value("2026-10-05")
+        user.find(marker="task-actual-start-time").elements.pop().set_value("09:00")
+    user.find(marker="quick-save").click()
+    assert len(saved) == 1
+    assert saved[0].progress == 60
+    assert saved[0].actuals == [Actual(datetime(2026, 10, 5, 9))]
+    assert saved[0].status is Status.RUNNING
+
+
+async def test_the_quick_dialog_shows_the_error_and_does_not_save(user: User) -> None:
+    saved: list[Task] = []
+    mount_quick_dialog(Task("作業"), saved)
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="quick-progress").elements.pop().set_value(150)
+    user.find(marker="quick-save").click()
+    assert "進捗度" in user.find(marker="quick-error").elements.pop().text
+    assert saved == []
+
+
+async def test_the_quick_dialog_only_edits_the_progress_for_several_intervals(user: User) -> None:
+    saved: list[Task] = []
+    first = Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12))
+    second = Actual(datetime(2026, 10, 6, 9))
+    mount_quick_dialog(Task("作業", actuals=[first, second]), saved, intervals=True)
+    await open_dialog(user)
+    await user.should_see(marker="task-actuals-readonly")
+    with user.client:
+        user.find(marker="quick-progress").elements.pop().set_value(70)
+    user.find(marker="quick-save").click()
+    assert saved[0].progress == 70 and saved[0].actuals == [first, second]

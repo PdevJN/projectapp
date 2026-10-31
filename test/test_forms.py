@@ -10,6 +10,7 @@ from nicegui.testing import User
 from projectapp.models import Event, Membership, WorkDay
 from projectapp.categories import COLOR_HEX, COLOR_LABELS, COLORS, CategoryEdit
 from projectapp.forms import (
+    apply_quick_progress,
     MEMBER_ICON_COLUMN_REM,
     MEMBER_NAME_COLUMN_REM,
     MEMBER_RATIO_COLUMN_REM,
@@ -2512,3 +2513,55 @@ def test_build_members_rejects_a_membership_of_an_unknown_team() -> None:
 def test_member_columns_add_a_teams_column_only_when_asked() -> None:
     assert len(member_columns(0, False, True)) == len(member_columns(0, False)) + 1
     assert member_table_min_rem(0, False, True) > member_table_min_rem(0, False)
+
+
+def quick_task(**kwargs: object) -> models.Task:
+    return models.Task("作業", **kwargs)  # type: ignore[arg-type]
+
+
+def test_quick_progress_sets_only_the_progress_without_touching_the_status() -> None:
+    saved = apply_quick_progress(quick_task(status=models.Status.PAUSED), 40, "", "")
+    assert (saved.progress, saved.status, saved.actuals) == (40, models.Status.PAUSED, [])
+
+
+def test_quick_progress_clears_the_progress_when_empty() -> None:
+    assert apply_quick_progress(quick_task(progress=30), None, "", "").progress is None
+
+
+def test_quick_progress_rejects_an_out_of_range_or_fractional_progress() -> None:
+    for bad in (101, -1, 12.5):
+        with pytest.raises(ValueError, match="進捗度"):
+            apply_quick_progress(quick_task(), bad, "", "")
+
+
+def test_quick_progress_records_the_actual_and_follows_the_status() -> None:
+    running = apply_quick_progress(quick_task(), None, "2026-10-05T09:00", "")
+    assert running.actuals == [models.Actual(datetime(2026, 10, 5, 9))]
+    assert running.status is models.Status.RUNNING
+    done = apply_quick_progress(quick_task(), None, "2026-10-05T09:00", "2026-10-05T17:00")
+    assert done.status is models.Status.DONE
+    paused = apply_quick_progress(quick_task(), 40, "2026-10-05T09:00", "2026-10-05T17:00", intervals=True)
+    assert paused.status is models.Status.PAUSED
+
+
+def test_quick_progress_keeps_the_status_when_the_actual_is_unchanged() -> None:
+    task = quick_task(
+        actuals=[models.Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 17))], status=models.Status.PAUSED
+    )
+    saved = apply_quick_progress(task, 50, "2026-10-05T09:00", "2026-10-05T17:00")
+    assert saved.status is models.Status.PAUSED and saved.progress == 50
+
+
+def test_quick_progress_validates_the_actual() -> None:
+    with pytest.raises(ValueError, match="開始を入れて"):
+        apply_quick_progress(quick_task(), None, "", "2026-10-05T17:00")
+    with pytest.raises(ValueError, match="開始以降"):
+        apply_quick_progress(quick_task(), None, "2026-10-05T17:00", "2026-10-05T09:00")
+
+
+def test_quick_progress_leaves_several_intervals_alone() -> None:
+    first = models.Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12))
+    second = models.Actual(datetime(2026, 10, 6, 9))
+    task = quick_task(actuals=[first, second], status=models.Status.RUNNING)
+    saved = apply_quick_progress(task, 60, "", "")  # 開始・終了の入力は読まない
+    assert saved.actuals == [first, second] and saved.progress == 60 and saved.status is models.Status.RUNNING

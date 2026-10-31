@@ -416,6 +416,27 @@ def build_task(
     )
 
 
+def apply_quick_progress(
+    task: Task, progress: float | None, start_text: str, end_text: str, intervals: bool = False
+) -> Task:
+    """ガントチャートの棒からの簡易入力(進捗度と、0〜1 件の実績)を、タスクに反映したコピーを返す。
+    実績が 2 件以上のタスクは実績を変えない(開始・終了の入力は読まない)。実績が変わったときだけ、編集ダイアログと同じ規則で
+    状態を実績に合わせる(進捗度だけの変更では状態を変えない)。不正な入力は ValueError。"""
+    checked = _check_progress(progress)
+    if len(task.actuals) > 1:
+        return replace(task, progress=checked)
+    actuals = build_actuals(start_text, end_text)
+    changed = [(a.start, a.end) for a in actuals] != [(a.start, a.end) for a in task.actuals]
+    status = task.status
+    if changed:
+        suggested = suggest_status(
+            bool(actuals), bool(actuals) and actuals[0].end is not None, checked, intervals=intervals
+        )
+        if suggested is not None:
+            status = suggested
+    return replace(task, progress=checked, actuals=actuals, status=status)
+
+
 def build_actuals(start_text: str, end_text: str) -> list[Actual]:
     """実績の入力(compose_actual の結果)を検証して、0件か1件の区間にする。"""
     try:

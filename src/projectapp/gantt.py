@@ -284,6 +284,8 @@ SELECT_CLICK_JS = (
 )
 # 修飾キーつきのクリックは、まとめ・参照行の名前のクリック(開閉・参照先を開く)で横取りせず、選択へ回す
 PLAIN_CLICK_JS = "(e) => { if (e.shiftKey || e.ctrlKey || e.metaKey) return; e.stopPropagation(); emit(); }"
+# 棒の Shift クリックだけを、進捗度・実績の簡易入力として送る(ふつうのクリックは何もしない)
+BAR_SHIFT_CLICK_JS = "(e) => { if (!e.shiftKey || e.target.closest('button, a, input')) return; e.stopPropagation(); emit(); }"
 BULK_CSS = """
 .task-selected { outline: 2px solid var(--q-primary); outline-offset: -2px; }
 .task-selected > .gantt-sticky {
@@ -526,6 +528,7 @@ class GanttActions:
     add_named_section: Callable[[SectionPath, str], object] = lambda parent, name: None
     toggle_weeks: Callable[[SectionPath, int], object] = lambda path, ti: None  # 週ごとに分ける / やめる
     edit_week_crew: Callable[[SectionPath, int, int], object] = lambda path, ti, week: None  # 週ごとの担当の編集(0 始まり)
+    edit_progress: Callable[[SectionPath, int], object] = lambda path, ti: None  # 棒の Shift クリック: 進捗度と実績の簡易入力
     open_reference: Callable[[str], object] = lambda task_id: None  # プロジェクト参照の行のクリック(タスクの id)
     refresh_reference: Callable[[SectionPath, int], object] = lambda path, ti: None  # スナップショットの更新
 
@@ -2054,6 +2057,8 @@ class GanttChart:
                 if state in PROGRESS_STATE_CLASSES:
                     bar.classes(PROGRESS_STATE_CLASSES[state])
                 bar.mark(f"bar-{key}-{ti}")
+                if task.kind is TaskKind.NORMAL and not self.options.read_only:
+                    bar.on("click", lambda path=path, ti=ti: self.actions.edit_progress(path, ti), js_handler=BAR_SHIFT_CLICK_JS)
                 if draggable:
                     least = arrange.min_shift_days(
                         task, self.project.base_date, start, self.schedule.latest_finish(task)

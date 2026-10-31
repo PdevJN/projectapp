@@ -174,7 +174,7 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.summary import parent_map
-from projectapp.task_dialog import open_task_dialog, open_week_crew_dialog
+from projectapp.task_dialog import open_quick_progress_dialog, open_task_dialog, open_week_crew_dialog
 from projectapp.teams import removal_impacts, replace_teams, team_scope, teams_with_members
 from projectapp.theme import BODY_CSS, CustomTheme, theme_js, today_color_js, warning_color_js
 from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
@@ -345,6 +345,7 @@ class MainView:
                 add_named_section=self.add_named_section,
                 toggle_weeks=self.toggle_weeks,
                 edit_week_crew=self.edit_week_crew,
+                edit_progress=self.edit_progress,
                 open_reference=self.open_reference,
                 refresh_reference=self.refresh_reference,
             ),
@@ -1981,6 +1982,19 @@ class MainView:
             first = start.date() + timedelta(days=7 * week)
             period = f"{short_date(first)}〜{short_date(first + timedelta(days=6))}"
         open_week_crew_dialog(week + 1, shown, self.project.members, apply, period)
+
+    def edit_progress(self, path: SectionPath, index: int) -> None:
+        """棒の Shift クリック。通常タスクの進捗度と実績だけを直す小さなダイアログを開く(保存は元に戻す 1 ステップ)。"""
+        if not arrange.has_task(self.project, (path, index)):
+            return
+        task = self.tasks_in(path)[index]
+        if task.kind is not TaskKind.NORMAL:
+            return
+
+        def apply(saved: Task) -> None:
+            self.save_task(path, index, saved)
+
+        open_quick_progress_dialog(task, self.project.actual_mode is ActualMode.INTERVALS, apply)
 
     def add_named_task(self, path: SectionPath, index: int, name: str) -> None:
         """名前だけの通常タスクを、セクション(root は ())の index 番目に作る(名前の入力行の確定)。"""
