@@ -443,6 +443,45 @@ def consumed_slices(
         return []
 
 
+def work_capacity(
+    start: datetime,
+    end: datetime,
+    daily_hours: float,
+    work_start: time,
+    holidays: dict[date, str],
+    crew: Sequence[Worker] | None = None,
+    weeks: Sequence[Sequence[Worker]] | None = None,
+    weeks_start: date | None = None,
+) -> float:
+    """[start, end) の間に、担当者の稼働の枠で積める、換算率つきの時間[h]。`calc_end` と同じ枠の扱いで、
+    枠が重なる時刻は稼働中の担当者の換算率の合計で数える。crew が空なら換算率1の1人。
+    weeks があれば、weeks_start(なければ start)の日から 7 日ごとにその週の担当者で数える(最後の週は以降も続く)。
+    空の範囲・不正な稼働可能時間は 0。数える日数は MAX_WORKDAYS で打ち切る。"""
+    if end <= start or not 0 < daily_hours <= 24:
+        return 0.0
+    crews = [list(week) or [Worker()] for week in weeks] if weeks else [list(crew) if crew else [Worker()]]
+    origin = weeks_start or start.date()
+    try:
+        end = min(end, start + timedelta(days=MAX_WORKDAYS))
+    except OverflowError:
+        return 0.0
+    total = 0.0
+    day = start.date()
+    while day <= end.date():
+        workers = crews[week_index(origin, day, len(crews))]
+        windows = [
+            (w, window)
+            for w in workers
+            if (window := day_window(day, daily_hours, work_start, holidays, w.days)) is not None
+        ]
+        points = sorted({min(max(p, start), end) for _, window in windows for p in window})
+        for left, right in zip(points, points[1:]):
+            active = [w for w, (opens, closes) in windows if opens <= left and right <= closes]
+            total += sum(w.rate for w in active) * (right - left).total_seconds() / 3600
+        day += timedelta(days=1)
+    return total
+
+
 def _consume(
     start: datetime,
     effort_hours: float,

@@ -382,3 +382,29 @@ def test_an_invalid_today_color_is_read_as_none(tmp_path: Path, value: object) -
 
     (tmp_path / "config.json").write_text(json.dumps({"today_color": value}), encoding="utf-8")
     assert load_today_color(tmp_path) is None
+
+
+def test_the_warning_color_defaults_to_none(tmp_path: Path) -> None:
+    from projectapp.config import load_warning_color
+
+    assert load_warning_color(tmp_path) is None
+
+
+def test_the_warning_color_round_trips_and_keeps_other_keys(tmp_path: Path) -> None:
+    from projectapp.config import load_today_color, load_warning_color, save_today_color, save_warning_color
+
+    save_today_color("#1e88e5", tmp_path)
+    save_warning_color("#fdd835", tmp_path)
+    assert load_warning_color(tmp_path) == "#fdd835"
+    assert load_today_color(tmp_path) == "#1e88e5"
+    save_warning_color(None, tmp_path)
+    assert load_warning_color(tmp_path) is None
+    assert load_today_color(tmp_path) == "#1e88e5"
+
+
+@pytest.mark.parametrize("value", ["yellow", "#12345", 5, [], {}])
+def test_an_invalid_warning_color_is_read_as_none(tmp_path: Path, value: object) -> None:
+    from projectapp.config import load_warning_color
+
+    (tmp_path / "config.json").write_text(json.dumps({"warning_color": value}), encoding="utf-8")
+    assert load_warning_color(tmp_path) is None

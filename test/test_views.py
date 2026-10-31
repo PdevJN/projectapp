@@ -46,7 +46,7 @@ from projectapp.preview import split_period
 from projectapp.timeline import Scale, Schedule, effective_end, visible_range
 from projectapp.gantt import ViewOptions
 from projectapp.forms import MEMBER_TABLE_CSS
-from projectapp.config import load_custom_theme, load_theme, load_today_color, save_custom_theme, save_today_color
+from projectapp.config import load_custom_theme, load_theme, load_today_color, load_warning_color, save_custom_theme, save_today_color, save_warning_color
 from projectapp.theme import DEFAULTS, CustomTheme
 from projectapp.reference import ReferenceResolver, take_snapshot
 from projectapp.views import HEADER_CSS, THEME_ICONS, MainView
@@ -3293,7 +3293,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
     assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share", "download", "save_alt"]
     assert menu_icons(user, "menu-help-items") == ["keyboard"]
-    assert menu_icons(user, "menu-theme-items") == ["brightness_auto", "light_mode", "dark_mode", "palette", "tune", "event"]
+    assert menu_icons(user, "menu-theme-items") == ["brightness_auto", "light_mode", "dark_mode", "palette", "tune", "event", "warning_amber"]
     assert menu_items(user, "menu-export-items") == [
         ("チャートプレビュー", "export-preview"),
         ("担当者へ書き出し", "export-handoff"),
@@ -3301,7 +3301,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         ("設定を書き出す", "export-settings"),
     ]
     assert menu_items(user, "menu-help-items") == [("ショートカットヘルプ", "help-shortcuts")]
-    assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark"), ("カスタム", "theme-custom"), ("カスタムの色…", "theme-custom-settings"), ("今日の線の色…", "theme-today-color")]
+    assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark"), ("カスタム", "theme-custom"), ("カスタムの色…", "theme-custom-settings"), ("今日の線の色…", "theme-today-color"), ("警告の色…", "theme-warning-color")]
 
 
 async def test_the_file_menu_separates_open_save_and_update(user: User, tmp_path: Path) -> None:
@@ -5212,6 +5212,63 @@ async def test_today_color_apply_failure_notifies_and_keeps_saved_state(user: Us
     await user.should_see("今日の線の色を保存できませんでした")
     assert view.today_color is None
     await user.should_see(marker="today-apply")  # ダイアログは開いたまま
+
+
+async def test_warning_color_dialog_apply_saves_the_color_without_touching_the_theme(user: User, tmp_path: Path) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    assert view.warning_color is None
+    user.find(marker="theme-warning-color").click()
+    user.find(marker="warning-color").elements.pop().set_value("#FDD835")
+    user.find(marker="warning-apply").click()
+    assert view.warning_color == "#fdd835"
+    assert load_warning_color(tmp_path) == "#fdd835"
+    assert view.theme == "auto" and load_theme(tmp_path) == "auto"  # テーマは変えない
+
+
+async def test_warning_color_dialog_cancel_keeps_the_saved_color(user: User, tmp_path: Path) -> None:
+    save_warning_color("#fdd835", tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    assert view.warning_color == "#fdd835"
+    user.find(marker="theme-warning-color").click()
+    user.find(marker="warning-color").elements.pop().set_value("#e53935")
+    user.find(marker="warning-cancel").click()
+    assert view.warning_color == "#fdd835" and load_warning_color(tmp_path) == "#fdd835"
+
+
+async def test_warning_color_dialog_reset_then_apply_returns_to_the_default(user: User, tmp_path: Path) -> None:
+    save_warning_color("#fdd835", tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    user.find(marker="theme-warning-color").click()
+    user.find(marker="warning-reset").click()
+    user.find(marker="warning-apply").click()
+    assert view.warning_color is None and load_warning_color(tmp_path) is None
+
+
+async def test_warning_color_apply_failure_notifies_and_keeps_saved_state(user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise OSError("読み取り専用")
+
+    monkeypatch.setattr("projectapp.views.save_warning_color", fail)
+    user.find(marker="theme-warning-color").click()
+    user.find(marker="warning-color").elements.pop().set_value("#fdd835")
+    user.find(marker="warning-apply").click()
+    await user.should_see("警告の色を保存できませんでした")
+    assert view.warning_color is None
+    await user.should_see(marker="warning-apply")  # ダイアログは開いたまま
 
 
 def test_header_project_select_follows_the_header_text_color_and_keeps_the_defaults() -> None:
