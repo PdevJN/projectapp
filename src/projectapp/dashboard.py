@@ -40,7 +40,7 @@ class PeriodKind(StrEnum):
 class LateBasis(StrEnum):
     """遅れの判定の基準(要望 98・103)。`警告を含む`は、予定超過のほかに、警告のタスクも遅れに数える。"""
 
-    DELAY = "遅延のみ"
+    DELAY = "遅れのみ"
     WARNING = "警告を含む"
 
 

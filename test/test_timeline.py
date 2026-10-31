@@ -39,6 +39,7 @@ from projectapp.timeline import (
     computed_end,
     effective_end,
     is_overdue,
+    overdue_reasons,
     visible_range,
     is_workday,
     month_bands,
@@ -1267,3 +1268,31 @@ def test_work_capacity_matches_what_calc_end_consumes() -> None:
     end = calc_end(start, 20.0, 6.5, OPEN, {}, crew)
     assert end is not None
     assert work_capacity(start, end, 6.5, OPEN, {}, crew=crew) == pytest.approx(20.0)
+
+
+def reasons(task: Task) -> list[str]:
+    return overdue_reasons(task, Project("p"), {}, OVERDUE_NOW)
+
+
+def test_the_reason_is_the_deadline_when_only_the_deadline_has_passed() -> None:
+    task = Task("t", planned_start=datetime(2026, 10, 9, 9), planned_end=datetime(2026, 10, 20), deadline=datetime(2026, 10, 9, 18))
+    assert reasons(task) == ["期限超過(締切 10/09 18:00 を過ぎています)"]
+
+
+def test_the_reason_is_the_plan_when_only_the_planned_end_has_passed() -> None:
+    task = Task("t", planned_start=datetime(2026, 10, 1, 9), planned_end=datetime(2026, 10, 2), deadline=datetime(2026, 10, 20))
+    assert reasons(task) == ["予定超過(完了予定 10/02 00:00 を過ぎています)"]
+
+
+def test_both_reasons_are_listed_when_both_have_passed() -> None:
+    task = Task("t", planned_start=datetime(2026, 10, 1, 9), planned_end=datetime(2026, 10, 2), deadline=datetime(2026, 10, 3))
+    assert [r[:4] for r in reasons(task)] == ["期限超過", "予定超過"]
+
+
+def test_no_reason_when_the_task_is_not_overdue() -> None:
+    assert reasons(Task("t", deadline=datetime(2026, 12, 1))) == []
+
+
+def test_a_checkpoint_has_only_the_deadline_reason() -> None:
+    task = Task("c", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 18))
+    assert reasons(task) == ["期限超過(締切 10/09 18:00 を過ぎています)"]
