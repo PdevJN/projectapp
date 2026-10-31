@@ -523,7 +523,7 @@ def _events(value: Any, version: int = FORMAT_VERSION) -> list[Event]:
         color = raw.get("color", "gray")
         normalized = normalize_color(color) if isinstance(color, str) else None
         if normalized is None:
-            raise ValueError(f"イベントの色が正しくありません: {color!r}")
+            raise ValueError(f"イベントの色が正しくありません: {color!r}(#RRGGBB か、red・orange・gray などの色名)")
         closed = raw.get("closed", False) if version >= 15 else False
         if not isinstance(closed, bool):
             raise ValueError(f"イベントの休みが真偽値ではありません: {closed!r}")
@@ -1090,6 +1090,11 @@ def _check_version(raw: dict[str, Any]) -> int:
     if version > FORMAT_VERSION:
         raise ValueError(f"このアプリより新しい形式です(version {version})。アプリを更新してください")
     return version
+
+
+def file_version(path: Path) -> int:
+    """ファイルの形式のバージョンを返す(キーがなければ 1)。"""
+    return _check_version(json.loads(path.read_text(encoding="utf-8")))
 
 
 def load_project(path: Path) -> Project:

@@ -1885,7 +1885,8 @@ def test_build_event_list_ignores_a_blank_new_row_but_not_a_blank_existing_one()
         (EventRow(None, "10/3", "10/2", "x", "red"), "終了日は開始日以降"),
         (EventRow(None, "10/1", "10/2", "", "red"), "文字列"),
         (EventRow(None, "10/1", "10/2", "あ" * 31, "red"), "30"),
-        (EventRow(None, "10/1", "10/2", "x", "#ff0000"), "色"),
+        (EventRow(None, "10/1", "10/2", "x", "#ff00"), "色"),
+        (EventRow(None, "10/1", "10/2", "x", "#ff0000ff"), "色"),
         (EventRow(None, "10/1", "10/2", "x", "transparent"), "色"),
         (EventRow(None, "10/1", "10/2", "x", ""), "色"),
     ],
@@ -1957,6 +1958,35 @@ async def test_changing_only_closed_counts_as_an_event_change(user: User) -> Non
     user.find(marker="settings-event-0-closed").click()
     user.find(marker="settings-apply").click()
     assert [e.closed for e in received[0]] == [True]
+
+
+async def test_event_color_field_is_a_color_input_that_takes_a_code(user: User) -> None:
+    applied: list[int] = []
+    received: list[list[Event]] = []
+    mount_event_settings([], applied, received)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-event-add").click()
+    await asyncio.sleep(0.2)
+    field = user.find(marker="settings-event-0-color").elements.pop()
+    assert isinstance(field, ui.color_input)  # タスクの`色`と同じ、コードの入力と色の選択
+    user.find(marker="settings-event-0-start").type("2026-10-20")
+    user.find(marker="settings-event-0-end").type("2026-10-24")
+    user.find(marker="settings-event-0-text").type("リリース")
+    field.set_value("#FFAA00")
+    user.find(marker="settings-apply").click()
+    assert applied == [1]
+    ((event,),) = received
+    assert event.color == "#ffaa00"
+
+
+async def test_event_swatch_follows_a_color_code_too(user: User) -> None:
+    mount_event_settings([Event(date(2026, 10, 1), date(2026, 10, 2), "x", "red", id="e1")], [], [])
+    await user.open("/")
+    user.find("open").click()
+    swatch = user.find(marker="settings-event-0-swatch").elements.pop()
+    user.find(marker="settings-event-0-color").elements.pop().set_value("#12ab34")
+    assert "#12ab34" in swatch._style["color"]
 
 
 async def test_event_swatch_follows_the_color_text(user: User) -> None:

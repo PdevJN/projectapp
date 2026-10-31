@@ -1310,7 +1310,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 17
+    assert raw["version"] == FORMAT_VERSION == 18
 
 
 def test_file_without_version_loads_as_version_1(tmp_path: Path) -> None:
@@ -1378,7 +1378,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 17
+    assert raw["version"] == FORMAT_VERSION == 18
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -1697,7 +1697,8 @@ def test_event_color_is_lowercased_on_load(tmp_path: Path) -> None:
         {"text": ""},
         {"text": "あ" * 31},
         {"text": 5},
-        {"color": "#ff0000"},
+        {"color": "#ff00"},
+        {"color": "#ff0000ff"},
         {"color": "transparent"},
         {"color": None},
         {"id": ""},
@@ -1904,7 +1905,7 @@ def test_task_parameters_round_trip_and_the_version_is_10(tmp_path: Path) -> Non
     project = Project("p", parameters=[Parameter("Python", []), Parameter("Java", [])], tasks=[Task("a", parameters=["Python", "Java"])])
     path = save_project(project, tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 17
+    assert raw["version"] == FORMAT_VERSION == 18
     assert raw["tasks"][0]["parameters"] == ["Python", "Java"]
     assert load_project(path).tasks[0].parameters == ["Python", "Java"]
 
@@ -1945,8 +1946,8 @@ def _weekly_project() -> Project:
     return Project("p", members=[Member("田中"), Member("鈴木")], tasks=[task])
 
 
-def test_format_version_is_eleven() -> None:
-    assert FORMAT_VERSION == 17
+def test_format_version_is_eighteen() -> None:
+    assert FORMAT_VERSION == 18
 
 
 def test_weekly_crew_roundtrips_and_assignees_is_the_union(tmp_path: Path) -> None:
@@ -2111,7 +2112,7 @@ def test_work_day_note_round_trips_and_is_stripped() -> None:
     member = Member("甲", id="m1", work_days=[WorkDay(date(2026, 10, 17), note="夏季休暇")])
     text = dumps_project(Project("p", members=[member]))
     raw = json.loads(text)
-    assert raw["version"] == 17
+    assert raw["version"] == 18
     assert raw["members"][0]["work_days"][0]["note"] == "夏季休暇"
     assert parse_project(text, "p").members[0].work_days[0].note == "夏季休暇"
     raw["members"][0]["work_days"][0]["note"] = "  通院  "
@@ -2175,7 +2176,7 @@ def test_ratio_unclamped_round_trips() -> None:
     members = [Member("甲", 2.0, id="m1", ratio_unclamped=True), Member("乙", 1.0, id="m2")]
     text = dumps_project(Project("p", members=members))
     raw = json.loads(text)
-    assert raw["version"] == 17
+    assert raw["version"] == 18
     assert [m["ratio_unclamped"] for m in raw["members"]] == [True, False]
     assert [m.ratio_unclamped for m in parse_project(text, "p").members] == [True, False]
 
@@ -2287,3 +2288,26 @@ def test_members_added_for_unknown_assignees_are_saved_without_teams() -> None:
     project.tasks = [Task("a", id="a", assignees=[Assignee("新人", 1.0)])]
     loaded = parse_project(dumps_project(project), "p")
     assert next(m for m in loaded.members if m.name == "新人").teams == []
+
+
+def test_an_event_color_code_round_trips_and_a_name_stays_a_name(tmp_path: Path) -> None:
+    events = [
+        Event(date(2026, 10, 1), date(2026, 10, 2), "コード", "#ff8800", id="e1"),
+        Event(date(2026, 10, 3), date(2026, 10, 4), "名前", "orange", id="e2"),
+    ]
+    path = save_project(Project("colors", events=events), tmp_path)
+    assert [e.color for e in load_project(path).events] == ["#ff8800", "orange"]
+
+
+def test_a_version_17_file_with_color_names_still_loads(tmp_path: Path) -> None:
+    path = save_project(Project("old", events=[Event(date(2026, 10, 1), date(2026, 10, 1), "x", "red", id="e1")]), tmp_path)
+    _rewrite_version(path, 17)
+    assert [e.color for e in load_project(path).events] == ["red"]
+
+
+def test_an_event_color_code_is_lowercased_on_load(tmp_path: Path) -> None:
+    path = save_project(Project("c", events=[Event(date(2026, 10, 1), date(2026, 10, 1), "x", "#aabbcc", id="e1")]), tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["events"][0]["color"] = "#AABBCC"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_project(path).events[0].color == "#aabbcc"

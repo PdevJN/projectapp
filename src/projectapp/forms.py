@@ -582,7 +582,7 @@ def build_event_list(rows: list[EventRow], taken: Collection[str], today: date) 
             days.append(date.fromisoformat(parsed))
         color = normalize_color(row.color)
         if color is None:
-            raise ValueError(f"イベントの色が正しくありません: {row.color.strip()!r}(red・orange・gray などの色名)")
+            raise ValueError(f"イベントの色が正しくありません: {row.color.strip()!r}(#RRGGBB か、red・orange・gray などの色名)")
         event_id = row.original or new_id(used)
         used.add(event_id)
         built.append(Event(days[0], days[1], row.text.strip(), color, event_id, closed=row.closed))
@@ -1179,6 +1179,23 @@ def open_stale_snapshot_dialog(
     dialog.open()
 
 
+def open_color_convert_dialog(count: int, on_convert: Callable[[], object]) -> None:
+    """古いファイルの色名のイベントを、色のコード(#RRGGBB)に変えるかの確認(変換する / そのまま)。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
+        ui.label("イベントの色").classes("text-h6")
+        ui.label(f"色名のイベントが {count} 件あります。色のコード(#RRGGBB)に変換しますか。")
+        ui.label("例: gray → #808080").classes("text-caption")
+
+        def convert() -> None:
+            dialog.close()
+            on_convert()
+
+        with ui.row():
+            ui.button("そのまま", on_click=dialog.close).props("flat").mark("color-keep")
+            ui.button("変換する", on_click=convert).mark("color-convert")
+    dialog.open()
+
+
 def open_conflict_dialog(
     on_overwrite: Callable[[], object], on_save_as: Callable[[], object]
 ) -> None:
@@ -1604,8 +1621,8 @@ def open_settings_dialog(
                                 ).classes("w-36").mark(f"settings-event-{n}-end")
                                 swatch = ui.icon("circle").style(f"color: {swatch_color(erow.color)}")
                                 swatch.mark(f"settings-event-{n}-swatch")
-                                ui.input(
-                                    "色(red, orange, gray…)",
+                                ui.color_input(
+                                    "色(#RRGGBB・red など)",
                                     value=erow.color,
                                     on_change=lambda e, r=erow, s=swatch: change_event_color(r, s, e.value or ""),
                                 ).classes("grow").mark(f"settings-event-{n}-color")
