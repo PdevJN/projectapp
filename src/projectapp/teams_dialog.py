@@ -33,7 +33,9 @@ def teams_panel(
 
     rows = to_rows()
     baseline = deepcopy(rows)
-    ui.label("メンバーを所属させて、担当の割り当てと絞り込み・集計に使います").classes("text-caption text-grey")
+    ui.label("メンバーを所属させて、担当の割り当てと絞り込み・集計に使います").classes(
+        "text-caption text-grey"
+    )
 
     @ui.refreshable
     def table() -> None:
@@ -47,9 +49,11 @@ def teams_panel(
                         value=row.name,
                         on_change=lambda e, r=row: setattr(r, "name", e.value or ""),
                     ).classes("flex-1").mark(f"team-name-{index}")
-                    ui.button(icon="delete", on_click=lambda _e, r=row: remove(r)).props(
-                        "flat dense round color=negative"
-                    ).mark(f"team-delete-{index}")
+                    ui.button(
+                        icon="delete", on_click=lambda _e, r=row: remove(r)
+                    ).props("flat dense round color=negative").mark(
+                        f"team-delete-{index}"
+                    )
 
     def add() -> None:
         rows.append(TeamRow(None, ""))
@@ -67,8 +71,12 @@ def teams_panel(
     with ui.dialog() as confirm, ui.card():
         confirm_text = ui.label("").style("white-space: pre-line")
         with ui.row():
-            ui.button("キャンセル", on_click=confirm.close).props("flat").mark("team-delete-cancel")
-            ui.button("削除する", on_click=lambda: confirm_apply()).props("color=negative").mark("team-delete-confirm")
+            ui.button("キャンセル", on_click=confirm.close).props("flat").mark(
+                "team-delete-cancel"
+            )
+            ui.button("削除する", on_click=lambda: confirm_apply()).props(
+                "color=negative"
+            ).mark("team-delete-confirm")
 
     def commit(teams: list[Team], then: Callable[[], None] | None) -> None:
         removed = {t.id for t in get_teams()} - {t.id for t in teams}
@@ -95,7 +103,10 @@ def teams_panel(
         if affected:
             pending["teams"] = teams
             after["then"] = then
-            confirm_text.set_text("\n".join(affected) + "\n削除すると、その所属は外れます(残りの割合は 100% に揃えます)")
+            confirm_text.set_text(
+                "\n".join(affected)
+                + "\n削除すると、その所属は外れます(残りの割合は 100% に揃えます)"
+            )
             confirm.open()
             return
         commit(teams, then)
@@ -114,13 +125,21 @@ def open_member_teams_dialog(
     percents = {m.team_id: m.percent for m in current}
     with ui.dialog() as dialog, ui.card().classes("w-96"):
         ui.label(f"{name or '(名前なし)'} の所属チーム").classes("text-subtitle1")
-        ui.label("兼務のときは、割合の合計を 100% にします").classes("text-caption text-grey")
+        ui.label("兼務のときは、割合の合計を 100% にします").classes(
+            "text-caption text-grey"
+        )
         checks: list[ui.checkbox] = []
         inputs: list[ui.number] = []
         for index, team in enumerate(teams):
             with ui.row().classes("w-full items-center no-wrap gap-3"):
-                check = ui.checkbox(team.name, value=team.id in percents).classes("flex-1").mark(f"mteam-check-{index}")
-                number = ui.number("割合(%)", value=percents.get(team.id), min=1, max=100, step=5).classes("w-28")
+                check = (
+                    ui.checkbox(team.name, value=team.id in percents)
+                    .classes("flex-1")
+                    .mark(f"mteam-check-{index}")
+                )
+                number = ui.number(
+                    "割合(%)", value=percents.get(team.id), min=1, max=100, step=5
+                ).classes("w-28")
                 number.mark(f"mteam-percent-{index}")
             checks.append(check)
             inputs.append(number)
@@ -156,7 +175,9 @@ def open_member_teams_dialog(
             on_save(chosen)
 
         with ui.row():
-            ui.button("キャンセル", on_click=dialog.close).props("flat").mark("mteam-cancel")
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark(
+                "mteam-cancel"
+            )
             ui.button("決定", on_click=save).mark("mteam-save")
     dialog.on("hide", dialog.delete)
     dialog.open()

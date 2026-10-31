@@ -14,9 +14,14 @@ DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
 MIN_YEAR, MAX_YEAR = 2000, 2100  # 入力ミスで表示範囲が際限なく広がるのを防ぐ
 MIN_RATIO, MAX_RATIO = 0.1, 3.0  # 基本比率の入力・読込の範囲(10%〜300%)
-DEFAULT_RATIO_MIN, DEFAULT_RATIO_MAX = 0.5, 1.5  # 相対比率の計算に使う範囲(50%〜150%)。プロジェクトの設定で狭められる
+DEFAULT_RATIO_MIN, DEFAULT_RATIO_MAX = (
+    0.5,
+    1.5,
+)  # 相対比率の計算に使う範囲(50%〜150%)。プロジェクトの設定で狭められる
 MAX_SECTION_DEPTH = 3  # セクションの入れ子の上限(root 直下が 1 階層目。root は数えない)
-SectionPath = tuple[int, ...]  # セクションの位置。root は ()、1 番目のセクションは (0,)、その 2 番目のサブセクションは (0, 1)
+SectionPath = tuple[
+    int, ...
+]  # セクションの位置。root は ()、1 番目のセクションは (0,)、その 2 番目のサブセクションは (0, 1)
 MIN_LEVEL_VALUE, MAX_LEVEL_VALUE = -0.9, 2.9  # パラメータの段階の判定値(-90%〜+290%)
 MIN_ALLOCATION, MAX_ALLOCATION = 0.01, 1.0  # 割り当て率(1%〜100%)
 MAX_WEEKS = 52  # 週ごとの担当の週数の上限。誤入力で配列が際限なく伸びるのを防ぐ
@@ -43,7 +48,12 @@ def is_hex_color(value: str) -> bool:
     return HEX_COLOR.fullmatch(value) is not None
 
 
-FORBIDDEN_CATEGORIES = ("Cc", "Cf", "Zl", "Zp")  # todoapp の `has_control_chars` と同じ。受け取る側が拒否する文字を、こちらから渡さない
+FORBIDDEN_CATEGORIES = (
+    "Cc",
+    "Cf",
+    "Zl",
+    "Zp",
+)  # todoapp の `has_control_chars` と同じ。受け取る側が拒否する文字を、こちらから渡さない
 
 
 def has_control_char(text: str) -> bool:
@@ -108,7 +118,9 @@ class Team:
     """プロジェクト共通のチーム。所属は `Member.teams` が持つ(タスクにチームの記録は残さない)。"""
 
     name: str
-    id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する
+    id: str = field(
+        default_factory=new_id, compare=False
+    )  # 安定した識別子。ファイルに保存する
 
 
 MIN_WARNING_LIMIT = 1
@@ -118,14 +130,24 @@ MAX_WARNING_LIMIT = 999
 @dataclass
 class Member:
     name: str
-    ratio: float = 1.0  # 基本比率(1.0 = 100%)。相対比率 = 基本比率 + 選んだ段階の判定値の合計
+    ratio: float = (
+        1.0  # 基本比率(1.0 = 100%)。相対比率 = 基本比率 + 選んだ段階の判定値の合計
+    )
     levels: dict[str, str] = field(default_factory=dict)  # パラメータ名 → 選んだ段階名
-    id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する(担当者はこの id で指す)
+    id: str = field(
+        default_factory=new_id, compare=False
+    )  # 安定した識別子。ファイルに保存する(担当者はこの id で指す)
     icon: str = ""  # アイコン(128×128 の PNG の data URI)。空はアイコンなし
-    work_days: list[WorkDay] = field(default_factory=list)  # 稼働日の上書き(日付の昇順。このメンバーだけに効く)
+    work_days: list[WorkDay] = field(
+        default_factory=list
+    )  # 稼働日の上書き(日付の昇順。このメンバーだけに効く)
     ratio_unclamped: bool = False  # 真なら、相対比率を 50〜150%(設定の上限・下限)に丸めない(10〜300% の安全範囲だけ守る)
-    teams: list[Membership] = field(default_factory=list)  # 所属するチーム。空はチームなし。あれば割合の合計が 100
-    warning_limit: int | None = None  # 警告のタスクの件数がこの数以上のとき、ダッシュボードで強調する(1〜999。None は強調しない)
+    teams: list[Membership] = field(
+        default_factory=list
+    )  # 所属するチーム。空はチームなし。あれば割合の合計が 100
+    warning_limit: int | None = (
+        None  # 警告のタスクの件数がこの数以上のとき、ダッシュボードで強調する(1〜999。None は強調しない)
+    )
 
 
 @dataclass
@@ -137,7 +159,9 @@ class Category:
     expiry_date: date | None = None  # 有効期限日。None は期限なし
     color: str = "blue"  # categories.COLORS のどれか
     prj_code: str = ""  # PRJコード。前後の空白は除く
-    id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する
+    id: str = field(
+        default_factory=new_id, compare=False
+    )  # 安定した識別子。ファイルに保存する
 
 
 @dataclass
@@ -160,7 +184,9 @@ class Event:
     end: date  # 終了日(含む)。start 以降
     text: str
     color: str = "gray"  # events.CSS_COLORS のどれか(小文字)か、#rrggbb(小文字)
-    id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する
+    id: str = field(
+        default_factory=new_id, compare=False
+    )  # 安定した識別子。ファイルに保存する
     closed: bool = False  # 期間の稼働日を全員の休みにする
 
 
@@ -170,7 +196,9 @@ class Actual:
 
     start: datetime
     end: datetime | None = None
-    progress: int | None = None  # 廃止(常に None)。古いファイルの値は、読込でタスクの進捗度へ寄せる
+    progress: int | None = (
+        None  # 廃止(常に None)。古いファイルの値は、読込でタスクの進捗度へ寄せる
+    )
 
 
 URL_KEY = "URL"  # テンプレートなしのリンクの値のキー
@@ -232,7 +260,9 @@ class ReferenceValue:
     planned_end: datetime | None = None  # 全タスクの完了予定の最大
     actual_start: datetime | None = None  # 実績の区間の開始の最小
     actual_end: datetime | None = None  # 実績の終了の最大。進行中の区間があれば None
-    progress: int | None = None  # 工数で重みづけした進捗率(0〜100)。数えるタスクがなければ None
+    progress: int | None = (
+        None  # 工数で重みづけした進捗率(0〜100)。数えるタスクがなければ None
+    )
     finished: bool = False  # 数えるタスクがすべて終了
     delayed: int = 0  # 予定超過(終了していない)のタスク数
     peak_load: float = 0.0  # 割り当て合計のピーク(1.0 = 100%)。超過がなければ 0
@@ -249,27 +279,47 @@ class ReferenceValue:
 @dataclass
 class Task:
     name: str
-    id: str = field(default_factory=new_id, compare=False)  # 連結の参照用。ファイルに保存する
+    id: str = field(
+        default_factory=new_id, compare=False
+    )  # 連結の参照用。ファイルに保存する
     planned_start: datetime | None = None
     effort_hours: float = 0.0
     priority: Priority = Priority.MEDIUM
     status: Status = Status.NOT_STARTED
     color: str = DEFAULT_COLOR
-    assignees: list[Assignee] = field(default_factory=list)  # 担当者(先頭が筆頭)。空は担当なし
+    assignees: list[Assignee] = field(
+        default_factory=list
+    )  # 担当者(先頭が筆頭)。空は担当なし
     predecessors: list[str] = field(default_factory=list)
     deadline: datetime | None = None  # 締切(納期)
     planned_end: datetime | None = None  # 完了予定の手入力値
     planned_end_manual: bool = False  # 工数があるときに、完了予定を手で指定するか
-    actuals: list[Actual] = field(default_factory=list)  # 実績の区間(今回の画面は0〜1件)
+    actuals: list[Actual] = field(
+        default_factory=list
+    )  # 実績の区間(今回の画面は0〜1件)
     category_id: str | None = None  # カテゴリの id。None は「未定」
-    kind: TaskKind = TaskKind.NORMAL  # チェックポイントは、締切だけを持つ(他の日時・工数・担当・実績は持たない)
-    urls: list[TaskUrl] = field(default_factory=list)  # 関連する URL(チケット・資料など)
+    kind: TaskKind = (
+        TaskKind.NORMAL
+    )  # チェックポイントは、締切だけを持つ(他の日時・工数・担当・実績は持たない)
+    urls: list[TaskUrl] = field(
+        default_factory=list
+    )  # 関連する URL(チケット・資料など)
     progress: int | None = None  # タスクの進捗度(0〜100%)。進捗度の入力はこの 1 つだけ
-    children: list[str] = field(default_factory=list)  # まとめの子のタスクの id(まとめだけが持つ)
-    parameters: list[str] = field(default_factory=list)  # 付けたパラメータの名前。空は付けない(相対比率は全パラメータの合計)
-    ref_project: str = ""  # 参照先のプロジェクトのファイル名(拡張子なし)。プロジェクト参照だけが持つ
-    ref_snapshot: ReferenceValue | None = None  # 参照の方式がスナップショットのときの、保存した参照値
-    weekly_crew: list[list[Assignee]] = field(default_factory=list)  # 週ごとの担当(添字が週。開始の日から 7 日ごと)。空は週ごとに分けない。分けるときの assignees は全週の和集合
+    children: list[str] = field(
+        default_factory=list
+    )  # まとめの子のタスクの id(まとめだけが持つ)
+    parameters: list[str] = field(
+        default_factory=list
+    )  # 付けたパラメータの名前。空は付けない(相対比率は全パラメータの合計)
+    ref_project: str = (
+        ""  # 参照先のプロジェクトのファイル名(拡張子なし)。プロジェクト参照だけが持つ
+    )
+    ref_snapshot: ReferenceValue | None = (
+        None  # 参照の方式がスナップショットのときの、保存した参照値
+    )
+    weekly_crew: list[list[Assignee]] = field(
+        default_factory=list
+    )  # 週ごとの担当(添字が週。開始の日から 7 日ごと)。空は週ごとに分けない。分けるときの assignees は全週の和集合
 
     @property
     def assignee_names(self) -> list[str]:
@@ -280,8 +330,12 @@ class Task:
 class Section:
     name: str
     tasks: list[Task] = field(default_factory=list)
-    sections: list["Section"] = field(default_factory=list)  # サブセクション(タスクの後ろに並ぶ)
-    id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する
+    sections: list["Section"] = field(
+        default_factory=list
+    )  # サブセクション(タスクの後ろに並ぶ)
+    id: str = field(
+        default_factory=new_id, compare=False
+    )  # 安定した識別子。ファイルに保存する
 
     def all_tasks(self) -> list[Task]:
         """このセクションのタスク、続いてサブセクションのタスク(深さ優先)。"""
@@ -291,7 +345,9 @@ class Section:
         return tasks
 
 
-def walk_sections(sections: list[Section], prefix: SectionPath = ()) -> Iterator[tuple[SectionPath, Section]]:
+def walk_sections(
+    sections: list[Section], prefix: SectionPath = ()
+) -> Iterator[tuple[SectionPath, Section]]:
     """セクションを深さ優先でたどる(親 → その子孫 → 次の兄弟)。パスは root からの番号の並び。"""
     for index, section in enumerate(sections):
         path = (*prefix, index)
@@ -317,14 +373,26 @@ class Project:
     sections: list[Section] = field(default_factory=list)
     tasks: list[Task] = field(default_factory=list)  # セクションに属さないタスク
     actual_mode: ActualMode = ActualMode.SIMPLE  # 実績の記録方式
-    url_templates: list[UrlTemplate] = field(default_factory=list)  # リンクの URL の型(プロジェクト共通)
-    parameters: list[Parameter] = field(default_factory=list)  # 相対比率のパラメータ(プロジェクト共通)
-    categories: list[Category] = field(default_factory=list)  # カテゴリ(プロジェクト共通。「未定」は含まない)
-    events: list[Event] = field(default_factory=list)  # イベント(プロジェクト共通。並びが色の優先順で、後ろが勝つ)
+    url_templates: list[UrlTemplate] = field(
+        default_factory=list
+    )  # リンクの URL の型(プロジェクト共通)
+    parameters: list[Parameter] = field(
+        default_factory=list
+    )  # 相対比率のパラメータ(プロジェクト共通)
+    categories: list[Category] = field(
+        default_factory=list
+    )  # カテゴリ(プロジェクト共通。「未定」は含まない)
+    events: list[Event] = field(
+        default_factory=list
+    )  # イベント(プロジェクト共通。並びが色の優先順で、後ろが勝つ)
     teams: list[Team] = field(default_factory=list)  # チーム(プロジェクト共通)
     reference_mode: ReferenceMode = ReferenceMode.LIVE  # プロジェクト参照の方式
-    plantuml_overload_notice: bool = True  # PlantUML の保存後に、100% 超に見える担当者を通知するか
-    ratio_limit_upper: float | None = None  # 相対比率の上限(150% は 1.5)。None は設定なし(50〜150%)
+    plantuml_overload_notice: bool = (
+        True  # PlantUML の保存後に、100% 超に見える担当者を通知するか
+    )
+    ratio_limit_upper: float | None = (
+        None  # 相対比率の上限(150% は 1.5)。None は設定なし(50〜150%)
+    )
     ratio_limit_lower: float | None = None  # 同じく下限(50% は 0.5)
 
     @property

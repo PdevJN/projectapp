@@ -24,7 +24,9 @@ VARIABLES = (
     "--app-header-label",
 )
 BRAND_PRIMARY = "#5898d4"  # NiceGUI の既定の primary。外すと Quasar の既定(#1976D2)に変わるので、戻すときは明示する
-MISMATCH_MESSAGE = "基調と背景の明るさが合っていません。ダイアログの文字が読みにくくなることがあります"
+MISMATCH_MESSAGE = (
+    "基調と背景の明るさが合っていません。ダイアログの文字が読みにくくなることがあります"
+)
 
 
 @dataclass(frozen=True)
@@ -79,7 +81,7 @@ def today_color_js(color: str | None) -> str:
     """今日の線の色(`--today`)を`body`に設定する JS。None は外して、既定(ライト・ダークで別)へ戻す。"""
     if color is None:
         return 'document.body.style.removeProperty("--today")'
-    return f"document.body.style.setProperty(\"--today\", {json.dumps(color)})"
+    return f'document.body.style.setProperty("--today", {json.dumps(color)})'
 
 
 def parse_warning_color(value: object) -> str | None:
@@ -91,7 +93,7 @@ def warning_color_js(color: str | None) -> str:
     """警告の色(`--warning`)を`body`に設定する JS。None は外して、既定の色へ戻す。"""
     if color is None:
         return 'document.body.style.removeProperty("--warning")'
-    return f"document.body.style.setProperty(\"--warning\", {json.dumps(color)})"
+    return f'document.body.style.setProperty("--warning", {json.dumps(color)})'
 
 
 def custom_theme_to_dict(theme: CustomTheme) -> dict[str, str | None]:
@@ -120,7 +122,11 @@ def contrast_ratio(fg: str, bg: str) -> float:
 
 def on_color(bg: str) -> str:
     """背景に対して、白か黒のうち、コントラスト比の高いほう。"""
-    return "#ffffff" if contrast_ratio("#ffffff", bg) >= contrast_ratio("#000000", bg) else "#000000"
+    return (
+        "#ffffff"
+        if contrast_ratio("#ffffff", bg) >= contrast_ratio("#000000", bg)
+        else "#000000"
+    )
 
 
 def header_color(theme: CustomTheme) -> str:
@@ -153,10 +159,17 @@ def css_variables(theme: CustomTheme) -> dict[str, str]:
 def theme_js(theme: CustomTheme | None) -> str:
     """`body`に変数とクラスを設定する JS。None は外して、primary は NiceGUI の既定へ戻す。"""
     if theme is None:
-        removes = "".join(f"s.removeProperty({json.dumps(n)});" for n in VARIABLES if n != "--q-primary")
-        restore = f"s.setProperty(\"--q-primary\", {json.dumps(BRAND_PRIMARY)});"
+        removes = "".join(
+            f"s.removeProperty({json.dumps(n)});"
+            for n in VARIABLES
+            if n != "--q-primary"
+        )
+        restore = f's.setProperty("--q-primary", {json.dumps(BRAND_PRIMARY)});'
         return f"(() => {{ const b = document.body, s = b.style; {removes}{restore} b.classList.remove('{CUSTOM_CLASS}'); }})()"
-    sets = "".join(f"s.setProperty({json.dumps(n)}, {json.dumps(v)});" for n, v in css_variables(theme).items())
+    sets = "".join(
+        f"s.setProperty({json.dumps(n)}, {json.dumps(v)});"
+        for n, v in css_variables(theme).items()
+    )
     return f"(() => {{ const b = document.body, s = b.style; {sets} b.classList.add('{CUSTOM_CLASS}'); }})()"
 
 
@@ -165,9 +178,15 @@ def warnings(theme: CustomTheme) -> list[str]:
     found: list[str] = []
     ratio = contrast_ratio(theme.foreground, theme.background)
     if ratio < CONTRAST_AA:
-        shown = math.floor(ratio * 10) / 10  # 切り捨て(4.46 を 4.5 と見せて、警告の理由が分からなくならないように)
-        found.append(f"文字と背景のコントラスト比が {shown:.1f}:1 です。読みにくい可能性があります")
+        shown = (
+            math.floor(ratio * 10) / 10
+        )  # 切り捨て(4.46 を 4.5 と見せて、警告の理由が分からなくならないように)
+        found.append(
+            f"文字と背景のコントラスト比が {shown:.1f}:1 です。読みにくい可能性があります"
+        )
     bright = luminance(theme.background)
-    if (theme.base == "light" and bright < LUMINANCE_BOUNDARY) or (theme.base == "dark" and bright > LUMINANCE_BOUNDARY):
+    if (theme.base == "light" and bright < LUMINANCE_BOUNDARY) or (
+        theme.base == "dark" and bright > LUMINANCE_BOUNDARY
+    ):
         found.append(MISMATCH_MESSAGE)
     return found

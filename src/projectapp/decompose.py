@@ -23,7 +23,14 @@ from projectapp.models import (
 )
 from projectapp.reassign import consumed_hours
 from projectapp.summary import parent_map
-from projectapp.timeline import Schedule, assignees_rate, combine_rate, crew_on, effective_start, week_index
+from projectapp.timeline import (
+    Schedule,
+    assignees_rate,
+    combine_rate,
+    crew_on,
+    effective_start,
+    week_index,
+)
 
 MAX_PARTS = 20  # 一度に分けられる数の上限
 MIN_PARTS = 2  # 分解の最小の件数(実績があるときは、さらに消し込みの 1 つが要る)
@@ -73,7 +80,10 @@ def parameter_block_reason(task: Task, settled: bool) -> str | None:
 def default_parts_by_parameter(task: Task) -> list[Part]:
     """パラメータごとの行。名前はパラメータ名(上限に収める)、工数は均等割り。"""
     efforts = split_effort(task.effort_hours, len(task.parameters))
-    return [Part(name[:MAX_TASK_NAME_LENGTH], effort) for name, effort in zip(task.parameters, efforts)]
+    return [
+        Part(name[:MAX_TASK_NAME_LENGTH], effort)
+        for name, effort in zip(task.parameters, efforts)
+    ]
 
 
 @dataclass(frozen=True)
@@ -84,13 +94,19 @@ class Settled:
     crew: list[Assignee]  # 残りの子の担当(週ごとのタスクは、今日の週の担当)
 
 
-def _worked_rate(project: Project, task: Task, start: date, interval_start: datetime) -> float:
+def _worked_rate(
+    project: Project, task: Task, start: date, interval_start: datetime
+) -> float:
     """実績の区間を数えるときの換算率。週ごとのタスクは、区間の開始の日の週の担当で数える。"""
     crew = crew_on(task, start, interval_start.date())
-    return assignees_rate(crew, project.members, project.parameters, task.parameters, project.ratio_limits)
+    return assignees_rate(
+        crew, project.members, project.parameters, task.parameters, project.ratio_limits
+    )
 
 
-def settle(project: Project, task: Task, holidays: dict[date, str], today: datetime) -> Settled | None:
+def settle(
+    project: Project, task: Task, holidays: dict[date, str], today: datetime
+) -> Settled | None:
     """実績か進捗度(1% 以上)のあるタスクの、消化分と残りの担当。どちらもなければ None(未着手のままの分解)。"""
     if not (task.actuals or (task.progress or 0) >= 1):
         return None
@@ -100,16 +116,30 @@ def settle(project: Project, task: Task, holidays: dict[date, str], today: datet
         consumed = consumed_hours(task, 1.0)
     elif task.weekly_crew:
         worked = sum(
-            (a.end - a.start).total_seconds() / 3600 * combine_rate(_worked_rate(project, task, anchor, a.start), 1.0)
+            (a.end - a.start).total_seconds()
+            / 3600
+            * combine_rate(_worked_rate(project, task, anchor, a.start), 1.0)
             for a in task.actuals
             if a.end is not None and a.end > a.start
         )
         consumed = min(worked, task.effort_hours)
     else:
-        rate = assignees_rate(task.assignees, project.members, project.parameters, task.parameters, project.ratio_limits)
+        rate = assignees_rate(
+            task.assignees,
+            project.members,
+            project.parameters,
+            task.parameters,
+            project.ratio_limits,
+        )
         consumed = consumed_hours(task, rate)
-    crew = task.weekly_crew[week_index(anchor, today.date(), len(task.weekly_crew))] if task.weekly_crew else task.assignees
-    return Settled(round(consumed, EFFORT_DECIMALS), [Assignee(a.name, a.allocation) for a in crew])
+    crew = (
+        task.weekly_crew[week_index(anchor, today.date(), len(task.weekly_crew))]
+        if task.weekly_crew
+        else task.assignees
+    )
+    return Settled(
+        round(consumed, EFFORT_DECIMALS), [Assignee(a.name, a.allocation) for a in crew]
+    )
 
 
 def default_parts_settled(task: Task, settled: Settled, count: int) -> list[Part]:
@@ -117,7 +147,9 @@ def default_parts_settled(task: Task, settled: Settled, count: int) -> list[Part
     width = len(str(count)) + 1
     base = task.name[: MAX_TASK_NAME_LENGTH - width]
     remaining = split_effort(max(task.effort_hours - settled.consumed, 0.0), count - 1)
-    return [Part(f"{base} 1", settled.consumed)] + [Part(f"{base} {n}", e) for n, e in enumerate(remaining, start=2)]
+    return [Part(f"{base} 1", settled.consumed)] + [
+        Part(f"{base} {n}", e) for n, e in enumerate(remaining, start=2)
+    ]
 
 
 def can_make_section(path: SectionPath) -> str | None:
@@ -155,18 +187,24 @@ def decompose_block_reason(
         return "実行中のタスクは、先に実行を終えてから分解してください"
     settled = settle(project, task, holidays or {}, today or datetime.now())
     assert settled is not None
-    if task.effort_hours - settled.consumed < 10 ** -EFFORT_DECIMALS:
+    if task.effort_hours - settled.consumed < 10**-EFFORT_DECIMALS:
         return "残りの工数がないため分解できません"
     return None
 
 
 def _validate(
-    project: Project, task: Task, parts: Sequence[Part], holidays: dict[date, str], today: datetime
+    project: Project,
+    task: Task,
+    parts: Sequence[Part],
+    holidays: dict[date, str],
+    today: datetime,
 ) -> None:
     if (reason := decompose_block_reason(project, task, holidays, today)) is not None:
         raise ValueError(reason)
     settled = task.actuals or (task.progress or 0) >= 1
-    low = MIN_PARTS + 1 if settled else MIN_PARTS  # 実績があるときは、消し込みの 1 つ + 残りを割った 2 つ以上
+    low = (
+        MIN_PARTS + 1 if settled else MIN_PARTS
+    )  # 実績があるときは、消し込みの 1 つ + 残りを割った 2 つ以上
     if not low <= len(parts) <= MAX_PARTS:
         raise ValueError(f"分解は {low}〜{MAX_PARTS} 件で指定してください")
     for part in parts:
@@ -180,7 +218,9 @@ def _validate(
         if not isfinite(part.effort_hours) or part.effort_hours < 0:
             raise ValueError("工数は 0 以上の数値で入力してください")
         if round(part.effort_hours, EFFORT_DECIMALS) != part.effort_hours:
-            raise ValueError(f"工数は小数点以下{EFFORT_DECIMALS}桁までで入力してください")
+            raise ValueError(
+                f"工数は小数点以下{EFFORT_DECIMALS}桁までで入力してください"
+            )
 
 
 def _unique_name(name: str, taken: Sequence[str]) -> str:
@@ -231,7 +271,9 @@ def decompose(
         if (reason := parameter_block_reason(task, settled is not None)) is not None:
             raise ValueError(reason)
         if len(parts) != len(task.parameters):
-            raise ValueError("パラメータごとに分けるときは、行をパラメータと同じ数にしてください")
+            raise ValueError(
+                "パラメータごとに分けるときは、行をパラメータと同じ数にしてください"
+            )
     parent_section: Section | None = None
     if new_section:
         reason = can_make_section(path)
@@ -258,7 +300,9 @@ def decompose(
                 part.name.strip(),
                 id=child_id,
                 planned_start=task.planned_start,
-                effort_hours=settled.consumed if done and settled else part.effort_hours,
+                effort_hours=settled.consumed
+                if done and settled
+                else part.effort_hours,
                 priority=task.priority,
                 status=Status.DONE if done else Status.NOT_STARTED,
                 color=task.color,

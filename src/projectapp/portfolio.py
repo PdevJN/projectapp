@@ -7,7 +7,9 @@ from projectapp.models import Project
 from projectapp.storage import list_project_files, load_project
 
 
-def load_others(project_dir: Path, current: Path | None) -> tuple[list[Project], list[LoadFailure]]:
+def load_others(
+    project_dir: Path, current: Path | None
+) -> tuple[list[Project], list[LoadFailure]]:
     """`current`(開いているファイル)を除く、格納先のプロジェクト。読めないものは理由とともに返す。"""
     if not project_dir.is_dir():
         return [], [LoadFailure(str(project_dir), "格納先を読めません")]

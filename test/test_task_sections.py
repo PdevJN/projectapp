@@ -20,9 +20,14 @@ def test_has_values_per_section() -> None:
     assert has_values("assignees", Task("a", assignees=[Assignee("田中", 1.0)]))
     assert has_values("assignees", Task("a", parameters=["P"]))
     assert has_values("actuals", Task("a", progress=0))
-    assert has_values("actuals", Task("a", actuals=[Actual(datetime(2026, 10, 5, 9, 0), None)]))
+    assert has_values(
+        "actuals", Task("a", actuals=[Actual(datetime(2026, 10, 5, 9, 0), None)])
+    )
     assert has_values("related", Task("a", predecessors=["p"]))
-    assert has_values("related", Task("a", urls=[TaskUrl("仕様", None, {"URL": "https://example.com"})]))
+    assert has_values(
+        "related",
+        Task("a", urls=[TaskUrl("仕様", None, {"URL": "https://example.com"})]),
+    )
     assert has_values("related", Task("a", priority=Priority.HIGH))
     assert has_values("related", Task("a", color="#123456"))
     assert not has_values("related", Task("a", priority=Priority.MEDIUM))
@@ -41,7 +46,9 @@ def test_initial_open_edit_opens_the_sections_with_values() -> None:
     assert initial_open(task, None) == ["actuals", "related"]
 
 
-def test_initial_open_edit_opens_valued_sections_even_if_the_saved_state_is_closed() -> None:
+def test_initial_open_edit_opens_valued_sections_even_if_the_saved_state_is_closed() -> (
+    None
+):
     task = Task("a", progress=40)
     assert initial_open(task, []) == ["actuals"]
     assert initial_open(task, ["assignees"]) == ["assignees", "actuals"]
@@ -81,6 +88,9 @@ def test_section_of_error() -> None:
     assert section_of_error("先行タスクが正しくありません") == "related"
     assert section_of_error("色は#RRGGBBの形式で入力してください") == "related"
     assert section_of_error("リンク1行目: URL を入力してください") == "related"
-    assert section_of_error("リンク2行目: URL は http:// か https:// で始めてください") == "related"
+    assert (
+        section_of_error("リンク2行目: URL は http:// か https:// で始めてください")
+        == "related"
+    )
     assert section_of_error("割り当て率は1〜100%で入力してください") == "assignees"
     assert section_of_error("工数は0以上の数値で入力してください") is None

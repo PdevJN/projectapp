@@ -14,14 +14,35 @@ from projectapp.handoff import (
     tasks_for,
     write_json,
 )
-from projectapp.models import Assignee, Actual, Category, Level, Member, Parameter, Project, Section, Status, Task
+from projectapp.models import (
+    Assignee,
+    Actual,
+    Category,
+    Level,
+    Member,
+    Parameter,
+    Project,
+    Section,
+    Status,
+    Task,
+)
 
 BASE = date(2026, 10, 5)  # 月曜
 
 
-def make_project(*tasks: Task, members: list[Member] | None = None, sections: list[Section] | None = None) -> Project:
+def make_project(
+    *tasks: Task,
+    members: list[Member] | None = None,
+    sections: list[Section] | None = None,
+) -> Project:
     chosen = [Member("田中", 0.5)] if members is None else members
-    return Project("案件", base_date=BASE, members=chosen, tasks=list(tasks), sections=sections or [])
+    return Project(
+        "案件",
+        base_date=BASE,
+        members=chosen,
+        tasks=list(tasks),
+        sections=sections or [],
+    )
 
 
 def task(name: str = "設計", **kwargs) -> Task:
@@ -40,11 +61,28 @@ def assert_todoapp_shape(data: dict) -> None:
     category_ids = {c["id"] for c in data["categories"]}
     item_ids = {i["id"] for i in data["items"]}
     for category in data["categories"]:
-        assert set(category) == {"id", "name", "kind", "expiry_date", "color", "prj_code"}
+        assert set(category) == {
+            "id",
+            "name",
+            "kind",
+            "expiry_date",
+            "color",
+            "prj_code",
+        }
         assert category["color"] in COLORS
-        assert category["expiry_date"] is None or date.fromisoformat(category["expiry_date"])
+        assert category["expiry_date"] is None or date.fromisoformat(
+            category["expiry_date"]
+        )
     for item in data["items"]:
-        assert set(item) == {"id", "name", "schedule_type", "anchor_date", "estimate_hours", "category_id", "done_date"}
+        assert set(item) == {
+            "id",
+            "name",
+            "schedule_type",
+            "anchor_date",
+            "estimate_hours",
+            "category_id",
+            "done_date",
+        }
         assert isinstance(item["id"], str) and len(item["id"]) == 32
         assert item["schedule_type"] in {"daily", "weekly", "monthly", "one_time"}
         date.fromisoformat(item["anchor_date"])
@@ -76,18 +114,69 @@ def test_only_unfinished_tasks_of_the_member_are_exported_in_order() -> None:
 @pytest.mark.parametrize(
     ("kwargs", "schedule_type", "anchor"),
     [
-        (dict(planned_start=datetime(2026, 10, 5, 9), effort_hours=3), "one_time", "2026-10-05"),  # 6h で 1 日に収まる
-        (dict(planned_start=datetime(2026, 10, 5, 9), effort_hours=13), "daily", "2026-10-05"),  # 26h で 4 日
+        (
+            dict(planned_start=datetime(2026, 10, 5, 9), effort_hours=3),
+            "one_time",
+            "2026-10-05",
+        ),  # 6h で 1 日に収まる
+        (
+            dict(planned_start=datetime(2026, 10, 5, 9), effort_hours=13),
+            "daily",
+            "2026-10-05",
+        ),  # 26h で 4 日
         ({}, "one_time", "2026-10-05"),  # 開始予定なし → 基準日
-        (dict(planned_start=datetime(2026, 10, 6, 9)), "one_time", "2026-10-06"),  # 期間の情報がない
-        (dict(planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 6, 17)), "one_time", "2026-10-06"),
-        (dict(planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 7, 0, 0)), "one_time", "2026-10-06"),
-        (dict(planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 8, 12)), "daily", "2026-10-06"),
-        (dict(planned_start=datetime(2026, 10, 6, 9), deadline=datetime(2026, 10, 9, 17)), "daily", "2026-10-06"),
+        (
+            dict(planned_start=datetime(2026, 10, 6, 9)),
+            "one_time",
+            "2026-10-06",
+        ),  # 期間の情報がない
+        (
+            dict(
+                planned_start=datetime(2026, 10, 6, 9),
+                planned_end=datetime(2026, 10, 6, 17),
+            ),
+            "one_time",
+            "2026-10-06",
+        ),
+        (
+            dict(
+                planned_start=datetime(2026, 10, 6, 9),
+                planned_end=datetime(2026, 10, 7, 0, 0),
+            ),
+            "one_time",
+            "2026-10-06",
+        ),
+        (
+            dict(
+                planned_start=datetime(2026, 10, 6, 9),
+                planned_end=datetime(2026, 10, 8, 12),
+            ),
+            "daily",
+            "2026-10-06",
+        ),
+        (
+            dict(
+                planned_start=datetime(2026, 10, 6, 9),
+                deadline=datetime(2026, 10, 9, 17),
+            ),
+            "daily",
+            "2026-10-06",
+        ),
     ],
-    ids=["one-day", "multi-day", "no-start", "no-span", "same-day-end", "midnight-end", "later-end", "deadline-only"],
+    ids=[
+        "one-day",
+        "multi-day",
+        "no-start",
+        "no-span",
+        "same-day-end",
+        "midnight-end",
+        "later-end",
+        "deadline-only",
+    ],
 )
-def test_schedule_type_and_anchor_date(kwargs: dict, schedule_type: str, anchor: str) -> None:
+def test_schedule_type_and_anchor_date(
+    kwargs: dict, schedule_type: str, anchor: str
+) -> None:
     item = build(make_project(task(**kwargs))).data["items"][0]
     assert (item["schedule_type"], item["anchor_date"]) == (schedule_type, anchor)
 
@@ -101,13 +190,19 @@ def test_schedule_type_and_anchor_date(kwargs: dict, schedule_type: str, anchor:
         (1.0, [Member("田中", 0.6)], 1.67),  # 小数第 2 位に丸める
     ],
 )
-def test_estimate_hours_divides_by_the_relative_ratio(effort: float, members: list[Member], expected: float) -> None:
-    item = build(make_project(task(effort_hours=effort), members=members)).data["items"][0]
+def test_estimate_hours_divides_by_the_relative_ratio(
+    effort: float, members: list[Member], expected: float
+) -> None:
+    item = build(make_project(task(effort_hours=effort), members=members)).data[
+        "items"
+    ][0]
     assert item["estimate_hours"] == expected
 
 
 def test_the_allocation_does_not_change_the_estimate() -> None:
-    item = build(make_project(task(effort_hours=13.0, assignees=[Assignee("田中", 0.25)]))).data["items"][0]
+    item = build(
+        make_project(task(effort_hours=13.0, assignees=[Assignee("田中", 0.25)]))
+    ).data["items"][0]
     assert item["estimate_hours"] == 26.0
 
 
@@ -121,13 +216,30 @@ def test_categories_are_the_registered_ones_in_order() -> None:
     dev = Category("開発", "業務", date(2026, 12, 31), "indigo", "PRJ-1")
     ops = Category("保守", color="red")
     project = categorized_project(
-        task("A", category_id=ops.id), task("B", category_id=dev.id), task("C", category_id=ops.id), task("D"),
+        task("A", category_id=ops.id),
+        task("B", category_id=dev.id),
+        task("C", category_id=ops.id),
+        task("D"),
         categories=[dev, ops],
     )
     data = build(project).data
     assert data["categories"] == [
-        {"id": dev.id, "name": "開発", "kind": "業務", "expiry_date": "2026-12-31", "color": "indigo", "prj_code": "PRJ-1"},
-        {"id": ops.id, "name": "保守", "kind": "", "expiry_date": None, "color": "red", "prj_code": ""},
+        {
+            "id": dev.id,
+            "name": "開発",
+            "kind": "業務",
+            "expiry_date": "2026-12-31",
+            "color": "indigo",
+            "prj_code": "PRJ-1",
+        },
+        {
+            "id": ops.id,
+            "name": "保守",
+            "kind": "",
+            "expiry_date": None,
+            "color": "red",
+            "prj_code": "",
+        },
     ]
     assert [i["category_id"] for i in data["items"]] == [ops.id, dev.id, ops.id, None]
     assert_todoapp_shape(data)
@@ -141,33 +253,55 @@ def test_unused_categories_are_written_too() -> None:
 
 
 def test_a_task_with_an_unknown_category_is_written_as_undecided() -> None:
-    data = build(categorized_project(task("A", category_id="zzzzzzzz"), categories=[Category("開発")])).data
+    data = build(
+        categorized_project(
+            task("A", category_id="zzzzzzzz"), categories=[Category("開発")]
+        )
+    ).data
     assert data["items"][0]["category_id"] is None
     assert_todoapp_shape(data)
 
 
 def test_category_ids_do_not_depend_on_the_project_name() -> None:
     category = Category("開発")
-    first = categorized_project(task("A", category_id=category.id), categories=[category])
-    second = categorized_project(task("A", category_id=category.id), categories=[category])
+    first = categorized_project(
+        task("A", category_id=category.id), categories=[category]
+    )
+    second = categorized_project(
+        task("A", category_id=category.id), categories=[category]
+    )
     second.name = "別名"
-    assert build(first).data["categories"][0]["id"] == build(second).data["categories"][0]["id"] == category.id
+    assert (
+        build(first).data["categories"][0]["id"]
+        == build(second).data["categories"][0]["id"]
+        == category.id
+    )
 
 
 def test_a_category_survives_a_rename() -> None:
     category = Category("開発")
-    project = categorized_project(task("A", category_id=category.id), categories=[category])
+    project = categorized_project(
+        task("A", category_id=category.id), categories=[category]
+    )
     before = build(project).data["categories"][0]["id"]
     category.name = "開発(改)"
     assert build(project).data["categories"][0]["id"] == before
 
 
 def test_actuals_become_records() -> None:
-    work = task(actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 10, 30, 15)), Actual(datetime(2026, 10, 6, 9))])
+    work = task(
+        actuals=[
+            Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 10, 30, 15)),
+            Actual(datetime(2026, 10, 6, 9)),
+        ]
+    )
     result = build(make_project(work))
     item = result.data["items"][0]
     first, second = result.data["records"]
-    assert (first["start_time"], first["end_time"]) == ("2026-10-05T09:00:00", "2026-10-05T10:30:15")
+    assert (first["start_time"], first["end_time"]) == (
+        "2026-10-05T09:00:00",
+        "2026-10-05T10:30:15",
+    )
     assert (second["start_time"], second["end_time"]) == ("2026-10-06T09:00:00", None)
     assert first["item_id"] == second["item_id"] == item["id"]
     assert first["item_name"] == "設計"
@@ -177,7 +311,13 @@ def test_actuals_become_records() -> None:
 
 
 def test_only_the_latest_running_record_is_kept() -> None:
-    a = task("a", actuals=[Actual(datetime(2026, 10, 4, 9), datetime(2026, 10, 4, 10)), Actual(datetime(2026, 10, 5, 9))])
+    a = task(
+        "a",
+        actuals=[
+            Actual(datetime(2026, 10, 4, 9), datetime(2026, 10, 4, 10)),
+            Actual(datetime(2026, 10, 5, 9)),
+        ],
+    )
     b = task("b", actuals=[Actual(datetime(2026, 10, 6, 9))])
     result = build(make_project(a, b))
     items = {i["name"]: i["id"] for i in result.data["items"]}
@@ -199,7 +339,11 @@ def test_ids_are_stable_across_exports_and_task_changes() -> None:
 
 
 def test_nothing_about_other_people_is_exported() -> None:
-    project = make_project(task("自分"), task("別件", assignees=[Assignee("鈴木")]), members=[Member("田中", 0.5), Member("鈴木", 2.0)])
+    project = make_project(
+        task("自分"),
+        task("別件", assignees=[Assignee("鈴木")]),
+        members=[Member("田中", 0.5), Member("鈴木", 2.0)],
+    )
     text = json.dumps(build(project).data, ensure_ascii=False)
     assert "鈴木" not in text and "別件" not in text and "assignee" not in text
 
@@ -212,12 +356,20 @@ def test_an_empty_result_is_valid() -> None:
 
 def test_summary_mentions_skipped_records_only_when_there_are_some() -> None:
     assert summary(Handoff({}, 3, 0)) == "3 件を書き出しました"
-    assert summary(Handoff({}, 3, 2)) == "3 件を書き出しました(実行中の記録が複数あったため、2 件は書き出していません)"
+    assert (
+        summary(Handoff({}, 3, 2))
+        == "3 件を書き出しました(実行中の記録が複数あったため、2 件は書き出していません)"
+    )
 
 
 @pytest.mark.parametrize(
     ("member", "expected"),
-    [("田中", "todos-田中.json"), ("a/b:c", "todos-a_b_c.json"), ("  ", "todos-member.json"), ("..x", "todos-x.json")],
+    [
+        ("田中", "todos-田中.json"),
+        ("a/b:c", "todos-a_b_c.json"),
+        ("  ", "todos-member.json"),
+        ("..x", "todos-x.json"),
+    ],
 )
 def test_default_filename(member: str, expected: str) -> None:
     assert default_filename(member) == expected
@@ -248,7 +400,9 @@ def test_json_file_types_name_the_extension() -> None:
 def test_the_anchor_date_is_the_pushed_start() -> None:
     from projectapp.handoff import _schedule
 
-    a = Task("a", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=13)
+    a = Task(
+        "a", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=13
+    )
     b = Task(
         "b",
         id="bbbbbbbb",
@@ -257,7 +411,10 @@ def test_the_anchor_date_is_the_pushed_start() -> None:
         predecessors=["aaaaaaaa"],
     )
     project = Project("p", tasks=[a, b])
-    assert _schedule(b, project, {}) == ("daily", "2026-10-06")  # 火 15:30 開始 → 水 9:00〜10:00
+    assert _schedule(b, project, {}) == (
+        "daily",
+        "2026-10-06",
+    )  # 火 15:30 開始 → 水 9:00〜10:00
 
 
 def test_a_task_is_exported_for_every_assignee() -> None:
@@ -268,22 +425,35 @@ def test_a_task_is_exported_for_every_assignee() -> None:
 
 
 def test_the_estimate_is_the_assignees_own_share_of_the_effort() -> None:
-    shared = task("共同", effort_hours=15.0, assignees=[Assignee("田中", 1.0), Assignee("鈴木", 0.5)])
+    shared = task(
+        "共同",
+        effort_hours=15.0,
+        assignees=[Assignee("田中", 1.0), Assignee("鈴木", 0.5)],
+    )
     project = make_project(shared, members=[Member("田中", 1.0), Member("鈴木", 1.0)])
     # 換算率は 1.0 + 0.5 = 1.5。田中は 15 × 1.0 / 1.5 = 10h、鈴木は 15 × 0.5 / 1.5 = 5h
-    assert build(project, "田中").data["items"][0]["estimate_hours"] == pytest.approx(10.0)
-    assert build(project, "鈴木").data["items"][0]["estimate_hours"] == pytest.approx(5.0)
+    assert build(project, "田中").data["items"][0]["estimate_hours"] == pytest.approx(
+        10.0
+    )
+    assert build(project, "鈴木").data["items"][0]["estimate_hours"] == pytest.approx(
+        5.0
+    )
 
 
 def test_the_estimate_follows_the_parameters() -> None:
     solo = task("単独", effort_hours=15.0, assignees=[Assignee("田中", 1.0)])
     project = make_project(solo, members=[Member("田中", 1.0, {"経験": "上級"})])
     project.parameters = [Parameter("経験", [Level("上級", 0.5)])]
-    assert build(project, "田中").data["items"][0]["estimate_hours"] == pytest.approx(10.0)  # 15 / 1.5
+    assert build(project, "田中").data["items"][0]["estimate_hours"] == pytest.approx(
+        10.0
+    )  # 15 / 1.5
 
 
 def test_the_estimate_uses_the_ratio_of_the_task_parameters() -> None:
     parameters = [Parameter("Python", [Level("上級", 0.5)])]
-    project = make_project(task(effort_hours=6.0, parameters=["Python"]), members=[Member("田中", 1.0, {"Python": "上級"})])
+    project = make_project(
+        task(effort_hours=6.0, parameters=["Python"]),
+        members=[Member("田中", 1.0, {"Python": "上級"})],
+    )
     project.parameters = parameters
     assert build(project).data["items"][0]["estimate_hours"] == 4.0  # 6h ÷ 150%

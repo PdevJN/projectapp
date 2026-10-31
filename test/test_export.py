@@ -31,7 +31,15 @@ def data_url(data: bytes = PNG) -> str:
 
 @pytest.mark.parametrize(
     ("width", "ratio"),
-    [(0, 2.0), (-5, 2.0), (1880, 2.0), (8192, 2.0), (8193, 16384 / 8193), (15240, 16384 / 15240), (30480, 16384 / 30480)],
+    [
+        (0, 2.0),
+        (-5, 2.0),
+        (1880, 2.0),
+        (8192, 2.0),
+        (8193, 16384 / 8193),
+        (15240, 16384 / 15240),
+        (30480, 16384 / 30480),
+    ],
 )
 def test_pixel_ratio_never_exceeds_the_canvas(width: float, ratio: float) -> None:
     assert export_pixel_ratio(width) == pytest.approx(ratio)
@@ -48,7 +56,7 @@ def test_exceeds_canvas_at_ratio_one() -> None:
     ("name", "expected"),
     [
         ("デモ", "デモ_20261005.png"),
-        ("a/b\\c:d*e?f\"g<h>i|j", "a_b_c_d_e_f_g_h_i_j_20261005.png"),
+        ('a/b\\c:d*e?f"g<h>i|j', "a_b_c_d_e_f_g_h_i_j_20261005.png"),
         (".hidden", "hidden_20261005.png"),
         ("  ", "gantt_20261005.png"),
         ("", "gantt_20261005.png"),
@@ -63,7 +71,9 @@ def test_png_from_data_url() -> None:
     assert png_from_data_url(data_url()) == PNG
 
 
-@pytest.mark.parametrize("bad", ["", "data:image/jpeg;base64,AAAA", "data:image/png;base64,***", "hello"])
+@pytest.mark.parametrize(
+    "bad", ["", "data:image/jpeg;base64,AAAA", "data:image/png;base64,***", "hello"]
+)
 def test_png_from_data_url_rejects_bad_input(bad: str) -> None:
     with pytest.raises(ExportError):
         png_from_data_url(bad)
@@ -78,7 +88,20 @@ def test_parse_capture_meta_reports_a_js_error() -> None:
         parse_capture_meta(json.dumps({"error": "boom"}))
 
 
-@pytest.mark.parametrize("bad", ["", "not json", "null", "[]", "{}", '{"length": 0}', '{"length": "9"}', '{"length": true}', '{"length": -3}'])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "",
+        "not json",
+        "null",
+        "[]",
+        "{}",
+        '{"length": 0}',
+        '{"length": "9"}',
+        '{"length": true}',
+        '{"length": -3}',
+    ],
+)
 def test_parse_capture_meta_rejects_unexpected_values(bad: str) -> None:
     with pytest.raises(ExportError):
         parse_capture_meta(bad)
@@ -88,7 +111,9 @@ def test_write_png_adds_the_extension_and_returns_the_path(tmp_path: Path) -> No
     written = write_png(tmp_path / "chart", PNG)
     assert written == tmp_path / "chart.png"
     assert written.read_bytes() == PNG
-    assert write_png(tmp_path / "other.PNG", PNG).name == "other.PNG"  # 大文字の拡張子はそのまま
+    assert (
+        write_png(tmp_path / "other.PNG", PNG).name == "other.PNG"
+    )  # 大文字の拡張子はそのまま
 
 
 def test_write_png_overwrites_an_existing_file(tmp_path: Path) -> None:
@@ -98,14 +123,18 @@ def test_write_png_overwrites_an_existing_file(tmp_path: Path) -> None:
     assert target.read_bytes() == PNG
 
 
-def test_write_png_leaves_no_partial_file_when_the_directory_is_missing(tmp_path: Path) -> None:
+def test_write_png_leaves_no_partial_file_when_the_directory_is_missing(
+    tmp_path: Path,
+) -> None:
     with pytest.raises(OSError):
         write_png(tmp_path / "missing" / "chart.png", PNG)
     assert list(tmp_path.iterdir()) == []
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root は書き込み禁止を無視する")
-def test_write_png_leaves_nothing_when_the_directory_is_read_only(tmp_path: Path) -> None:
+def test_write_png_leaves_nothing_when_the_directory_is_read_only(
+    tmp_path: Path,
+) -> None:
     locked = tmp_path / "locked"
     locked.mkdir()
     locked.chmod(0o500)
@@ -124,7 +153,9 @@ def test_the_native_exporter_is_unavailable_outside_the_native_window() -> None:
 class FakeBrowser:
     """ui.run_javascript の偽物。window.__exportPng の保存と、slice による分割の取り出しを再現する。"""
 
-    def __init__(self, data_url_text: str | None = None, error: str | None = None) -> None:
+    def __init__(
+        self, data_url_text: str | None = None, error: str | None = None
+    ) -> None:
         self.data_url_text, self.error = data_url_text, error
         self.stored: str | None = None
         self.replies: list[int] = []
@@ -149,11 +180,15 @@ class FakeBrowser:
 
 
 def test_the_chunk_size_keeps_each_reply_under_the_websocket_limit() -> None:
-    assert CAPTURE_CHUNK_CHARS * 4 < 1_000_000  # 日本語を含まない ASCII だが、余裕を見て上限の 1/4 以下にする
+    assert (
+        CAPTURE_CHUNK_CHARS * 4 < 1_000_000
+    )  # 日本語を含まない ASCII だが、余裕を見て上限の 1/4 以下にする
 
 
 def test_a_large_image_is_received_in_chunks() -> None:
-    big = b"\x89PNG" + os.urandom(3_000_000)  # 約 4MB の base64 = 上限(約 1MB)を大きく超える
+    big = b"\x89PNG" + os.urandom(
+        3_000_000
+    )  # 約 4MB の base64 = 上限(約 1MB)を大きく超える
     browser = FakeBrowser(data_url(big))
     result = asyncio.run(NativeImageExporter(run_js=browser).capture(2.0))
     assert result == big
@@ -169,7 +204,9 @@ def test_a_small_image_needs_one_chunk() -> None:
     assert len(browser.replies) == 1
 
 
-def test_the_capture_script_gets_the_ratio_and_stores_the_result_instead_of_returning_it() -> None:
+def test_the_capture_script_gets_the_ratio_and_stores_the_result_instead_of_returning_it() -> (
+    None
+):
     browser = FakeBrowser(data_url())
     asyncio.run(NativeImageExporter(run_js=browser).capture(1.2345))
     script = browser.scripts[0]
@@ -189,7 +226,9 @@ def test_a_truncated_transfer_is_rejected_and_the_browser_copy_is_deleted() -> N
     class Truncating(FakeBrowser):
         async def __call__(self, script: str, timeout: float = 1.0) -> str | None:
             reply = await super().__call__(script, timeout)
-            return reply[:-1] if ".slice(" in script and reply else reply  # 最後の 1 文字が欠ける
+            return (
+                reply[:-1] if ".slice(" in script and reply else reply
+            )  # 最後の 1 文字が欠ける
 
     browser = Truncating(data_url(b"\x89PNG" + os.urandom(2000)))
     with pytest.raises(ExportError):
@@ -225,15 +264,21 @@ def test_the_capture_script_applies_the_export_css_only_while_capturing() -> Non
     script = browser.scripts[0]
     assert "__CSS__" not in script
     assert json.dumps(EXPORT_CSS) in script  # JS の文字列として、安全に埋め込む
-    assert script.index("appendChild(style)") < script.index("htmlToImage.toPng")  # 画像化の前に当てる
-    assert "finally" in script and "style.remove()" in script  # 成功でも失敗でも、必ず外す
+    assert script.index("appendChild(style)") < script.index(
+        "htmlToImage.toPng"
+    )  # 画像化の前に当てる
+    assert (
+        "finally" in script and "style.remove()" in script
+    )  # 成功でも失敗でも、必ず外す
 
 
 def test_the_capture_script_template_has_the_css_placeholder() -> None:
     assert "__CSS__" in CAPTURE_JS
 
 
-def test_the_capture_skips_web_font_embedding_so_it_leaves_the_live_stylesheets_alone() -> None:
+def test_the_capture_skips_web_font_embedding_so_it_leaves_the_live_stylesheets_alone() -> (
+    None
+):
     # html-to-image は、フォントの埋め込みで @import 先の CSS(Quasar)を、画面のスタイルシートへ insertRule する。
     # @layer の外に出るので、画像化のあと、見出しの高さや余白が変わってしまう
     assert "skipFonts: true" in CAPTURE_JS
@@ -241,7 +286,10 @@ def test_the_capture_skips_web_font_embedding_so_it_leaves_the_live_stylesheets_
 
 def test_capture_uses_the_body_background_for_the_custom_theme() -> None:
     assert "document.body.classList.contains('app-custom')" in CAPTURE_JS
-    assert "(dark || custom) ? getComputedStyle(document.body).backgroundColor : '#ffffff'" in CAPTURE_JS
+    assert (
+        "(dark || custom) ? getComputedStyle(document.body).backgroundColor : '#ffffff'"
+        in CAPTURE_JS
+    )
 
 
 def test_capture_waits_for_the_last_redraw_before_taking_the_picture() -> None:

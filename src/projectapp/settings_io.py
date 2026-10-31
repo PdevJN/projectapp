@@ -57,9 +57,15 @@ class ImportFile:
 def build_settings(project: Project) -> dict[str, Any]:
     """設定ファイルの辞書。各要素の形は、プロジェクトファイルの保存と同じ。タスクとセクション・チームと所属は含めない。"""
     raw = json.loads(dumps_project(replace(project, tasks=[], sections=[])))
-    data: dict[str, Any] = {"kind": SETTINGS_KIND, "version": SETTINGS_VERSION, "project_version": raw["version"]}
+    data: dict[str, Any] = {
+        "kind": SETTINGS_KIND,
+        "version": SETTINGS_VERSION,
+        "project_version": raw["version"],
+    }
     data.update({key: raw[key] for key in (*PROJECT_KEYS, *COLLECTION_KEYS)})
-    data["members"] = [{**member, "teams": []} for member in data["members"]]  # チームと所属は設定ファイルに含めない
+    data["members"] = [
+        {**member, "teams": []} for member in data["members"]
+    ]  # チームと所属は設定ファイルに含めない
     return data
 
 
@@ -83,16 +89,28 @@ def parse_settings(text: str) -> ImportFile:
     if not isinstance(raw, dict) or raw.get("kind") != SETTINGS_KIND:
         raise ValueError("プロジェクトの設定ファイルではありません")
     version = raw.get("version")
-    if isinstance(version, int) and not isinstance(version, bool) and version > SETTINGS_VERSION:
-        raise ValueError(f"このアプリより新しい形式です(version {version})。アプリを更新してください")
+    if (
+        isinstance(version, int)
+        and not isinstance(version, bool)
+        and version > SETTINGS_VERSION
+    ):
+        raise ValueError(
+            f"このアプリより新しい形式です(version {version})。アプリを更新してください"
+        )
     _version(version, "version", SETTINGS_VERSION)
-    project_version = _version(raw.get("project_version", FORMAT_VERSION), "project_version", FORMAT_VERSION)
+    project_version = _version(
+        raw.get("project_version", FORMAT_VERSION), "project_version", FORMAT_VERSION
+    )
     for key in COLLECTION_KEYS:
         if key in raw and not isinstance(raw[key], list):
             raise ValueError(f"{key} がリストではありません")
-    body = json.loads(dumps_project(Project(IMPORT_NAME)))  # キーのない区分は、空の既定で読む
+    body = json.loads(
+        dumps_project(Project(IMPORT_NAME))
+    )  # キーのない区分は、空の既定で読む
     body["version"] = project_version
-    body.update({key: raw[key] for key in (*PROJECT_KEYS, *COLLECTION_KEYS) if key in raw})
+    body.update(
+        {key: raw[key] for key in (*PROJECT_KEYS, *COLLECTION_KEYS) if key in raw}
+    )
     try:
         project = parse_project(json.dumps(body), IMPORT_NAME)
     except (KeyError, TypeError, AttributeError) as exc:
@@ -160,7 +178,11 @@ def _describe(project: Project) -> dict[str, str]:
 
 def project_changes(current: Project, incoming: Project) -> tuple[ProjectChange, ...]:
     now, then = _describe(current), _describe(incoming)
-    return tuple(ProjectChange(label, now[label], then[label]) for label in now if now[label] != then[label])
+    return tuple(
+        ProjectChange(label, now[label], then[label])
+        for label in now
+        if now[label] != then[label]
+    )
 
 
 def plan_import(current: Project, incoming: ImportFile) -> ImportPlan:
@@ -178,15 +200,26 @@ def plan_import(current: Project, incoming: ImportFile) -> ImportPlan:
             seen.add(name)
             (duplicates if name in mine else new).append(name)
         if new or duplicates:
-            sections.append(SectionPlan(key, tuple(new), tuple(duplicates), key != "events"))
-    changes = project_changes(current, incoming.project) if incoming.has_project_settings else ()
+            sections.append(
+                SectionPlan(key, tuple(new), tuple(duplicates), key != "events")
+            )
+    changes = (
+        project_changes(current, incoming.project)
+        if incoming.has_project_settings
+        else ()
+    )
     return ImportPlan(tuple(sections), changes)
 
 
 def _overwrite(target: Item, item: Item) -> None:
     """重複の項目を、取り込む値で置き換える。名前と id は保つ。"""
     if isinstance(target, Member) and isinstance(item, Member):
-        target.ratio, target.levels, target.icon, target.work_days = item.ratio, item.levels, item.icon, item.work_days
+        target.ratio, target.levels, target.icon, target.work_days = (
+            item.ratio,
+            item.levels,
+            item.icon,
+            item.work_days,
+        )
         target.ratio_unclamped = item.ratio_unclamped
         target.warning_limit = item.warning_limit
     elif isinstance(target, Parameter) and isinstance(item, Parameter):
@@ -202,7 +235,13 @@ def _overwrite(target: Item, item: Item) -> None:
         target.pattern = item.pattern
 
 
-def _merge(work: Project, source: Project, key: str, overwrite: Collection[tuple[str, str]], result: ImportResult) -> None:
+def _merge(
+    work: Project,
+    source: Project,
+    key: str,
+    overwrite: Collection[tuple[str, str]],
+    result: ImportResult,
+) -> None:
     mine = {item_key(item): item for item in getattr(work, key)}
     seen: set[str] = set()
     for item in getattr(source, key):
@@ -223,25 +262,45 @@ def _merge(work: Project, source: Project, key: str, overwrite: Collection[tuple
             result.skipped += 1
 
 
-def _apply_project_settings(work: Project, source: Project, result: ImportResult) -> None:
-    work.base_date, work.daily_hours, work.work_start = source.base_date, source.daily_hours, source.work_start
+def _apply_project_settings(
+    work: Project, source: Project, result: ImportResult
+) -> None:
+    work.base_date, work.daily_hours, work.work_start = (
+        source.base_date,
+        source.daily_hours,
+        source.work_start,
+    )
     work.reference_mode = source.reference_mode
     work.plantuml_overload_notice = source.plantuml_overload_notice
-    work.ratio_limit_upper, work.ratio_limit_lower = source.ratio_limit_upper, source.ratio_limit_lower
-    if source.actual_mode is ActualMode.SIMPLE and any(len(task.actuals) > 1 for task in work.all_tasks()):
+    work.ratio_limit_upper, work.ratio_limit_lower = (
+        source.ratio_limit_upper,
+        source.ratio_limit_lower,
+    )
+    if source.actual_mode is ActualMode.SIMPLE and any(
+        len(task.actuals) > 1 for task in work.all_tasks()
+    ):
         result.notes.append("記録方式は、2 区間以上のタスクがあるため変えませんでした")
     else:
         work.actual_mode = source.actual_mode
-    if work.reference_mode is ReferenceMode.LIVE:  # 常に最新は、スナップショットを持たない
+    if (
+        work.reference_mode is ReferenceMode.LIVE
+    ):  # 常に最新は、スナップショットを持たない
         for task in work.all_tasks():
             task.ref_snapshot = None
 
 
 def _drop_stale_levels(work: Project) -> int:
-    levels = {parameter.name: {level.name for level in parameter.levels} for parameter in work.parameters}
+    levels = {
+        parameter.name: {level.name for level in parameter.levels}
+        for parameter in work.parameters
+    }
     dropped = 0
     for member in work.members:
-        kept = {name: level for name, level in member.levels.items() if level in levels.get(name, set())}
+        kept = {
+            name: level
+            for name, level in member.levels.items()
+            if level in levels.get(name, set())
+        }
         dropped += len(member.levels) - len(kept)
         member.levels = kept
     return dropped
@@ -263,7 +322,9 @@ def apply_import(
         _apply_project_settings(work, source, result)
         result.counts["project"] = 1 if project_changes(current, work) else 0
     result.dropped_levels = _drop_stale_levels(work)
-    parse_project(dumps_project(work), work.name)  # 保存・読込と同じ検証。通らなければ ValueError
+    parse_project(
+        dumps_project(work), work.name
+    )  # 保存・読込と同じ検証。通らなければ ValueError
     return result
 
 
@@ -273,10 +334,18 @@ def summary(result: ImportResult) -> str:
         for key, count in result.counts.items()
         if count
     ]
-    head = f"取り込みました({'、'.join(done)})" if done else "取り込む項目はありませんでした"
+    head = (
+        f"取り込みました({'、'.join(done)})"
+        if done
+        else "取り込む項目はありませんでした"
+    )
     extras = [
         *([f"重複 {result.skipped} 件は取り込んでいません"] if result.skipped else []),
-        *([f"合わない段階の選択 {result.dropped_levels} 件を外しました"] if result.dropped_levels else []),
+        *(
+            [f"合わない段階の選択 {result.dropped_levels} 件を外しました"]
+            if result.dropped_levels
+            else []
+        ),
         *result.notes,
     ]
     return head + (f"。{'、'.join(extras)}" if extras else "")

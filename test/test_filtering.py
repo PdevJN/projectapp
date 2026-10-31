@@ -1,4 +1,9 @@
-from projectapp.filtering import TaskFilter, matches, section_has_match, visible_task_indexes
+from projectapp.filtering import (
+    TaskFilter,
+    matches,
+    section_has_match,
+    visible_task_indexes,
+)
 from projectapp.models import Assignee, Section, Task
 
 
@@ -54,12 +59,20 @@ def test_query_and_assignee_are_combined_with_and() -> None:
 def section_of_three() -> Section:
     return Section(
         "開発",
-        [Task("設計", assignees=[Assignee("田中")]), Task("実装", assignees=[Assignee("鈴木")]), Task("試験", assignees=[Assignee("田中")])],
+        [
+            Task("設計", assignees=[Assignee("田中")]),
+            Task("実装", assignees=[Assignee("鈴木")]),
+            Task("試験", assignees=[Assignee("田中")]),
+        ],
     )
 
 
 def test_an_expanded_section_shows_every_task() -> None:
-    assert visible_task_indexes(section_of_three(), TaskFilter(), collapsed=False) == [0, 1, 2]
+    assert visible_task_indexes(section_of_three(), TaskFilter(), collapsed=False) == [
+        0,
+        1,
+        2,
+    ]
 
 
 def test_a_collapsed_section_shows_no_task() -> None:
@@ -68,12 +81,23 @@ def test_a_collapsed_section_shows_no_task() -> None:
 
 def test_an_active_filter_ignores_the_collapse() -> None:
     task_filter = TaskFilter(assignee="田中")
-    assert visible_task_indexes(section_of_three(), task_filter, collapsed=True) == [0, 2]
-    assert visible_task_indexes(section_of_three(), task_filter, collapsed=False) == [0, 2]
+    assert visible_task_indexes(section_of_three(), task_filter, collapsed=True) == [
+        0,
+        2,
+    ]
+    assert visible_task_indexes(section_of_three(), task_filter, collapsed=False) == [
+        0,
+        2,
+    ]
 
 
 def test_an_active_filter_with_no_match_shows_nothing() -> None:
-    assert visible_task_indexes(section_of_three(), TaskFilter(query="zzz"), collapsed=True) == []
+    assert (
+        visible_task_indexes(
+            section_of_three(), TaskFilter(query="zzz"), collapsed=True
+        )
+        == []
+    )
 
 
 def test_an_empty_section_shows_nothing() -> None:
@@ -89,7 +113,11 @@ def test_a_task_matches_when_the_member_is_any_of_its_assignees() -> None:
 
 def tree_section() -> Section:
     grandchild = Section("孫", [Task("深い")])
-    return Section("親", [Task("上")], [Section("子", [Task("中")], [grandchild]), Section("子2", [Task("横")])])
+    return Section(
+        "親",
+        [Task("上")],
+        [Section("子", [Task("中")], [grandchild]), Section("子2", [Task("横")])],
+    )
 
 
 def test_section_has_match_looks_at_the_whole_subtree() -> None:
@@ -103,7 +131,9 @@ def test_section_has_match_looks_at_the_whole_subtree() -> None:
 
 def test_section_has_match_with_an_inactive_filter_is_true() -> None:
     assert section_has_match(tree_section(), TaskFilter())
-    assert section_has_match(Section("空"), TaskFilter())  # 条件がなければ、空のセクションも出す
+    assert section_has_match(
+        Section("空"), TaskFilter()
+    )  # 条件がなければ、空のセクションも出す
 
 
 def test_excluded_ids_make_the_filter_active_and_never_match() -> None:
@@ -133,7 +163,9 @@ def test_a_section_whose_tasks_are_all_excluded_has_no_match() -> None:
 def test_a_team_filter_keeps_tasks_any_member_is_on() -> None:
     team_filter = TaskFilter(team="開発", team_members=frozenset({"田中", "鈴木"}))
     assert matches(Task("設計", assignees=[Assignee("田中")]), team_filter)
-    assert matches(Task("共同", assignees=[Assignee("佐藤"), Assignee("鈴木")]), team_filter)  # 共同タスクは丸ごと
+    assert matches(
+        Task("共同", assignees=[Assignee("佐藤"), Assignee("鈴木")]), team_filter
+    )  # 共同タスクは丸ごと
     assert not matches(Task("別", assignees=[Assignee("佐藤")]), team_filter)
     assert not matches(Task("担当なし"), team_filter)
 
@@ -147,4 +179,6 @@ def test_a_team_filter_is_active_and_combines_with_the_query() -> None:
 
 def test_no_team_means_nobody_is_excluded_by_team() -> None:
     assert not TaskFilter().active
-    assert matches(Task("設計"), TaskFilter(team_members=frozenset({"田中"})))  # team が None なら見ない
+    assert matches(
+        Task("設計"), TaskFilter(team_members=frozenset({"田中"}))
+    )  # team が None なら見ない

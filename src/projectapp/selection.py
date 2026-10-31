@@ -15,7 +15,12 @@ class CheckState(Enum):
 def task_ids_of(item: Task | Section, by_id: Mapping[str, Task]) -> list[str]:
     """チェックの対象のタスク id。まとめは自身ではなく子、セクションは配下のタスク(サブセクション含む)。"""
     if isinstance(item, Section):
-        return [i for t in item.all_tasks() if t.kind is not TaskKind.SUMMARY for i in task_ids_of(t, by_id)]
+        return [
+            i
+            for t in item.all_tasks()
+            if t.kind is not TaskKind.SUMMARY
+            for i in task_ids_of(t, by_id)
+        ]
     if item.kind is TaskKind.SUMMARY:
         return [cid for cid in item.children if cid in by_id]
     return [item.id]
@@ -31,7 +36,9 @@ def check_state(ids: Collection[str], excluded: Collection[str]) -> CheckState |
     return CheckState.OFF if off == len(ids) else CheckState.MIXED
 
 
-def set_checked(excluded: frozenset[str], ids: Collection[str], checked: bool) -> frozenset[str]:
+def set_checked(
+    excluded: frozenset[str], ids: Collection[str], checked: bool
+) -> frozenset[str]:
     """ids をまとめて出力する(checked)・しないにした excluded を返す。"""
     return excluded - set(ids) if checked else excluded | set(ids)
 

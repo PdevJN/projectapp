@@ -22,7 +22,15 @@ from projectapp.models import (
 from projectapp.storage import dumps_project, parse_project
 
 PLANTUML_OPEN_FILE_TYPES = ("PlantUML ファイル (*.puml;*.plantuml;*.txt)",)
-WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6}
+WEEKDAYS = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
 MAX_LASTS_DAYS = 3660  # 期間の上限(稼働日)。これを超える指定は読み飛ばす
 MAX_SEARCH_DAYS = 3660  # 稼働日を探す日数の上限(全日が休みでも止まる)
 WORKDAYS_PER_WEEK = 5
@@ -33,12 +41,17 @@ _START = re.compile(r"@startgantt\b", re.I)
 _END = re.compile(r"@endgantt\b", re.I)
 _TITLE = re.compile(r"title\s+(.+)$", re.I)
 _PROJECT_STARTS = re.compile(rf"project\s+starts?\s+(?:on\s+)?{_D}$", re.I)
-_WEEKDAY_RULE = re.compile(rf"({'|'.join(WEEKDAYS)})s?\s+(?:is|are)\s+(closed|open)$", re.I)
+_WEEKDAY_RULE = re.compile(
+    rf"({'|'.join(WEEKDAYS)})s?\s+(?:is|are)\s+(closed|open)$", re.I
+)
 _RANGE_RULE = re.compile(rf"{_D}\s+to\s+{_D}\s+(?:is|are)\s+(closed|open)$", re.I)
 _DAY_RULE = re.compile(rf"{_D}\s+(?:is|are)\s+(closed|open)$", re.I)
 _SECTION = re.compile(r"--\s*(.+?)\s*--$")
 _TASK = re.compile(r"\[([^\]]+)\](?:\s+as\s+\[([^\]]+)\])?(?:\s+(.*))?$", re.I)
-_IGNORED = re.compile(r"(?:printscale|scale|hide|header|footer|caption|skinparam|language)\b|.*\bcolored\s+in\b", re.I)
+_IGNORED = re.compile(
+    r"(?:printscale|scale|hide|header|footer|caption|skinparam|language)\b|.*\bcolored\s+in\b",
+    re.I,
+)
 _COLORED = re.compile(r"(?:\band\s+)?\b(?:is|are)\s+colored\s+in\s+\S+", re.I)
 _HAPPENS_ON = re.compile(rf"\bhappens\s+on\s+{_D}", re.I)
 _STARTS_DATE = re.compile(rf"\bstarts?\s+(?:on\s+)?{_D}", re.I)
@@ -53,7 +66,9 @@ _REF = r"\[([^\]]+)\]'s\s+(end|start)"
 _DEPENDENCY = re.compile(r"\[([^\]]+)\]\s*->\s*\[([^\]]+)\]$")
 _HAPPENS_AT = re.compile(rf"\bhappens\s+at\s+{_REF}", re.I)
 _STARTS_AT = re.compile(rf"\bstarts?\s+at\s+{_REF}", re.I)
-_STARTS_AFTER = re.compile(r"\bstarts?\s+(\d+)\s+days?\s+after\s+\[([^\]]+)\]'s\s+end", re.I)
+_STARTS_AFTER = re.compile(
+    r"\bstarts?\s+(\d+)\s+days?\s+after\s+\[([^\]]+)\]'s\s+end", re.I
+)
 
 
 class PlantUmlImportError(ValueError):
@@ -98,9 +113,13 @@ class _Raw:
     day: date | None = None  # starts / happens on
     end_day: date | None = None
     lasts: int | None = None  # 稼働日数
-    after: tuple[str, str, int] | None = None  # (参照するタスク, "end" か "start", 日数)
+    after: tuple[str, str, int] | None = (
+        None  # (参照するタスク, "end" か "start", 日数)
+    )
     preds: list[str] = field(default_factory=list)  # `->` の先行(名前または別名)
-    assignees: list[tuple[str, float | None]] = field(default_factory=list)  # (名前, `:N%` の N。省略は None)
+    assignees: list[tuple[str, float | None]] = field(
+        default_factory=list
+    )  # (名前, `:N%` の N。省略は None)
     progress: int | None = None
     bad_date: bool = False  # 日付の書式はあるが、日付として読めなかった(PlantUML ではエラー。日程なしにする)
 
@@ -137,7 +156,9 @@ class _Scanner:
             if _END.match(line):
                 self.complete = True
                 return
-            if self._in_style:  # `<style>` の中は、色などの装飾。読み飛ばしの行には数えない
+            if (
+                self._in_style
+            ):  # `<style>` の中は、色などの装飾。読み飛ばしの行には数えない
                 self._in_style = _STYLE_CLOSE.search(line) is None
                 continue
             if _STYLE_OPEN.match(line):
@@ -183,7 +204,12 @@ class _Scanner:
 
     def _range(self, first: str, last: str, closed: bool) -> bool:
         start, end = _parse_date(first), _parse_date(last)
-        if start is None or end is None or end < start or (end - start).days > MAX_SEARCH_DAYS:
+        if (
+            start is None
+            or end is None
+            or end < start
+            or (end - start).days > MAX_SEARCH_DAYS
+        ):
             return False
         for offset in range((end - start).days + 1):
             self.day_rules[start + timedelta(days=offset)] = closed
@@ -220,7 +246,9 @@ class _Scanner:
         rest, colored = _COLORED.subn(" ", rest)
         matched = colored > 0
         if m := _ON.search(rest):
-            raw.assignees += [(n, float(p) if p else None) for n, p in _RESOURCE.findall(m.group(1))]
+            raw.assignees += [
+                (n, float(p) if p else None) for n, p in _RESOURCE.findall(m.group(1))
+            ]
             rest = f"{rest[: m.start()]} {rest[m.end() :]}"
             matched = True
         if (m := _PROGRESS.search(rest)) and int(m.group(1)) <= 100:
@@ -241,7 +269,11 @@ class _Scanner:
             else:
                 raw.bad_date = True
         elif m := _HAPPENS_AT.search(rest):
-            raw.milestone, raw.after, matched = True, (m.group(1).strip(), m.group(2).lower(), 0), True
+            raw.milestone, raw.after, matched = (
+                True,
+                (m.group(1).strip(), m.group(2).lower(), 0),
+                True,
+            )
         elif m := _STARTS_AT.search(rest):
             raw.after, matched = (m.group(1).strip(), m.group(2).lower(), 0), True
         elif m := _STARTS_AFTER.search(rest):
@@ -257,7 +289,9 @@ class _Scanner:
             else:
                 raw.bad_date = True
         if m := _LASTS.search(rest):
-            count = int(m.group(1)) * (WORKDAYS_PER_WEEK if m.group(2).lower() == "week" else 1)
+            count = int(m.group(1)) * (
+                WORKDAYS_PER_WEEK if m.group(2).lower() == "week" else 1
+            )
             if 1 <= count <= MAX_LASTS_DAYS:
                 raw.lasts, matched = count, True
         return matched
@@ -270,7 +304,9 @@ class _Calendar:
 
     def is_open(self, day: date) -> bool:
         closed = self.day_rules.get(day)
-        return day.weekday() not in self.closed_weekdays if closed is None else not closed
+        return (
+            day.weekday() not in self.closed_weekdays if closed is None else not closed
+        )
 
     def next_open(self, day: date) -> date | None:
         """その日以降で最初の稼働日。見つからなければ None。"""
@@ -294,7 +330,9 @@ class _Resolver:
     def __init__(self, scanner: _Scanner, today: date) -> None:
         self.scanner = scanner
         self.today = today
-        self.calendar = _Calendar(frozenset(scanner.closed_weekdays), dict(scanner.day_rules))
+        self.calendar = _Calendar(
+            frozenset(scanner.closed_weekdays), dict(scanner.day_rules)
+        )
         self._memo: dict[int, Span] = {}
         self._active: set[int] = set()
 
@@ -378,7 +416,10 @@ class _Builder:
     def __init__(self, scanner: _Scanner, name: str, today: date) -> None:
         self.scanner = scanner
         self.resolver = _Resolver(scanner, today)
-        self.project = Project(tidy_task_name(scanner.title) or name, base_date=scanner.project_start or today)
+        self.project = Project(
+            tidy_task_name(scanner.title) or name,
+            base_date=scanner.project_start or today,
+        )
         self.counts = _Counts()
         self._taken: set[str] = set()
         self._sections: dict[tuple[str, ...], Section] = {}
@@ -389,7 +430,9 @@ class _Builder:
             self._section(path)
         tasks = [self._task(index, raw) for index, raw in enumerate(self.scanner.tasks)]
         for raw, task in zip(self.scanner.tasks, tasks):
-            (self._section(raw.section).tasks if raw.section else self.project.tasks).append(task)
+            (
+                self._section(raw.section).tasks if raw.section else self.project.tasks
+            ).append(task)
         self._link(tasks)
         return self.project
 
@@ -401,9 +444,15 @@ class _Builder:
                 keys.append(raw.after[0])
             for key in keys:
                 found = self.scanner.lookup(key)
-                if found is None or found == index or tasks[found].id in task.predecessors:
+                if (
+                    found is None
+                    or found == index
+                    or tasks[found].id in task.predecessors
+                ):
                     continue
-                if not self._reaches(tasks, tasks[found], task.id):  # 循環になる連結は入れない
+                if not self._reaches(
+                    tasks, tasks[found], task.id
+                ):  # 循環になる連結は入れない
                     task.predecessors.append(tasks[found].id)
 
     @staticmethod
@@ -427,12 +476,18 @@ class _Builder:
         return value
 
     def _end_of_day(self, day: date) -> datetime:
-        return datetime.combine(day, self.project.work_start) + timedelta(hours=self.project.daily_hours)
+        return datetime.combine(day, self.project.work_start) + timedelta(
+            hours=self.project.daily_hours
+        )
 
     def _section(self, path: tuple[str, ...]) -> Section:
         if path not in self._sections:
             section = Section(path[-1], id=self._fresh())
-            siblings = self.project.sections if len(path) == 1 else self._section(path[:-1]).sections
+            siblings = (
+                self.project.sections
+                if len(path) == 1
+                else self._section(path[:-1]).sections
+            )
             siblings.append(section)
             self._sections[path] = section
         return self._sections[path]
@@ -447,7 +502,9 @@ class _Builder:
         elif raw.milestone:
             task.kind = TaskKind.CHECKPOINT
             task.deadline = self._end_of_day(start)
-            task.status = Status.DONE if task.status is Status.DONE else Status.NOT_STARTED
+            task.status = (
+                Status.DONE if task.status is Status.DONE else Status.NOT_STARTED
+            )
             task.progress = None  # チェックポイントは進捗度を持たない
             return task
         else:
@@ -515,7 +572,9 @@ def summary(result: PlantUmlImport) -> str:
     notes = [
         f"読み飛ばした行 {result.skipped_lines} 行" if result.skipped_lines else "",
         f"日程が求まらないタスク {result.unresolved} 件" if result.unresolved else "",
-        f"割り当て率を 100% にした担当 {result.clamped_allocations} 件" if result.clamped_allocations else "",
+        f"割り当て率を 100% にした担当 {result.clamped_allocations} 件"
+        if result.clamped_allocations
+        else "",
     ]
     detail = "、".join(note for note in notes if note)
     return f"取り込みました({head})" + (f"。{detail}" if detail else "")

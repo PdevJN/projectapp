@@ -32,7 +32,9 @@ def team_name_error(name: str, others: Collection[str] = ()) -> str | None:
     return None
 
 
-def membership_error(teams: Sequence[Membership], team_ids: Collection[str]) -> str | None:
+def membership_error(
+    teams: Sequence[Membership], team_ids: Collection[str]
+) -> str | None:
     """メンバーの所属の検証。空は可。チームが存在し、重複せず、割合が整数 1〜100 で、合計が 100。"""
     if not teams:
         return None
@@ -44,7 +46,11 @@ def membership_error(teams: Sequence[Membership], team_ids: Collection[str]) -> 
             return "同じチームには 1 回までしか所属できません"
         seen.add(membership.team_id)
         percent = membership.percent
-        if isinstance(percent, bool) or not isinstance(percent, int) or not 1 <= percent <= 100:
+        if (
+            isinstance(percent, bool)
+            or not isinstance(percent, int)
+            or not 1 <= percent <= 100
+        ):
             return PERCENT_ERROR
     total = sum(m.percent for m in teams)
     if total != 100:
@@ -70,7 +76,9 @@ def even_split(count: int) -> list[int]:
     return [100 // count + (1 if i < 100 % count else 0) for i in range(count)]
 
 
-def settle_memberships(rows: Sequence[tuple[str, float | None]], team_ids: Collection[str]) -> list[Membership]:
+def settle_memberships(
+    rows: Sequence[tuple[str, float | None]], team_ids: Collection[str]
+) -> list[Membership]:
     """チェックを入れた(チームの id, 割合)から所属を作る。1 つだけなら割合に関わらず 100%。問題があれば ValueError。"""
     if len(rows) == 1:
         result = [Membership(rows[0][0], 100)]
@@ -124,7 +132,12 @@ def team_weights(project: Project, team: str | None) -> dict[str, float] | None:
         return None
     for entry in project.teams:
         if entry.name == team:
-            weights = {m.name: s.percent / 100 for m in project.members for s in m.teams if s.team_id == entry.id}
+            weights = {
+                m.name: s.percent / 100
+                for m in project.members
+                for s in m.teams
+                if s.team_id == entry.id
+            }
             return weights or None
     return None
 
@@ -184,9 +197,14 @@ def removal_impacts(project: Project, teams: Sequence[Team]) -> list[str]:
     return lines
 
 
-def add_team_members(current: Sequence[Assignee], names: Sequence[str], allocation: float) -> list[Assignee]:
+def add_team_members(
+    current: Sequence[Assignee], names: Sequence[str], allocation: float
+) -> list[Assignee]:
     """担当者にチームのメンバーを加える。すでにいる人は割り当て率だけ更新する(元のリストは変えない)。"""
-    result = [Assignee(a.name, allocation if a.name in names else a.allocation) for a in current]
+    result = [
+        Assignee(a.name, allocation if a.name in names else a.allocation)
+        for a in current
+    ]
     have = {a.name for a in result}
     result += [Assignee(name, allocation) for name in names if name not in have]
     return result

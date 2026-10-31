@@ -3,13 +3,31 @@ from pathlib import Path
 
 import pytest
 
-from projectapp.gitstate import DEFAULT_TIMEOUT, GitKind, GitState, Runner, describe, read_git_state, run_git, tooltip
+from projectapp.gitstate import (
+    DEFAULT_TIMEOUT,
+    GitKind,
+    GitState,
+    Runner,
+    describe,
+    read_git_state,
+    run_git,
+    tooltip,
+)
 
 
 def git(cwd: Path, *args: str) -> None:
     """設定に依存しない`git`の呼び出し(署名なし・名前は引数で与える)。"""
     subprocess.run(
-        ["git", "-c", "user.name=tester", "-c", "user.email=tester@example.com", "-c", "commit.gpgsign=false", *args],
+        [
+            "git",
+            "-c",
+            "user.name=tester",
+            "-c",
+            "user.email=tester@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            *args,
+        ],
         cwd=cwd,
         check=True,
         capture_output=True,
@@ -54,7 +72,9 @@ def test_outside_a_work_tree_is_not_a_repo(tmp_path: Path) -> None:
     assert state.kind is GitKind.NOT_REPO and state.error is None
 
 
-def test_an_empty_repository_has_no_head_and_counts_untracked_project_files(tmp_path: Path) -> None:
+def test_an_empty_repository_has_no_head_and_counts_untracked_project_files(
+    tmp_path: Path,
+) -> None:
     repo = init_repo(tmp_path / "repo")
     (repo / "a.json").write_text("{}")
     (repo / "b.json").write_text("{}")
@@ -64,16 +84,26 @@ def test_an_empty_repository_has_no_head_and_counts_untracked_project_files(tmp_
     assert (state.upstream, state.ahead, state.behind) == (None, None, None)
 
 
-def test_a_clean_repository_reports_the_branch_and_the_short_hash(tmp_path: Path) -> None:
+def test_a_clean_repository_reports_the_branch_and_the_short_hash(
+    tmp_path: Path,
+) -> None:
     repo = init_repo(tmp_path / "repo")
     (repo / "a.json").write_text("{}")
     commit_all(repo)
-    full = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True).stdout.strip()
+    full = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
     state = read_git_state(repo)
     assert (state.branch, state.head, state.dirty) == ("main", full[:7], 0)
 
 
-def test_modified_deleted_and_untracked_project_files_are_counted(tmp_path: Path) -> None:
+def test_modified_deleted_and_untracked_project_files_are_counted(
+    tmp_path: Path,
+) -> None:
     repo = init_repo(tmp_path / "repo")
     for name in ("甲.json", "乙.json", "丙.json"):
         (repo / name).write_text("{}")
@@ -81,7 +111,9 @@ def test_modified_deleted_and_untracked_project_files_are_counted(tmp_path: Path
     (repo / "甲.json").write_text('{"changed": true}')
     (repo / "乙.json").unlink()
     (repo / "丁.json").write_text("{}")
-    assert read_git_state(repo).dirty == 3  # 日本語の名前は、引用符付きの出力になるが、件数だけ数える
+    assert (
+        read_git_state(repo).dirty == 3
+    )  # 日本語の名前は、引用符付きの出力になるが、件数だけ数える
 
 
 def test_files_other_than_project_files_are_not_counted(tmp_path: Path) -> None:
@@ -95,7 +127,9 @@ def test_files_other_than_project_files_are_not_counted(tmp_path: Path) -> None:
     assert read_git_state(repo).dirty == 0
 
 
-def test_a_project_dir_in_a_subfolder_counts_only_its_own_json_files(tmp_path: Path) -> None:
+def test_a_project_dir_in_a_subfolder_counts_only_its_own_json_files(
+    tmp_path: Path,
+) -> None:
     repo = init_repo(tmp_path / "repo")
     (repo / "sub").mkdir()
     (repo / "top.json").write_text("1")
@@ -148,7 +182,9 @@ def test_ahead_of_the_upstream(tmp_path: Path) -> None:
 def test_behind_the_upstream_only_after_a_fetch(tmp_path: Path) -> None:
     work, remote = with_remote(tmp_path)
     push_from_another_clone(tmp_path, remote)
-    assert read_git_state(work).behind == 0  # fetch していないので、相手のプッシュは見えない
+    assert (
+        read_git_state(work).behind == 0
+    )  # fetch していないので、相手のプッシュは見えない
     git(work, "fetch")
     state = read_git_state(work)
     assert (state.ahead, state.behind) == (0, 1)
@@ -177,7 +213,9 @@ def test_a_missing_project_dir_reports_an_error(tmp_path: Path) -> None:
     assert state.kind is GitKind.OK and state.error
 
 
-def completed(returncode: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess[str]:
+def completed(
+    returncode: int = 0, stdout: str = "", stderr: str = ""
+) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess([], returncode, stdout, stderr)
 
 
@@ -203,49 +241,79 @@ def test_no_git_command(tmp_path: Path) -> None:
 
 
 def test_a_timeout_reports_an_error_in_the_first_call(tmp_path: Path) -> None:
-    state = read_git_state(tmp_path, run=scripted(subprocess.TimeoutExpired("git", DEFAULT_TIMEOUT)))
+    state = read_git_state(
+        tmp_path, run=scripted(subprocess.TimeoutExpired("git", DEFAULT_TIMEOUT))
+    )
     assert state.kind is GitKind.OK and state.error == "git が応答しません"
 
 
 def test_a_timeout_reports_an_error_in_the_status_call(tmp_path: Path) -> None:
-    state = read_git_state(tmp_path, run=scripted(INSIDE, subprocess.TimeoutExpired("git", DEFAULT_TIMEOUT)))
+    state = read_git_state(
+        tmp_path,
+        run=scripted(INSIDE, subprocess.TimeoutExpired("git", DEFAULT_TIMEOUT)),
+    )
     assert state.error == "git が応答しません"
 
 
 def test_an_unexpected_failure_reports_its_first_stderr_line(tmp_path: Path) -> None:
-    state = read_git_state(tmp_path, run=scripted(completed(128, stderr="fatal: detected dubious ownership\nhint: x\n")))
-    assert state.kind is GitKind.OK and state.error == "fatal: detected dubious ownership"
+    state = read_git_state(
+        tmp_path,
+        run=scripted(
+            completed(128, stderr="fatal: detected dubious ownership\nhint: x\n")
+        ),
+    )
+    assert (
+        state.kind is GitKind.OK and state.error == "fatal: detected dubious ownership"
+    )
 
 
 def test_a_failing_status_reports_an_error(tmp_path: Path) -> None:
-    state = read_git_state(tmp_path, run=scripted(INSIDE, completed(1, stderr="fatal: boom")))
+    state = read_git_state(
+        tmp_path, run=scripted(INSIDE, completed(1, stderr="fatal: boom"))
+    )
     assert state.error == "fatal: boom"
 
 
 def test_inside_the_git_dir_is_not_a_work_tree(tmp_path: Path) -> None:
-    assert read_git_state(tmp_path, run=scripted(completed(stdout="false\n"))).kind is GitKind.NOT_REPO
+    assert (
+        read_git_state(tmp_path, run=scripted(completed(stdout="false\n"))).kind
+        is GitKind.NOT_REPO
+    )
 
 
 @pytest.mark.parametrize(
     "stdout",
     ["", "garbage\n", "# branch.oid abc\n", "# branch.head main\n# branch.ab +x -y\n"],
 )
-def test_an_unexpected_status_output_reports_an_error(tmp_path: Path, stdout: str) -> None:
+def test_an_unexpected_status_output_reports_an_error(
+    tmp_path: Path, stdout: str
+) -> None:
     state = read_git_state(tmp_path, run=scripted(INSIDE, completed(stdout=stdout)))
     assert state.kind is GitKind.OK and state.error
 
 
-def test_the_runner_receives_a_fixed_pathspec_and_the_project_dir(tmp_path: Path) -> None:
+def test_the_runner_receives_a_fixed_pathspec_and_the_project_dir(
+    tmp_path: Path,
+) -> None:
     seen: list[list[str]] = []
 
     def run(args: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
         seen.append(args)
-        return INSIDE if len(seen) == 1 else completed(stdout="# branch.oid abc1234def\n# branch.head main\n")
+        return (
+            INSIDE
+            if len(seen) == 1
+            else completed(stdout="# branch.oid abc1234def\n# branch.head main\n")
+        )
 
     read_git_state(tmp_path, run=run)
     assert seen[0][:2] == ["-C", str(tmp_path)]
     assert seen[1][:2] == ["-C", str(tmp_path)]
-    assert seen[1][-4:] == ["--", ":(glob)*.json", ":(exclude)config.json", ":(exclude)holidays.json"]
+    assert seen[1][-4:] == [
+        "--",
+        ":(glob)*.json",
+        ":(exclude)config.json",
+        ":(exclude)holidays.json",
+    ]
 
 
 def ok(**kwargs: object) -> GitState:
@@ -256,7 +324,12 @@ def ok(**kwargs: object) -> GitState:
     ("state", "text"),
     [
         (ok(branch="main", head="abc1234"), "main"),
-        (ok(branch="main", head="abc1234", upstream="origin/main", ahead=0, behind=0), "main"),
+        (
+            ok(
+                branch="main", head="abc1234", upstream="origin/main", ahead=0, behind=0
+            ),
+            "main",
+        ),
         (ok(branch="main", ahead=1, behind=0), "main ↑1"),
         (ok(branch="main", ahead=0, behind=2), "main ↓2"),
         (ok(branch="main", ahead=1, behind=2), "main ↑1 ↓2"),
@@ -295,22 +368,36 @@ def test_tooltip_with_changes_and_counts() -> None:
 
 def test_tooltip_without_an_upstream_or_with_a_vanished_one() -> None:
     assert "上流: なし" in tooltip(ok(branch="main")).splitlines()
-    assert "上流: origin/gone(見つかりません)" in tooltip(ok(branch="main", upstream="origin/gone")).splitlines()
+    assert (
+        "上流: origin/gone(見つかりません)"
+        in tooltip(ok(branch="main", upstream="origin/gone")).splitlines()
+    )
 
 
 def test_tooltip_of_a_detached_head() -> None:
-    assert tooltip(ok(branch=None, head="abc1234")).splitlines()[0] == "ブランチ: なし(detached HEAD abc1234)"
+    assert (
+        tooltip(ok(branch=None, head="abc1234")).splitlines()[0]
+        == "ブランチ: なし(detached HEAD abc1234)"
+    )
 
 
 def test_tooltip_of_an_error_shows_the_reason() -> None:
-    assert tooltip(ok(error="git が応答しません")) == "git の状態を読めませんでした: git が応答しません\nクリックで読み直す"
+    assert (
+        tooltip(ok(error="git が応答しません"))
+        == "git の状態を読めませんでした: git が応答しません\nクリックで読み直す"
+    )
 
 
 def test_tooltip_is_empty_without_a_work_tree() -> None:
-    assert tooltip(GitState(GitKind.NOT_REPO)) == "" and tooltip(GitState(GitKind.NO_GIT)) == ""
+    assert (
+        tooltip(GitState(GitKind.NOT_REPO)) == ""
+        and tooltip(GitState(GitKind.NO_GIT)) == ""
+    )
 
 
-def test_git_env_variables_do_not_redirect_to_another_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_git_env_variables_do_not_redirect_to_another_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     other = init_repo(tmp_path / "other")
     (other / "x.json").write_text("{}")
     mine = init_repo(tmp_path / "mine")
@@ -323,7 +410,9 @@ def test_git_env_variables_do_not_redirect_to_another_repository(tmp_path: Path,
     assert state.dirty == 1  # 自分の y.json だけ。別のリポジトリの x.json を数えない
 
 
-def test_git_runs_without_stdin_and_without_a_console_window(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_git_runs_without_stdin_and_without_a_console_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     seen: dict[str, object] = {}
 
     def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -333,10 +422,14 @@ def test_git_runs_without_stdin_and_without_a_console_window(monkeypatch: pytest
     monkeypatch.setattr(subprocess, "run", fake_run)
     run_git(["status"], 1.0)
     assert seen["stdin"] == subprocess.DEVNULL
-    assert seen["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0)  # Windows だけ窓を出さない
+    assert seen["creationflags"] == getattr(
+        subprocess, "CREATE_NO_WINDOW", 0
+    )  # Windows だけ窓を出さない
 
 
-def test_git_never_waits_for_a_credential_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_git_never_waits_for_a_credential_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     seen: dict[str, object] = {}
 
     def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -346,4 +439,6 @@ def test_git_never_waits_for_a_credential_prompt(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(subprocess, "run", fake_run)
     run_git(["status"], 1.0)
     env = seen["env"]
-    assert isinstance(env, dict) and env["GIT_TERMINAL_PROMPT"] == "0"  # 認証の入力待ちで止まらず、失敗にする
+    assert (
+        isinstance(env, dict) and env["GIT_TERMINAL_PROMPT"] == "0"
+    )  # 認証の入力待ちで止まらず、失敗にする

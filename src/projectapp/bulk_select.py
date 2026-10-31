@@ -32,12 +32,16 @@ class BulkSelection:
             self.ids.update(group)
         self.anchor = task_id
 
-    def extend(self, visible_ids: Sequence[str], task_id: str, by_id: Mapping[str, Task]) -> None:
+    def extend(
+        self, visible_ids: Sequence[str], task_id: str, by_id: Mapping[str, Task]
+    ) -> None:
         """Shift クリック。見えている行の中で、基点と task_id の間を加える。基点が使えなければ toggle と同じ。"""
         if self.anchor not in visible_ids or task_id not in visible_ids:
             self.toggle(task_id, by_id)
             return
-        first, last = sorted((visible_ids.index(self.anchor), visible_ids.index(task_id)))
+        first, last = sorted(
+            (visible_ids.index(self.anchor), visible_ids.index(task_id))
+        )
         for tid in visible_ids[first : last + 1]:
             self.ids.update(with_children(tid, by_id))
 

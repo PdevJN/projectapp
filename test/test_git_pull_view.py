@@ -1,11 +1,10 @@
-import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
 import httpx
 from nicegui import ui
 from nicegui.testing import User
-from test_git_ops_view import AHEAD, SYNCED, Fakes, menu_entry, wait_until
+from test_git_ops_view import Fakes, menu_entry, wait_until
 
 from projectapp.calendar import save_cache
 from projectapp.gitops import GitResult, MergeFile, MergeSession, PullKind, PullPlan
@@ -57,14 +56,18 @@ class FakePullOps:
         return self.abort_result
 
 
-async def open_pull(user: User, tmp_path: Path, state: GitState = BEHIND) -> tuple[MainView, FakePullOps]:
+async def open_pull(
+    user: User, tmp_path: Path, state: GitState = BEHIND
+) -> tuple[MainView, FakePullOps]:
     fakes, ops = Fakes(state), FakePullOps()
     save_cache({}, tmp_path)
     views: list[MainView] = []
 
     @ui.page("/")
     def index() -> None:
-        view = MainView(tmp_path, httpx.MockTransport(lambda request: httpx.Response(200)))
+        view = MainView(
+            tmp_path, httpx.MockTransport(lambda request: httpx.Response(200))
+        )
         view.read_git = fakes.read_git
         view.pull_ops = ops
         views.append(view)
@@ -77,14 +80,20 @@ async def open_pull(user: User, tmp_path: Path, state: GitState = BEHIND) -> tup
 
 
 def project_text(effort: float) -> str:
-    return dumps_project(Project("甲", date(2026, 10, 1), tasks=[Task("a", id="t1", effort_hours=effort)]))
+    return dumps_project(
+        Project(
+            "甲", date(2026, 10, 1), tasks=[Task("a", id="t1", effort_hours=effort)]
+        )
+    )
 
 
 async def test_the_pull_menu_item_and_reasons(user: User, tmp_path: Path) -> None:
     view, _ = await open_pull(user, tmp_path)
     entry = menu_entry(view, "git-pull")
     assert entry.enabled and view.git_reason("pull") is None
-    view.git_state = GitState(GitKind.OK, branch="main", upstream="origin/main", ahead=0, behind=0, dirty=1)
+    view.git_state = GitState(
+        GitKind.OK, branch="main", upstream="origin/main", ahead=0, behind=0, dirty=1
+    )
     assert "未コミット" in (view.git_reason("pull") or "")
     view.git_state = GitState(GitKind.OK, branch="main")
     assert view.git_reason("pull") == "上流がありません"
@@ -127,22 +136,35 @@ async def test_fast_forward(user: User, tmp_path: Path) -> None:
     assert ops.calls == ["prepare", "ff"]
 
 
-async def test_merge_without_conflicts_finishes_with_the_merged_text(user: User, tmp_path: Path) -> None:
+async def test_merge_without_conflicts_finishes_with_the_merged_text(
+    user: User, tmp_path: Path
+) -> None:
     view, ops = await open_pull(user, tmp_path)
     ops.plan = PullPlan(PullKind.MERGE, "origin/main")
     base, ours = project_text(4.0), project_text(8.0)
-    theirs = dumps_project(Project("甲", date(2026, 10, 1), tasks=[Task("a2", id="t1", effort_hours=4.0)]))
-    ops.session = MergeSession("origin/main", [MergeFile("甲.json", base, ours, theirs)])
+    theirs = dumps_project(
+        Project("甲", date(2026, 10, 1), tasks=[Task("a2", id="t1", effort_hours=4.0)])
+    )
+    ops.session = MergeSession(
+        "origin/main", [MergeFile("甲.json", base, ours, theirs)]
+    )
     view.start_git_pull()
     assert await wait_until(lambda: user.notify.contains("取り込みました"))
-    assert ops.calls == ["prepare", "start", "finish"] and set(ops.merged) == {"甲.json"}
+    assert ops.calls == ["prepare", "start", "finish"] and set(ops.merged) == {
+        "甲.json"
+    }
     assert '"a2"' in ops.merged["甲.json"] and "8.0" in ops.merged["甲.json"]
 
 
-async def test_merge_with_a_conflict_waits_for_the_choice(user: User, tmp_path: Path) -> None:
+async def test_merge_with_a_conflict_waits_for_the_choice(
+    user: User, tmp_path: Path
+) -> None:
     view, ops = await open_pull(user, tmp_path)
     ops.plan = PullPlan(PullKind.MERGE, "origin/main")
-    ops.session = MergeSession("origin/main", [MergeFile("甲.json", project_text(4.0), project_text(8.0), project_text(2.0))])
+    ops.session = MergeSession(
+        "origin/main",
+        [MergeFile("甲.json", project_text(4.0), project_text(8.0), project_text(2.0))],
+    )
     view.start_git_pull()
     await user.should_see(marker="conflict-apply")
     assert ops.calls == ["prepare", "start"]
@@ -151,10 +173,15 @@ async def test_merge_with_a_conflict_waits_for_the_choice(user: User, tmp_path: 
     assert "2.0" in ops.merged["甲.json"]
 
 
-async def test_cancelling_the_conflict_dialog_aborts(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_conflict_dialog_aborts(
+    user: User, tmp_path: Path
+) -> None:
     view, ops = await open_pull(user, tmp_path)
     ops.plan = PullPlan(PullKind.MERGE, "origin/main")
-    ops.session = MergeSession("origin/main", [MergeFile("甲.json", project_text(4.0), project_text(8.0), project_text(2.0))])
+    ops.session = MergeSession(
+        "origin/main",
+        [MergeFile("甲.json", project_text(4.0), project_text(8.0), project_text(2.0))],
+    )
     view.start_git_pull()
     await user.should_see(marker="conflict-abort")
     user.find(marker="conflict-abort").click()
@@ -171,24 +198,37 @@ async def test_unreadable_files_abort_the_merge(user: User, tmp_path: Path) -> N
     assert "finish" not in ops.calls and not view.git_busy
 
 
-async def test_pull_reloads_the_open_project_and_refreshes_git(user: User, tmp_path: Path) -> None:
+async def test_pull_reloads_the_open_project_and_refreshes_git(
+    user: User, tmp_path: Path
+) -> None:
     from projectapp.storage import save_project
 
-    save_project(Project("甲", date(2026, 10, 1), tasks=[Task("a", id="t1", effort_hours=4.0)]), tmp_path)
+    save_project(
+        Project("甲", date(2026, 10, 1), tasks=[Task("a", id="t1", effort_hours=4.0)]),
+        tmp_path,
+    )
     view, ops = await open_pull(user, tmp_path)
     view.files = {"甲": tmp_path / "甲.json"}
     view.open_project("甲")
-    save_project(Project("甲", date(2026, 10, 1), tasks=[Task("a", id="t1", effort_hours=9.0)]), tmp_path)  # プルで書き換わった想定
+    save_project(
+        Project("甲", date(2026, 10, 1), tasks=[Task("a", id="t1", effort_hours=9.0)]),
+        tmp_path,
+    )  # プルで書き換わった想定
     ops.plan = PullPlan(PullKind.FAST_FORWARD, "origin/main")
     view.start_git_pull()
     assert await wait_until(lambda: view.project.tasks[0].effort_hours == 9.0)
     assert not view.is_dirty()
 
 
-async def test_an_unexpected_error_while_merging_aborts(user: User, tmp_path: Path, monkeypatch) -> None:
+async def test_an_unexpected_error_while_merging_aborts(
+    user: User, tmp_path: Path, monkeypatch
+) -> None:
     view, ops = await open_pull(user, tmp_path)
     ops.plan = PullPlan(PullKind.MERGE, "origin/main")
-    ops.session = MergeSession("origin/main", [MergeFile("甲.json", project_text(4.0), project_text(8.0), project_text(4.0))])
+    ops.session = MergeSession(
+        "origin/main",
+        [MergeFile("甲.json", project_text(4.0), project_text(8.0), project_text(4.0))],
+    )
 
     def boom(*args, **kwargs):
         raise RuntimeError("想定外")
@@ -200,10 +240,15 @@ async def test_an_unexpected_error_while_merging_aborts(user: User, tmp_path: Pa
     assert await wait_until(lambda: user.notify.contains("想定外"))
 
 
-async def test_a_failed_abort_is_reported_not_hidden(user: User, tmp_path: Path) -> None:
+async def test_a_failed_abort_is_reported_not_hidden(
+    user: User, tmp_path: Path
+) -> None:
     view, ops = await open_pull(user, tmp_path)
     ops.plan = PullPlan(PullKind.MERGE, "origin/main")
-    ops.session = MergeSession("origin/main", [MergeFile("甲.json", project_text(4.0), project_text(8.0), project_text(2.0))])
+    ops.session = MergeSession(
+        "origin/main",
+        [MergeFile("甲.json", project_text(4.0), project_text(8.0), project_text(2.0))],
+    )
     ops.abort_result = GitResult(False, "index.lock が残っています")
     view.start_git_pull()
     await user.should_see(marker="conflict-abort")
@@ -212,7 +257,9 @@ async def test_a_failed_abort_is_reported_not_hidden(user: User, tmp_path: Path)
     assert not user.notify.contains("取り込みを中止しました")
 
 
-async def test_an_edit_made_while_fetching_stops_the_pull(user: User, tmp_path: Path) -> None:
+async def test_an_edit_made_while_fetching_stops_the_pull(
+    user: User, tmp_path: Path
+) -> None:
     view, ops = await open_pull(user, tmp_path)
     ops.plan = PullPlan(PullKind.FAST_FORWARD, "origin/main")
     ops.on_prepare = lambda: view.save_section("取得中の編集")
@@ -221,17 +268,27 @@ async def test_an_edit_made_while_fetching_stops_the_pull(user: User, tmp_path: 
     assert ops.calls == ["prepare"] and not view.git_busy
 
 
-async def test_an_edit_made_while_merging_is_not_discarded_by_the_reload(user: User, tmp_path: Path) -> None:
+async def test_an_edit_made_while_merging_is_not_discarded_by_the_reload(
+    user: User, tmp_path: Path
+) -> None:
     from projectapp.storage import save_project
 
-    save_project(Project("甲", date(2026, 10, 1), tasks=[Task("a", id="t1", effort_hours=4.0)]), tmp_path)
+    save_project(
+        Project("甲", date(2026, 10, 1), tasks=[Task("a", id="t1", effort_hours=4.0)]),
+        tmp_path,
+    )
     view, ops = await open_pull(user, tmp_path)
     view.files = {"甲": tmp_path / "甲.json"}
     view.open_project("甲")
     ops.plan = PullPlan(PullKind.MERGE, "origin/main")
-    ops.session = MergeSession("origin/main", [MergeFile("甲.json", project_text(4.0), project_text(4.0), project_text(4.0))])
+    ops.session = MergeSession(
+        "origin/main",
+        [MergeFile("甲.json", project_text(4.0), project_text(4.0), project_text(4.0))],
+    )
     ops.on_finish = lambda: view.save_section("取り込み中の編集")
     view.start_git_pull()
     assert await wait_until(lambda: "finish" in ops.calls and not view.git_busy)
-    assert any(s.name == "取り込み中の編集" for s in view.project.sections)  # 読み直しで捨てない
+    assert any(
+        s.name == "取り込み中の編集" for s in view.project.sections
+    )  # 読み直しで捨てない
     assert await wait_until(lambda: user.notify.contains("読み直していません"))

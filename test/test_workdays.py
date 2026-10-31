@@ -3,7 +3,12 @@ from datetime import date, time, timedelta
 import pytest
 
 from projectapp.models import Member, WorkDay
-from projectapp.workdays import expand_range, sort_work_days, validate_work_days, work_day_map
+from projectapp.workdays import (
+    expand_range,
+    sort_work_days,
+    validate_work_days,
+    work_day_map,
+)
 
 pytestmark = pytest.mark.smoke
 
@@ -15,7 +20,9 @@ def test_work_day_defaults_to_a_rest_day_marker_of_none() -> None:
 
 
 def test_validate_accepts_windows_and_rests() -> None:
-    validate_work_days([WorkDay(date(2026, 10, 17), time(13), time(16)), WorkDay(date(2026, 10, 12))])
+    validate_work_days(
+        [WorkDay(date(2026, 10, 17), time(13), time(16)), WorkDay(date(2026, 10, 12))]
+    )
 
 
 @pytest.mark.parametrize(
@@ -25,7 +32,10 @@ def test_validate_accepts_windows_and_rests() -> None:
         [WorkDay(date(2026, 10, 17), time(16), time(13))],  # 開始 > 終了
         [WorkDay(date(2026, 10, 17), time(13), None)],  # 片方だけ
         [WorkDay(date(2026, 10, 17), None, time(16))],
-        [WorkDay(date(2026, 10, 17), time(9), time(10)), WorkDay(date(2026, 10, 17))],  # 日付の重複
+        [
+            WorkDay(date(2026, 10, 17), time(9), time(10)),
+            WorkDay(date(2026, 10, 17)),
+        ],  # 日付の重複
         [WorkDay(date(1999, 12, 31), time(9), time(10))],  # 年の範囲外
         [WorkDay(date(2101, 1, 1))],
     ],
@@ -71,7 +81,9 @@ def test_expand_range_can_include_weekends() -> None:
 
 
 def test_expand_range_skips_holidays_when_given() -> None:
-    rows, _, off = expand_range(MON, SUN, None, "", [], {date(2026, 10, 28): "祝"}, True)
+    rows, _, off = expand_range(
+        MON, SUN, None, "", [], {date(2026, 10, 28): "祝"}, True
+    )
     assert date(2026, 10, 28) not in [w.day for w in rows]
     assert off == 3  # 祝日 1 日と土日 2 日
 
@@ -82,7 +94,9 @@ def test_expand_range_without_holiday_data_skips_only_weekends() -> None:
 
 
 def test_expand_range_does_not_overwrite_registered_days() -> None:
-    rows, registered, _ = expand_range(MON, SUN, None, "", [date(2026, 10, 27)], {}, True)
+    rows, registered, _ = expand_range(
+        MON, SUN, None, "", [date(2026, 10, 27)], {}, True
+    )
     assert date(2026, 10, 27) not in [w.day for w in rows]
     assert (len(rows), registered) == (4, 1)
 
@@ -99,7 +113,9 @@ def test_expand_range_strips_the_note() -> None:
 
 def test_expand_range_accepts_exactly_the_limit_and_rejects_one_more() -> None:
     start = date(2026, 1, 1)
-    rows, _, _ = expand_range(start, start + timedelta(days=365), None, "", [], {}, False)
+    rows, _, _ = expand_range(
+        start, start + timedelta(days=365), None, "", [], {}, False
+    )
     assert len(rows) == 366
     with pytest.raises(ValueError, match="366"):
         expand_range(start, start + timedelta(days=366), None, "", [], {}, False)
@@ -115,6 +131,8 @@ def test_expand_range_accepts_exactly_the_limit_and_rejects_one_more() -> None:
         (date(2100, 12, 30), date(2101, 1, 2), None, "", "2100"),  # 年の範囲外
     ],
 )
-def test_expand_range_rejects_bad_input(start: date, end: date, window, note: str, message: str) -> None:
+def test_expand_range_rejects_bad_input(
+    start: date, end: date, window, note: str, message: str
+) -> None:
     with pytest.raises(ValueError, match=message):
         expand_range(start, end, window, note, [], {}, False)

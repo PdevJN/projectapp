@@ -25,7 +25,13 @@ class CardId(StrEnum):
 
 
 DEFAULT_ORDER: tuple[CardId, ...] = (
-    CardId.TEAM, CardId.PROGRESS, CardId.LOAD, CardId.HEATMAP, CardId.HOURS, CardId.BACKLOG, CardId.DUE,
+    CardId.TEAM,
+    CardId.PROGRESS,
+    CardId.LOAD,
+    CardId.HEATMAP,
+    CardId.HOURS,
+    CardId.BACKLOG,
+    CardId.DUE,
 )
 
 
@@ -37,7 +43,9 @@ class ViewSpec:
     cross: bool
     cards: tuple[CardId, ...]  # 表示するカードを、並び順に
     custom: tuple[date, date] | None = None  # `period` が `指定` のときだけ。両端を含む
-    team: str | None = None  # 絞り込み中のチーム名(メンバーとは同時に使わない。両方あればメンバー優先)
+    team: str | None = (
+        None  # 絞り込み中のチーム名(メンバーとは同時に使わない。両方あればメンバー優先)
+    )
 
 
 @dataclass(frozen=True)
@@ -93,7 +101,9 @@ def validate_name(name: str, taken: Iterable[str]) -> str | None:
     return None
 
 
-def move_card(cards: tuple[CardId, ...], card_id: CardId, before_id: CardId | None) -> tuple[CardId, ...]:
+def move_card(
+    cards: tuple[CardId, ...], card_id: CardId, before_id: CardId | None
+) -> tuple[CardId, ...]:
     """card_id を before_id の手前へ(before_id が None か、並びにないときは末尾へ)。隠れているカードは、その位置へ出る。"""
     if card_id == before_id:
         return cards
@@ -114,7 +124,11 @@ def show_card(cards: tuple[CardId, ...], card_id: CardId) -> tuple[CardId, ...]:
 
 def hidden_cards(cards: tuple[CardId, ...], cross: bool) -> tuple[CardId, ...]:
     """隠れているカード(既定の順)。`負荷の日ごとの推移` は、横断がオフのあいだは数えない。"""
-    return tuple(c for c in DEFAULT_ORDER if c not in cards and (cross or c is not CardId.HEATMAP))
+    return tuple(
+        c
+        for c in DEFAULT_ORDER
+        if c not in cards and (cross or c is not CardId.HEATMAP)
+    )
 
 
 def resolve_member(member: str | None, names: Iterable[str]) -> str | None:
@@ -152,7 +166,10 @@ def views_to_config(views: list[ViewSpec]) -> list[dict]:
             "cards": [c.value for c in spec.cards],
         }
         if spec.custom is not None:
-            entry["custom"] = {"start": spec.custom[0].isoformat(), "end": spec.custom[1].isoformat()}
+            entry["custom"] = {
+                "start": spec.custom[0].isoformat(),
+                "end": spec.custom[1].isoformat(),
+            }
         result.append(entry)
     return result
 
@@ -183,7 +200,9 @@ def view_from_config(raw: object) -> ViewSpec | None:
     member = raw.get("member")
     team = raw.get("team")
     cross = raw.get("cross")
-    custom = custom_from_config(raw.get("custom")) if period is PeriodKind.CUSTOM else None
+    custom = (
+        custom_from_config(raw.get("custom")) if period is PeriodKind.CUSTOM else None
+    )
     return ViewSpec(
         name,
         period,

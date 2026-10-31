@@ -7,19 +7,32 @@ from pathlib import Path
 
 from projectapp.dashboard import ChildProject, _progress_weight
 from projectapp.events import effective_holidays
-from projectapp.models import OverloadSpan, Project, ReferenceMode, ReferenceValue, Status, Task, TaskKind
+from projectapp.models import (
+    OverloadSpan,
+    Project,
+    ReferenceMode,
+    ReferenceValue,
+    Status,
+    Task,
+    TaskKind,
+)
 from projectapp.pace import warning_pace
 from projectapp.storage import file_digest, load_project
 from projectapp.timeline import Schedule, is_overdue, overallocations
 
-COUNTED_KINDS = (TaskKind.NORMAL, TaskKind.CHECKPOINT)  # 数えるのは通常タスクと節目だけ(まとめは二重になり、参照行は循環のもと)
+COUNTED_KINDS = (
+    TaskKind.NORMAL,
+    TaskKind.CHECKPOINT,
+)  # 数えるのは通常タスクと節目だけ(まとめは二重になり、参照行は循環のもと)
 
 
 def _counted(project: Project) -> list[Task]:
     return [task for task in project.all_tasks() if task.kind in COUNTED_KINDS]
 
 
-def compute_reference(project: Project, holidays: dict[date, str], now: datetime) -> ReferenceValue:
+def compute_reference(
+    project: Project, holidays: dict[date, str], now: datetime
+) -> ReferenceValue:
     """参照先のプロジェクト全体の予定・実績・進捗・遅延・負荷。数えるタスクがなければ、日程なしの値。"""
     tasks = _counted(project)
     schedule = Schedule(project, holidays)
@@ -30,11 +43,25 @@ def compute_reference(project: Project, holidays: dict[date, str], now: datetime
     running = any(a.end is None for a in intervals)
     weights = [w for task in tasks if (w := _progress_weight(task)) is not None]
     total = sum(weight for weight, _ in weights)
-    progress = round(sum(weight * percent for weight, percent in weights) / total) if total > 0 else None
-    warned = sum(1 for task in tasks if warning_pace(task, project, holidays, now, schedule) is not None)
-    delayed = sum(1 for task in tasks if task.status is not Status.DONE and is_overdue(task, project, holidays, now, schedule))
+    progress = (
+        round(sum(weight * percent for weight, percent in weights) / total)
+        if total > 0
+        else None
+    )
+    warned = sum(
+        1
+        for task in tasks
+        if warning_pace(task, project, holidays, now, schedule) is not None
+    )
+    delayed = sum(
+        1
+        for task in tasks
+        if task.status is not Status.DONE
+        and is_overdue(task, project, holidays, now, schedule)
+    )
     overloads = tuple(
-        OverloadSpan(o.member, o.start, o.end, o.total) for o in overallocations(project, holidays, tasks)
+        OverloadSpan(o.member, o.start, o.end, o.total)
+        for o in overallocations(project, holidays, tasks)
     )
     peak = max(overloads, key=lambda o: o.total, default=None)
     return ReferenceValue(
@@ -65,7 +92,9 @@ class Reference:
 class ReferenceResolver:
     """参照先のファイルを読んで、参照値にする。内容のハッシュと日付が同じ間は、同じ値を返す。"""
 
-    def __init__(self, project_dir: Callable[[], Path], holidays: Callable[[], dict[date, str]]) -> None:
+    def __init__(
+        self, project_dir: Callable[[], Path], holidays: Callable[[], dict[date, str]]
+    ) -> None:
         self.project_dir = project_dir
         self.holidays = holidays
         self._cache: dict[str, tuple[tuple[str, date], ReferenceValue | None, str]] = {}
@@ -82,9 +111,17 @@ class ReferenceResolver:
             return cached[1], cached[2]
         try:
             project = load_project(path)
-            value, problem = compute_reference(project, effective_holidays(project, self.holidays()), now), ""
+            value, problem = (
+                compute_reference(
+                    project, effective_holidays(project, self.holidays()), now
+                ),
+                "",
+            )
         except Exception as exc:  # noqa: BLE001 他人のファイルの形の崩れで、画面を止めない
-            value, problem = None, f"「{name}.json」を読めません({exc or type(exc).__name__})"
+            value, problem = (
+                None,
+                f"「{name}.json」を読めません({exc or type(exc).__name__})",
+            )
         self._cache[name] = (key, value, problem)
         return value, problem
 
@@ -105,7 +142,9 @@ class ReferenceResolver:
         return loaded, ""
 
 
-def build_references(project: Project, resolver: ReferenceResolver, now: datetime) -> dict[str, Reference]:
+def build_references(
+    project: Project, resolver: ReferenceResolver, now: datetime
+) -> dict[str, Reference]:
     """参照行(タスクの id)ごとの参照。常に最新は参照先を読み、スナップショットは保存した値で出す(古さも調べる)。"""
     result: dict[str, Reference] = {}
     for task in project.all_tasks():
@@ -121,15 +160,21 @@ def build_references(project: Project, resolver: ReferenceResolver, now: datetim
     return result
 
 
-def take_snapshot(resolver: ReferenceResolver, name: str, now: datetime) -> ReferenceValue | None:
+def take_snapshot(
+    resolver: ReferenceResolver, name: str, now: datetime
+) -> ReferenceValue | None:
     """今の参照先の値に取得日時を付けたスナップショット。取れなければ None。"""
     value, _ = resolver.live(name, now)
     return replace(value, taken_at=now) if value is not None else None
 
 
-def missing_references(project: Project, resolver: ReferenceResolver, now: datetime) -> list[str]:
+def missing_references(
+    project: Project, resolver: ReferenceResolver, now: datetime
+) -> list[str]:
     """見つからない・読めない参照先のファイル名(重複なし・初出の順)。"""
-    names = dict.fromkeys(t.ref_project for t in project.all_tasks() if t.kind is TaskKind.REFERENCE)
+    names = dict.fromkeys(
+        t.ref_project for t in project.all_tasks() if t.kind is TaskKind.REFERENCE
+    )
     return [name for name in names if resolver.live(name, now)[0] is None]
 
 
@@ -137,12 +182,16 @@ def load_children(
     project: Project, resolver: ReferenceResolver, base_holidays: dict[date, str]
 ) -> dict[str, ChildProject]:
     """参照行が指す参照先を、ダッシュボードに数える形で読む(重複は 1 回、自分自身と読めないものは外す)。"""
-    names = dict.fromkeys(t.ref_project for t in project.all_tasks() if t.kind is TaskKind.REFERENCE)
+    names = dict.fromkeys(
+        t.ref_project for t in project.all_tasks() if t.kind is TaskKind.REFERENCE
+    )
     children: dict[str, ChildProject] = {}
     for name in names:
         if name == project.name:
             continue
         child, _ = resolver.project(name)
         if child is not None:
-            children[name] = ChildProject(child, effective_holidays(child, base_holidays))
+            children[name] = ChildProject(
+                child, effective_holidays(child, base_holidays)
+            )
     return children

@@ -10,7 +10,16 @@ from projectapp.csv_export import (
     write_tsv,
 )
 from projectapp.csv_import import parse_csv
-from projectapp.models import Assignee, Member, Project, Section, Status, Task, TaskKind
+from projectapp.models import (
+    Assignee,
+    Member,
+    Project,
+    ReferenceValue,
+    Section,
+    Status,
+    Task,
+    TaskKind,
+)
 from test_csv_import import SAMPLE
 
 HEADER = "WBS 番号\tタスクのタイトル\tタスクオーナー\t開始日\t期限\t期間\tタスク完了率"
@@ -46,10 +55,34 @@ def test_the_sample_round_trips_to_the_same_rows() -> None:
         [""] * 7,
         [""] * 7,
         ["1", "プロジェクトの概念化と開始", "", "", "", "", ""],
-        ["1.1", "プロジェクト憲章", "オーナー名", "18年 3月 12日", "18年 3月 15日", "3", "100%"],
-        ["1.1.1", "プロジェクト憲章の修正", "オーナー名", "18年 3月 15日", "18年 3月 16日", "1", "100%"],
+        [
+            "1.1",
+            "プロジェクト憲章",
+            "オーナー名",
+            "18年 3月 12日",
+            "18年 3月 15日",
+            "3",
+            "100%",
+        ],
+        [
+            "1.1.1",
+            "プロジェクト憲章の修正",
+            "オーナー名",
+            "18年 3月 15日",
+            "18年 3月 16日",
+            "1",
+            "100%",
+        ],
         ["1.2", "リサーチ", "オーナー名", "18年 3月 15日", "18年 3月 21日", "6", "90%"],
-        ["1.6", "プロジェクトの開始", "オーナー名", "18年 3月 23日", "18年 3月 23日", "0", "50%"],
+        [
+            "1.6",
+            "プロジェクトの開始",
+            "オーナー名",
+            "18年 3月 23日",
+            "18年 3月 23日",
+            "0",
+            "50%",
+        ],
     ]
     assert (out.task_count, out.section_count) == (4, 1)
 
@@ -57,15 +90,25 @@ def test_the_sample_round_trips_to_the_same_rows() -> None:
 def test_the_written_file_can_be_imported_again() -> None:
     first = parse_csv(SAMPLE, "sample", {})
     again = parse_csv(build_tsv(first.project, {}).text, "sample", {})
-    assert [s.name for s in again.project.sections] == [s.name for s in first.project.sections]
-    assert [(t.name, t.planned_start, t.effort_hours, t.progress, t.status) for t in again.project.all_tasks()] == [
-        (t.name, t.planned_start, t.effort_hours, t.progress, t.status) for t in first.project.all_tasks()
+    assert [s.name for s in again.project.sections] == [
+        s.name for s in first.project.sections
+    ]
+    assert [
+        (t.name, t.planned_start, t.effort_hours, t.progress, t.status)
+        for t in again.project.all_tasks()
+    ] == [
+        (t.name, t.planned_start, t.effort_hours, t.progress, t.status)
+        for t in first.project.all_tasks()
     ]
 
 
 def test_root_tasks_come_first_then_sections_depth_first() -> None:
     inner = Section("1.1#内側", [Task("1.1.1#c")])
-    project = Project("p", tasks=[Task("0#root")], sections=[Section("1#外側", [Task("1.1#a")], [inner])])
+    project = Project(
+        "p",
+        tasks=[Task("0#root")],
+        sections=[Section("1#外側", [Task("1.1#a")], [inner])],
+    )
     assert [r[:2] for r in rows(build_tsv(project, {}).text)[3:]] == [
         ["0", "root"],
         ["1", "外側"],
@@ -75,17 +118,23 @@ def test_root_tasks_come_first_then_sections_depth_first() -> None:
     ]
 
 
-def test_a_task_without_dates_or_progress_leaves_the_dates_empty_and_writes_zero_percent() -> None:
+def test_a_task_without_dates_or_progress_leaves_the_dates_empty_and_writes_zero_percent() -> (
+    None
+):
     project = Project("p", tasks=[Task("設計")])
     assert rows(build_tsv(project, {}).text)[3] == ["", "設計", "", "", "", "0", "0%"]
 
 
 def test_a_done_task_without_a_progress_value_is_one_hundred_percent() -> None:
-    project = Project("p", tasks=[Task("a", status=Status.DONE), Task("b", progress=40)])
+    project = Project(
+        "p", tasks=[Task("a", status=Status.DONE), Task("b", progress=40)]
+    )
     assert [r[6] for r in rows(build_tsv(project, {}).text)[3:]] == ["100%", "40%"]
 
 
-def test_the_end_is_the_computed_completion_day_and_the_period_counts_calendar_days() -> None:
+def test_the_end_is_the_computed_completion_day_and_the_period_counts_calendar_days() -> (
+    None
+):
     task = planned("a", datetime(2026, 10, 9, 9, 0), 13.0)  # 金 + 月の 2 稼働日
     row = rows(build_tsv(Project("p", tasks=[task]), {}).text)[3]
     assert row[3:6] == ["26年 10月 9日", "26年 10月 12日", "3"]
@@ -104,7 +153,11 @@ def test_the_first_assignee_is_the_owner_and_more_are_counted() -> None:
 def test_only_normal_tasks_are_written() -> None:
     project = Project(
         "p",
-        tasks=[Task("通常"), Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9)), Task("まとめ", kind=TaskKind.SUMMARY)],
+        tasks=[
+            Task("通常"),
+            Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9)),
+            Task("まとめ", kind=TaskKind.SUMMARY),
+        ],
     )
     out = build_tsv(project, {})
     assert [r[1] for r in rows(out.text)[3:]] == ["通常"]
@@ -120,7 +173,9 @@ def test_the_default_filename_and_the_save_dialog_types() -> None:
     assert TSV_FILE_TYPES == ("TSV ファイル (*.tsv)",)
 
 
-def test_write_tsv_adds_the_extension_and_writes_utf8_without_a_bom(tmp_path: Path) -> None:
+def test_write_tsv_adds_the_extension_and_writes_utf8_without_a_bom(
+    tmp_path: Path,
+) -> None:
     path = write_tsv(tmp_path / "out", "あ\n")
     assert path.name == "out.tsv" and path.read_bytes() == "あ\n".encode()
 
@@ -136,31 +191,50 @@ def test_a_due_date_on_a_sunday_survives_the_round_trip() -> None:
     assert row[3:6] == ["26年 10月 12日", "26年 10月 18日", "6"]
 
 
-from projectapp.models import ReferenceValue
-
-
 def reference_project() -> Project:
-    return Project("p", tasks=[Task("基盤", id="r", kind=TaskKind.REFERENCE, ref_project="基盤")])
+    return Project(
+        "p", tasks=[Task("基盤", id="r", kind=TaskKind.REFERENCE, ref_project="基盤")]
+    )
 
 
 def test_a_reference_row_is_written_with_the_dates_and_progress_of_its_target() -> None:
-    value = ReferenceValue(planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 9, 18), progress=40)
+    value = ReferenceValue(
+        planned_start=datetime(2026, 10, 5, 9),
+        planned_end=datetime(2026, 10, 9, 18),
+        progress=40,
+    )
     out = build_tsv(reference_project(), {}, {"r": value})
-    assert rows(out.text)[3] == ["", "(参照) 基盤", "", "26年 10月 5日", "26年 10月 9日", "4", "40%"]
+    assert rows(out.text)[3] == [
+        "",
+        "(参照) 基盤",
+        "",
+        "26年 10月 5日",
+        "26年 10月 9日",
+        "4",
+        "40%",
+    ]
     assert (out.task_count, out.references, out.unresolved, out.skipped) == (0, 1, 0, 0)
 
 
 def test_a_finished_reference_without_progress_is_written_as_100_percent() -> None:
-    value = ReferenceValue(planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 5, 18), finished=True)
+    value = ReferenceValue(
+        planned_start=datetime(2026, 10, 5, 9),
+        planned_end=datetime(2026, 10, 5, 18),
+        finished=True,
+    )
     assert rows(build_tsv(reference_project(), {}, {"r": value}).text)[3][-1] == "100%"
 
 
 def test_a_reference_without_progress_is_written_as_0_percent() -> None:
-    value = ReferenceValue(planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 5, 18))
+    value = ReferenceValue(
+        planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 5, 18)
+    )
     assert rows(build_tsv(reference_project(), {}, {"r": value}).text)[3][-1] == "0%"
 
 
-def test_a_reference_that_cannot_be_read_is_written_with_blank_dates_and_progress() -> None:
+def test_a_reference_that_cannot_be_read_is_written_with_blank_dates_and_progress() -> (
+    None
+):
     out = build_tsv(reference_project(), {}, {})
     assert rows(out.text)[3] == ["", "(参照) 基盤", "", "", "", "0", ""]
     assert (out.references, out.unresolved) == (1, 1)

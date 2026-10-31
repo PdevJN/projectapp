@@ -47,6 +47,14 @@ mindmap
 
 - ty
 
+### lint とフォーマット(ruff)
+
+- 設定は`pyproject.toml`の`[tool.ruff]`。実行は`uvx ruff`(依存には入れない)
+- 実装の完了時(PR・コミットの前)に、全テストと合わせて次を実行する
+  - `uvx ruff check`(指摘が 0 件であること。`--fix`で直せるものは直す)
+  - `uvx ruff format src test`(整形したあと、`uvx ruff format --check src test`で差分がないこと)
+- format で変わったファイルがあれば、テストの前に実行し、そのあとの全テストで確認する
+
 ## 現在の状況記録と、業務の再開について
 
 - `現在の作業を記録して`で、現在の作業状況を`.claude/MEMORY.md`に要約保存する

@@ -26,7 +26,9 @@ def scope_value(member: str | None, team: str | None) -> str:
     return member or ALL
 
 
-def scope_options(all_label: str, members: Sequence[str], teams: Sequence[str]) -> dict[str, str]:
+def scope_options(
+    all_label: str, members: Sequence[str], teams: Sequence[str]
+) -> dict[str, str]:
     """プルダウンの選択肢。`全員`、メンバー、`チーム: 名前` の順。"""
     options = {ALL: all_label}
     options.update({name: name for name in members})

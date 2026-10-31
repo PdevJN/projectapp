@@ -33,7 +33,9 @@ def test_toggle_adds_then_removes_and_moves_the_anchor() -> None:
     assert sel.ids == set() and sel.anchor == "a"
 
 
-def test_toggling_a_summary_takes_its_children_and_a_child_can_be_dropped_alone() -> None:
+def test_toggling_a_summary_takes_its_children_and_a_child_can_be_dropped_alone() -> (
+    None
+):
     sel, by_id = BulkSelection(), tasks()
     sel.toggle("s", by_id)
     assert sel.ids == {"s", "c0", "c1"}

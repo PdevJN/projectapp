@@ -17,7 +17,9 @@ def consumed_hours(task: Task, old_rate: float) -> float:
         done = task.effort_hours * task.progress / 100
     else:
         worked = sum(  # 進行中の区間(終了なし)は数えない
-            (a.end - a.start).total_seconds() / 3600 for a in task.actuals if a.end is not None and a.end > a.start
+            (a.end - a.start).total_seconds() / 3600
+            for a in task.actuals
+            if a.end is not None and a.end > a.start
         )
         done = worked * combine_rate(old_rate, 1.0)
     return min(max(done, 0.0), task.effort_hours)
@@ -50,7 +52,14 @@ def reviewed_end(
     if remaining <= 0:
         return None
     start = max(now, task.planned_start) if task.planned_start else now
-    return calc_end(start, remaining, daily_hours, work_start, holidays, list(crew) if crew else [Worker(combine_rate(new_rate, 1.0))])
+    return calc_end(
+        start,
+        remaining,
+        daily_hours,
+        work_start,
+        holidays,
+        list(crew) if crew else [Worker(combine_rate(new_rate, 1.0))],
+    )
 
 
 def limit_reviews(
@@ -65,7 +74,16 @@ def limit_reviews(
         if not needs_review(task, old_rate, new_rate):
             continue
         crew = crew_of(*args, new_limits)
-        end = reviewed_end(task, old_rate, new_rate, project.daily_hours, project.work_start, holidays, now, crew)
+        end = reviewed_end(
+            task,
+            old_rate,
+            new_rate,
+            project.daily_hours,
+            project.work_start,
+            holidays,
+            now,
+            crew,
+        )
         if end is not None:
             result.append((task, end))
     return result

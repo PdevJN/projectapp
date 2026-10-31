@@ -44,7 +44,11 @@ class Pace:
 
 
 def pace(
-    task: Task, project: Project, holidays: dict[date, str], now: datetime, schedule: Schedule | None = None
+    task: Task,
+    project: Project,
+    holidays: dict[date, str],
+    now: datetime,
+    schedule: Schedule | None = None,
 ) -> Pace | None:
     """タスクの残りの工数と稼働量。判定できないとき(通常タスクでない・終了・工数なし・日程なし・
     完了予定を過ぎた・予定超過・残りなし)は None。"""
@@ -69,7 +73,13 @@ def pace(
         project.daily_hours,
         project.work_start,
         holidays,
-        crew=crew_of(task.assignees, project.members, project.parameters, task.parameters, project.ratio_limits),
+        crew=crew_of(
+            task.assignees,
+            project.members,
+            project.parameters,
+            task.parameters,
+            project.ratio_limits,
+        ),
         weeks=weekly_crews(task, project) or None,
         weeks_start=start.date(),
     )
@@ -77,7 +87,11 @@ def pace(
 
 
 def warning_pace(
-    task: Task, project: Project, holidays: dict[date, str], now: datetime, schedule: Schedule | None = None
+    task: Task,
+    project: Project,
+    holidays: dict[date, str],
+    now: datetime,
+    schedule: Schedule | None = None,
 ) -> Pace | None:
     """警告のときだけ Pace を返す(行の背景とホバーに使う)。"""
     value = pace(task, project, holidays, now, schedule)

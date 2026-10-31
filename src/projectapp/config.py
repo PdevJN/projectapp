@@ -8,10 +8,20 @@ from pathlib import Path
 
 from projectapp.dashboard_views import ViewSpec, views_from_config, views_to_config
 from projectapp.storage import BASE_DIR
-from projectapp.theme import CustomTheme, custom_theme_to_dict, parse_custom_theme, parse_today_color, parse_warning_color
+from projectapp.theme import (
+    CustomTheme,
+    custom_theme_to_dict,
+    parse_custom_theme,
+    parse_today_color,
+    parse_warning_color,
+)
 
 THEMES = ("auto", "light", "dark", "custom")
-TASK_SECTION_KEYS = ("assignees", "actuals", "related")  # タスクのダイアログの、折りたためる節(基本は常に開く)
+TASK_SECTION_KEYS = (
+    "assignees",
+    "actuals",
+    "related",
+)  # タスクのダイアログの、折りたためる節(基本は常に開く)
 DEFAULT_NAME_WIDTH_PX = 200  # ガントチャートの名前の欄の幅
 MIN_NAME_WIDTH_PX = 120
 MAX_NAME_WIDTH_PX = 480
@@ -66,7 +76,9 @@ def load_custom_theme(base_dir: Path = BASE_DIR) -> CustomTheme:
     return parse_custom_theme(read_config(base_dir).get("custom_theme"))
 
 
-def save_custom_theme(theme: CustomTheme, base_dir: Path = BASE_DIR, select: bool = False) -> None:
+def save_custom_theme(
+    theme: CustomTheme, base_dir: Path = BASE_DIR, select: bool = False
+) -> None:
     """カスタムの色を保存する。`select`が真なら、テーマも`custom`にして、1 回の書き込みで保存する。"""
     updates: dict = {"custom_theme": custom_theme_to_dict(theme)}
     if select:
@@ -97,13 +109,17 @@ def save_warning_color(color: str | None, base_dir: Path = BASE_DIR) -> None:
 def load_task_sections(base_dir: Path = BASE_DIR) -> list[str] | None:
     """開いている節のキー(節の順)。保存がない・不正(リストでない、未知のキーを含む)は None。"""
     value = read_config(base_dir).get("task_sections")
-    if not isinstance(value, list) or any(key not in TASK_SECTION_KEYS for key in value):
+    if not isinstance(value, list) or any(
+        key not in TASK_SECTION_KEYS for key in value
+    ):
         return None
     return [key for key in TASK_SECTION_KEYS if key in value]
 
 
 def save_task_sections(keys: list[str], base_dir: Path = BASE_DIR) -> None:
-    update_config({"task_sections": [key for key in TASK_SECTION_KEYS if key in keys]}, base_dir)
+    update_config(
+        {"task_sections": [key for key in TASK_SECTION_KEYS if key in keys]}, base_dir
+    )
 
 
 def load_dashboard_views(base_dir: Path = BASE_DIR) -> list[ViewSpec]:

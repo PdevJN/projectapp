@@ -36,7 +36,9 @@ def test_check_state_is_on_off_mixed_or_none() -> None:
 
 
 def test_set_checked_adds_or_removes_only_the_given_ids() -> None:
-    assert set_checked(frozenset({"z"}), ["a", "b"], False) == frozenset({"z", "a", "b"})
+    assert set_checked(frozenset({"z"}), ["a", "b"], False) == frozenset(
+        {"z", "a", "b"}
+    )
     assert set_checked(frozenset({"z", "a"}), ["a"], True) == frozenset({"z"})
 
 

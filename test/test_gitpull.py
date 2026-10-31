@@ -17,7 +17,9 @@ from projectapp.gitops import (
 
 
 def git(cwd: Path, *args: str) -> str:
-    done = subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+    done = subprocess.run(
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+    )
     return done.stdout
 
 
@@ -89,14 +91,20 @@ def test_diverged_is_merge(pair: tuple[Path, Path]) -> None:
     write(a, "甲.json", BASE_TEXT.replace("8", "八"))
     commit_all(a, "mine")
     plan = pull_prepare(a)
-    assert isinstance(plan, PullPlan) and plan.kind is PullKind.MERGE and plan.upstream == "origin/main"
+    assert (
+        isinstance(plan, PullPlan)
+        and plan.kind is PullKind.MERGE
+        and plan.upstream == "origin/main"
+    )
 
 
 def test_uncommitted_project_changes_refuse_the_pull(pair: tuple[Path, Path]) -> None:
     a, _ = pair
     write(a, "甲.json", BASE_TEXT + "x\n")
     result = pull_prepare(a)
-    assert isinstance(result, GitResult) and not result.ok and "甲.json" in result.message
+    assert (
+        isinstance(result, GitResult) and not result.ok and "甲.json" in result.message
+    )
 
 
 def test_no_upstream_refuses(tmp_path: Path) -> None:
@@ -110,7 +118,9 @@ def test_no_upstream_refuses(tmp_path: Path) -> None:
     assert isinstance(result, GitResult) and result.message == "上流がありません"
 
 
-def test_merge_with_a_textual_conflict_is_finished_with_the_apps_text(pair: tuple[Path, Path]) -> None:
+def test_merge_with_a_textual_conflict_is_finished_with_the_apps_text(
+    pair: tuple[Path, Path],
+) -> None:
     a, b = pair
     push_change(b, "甲.json", BASE_TEXT.replace("5", "B"))
     write(a, "甲.json", BASE_TEXT.replace("5", "A"))
@@ -129,7 +139,9 @@ def test_merge_with_a_textual_conflict_is_finished_with_the_apps_text(pair: tupl
     assert git(a, "log", "-1", "--format=%s").strip() == "マージ: origin/main"
 
 
-def test_merge_without_overlap_in_project_files_needs_no_app_merge(pair: tuple[Path, Path]) -> None:
+def test_merge_without_overlap_in_project_files_needs_no_app_merge(
+    pair: tuple[Path, Path],
+) -> None:
     a, b = pair
     push_change(b, "README.md", "r2\n")
     write(a, "甲.json", BASE_TEXT.replace("5", "A"))
@@ -141,14 +153,20 @@ def test_merge_without_overlap_in_project_files_needs_no_app_merge(pair: tuple[P
     assert len(parents(a)) == 2 and (a / "README.md").read_text() == "r2\n"
 
 
-def test_conflict_outside_project_files_aborts_and_restores(pair: tuple[Path, Path]) -> None:
+def test_conflict_outside_project_files_aborts_and_restores(
+    pair: tuple[Path, Path],
+) -> None:
     a, b = pair
     push_change(b, "README.md", "b\n")
     write(a, "README.md", "a\n")
     commit_all(a, "mine")
     git(a, "fetch")
     result = pull_start_merge(a, "origin/main")
-    assert isinstance(result, GitResult) and not result.ok and "README.md" in result.message
+    assert (
+        isinstance(result, GitResult)
+        and not result.ok
+        and "README.md" in result.message
+    )
     assert not (a / ".git" / "MERGE_HEAD").exists()
     assert (a / "README.md").read_text() == "a\n"
 
@@ -174,10 +192,14 @@ def test_failed_merge_commit_aborts_and_restores(pair: tuple[Path, Path]) -> Non
     git(a, "fetch")
     session = pull_start_merge(a, "origin/main")
     assert isinstance(session, MergeSession)
-    hook = a / ".git" / "hooks" / "commit-msg"  # 環境の identity に左右されないよう、フックでコミットを失敗させる
+    hook = (
+        a / ".git" / "hooks" / "commit-msg"
+    )  # 環境の identity に左右されないよう、フックでコミットを失敗させる
     hook.write_text("#!/bin/sh\necho rejected-by-hook >&2\nexit 1\n")
     hook.chmod(0o755)
-    git(a, "config", "core.hooksPath", str(hook.parent))  # 環境のグローバルな hooksPath を上書きする
+    git(
+        a, "config", "core.hooksPath", str(hook.parent)
+    )  # 環境のグローバルな hooksPath を上書きする
     done = pull_finish_merge(a, session, {"甲.json": BASE_TEXT})
     assert not done.ok and "rejected-by-hook" in done.message
     assert not (a / ".git" / "MERGE_HEAD").exists()
@@ -214,7 +236,11 @@ def test_end_to_end_two_people_edit_different_tasks(pair: tuple[Path, Path]) -> 
     from projectapp.storage import load_project, save_project
 
     a, b = pair
-    base = Project("共有", date(2026, 10, 1), tasks=[Task(f"t{i}", id=f"id{i}", effort_hours=1.0) for i in range(1, 7)])
+    base = Project(
+        "共有",
+        date(2026, 10, 1),
+        tasks=[Task(f"t{i}", id=f"id{i}", effort_hours=1.0) for i in range(1, 7)],
+    )
     save_project(base, a)
     commit_all(a, "共有を追加")
     git(a, "push")
@@ -244,7 +270,9 @@ def test_end_to_end_two_people_edit_different_tasks(pair: tuple[Path, Path]) -> 
     assert len(parents(a)) == 2
 
 
-def test_abort_after_a_partial_write_restores_the_auto_merged_file(pair: tuple[Path, Path]) -> None:
+def test_abort_after_a_partial_write_restores_the_auto_merged_file(
+    pair: tuple[Path, Path],
+) -> None:
     """git が自動で統合したファイルを書き換えたあと、次の書き込みが失敗しても、元に戻る(`merge --abort`が通る)。"""
     a, b = pair
     push_change(b, "甲.json", BASE_TEXT.replace("9", "B"))  # 末尾の行

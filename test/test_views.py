@@ -28,25 +28,71 @@ from projectapp.dashboard_views import DEFAULT_ORDER, STANDARD_NAME, CardId, Vie
 from projectapp.calendar import DayKind, save_cache
 from projectapp.filtering import TaskFilter
 from projectapp.gantt import KIND_COLORS
-from projectapp.forms import build_task
 from projectapp.handoff import JSON_FILE_TYPES
 from projectapp.settings_io import DEFAULT_FILENAME as SETTINGS_DEFAULT_FILENAME
-from projectapp.settings_io import SETTINGS_FILE_TYPES, build_settings, parse_settings, write_settings
+from projectapp.settings_io import (
+    SETTINGS_FILE_TYPES,
+    build_settings,
+    parse_settings,
+    write_settings,
+)
 from projectapp.categories import CategoryEdit
-from projectapp.models import Assignee, Actual, ActualMode, Category, Event, Level, Member, Membership, Parameter, Project, RatioLimits, ReferenceMode, ReferenceValue, Section, Status, Task, TaskKind, TaskUrl, Team, UrlTemplate, WorkDay, union_assignees
+from projectapp.models import (
+    Assignee,
+    Actual,
+    ActualMode,
+    Category,
+    Event,
+    Level,
+    Member,
+    Membership,
+    Parameter,
+    Project,
+    RatioLimits,
+    ReferenceMode,
+    ReferenceValue,
+    Section,
+    Status,
+    Task,
+    TaskKind,
+    TaskUrl,
+    Team,
+    UrlTemplate,
+    WorkDay,
+    union_assignees,
+)
 from projectapp.storage import load_project, save_project
-from nicegui.events import KeyboardAction, KeyboardKey, KeyboardModifiers, KeyEventArguments
+from nicegui.events import (
+    KeyboardAction,
+    KeyboardKey,
+    KeyboardModifiers,
+    KeyEventArguments,
+)
 
 from projectapp.decompose import ParamMode, Part
 from projectapp.export import PNG_FILE_TYPES, ExportError
 from projectapp.plantuml import PLANTUML_FILE_TYPES
 from projectapp.puml_import import PLANTUML_OPEN_FILE_TYPES
-from projectapp.dashboard import MAX_CUSTOM_DAYS, LateBasis, Period, PeriodKind, period_for
+from projectapp.dashboard import (
+    MAX_CUSTOM_DAYS,
+    LateBasis,
+    Period,
+    PeriodKind,
+    period_for,
+)
 from projectapp.preview import split_period
 from projectapp.timeline import Scale, Schedule, effective_end, visible_range
 from projectapp.gantt import ViewOptions
 from projectapp.forms import MEMBER_TABLE_CSS
-from projectapp.config import load_custom_theme, load_theme, load_today_color, load_warning_color, save_custom_theme, save_today_color, save_warning_color
+from projectapp.config import (
+    load_custom_theme,
+    load_theme,
+    load_today_color,
+    load_warning_color,
+    save_custom_theme,
+    save_today_color,
+    save_warning_color,
+)
 from projectapp.theme import DEFAULTS, CustomTheme
 from projectapp.reference import ReferenceResolver, take_snapshot
 from projectapp.views import HEADER_CSS, THEME_ICONS, MainView
@@ -122,7 +168,9 @@ async def test_first_launch_fetches_holidays_once(user: User, tmp_path: Path) ->
     assert len(calls) == 1
 
 
-async def test_cached_holidays_are_not_fetched_again(user: User, tmp_path: Path) -> None:
+async def test_cached_holidays_are_not_fetched_again(
+    user: User, tmp_path: Path
+) -> None:
     calls: list[str] = []
     save_cache({date(2026, 1, 1): "元日"}, tmp_path)
     mount(tmp_path, make_transport(200, calls))
@@ -136,7 +184,9 @@ async def test_first_fetch_failure_keeps_the_screen_and_retries_next_time(
 ) -> None:
     mount(tmp_path, make_transport(500, []))
     await user.open("/")
-    assert await wait_until(lambda: user.notify.contains("祝日データを取得できませんでした"))
+    assert await wait_until(
+        lambda: user.notify.contains("祝日データを取得できませんでした")
+    )
     await user.should_see("新規プロジェクト")
     assert not (tmp_path / "holidays.json").exists()
 
@@ -172,7 +222,9 @@ async def test_add_section_then_task_shows_a_bar(user: User, tmp_path: Path) -> 
 def edit_from_menu(user: User, row_marker: str) -> None:
     """行を右クリックして、メニューの`編集`を押す(左クリックでは編集を開かない)。"""
     row = user.find(marker=row_marker).elements.pop()
-    [listener] = [l for l in row._event_listeners.values() if l.type == "contextmenu"]
+    [listener] = [
+        ev for ev in row._event_listeners.values() if ev.type == "contextmenu"
+    ]
     listener.handler()
     user.find(marker="context-edit").click()
 
@@ -223,7 +275,9 @@ async def test_top_add_row_stays_out_of_sections(user: User, tmp_path: Path) -> 
     await user.should_not_see(marker="task-0-0")
 
 
-async def test_edit_top_level_task_opens_the_edit_dialog(user: User, tmp_path: Path) -> None:
+async def test_edit_top_level_task_opens_the_edit_dialog(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     mount(tmp_path, make_transport(200, []))
     await user.open("/")
@@ -274,12 +328,18 @@ async def test_saving_start_and_effort_shows_a_bar_without_storing_the_end(
     views: list[MainView] = []
     make_view(tmp_path, views)
     await user.open("/")
-    views[0].save_task((), None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
-    assert views[0].project.tasks[0].planned_end is None  # 完了予定は保存せず、その都度計算する
+    views[0].save_task(
+        (), None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0)
+    )
+    assert (
+        views[0].project.tasks[0].planned_end is None
+    )  # 完了予定は保存せず、その都度計算する
     await user.should_see(marker="bar-top-0")
 
 
-async def test_a_task_with_only_a_start_shows_a_one_day_bar(user: User, tmp_path: Path) -> None:
+async def test_a_task_with_only_a_start_shows_a_one_day_bar(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
@@ -308,7 +368,9 @@ async def test_save_new_project_asks_for_a_name_then_writes_the_file(
     await user.should_see("デモ")
 
 
-async def test_save_new_project_rejects_an_existing_name(user: User, tmp_path: Path) -> None:
+async def test_save_new_project_rejects_an_existing_name(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     original = save_project(Project("既存", sections=[Section("元")]), tmp_path)
     views: list[MainView] = []
@@ -372,7 +434,9 @@ async def test_failed_save_keeps_the_state(
     assert not (tmp_path / "デモ.json").exists()
 
 
-async def test_saving_with_an_unusable_name_notifies(user: User, tmp_path: Path) -> None:
+async def test_saving_with_an_unusable_name_notifies(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -381,7 +445,9 @@ async def test_saving_with_an_unusable_name_notifies(user: User, tmp_path: Path)
     view.path = tmp_path / "x.json"
     view.project.name = "a:b"
     user.find(marker="save-project").click()
-    assert await wait_until(lambda: user.notify.contains("名前に使えない文字が含まれています"))
+    assert await wait_until(
+        lambda: user.notify.contains("名前に使えない文字が含まれています")
+    )
     assert view.path == tmp_path / "x.json"
 
 
@@ -434,7 +500,9 @@ async def test_opening_a_project_resets_the_filter_but_editing_keeps_it(
     assert user.find(marker="search-input").elements.pop().value == ""
 
 
-async def test_the_filter_does_not_make_the_project_dirty(user: User, tmp_path: Path) -> None:
+async def test_the_filter_does_not_make_the_project_dirty(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -463,7 +531,9 @@ async def test_is_dirty_follows_open_edit_and_save(user: User, tmp_path: Path) -
     assert await wait_until(lambda: not view.is_dirty())
 
 
-async def test_saving_a_new_project_does_not_reload_it(user: User, tmp_path: Path) -> None:
+async def test_saving_a_new_project_does_not_reload_it(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -656,7 +726,11 @@ async def test_settings_are_saved_with_the_project(user: User, tmp_path: Path) -
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    view.save_task((), None, Task("自動", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    view.save_task(
+        (),
+        None,
+        Task("自動", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0),
+    )
     await open_settings_and_apply(user, "8", "10:00")
     assert await wait_until(lambda: view.is_dirty())
     await save_new_as(user, "設定")
@@ -711,12 +785,19 @@ async def test_delete_task_removes_only_that_task_and_makes_the_view_dirty(
     assert view.is_dirty()
 
 
-async def test_delete_task_keeps_the_summary_consistent(user: User, tmp_path: Path) -> None:
+async def test_delete_task_keeps_the_summary_consistent(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     save_project(
-        Project("既存", tasks=[
-            Task("m", id="m", kind=TaskKind.SUMMARY, children=["a", "b"]), Task("a", id="a"), Task("b", id="b"),
-        ]),
+        Project(
+            "既存",
+            tasks=[
+                Task("m", id="m", kind=TaskKind.SUMMARY, children=["a", "b"]),
+                Task("a", id="a"),
+                Task("b", id="b"),
+            ],
+        ),
         tmp_path,
     )
     views: list[MainView] = []
@@ -732,9 +813,14 @@ async def test_delete_task_keeps_the_summary_consistent(user: User, tmp_path: Pa
 
 
 @pytest.mark.smoke
-async def test_decompose_task_makes_a_summary_in_one_undo_step(user: User, tmp_path: Path) -> None:
+async def test_decompose_task_makes_a_summary_in_one_undo_step(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
-    save_project(Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]), tmp_path)
+    save_project(
+        Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]),
+        tmp_path,
+    )
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -749,22 +835,37 @@ async def test_decompose_task_makes_a_summary_in_one_undo_step(user: User, tmp_p
     assert view.project.sections[0].tasks[0].kind is TaskKind.NORMAL
 
 
-async def test_apply_decompose_passes_the_parameter_mode(user: User, tmp_path: Path) -> None:
+async def test_apply_decompose_passes_the_parameter_mode(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
-    save_project(Project("既存", sections=[Section("開発", [Task("実装", effort_hours=6.0, parameters=["A", "B"])])]), tmp_path)
+    save_project(
+        Project(
+            "既存",
+            sections=[
+                Section("開発", [Task("実装", effort_hours=6.0, parameters=["A", "B"])])
+            ],
+        ),
+        tmp_path,
+    )
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
     await choose_in_combo(user, "既存")
     assert await wait_until(lambda: view.path is not None)
-    view.apply_decompose((0,), 0, [Part("A", 3.0), Part("B", 3.0)], True, False, ParamMode.PER_PARAMETER)
+    view.apply_decompose(
+        (0,), 0, [Part("A", 3.0), Part("B", 3.0)], True, False, ParamMode.PER_PARAMETER
+    )
     assert [t.parameters for t in view.project.sections[0].tasks[1:]] == [["A"], ["B"]]
 
 
 async def open_edit_dialog_of_the_only_task(user: User, tmp_path: Path) -> MainView:
     save_cache({}, tmp_path)
-    save_project(Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]), tmp_path)
+    save_project(
+        Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]),
+        tmp_path,
+    )
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -777,20 +878,28 @@ async def open_edit_dialog_of_the_only_task(user: User, tmp_path: Path) -> MainV
 
 
 def open_dialog_count(view: MainView) -> int:
-    return sum(1 for e in view.client.elements.values() if isinstance(e, ui.dialog) and e.value)
+    return sum(
+        1 for e in view.client.elements.values() if isinstance(e, ui.dialog) and e.value
+    )
 
 
-async def test_decompose_stacks_over_the_edit_dialog_and_closes_both_on_success(user: User, tmp_path: Path) -> None:
+async def test_decompose_stacks_over_the_edit_dialog_and_closes_both_on_success(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_edit_dialog_of_the_only_task(user, tmp_path)
     user.find(marker="task-decompose").click()
-    assert open_dialog_count(view) == 2  # 閉じて開くと画面が一瞬消えるので、編集は開いたまま分解を重ねる
+    assert (
+        open_dialog_count(view) == 2
+    )  # 閉じて開くと画面が一瞬消えるので、編集は開いたまま分解を重ねる
     user.find(marker="decompose-apply").click()
     assert [t.kind for t in view.project.sections[0].tasks][0] is TaskKind.SUMMARY
     assert len(view.project.sections[0].tasks) == 3
     assert open_dialog_count(view) == 0
 
 
-async def test_cancelling_the_decompose_dialog_returns_to_the_edit_dialog(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_decompose_dialog_returns_to_the_edit_dialog(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_edit_dialog_of_the_only_task(user, tmp_path)
     user.find(marker="task-decompose").click()
     user.find(marker="decompose-cancel").click()
@@ -839,7 +948,9 @@ async def test_shift_task_does_not_go_before_the_predecessors_finish(
     user: User, tmp_path: Path
 ) -> None:
     save_cache({}, tmp_path)
-    a = Task("a", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=13)
+    a = Task(
+        "a", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=13
+    )
     b = Task(
         "b",
         id="bbbbbbbb",
@@ -855,10 +966,14 @@ async def test_shift_task_does_not_go_before_the_predecessors_finish(
     await choose_in_combo(user, "既存")
     assert await wait_until(lambda: view.path is not None)
     view.shift_task((), 1, -30)  # 大きく左へ
-    assert view.project.tasks[1].planned_start == datetime(2026, 10, 6, 9)  # 先行の完了の日まで
+    assert view.project.tasks[1].planned_start == datetime(
+        2026, 10, 6, 9
+    )  # 先行の完了の日まで
 
 
-async def test_delete_from_the_edit_dialog_removes_the_bar(user: User, tmp_path: Path) -> None:
+async def test_delete_from_the_edit_dialog_removes_the_bar(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     mount(tmp_path, make_transport(200, []))
     await user.open("/")
@@ -880,7 +995,9 @@ async def test_refresh_holidays_survives_a_cache_write_failure(
     mount_capturing(tmp_path, views)
     await user.open("/")
 
-    async def failing_download(base_dir: Path, transport: object = None) -> dict[date, str]:
+    async def failing_download(
+        base_dir: Path, transport: object = None
+    ) -> dict[date, str]:
         raise OSError("disk full")
 
     monkeypatch.setattr("projectapp.views.download_holidays", failing_download)
@@ -897,7 +1014,9 @@ async def test_save_as_new_refuses_a_file_created_after_the_name_was_checked(
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    save_project(Project("競合", sections=[Section("先客")]), tmp_path)  # 検証のあとに作られた想定
+    save_project(
+        Project("競合", sections=[Section("先客")]), tmp_path
+    )  # 検証のあとに作られた想定
     assert view.save_as_new("競合") is False
     assert user.notify.contains("同じ名前のファイルがすでにあります")
     assert view.path is None
@@ -938,12 +1057,16 @@ async def test_apply_settings_rerenders_without_a_recalculation_notice(
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    view.save_task((), None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    view.save_task(
+        (), None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0)
+    )
     await user.should_see(marker="bar-top-0")
     before = bar_width(user)
     await open_settings_and_apply(user, "8", "09:00")
     assert await wait_until(lambda: view.project.daily_hours == 8.0)
-    assert await wait_until(lambda: bar_width(user) != before)  # 稼働時間で完了予定が変わり、棒の長さが変わる
+    assert await wait_until(
+        lambda: bar_width(user) != before
+    )  # 稼働時間で完了予定が変わり、棒の長さが変わる
     assert not user.notify.contains("再計算")
     assert view.project.tasks[0].planned_end is None  # 完了予定は保存されない
 
@@ -956,11 +1079,15 @@ async def test_refreshing_holidays_rerenders_the_bar(
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    view.save_task((), None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0))
+    view.save_task(
+        (), None, Task("a", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0)
+    )
     await user.should_see(marker="bar-top-0")
     before = bar_width(user)
 
-    async def fake_download(base_dir: Path, transport: object = None) -> dict[date, str]:
+    async def fake_download(
+        base_dir: Path, transport: object = None
+    ) -> dict[date, str]:
         return {date(2026, 10, 12): "スポーツの日"}
 
     monkeypatch.setattr("projectapp.views.download_holidays", fake_download)
@@ -982,17 +1109,23 @@ async def open_members_parameters(user: User) -> None:
     await user.should_see(marker="members-parameters-panels")
 
 
-async def test_the_shortcut_opens_the_members_parameters_dialog_once(user: User, tmp_path: Path) -> None:
+async def test_the_shortcut_opens_the_members_parameters_dialog_once(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
         view.on_key(key_event("m", ctrl=True, shift=True))
     await user.should_see(marker="members-parameters-panels")
     with view.client:
-        view.on_key(key_event("m", ctrl=True, shift=True))  # 開いているあいだは、二重に開かない
+        view.on_key(
+            key_event("m", ctrl=True, shift=True)
+        )  # 開いているあいだは、二重に開かない
     assert len(user.find(marker="members-parameters-panels").elements) == 1
 
 
-async def test_the_members_parameters_dialog_opens_on_the_members_tab(user: User, tmp_path: Path) -> None:
+async def test_the_members_parameters_dialog_opens_on_the_members_tab(
+    user: User, tmp_path: Path
+) -> None:
     await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     panels = user.find(marker="members-parameters-panels").elements.pop()
@@ -1001,7 +1134,9 @@ async def test_the_members_parameters_dialog_opens_on_the_members_tab(user: User
     await user.should_see(marker="tab-parameters")
 
 
-async def test_the_tab_panels_do_not_shrink_so_the_card_scrolls_in_a_short_window(user: User, tmp_path: Path) -> None:
+async def test_the_tab_panels_do_not_shrink_so_the_card_scrolls_in_a_short_window(
+    user: User, tmp_path: Path
+) -> None:
     await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     panels = user.find(marker="members-parameters-panels").elements.pop()
@@ -1009,7 +1144,9 @@ async def test_the_tab_panels_do_not_shrink_so_the_card_scrolls_in_a_short_windo
     assert panels._style["flex-shrink"] == "0"
 
 
-async def test_applying_the_members_tab_keeps_the_dialog_open(user: User, tmp_path: Path) -> None:
+async def test_applying_the_members_tab_keeps_the_dialog_open(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     user.find(marker="member-add").click()
@@ -1019,10 +1156,16 @@ async def test_applying_the_members_tab_keeps_the_dialog_open(user: User, tmp_pa
     assert await wait_until(lambda: [m.name for m in view.project.members] == ["田中"])
     await user.should_see(marker="members-parameters-panels")  # 閉じない
     first = user.find(marker="member-name-0").elements.pop()
-    assert await wait_until(lambda: user.find(marker="member-name-0").elements.pop() is not first)  # 行の作り直しを待つ
-    user.find(marker="member-name-0").clear().type("田中太郎")  # 続けて適用できる(改名は 1 回分)
+    assert await wait_until(
+        lambda: user.find(marker="member-name-0").elements.pop() is not first
+    )  # 行の作り直しを待つ
+    user.find(marker="member-name-0").clear().type(
+        "田中太郎"
+    )  # 続けて適用できる(改名は 1 回分)
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: [m.name for m in view.project.members] == ["田中太郎"])
+    assert await wait_until(
+        lambda: [m.name for m in view.project.members] == ["田中太郎"]
+    )
 
 
 async def test_applying_parameters_rebuilds_the_member_columns_and_keeps_unapplied_member_edits(
@@ -1041,31 +1184,45 @@ async def test_applying_parameters_rebuilds_the_member_columns_and_keeps_unappli
     user.find(marker="level-name-0-0").type("上級")
     user.find(marker="level-value-0-0").clear().type("20")
     user.find(marker="parameter-apply").click()
-    assert await wait_until(lambda: [p.name for p in view.project.parameters] == ["経験"])
-    await user.should_see(marker="member-level-0-0")  # メンバーの表に、パラメータの列ができる
+    assert await wait_until(
+        lambda: [p.name for p in view.project.parameters] == ["経験"]
+    )
+    await user.should_see(
+        marker="member-level-0-0"
+    )  # メンバーの表に、パラメータの列ができる
     await user.should_see(marker="member-effective-0")
     assert view.project.members == []  # メンバーは、まだ適用していない
     assert user.find(marker="member-name-0").elements.pop().value == "田中"
 
 
-async def test_a_parameter_rename_carries_over_to_unapplied_member_rows(user: User, tmp_path: Path) -> None:
+async def test_a_parameter_rename_carries_over_to_unapplied_member_rows(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
-    view.project.parameters = [Parameter("経験", [Level("上級", 0.2), Level("初級", -0.1)])]
+    view.project.parameters = [
+        Parameter("経験", [Level("上級", 0.2), Level("初級", -0.1)])
+    ]
     view.project.members = [Member("田中", 1.0, {"経験": "上級"}, "m1")]
     view.mark_clean()
     await open_members_parameters(user)
     user.find(marker="member-name-0").clear().type("田中A")  # 未適用の編集
     user.find(marker="parameter-name-0").clear().type("経験値")
-    user.find(marker="level-delete-0-1").click()  # 「初級」を削除(選んでいるメンバーはいない)
+    user.find(
+        marker="level-delete-0-1"
+    ).click()  # 「初級」を削除(選んでいるメンバーはいない)
     await user.should_see(marker="level-add-0")
     user.find(marker="parameter-apply").click()
     assert await wait_until(lambda: view.project.parameters[0].name == "経験値")
     assert view.project.members[0].levels == {"経験値": "上級"}
-    assert user.find(marker="member-level-0-0").elements.pop().value == "上級"  # 未適用の行も追従する
+    assert (
+        user.find(marker="member-level-0-0").elements.pop().value == "上級"
+    )  # 未適用の行も追従する
     assert user.find(marker="member-name-0").elements.pop().value == "田中A"
 
 
-async def test_the_tabs_show_a_mark_while_they_have_unapplied_edits(user: User, tmp_path: Path) -> None:
+async def test_the_tabs_show_a_mark_while_they_have_unapplied_edits(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     members_mark = user.find(marker="members-dirty").elements.pop()
@@ -1089,12 +1246,16 @@ async def settle() -> None:
 
 
 def with_experience(view: MainView) -> None:
-    view.project.parameters = [Parameter("経験", [Level("上級", 0.2), Level("初級", -0.1)])]
+    view.project.parameters = [
+        Parameter("経験", [Level("上級", 0.2), Level("初級", -0.1)])
+    ]
     view.project.members = [Member("田中", 1.0, {"経験": "上級"}, "m1")]
     view.mark_clean()
 
 
-async def test_a_parameter_rename_and_delete_do_not_mark_the_members_tab_as_edited(user: User, tmp_path: Path) -> None:
+async def test_a_parameter_rename_and_delete_do_not_mark_the_members_tab_as_edited(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     with_experience(view)
     await open_members_parameters(user)
@@ -1107,10 +1268,14 @@ async def test_a_parameter_rename_and_delete_do_not_mark_the_members_tab_as_edit
     assert await wait_until(lambda: view.project.parameters[0].name == "経験値")
     assert view.project.members[0].levels == {"経験値": "エキスパート"}
     await settle()
-    assert members_mark.text == ""  # メンバーの表は、プロジェクトに追従しただけで、編集ではない
+    assert (
+        members_mark.text == ""
+    )  # メンバーの表は、プロジェクトに追従しただけで、編集ではない
 
 
-async def test_a_parameter_apply_keeps_the_mark_of_a_real_member_edit(user: User, tmp_path: Path) -> None:
+async def test_a_parameter_apply_keeps_the_mark_of_a_real_member_edit(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     with_experience(view)
     await open_members_parameters(user)
@@ -1123,7 +1288,9 @@ async def test_a_parameter_apply_keeps_the_mark_of_a_real_member_edit(user: User
     assert members_mark.text == "●"  # 名前の編集は、まだ適用していない
 
 
-async def test_applying_members_uses_the_applied_parameters_not_the_unapplied_ones(user: User, tmp_path: Path) -> None:
+async def test_applying_members_uses_the_applied_parameters_not_the_unapplied_ones(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     with_experience(view)
     await open_members_parameters(user)
@@ -1133,12 +1300,16 @@ async def test_applying_members_uses_the_applied_parameters_not_the_unapplied_on
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: view.project.members[0].name == "田中A")
     assert view.project.parameters[0].name == "経験"  # パラメータは、適用していない
-    assert view.project.members[0].levels == {"経験": "上級"}  # 選択も、適用済みの定義のまま
+    assert view.project.members[0].levels == {
+        "経験": "上級"
+    }  # 選択も、適用済みの定義のまま
     await settle()
     assert parameters_mark.text == "●"  # パラメータのタブの編集は、残る
 
 
-async def test_applying_members_twice_renames_the_assigned_tasks_once_each(user: User, tmp_path: Path) -> None:
+async def test_applying_members_twice_renames_the_assigned_tasks_once_each(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0, {}, "m1")]
     view.project.tasks = [Task("a", assignees=[Assignee("田中")])]
@@ -1148,7 +1319,9 @@ async def test_applying_members_twice_renames_the_assigned_tasks_once_each(user:
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: view.project.tasks[0].assignees[0].name == "田中A")
     first = user.find(marker="member-name-0").elements.pop()
-    assert await wait_until(lambda: user.find(marker="member-name-0").elements.pop() is not first)  # 行の作り直しを待つ
+    assert await wait_until(
+        lambda: user.find(marker="member-name-0").elements.pop() is not first
+    )  # 行の作り直しを待つ
     user.find(marker="member-name-0").clear().type("田中B")
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: view.project.tasks[0].assignees[0].name == "田中B")
@@ -1156,13 +1329,21 @@ async def test_applying_members_twice_renames_the_assigned_tasks_once_each(user:
     assert view.project.members[0].name == "田中B"
 
 
-async def test_cancel_closes_the_dialog_and_discards_unapplied_edits(user: User, tmp_path: Path) -> None:
+async def test_cancel_closes_the_dialog_and_discards_unapplied_edits(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     user.find(marker="member-add").click()
     await user.should_see(marker="member-name-0")
     user.find(marker="member-name-0").type("田中")
-    dialog = next(a for a in user.find(marker="members-parameters-panels").elements.pop().ancestors() if isinstance(a, ui.dialog))
+    dialog = next(
+        a
+        for a in user.find(marker="members-parameters-panels")
+        .elements.pop()
+        .ancestors()
+        if isinstance(a, ui.dialog)
+    )
     user.find(marker="members-parameters-cancel").click()
     assert not dialog.value
     assert view.project.members == []
@@ -1181,7 +1362,9 @@ async def test_the_members_dialog_adds_a_member(user: User, tmp_path: Path) -> N
     assert view.is_dirty()
 
 
-async def test_the_members_dialog_applies_ratio_unclamped(user: User, tmp_path: Path) -> None:
+async def test_the_members_dialog_applies_ratio_unclamped(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     user.find(marker="member-add").click()
@@ -1190,10 +1373,17 @@ async def test_the_members_dialog_applies_ratio_unclamped(user: User, tmp_path: 
     user.find(marker="member-ratio-0").clear().type("200")
     user.find(marker="member-unclamped-0").click()
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: [(m.ratio, m.ratio_unclamped) for m in view.project.members] == [(2.0, True)])
+    assert await wait_until(
+        lambda: (
+            [(m.ratio, m.ratio_unclamped) for m in view.project.members]
+            == [(2.0, True)]
+        )
+    )
 
 
-async def test_the_members_dialog_applies_and_clears_the_warning_limit(user: User, tmp_path: Path) -> None:
+async def test_the_members_dialog_applies_and_clears_the_warning_limit(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     user.find(marker="member-add").click()
@@ -1202,14 +1392,20 @@ async def test_the_members_dialog_applies_and_clears_the_warning_limit(user: Use
     user.find(marker="member-name-0").type("田中")
     user.find(marker="member-warning-limit-0").elements.pop().set_value(3)
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: [m.warning_limit for m in view.project.members] == [3])
+    assert await wait_until(
+        lambda: [m.warning_limit for m in view.project.members] == [3]
+    )
     await asyncio.sleep(0.5)  # 適用後の表の描き直しを待つ(古い行の入力欄を触らない)
     user.find(marker="member-warning-limit-0").elements.pop().set_value(None)
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: [m.warning_limit for m in view.project.members] == [None])
+    assert await wait_until(
+        lambda: [m.warning_limit for m in view.project.members] == [None]
+    )
 
 
-async def test_the_members_dialog_rejects_a_duplicate_name(user: User, tmp_path: Path) -> None:
+async def test_the_members_dialog_rejects_a_duplicate_name(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
     view.mark_clean()
@@ -1222,7 +1418,9 @@ async def test_the_members_dialog_rejects_a_duplicate_name(user: User, tmp_path:
     assert view.project.members == [Member("田中", 1.0)]
 
 
-async def test_applying_the_same_members_changes_nothing(user: User, tmp_path: Path) -> None:
+async def test_applying_the_same_members_changes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.2)]
     view.mark_clean()
@@ -1237,17 +1435,29 @@ async def test_renaming_a_member_renames_the_assignee_of_its_tasks(
 ) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0), Member("鈴木", 1.0)]
-    view.project.tasks = [Task("a", assignees=[Assignee("田中")]), Task("b", assignees=[Assignee("鈴木")]), Task("c")]
+    view.project.tasks = [
+        Task("a", assignees=[Assignee("田中")]),
+        Task("b", assignees=[Assignee("鈴木")]),
+        Task("c"),
+    ]
     view.mark_clean()
     await open_members_parameters(user)
     user.find(marker="member-name-0").clear().type("田中太郎")
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: view.project.tasks[0].assignee_names == ["田中太郎"])
-    assert [t.assignee_names for t in view.project.tasks] == [["田中太郎"], ["鈴木"], []]
+    assert await wait_until(
+        lambda: view.project.tasks[0].assignee_names == ["田中太郎"]
+    )
+    assert [t.assignee_names for t in view.project.tasks] == [
+        ["田中太郎"],
+        ["鈴木"],
+        [],
+    ]
     assert [m.name for m in view.project.members] == ["田中太郎", "鈴木"]
 
 
-async def test_a_member_with_tasks_cannot_be_deleted(user: User, tmp_path: Path) -> None:
+async def test_a_member_with_tasks_cannot_be_deleted(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
     view.project.tasks = [Task("a", assignees=[Assignee("田中")])]
@@ -1259,7 +1469,9 @@ async def test_a_member_with_tasks_cannot_be_deleted(user: User, tmp_path: Path)
     assert view.project.members == [Member("田中", 1.0)]
 
 
-async def test_a_member_without_tasks_can_be_deleted(user: User, tmp_path: Path) -> None:
+async def test_a_member_without_tasks_can_be_deleted(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
     view.mark_clean()
@@ -1269,7 +1481,9 @@ async def test_a_member_without_tasks_can_be_deleted(user: User, tmp_path: Path)
     assert await wait_until(lambda: view.project.members == [])
 
 
-async def test_the_members_dialog_leaves_no_elements_after_hide(user: User, tmp_path: Path) -> None:
+async def test_the_members_dialog_leaves_no_elements_after_hide(
+    user: User, tmp_path: Path
+) -> None:
     await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     await user.should_see(marker="member-add")
@@ -1277,7 +1491,9 @@ async def test_the_members_dialog_leaves_no_elements_after_hide(user: User, tmp_
     await user.should_not_see(marker="member-add")
 
 
-async def test_saving_a_task_that_overloads_the_assignee_warns(user: User, tmp_path: Path) -> None:
+async def test_saving_a_task_that_overloads_the_assignee_warns(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -1332,10 +1548,15 @@ async def test_saving_a_task_that_does_not_overload_shows_no_warning(
     assert not user.notify.contains("割り当て")
 
 
-async def test_swapping_two_member_names_swaps_the_assignees_once(user: User, tmp_path: Path) -> None:
+async def test_swapping_two_member_names_swaps_the_assignees_once(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("A", 1.0), Member("B", 1.0)]
-    view.project.tasks = [Task("t1", assignees=[Assignee("A")]), Task("t2", assignees=[Assignee("B")])]
+    view.project.tasks = [
+        Task("t1", assignees=[Assignee("A")]),
+        Task("t2", assignees=[Assignee("B")]),
+    ]
     view.mark_clean()
     await open_members_parameters(user)
     user.find(marker="member-name-0").clear().type("B")
@@ -1346,7 +1567,9 @@ async def test_swapping_two_member_names_swaps_the_assignees_once(user: User, tm
     assert [m.name for m in view.project.members] == ["B", "A"]
 
 
-async def test_move_task_moves_marks_dirty_and_redraws(user: User, tmp_path: Path) -> None:
+async def test_move_task_moves_marks_dirty_and_redraws(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -1363,7 +1586,9 @@ async def test_move_task_moves_marks_dirty_and_redraws(user: User, tmp_path: Pat
     await user.should_see(marker="task-top-1")
 
 
-async def test_move_task_to_the_same_place_does_nothing(user: User, tmp_path: Path) -> None:
+async def test_move_task_to_the_same_place_does_nothing(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -1376,7 +1601,9 @@ async def test_move_task_to_the_same_place_does_nothing(user: User, tmp_path: Pa
     assert not view.is_dirty()
 
 
-async def test_move_task_with_stale_positions_is_ignored(user: User, tmp_path: Path) -> None:
+async def test_move_task_with_stale_positions_is_ignored(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -1408,14 +1635,18 @@ async def test_copy_task_adds_a_copy_and_notifies(user: User, tmp_path: Path) ->
     await user.should_see("「設計」をコピーしました")
 
 
-async def test_shift_task_moves_the_dates_and_marks_dirty(user: User, tmp_path: Path) -> None:
+async def test_shift_task_moves_the_dates_and_marks_dirty(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
     view.project.tasks.append(
-        Task("a", planned_start=datetime(2026, 10, 5, 9), deadline=datetime(2026, 10, 9))
+        Task(
+            "a", planned_start=datetime(2026, 10, 5, 9), deadline=datetime(2026, 10, 9)
+        )
     )
     view.mark_clean()
     view.shift_task((), 0, 2)
@@ -1425,7 +1656,9 @@ async def test_shift_task_moves_the_dates_and_marks_dirty(user: User, tmp_path: 
     assert view.is_dirty()
 
 
-async def test_shift_task_ignores_zero_and_stale_positions(user: User, tmp_path: Path) -> None:
+async def test_shift_task_ignores_zero_and_stale_positions(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -1464,10 +1697,22 @@ async def test_shift_task_warns_when_the_assignee_goes_over_100_percent(
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    view.project.base_date = date(2026, 10, 5)  # 既定は「今日」。日付が進むと、基準日より前へは動かせず、テストが落ちる
+    view.project.base_date = date(
+        2026, 10, 5
+    )  # 既定は「今日」。日付が進むと、基準日より前へは動かせず、テストが落ちる
     view.apply_members([Member("田中")], {})
-    first = Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5, assignees=[Assignee("田中")])
-    second = Task("b", planned_start=datetime(2026, 10, 6, 9), effort_hours=6.5, assignees=[Assignee("田中")])
+    first = Task(
+        "a",
+        planned_start=datetime(2026, 10, 5, 9),
+        effort_hours=6.5,
+        assignees=[Assignee("田中")],
+    )
+    second = Task(
+        "b",
+        planned_start=datetime(2026, 10, 6, 9),
+        effort_hours=6.5,
+        assignees=[Assignee("田中")],
+    )
     view.project.tasks.extend([first, second])
     view.shift_task((), 1, -1)  # 同じ日に重なる(割り当て 100% + 100%)
     await user.should_see("田中 最大200%になる期間があります")
@@ -1516,7 +1761,9 @@ async def test_shift_task_before_the_base_date_can_only_move_right(
     assert task.planned_start == datetime(2026, 10, 4, 9)
 
 
-async def test_switching_the_theme_refreshes_the_chart_scrollbars(user: User, tmp_path: Path) -> None:
+async def test_switching_the_theme_refreshes_the_chart_scrollbars(
+    user: User, tmp_path: Path
+) -> None:
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -1527,7 +1774,9 @@ async def test_switching_the_theme_refreshes_the_chart_scrollbars(user: User, tm
     assert views[0].theme == "dark"
 
 
-async def test_opening_another_project_resets_the_chart_scroll(user: User, tmp_path: Path) -> None:
+async def test_opening_another_project_resets_the_chart_scroll(
+    user: User, tmp_path: Path
+) -> None:
     save_project(Project("別", tasks=[Task("t")]), tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -1538,7 +1787,9 @@ async def test_opening_another_project_resets_the_chart_scroll(user: User, tmp_p
     assert calls == ["reset"]
 
 
-async def test_editing_a_task_keeps_the_chart_scroll(user: User, tmp_path: Path) -> None:
+async def test_editing_a_task_keeps_the_chart_scroll(
+    user: User, tmp_path: Path
+) -> None:
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -1572,7 +1823,10 @@ async def test_multi_interval_count_counts_tasks_with_two_or_more_actuals(
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    two = [Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)), Actual(datetime(2026, 10, 6, 9))]
+    two = [
+        Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
+        Actual(datetime(2026, 10, 6, 9)),
+    ]
     view.save_task((), None, Task("複数", actuals=two))
     view.save_task((), None, Task("単独", actuals=two[:1]))
     assert view.multi_interval_count() == 1
@@ -1598,7 +1852,9 @@ class FakeExporter:
         self.open_path = open_path
         self.asked_open: list[tuple[str, ...]] = []
         self.captured: list[float] = []
-        self.on_capture: Callable[[], object] | None = None  # 撮る瞬間に呼ぶ(描画の状態を調べる)
+        self.on_capture: Callable[[], object] | None = (
+            None  # 撮る瞬間に呼ぶ(描画の状態を調べる)
+        )
         self.asked: list[str] = []
         self.asked_types: list[tuple[str, ...]] = []
 
@@ -1614,7 +1870,9 @@ class FakeExporter:
             raise self.error
         return PNG_BYTES
 
-    async def ask_path(self, filename: str, file_types: tuple[str, ...] = ()) -> Path | None:
+    async def ask_path(
+        self, filename: str, file_types: tuple[str, ...] = ()
+    ) -> Path | None:
         self.asked.append(filename)
         self.asked_types.append(file_types)
         return self.path
@@ -1628,7 +1886,9 @@ class FakeExporter:
         return self.directory
 
 
-def mount_preview(base_dir: Path, views: list[MainView], exporter: FakeExporter) -> None:
+def mount_preview(
+    base_dir: Path, views: list[MainView], exporter: FakeExporter
+) -> None:
     @ui.page("/")
     def index() -> None:
         view = MainView(base_dir, make_transport(200, []), exporter)
@@ -1636,7 +1896,9 @@ def mount_preview(base_dir: Path, views: list[MainView], exporter: FakeExporter)
         view.build()
 
 
-async def open_members_view_with(user: User, tmp_path: Path, exporter: FakeExporter) -> MainView:
+async def open_members_view_with(
+    user: User, tmp_path: Path, exporter: FakeExporter
+) -> MainView:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_preview(tmp_path, views, exporter)
@@ -1644,7 +1906,9 @@ async def open_members_view_with(user: User, tmp_path: Path, exporter: FakeExpor
     return views[0]
 
 
-async def test_choosing_an_icon_shows_it_and_applies_it(user: User, tmp_path: Path, make_png) -> None:
+async def test_choosing_an_icon_shows_it_and_applies_it(
+    user: User, tmp_path: Path, make_png
+) -> None:
     path = tmp_path / "a.png"
     path.write_bytes(make_png())
     exporter = FakeExporter(open_path=path)
@@ -1652,25 +1916,35 @@ async def test_choosing_an_icon_shows_it_and_applies_it(user: User, tmp_path: Pa
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
     user.find(marker="member-icon-pick-0").click()
-    assert await wait_until(lambda: user.find(marker="member-icon-0").elements.pop().tag == "img")
+    assert await wait_until(
+        lambda: user.find(marker="member-icon-0").elements.pop().tag == "img"
+    )
     assert exporter.asked_open and "png" in exporter.asked_open[0][0]
     assert user.find(marker="members-dirty").elements.pop().text == "●"  # 未適用の編集
     assert view.project.members[0].icon == ""  # 適用までは変わらない
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: view.project.members[0].icon.startswith("data:image/png;base64,"))
+    assert await wait_until(
+        lambda: view.project.members[0].icon.startswith("data:image/png;base64,")
+    )
 
 
-async def test_clearing_an_icon_applies_the_removal(user: User, tmp_path: Path, icon: str) -> None:
+async def test_clearing_an_icon_applies_the_removal(
+    user: User, tmp_path: Path, icon: str
+) -> None:
     view = await open_members_view_with(user, tmp_path, FakeExporter())
     view.project.members = [Member("田中", 1.0, icon=icon)]
     await open_members_parameters(user)
     user.find(marker="member-icon-clear-0").click()
-    assert await wait_until(lambda: user.find(marker="member-icon-0").elements.pop().tag != "img")
+    assert await wait_until(
+        lambda: user.find(marker="member-icon-0").elements.pop().tag != "img"
+    )
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: view.project.members[0].icon == "")
 
 
-async def test_cancelling_the_file_choice_changes_nothing(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_file_choice_changes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(open_path=None)
     view = await open_members_view_with(user, tmp_path, exporter)
     view.project.members = [Member("田中", 1.0)]
@@ -1681,7 +1955,9 @@ async def test_cancelling_the_file_choice_changes_nothing(user: User, tmp_path: 
     assert user.find(marker="members-dirty").elements.pop().text == ""
 
 
-async def test_an_unreadable_image_is_reported_and_changes_nothing(user: User, tmp_path: Path) -> None:
+async def test_an_unreadable_image_is_reported_and_changes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     bad = tmp_path / "bad.png"
     bad.write_bytes(b"not an image")
     view = await open_members_view_with(user, tmp_path, FakeExporter(open_path=bad))
@@ -1692,7 +1968,9 @@ async def test_an_unreadable_image_is_reported_and_changes_nothing(user: User, t
     assert user.find(marker="member-icon-0").elements.pop().tag != "img"
 
 
-async def test_the_pick_button_is_hidden_without_a_native_window(user: User, tmp_path: Path, icon: str) -> None:
+async def test_the_pick_button_is_hidden_without_a_native_window(
+    user: User, tmp_path: Path, icon: str
+) -> None:
     view = await open_members_view_with(user, tmp_path, FakeExporter(available=False))
     view.project.members = [Member("田中", 1.0, icon=icon)]
     await open_members_parameters(user)
@@ -1701,16 +1979,22 @@ async def test_the_pick_button_is_hidden_without_a_native_window(user: User, tmp
     await user.should_see(marker="member-icon-clear-0")  # 外すことはできる
 
 
-async def test_the_icon_survives_a_rename_and_undo_restores_it(user: User, tmp_path: Path, icon: str) -> None:
+async def test_the_icon_survives_a_rename_and_undo_restores_it(
+    user: User, tmp_path: Path, icon: str
+) -> None:
     view = await open_members_view_with(user, tmp_path, FakeExporter())
     view.project.members = [Member("田中", 1.0, icon=icon)]
     await open_members_parameters(user)
     first = user.find(marker="member-icon-clear-0").elements.pop()
     user.find(marker="member-name-0").clear().type("田中太郎")
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: [m.name for m in view.project.members] == ["田中太郎"])
+    assert await wait_until(
+        lambda: [m.name for m in view.project.members] == ["田中太郎"]
+    )
     assert view.project.members[0].icon == icon
-    assert await wait_until(lambda: user.find(marker="member-icon-clear-0").elements.pop() is not first)  # 行の作り直しを待つ
+    assert await wait_until(
+        lambda: user.find(marker="member-icon-clear-0").elements.pop() is not first
+    )  # 行の作り直しを待つ
     user.find(marker="member-icon-clear-0").click()
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: view.project.members[0].icon == "")
@@ -1719,7 +2003,11 @@ async def test_the_icon_survives_a_rename_and_undo_restores_it(user: User, tmp_p
 
 
 def planned_task() -> Task:
-    return Task("設計", planned_start=datetime(2026, 10, 5, 12), planned_end=datetime(2026, 10, 7, 12))
+    return Task(
+        "設計",
+        planned_start=datetime(2026, 10, 5, 12),
+        planned_end=datetime(2026, 10, 7, 12),
+    )
 
 
 async def open_preview(
@@ -1739,7 +2027,9 @@ async def open_preview(
     return view
 
 
-def key_event(name: str, keydown: bool = True, ctrl: bool = False, shift: bool = False) -> KeyEventArguments:
+def key_event(
+    name: str, keydown: bool = True, ctrl: bool = False, shift: bool = False
+) -> KeyEventArguments:
     return KeyEventArguments(
         sender=None,  # type: ignore[arg-type]
         client=None,  # type: ignore[arg-type]
@@ -1768,7 +2058,9 @@ async def test_the_date_move_keys_reach_the_chart_and_are_ignored_while_a_dialog
     assert calls == []
 
 
-async def test_the_quick_progress_dialog_saves_one_undo_step(user: User, tmp_path: Path) -> None:
+async def test_the_quick_progress_dialog_saves_one_undo_step(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     task = view.project.all_tasks()[0]
     path = () if task in view.project.tasks else (0,)
@@ -1786,15 +2078,21 @@ async def test_the_quick_progress_dialog_saves_one_undo_step(user: User, tmp_pat
     assert view.tasks_in(path)[index].progress == task.progress  # 元に戻す 1 ステップ
 
 
-async def test_the_quick_progress_dialog_does_not_open_for_a_checkpoint(user: User, tmp_path: Path) -> None:
+async def test_the_quick_progress_dialog_does_not_open_for_a_checkpoint(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path, with_task=False)
-    view.project.tasks = [Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17))]
+    view.project.tasks = [
+        Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17))
+    ]
     with user.client:
         view.edit_progress((), 0)
     await user.should_not_see(marker="quick-progress")
 
 
-async def test_the_preview_replaces_the_header_and_toolbar(user: User, tmp_path: Path) -> None:
+async def test_the_preview_replaces_the_header_and_toolbar(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     assert view.preview is not None
     assert not view.header_box.visible  # user.find は、非表示の要素を見つけない
@@ -1816,7 +2114,9 @@ def set_period(user: User, start: str | None = None, end: str | None = None) -> 
     user.find(marker="preview-period").clear().type(text)
 
 
-async def test_the_preview_starts_with_the_visible_range_and_the_current_scale(user: User, tmp_path: Path) -> None:
+async def test_the_preview_starts_with_the_visible_range_and_the_current_scale(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     settings = view.preview
     assert settings is not None
@@ -1824,10 +2124,14 @@ async def test_the_preview_starts_with_the_visible_range_and_the_current_scale(u
     assert settings.end >= date(2026, 10, 7)
     assert settings.scale is view.gantt.scale
     assert period_of(user)[0] == "2026-10-05"
-    assert user.find(marker="preview-scale").elements.pop().value == view.gantt.scale.value
+    assert (
+        user.find(marker="preview-scale").elements.pop().value == view.gantt.scale.value
+    )
 
 
-async def test_the_range_picker_applies_the_chosen_range_to_the_fields(user: User, tmp_path: Path) -> None:
+async def test_the_range_picker_applies_the_chosen_range_to_the_fields(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     user.find(marker="open-preview-range-picker").click()
     picker = user.find(marker="preview-range-picker").elements.pop()
@@ -1837,23 +2141,35 @@ async def test_the_range_picker_applies_the_chosen_range_to_the_fields(user: Use
     assert period_of(user)[0] == "2026-10-01"
     assert period_of(user)[1] == "2026-10-20"
     assert view.preview is not None
-    assert (view.preview.start, view.preview.end) == (date(2026, 10, 1), date(2026, 10, 20))
+    assert (view.preview.start, view.preview.end) == (
+        date(2026, 10, 1),
+        date(2026, 10, 20),
+    )
 
 
-async def test_the_range_picker_applies_a_same_day_string_and_rejects_a_half_range(user: User, tmp_path: Path) -> None:
+async def test_the_range_picker_applies_a_same_day_string_and_rejects_a_half_range(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     user.find(marker="open-preview-range-picker").click()
     picker = user.find(marker="preview-range-picker").elements.pop()
     picker.set_value({"from": "2026-10-09"})  # to がない(来ない値だが、確定させない)
     assert not user.find(marker="preview-range-picker-ok").elements.pop().enabled
-    picker.set_value("2026-10-09")  # 同じ日を 2 回押すと、Quasar は日付の文字列を返す = 1 日の範囲
+    picker.set_value(
+        "2026-10-09"
+    )  # 同じ日を 2 回押すと、Quasar は日付の文字列を返す = 1 日の範囲
     assert user.find(marker="preview-range-picker-ok").elements.pop().enabled
     user.find(marker="preview-range-picker-ok").click()
     assert view.preview is not None
-    assert (view.preview.start, view.preview.end) == (date(2026, 10, 9), date(2026, 10, 9))
+    assert (view.preview.start, view.preview.end) == (
+        date(2026, 10, 9),
+        date(2026, 10, 9),
+    )
 
 
-async def test_ok_is_disabled_while_a_range_is_being_picked(user: User, tmp_path: Path) -> None:
+async def test_ok_is_disabled_while_a_range_is_being_picked(
+    user: User, tmp_path: Path
+) -> None:
     """Quasar は 1 回目のクリックでは値を送らない(rangeStart だけ)。そのあいだ前の範囲を適用させない。"""
     view = await open_preview(user, tmp_path, FakeExporter())
     user.find(marker="open-preview-range-picker").click()
@@ -1863,25 +2179,42 @@ async def test_ok_is_disabled_while_a_range_is_being_picked(user: User, tmp_path
     assert not ok.enabled
     picker = user.find(marker="preview-range-picker").elements.pop()
     picker.set_value({"from": "2026-11-05", "to": "2026-11-12"})
-    emit(user, "preview-range-picker", "rangeEnd", {"from": "2026/11/05", "to": "2026/11/12"})
+    emit(
+        user,
+        "preview-range-picker",
+        "rangeEnd",
+        {"from": "2026/11/05", "to": "2026/11/12"},
+    )
     assert ok.enabled
     user.find(marker="preview-range-picker-ok").click()
     assert view.preview is not None
-    assert (view.preview.start, view.preview.end) == (date(2026, 11, 5), date(2026, 11, 12))
+    assert (view.preview.start, view.preview.end) == (
+        date(2026, 11, 5),
+        date(2026, 11, 12),
+    )
 
 
-async def test_picking_the_same_range_again_enables_ok_after_range_end(user: User, tmp_path: Path) -> None:
+async def test_picking_the_same_range_again_enables_ok_after_range_end(
+    user: User, tmp_path: Path
+) -> None:
     """値が変わらない選び直し(value の変更が起きない)でも、rangeEnd で OK を戻す。"""
     await open_preview(user, tmp_path, FakeExporter())
     user.find(marker="open-preview-range-picker").click()
     ok = user.find(marker="preview-range-picker-ok").elements.pop()
     emit(user, "preview-range-picker", "rangeStart", "2026/10/05")
     assert not ok.enabled
-    emit(user, "preview-range-picker", "rangeEnd", {"from": "2026/10/05", "to": "2026/10/05"})
+    emit(
+        user,
+        "preview-range-picker",
+        "rangeEnd",
+        {"from": "2026/10/05", "to": "2026/10/05"},
+    )
     assert ok.enabled
 
 
-async def test_closing_the_range_picker_without_ok_keeps_the_fields(user: User, tmp_path: Path) -> None:
+async def test_closing_the_range_picker_without_ok_keeps_the_fields(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
 
     def fields() -> tuple[str, str]:
@@ -1889,7 +2222,9 @@ async def test_closing_the_range_picker_without_ok_keeps_the_fields(user: User, 
 
     before = fields()
     user.find(marker="open-preview-range-picker").click()
-    user.find(marker="preview-range-picker").elements.pop().set_value({"from": "2026-11-01", "to": "2026-11-30"})
+    user.find(marker="preview-range-picker").elements.pop().set_value(
+        {"from": "2026-11-01", "to": "2026-11-30"}
+    )
     ok = user.find(marker="preview-range-picker-ok").elements.pop()
     dialog = ok.parent_slot.parent.parent_slot.parent  # ボタン → カード → ダイアログ
     assert isinstance(dialog, ui.dialog)
@@ -1898,7 +2233,9 @@ async def test_closing_the_range_picker_without_ok_keeps_the_fields(user: User, 
     assert view.preview is not None
 
 
-async def test_the_range_picker_opens_with_blank_or_invalid_fields(user: User, tmp_path: Path) -> None:
+async def test_the_range_picker_opens_with_blank_or_invalid_fields(
+    user: User, tmp_path: Path
+) -> None:
     await open_preview(user, tmp_path, FakeExporter())
     set_period(user, start="abc")
     user.find(marker="open-preview-range-picker").click()
@@ -1907,7 +2244,9 @@ async def test_the_range_picker_opens_with_blank_or_invalid_fields(user: User, t
     assert not user.find(marker="preview-range-picker-ok").elements.pop().enabled
 
 
-async def test_the_preview_bar_has_a_view_row_and_an_output_row(user: User, tmp_path: Path) -> None:
+async def test_the_preview_bar_has_a_view_row_and_an_output_row(
+    user: User, tmp_path: Path
+) -> None:
     await open_preview(user, tmp_path, FakeExporter())
 
     def markers_under(marker: str) -> set[str]:
@@ -1917,30 +2256,74 @@ async def test_the_preview_bar_has_a_view_row_and_an_output_row(user: User, tmp_
     view_row = markers_under("preview-bar")
     output_row = markers_under("preview-output")
     # 1 段目: 期間・スケール・表示項目(メニューの中)・戻る。保存・すべて選択は含まない
-    assert {"preview-period", "preview-scale", "preview-display-menu", "preview-back"} <= view_row
-    assert {"preview-chips", "preview-alerts", "preview-events", "preview-today"} <= view_row
-    assert not {"preview-save-menu", "preview-save", "preview-plantuml", "preview-select-all"} & view_row
+    assert {
+        "preview-period",
+        "preview-scale",
+        "preview-display-menu",
+        "preview-back",
+    } <= view_row
+    assert {
+        "preview-chips",
+        "preview-alerts",
+        "preview-events",
+        "preview-today",
+    } <= view_row
+    assert (
+        not {
+            "preview-save-menu",
+            "preview-save",
+            "preview-plantuml",
+            "preview-select-all",
+        }
+        & view_row
+    )
     # 2 段目: 出力の選択と、保存(メニューの中)。戻る・期間・スケール・表示項目は含まない
-    assert {"preview-select-all", "preview-select-count", "preview-save-menu", "preview-save", "preview-plantuml"} <= output_row
-    assert not {"preview-back", "preview-period", "preview-scale", "preview-chips", "preview-today"} & output_row
+    assert {
+        "preview-select-all",
+        "preview-select-count",
+        "preview-save-menu",
+        "preview-save",
+        "preview-plantuml",
+    } <= output_row
+    assert (
+        not {
+            "preview-back",
+            "preview-period",
+            "preview-scale",
+            "preview-chips",
+            "preview-today",
+        }
+        & output_row
+    )
 
 
-async def test_the_display_items_are_in_a_menu_and_the_save_actions_are_in_another(user: User, tmp_path: Path) -> None:
+async def test_the_display_items_are_in_a_menu_and_the_save_actions_are_in_another(
+    user: User, tmp_path: Path
+) -> None:
     await open_preview(user, tmp_path, FakeExporter())
 
     def menu_children(button_marker: str) -> set[str]:
         button = user.find(marker=button_marker).elements.pop()
         return {m for child in button.descendants() for m in child._markers}
 
-    assert {"preview-chips", "preview-alerts", "preview-events", "preview-today"} <= menu_children("preview-display-menu")
+    assert {
+        "preview-chips",
+        "preview-alerts",
+        "preview-events",
+        "preview-today",
+    } <= menu_children("preview-display-menu")
     assert {"preview-save", "preview-plantuml"} <= menu_children("preview-save-menu")
 
 
-async def test_the_save_menu_button_follows_the_save_enabled_state(user: User, tmp_path: Path) -> None:
+async def test_the_save_menu_button_follows_the_save_enabled_state(
+    user: User, tmp_path: Path
+) -> None:
     await open_preview(user, tmp_path, FakeExporter())
     assert user.find(marker="preview-save-menu").elements.pop().enabled
     set_period(user, start="abc")
-    assert not user.find(marker="preview-save-menu").elements.pop().enabled  # 期間が不正なあいだは、メニューも開けない
+    assert (
+        not user.find(marker="preview-save-menu").elements.pop().enabled
+    )  # 期間が不正なあいだは、メニューも開けない
     assert not user.find(marker="preview-save").elements.pop().enabled
 
 
@@ -1950,7 +2333,10 @@ def emit(user: User, marker: str, event_type: str, args: object = None) -> None:
     for listener in element._event_listeners.values():
         if listener.type == event_type:
             events.handle_event(
-                listener.handler, events.GenericEventArguments(sender=element, client=element.client, args=args)
+                listener.handler,
+                events.GenericEventArguments(
+                    sender=element, client=element.client, args=args
+                ),
             )
 
 
@@ -1964,23 +2350,38 @@ async def test_the_preview_period_field_normalizes_abbreviated_dates_on_blur(
 ) -> None:
     monkeypatch.setattr("projectapp.task_dialog.today", lambda: date(2026, 10, 12))
     view = await open_preview(user, tmp_path, FakeExporter())
-    user.find(marker="preview-period").clear().type("10/08 〜 ２０２６１２３１")  # 過ぎた日でも翌年にしない・全角
+    user.find(marker="preview-period").clear().type(
+        "10/08 〜 ２０２６１２３１"
+    )  # 過ぎた日でも翌年にしない・全角
     blur(user, "preview-period")
-    assert user.find(marker="preview-period").elements.pop().value == "2026-10-08 〜 2026-12-31"
+    assert (
+        user.find(marker="preview-period").elements.pop().value
+        == "2026-10-08 〜 2026-12-31"
+    )
     assert view.preview is not None
-    assert (view.preview.start, view.preview.end) == (date(2026, 10, 8), date(2026, 12, 31))
+    assert (view.preview.start, view.preview.end) == (
+        date(2026, 10, 8),
+        date(2026, 12, 31),
+    )
 
 
-async def test_the_preview_period_field_keeps_text_it_cannot_normalize(user: User, tmp_path: Path) -> None:
+async def test_the_preview_period_field_keeps_text_it_cannot_normalize(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     user.find(marker="preview-period").clear().type("abc")
     blur(user, "preview-period")
     assert user.find(marker="preview-period").elements.pop().value == "abc"
-    assert "日付の形式が正しくありません" in user.find(marker="preview-error").elements.pop().text
+    assert (
+        "日付の形式が正しくありません"
+        in user.find(marker="preview-error").elements.pop().text
+    )
     assert view.preview is not None
 
 
-async def test_the_main_period_survives_editing_and_undo_but_resets_for_another_project(user: User, tmp_path: Path) -> None:
+async def test_the_main_period_survives_editing_and_undo_but_resets_for_another_project(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_preview(tmp_path, views, FakeExporter())
@@ -1997,7 +2398,9 @@ async def test_the_main_period_survives_editing_and_undo_but_resets_for_another_
     assert view.gantt.period is None
 
 
-async def test_the_preview_starts_from_the_main_period_when_one_is_set(user: User, tmp_path: Path) -> None:
+async def test_the_preview_starts_from_the_main_period_when_one_is_set(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_preview(tmp_path, views, FakeExporter())
@@ -2009,13 +2412,21 @@ async def test_the_preview_starts_from_the_main_period_when_one_is_set(user: Use
     user.find(marker="export-preview").click()
     await user.should_see(marker="task-top-0")
     assert view.preview is not None
-    assert (view.preview.start, view.preview.end) == (date(2026, 10, 6), date(2026, 10, 9))
+    assert (view.preview.start, view.preview.end) == (
+        date(2026, 10, 6),
+        date(2026, 10, 9),
+    )
     assert period_of(user) == ("2026-10-06", "2026-10-09")
     user.find(marker="preview-back").click()
-    assert view.gantt.period == (date(2026, 10, 6), date(2026, 10, 9))  # メインの期間は、プレビューで変えても戻らない
+    assert view.gantt.period == (
+        date(2026, 10, 6),
+        date(2026, 10, 9),
+    )  # メインの期間は、プレビューで変えても戻らない
 
 
-async def test_back_restores_the_header_toolbar_and_default_options(user: User, tmp_path: Path) -> None:
+async def test_back_restores_the_header_toolbar_and_default_options(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     user.find(marker="preview-back").click()
     assert view.preview is None
@@ -2031,14 +2442,18 @@ async def test_escape_goes_back(user: User, tmp_path: Path) -> None:
     assert view.header_box.visible
 
 
-async def test_other_keys_and_key_releases_do_not_go_back(user: User, tmp_path: Path) -> None:
+async def test_other_keys_and_key_releases_do_not_go_back(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     view.on_key(key_event("Enter"))
     view.on_key(key_event("Escape", keydown=False))
     assert view.preview is not None
 
 
-async def test_escape_does_nothing_outside_the_preview(user: User, tmp_path: Path) -> None:
+async def test_escape_does_nothing_outside_the_preview(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_preview(tmp_path, views, FakeExporter())
@@ -2048,14 +2463,18 @@ async def test_escape_does_nothing_outside_the_preview(user: User, tmp_path: Pat
     assert views[0].header_box.visible
 
 
-async def test_the_filter_survives_the_preview_round_trip(user: User, tmp_path: Path) -> None:
+async def test_the_filter_survives_the_preview_round_trip(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     view.gantt.set_filter(replace(view.gantt.task_filter, query="設計"))
     user.find(marker="preview-back").click()
     assert view.gantt.task_filter.query == "設計"
 
 
-async def test_changing_the_settings_updates_the_chart(user: User, tmp_path: Path) -> None:
+async def test_changing_the_settings_updates_the_chart(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     set_period(user, start="2026-10-06")
     assert view.gantt.options.period[0] == date(2026, 10, 6)
@@ -2066,7 +2485,9 @@ async def test_changing_the_settings_updates_the_chart(user: User, tmp_path: Pat
     assert view.gantt.scale.value == "日次"  # ツールバーのスケールは変わらない
 
 
-async def test_unchecking_preview_events_turns_off_the_event_options(user: User, tmp_path: Path) -> None:
+async def test_unchecking_preview_events_turns_off_the_event_options(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     assert view.gantt.options.show_events is True
     user.find(marker="preview-events").elements.pop().set_value(False)
@@ -2074,7 +2495,9 @@ async def test_unchecking_preview_events_turns_off_the_event_options(user: User,
     assert view.preview is not None and view.preview.show_events is False
 
 
-async def test_unchecking_preview_today_turns_off_the_today_line(user: User, tmp_path: Path) -> None:
+async def test_unchecking_preview_today_turns_off_the_today_line(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     assert view.gantt.options.show_today is True
     user.find(marker="preview-today").elements.pop().set_value(False)
@@ -2082,7 +2505,9 @@ async def test_unchecking_preview_today_turns_off_the_today_line(user: User, tmp
     assert view.preview is not None and view.preview.show_today is False
 
 
-async def test_a_bad_period_disables_saving_and_shows_the_reason(user: User, tmp_path: Path) -> None:
+async def test_a_bad_period_disables_saving_and_shows_the_reason(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter()
     await open_preview(user, tmp_path, exporter)
     set_period(user, start="2026-12-31")
@@ -2094,9 +2519,13 @@ async def test_a_bad_period_disables_saving_and_shows_the_reason(user: User, tmp
     assert exporter.captured == []
 
 
-async def test_a_large_image_shows_a_warning_but_can_still_be_saved(user: User, tmp_path: Path) -> None:
+async def test_a_large_image_shows_a_warning_but_can_still_be_saved(
+    user: User, tmp_path: Path
+) -> None:
     await open_preview(user, tmp_path, FakeExporter())
-    set_period(user, end="2027-12-31")  # 日次で約 450 日 → 16,384px 超(上限 800 日の内側)
+    set_period(
+        user, end="2027-12-31"
+    )  # 日次で約 450 日 → 16,384px 超(上限 800 日の内側)
     await user.should_see("縮小して保存されます")
     assert user.find(marker="preview-save").elements.pop().enabled
     set_period(user, end="2026-12-31")
@@ -2117,25 +2546,36 @@ async def test_save_writes_the_png_and_notifies(user: User, tmp_path: Path) -> N
     await user.should_see("保存しました")
 
 
-async def test_save_plantuml_writes_the_text_and_notifies(user: User, tmp_path: Path) -> None:
+async def test_save_plantuml_writes_the_text_and_notifies(
+    user: User, tmp_path: Path
+) -> None:
     target = tmp_path / "out" / "chart"
     target.parent.mkdir()
     exporter = FakeExporter(path=target)
     view = await open_preview(user, tmp_path, exporter)
-    view.snapshot = asdict(view.project)  # open_preview がタスクを足すので、保存の直前を基準にする
+    view.snapshot = asdict(
+        view.project
+    )  # open_preview がタスクを足すので、保存の直前を基準にする
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: (tmp_path / "out" / "chart.puml").exists())
     text = (tmp_path / "out" / "chart.puml").read_text(encoding="utf-8")
-    assert text.startswith("@startgantt") and "[設計] as [T1] starts 2026-10-05 and ends 2026-10-07" in text
+    assert (
+        text.startswith("@startgantt")
+        and "[設計] as [T1] starts 2026-10-05 and ends 2026-10-07" in text
+    )
     assert "title 新規プロジェクト" in text
     assert exporter.asked == [f"新規プロジェクト_{date.today():%Y%m%d}.puml"]
     assert exporter.asked_types == [PLANTUML_FILE_TYPES]
     assert exporter.captured == []  # 画像化はしない
     await user.should_see("保存しました")
-    assert view.preview is not None and not view.is_dirty()  # プロジェクトは変更扱いにならない
+    assert (
+        view.preview is not None and not view.is_dirty()
+    )  # プロジェクトは変更扱いにならない
 
 
-async def test_save_plantuml_uses_the_preview_settings(user: User, tmp_path: Path) -> None:
+async def test_save_plantuml_uses_the_preview_settings(
+    user: User, tmp_path: Path
+) -> None:
     target = tmp_path / "chart.puml"
     exporter = FakeExporter(path=target)
     await open_preview(user, tmp_path, exporter)
@@ -2147,7 +2587,9 @@ async def test_save_plantuml_uses_the_preview_settings(user: User, tmp_path: Pat
     assert "printscale weekly" in text and "completed" not in text
 
 
-async def test_save_plantuml_passes_the_configured_today_color(user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_save_plantuml_passes_the_configured_today_color(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from projectapp import views as views_module
 
     seen: list[str | None] = []
@@ -2166,7 +2608,9 @@ async def test_save_plantuml_passes_the_configured_today_color(user: User, tmp_p
     assert seen == ["#1e88e5"]
 
 
-async def test_save_plantuml_with_no_tasks_notifies_and_writes_nothing(user: User, tmp_path: Path) -> None:
+async def test_save_plantuml_with_no_tasks_notifies_and_writes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=tmp_path / "chart.puml")
     view = await open_preview(user, tmp_path, exporter)
     set_period(user, start="2030-01-01")
@@ -2179,7 +2623,11 @@ async def test_save_plantuml_with_no_tasks_notifies_and_writes_nothing(user: Use
 
 async def test_save_plantuml_notes_skipped_tasks(user: User, tmp_path: Path) -> None:
     target = tmp_path / "chart.puml"
-    far = Task("遠い", planned_start=datetime(2027, 6, 1, 9), planned_end=datetime(2027, 6, 2, 18))
+    far = Task(
+        "遠い",
+        planned_start=datetime(2027, 6, 1, 9),
+        planned_end=datetime(2027, 6, 2, 18),
+    )
     exporter = FakeExporter(path=target)
     await open_preview(user, tmp_path, exporter, extra=far)
     set_period(user, end="2026-12-31")
@@ -2188,7 +2636,9 @@ async def test_save_plantuml_notes_skipped_tasks(user: User, tmp_path: Path) -> 
     await user.should_see("1 件を省きました")
 
 
-async def test_cancelling_the_plantuml_dialog_writes_nothing(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_plantuml_dialog_writes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=None)
     view = await open_preview(user, tmp_path, exporter)
     user.find(marker="preview-plantuml").click()
@@ -2196,7 +2646,9 @@ async def test_cancelling_the_plantuml_dialog_writes_nothing(user: User, tmp_pat
     assert not list(tmp_path.glob("*.puml")) and view.preview is not None
 
 
-async def test_a_plantuml_write_failure_is_reported_and_leaves_nothing(user: User, tmp_path: Path) -> None:
+async def test_a_plantuml_write_failure_is_reported_and_leaves_nothing(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=tmp_path / "missing" / "chart.puml")
     view = await open_preview(user, tmp_path, exporter)
     user.find(marker="preview-plantuml").click()
@@ -2205,12 +2657,16 @@ async def test_a_plantuml_write_failure_is_reported_and_leaves_nothing(user: Use
     assert user.find(marker="preview-plantuml").elements.pop().enabled  # もう一度押せる
 
 
-async def test_the_plantuml_button_is_disabled_when_not_native(user: User, tmp_path: Path) -> None:
+async def test_the_plantuml_button_is_disabled_when_not_native(
+    user: User, tmp_path: Path
+) -> None:
     await open_preview(user, tmp_path, FakeExporter(available=False))
     assert not user.find(marker="preview-plantuml").elements.pop().enabled
 
 
-async def test_the_plantuml_button_is_disabled_for_a_bad_period_and_back_on_when_fixed(user: User, tmp_path: Path) -> None:
+async def test_the_plantuml_button_is_disabled_for_a_bad_period_and_back_on_when_fixed(
+    user: User, tmp_path: Path
+) -> None:
     await open_preview(user, tmp_path, FakeExporter())
     assert user.find(marker="preview-plantuml").elements.pop().enabled
     set_period(user, start="2026-12-31")
@@ -2221,7 +2677,9 @@ async def test_the_plantuml_button_is_disabled_for_a_bad_period_and_back_on_when
     assert user.find(marker="preview-plantuml").elements.pop().enabled
 
 
-async def test_cancelling_the_save_dialog_writes_nothing(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_save_dialog_writes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=None)
     view = await open_preview(user, tmp_path, exporter)
     user.find(marker="preview-save").click()
@@ -2230,7 +2688,9 @@ async def test_cancelling_the_save_dialog_writes_nothing(user: User, tmp_path: P
     assert view.preview is not None  # プレビューに留まる
 
 
-async def test_a_capture_failure_is_reported_and_the_preview_stays(user: User, tmp_path: Path) -> None:
+async def test_a_capture_failure_is_reported_and_the_preview_stays(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(error=ExportError("boom"))
     view = await open_preview(user, tmp_path, exporter)
     user.find(marker="preview-save").click()
@@ -2240,7 +2700,9 @@ async def test_a_capture_failure_is_reported_and_the_preview_stays(user: User, t
     assert user.find(marker="preview-save").elements.pop().enabled  # もう一度押せる
 
 
-async def test_a_write_failure_is_reported_and_leaves_nothing(user: User, tmp_path: Path) -> None:
+async def test_a_write_failure_is_reported_and_leaves_nothing(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=tmp_path / "missing" / "chart.png")
     view = await open_preview(user, tmp_path, exporter)
     user.find(marker="preview-save").click()
@@ -2262,7 +2724,9 @@ async def test_saving_cannot_be_started_twice(user: User, tmp_path: Path) -> Non
     view = await open_preview(user, tmp_path, exporter)
     user.find(marker="preview-save").click()
     assert await wait_until(lambda: exporter.captured != [])
-    assert not user.find(marker="preview-save").elements.pop().enabled  # 保存中は押せない
+    assert (
+        not user.find(marker="preview-save").elements.pop().enabled
+    )  # 保存中は押せない
     await view.save_image()  # 直接呼んでも、二重には始まらない
     assert len(exporter.captured) == 1
     gate.set()
@@ -2270,13 +2734,17 @@ async def test_saving_cannot_be_started_twice(user: User, tmp_path: Path) -> Non
     assert user.find(marker="preview-save").elements.pop().enabled
 
 
-async def test_saving_is_disabled_outside_the_native_window(user: User, tmp_path: Path) -> None:
+async def test_saving_is_disabled_outside_the_native_window(
+    user: User, tmp_path: Path
+) -> None:
     await open_preview(user, tmp_path, FakeExporter(available=False))
     assert not user.find(marker="preview-save").elements.pop().enabled
     await user.should_see("ネイティブウィンドウでのみ")
 
 
-async def test_the_default_exporter_is_unavailable_in_tests(user: User, tmp_path: Path) -> None:
+async def test_the_default_exporter_is_unavailable_in_tests(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)  # exporter を渡さない = NativeImageExporter
@@ -2285,19 +2753,26 @@ async def test_the_default_exporter_is_unavailable_in_tests(user: User, tmp_path
     assert not user.find(marker="preview-save").elements.pop().enabled
 
 
-async def test_a_period_that_is_too_long_for_the_scale_is_rejected_without_redrawing(user: User, tmp_path: Path) -> None:
+async def test_a_period_that_is_too_long_for_the_scale_is_rejected_without_redrawing(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     before = view.gantt.options
     set_period(user, start="2000-01-01")
     set_period(user, end="2026-12-31")
     await user.should_see("期間が長すぎます")
     assert not user.find(marker="preview-save").elements.pop().enabled
-    assert view.gantt.options.period != (date(2000, 1, 1), date(2026, 12, 31))  # 描き直していない
+    assert view.gantt.options.period != (
+        date(2000, 1, 1),
+        date(2026, 12, 31),
+    )  # 描き直していない
     assert view.gantt.options.period[0] != date(2000, 1, 1)
     assert before is not None
 
 
-async def test_the_same_long_period_is_allowed_at_a_coarser_scale(user: User, tmp_path: Path) -> None:
+async def test_the_same_long_period_is_allowed_at_a_coarser_scale(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     user.find(marker="preview-scale").elements.pop().set_value("月次")
     set_period(user, start="2020-01-01")
@@ -2306,7 +2781,9 @@ async def test_the_same_long_period_is_allowed_at_a_coarser_scale(user: User, tm
     assert user.find(marker="preview-save").elements.pop().enabled
 
 
-async def test_leaving_and_changing_the_settings_are_ignored_while_saving(user: User, tmp_path: Path) -> None:
+async def test_leaving_and_changing_the_settings_are_ignored_while_saving(
+    user: User, tmp_path: Path
+) -> None:
     gate = asyncio.Event()
 
     class SlowExporter(FakeExporter):
@@ -2324,7 +2801,9 @@ async def test_leaving_and_changing_the_settings_are_ignored_while_saving(user: 
     view.on_key(key_event("Escape"))
     user.find(marker="preview-chips").elements.pop().set_value(False)
     assert view.preview is not None  # 抜けられない
-    assert view.gantt.options == options  # 描き直されない(撮っている途中の画面を変えない)
+    assert (
+        view.gantt.options == options
+    )  # 描き直されない(撮っている途中の画面を変えない)
     gate.set()
     assert await wait_until(lambda: (tmp_path / "chart.png").exists())
     assert await wait_until(lambda: not view.saving)
@@ -2333,25 +2812,37 @@ async def test_leaving_and_changing_the_settings_are_ignored_while_saving(user: 
 
 
 def next_year_task() -> Task:
-    return Task("来年度の計画", planned_start=datetime(2027, 11, 1), planned_end=datetime(2027, 11, 30))
+    return Task(
+        "来年度の計画",
+        planned_start=datetime(2027, 11, 1),
+        planned_end=datetime(2027, 11, 30),
+    )
 
 
-async def test_a_wide_project_opens_the_preview_at_a_coarser_scale_with_a_notice(user: User, tmp_path: Path) -> None:
+async def test_a_wide_project_opens_the_preview_at_a_coarser_scale_with_a_notice(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter(), extra=next_year_task())
     assert view.gantt.scale.value == "日次"  # メイン画面のスケールは、そのまま
     assert view.preview is not None and view.preview.scale.value == "週次"
     assert view.gantt.options.scale.value == "週次"
     assert user.find(marker="preview-scale").elements.pop().value == "週次"
-    await user.should_see("幅が大きいため、週次で開きました(日次にするには、期間を狭めてください)")
+    await user.should_see(
+        "幅が大きいため、週次で開きました(日次にするには、期間を狭めてください)"
+    )
 
 
-async def test_a_narrow_project_opens_at_the_current_scale_without_a_notice(user: User, tmp_path: Path) -> None:
+async def test_a_narrow_project_opens_at_the_current_scale_without_a_notice(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     assert view.preview is not None and view.preview.scale is view.gantt.scale
     await user.should_not_see("幅が大きいため")
 
 
-async def test_the_notice_goes_away_when_the_settings_are_changed(user: User, tmp_path: Path) -> None:
+async def test_the_notice_goes_away_when_the_settings_are_changed(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter(), extra=next_year_task())
     await user.should_see("幅が大きいため")
     user.find(marker="preview-chips").elements.pop().set_value(False)
@@ -2359,7 +2850,9 @@ async def test_the_notice_goes_away_when_the_settings_are_changed(user: User, tm
     assert view.preview.scale.value == "週次"  # 利用者が選ぶまで、自動では変えない
 
 
-async def test_the_user_can_go_back_to_the_finer_scale_after_narrowing_the_period(user: User, tmp_path: Path) -> None:
+async def test_the_user_can_go_back_to_the_finer_scale_after_narrowing_the_period(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter(), extra=next_year_task())
     set_period(user, end="2026-12-31")
     user.find(marker="preview-scale").elements.pop().set_value("日次")
@@ -2367,13 +2860,19 @@ async def test_the_user_can_go_back_to_the_finer_scale_after_narrowing_the_perio
     assert view.gantt.options.scale.value == "日次"
 
 
-async def test_the_native_notice_wins_over_the_scale_notice(user: User, tmp_path: Path) -> None:
-    await open_preview(user, tmp_path, FakeExporter(available=False), extra=next_year_task())
+async def test_the_native_notice_wins_over_the_scale_notice(
+    user: User, tmp_path: Path
+) -> None:
+    await open_preview(
+        user, tmp_path, FakeExporter(available=False), extra=next_year_task()
+    )
     await user.should_see("ネイティブウィンドウでのみ")
     await user.should_not_see("幅が大きいため")
 
 
-async def test_an_empty_project_opens_the_preview_with_a_one_day_period(user: User, tmp_path: Path) -> None:
+async def test_an_empty_project_opens_the_preview_with_a_one_day_period(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_preview(tmp_path, views, FakeExporter())
@@ -2382,13 +2881,17 @@ async def test_an_empty_project_opens_the_preview_with_a_one_day_period(user: Us
     view.project.base_date = date(2026, 10, 5)
     user.find(marker="export-preview").click()
     assert view.preview is not None
-    assert view.preview.start == view.preview.end == date(2026, 10, 5)  # タスクがない: 基準日の 1 日
+    assert (
+        view.preview.start == view.preview.end == date(2026, 10, 5)
+    )  # タスクがない: 基準日の 1 日
     assert period_of(user)[0] == "2026-10-05"
     assert period_of(user)[1] == "2026-10-05"
     assert view.gantt.options.period == (date(2026, 10, 5), date(2026, 10, 5))
 
 
-async def test_adding_a_task_to_a_collapsed_section_expands_it(user: User, tmp_path: Path) -> None:
+async def test_adding_a_task_to_a_collapsed_section_expands_it(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -2404,7 +2907,9 @@ async def test_adding_a_task_to_a_collapsed_section_expands_it(user: User, tmp_p
     await user.should_see(marker="task-0-1")
 
 
-async def test_editing_a_task_keeps_the_section_collapsed(user: User, tmp_path: Path) -> None:
+async def test_editing_a_task_keeps_the_section_collapsed(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -2417,7 +2922,9 @@ async def test_editing_a_task_keeps_the_section_collapsed(user: User, tmp_path: 
     assert view.gantt.collapsed == {(0,)}
 
 
-async def test_adding_a_top_level_task_keeps_collapsed_sections(user: User, tmp_path: Path) -> None:
+async def test_adding_a_top_level_task_keeps_collapsed_sections(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -2430,7 +2937,9 @@ async def test_adding_a_top_level_task_keeps_collapsed_sections(user: User, tmp_
     assert view.gantt.collapsed == {(0,)}
 
 
-async def test_opening_a_project_expands_every_section(user: User, tmp_path: Path) -> None:
+async def test_opening_a_project_expands_every_section(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     save_project(Project("既存", sections=[Section("元", [planned_task()])]), tmp_path)
     views: list[MainView] = []
@@ -2458,7 +2967,9 @@ async def test_collapsing_is_not_an_edit(user: User, tmp_path: Path) -> None:
     assert not view.is_dirty()
 
 
-async def test_the_preview_shows_a_collapsed_section_and_returns_to_it(user: User, tmp_path: Path) -> None:
+async def test_the_preview_shows_a_collapsed_section_and_returns_to_it(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_preview(tmp_path, views, FakeExporter())
@@ -2477,24 +2988,36 @@ async def test_the_preview_shows_a_collapsed_section_and_returns_to_it(user: Use
     assert view.gantt.collapsed == {(0,)}
 
 
-async def test_the_saved_name_width_is_restored_on_startup(user: User, tmp_path: Path) -> None:
-    (tmp_path / "config.json").write_text(json.dumps({"theme": "dark", "name_width": 300}), encoding="utf-8")
+async def test_the_saved_name_width_is_restored_on_startup(
+    user: User, tmp_path: Path
+) -> None:
+    (tmp_path / "config.json").write_text(
+        json.dumps({"theme": "dark", "name_width": 300}), encoding="utf-8"
+    )
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
     assert views[0].gantt.name_width == 300
-    assert user.find(marker="chart-content").elements.pop()._style["--name-w"] == "300px"
+    assert (
+        user.find(marker="chart-content").elements.pop()._style["--name-w"] == "300px"
+    )
 
 
-async def test_a_bad_saved_name_width_falls_back_to_the_default(user: User, tmp_path: Path) -> None:
-    (tmp_path / "config.json").write_text(json.dumps({"name_width": "abc"}), encoding="utf-8")
+async def test_a_bad_saved_name_width_falls_back_to_the_default(
+    user: User, tmp_path: Path
+) -> None:
+    (tmp_path / "config.json").write_text(
+        json.dumps({"name_width": "abc"}), encoding="utf-8"
+    )
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
     assert views[0].gantt.name_width == 200
 
 
-async def test_changing_the_name_width_saves_it_without_losing_the_theme(user: User, tmp_path: Path) -> None:
+async def test_changing_the_name_width_saves_it_without_losing_the_theme(
+    user: User, tmp_path: Path
+) -> None:
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -2544,7 +3067,9 @@ async def test_a_failed_save_of_the_name_width_is_reported_and_does_not_raise(
     await user.should_see("名前の欄の幅を保存できませんでした")
 
 
-async def open_handoff_view(user: User, tmp_path: Path, exporter: FakeExporter) -> MainView:
+async def open_handoff_view(
+    user: User, tmp_path: Path, exporter: FakeExporter
+) -> MainView:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_preview(tmp_path, views, exporter)
@@ -2556,7 +3081,16 @@ async def open_handoff_view(user: User, tmp_path: Path, exporter: FakeExporter) 
 
 def assign(view: MainView) -> None:
     view.project.members = [Member("田中", 0.5)]
-    view.save_task((), None, Task("設計", assignees=[Assignee("田中")], planned_start=datetime(2026, 10, 5, 9), effort_hours=3))
+    view.save_task(
+        (),
+        None,
+        Task(
+            "設計",
+            assignees=[Assignee("田中")],
+            planned_start=datetime(2026, 10, 5, 9),
+            effort_hours=3,
+        ),
+    )
     view.mark_clean()
 
 
@@ -2575,7 +3109,9 @@ async def test_handoff_needs_the_native_window(user: User, tmp_path: Path) -> No
     await user.should_not_see(marker="handoff-member")
 
 
-async def test_handoff_disables_export_without_unfinished_tasks(user: User, tmp_path: Path) -> None:
+async def test_handoff_disables_export_without_unfinished_tasks(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_handoff_view(user, tmp_path, FakeExporter())
     view.project.members = [Member("田中", 0.5)]
     user.find(marker="export-handoff").click()
@@ -2583,7 +3119,9 @@ async def test_handoff_disables_export_without_unfinished_tasks(user: User, tmp_
     assert not user.find(marker="handoff-export").elements.pop().enabled
 
 
-async def test_handoff_writes_todoapp_json_and_keeps_the_project_clean(user: User, tmp_path: Path) -> None:
+async def test_handoff_writes_todoapp_json_and_keeps_the_project_clean(
+    user: User, tmp_path: Path
+) -> None:
     (tmp_path / "out").mkdir()
     exporter = FakeExporter(path=tmp_path / "out" / "todos")
     view = await open_handoff_view(user, tmp_path, exporter)
@@ -2595,26 +3133,36 @@ async def test_handoff_writes_todoapp_json_and_keeps_the_project_clean(user: Use
     assert await wait_until(target.exists)
     data = json.loads(target.read_text(encoding="utf-8"))
     assert data["version"] == 1
-    assert [(i["name"], i["schedule_type"], i["estimate_hours"]) for i in data["items"]] == [("設計", "one_time", 6.0)]
+    assert [
+        (i["name"], i["schedule_type"], i["estimate_hours"]) for i in data["items"]
+    ] == [("設計", "one_time", 6.0)]
     assert exporter.asked == ["todos-田中.json"]
     assert exporter.asked_types == [JSON_FILE_TYPES]
     await user.should_see("1 件を書き出しました")
     assert not view.is_dirty()
 
 
-async def test_cancelling_the_save_dialog_keeps_the_dialog_open(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_save_dialog_keeps_the_dialog_open(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=None)
     view = await open_handoff_view(user, tmp_path, exporter)
     assign(view)
     user.find(marker="export-handoff").click()
     user.find(marker="handoff-export").click()
     assert await wait_until(lambda: exporter.asked != [])
-    assert not list(tmp_path.rglob("todos*.json"))  # holidays.json(祝日のキャッシュ)は別
+    assert not list(
+        tmp_path.rglob("todos*.json")
+    )  # holidays.json(祝日のキャッシュ)は別
     await user.should_see(marker="handoff-member")
-    assert await wait_until(lambda: user.find(marker="handoff-export").elements.pop().enabled)  # もう一度押せる
+    assert await wait_until(
+        lambda: user.find(marker="handoff-export").elements.pop().enabled
+    )  # もう一度押せる
 
 
-async def test_a_write_failure_is_reported_and_the_dialog_stays(user: User, tmp_path: Path) -> None:
+async def test_a_write_failure_is_reported_and_the_dialog_stays(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=tmp_path / "missing" / "todos.json")
     view = await open_handoff_view(user, tmp_path, exporter)
     assign(view)
@@ -2622,10 +3170,14 @@ async def test_a_write_failure_is_reported_and_the_dialog_stays(user: User, tmp_
     user.find(marker="handoff-export").click()
     await user.should_see("保存できませんでした")
     await user.should_see(marker="handoff-member")
-    assert await wait_until(lambda: user.find(marker="handoff-export").elements.pop().enabled)
+    assert await wait_until(
+        lambda: user.find(marker="handoff-export").elements.pop().enabled
+    )
 
 
-async def open_dashboard_view(user: User, tmp_path: Path, with_task: bool = True) -> MainView:
+async def open_dashboard_view(
+    user: User, tmp_path: Path, with_task: bool = True
+) -> MainView:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_preview(tmp_path, views, FakeExporter())
@@ -2655,15 +3207,21 @@ async def open_dashboard(user: User, view: MainView) -> None:
     await user.should_see(marker="dashboard-load-田中")
 
 
-async def test_opening_the_dashboard_applies_the_standard_view(user: User, tmp_path: Path) -> None:
+async def test_opening_the_dashboard_applies_the_standard_view(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
     assert view.dashboard_view_name == STANDARD_NAME
-    assert view.dashboard_kind is PeriodKind.WEEK and view.dashboard_cards == DEFAULT_ORDER
+    assert (
+        view.dashboard_kind is PeriodKind.WEEK and view.dashboard_cards == DEFAULT_ORDER
+    )
     assert view.dashboard_dirty() is False
 
 
-async def test_changing_a_condition_marks_the_view_dirty_and_changing_it_back_clears_it(user: User, tmp_path: Path) -> None:
+async def test_changing_a_condition_marks_the_view_dirty_and_changing_it_back_clears_it(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
     view.change_dashboard_period(PeriodKind.MONTH)
@@ -2674,7 +3232,9 @@ async def test_changing_a_condition_marks_the_view_dirty_and_changing_it_back_cl
     assert view.dashboard_dirty() is True
 
 
-async def test_save_as_creates_a_view_persists_it_and_remembers_it_as_the_last(user: User, tmp_path: Path) -> None:
+async def test_save_as_creates_a_view_persists_it_and_remembers_it_as_the_last(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
     view.change_dashboard_period(PeriodKind.MONTH)
@@ -2685,12 +3245,20 @@ async def test_save_as_creates_a_view_persists_it_and_remembers_it_as_the_last(u
     user.find(marker="name-save").click()
     assert view.dashboard_view_name == "月次" and view.dashboard_dirty() is False
     (saved,) = load_dashboard_views(tmp_path)
-    assert (saved.name, saved.period, CardId.DUE in saved.cards) == ("月次", PeriodKind.MONTH, False)
+    assert (saved.name, saved.period, CardId.DUE in saved.cards) == (
+        "月次",
+        PeriodKind.MONTH,
+        False,
+    )
     assert load_dashboard_view_last(tmp_path) == "月次"
 
 
-async def test_save_as_rejects_a_duplicate_and_the_standard_name(user: User, tmp_path: Path) -> None:
-    save_dashboard_views([ViewSpec("月次", PeriodKind.MONTH, None, False, DEFAULT_ORDER)], tmp_path)
+async def test_save_as_rejects_a_duplicate_and_the_standard_name(
+    user: User, tmp_path: Path
+) -> None:
+    save_dashboard_views(
+        [ViewSpec("月次", PeriodKind.MONTH, None, False, DEFAULT_ORDER)], tmp_path
+    )
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
     with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
@@ -2703,13 +3271,21 @@ async def test_save_as_rejects_a_duplicate_and_the_standard_name(user: User, tmp
     assert [v.name for v in load_dashboard_views(tmp_path)] == ["月次"]
 
 
-async def test_selecting_a_view_applies_it_and_discards_unsaved_changes(user: User, tmp_path: Path) -> None:
-    save_dashboard_views([ViewSpec("田中だけ", PeriodKind.ALL, "田中", False, (CardId.LOAD,))], tmp_path)
+async def test_selecting_a_view_applies_it_and_discards_unsaved_changes(
+    user: User, tmp_path: Path
+) -> None:
+    save_dashboard_views(
+        [ViewSpec("田中だけ", PeriodKind.ALL, "田中", False, (CardId.LOAD,))], tmp_path
+    )
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
     view.hide_dashboard_card(CardId.TEAM)  # 作業中の変更
     view.select_dashboard_view("田中だけ")
-    assert (view.dashboard_kind, view.dashboard_member, view.dashboard_cards) == (PeriodKind.ALL, "田中", (CardId.LOAD,))
+    assert (view.dashboard_kind, view.dashboard_member, view.dashboard_cards) == (
+        PeriodKind.ALL,
+        "田中",
+        (CardId.LOAD,),
+    )
     assert view.dashboard_dirty() is False
     assert load_dashboard_view_last(tmp_path) == "田中だけ"
     view.select_dashboard_view(STANDARD_NAME)
@@ -2717,22 +3293,32 @@ async def test_selecting_a_view_applies_it_and_discards_unsaved_changes(user: Us
 
 
 async def test_the_last_used_view_opens_next_time(user: User, tmp_path: Path) -> None:
-    save_dashboard_views([ViewSpec("田中だけ", PeriodKind.ALL, "田中", False, DEFAULT_ORDER)], tmp_path)
+    save_dashboard_views(
+        [ViewSpec("田中だけ", PeriodKind.ALL, "田中", False, DEFAULT_ORDER)], tmp_path
+    )
     save_dashboard_view_last("田中だけ", tmp_path)
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
-    assert view.dashboard_view_name == "田中だけ" and view.dashboard_kind is PeriodKind.ALL
+    assert (
+        view.dashboard_view_name == "田中だけ" and view.dashboard_kind is PeriodKind.ALL
+    )
 
 
-async def test_an_unknown_last_view_falls_back_to_standard(user: User, tmp_path: Path) -> None:
+async def test_an_unknown_last_view_falls_back_to_standard(
+    user: User, tmp_path: Path
+) -> None:
     save_dashboard_view_last("消えた", tmp_path)
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
     assert view.dashboard_view_name == STANDARD_NAME
 
 
-async def test_a_saved_member_who_is_gone_shows_everyone_without_a_dirty_mark(user: User, tmp_path: Path) -> None:
-    save_dashboard_views([ViewSpec("鈴木だけ", PeriodKind.WEEK, "鈴木", False, DEFAULT_ORDER)], tmp_path)
+async def test_a_saved_member_who_is_gone_shows_everyone_without_a_dirty_mark(
+    user: User, tmp_path: Path
+) -> None:
+    save_dashboard_views(
+        [ViewSpec("鈴木だけ", PeriodKind.WEEK, "鈴木", False, DEFAULT_ORDER)], tmp_path
+    )
     save_dashboard_view_last("鈴木だけ", tmp_path)
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
@@ -2743,7 +3329,10 @@ async def test_a_saved_member_who_is_gone_shows_everyone_without_a_dirty_mark(us
 
 async def test_a_custom_view_opens_with_its_dates(user: User, tmp_path: Path) -> None:
     custom = (date(2026, 9, 1), date(2026, 9, 30))
-    save_dashboard_views([ViewSpec("九月", PeriodKind.CUSTOM, None, False, DEFAULT_ORDER, custom)], tmp_path)
+    save_dashboard_views(
+        [ViewSpec("九月", PeriodKind.CUSTOM, None, False, DEFAULT_ORDER, custom)],
+        tmp_path,
+    )
     save_dashboard_view_last("九月", tmp_path)
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
@@ -2752,15 +3341,24 @@ async def test_a_custom_view_opens_with_its_dates(user: User, tmp_path: Path) ->
     assert view.working_spec("九月").custom == custom
 
 
-async def test_a_custom_view_without_dates_starts_from_the_previous_period(user: User, tmp_path: Path) -> None:
-    save_dashboard_views([ViewSpec("日付なし", PeriodKind.CUSTOM, None, False, DEFAULT_ORDER, None)], tmp_path)
+async def test_a_custom_view_without_dates_starts_from_the_previous_period(
+    user: User, tmp_path: Path
+) -> None:
+    save_dashboard_views(
+        [ViewSpec("日付なし", PeriodKind.CUSTOM, None, False, DEFAULT_ORDER, None)],
+        tmp_path,
+    )
     save_dashboard_view_last("日付なし", tmp_path)
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
-    assert view.dashboard_kind is PeriodKind.CUSTOM and view.dashboard_custom is not None
+    assert (
+        view.dashboard_kind is PeriodKind.CUSTOM and view.dashboard_custom is not None
+    )
 
 
-async def test_saving_is_blocked_while_the_custom_field_has_an_error(user: User, tmp_path: Path) -> None:
+async def test_saving_is_blocked_while_the_custom_field_has_an_error(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
     view.change_dashboard_period(PeriodKind.CUSTOM)
@@ -2773,8 +3371,12 @@ async def test_saving_is_blocked_while_the_custom_field_has_an_error(user: User,
     assert load_dashboard_views(tmp_path) == []
 
 
-async def test_save_overwrites_a_custom_view_but_not_the_standard_one(user: User, tmp_path: Path) -> None:
-    save_dashboard_views([ViewSpec("月次", PeriodKind.MONTH, None, False, DEFAULT_ORDER)], tmp_path)
+async def test_save_overwrites_a_custom_view_but_not_the_standard_one(
+    user: User, tmp_path: Path
+) -> None:
+    save_dashboard_views(
+        [ViewSpec("月次", PeriodKind.MONTH, None, False, DEFAULT_ORDER)], tmp_path
+    )
     save_dashboard_view_last("月次", tmp_path)
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
@@ -2794,11 +3396,15 @@ async def test_revert_restores_the_saved_view(user: User, tmp_path: Path) -> Non
     view.change_dashboard_period(PeriodKind.MONTH)
     view.hide_dashboard_card(CardId.TEAM)
     view.revert_dashboard_view()
-    assert view.dashboard_kind is PeriodKind.WEEK and view.dashboard_cards == DEFAULT_ORDER
+    assert (
+        view.dashboard_kind is PeriodKind.WEEK and view.dashboard_cards == DEFAULT_ORDER
+    )
 
 
 async def test_rename_and_delete(user: User, tmp_path: Path) -> None:
-    save_dashboard_views([ViewSpec("月次", PeriodKind.MONTH, None, False, DEFAULT_ORDER)], tmp_path)
+    save_dashboard_views(
+        [ViewSpec("月次", PeriodKind.MONTH, None, False, DEFAULT_ORDER)], tmp_path
+    )
     save_dashboard_view_last("月次", tmp_path)
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
@@ -2818,7 +3424,9 @@ async def test_rename_and_delete(user: User, tmp_path: Path) -> None:
     assert load_dashboard_view_last(tmp_path) == STANDARD_NAME
 
 
-async def test_the_standard_view_cannot_be_renamed_or_deleted(user: User, tmp_path: Path) -> None:
+async def test_the_standard_view_cannot_be_renamed_or_deleted(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
     with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
@@ -2830,7 +3438,13 @@ async def test_the_standard_view_cannot_be_renamed_or_deleted(user: User, tmp_pa
 
 
 async def test_the_view_limit_is_enforced(user: User, tmp_path: Path) -> None:
-    save_dashboard_views([ViewSpec(f"v{i}", PeriodKind.WEEK, None, False, DEFAULT_ORDER) for i in range(20)], tmp_path)
+    save_dashboard_views(
+        [
+            ViewSpec(f"v{i}", PeriodKind.WEEK, None, False, DEFAULT_ORDER)
+            for i in range(20)
+        ],
+        tmp_path,
+    )
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
     with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
@@ -2841,7 +3455,9 @@ async def test_the_view_limit_is_enforced(user: User, tmp_path: Path) -> None:
     assert len(load_dashboard_views(tmp_path)) == 20
 
 
-async def test_a_failed_write_notifies_and_keeps_the_view_in_memory(user: User, tmp_path: Path, monkeypatch) -> None:
+async def test_a_failed_write_notifies_and_keeps_the_view_in_memory(
+    user: User, tmp_path: Path, monkeypatch
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
 
@@ -2855,7 +3471,9 @@ async def test_a_failed_write_notifies_and_keeps_the_view_in_memory(user: User, 
     user.find(marker="project-name").type("月次")
     user.find(marker="name-save").click()
     await user.should_see("保存できませんでした")
-    assert view.dashboard_view_name == "月次" and [v.name for v in view.dashboard_views] == ["月次"]
+    assert view.dashboard_view_name == "月次" and [
+        v.name for v in view.dashboard_views
+    ] == ["月次"]
 
 
 async def test_card_moves_change_the_order(user: User, tmp_path: Path) -> None:
@@ -2870,16 +3488,22 @@ async def test_card_moves_change_the_order(user: User, tmp_path: Path) -> None:
 
 
 async def test_the_toolbar_select_switches_the_view(user: User, tmp_path: Path) -> None:
-    save_dashboard_views([ViewSpec("田中だけ", PeriodKind.ALL, "田中", False, (CardId.LOAD,))], tmp_path)
+    save_dashboard_views(
+        [ViewSpec("田中だけ", PeriodKind.ALL, "田中", False, (CardId.LOAD,))], tmp_path
+    )
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
     view.dashboard_view.view_select.set_value("田中だけ")
     assert view.dashboard_view_name == "田中だけ"
-    await user.should_not_see(marker="dashboard-progress-percent")  # カードの並びも切り替わる
+    await user.should_not_see(
+        marker="dashboard-progress-percent"
+    )  # カードの並びも切り替わる
     await user.should_see(marker="dashboard-load-田中")
 
 
-async def test_a_condition_change_shows_the_dirty_mark(user: User, tmp_path: Path) -> None:
+async def test_a_condition_change_shows_the_dirty_mark(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
     await user.should_not_see(marker="dashboard-view-dirty")
@@ -2887,11 +3511,15 @@ async def test_a_condition_change_shows_the_dirty_mark(user: User, tmp_path: Pat
     await user.should_see(marker="dashboard-view-dirty")
 
 
-async def test_editing_cards_in_the_dashboard_changes_order_and_shows_the_dirty_mark(user: User, tmp_path: Path) -> None:
+async def test_editing_cards_in_the_dashboard_changes_order_and_shows_the_dirty_mark(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
     user.find(marker="dashboard-edit-toggle").click()
-    await user.should_see(marker="dashboard-hide-due")  # refresh は遅延実行なので、描かれるのを待つ
+    await user.should_see(
+        marker="dashboard-hide-due"
+    )  # refresh は遅延実行なので、描かれるのを待つ
     user.find(marker="dashboard-hide-due").click()
     await user.should_see(marker="dashboard-view-dirty")
     await user.should_see(marker="dashboard-hidden-due")
@@ -2901,10 +3529,14 @@ async def test_editing_cards_in_the_dashboard_changes_order_and_shows_the_dirty_
     assert view.dashboard_cards[0] is CardId.DUE
 
 
-async def test_a_broken_config_file_does_not_stop_the_view_from_updating(user: User, tmp_path: Path) -> None:
+async def test_a_broken_config_file_does_not_stop_the_view_from_updating(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
-    (tmp_path / "config.json").write_text("{bad", encoding="utf-8")  # 起動後に壊れた(外部の編集など)
+    (tmp_path / "config.json").write_text(
+        "{bad", encoding="utf-8"
+    )  # 起動後に壊れた(外部の編集など)
     view.change_dashboard_period(PeriodKind.MONTH)
     with view.client:  # ダイアログを作るので、ページのコンテキストの中で呼ぶ
         view.save_dashboard_view_as()
@@ -2913,10 +3545,14 @@ async def test_a_broken_config_file_does_not_stop_the_view_from_updating(user: U
     await user.should_see("保存できませんでした")
     assert view.dashboard_view_name == "月次"
     state = view.dashboard_view.state
-    assert state is not None and state.current == "月次" and "月次" in state.names  # 画面も新しいビューに更新される
+    assert (
+        state is not None and state.current == "月次" and "月次" in state.names
+    )  # 画面も新しいビューに更新される
 
 
-async def test_closing_and_reopening_the_dashboard_leaves_edit_mode(user: User, tmp_path: Path) -> None:
+async def test_closing_and_reopening_the_dashboard_leaves_edit_mode(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     await open_dashboard(user, view)
     user.find(marker="dashboard-edit-toggle").click()
@@ -2931,7 +3567,9 @@ def text_of(user: User, marker: str) -> str:
     return user.find(marker=marker).elements.pop().text
 
 
-def other_project(name: str, start_day: int, end_day: int, allocation: float) -> Project:
+def other_project(
+    name: str, start_day: int, end_day: int, allocation: float
+) -> Project:
     return Project(
         name,
         base_date=date(2026, 10, 5),
@@ -2947,7 +3585,9 @@ def other_project(name: str, start_day: int, end_day: int, allocation: float) ->
     )
 
 
-async def test_the_cross_switch_overlays_the_other_projects_in_the_storage(user: User, tmp_path: Path) -> None:
+async def test_the_cross_switch_overlays_the_other_projects_in_the_storage(
+    user: User, tmp_path: Path
+) -> None:
     save_project(other_project("別", 6, 7, 1.0), tmp_path)
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
@@ -2962,12 +3602,20 @@ async def test_the_cross_switch_overlays_the_other_projects_in_the_storage(user:
 def warned_dashboard_project(view: MainView) -> None:
     view.project.members = [Member("田中", 1.0)]
     view.project.tasks = [
-        Task("警告", planned_start=datetime(2026, 10, 5, 9), effort_hours=19.5, progress=50, status=Status.RUNNING)
+        Task(
+            "警告",
+            planned_start=datetime(2026, 10, 5, 9),
+            effort_hours=19.5,
+            progress=50,
+            status=Status.RUNNING,
+        )
     ]
     view.now = lambda: datetime(2026, 10, 7, 12)  # 水曜の昼
 
 
-async def test_the_late_basis_defaults_to_delay_and_switches_the_backlog_card(user: User, tmp_path: Path) -> None:
+async def test_the_late_basis_defaults_to_delay_and_switches_the_backlog_card(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path, with_task=False)
     warned_dashboard_project(view)
     user.find(marker="open-dashboard").click()
@@ -2981,7 +3629,9 @@ async def test_the_late_basis_defaults_to_delay_and_switches_the_backlog_card(us
     assert "うち警告 1 件" in text_of(user, "dashboard-backlog-hours")
 
 
-async def test_the_late_basis_goes_back_to_delay_when_the_dashboard_is_reopened(user: User, tmp_path: Path) -> None:
+async def test_the_late_basis_goes_back_to_delay_when_the_dashboard_is_reopened(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     await user.should_see(marker="dashboard-backlog-hours")
@@ -2992,7 +3642,9 @@ async def test_the_late_basis_goes_back_to_delay_when_the_dashboard_is_reopened(
     assert view.dashboard_late_basis is LateBasis.DELAY
 
 
-async def test_switching_the_dashboard_view_keeps_the_late_basis(user: User, tmp_path: Path) -> None:
+async def test_switching_the_dashboard_view_keeps_the_late_basis(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     await user.should_see(marker="dashboard-backlog-hours")
@@ -3001,7 +3653,9 @@ async def test_switching_the_dashboard_view_keeps_the_late_basis(user: User, tmp
     assert view.dashboard_late_basis is LateBasis.WARNING
 
 
-async def test_the_late_basis_is_not_part_of_the_dashboard_view(user: User, tmp_path: Path) -> None:
+async def test_the_late_basis_is_not_part_of_the_dashboard_view(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     await user.should_see(marker="dashboard-backlog-hours")
@@ -3010,7 +3664,9 @@ async def test_the_late_basis_is_not_part_of_the_dashboard_view(user: User, tmp_
     assert not view.is_dirty()  # プロジェクトも変更扱いにならない
 
 
-async def test_excluding_a_project_removes_it_from_the_total(user: User, tmp_path: Path) -> None:
+async def test_excluding_a_project_removes_it_from_the_total(
+    user: User, tmp_path: Path
+) -> None:
     save_project(other_project("別", 6, 7, 1.0), tmp_path)
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
@@ -3022,20 +3678,36 @@ async def test_excluding_a_project_removes_it_from_the_total(user: User, tmp_pat
     assert "超過 0 日" in text_of(user, "dashboard-load-田中")
 
 
-async def test_a_same_named_project_is_told_apart_from_the_open_one(user: User, tmp_path: Path) -> None:
+async def test_a_same_named_project_is_told_apart_from_the_open_one(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     save_project(other_project(view.project.name, 6, 7, 1.0), tmp_path)
     user.find(marker="open-dashboard").click()
     view.change_dashboard_cross(True)
-    await user.should_see(marker=f"dashboard-cross-project-{view.project.name}(開いている)")
+    await user.should_see(
+        marker=f"dashboard-cross-project-{view.project.name}(開いている)"
+    )
     await user.should_see(marker=f"dashboard-cross-project-{view.project.name}")
     view.change_dashboard_project(view.project.name, False)  # ファイル側だけが外れる
     await asyncio.sleep(0.3)  # refresh は遅延実行なので、描き直されるのを待つ
-    assert user.find(marker=f"dashboard-cross-project-{view.project.name}(開いている)").elements.pop().value is True
-    assert user.find(marker=f"dashboard-cross-project-{view.project.name}").elements.pop().value is False
+    assert (
+        user.find(marker=f"dashboard-cross-project-{view.project.name}(開いている)")
+        .elements.pop()
+        .value
+        is True
+    )
+    assert (
+        user.find(marker=f"dashboard-cross-project-{view.project.name}")
+        .elements.pop()
+        .value
+        is False
+    )
 
 
-async def test_the_heatmap_follows_the_cross_switch_and_the_excluded_projects(user: User, tmp_path: Path) -> None:
+async def test_the_heatmap_follows_the_cross_switch_and_the_excluded_projects(
+    user: User, tmp_path: Path
+) -> None:
     save_project(other_project("別", 6, 7, 1.0), tmp_path)
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
@@ -3043,16 +3715,23 @@ async def test_the_heatmap_follows_the_cross_switch_and_the_excluded_projects(us
     await user.should_not_see(marker="dashboard-heatmap")  # 横断オフでは出ない
     view.change_dashboard_cross(True)
     await user.should_see(marker="dashboard-heatmap-table")
-    assert "別 100%" in user.find(marker="dashboard-heatmap-table").elements.pop().content
+    assert (
+        "別 100%" in user.find(marker="dashboard-heatmap-table").elements.pop().content
+    )
     view.change_dashboard_project("別", False)
     await asyncio.sleep(0.3)  # refresh は遅延実行なので、描き直されるのを待つ
-    assert "別 100%" not in user.find(marker="dashboard-heatmap-table").elements.pop().content
+    assert (
+        "別 100%"
+        not in user.find(marker="dashboard-heatmap-table").elements.pop().content
+    )
     view.change_dashboard_cross(False)
     await asyncio.sleep(0.3)
     await user.should_not_see(marker="dashboard-heatmap")
 
 
-async def test_an_unreadable_file_is_shown_and_the_rest_is_still_summed(user: User, tmp_path: Path) -> None:
+async def test_an_unreadable_file_is_shown_and_the_rest_is_still_summed(
+    user: User, tmp_path: Path
+) -> None:
     (tmp_path / "壊れた.json").write_text("{not json", encoding="utf-8")
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
@@ -3090,7 +3769,9 @@ async def test_a_member_of_another_project_falls_back_to_everyone_when_the_switc
     assert view.dashboard_member is None
 
 
-async def test_the_dashboard_replaces_the_header_and_the_chart(user: User, tmp_path: Path) -> None:
+async def test_the_dashboard_replaces_the_header_and_the_chart(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     assert view.dashboard_kind == PeriodKind.WEEK
@@ -3100,7 +3781,9 @@ async def test_the_dashboard_replaces_the_header_and_the_chart(user: User, tmp_p
     await user.should_see(marker="dashboard-progress-percent")
 
 
-async def test_back_restores_the_header_and_the_chart(user: User, tmp_path: Path) -> None:
+async def test_back_restores_the_header_and_the_chart(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     user.find(marker="dashboard-back").click()
@@ -3117,31 +3800,43 @@ async def test_escape_closes_the_dashboard(user: User, tmp_path: Path) -> None:
     assert view.dashboard_kind is None and view.header_box.visible
 
 
-async def test_changing_the_period_redraws_with_the_new_period(user: User, tmp_path: Path) -> None:
+async def test_changing_the_period_redraws_with_the_new_period(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
-    await user.should_see(marker="dashboard-due-0")  # 今週: 10/9 の完了予定だけ(refresh は遅延実行なので、待つ)
+    await user.should_see(
+        marker="dashboard-due-0"
+    )  # 今週: 10/9 の完了予定だけ(refresh は遅延実行なので、待つ)
     await user.should_not_see(marker="dashboard-due-1")
     user.find(marker="dashboard-period").elements.pop().set_value("今月")
     assert view.dashboard_kind == PeriodKind.MONTH
     await user.should_see(marker="dashboard-due-1")  # 今月: 10/20 の締切も入る
 
 
-async def test_the_custom_period_starts_from_the_previous_period_and_shows_a_field(user: User, tmp_path: Path) -> None:
+async def test_the_custom_period_starts_from_the_previous_period_and_shows_a_field(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     await user.should_see(marker="dashboard-period")
     field = view.dashboard_view.custom_field
-    assert field is not None and not field.visible  # 今週のあいだは出さない（非表示の要素は user.find に出ない）
+    assert (
+        field is not None and not field.visible
+    )  # 今週のあいだは出さない（非表示の要素は user.find に出ない）
     user.find(marker="dashboard-period").elements.pop().set_value("指定")
     assert view.dashboard_kind == PeriodKind.CUSTOM
-    assert view.dashboard_custom == Period(date(2026, 10, 5), date(2026, 10, 11))  # 直前の今週
+    assert view.dashboard_custom == Period(
+        date(2026, 10, 5), date(2026, 10, 11)
+    )  # 直前の今週
     assert field.visible and field.value == "2026-10-05 〜 2026-10-11"
     user.find(marker="dashboard-period").elements.pop().set_value("今月")
     assert not field.visible
 
 
-async def test_typing_a_custom_period_redraws_and_bad_input_keeps_the_previous_one(user: User, tmp_path: Path) -> None:
+async def test_typing_a_custom_period_redraws_and_bad_input_keeps_the_previous_one(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     await user.should_see(marker="dashboard-period")
@@ -3152,7 +3847,10 @@ async def test_typing_a_custom_period_redraws_and_bad_input_keeps_the_previous_o
     await user.should_see(marker="dashboard-due-1")  # 10/20 の締切も入る
     field.set_value("2026-10-31 〜 2026-10-01")
     assert view.dashboard_custom == Period(date(2026, 10, 1), date(2026, 10, 31))
-    assert "開始日が終了日以前" in user.find(marker="dashboard-period-error").elements.pop().text
+    assert (
+        "開始日が終了日以前"
+        in user.find(marker="dashboard-period-error").elements.pop().text
+    )
     assert field.value == "2026-10-31 〜 2026-10-01"  # 入力中の文字は書き換えない
     field.set_value("2026-01-01 〜 2027-12-31")  # 長すぎる
     assert view.dashboard_custom == Period(date(2026, 10, 1), date(2026, 10, 31))
@@ -3172,9 +3870,15 @@ async def test_bad_custom_input_does_not_recompute_the_dashboard(
     field.set_value("2026-10-01 〜 2026-10-31")
     calls: list[object] = []
     original = view.refresh_dashboard
-    monkeypatch.setattr(view, "refresh_dashboard", lambda *a, **k: (calls.append(1), original(*a, **k))[1])
+    monkeypatch.setattr(
+        view,
+        "refresh_dashboard",
+        lambda *a, **k: (calls.append(1), original(*a, **k))[1],
+    )
     field.set_value("2026-10-3")  # 入力の途中(不正)。集計し直さない
-    field.set_value("2026-10-01 〜 2026-10-31")  # 同じ期間に戻った。これも集計し直さない
+    field.set_value(
+        "2026-10-01 〜 2026-10-31"
+    )  # 同じ期間に戻った。これも集計し直さない
     assert calls == []
     assert view.dashboard_custom == Period(date(2026, 10, 1), date(2026, 10, 31))
     assert user.find(marker="dashboard-period-error").elements.pop().text == ""
@@ -3196,7 +3900,9 @@ async def test_switching_to_custom_always_starts_from_the_previous_period_and_st
     assert view.dashboard_custom == period_for(
         PeriodKind.MONTH, view.now().date(), view.project, view.holidays
     )  # 前回の指定ではなく、直前の今月
-    view.project.all_tasks()[0].planned_end = datetime(2030, 1, 1)  # 全期間が 400 日を超える
+    view.project.all_tasks()[0].planned_end = datetime(
+        2030, 1, 1
+    )  # 全期間が 400 日を超える
     toggle.set_value("全期間")
     toggle.set_value("指定")
     assert view.dashboard_custom is not None
@@ -3204,20 +3910,29 @@ async def test_switching_to_custom_always_starts_from_the_previous_period_and_st
     assert view.dashboard_custom_error == ""
 
 
-async def test_the_custom_period_resets_when_the_dashboard_is_reopened(user: User, tmp_path: Path) -> None:
+async def test_the_custom_period_resets_when_the_dashboard_is_reopened(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     await user.should_see(marker="dashboard-period")
     user.find(marker="dashboard-period").elements.pop().set_value("指定")
-    user.find(marker="dashboard-period-field").elements.pop().set_value("2026-10-01 〜 2026-10-31")
+    user.find(marker="dashboard-period-field").elements.pop().set_value(
+        "2026-10-01 〜 2026-10-31"
+    )
     user.find(marker="dashboard-back").click()
     user.find(marker="open-dashboard").click()
     assert view.dashboard_kind == PeriodKind.WEEK
     assert view.dashboard_custom is None
-    assert view.dashboard_view.custom_field is not None and not view.dashboard_view.custom_field.visible
+    assert (
+        view.dashboard_view.custom_field is not None
+        and not view.dashboard_view.custom_field.visible
+    )
 
 
-async def test_the_member_filter_narrows_the_dashboard_and_resets_when_reopened(user: User, tmp_path: Path) -> None:
+async def test_the_member_filter_narrows_the_dashboard_and_resets_when_reopened(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     await user.should_see(marker="dashboard-member")
@@ -3229,7 +3944,9 @@ async def test_the_member_filter_narrows_the_dashboard_and_resets_when_reopened(
     assert view.dashboard_member is None
 
 
-async def test_the_member_filter_stays_when_the_period_changes(user: User, tmp_path: Path) -> None:
+async def test_the_member_filter_stays_when_the_period_changes(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     await user.should_see(marker="dashboard-member")
@@ -3238,7 +3955,9 @@ async def test_the_member_filter_stays_when_the_period_changes(user: User, tmp_p
     assert view.dashboard_member == "田中" and view.dashboard_kind == PeriodKind.MONTH
 
 
-async def test_a_removed_member_falls_back_to_everyone(user: User, tmp_path: Path) -> None:
+async def test_a_removed_member_falls_back_to_everyone(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     await user.should_see(marker="dashboard-member")
@@ -3251,7 +3970,9 @@ async def test_a_removed_member_falls_back_to_everyone(user: User, tmp_path: Pat
     assert view.dashboard_member is None
 
 
-async def test_the_dashboard_leaves_the_chart_state_and_the_project_untouched(user: User, tmp_path: Path) -> None:
+async def test_the_dashboard_leaves_the_chart_state_and_the_project_untouched(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     view.gantt.set_scale(Scale.WEEK)
     view.gantt.set_filter(TaskFilter(query="設"))
@@ -3262,14 +3983,18 @@ async def test_the_dashboard_leaves_the_chart_state_and_the_project_untouched(us
     assert not view.is_dirty()
 
 
-async def test_an_empty_project_shows_the_empty_messages(user: User, tmp_path: Path) -> None:
+async def test_an_empty_project_shows_the_empty_messages(
+    user: User, tmp_path: Path
+) -> None:
     await open_dashboard_view(user, tmp_path, with_task=False)
     user.find(marker="open-dashboard").click()
     await user.should_see(marker="dashboard-empty-progress")
     await user.should_see(marker="dashboard-empty-due")
 
 
-async def test_the_dashboard_and_the_preview_do_not_open_together(user: User, tmp_path: Path) -> None:
+async def test_the_dashboard_and_the_preview_do_not_open_together(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="export-preview").click()
     view.open_dashboard()
@@ -3280,10 +4005,14 @@ async def test_the_dashboard_and_the_preview_do_not_open_together(user: User, tm
     assert view.preview is None
 
 
-def mount_with_project_dir(base_dir: Path, project_dir: Path | None, views: list[MainView]) -> None:
+def mount_with_project_dir(
+    base_dir: Path, project_dir: Path | None, views: list[MainView]
+) -> None:
     @ui.page("/")
     def index() -> None:
-        view = MainView(base_dir, make_transport(200, []), FakeExporter(), project_dir=project_dir)
+        view = MainView(
+            base_dir, make_transport(200, []), FakeExporter(), project_dir=project_dir
+        )
         views.append(view)
         view.build()
 
@@ -3306,7 +4035,9 @@ async def test_projects_live_in_the_project_dir_and_settings_stay_in_the_config_
     assert (base / "holidays.json").exists() and not (shared / "holidays.json").exists()
 
 
-async def test_a_saved_project_dir_is_used_when_none_is_given(user: User, tmp_path: Path) -> None:
+async def test_a_saved_project_dir_is_used_when_none_is_given(
+    user: User, tmp_path: Path
+) -> None:
     base, shared = tmp_path / "config", tmp_path / "shared"
     save_cache({}, base)
     shared.mkdir()
@@ -3331,7 +4062,9 @@ async def test_an_unusable_saved_project_dir_falls_back_with_a_notice_and_keeps_
     assert load_project_dir(base) == missing
 
 
-async def test_the_folder_button_opens_the_project_dir(user: User, tmp_path: Path) -> None:
+async def test_the_folder_button_opens_the_project_dir(
+    user: User, tmp_path: Path
+) -> None:
     base, shared = tmp_path / "config", tmp_path / "shared"
     save_cache({}, base)
     shared.mkdir()
@@ -3354,7 +4087,9 @@ async def open_header_view(user: User, tmp_path: Path) -> MainView:
 
 def label_section(item: ui.menu_item) -> ui.item_section:
     """項目の文言の ItemSection(アイコンでも、右端のキーでもないもの)。"""
-    return next(c for c in item.default_slot.children if c.text and "side" not in c._props)
+    return next(
+        c for c in item.default_slot.children if c.text and "side" not in c._props
+    )
 
 
 def menu_items(user: User, menu_marker: str) -> list[tuple[str, str]]:
@@ -3370,15 +4105,26 @@ def menu_items(user: User, menu_marker: str) -> list[tuple[str, str]]:
 def menu_icons(user: User, menu_marker: str) -> list[str]:
     menu = user.find(marker=menu_marker).elements.pop()
     return [
-        next(c for c in child.default_slot.children if "avatar" in c._props).default_slot.children[0]._props["name"]
+        next(c for c in child.default_slot.children if "avatar" in c._props)
+        .default_slot.children[0]
+        ._props["name"]
         for child in menu.default_slot.children
         if isinstance(child, ui.menu_item)
     ]
 
 
-async def test_the_header_has_the_menus_the_dashboard_icon_and_the_theme_menu(user: User, tmp_path: Path) -> None:
+async def test_the_header_has_the_menus_the_dashboard_icon_and_the_theme_menu(
+    user: User, tmp_path: Path
+) -> None:
     await open_header_view(user, tmp_path)
-    for marker in ("menu-file", "menu-project", "menu-export", "menu-help", "open-dashboard", "menu-theme"):
+    for marker in (
+        "menu-file",
+        "menu-project",
+        "menu-export",
+        "menu-help",
+        "open-dashboard",
+        "menu-theme",
+    ):
         await user.should_see(marker=marker)
     await user.should_see("新規プロジェクト")  # タイトル
 
@@ -3401,38 +4147,96 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         ("メンバーとパラメータ", "open-members-parameters"),
         ("ダッシュボード", "menu-open-dashboard"),
     ]
-    assert menu_icons(user, "menu-file-items") == ["folder_open", "upload_file", "table_view", "settings_backup_restore", "note_add", "save", "save_as", "drive_file_move", "event_repeat"]
+    assert menu_icons(user, "menu-file-items") == [
+        "folder_open",
+        "upload_file",
+        "table_view",
+        "settings_backup_restore",
+        "note_add",
+        "save",
+        "save_as",
+        "drive_file_move",
+        "event_repeat",
+    ]
     assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
-    assert menu_icons(user, "menu-export-items") == ["visibility", "ios_share", "download", "save_alt"]
+    assert menu_icons(user, "menu-export-items") == [
+        "visibility",
+        "ios_share",
+        "download",
+        "save_alt",
+    ]
     assert menu_icons(user, "menu-help-items") == ["keyboard"]
-    assert menu_icons(user, "menu-theme-items") == ["brightness_auto", "light_mode", "dark_mode", "palette", "tune", "event", "warning_amber"]
+    assert menu_icons(user, "menu-theme-items") == [
+        "brightness_auto",
+        "light_mode",
+        "dark_mode",
+        "palette",
+        "tune",
+        "event",
+        "warning_amber",
+    ]
     assert menu_items(user, "menu-export-items") == [
         ("チャートプレビュー", "export-preview"),
         ("担当者へ書き出し", "export-handoff"),
         ("TSV として書き出す", "export-tsv"),
         ("設定を書き出す", "export-settings"),
     ]
-    assert menu_items(user, "menu-help-items") == [("ショートカットヘルプ", "help-shortcuts")]
-    assert menu_items(user, "menu-theme-items") == [("自動", "theme-auto"), ("ライト", "theme-light"), ("ダーク", "theme-dark"), ("カスタム", "theme-custom"), ("カスタムの色…", "theme-custom-settings"), ("今日の線の色…", "theme-today-color"), ("警告の色…", "theme-warning-color")]
+    assert menu_items(user, "menu-help-items") == [
+        ("ショートカットヘルプ", "help-shortcuts")
+    ]
+    assert menu_items(user, "menu-theme-items") == [
+        ("自動", "theme-auto"),
+        ("ライト", "theme-light"),
+        ("ダーク", "theme-dark"),
+        ("カスタム", "theme-custom"),
+        ("カスタムの色…", "theme-custom-settings"),
+        ("今日の線の色…", "theme-today-color"),
+        ("警告の色…", "theme-warning-color"),
+    ]
 
 
-async def test_the_file_menu_separates_open_save_and_update(user: User, tmp_path: Path) -> None:
+async def test_the_file_menu_separates_open_save_and_update(
+    user: User, tmp_path: Path
+) -> None:
     await open_header_view(user, tmp_path)
     menu = user.find(marker="menu-file-items").elements.pop()
-    kinds = ["sep" if isinstance(c, ui.separator) else "item" for c in menu.default_slot.children]
-    assert kinds == ["item", "item", "item", "item", "item", "sep", "item", "item", "sep", "item", "item"]
+    kinds = [
+        "sep" if isinstance(c, ui.separator) else "item"
+        for c in menu.default_slot.children
+    ]
+    assert kinds == [
+        "item",
+        "item",
+        "item",
+        "item",
+        "item",
+        "sep",
+        "item",
+        "item",
+        "sep",
+        "item",
+        "item",
+    ]
 
 
-async def test_the_project_menu_dashboard_item_opens_the_dashboard(user: User, tmp_path: Path) -> None:
+async def test_the_project_menu_dashboard_item_opens_the_dashboard(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     user.find(marker="menu-open-dashboard").click()
     assert await wait_until(lambda: view.dashboard_kind is not None)
 
 
-async def test_the_dashboard_menu_item_shows_the_key_hint(user: User, tmp_path: Path) -> None:
+async def test_the_dashboard_menu_item_shows_the_key_hint(
+    user: User, tmp_path: Path
+) -> None:
     await open_header_view(user, tmp_path)
     menu = user.find(marker="menu-project-items").elements.pop()
-    item = next(c for c in menu.default_slot.children if isinstance(c, ui.menu_item) and "menu-open-dashboard" in c._markers)
+    item = next(
+        c
+        for c in menu.default_slot.children
+        if isinstance(c, ui.menu_item) and "menu-open-dashboard" in c._markers
+    )
     assert [c.text for c in item.default_slot.children if "side" in c._props] == ["D"]
 
 
@@ -3442,18 +4246,26 @@ async def test_the_file_menu_opens_the_file_list(user: User, tmp_path: Path) -> 
     await user.should_see("プロジェクトファイルがありません")
 
 
-async def test_the_help_menu_opens_the_shortcut_help(user: User, tmp_path: Path) -> None:
+async def test_the_help_menu_opens_the_shortcut_help(
+    user: User, tmp_path: Path
+) -> None:
     await open_header_view(user, tmp_path)
     user.find(marker="help-shortcuts").click()
     await user.should_see("キー操作")
     await user.should_see("Ctrl/Cmd+S: 上書き保存")
 
 
-async def test_the_theme_menu_marks_the_selected_theme_and_switches_it(user: User, tmp_path: Path) -> None:
+async def test_the_theme_menu_marks_the_selected_theme_and_switches_it(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_header_view(user, tmp_path)
 
     def selected() -> list[str]:
-        return [t for t in ("auto", "light", "dark", "custom") if user.find(marker=f"theme-{t}").elements.pop()._props.get("active")]
+        return [
+            t
+            for t in ("auto", "light", "dark", "custom")
+            if user.find(marker=f"theme-{t}").elements.pop()._props.get("active")
+        ]
 
     def icon() -> str:
         return user.find(marker="menu-theme").elements.pop()._props["icon"]
@@ -3461,50 +4273,114 @@ async def test_the_theme_menu_marks_the_selected_theme_and_switches_it(user: Use
     assert selected() == ["auto"] and icon() == THEME_ICONS["auto"]
     user.find(marker="theme-dark").click()
     assert view.theme == "dark"
-    assert await wait_until(lambda: selected() == ["dark"] and icon() == THEME_ICONS["dark"])  # refresh は遅延実行
+    assert await wait_until(
+        lambda: selected() == ["dark"] and icon() == THEME_ICONS["dark"]
+    )  # refresh は遅延実行
 
 
-async def test_the_header_is_a_themed_band_with_small_fonts(user: User, tmp_path: Path) -> None:
+async def test_the_header_is_a_themed_band_with_small_fonts(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_header_view(user, tmp_path)
     assert "app-header" in view.header_box.classes
-    assert isinstance(view.header_box, ui.header)  # 画面の上端・左右いっぱいに固定される四角い帯(ページの余白の内側に置かない)
-    band_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-header {"))
+    assert isinstance(
+        view.header_box, ui.header
+    )  # 画面の上端・左右いっぱいに固定される四角い帯(ページの余白の内側に置かない)
+    band_rule = next(
+        line for line in HEADER_CSS.splitlines() if line.startswith(".app-header {")
+    )
     assert "border-radius" not in band_rule  # 角丸にしない
     # 折り返さない: 帯・タイトル・メニューのボタンは 1 行のまま。狭いときに縮むのは、プロジェクト選択のコンボだけ
     assert "no-wrap" in view.header_box.classes and "flex-wrap: nowrap" in band_rule
-    nowrap_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-header .q-btn {"))
-    assert "white-space: nowrap" in nowrap_rule and "flex: none" in nowrap_rule  # メニューのボタンは、縮めも折り返しもしない
+    nowrap_rule = next(
+        line
+        for line in HEADER_CSS.splitlines()
+        if line.startswith(".app-header .q-btn {")
+    )
+    assert (
+        "white-space: nowrap" in nowrap_rule and "flex: none" in nowrap_rule
+    )  # メニューのボタンは、縮めも折り返しもしない
     assert ".app-header .q-btn__content" in HEADER_CSS
     select = user.find(marker="project-select").elements.pop()
-    assert "app-project-select" in select.classes and "w-64" not in select.classes  # 固定幅(16rem)をやめ、縮められるようにする
-    select_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-header .app-project-select {"))
+    assert (
+        "app-project-select" in select.classes and "w-64" not in select.classes
+    )  # 固定幅(16rem)をやめ、縮められるようにする
+    select_rule = next(
+        line
+        for line in HEADER_CSS.splitlines()
+        if line.startswith(".app-header .app-project-select {")
+    )
     assert "flex: 0 1 16rem" in select_rule and "min-width" in select_rule
     # コンボの中に出るファイル名は 10px(選択中の値と、開いた一覧の項目)
     assert "app-select-popup" in str(select._props.get("popup-content-class"))
-    value_rule = next(line for line in HEADER_CSS.splitlines() if ".q-field__native" in line)
+    value_rule = next(
+        line for line in HEADER_CSS.splitlines() if ".q-field__native" in line
+    )
     assert "font-size: 10px" in value_rule
-    popup_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-select-popup"))
+    popup_rule = next(
+        line for line in HEADER_CSS.splitlines() if line.startswith(".app-select-popup")
+    )
     assert "font-size: 10px" in popup_rule
     assert "font-size: 12px" in HEADER_CSS  # 14px から -2
-    assert "var(--q-primary)" in HEADER_CSS and "var(--app-header-fg, #fff)" in HEADER_CSS  # テーマカラーの背景 + 白文字
-    assert "body.body--dark .app-header" in HEADER_CSS and "color-mix" in HEADER_CSS  # ダークは暗めのテーマカラー
-    title = next(e for e in user.find(kind=ui.label, content="新規プロジェクト").elements if e.text == "新規プロジェクト")  # ヘルプの「新規プロジェクト作成」と区別する
+    assert (
+        "var(--q-primary)" in HEADER_CSS and "var(--app-header-fg, #fff)" in HEADER_CSS
+    )  # テーマカラーの背景 + 白文字
+    assert (
+        "body.body--dark .app-header" in HEADER_CSS and "color-mix" in HEADER_CSS
+    )  # ダークは暗めのテーマカラー
+    title = next(
+        e
+        for e in user.find(kind=ui.label, content="新規プロジェクト").elements
+        if e.text == "新規プロジェクト"
+    )  # ヘルプの「新規プロジェクト作成」と区別する
     assert "app-title" in title.classes
-    assert not any(node is view.header_box for node in ancestors(title))  # タイトルは、ヘッダーの外(メイン側の左上)
-    title_rule = next(line for line in HEADER_CSS.splitlines() if line.startswith(".app-title {"))
-    assert "font-size: 12px" in title_rule and "font-weight: 700" in title_rule  # 他の文字と同じ大きさ。太さで区別する
-    for marker in ("menu-file", "menu-project", "menu-export", "menu-git", "menu-help"):  # メニューは楕円型のボタン
+    assert not any(
+        node is view.header_box for node in ancestors(title)
+    )  # タイトルは、ヘッダーの外(メイン側の左上)
+    title_rule = next(
+        line for line in HEADER_CSS.splitlines() if line.startswith(".app-title {")
+    )
+    assert (
+        "font-size: 12px" in title_rule and "font-weight: 700" in title_rule
+    )  # 他の文字と同じ大きさ。太さで区別する
+    for marker in (
+        "menu-file",
+        "menu-project",
+        "menu-export",
+        "menu-git",
+        "menu-help",
+    ):  # メニューは楕円型のボタン
         button = user.find(marker=marker).elements.pop()
-        assert "rounded" in button._props and "unelevated" in button._props and "app-menu-btn" in button.classes
-    assert "rgba(255, 255, 255, 0.18)" in HEADER_CSS and ".app-menu-btn:hover" in HEADER_CSS
+        assert (
+            "rounded" in button._props
+            and "unelevated" in button._props
+            and "app-menu-btn" in button.classes
+        )
+    assert (
+        "rgba(255, 255, 255, 0.18)" in HEADER_CSS
+        and ".app-menu-btn:hover" in HEADER_CSS
+    )
     # 帯の上のボタンは、色を持たない(NiceGUI の既定は primary で、flat の文字が帯と同じ色になって見えなくなる)。
     # 色を持たなければ、文字は帯の白を引き継ぐ
-    for marker in ("menu-file", "menu-project", "menu-export", "menu-git", "menu-help", "open-dashboard", "open-folder", "menu-theme"):
+    for marker in (
+        "menu-file",
+        "menu-project",
+        "menu-export",
+        "menu-git",
+        "menu-help",
+        "open-dashboard",
+        "open-folder",
+        "menu-theme",
+    ):
         assert not user.find(marker=marker).elements.pop()._props.get("color"), marker
     for marker in ("menu-file", "menu-project", "menu-export", "menu-git", "menu-help"):
-        assert "icon-right" not in user.find(marker=marker).elements.pop()._props  # ▼ は出さない
+        assert (
+            "icon-right" not in user.find(marker=marker).elements.pop()._props
+        )  # ▼ は出さない
     menu = user.find(marker="menu-file-items").elements.pop()
-    assert "app-menu" in str(menu._props.get("content-class"))  # 開いたメニューも同じ大きさ
+    assert "app-menu" in str(
+        menu._props.get("content-class")
+    )  # 開いたメニューも同じ大きさ
 
 
 async def test_the_floating_buttons_are_gone(user: User, tmp_path: Path) -> None:
@@ -3521,18 +4397,40 @@ def ancestors(element: ui.element) -> list[ui.element]:
     return nodes
 
 
-async def test_the_menus_start_at_the_left_of_the_header_and_the_title_is_in_the_main_area(user: User, tmp_path: Path) -> None:
+async def test_the_menus_start_at_the_left_of_the_header_and_the_title_is_in_the_main_area(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_header_view(user, tmp_path)
-    order = ["menu-file", "menu-project", "menu-export", "menu-git", "menu-help", "project-select", "open-dashboard", "open-folder", "menu-theme"]
+    order = [
+        "menu-file",
+        "menu-project",
+        "menu-export",
+        "menu-git",
+        "menu-help",
+        "project-select",
+        "open-dashboard",
+        "open-folder",
+        "menu-theme",
+    ]
     ids = [user.find(marker=marker).elements.pop().id for marker in order]
-    assert ids == sorted(ids)  # 左から、メニュー 4 つ。右側に、コンボ・ダッシュボード・テーマ
+    assert ids == sorted(
+        ids
+    )  # 左から、メニュー 4 つ。右側に、コンボ・ダッシュボード・テーマ
     header_children = view.header_box.default_slot.children
-    assert isinstance(header_children[0], ui.button)  # 先頭は、メニューのボタン(タイトルではない)
-    title = next(e for e in user.find(kind=ui.label, content="新規プロジェクト").elements if e.text == "新規プロジェクト")  # ヘルプの「新規プロジェクト作成」と区別する
+    assert isinstance(
+        header_children[0], ui.button
+    )  # 先頭は、メニューのボタン(タイトルではない)
+    title = next(
+        e
+        for e in user.find(kind=ui.label, content="新規プロジェクト").elements
+        if e.text == "新規プロジェクト"
+    )  # ヘルプの「新規プロジェクト作成」と区別する
     assert view.header_box not in ancestors(title)
 
 
-async def test_the_title_hides_and_returns_with_the_header(user: User, tmp_path: Path) -> None:
+async def test_the_title_hides_and_returns_with_the_header(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_header_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     assert not view.header_box.visible and not view.title_box.visible
@@ -3544,7 +4442,9 @@ async def test_the_title_hides_and_returns_with_the_header(user: User, tmp_path:
     assert view.header_box.visible and view.title_box.visible
 
 
-async def test_the_folder_button_opens_the_project_folder(user: User, tmp_path: Path) -> None:
+async def test_the_folder_button_opens_the_project_folder(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_header_view(user, tmp_path)
     opened: list[Path] = []
     view.open_folder = opened.append  # type: ignore[method-assign]  # 実際には、ファイラを開かない
@@ -3592,7 +4492,9 @@ async def open_dir_view(
     return views[0], exporter
 
 
-async def test_changing_the_project_dir_switches_the_list_and_starts_a_new_project(user: User, tmp_path: Path) -> None:
+async def test_changing_the_project_dir_switches_the_list_and_starts_a_new_project(
+    user: User, tmp_path: Path
+) -> None:
     shared = tmp_path / "shared"
     save_project(Project("乙"), shared)
     view, _ = await open_dir_view(user, tmp_path, shared)
@@ -3600,11 +4502,19 @@ async def test_changing_the_project_dir_switches_the_list_and_starts_a_new_proje
     assert await wait_until(lambda: view.project_dir == shared)
     assert load_project_dir(tmp_path / "config") == shared
     assert set(view.files) == {"乙"} and list(view.file_select.options) == ["乙"]
-    assert view.path is None and view.project.name == "新規プロジェクト" and view.file_select.value is None
-    assert (tmp_path / "config" / "甲.json").exists()  # 古い格納先のファイルは、そのまま残す
+    assert (
+        view.path is None
+        and view.project.name == "新規プロジェクト"
+        and view.file_select.value is None
+    )
+    assert (
+        tmp_path / "config" / "甲.json"
+    ).exists()  # 古い格納先のファイルは、そのまま残す
 
 
-async def test_changing_to_an_empty_folder_is_allowed(user: User, tmp_path: Path) -> None:
+async def test_changing_to_an_empty_folder_is_allowed(
+    user: User, tmp_path: Path
+) -> None:
     empty = tmp_path / "empty"
     empty.mkdir()
     view, _ = await open_dir_view(user, tmp_path, empty)
@@ -3613,15 +4523,22 @@ async def test_changing_to_an_empty_folder_is_allowed(user: User, tmp_path: Path
     assert view.files == {}
 
 
-async def test_an_unusable_folder_is_rejected_and_nothing_changes(user: User, tmp_path: Path) -> None:
+async def test_an_unusable_folder_is_rejected_and_nothing_changes(
+    user: User, tmp_path: Path
+) -> None:
     view, _ = await open_dir_view(user, tmp_path, tmp_path / "ない")
     user.find(marker="file-change-dir").click()
     assert await wait_until(lambda: user.notify.contains("このフォルダは使えません"))
-    assert view.project_dir == tmp_path / "config" and view.path == tmp_path / "config" / "甲.json"
+    assert (
+        view.project_dir == tmp_path / "config"
+        and view.path == tmp_path / "config" / "甲.json"
+    )
     assert load_project_dir(tmp_path / "config") is None
 
 
-async def test_cancelling_the_folder_dialog_changes_nothing(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_folder_dialog_changes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     view, exporter = await open_dir_view(user, tmp_path, None)
     user.find(marker="file-change-dir").click()
     assert await wait_until(lambda: exporter.asked_directory == 1)
@@ -3629,7 +4546,9 @@ async def test_cancelling_the_folder_dialog_changes_nothing(user: User, tmp_path
     assert load_project_dir(tmp_path / "config") is None
 
 
-async def test_choosing_the_current_folder_does_nothing(user: User, tmp_path: Path) -> None:
+async def test_choosing_the_current_folder_does_nothing(
+    user: User, tmp_path: Path
+) -> None:
     view, exporter = await open_dir_view(user, tmp_path, tmp_path / "config")
     user.find(marker="file-change-dir").click()
     assert await wait_until(lambda: exporter.asked_directory == 1)
@@ -3637,13 +4556,19 @@ async def test_choosing_the_current_folder_does_nothing(user: User, tmp_path: Pa
     assert load_project_dir(tmp_path / "config") is None  # 設定も書かない
 
 
-async def test_choosing_the_default_folder_after_a_fallback_start_fixes_the_setting(user: User, tmp_path: Path) -> None:
+async def test_choosing_the_default_folder_after_a_fallback_start_fixes_the_setting(
+    user: User, tmp_path: Path
+) -> None:
     base = tmp_path / "config"
     view, exporter = await open_dir_view(user, tmp_path, base)
-    save_project_dir(tmp_path / "ない", base)  # 保存した格納先が使えず、既定の場所で起動した状態
+    save_project_dir(
+        tmp_path / "ない", base
+    )  # 保存した格納先が使えず、既定の場所で起動した状態
     user.find(marker="file-change-dir").click()
     assert await wait_until(lambda: exporter.asked_directory == 1)
-    assert await wait_until(lambda: load_project_dir(base) == base)  # 次の起動から警告が出ない
+    assert await wait_until(
+        lambda: load_project_dir(base) == base
+    )  # 次の起動から警告が出ない
     assert view.path is not None  # 今のフォルダと同じなので、プロジェクトは閉じない
 
 
@@ -3672,7 +4597,9 @@ async def test_changing_the_folder_is_native_only(user: User, tmp_path: Path) ->
     assert exporter.asked_directory == 0 and view.project_dir == tmp_path / "config"
 
 
-async def test_changing_the_folder_asks_before_dropping_unsaved_changes(user: User, tmp_path: Path) -> None:
+async def test_changing_the_folder_asks_before_dropping_unsaved_changes(
+    user: User, tmp_path: Path
+) -> None:
     shared = tmp_path / "shared"
     shared.mkdir()
     view, exporter = await open_dir_view(user, tmp_path, shared)
@@ -3684,7 +4611,9 @@ async def test_changing_the_folder_asks_before_dropping_unsaved_changes(user: Us
     assert exporter.asked_directory == 0 and view.project_dir == tmp_path / "config"
 
 
-async def test_changing_the_folder_can_discard_the_changes(user: User, tmp_path: Path) -> None:
+async def test_changing_the_folder_can_discard_the_changes(
+    user: User, tmp_path: Path
+) -> None:
     shared = tmp_path / "shared"
     shared.mkdir()
     view, _ = await open_dir_view(user, tmp_path, shared)
@@ -3692,7 +4621,9 @@ async def test_changing_the_folder_can_discard_the_changes(user: User, tmp_path:
     user.find(marker="file-change-dir").click()
     user.find(marker="unsaved-discard").click()
     assert await wait_until(lambda: view.project_dir == shared)
-    assert [s.name for s in load_project(tmp_path / "config" / "甲.json").sections] == ["甲の中身"]
+    assert [s.name for s in load_project(tmp_path / "config" / "甲.json").sections] == [
+        "甲の中身"
+    ]
 
 
 async def test_changing_the_folder_can_save_first(user: User, tmp_path: Path) -> None:
@@ -3703,10 +4634,15 @@ async def test_changing_the_folder_can_save_first(user: User, tmp_path: Path) ->
     user.find(marker="file-change-dir").click()
     user.find(marker="unsaved-save").click()
     assert await wait_until(lambda: view.project_dir == shared)
-    assert [s.name for s in load_project(tmp_path / "config" / "甲.json").sections] == ["甲の中身", "追加"]
+    assert [s.name for s in load_project(tmp_path / "config" / "甲.json").sections] == [
+        "甲の中身",
+        "追加",
+    ]
 
 
-async def test_new_project_replaces_the_current_one_with_an_unsaved_empty_project(user: User, tmp_path: Path) -> None:
+async def test_new_project_replaces_the_current_one_with_an_unsaved_empty_project(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_saved_view(user, tmp_path)
     user.find(marker="file-new").click()
     assert view.path is None and view.project.name == "新規プロジェクト"
@@ -3716,7 +4652,9 @@ async def test_new_project_replaces_the_current_one_with_an_unsaved_empty_projec
     await user.should_see("新規プロジェクト")
 
 
-async def test_new_project_asks_before_dropping_unsaved_changes(user: User, tmp_path: Path) -> None:
+async def test_new_project_asks_before_dropping_unsaved_changes(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_saved_view(user, tmp_path)
     view.save_section("追加")
     assert view.is_dirty()
@@ -3724,7 +4662,9 @@ async def test_new_project_asks_before_dropping_unsaved_changes(user: User, tmp_
     await user.should_see("保存されていない変更があります")
     await user.should_see("作成前に")
     user.find(marker="unsaved-cancel").click()
-    assert view.path == tmp_path / "甲.json" and [s.name for s in view.project.sections] == ["甲の中身", "追加"]
+    assert view.path == tmp_path / "甲.json" and [
+        s.name for s in view.project.sections
+    ] == ["甲の中身", "追加"]
 
 
 async def test_new_project_can_discard_the_changes(user: User, tmp_path: Path) -> None:
@@ -3733,7 +4673,9 @@ async def test_new_project_can_discard_the_changes(user: User, tmp_path: Path) -
     user.find(marker="file-new").click()
     user.find(marker="unsaved-discard").click()
     assert view.path is None and view.project.sections == []
-    assert [s.name for s in load_project(tmp_path / "甲.json").sections] == ["甲の中身"]  # 保存せず作成
+    assert [s.name for s in load_project(tmp_path / "甲.json").sections] == [
+        "甲の中身"
+    ]  # 保存せず作成
 
 
 async def test_new_project_can_save_first(user: User, tmp_path: Path) -> None:
@@ -3742,10 +4684,15 @@ async def test_new_project_can_save_first(user: User, tmp_path: Path) -> None:
     user.find(marker="file-new").click()
     user.find(marker="unsaved-save").click()
     assert await wait_until(lambda: view.path is None and view.project.sections == [])
-    assert [s.name for s in load_project(tmp_path / "甲.json").sections] == ["甲の中身", "追加"]
+    assert [s.name for s in load_project(tmp_path / "甲.json").sections] == [
+        "甲の中身",
+        "追加",
+    ]
 
 
-async def test_save_as_writes_a_new_file_and_switches_to_it(user: User, tmp_path: Path) -> None:
+async def test_save_as_writes_a_new_file_and_switches_to_it(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_saved_view(user, tmp_path)
     view.save_section("追加")
     user.find(marker="file-save-as").click()
@@ -3755,12 +4702,19 @@ async def test_save_as_writes_a_new_file_and_switches_to_it(user: User, tmp_path
     user.find(marker="name-save").click()
     assert await wait_until(lambda: view.path == tmp_path / "乙.json")
     assert view.project.name == "乙" and not view.is_dirty()
-    assert [s.name for s in load_project(tmp_path / "乙.json").sections] == ["甲の中身", "追加"]
-    assert [s.name for s in load_project(tmp_path / "甲.json").sections] == ["甲の中身"]  # 元のファイルは、そのまま
+    assert [s.name for s in load_project(tmp_path / "乙.json").sections] == [
+        "甲の中身",
+        "追加",
+    ]
+    assert [s.name for s in load_project(tmp_path / "甲.json").sections] == [
+        "甲の中身"
+    ]  # 元のファイルは、そのまま
     assert "乙" in view.file_select.options and view.file_select.value == "乙"
 
 
-async def test_save_as_does_not_overwrite_an_existing_project(user: User, tmp_path: Path) -> None:
+async def test_save_as_does_not_overwrite_an_existing_project(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_saved_view(user, tmp_path)
     save_project(Project("乙"), tmp_path)
     user.find(marker="file-save-as").click()
@@ -3771,7 +4725,9 @@ async def test_save_as_does_not_overwrite_an_existing_project(user: User, tmp_pa
     assert load_project(tmp_path / "乙.json").sections == []
 
 
-async def test_save_as_works_for_an_unsaved_project_too(user: User, tmp_path: Path) -> None:
+async def test_save_as_works_for_an_unsaved_project_too(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_preview(tmp_path, views, FakeExporter())
@@ -3782,12 +4738,20 @@ async def test_save_as_works_for_an_unsaved_project_too(user: User, tmp_path: Pa
     assert await wait_until(lambda: views[0].path == tmp_path / "丙.json")
 
 
-async def test_the_file_menu_separators_are_marked_and_the_holiday_update_is_last(user: User, tmp_path: Path) -> None:
+async def test_the_file_menu_separators_are_marked_and_the_holiday_update_is_last(
+    user: User, tmp_path: Path
+) -> None:
     await open_header_view(user, tmp_path)
     menu = user.find(marker="menu-file-items").elements.pop()
     children = menu.default_slot.children
-    assert "menu-file-separator" in children[5]._markers and "menu-file-separator" in children[8]._markers
-    assert "file-change-dir" in children[9]._markers and "refresh-holidays" in children[10]._markers
+    assert (
+        "menu-file-separator" in children[5]._markers
+        and "menu-file-separator" in children[8]._markers
+    )
+    assert (
+        "file-change-dir" in children[9]._markers
+        and "refresh-holidays" in children[10]._markers
+    )
 
 
 async def test_templates_are_saved_with_the_project_and_mark_it_dirty(
@@ -3820,17 +4784,23 @@ async def test_deleting_a_used_template_turns_its_links_into_urls(
     await user.open("/")
     view = views[0]
     view.project.url_templates = [UrlTemplate("チケット", "https://example.com/{ID}")]
-    view.save_task((), None, Task("設計", urls=[TaskUrl("課題", "チケット", {"ID": "231"})]))
+    view.save_task(
+        (), None, Task("設計", urls=[TaskUrl("課題", "チケット", {"ID": "231"})])
+    )
     user.find(marker="open-settings").click()
     user.find(marker="settings-template-0-remove").click()
     user.find(marker="settings-apply").click()
     await user.should_see("1件")
     user.find(marker="settings-confirm-delete").click()
     assert view.project.url_templates == []
-    assert view.project.tasks[0].urls == [TaskUrl("課題", None, {"URL": "https://example.com/231"})]
+    assert view.project.tasks[0].urls == [
+        TaskUrl("課題", None, {"URL": "https://example.com/231"})
+    ]
 
 
-async def test_renaming_a_template_follows_the_links(user: User, tmp_path: Path) -> None:
+async def test_renaming_a_template_follows_the_links(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -3874,14 +4844,18 @@ async def shortcut_view(user: User, tmp_path: Path) -> tuple[MainView, list[str]
 
 
 @pytest.mark.parametrize(("key_args", "method"), SHORTCUT_METHODS)
-async def test_a_shortcut_runs_its_menu_action(user: User, tmp_path: Path, key_args, method) -> None:
+async def test_a_shortcut_runs_its_menu_action(
+    user: User, tmp_path: Path, key_args, method
+) -> None:
     view, calls = await shortcut_view(user, tmp_path)
     name, ctrl, shift = key_args
     view.on_key(key_event(name, ctrl=ctrl, shift=shift))
     assert calls == [method]
 
 
-async def test_slash_focuses_the_search_input_and_question_mark_opens_the_help(user: User, tmp_path: Path) -> None:
+async def test_slash_focuses_the_search_input_and_question_mark_opens_the_help(
+    user: User, tmp_path: Path
+) -> None:
     view, calls = await shortcut_view(user, tmp_path)
     view.on_key(key_event("/"))
     assert calls == ["focus_search"]
@@ -3889,7 +4863,9 @@ async def test_slash_focuses_the_search_input_and_question_mark_opens_the_help(u
     assert view.help_dialog.value
 
 
-async def test_shortcuts_do_nothing_while_a_dialog_is_open(user: User, tmp_path: Path) -> None:
+async def test_shortcuts_do_nothing_while_a_dialog_is_open(
+    user: User, tmp_path: Path
+) -> None:
     view, calls = await shortcut_view(user, tmp_path)
     view.help_dialog.open()
     view.on_key(key_event("s", ctrl=True))
@@ -3897,7 +4873,9 @@ async def test_shortcuts_do_nothing_while_a_dialog_is_open(user: User, tmp_path:
     assert calls == []
 
 
-async def test_shortcuts_do_nothing_in_the_preview_and_the_dashboard(user: User, tmp_path: Path) -> None:
+async def test_shortcuts_do_nothing_in_the_preview_and_the_dashboard(
+    user: User, tmp_path: Path
+) -> None:
     view, calls = await shortcut_view(user, tmp_path)
     view.preview = object()  # type: ignore[assignment]
     view.on_key(key_event("s", ctrl=True))
@@ -3930,7 +4908,9 @@ def zoom_calls(calls: list[str]) -> list[str]:
     return [c for c in calls if "style.zoom" in c]
 
 
-async def open_zoom_view(user: User, tmp_path: Path, exporter: FakeExporter | None = None) -> tuple[MainView, list[str]]:
+async def open_zoom_view(
+    user: User, tmp_path: Path, exporter: FakeExporter | None = None
+) -> tuple[MainView, list[str]]:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     calls: list[str] = []
@@ -3946,20 +4926,26 @@ async def open_zoom_view(user: User, tmp_path: Path, exporter: FakeExporter | No
     return views[0], calls
 
 
-async def test_the_zoom_starts_at_100_percent_and_applies_it(user: User, tmp_path: Path) -> None:
+async def test_the_zoom_starts_at_100_percent_and_applies_it(
+    user: User, tmp_path: Path
+) -> None:
     view, calls = await open_zoom_view(user, tmp_path)
     assert view.zoom == 100
     assert zoom_calls(calls) == ["document.body.style.zoom = 1.0"]
 
 
-async def test_the_saved_zoom_is_restored_on_startup(user: User, tmp_path: Path) -> None:
+async def test_the_saved_zoom_is_restored_on_startup(
+    user: User, tmp_path: Path
+) -> None:
     save_zoom(130, tmp_path)
     view, calls = await open_zoom_view(user, tmp_path)
     assert view.zoom == 130
     assert zoom_calls(calls) == ["document.body.style.zoom = 1.3"]
 
 
-async def test_ctrl_plus_and_minus_zoom_in_and_out_and_save_it(user: User, tmp_path: Path) -> None:
+async def test_ctrl_plus_and_minus_zoom_in_and_out_and_save_it(
+    user: User, tmp_path: Path
+) -> None:
     view, calls = await open_zoom_view(user, tmp_path)
     view.on_key(key_event("+", ctrl=True, shift=True))
     view.on_key(key_event("=", ctrl=True))
@@ -3982,7 +4968,9 @@ async def test_the_zoom_stops_at_the_limits(user: User, tmp_path: Path) -> None:
     assert view.zoom == 70
 
 
-async def test_the_zoom_works_while_a_dialog_is_open_and_in_the_preview(user: User, tmp_path: Path) -> None:
+async def test_the_zoom_works_while_a_dialog_is_open_and_in_the_preview(
+    user: User, tmp_path: Path
+) -> None:
     view, _ = await open_zoom_view(user, tmp_path)
     view.help_dialog.open()
     view.on_key(key_event("+", ctrl=True, shift=True))
@@ -4020,7 +5008,9 @@ class ZoomSpyExporter(FakeExporter):
         return await super().capture(pixel_ratio)
 
 
-async def test_the_image_is_captured_at_100_percent_and_the_zoom_comes_back(user: User, tmp_path: Path) -> None:
+async def test_the_image_is_captured_at_100_percent_and_the_zoom_comes_back(
+    user: User, tmp_path: Path
+) -> None:
     calls: list[str] = []
     exporter = ZoomSpyExporter(calls)
     save_zoom(150, tmp_path)
@@ -4028,7 +5018,9 @@ async def test_the_image_is_captured_at_100_percent_and_the_zoom_comes_back(user
     exporter.calls = view_calls
     view.enter_preview()
     await view.save_image()
-    assert exporter.zoom_at_capture == "document.body.style.zoom = 1.0"  # 倍率をかけたままだと、画像の大きさがずれる
+    assert (
+        exporter.zoom_at_capture == "document.body.style.zoom = 1.0"
+    )  # 倍率をかけたままだと、画像の大きさがずれる
     assert zoom_calls(view_calls)[-1] == "document.body.style.zoom = 1.5"
     assert view.zoom == 150
 
@@ -4051,19 +5043,25 @@ async def test_assigned_count_counts_tasks_where_the_member_is_one_of_the_assign
     assert view.assigned_count("佐藤") == 0
 
 
-async def test_renaming_a_member_renames_every_assignee_entry(user: User, tmp_path: Path) -> None:
+async def test_renaming_a_member_renames_every_assignee_entry(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
     await user.open("/")
     view = views[0]
     view.project.members = [Member("A"), Member("B")]
-    view.project.tasks = [Task("t", assignees=[Assignee("A", 0.5), Assignee("B", 0.25)])]
+    view.project.tasks = [
+        Task("t", assignees=[Assignee("A", 0.5), Assignee("B", 0.25)])
+    ]
     view.apply_members([Member("B"), Member("A")], {"A": "B", "B": "A"})  # 入れ替え
     assert view.project.tasks[0].assignees == [Assignee("B", 0.5), Assignee("A", 0.25)]
 
 
-async def test_renaming_a_member_renames_the_weekly_crew_too(user: User, tmp_path: Path) -> None:
+async def test_renaming_a_member_renames_the_weekly_crew_too(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
@@ -4071,14 +5069,21 @@ async def test_renaming_a_member_renames_the_weekly_crew_too(user: User, tmp_pat
     view = views[0]
     view.project.members = [Member("A"), Member("B")]
     weeks = [[Assignee("A", 0.5)], [Assignee("A", 0.5), Assignee("B", 0.25)]]
-    view.project.tasks = [Task("t", assignees=union_assignees(weeks), weekly_crew=weeks)]
+    view.project.tasks = [
+        Task("t", assignees=union_assignees(weeks), weekly_crew=weeks)
+    ]
     view.apply_members([Member("A改"), Member("B")], {"A": "A改"})
     task = view.project.tasks[0]
-    assert [[a.name for a in week] for week in task.weekly_crew] == [["A改"], ["A改", "B"]]
+    assert [[a.name for a in week] for week in task.weekly_crew] == [
+        ["A改"],
+        ["A改", "B"],
+    ]
     assert [a.name for a in task.assignees] == ["A改", "B"]
 
 
-async def test_saving_a_task_warns_for_each_overloaded_assignee(user: User, tmp_path: Path) -> None:
+async def test_saving_a_task_warns_for_each_overloaded_assignee(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
@@ -4100,7 +5105,9 @@ async def test_saving_a_task_warns_for_each_overloaded_assignee(user: User, tmp_
     await user.should_see("鈴木 最大120%になる期間があります")
 
 
-async def test_the_parameters_dialog_adds_a_parameter_with_levels(user: User, tmp_path: Path) -> None:
+async def test_the_parameters_dialog_adds_a_parameter_with_levels(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     user.find(marker="parameter-add").click()
@@ -4111,11 +5118,15 @@ async def test_the_parameters_dialog_adds_a_parameter_with_levels(user: User, tm
     user.find(marker="level-name-0-0").type("上級")
     user.find(marker="level-value-0-0").clear().type("20")
     user.find(marker="parameter-apply").click()
-    assert await wait_until(lambda: view.project.parameters == [Parameter("経験", [Level("上級", 0.2)])])
+    assert await wait_until(
+        lambda: view.project.parameters == [Parameter("経験", [Level("上級", 0.2)])]
+    )
     assert view.is_dirty()
 
 
-async def test_the_parameters_dialog_shows_the_error_and_does_not_apply(user: User, tmp_path: Path) -> None:
+async def test_the_parameters_dialog_shows_the_error_and_does_not_apply(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     user.find(marker="parameter-add").click()
@@ -4125,7 +5136,9 @@ async def test_the_parameters_dialog_shows_the_error_and_does_not_apply(user: Us
     assert view.project.parameters == []
 
 
-async def test_applying_the_same_parameters_changes_nothing(user: User, tmp_path: Path) -> None:
+async def test_applying_the_same_parameters_changes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
     view.mark_clean()
@@ -4135,7 +5148,9 @@ async def test_applying_the_same_parameters_changes_nothing(user: User, tmp_path
     assert not view.is_dirty()
 
 
-async def test_renaming_a_parameter_renames_the_selection_of_members(user: User, tmp_path: Path) -> None:
+async def test_renaming_a_parameter_renames_the_selection_of_members(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
     view.project.members = [Member("田中", 1.0, {"経験": "上級"})]
@@ -4143,14 +5158,23 @@ async def test_renaming_a_parameter_renames_the_selection_of_members(user: User,
     await open_members_parameters(user)
     user.find(marker="parameter-name-0").clear().type("スキル")
     user.find(marker="parameter-apply").click()
-    assert await wait_until(lambda: view.project.members[0].levels == {"スキル": "上級"})
+    assert await wait_until(
+        lambda: view.project.members[0].levels == {"スキル": "上級"}
+    )
     assert view.project.parameters[0].name == "スキル"
 
 
-async def test_deleting_a_used_level_asks_first_and_clears_the_selection(user: User, tmp_path: Path) -> None:
+async def test_deleting_a_used_level_asks_first_and_clears_the_selection(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
-    view.project.parameters = [Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)])]
-    view.project.members = [Member("田中", 1.0, {"経験": "上級"}), Member("鈴木", 1.0, {"経験": "上級"})]
+    view.project.parameters = [
+        Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)])
+    ]
+    view.project.members = [
+        Member("田中", 1.0, {"経験": "上級"}),
+        Member("鈴木", 1.0, {"経験": "上級"}),
+    ]
     view.mark_clean()
     await open_members_parameters(user)
     user.find(marker="level-delete-0-1").click()
@@ -4162,10 +5186,15 @@ async def test_deleting_a_used_level_asks_first_and_clears_the_selection(user: U
     assert [lv.name for lv in view.project.parameters[0].levels] == ["初級"]
 
 
-async def test_deleting_a_parameter_attached_to_tasks_asks_first_and_detaches_it(user: User, tmp_path: Path) -> None:
+async def test_deleting_a_parameter_attached_to_tasks_asks_first_and_detaches_it(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
-    view.project.tasks = [Task("a", parameters=["経験", "ない"]), Task("b", parameters=["経験"])]
+    view.project.tasks = [
+        Task("a", parameters=["経験", "ない"]),
+        Task("b", parameters=["経験"]),
+    ]
     view.mark_clean()
     await open_members_parameters(user)
     user.find(marker="parameter-delete-0").click()
@@ -4177,7 +5206,9 @@ async def test_deleting_a_parameter_attached_to_tasks_asks_first_and_detaches_it
     assert view.project.tasks[1].parameters == []
 
 
-async def test_cancelling_the_delete_confirmation_keeps_everything(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_delete_confirmation_keeps_everything(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
     view.project.members = [Member("田中", 1.0, {"経験": "上級"})]
@@ -4190,7 +5221,9 @@ async def test_cancelling_the_delete_confirmation_keeps_everything(user: User, t
     assert view.project.members[0].levels == {"経験": "上級"}
 
 
-async def test_deleting_an_unused_parameter_needs_no_confirmation(user: User, tmp_path: Path) -> None:
+async def test_deleting_an_unused_parameter_needs_no_confirmation(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
     await open_members_parameters(user)
@@ -4199,11 +5232,18 @@ async def test_deleting_an_unused_parameter_needs_no_confirmation(user: User, tm
     assert await wait_until(lambda: view.project.parameters == [])
 
 
-async def test_a_parameter_edit_changes_the_computed_end(user: User, tmp_path: Path) -> None:
+async def test_a_parameter_edit_changes_the_computed_end(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.parameters = [Parameter("経験", [Level("上級", 0.2)])]
     view.project.members = [Member("田中", 1.0, {"経験": "上級"})]
-    task = Task("t", planned_start=datetime(2026, 10, 9, 9), effort_hours=15.0, assignees=[Assignee("田中")])
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 9, 9),
+        effort_hours=15.0,
+        assignees=[Assignee("田中")],
+    )
     view.project.tasks = [task]
     view.gantt.set_project(view.project)
     # 15h / 1.2 = 12.5h → 金6.5h + 月6.0h
@@ -4212,16 +5252,22 @@ async def test_a_parameter_edit_changes_the_computed_end(user: User, tmp_path: P
     user.find(marker="level-value-0-0").clear().type("50")
     user.find(marker="parameter-apply").click()
     # 15h / 1.5 = 10h → 金6.5h + 月3.5h
-    assert await wait_until(lambda: effective_end(task, view.project, {}) == datetime(2026, 10, 12, 12, 30))
+    assert await wait_until(
+        lambda: effective_end(task, view.project, {}) == datetime(2026, 10, 12, 12, 30)
+    )
 
 
 def params_view_setup(view: MainView) -> None:
-    view.project.parameters = [Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)])]
+    view.project.parameters = [
+        Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)])
+    ]
     view.project.members = [Member("田中", 1.0)]
     view.mark_clean()
 
 
-async def test_the_members_dialog_without_parameters_looks_as_before(user: User, tmp_path: Path) -> None:
+async def test_the_members_dialog_without_parameters_looks_as_before(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
@@ -4233,7 +5279,9 @@ async def test_the_members_dialog_without_parameters_looks_as_before(user: User,
     await user.should_not_see(marker="member-level-0-0")
 
 
-async def test_the_members_dialog_with_parameters_shows_selects_and_the_effective_ratio(user: User, tmp_path: Path) -> None:
+async def test_the_members_dialog_with_parameters_shows_selects_and_the_effective_ratio(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
     await open_members_parameters(user)
@@ -4248,11 +5296,15 @@ async def test_the_members_dialog_with_parameters_shows_selects_and_the_effectiv
         select.set_value("上級")
     assert user.find(marker="member-effective-0").elements.pop().text == "相対比率 120%"
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: view.project.members == [Member("田中", 1.0, {"経験": "上級"})])
+    assert await wait_until(
+        lambda: view.project.members == [Member("田中", 1.0, {"経験": "上級"})]
+    )
     assert view.is_dirty()
 
 
-async def test_the_effective_ratio_follows_the_base_ratio_and_shows_the_rounding(user: User, tmp_path: Path) -> None:
+async def test_the_effective_ratio_follows_the_base_ratio_and_shows_the_rounding(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
     await open_members_parameters(user)
@@ -4260,10 +5312,15 @@ async def test_the_effective_ratio_follows_the_base_ratio_and_shows_the_rounding
     with user.client:
         user.find(marker="member-level-0-0").elements.pop().set_value("上級")
     user.find(marker="member-ratio-0").clear().type("290")
-    assert user.find(marker="member-effective-0").elements.pop().text == "相対比率 150%(範囲に丸めました)"
+    assert (
+        user.find(marker="member-effective-0").elements.pop().text
+        == "相対比率 150%(範囲に丸めました)"
+    )
 
 
-async def test_applying_members_drops_selections_that_point_nowhere(user: User, tmp_path: Path) -> None:
+async def test_applying_members_drops_selections_that_point_nowhere(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
     view.project.members = [Member("田中", 1.0, {"経験": "存在しない", "消えた": "x"})]
@@ -4273,7 +5330,9 @@ async def test_applying_members_drops_selections_that_point_nowhere(user: User, 
     assert await wait_until(lambda: view.project.members[0].levels == {})
 
 
-async def test_a_new_member_row_has_no_selection_and_is_saved(user: User, tmp_path: Path) -> None:
+async def test_a_new_member_row_has_no_selection_and_is_saved(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
     await open_members_parameters(user)
@@ -4288,10 +5347,17 @@ async def test_a_new_member_row_has_no_selection_and_is_saved(user: User, tmp_pa
 
 
 def grid_columns(user: User) -> list[str]:
-    return user.find(marker="member-grid").elements.pop()._style["grid-template-columns"].split()
+    return (
+        user.find(marker="member-grid")
+        .elements.pop()
+        ._style["grid-template-columns"]
+        .split()
+    )
 
 
-async def test_the_members_dialog_is_a_table_whose_columns_follow_the_parameters(user: User, tmp_path: Path) -> None:
+async def test_the_members_dialog_is_a_table_whose_columns_follow_the_parameters(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
@@ -4300,7 +5366,9 @@ async def test_the_members_dialog_is_a_table_whose_columns_follow_the_parameters
     assert len(grid_columns(user)) == 7
 
 
-async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path) -> None:
+async def test_the_table_gets_a_column_per_parameter(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
     view.project.parameters.append(Parameter("専門性", [Level("高", 0.1)]))
@@ -4311,18 +5379,28 @@ async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path)
     assert user.find(marker="member-header-level-1").elements.pop().text == "専門性"
 
 
-async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(user: User, tmp_path: Path) -> None:
+async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
-    view.project.parameters += [Parameter(f"P{n}", [Level("高", 0.1)]) for n in range(6)]
+    view.project.parameters += [
+        Parameter(f"P{n}", [Level("高", 0.1)]) for n in range(6)
+    ]
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
     scroll = user.find(marker="member-scroll").elements.pop()
-    assert scroll._style["overflow-x"] == "auto"  # パラメータが多くて広がっても、横にスクロールできる
-    assert scroll._style["flex-shrink"] == "0"  # タブの flex の中で縮んで、行が 1 行しか見えなくならない
+    assert (
+        scroll._style["overflow-x"] == "auto"
+    )  # パラメータが多くて広がっても、横にスクロールできる
+    assert (
+        scroll._style["flex-shrink"] == "0"
+    )  # タブの flex の中で縮んで、行が 1 行しか見えなくならない
     grid = user.find(marker="member-grid").elements.pop()
     assert "min-width" in grid._style  # 列を押しつぶさない
-    assert grid_columns(user)[1] == "7rem"  # 名前の列は、列の数にかかわらず固定(狭くも広くもならない)
+    assert (
+        grid_columns(user)[1] == "7rem"
+    )  # 名前の列は、列の数にかかわらず固定(狭くも広くもならない)
     assert len(grid_columns(user)) == 5 + 7 + 3
 
 
@@ -4331,15 +5409,27 @@ async def test_the_table_area_grows_with_the_rows(user: User, tmp_path: Path) ->
     params_view_setup(view)
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    before = int(user.find(marker="member-scroll").elements.pop()._style["min-height"].removesuffix("px"))
+    before = int(
+        user.find(marker="member-scroll")
+        .elements.pop()
+        ._style["min-height"]
+        .removesuffix("px")
+    )
     user.find(marker="member-add").click()
     user.find(marker="member-add").click()
     await user.should_see(marker="member-name-2")
-    after = int(user.find(marker="member-scroll").elements.pop()._style["min-height"].removesuffix("px"))
+    after = int(
+        user.find(marker="member-scroll")
+        .elements.pop()
+        ._style["min-height"]
+        .removesuffix("px")
+    )
     assert after - before == 2 * 40  # 追加した 2 行ぶん(行 36px + 間隔 4px)
 
 
-async def test_the_table_inputs_have_no_floating_labels(user: User, tmp_path: Path) -> None:
+async def test_the_table_inputs_have_no_floating_labels(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     params_view_setup(view)
     await open_members_parameters(user)
@@ -4350,20 +5440,34 @@ async def test_the_table_inputs_have_no_floating_labels(user: User, tmp_path: Pa
         assert props.get("dense") in (True, "")
 
 
-async def test_the_name_column_is_a_narrow_fixed_width_with_or_without_parameters(user: User, tmp_path: Path) -> None:
+async def test_the_name_column_is_a_narrow_fixed_width_with_or_without_parameters(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    assert grid_columns(user) == ["6rem", "7rem", "7rem", "5rem", "6rem", "7rem", "3rem"]  # アイコン・名前・相対比率・丸めない・警告の件数・稼働日・削除
+    assert grid_columns(user) == [
+        "6rem",
+        "7rem",
+        "7rem",
+        "5rem",
+        "6rem",
+        "7rem",
+        "3rem",
+    ]  # アイコン・名前・相対比率・丸めない・警告の件数・稼働日・削除
 
 
-async def test_the_dialog_width_follows_the_columns_without_the_old_wide_name(user: User, tmp_path: Path) -> None:
+async def test_the_dialog_width_follows_the_columns_without_the_old_wide_name(
+    user: User, tmp_path: Path
+) -> None:
     from projectapp.forms import member_table_min_rem
 
     # アイコン 6rem + 名前 7rem + 比率 7rem + 丸めない 5rem + 警告の件数 6rem + 稼働日 7rem + 削除 3rem + 列の間隔。以前の名前 12rem 以上の幅ではない
     assert member_table_min_rem(0, False) == 6 + 7 + 7 + 5 + 6 + 7 + 3 + 2 * 7
-    assert member_table_min_rem(2, True) == 6 + 7 + 7 + 5 + 6 + 9 * 2 + 11 + 7 + 3 + 2 * 10
+    assert (
+        member_table_min_rem(2, True) == 6 + 7 + 7 + 5 + 6 + 9 * 2 + 11 + 7 + 3 + 2 * 10
+    )
 
 
 async def test_the_member_table_uses_14px_controls(user: User, tmp_path: Path) -> None:
@@ -4374,7 +5478,10 @@ async def test_the_member_table_uses_14px_controls(user: User, tmp_path: Path) -
     assert "member-table" in user.find(marker="member-grid").elements.pop().classes
     select = user.find(marker="member-level-0-0").elements.pop()
     assert "member-popup" in str(select.props.get("popup-content-class"))
-    assert ".member-table .q-field__native" in MEMBER_TABLE_CSS and "font-size: 14px" in MEMBER_TABLE_CSS
+    assert (
+        ".member-table .q-field__native" in MEMBER_TABLE_CSS
+        and "font-size: 14px" in MEMBER_TABLE_CSS
+    )
     assert ".member-popup .q-item" in MEMBER_TABLE_CSS
     assert "height: 36px" in MEMBER_TABLE_CSS  # 14px の文字に合わせて、行の高さは 36px
     assert "member-table" in user.client.head_html  # ページに CSS が入っている
@@ -4397,7 +5504,9 @@ async def open_two_sections_view(user: User, tmp_path: Path) -> MainView:
     return view
 
 
-async def test_move_section_reorders_marks_dirty_and_undoes_in_one_step(user: User, tmp_path: Path) -> None:
+async def test_move_section_reorders_marks_dirty_and_undoes_in_one_step(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_two_sections_view(user, tmp_path)
     view.move_section((1,), (0,))
     assert [s.name for s in view.project.sections] == ["兄弟", "親"]
@@ -4408,7 +5517,9 @@ async def test_move_section_reorders_marks_dirty_and_undoes_in_one_step(user: Us
     assert [s.name for s in view.project.sections] == ["兄弟", "親"]
 
 
-async def test_move_section_carries_the_collapsed_state_with_the_section(user: User, tmp_path: Path) -> None:
+async def test_move_section_carries_the_collapsed_state_with_the_section(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_two_sections_view(user, tmp_path)
     view.gantt.collapsed.update({(0,), (0, 0)})  # 親とその子が折りたたみ
     view.move_section((0,), (1,))
@@ -4416,19 +5527,26 @@ async def test_move_section_carries_the_collapsed_state_with_the_section(user: U
     assert view.gantt.collapsed == {(1,), (1, 0)}
 
 
-async def test_undo_and_redo_keep_the_collapsed_state_on_the_same_section(user: User, tmp_path: Path) -> None:
+async def test_undo_and_redo_keep_the_collapsed_state_on_the_same_section(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_two_sections_view(user, tmp_path)
     view.gantt.collapsed.update({(0,), (0, 0)})  # 親とその子が折りたたみ
     view.move_section((0,), (1,))
     assert view.gantt.collapsed == {(1,), (1, 0)}
     view.undo()
     assert [s.name for s in view.project.sections] == ["親", "兄弟"]
-    assert view.gantt.collapsed == {(0,), (0, 0)}  # 折りたたみは親に付いて戻る(兄弟が閉じない)
+    assert view.gantt.collapsed == {
+        (0,),
+        (0, 0),
+    }  # 折りたたみは親に付いて戻る(兄弟が閉じない)
     view.redo()
     assert view.gantt.collapsed == {(1,), (1, 0)}
 
 
-async def test_move_section_ignores_other_parents_and_noops_without_a_history_step(user: User, tmp_path: Path) -> None:
+async def test_move_section_ignores_other_parents_and_noops_without_a_history_step(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_two_sections_view(user, tmp_path)
     before = deepcopy(view.project)
     view.move_section((1,), (0, 0))  # 親が違う
@@ -4439,37 +5557,54 @@ async def test_move_section_ignores_other_parents_and_noops_without_a_history_st
     assert len(view.history.undo_stack) == 0
 
 
-async def test_a_task_is_saved_into_a_nested_section(user: User, tmp_path: Path) -> None:
+async def test_a_task_is_saved_into_a_nested_section(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_nested_view(user, tmp_path)
     view.save_task((0, 0), None, Task("新しい"))
-    assert [t.name for t in view.project.sections[0].sections[0].tasks] == ["c0", "新しい"]
+    assert [t.name for t in view.project.sections[0].sections[0].tasks] == [
+        "c0",
+        "新しい",
+    ]
     await user.should_see(marker="task-0.0-1")
 
 
-async def test_saving_into_a_nested_section_opens_it_and_its_parents(user: User, tmp_path: Path) -> None:
+async def test_saving_into_a_nested_section_opens_it_and_its_parents(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_nested_view(user, tmp_path)
     view.gantt.collapsed.update({(0,), (0, 0)})
     view.save_task((0, 0), None, Task("新しい"))
     assert view.gantt.collapsed == set()
 
 
-async def test_a_nested_task_can_be_deleted_and_shifted(user: User, tmp_path: Path) -> None:
+async def test_a_nested_task_can_be_deleted_and_shifted(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_nested_view(user, tmp_path)
-    view.project.sections[0].sections[0].tasks[0].planned_start = datetime(2026, 10, 7, 9)
+    view.project.sections[0].sections[0].tasks[0].planned_start = datetime(
+        2026, 10, 7, 9
+    )
     view.shift_task((0, 0), 0, 2)
-    assert view.project.sections[0].sections[0].tasks[0].planned_start == datetime(2026, 10, 9, 9)
+    assert view.project.sections[0].sections[0].tasks[0].planned_start == datetime(
+        2026, 10, 9, 9
+    )
     view.delete_task((0, 0), 0)
     assert view.project.sections[0].sections[0].tasks == []
     assert view.tasks_in((0,))[0].name == "p0"
 
 
-async def test_shift_ignores_a_path_that_does_not_exist(user: User, tmp_path: Path) -> None:
+async def test_shift_ignores_a_path_that_does_not_exist(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_nested_view(user, tmp_path)
     view.shift_task((0, 5), 0, 1)  # 存在しない。落ちない
     view.shift_task((9,), 0, 1)
 
 
-async def test_adding_a_subsection_through_the_dialog(user: User, tmp_path: Path) -> None:
+async def test_adding_a_subsection_through_the_dialog(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_nested_view(user, tmp_path)
     await user.should_see(marker="add-subsection-0")  # 描き直しを待つ
     user.find(marker="add-subsection-0").click()
@@ -4480,7 +5615,9 @@ async def test_adding_a_subsection_through_the_dialog(user: User, tmp_path: Path
     assert view.is_dirty()
 
 
-async def test_a_subsection_can_be_added_to_a_subsection_but_not_below_level_three(user: User, tmp_path: Path) -> None:
+async def test_a_subsection_can_be_added_to_a_subsection_but_not_below_level_three(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_nested_view(user, tmp_path)
     view.save_subsection((0, 0), "孫")
     assert view.project.sections[0].sections[0].sections[0].name == "孫"
@@ -4488,28 +5625,36 @@ async def test_a_subsection_can_be_added_to_a_subsection_but_not_below_level_thr
     assert view.project.sections[0].sections[0].sections[0].sections == []
 
 
-async def test_save_subsection_ignores_a_missing_parent(user: User, tmp_path: Path) -> None:
+async def test_save_subsection_ignores_a_missing_parent(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_nested_view(user, tmp_path)
     view.save_subsection((7,), "どこにも")
     view.save_subsection((), "root は別の操作")
     assert [s.name for s in view.project.sections] == ["親"]
 
 
-async def test_adding_a_subsection_opens_the_parent_chain(user: User, tmp_path: Path) -> None:
+async def test_adding_a_subsection_opens_the_parent_chain(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_nested_view(user, tmp_path)
     view.gantt.collapsed.update({(0,), (0, 0)})
     view.save_subsection((0, 0), "孫")
     assert view.gantt.collapsed == set()
 
 
-async def test_the_subsection_dialog_has_its_own_title(user: User, tmp_path: Path) -> None:
+async def test_the_subsection_dialog_has_its_own_title(
+    user: User, tmp_path: Path
+) -> None:
     await open_nested_view(user, tmp_path)
     await user.should_see(marker="add-subsection-0")  # 描き直しを待つ
     user.find(marker="add-subsection-0").click()
     await user.should_see("サブセクションの追加")
 
 
-async def test_new_sections_and_tasks_get_ids_that_are_not_used(user: User, tmp_path: Path) -> None:
+async def test_new_sections_and_tasks_get_ids_that_are_not_used(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
 
@@ -4527,10 +5672,15 @@ async def test_new_sections_and_tasks_get_ids_that_are_not_used(user: User, tmp_
     view.save_task((0,), None, clash)
     assert clash.id != view.project.sections[0].id
     assert len(view.project.used_ids()) == 3
-    assert len(view.project.sections[0].id) == 8 and len(view.project.sections[0].sections[0].id) == 8
+    assert (
+        len(view.project.sections[0].id) == 8
+        and len(view.project.sections[0].sections[0].id) == 8
+    )
 
 
-async def test_apply_categories_updates_the_project_and_resets_removed_categories(user: User, tmp_path: Path) -> None:
+async def test_apply_categories_updates_the_project_and_resets_removed_categories(
+    user: User, tmp_path: Path
+) -> None:
     views: list[MainView] = []
     mount_preview(tmp_path, views, FakeExporter())
     await user.open("/")
@@ -4546,11 +5696,19 @@ async def test_apply_categories_updates_the_project_and_resets_removed_categorie
     assert view.is_dirty()  # 保存はしない(編集中の判定に入る)
 
 
-async def test_apply_members_with_work_days_marks_dirty_and_the_end_date_follows(user: User, tmp_path: Path) -> None:
+async def test_apply_members_with_work_days_marks_dirty_and_the_end_date_follows(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.base_date = date(2026, 10, 12)
     view.project.members = [Member("甲", id="m1")]
-    task = Task("t", planned_start=datetime(2026, 10, 16, 9), effort_hours=8.5, id="t1", assignees=[Assignee("甲", 1.0)])
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 16, 9),
+        effort_hours=8.5,
+        id="t1",
+        assignees=[Assignee("甲", 1.0)],
+    )
     view.project.tasks = [task]
     view.gantt.set_project(view.project)
     view.snapshot = asdict(view.project)
@@ -4565,7 +5723,9 @@ async def test_apply_members_with_work_days_marks_dirty_and_the_end_date_follows
     assert view.project.members[0].work_days == []
 
 
-async def test_apply_events_marks_the_project_dirty_and_redraws(user: User, tmp_path: Path) -> None:
+async def test_apply_events_marks_the_project_dirty_and_redraws(
+    user: User, tmp_path: Path
+) -> None:
     views: list[MainView] = []
     mount_preview(tmp_path, views, FakeExporter())
     await user.open("/")
@@ -4579,24 +5739,38 @@ async def test_apply_events_marks_the_project_dirty_and_redraws(user: User, tmp_
     await user.should_see(marker="event-bar-e1")
 
 
-async def test_the_task_sections_are_loaded_and_saved(user: User, tmp_path: Path) -> None:
-    (tmp_path / "config.json").write_text('{"task_sections": ["related"]}', encoding="utf-8")
+async def test_the_task_sections_are_loaded_and_saved(
+    user: User, tmp_path: Path
+) -> None:
+    (tmp_path / "config.json").write_text(
+        '{"task_sections": ["related"]}', encoding="utf-8"
+    )
     view = await open_members_view(user, tmp_path)
     assert view.task_sections == ["related"]
     view.set_task_sections(["assignees", "actuals"])
     assert view.task_sections == ["assignees", "actuals"]
-    saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["task_sections"]
+    saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))[
+        "task_sections"
+    ]
     assert saved == ["assignees", "actuals"]
 
 
-async def test_the_old_task_layout_does_not_break_the_view(user: User, tmp_path: Path) -> None:
-    (tmp_path / "config.json").write_text('{"task_layout": "schedule"}', encoding="utf-8")
+async def test_the_old_task_layout_does_not_break_the_view(
+    user: User, tmp_path: Path
+) -> None:
+    (tmp_path / "config.json").write_text(
+        '{"task_layout": "schedule"}', encoding="utf-8"
+    )
     view = await open_members_view(user, tmp_path)
     assert view.task_sections is None
 
 
-async def test_the_task_dialogs_get_the_saved_sections(user: User, tmp_path: Path) -> None:
-    (tmp_path / "config.json").write_text('{"task_sections": ["related"]}', encoding="utf-8")
+async def test_the_task_dialogs_get_the_saved_sections(
+    user: User, tmp_path: Path
+) -> None:
+    (tmp_path / "config.json").write_text(
+        '{"task_sections": ["related"]}', encoding="utf-8"
+    )
     view = await open_members_view(user, tmp_path)
     with view.client:
         view.add_top_task()
@@ -4605,14 +5779,18 @@ async def test_the_task_dialogs_get_the_saved_sections(user: User, tmp_path: Pat
     assert user.find(marker="task-section-actuals").elements.pop().value is False
 
 
-async def test_toggling_a_section_in_the_dialog_is_saved(user: User, tmp_path: Path) -> None:
+async def test_toggling_a_section_in_the_dialog_is_saved(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     with view.client:
         view.add_top_task()
     await user.should_see(marker="task-section-actuals")
     user.find(marker="task-section-actuals").elements.pop().set_value(True)
     assert view.task_sections == ["actuals"]
-    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["task_sections"] == ["actuals"]
+    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))[
+        "task_sections"
+    ] == ["actuals"]
 
 
 async def open_with_external_change(user: User, tmp_path: Path) -> MainView:
@@ -4648,17 +5826,23 @@ async def test_save_after_an_external_change_asks_and_overwrite_keeps_the_other_
     assert not view.is_dirty()
 
 
-async def test_save_after_overwriting_does_not_ask_again(user: User, tmp_path: Path) -> None:
+async def test_save_after_overwriting_does_not_ask_again(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_with_external_change(user, tmp_path)
     user.find(marker="save-project").click()
     user.find(marker="conflict-overwrite").click()
     assert await wait_until(lambda: not view.is_dirty())
     view.save_section("さらに")
     user.find(marker="save-project").click()
-    assert await wait_until(lambda: section_names(tmp_path / "既存.json") == ["元", "自分", "さらに"])
+    assert await wait_until(
+        lambda: section_names(tmp_path / "既存.json") == ["元", "自分", "さらに"]
+    )
 
 
-async def test_external_change_cancel_changes_nothing(user: User, tmp_path: Path) -> None:
+async def test_external_change_cancel_changes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_with_external_change(user, tmp_path)
     user.find(marker="save-project").click()
     user.find(marker="conflict-cancel").click()
@@ -4723,7 +5907,11 @@ async def test_external_change_with_a_failing_backup_does_not_overwrite(
     view = await open_with_external_change(user, tmp_path)
     user.find(marker="save-project").click()
     user.find(marker="conflict-overwrite").click()
-    assert await wait_until(lambda: user.notify.contains("バックアップを作れなかったため、保存しませんでした"))
+    assert await wait_until(
+        lambda: user.notify.contains(
+            "バックアップを作れなかったため、保存しませんでした"
+        )
+    )
     assert section_names(tmp_path / "既存.json") == ["相手"]
     assert view.is_dirty()
 
@@ -4740,11 +5928,15 @@ async def test_overwrite_after_the_file_vanished_in_the_dialog_still_saves(
     assert section_names(tmp_path / "既存.json") == ["元", "自分"]
 
 
-async def test_save_when_the_file_vanished_notifies_and_creates_it(user: User, tmp_path: Path) -> None:
+async def test_save_when_the_file_vanished_notifies_and_creates_it(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_with_external_change(user, tmp_path)
     (tmp_path / "既存.json").unlink()
     user.find(marker="save-project").click()
-    assert await wait_until(lambda: user.notify.contains("ファイルが見つかりませんでした。新しく作成します"))
+    assert await wait_until(
+        lambda: user.notify.contains("ファイルが見つかりませんでした。新しく作成します")
+    )
     assert await wait_until(lambda: not view.is_dirty())
     assert section_names(tmp_path / "既存.json") == ["元", "自分"]
 
@@ -4820,7 +6012,9 @@ def write_puml(tmp_path: Path, text: str = IMPORT_SAMPLE) -> Path:
     return source
 
 
-async def open_for_import(user: User, tmp_path: Path, exporter: FakeExporter) -> MainView:
+async def open_for_import(
+    user: User, tmp_path: Path, exporter: FakeExporter
+) -> MainView:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_preview(tmp_path, views, exporter)
@@ -4828,7 +6022,9 @@ async def open_for_import(user: User, tmp_path: Path, exporter: FakeExporter) ->
     return views[0]
 
 
-async def test_import_plantuml_opens_an_unsaved_project(user: User, tmp_path: Path) -> None:
+async def test_import_plantuml_opens_an_unsaved_project(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(open_path=write_puml(tmp_path))
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-plantuml").click()
@@ -4841,7 +6037,9 @@ async def test_import_plantuml_opens_an_unsaved_project(user: User, tmp_path: Pa
     assert not [f for f in tmp_path.glob("*.json") if f.name != "holidays.json"]
 
 
-async def test_cancelling_the_import_dialog_changes_nothing(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_import_dialog_changes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(open_path=None)
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-plantuml").click()
@@ -4849,7 +6047,9 @@ async def test_cancelling_the_import_dialog_changes_nothing(user: User, tmp_path
     assert view.project.name == "新規プロジェクト" and not view.is_dirty()
 
 
-async def test_import_plantuml_refuses_a_text_without_a_diagram(user: User, tmp_path: Path) -> None:
+async def test_import_plantuml_refuses_a_text_without_a_diagram(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(open_path=write_puml(tmp_path, "hello"))
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-plantuml").click()
@@ -4857,7 +6057,9 @@ async def test_import_plantuml_refuses_a_text_without_a_diagram(user: User, tmp_
     assert view.project.name == "新規プロジェクト" and not view.is_dirty()
 
 
-async def test_import_plantuml_needs_the_native_window(user: User, tmp_path: Path) -> None:
+async def test_import_plantuml_needs_the_native_window(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(open_path=write_puml(tmp_path), available=False)
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-plantuml").click()
@@ -4865,7 +6067,9 @@ async def test_import_plantuml_needs_the_native_window(user: User, tmp_path: Pat
     assert exporter.asked_open == [] and view.project.name == "新規プロジェクト"
 
 
-async def test_import_plantuml_asks_before_dropping_unsaved_edits(user: User, tmp_path: Path) -> None:
+async def test_import_plantuml_asks_before_dropping_unsaved_edits(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(open_path=write_puml(tmp_path))
     view = await open_for_import(user, tmp_path, exporter)
     view.save_section("追加")
@@ -4877,17 +6081,23 @@ async def test_import_plantuml_asks_before_dropping_unsaved_edits(user: User, tm
     assert [s.name for s in view.project.sections] == ["開発"]
 
 
-async def test_cancelling_the_unsaved_dialog_does_not_start_the_import(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_unsaved_dialog_does_not_start_the_import(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(open_path=write_puml(tmp_path))
     view = await open_for_import(user, tmp_path, exporter)
     view.save_section("追加")
     user.find(marker="file-import-plantuml").click()
     await user.should_see(marker="unsaved-cancel")
     user.find(marker="unsaved-cancel").click()
-    assert exporter.asked_open == [] and [s.name for s in view.project.sections] == ["追加"]
+    assert exporter.asked_open == [] and [s.name for s in view.project.sections] == [
+        "追加"
+    ]
 
 
-async def test_an_imported_project_asks_before_another_project_is_opened(user: User, tmp_path: Path) -> None:
+async def test_an_imported_project_asks_before_another_project_is_opened(
+    user: User, tmp_path: Path
+) -> None:
     save_project(Project("既存"), tmp_path)
     exporter = FakeExporter(open_path=write_puml(tmp_path))
     view = await open_for_import(user, tmp_path, exporter)
@@ -4897,7 +6107,9 @@ async def test_an_imported_project_asks_before_another_project_is_opened(user: U
     await user.should_see(marker="unsaved-save")
 
 
-async def test_the_name_dialog_survives_the_unsaved_dialog_being_deleted(user: User, tmp_path: Path) -> None:
+async def test_the_name_dialog_survives_the_unsaved_dialog_being_deleted(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(open_path=write_puml(tmp_path))
     view = await open_for_import(user, tmp_path, exporter)
     view.save_section("追加")  # 保存前の新規プロジェクトを編集中
@@ -4921,7 +6133,9 @@ def task_names(view: MainView) -> list[str]:
     return [t.name for t in view.project.tasks]
 
 
-async def test_undo_and_redo_walk_through_task_edits(user: User, tmp_path: Path) -> None:
+async def test_undo_and_redo_walk_through_task_edits(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
@@ -4953,7 +6167,9 @@ async def test_undo_redraws_the_chart(user: User, tmp_path: Path) -> None:
     await user.should_not_see(marker="task-top-0")
 
 
-async def test_undo_covers_delete_settings_and_sections(user: User, tmp_path: Path) -> None:
+async def test_undo_covers_delete_settings_and_sections(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
@@ -4974,14 +6190,18 @@ async def test_undo_covers_delete_settings_and_sections(user: User, tmp_path: Pa
     assert view.project.sections == []
 
 
-async def test_an_edit_that_changes_nothing_adds_no_step(user: User, tmp_path: Path) -> None:
+async def test_an_edit_that_changes_nothing_adds_no_step(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
     await user.open("/")
     view = views[0]
     view.save_task((), None, Task("a"))
-    view.apply_settings(view.project.daily_hours, view.project.work_start, view.project.actual_mode)
+    view.apply_settings(
+        view.project.daily_hours, view.project.work_start, view.project.actual_mode
+    )
     view.apply_events(list(view.project.events))
     view.undo()  # 無変更の適用は積まれないので、1 回で「a」を足す前に戻る
     assert task_names(view) == []
@@ -5025,7 +6245,9 @@ async def test_undoing_to_the_saved_state_clears_dirty_and_going_further_sets_it
     assert not view.is_dirty()
 
 
-async def test_history_is_dropped_when_another_project_is_opened(user: User, tmp_path: Path) -> None:
+async def test_history_is_dropped_when_another_project_is_opened(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     save_project(Project("other"), tmp_path)
     views: list[MainView] = []
@@ -5052,7 +6274,9 @@ async def test_history_is_dropped_on_a_new_project(user: User, tmp_path: Path) -
     assert not view.history.can_undo()
 
 
-async def test_save_as_drops_the_history_and_the_rename_is_not_a_step(user: User, tmp_path: Path) -> None:
+async def test_save_as_drops_the_history_and_the_rename_is_not_a_step(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
@@ -5068,7 +6292,9 @@ async def test_save_as_drops_the_history_and_the_rename_is_not_a_step(user: User
     assert not view.history.can_undo()  # 名前の変更が 1 ステップとして積まれていない
 
 
-async def test_ctrl_z_undoes_and_ctrl_shift_z_redoes(user: User, tmp_path: Path) -> None:
+async def test_ctrl_z_undoes_and_ctrl_shift_z_redoes(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
@@ -5091,12 +6317,16 @@ async def test_ctrl_z_is_ignored_in_inputs(user: User, tmp_path: Path) -> None:
     view.save_task((), None, Task("a"))
     view.on_modified_key(key_event("z", ctrl=True))  # 入力欄でも受ける側
     view.on_modified_key(key_event("z", ctrl=True, shift=True))
-    view.on_plain_key(key_event("z", ctrl=True))  # 文字キー用の側も、Ctrl+Z は受けない(二重に Undo しない)
+    view.on_plain_key(
+        key_event("z", ctrl=True)
+    )  # 文字キー用の側も、Ctrl+Z は受けない(二重に Undo しない)
     assert task_names(view) == ["a"]
     assert view.history.can_undo()  # 履歴も動いていない
 
 
-async def test_other_ctrl_keys_still_go_through_the_modified_handler(user: User, tmp_path: Path) -> None:
+async def test_other_ctrl_keys_still_go_through_the_modified_handler(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
@@ -5104,13 +6334,17 @@ async def test_other_ctrl_keys_still_go_through_the_modified_handler(user: User,
     view = views[0]
     calls: list[str] = []
     view.open_settings = lambda: calls.append("settings")  # type: ignore[method-assign]
-    view.on_plain_key(key_event(",", ctrl=True))  # 入力欄を除く側は、Ctrl+Z 以外の Ctrl 付きを受けない
+    view.on_plain_key(
+        key_event(",", ctrl=True)
+    )  # 入力欄を除く側は、Ctrl+Z 以外の Ctrl 付きを受けない
     assert calls == []
     view.on_modified_key(key_event(",", ctrl=True))
     assert calls == ["settings"]
 
 
-async def test_ctrl_z_does_nothing_while_a_dialog_is_open(user: User, tmp_path: Path) -> None:
+async def test_ctrl_z_does_nothing_while_a_dialog_is_open(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
@@ -5124,7 +6358,9 @@ async def test_ctrl_z_does_nothing_while_a_dialog_is_open(user: User, tmp_path: 
     assert task_names(view) == ["a"]
 
 
-async def test_the_three_keyboards_ignore_the_right_elements(user: User, tmp_path: Path) -> None:
+async def test_the_three_keyboards_ignore_the_right_elements(
+    user: User, tmp_path: Path
+) -> None:
     """入力欄で Undo が誤爆しない(文字キー用と Undo 用が入力欄を無視する)ことと、ボタンにフォーカスがあっても
     Undo が届く(Undo 用は button を無視しない)ことは、NiceGUI の `ignore` の構成で決まるので、構成そのものを確かめる。"""
     save_cache({}, tmp_path)
@@ -5132,16 +6368,29 @@ async def test_the_three_keyboards_ignore_the_right_elements(user: User, tmp_pat
     make_view(tmp_path, views)
     await user.open("/")
     ignores = sorted(
-        sorted(e._props["ignore"]) for e in views[0].client.elements.values() if isinstance(e, ui.keyboard)
+        sorted(e._props["ignore"])
+        for e in views[0].client.elements.values()
+        if isinstance(e, ui.keyboard)
     )
     assert ignores == [
         [],  # Ctrl/Cmd 付き(Undo・Redo 以外)は、入力欄でも受ける
-        ["button", "input", "select", "textarea"],  # 文字キー用: 入力欄・ボタンでは受けない
-        ["input", "select", "textarea"],  # Undo・Redo 用: 入力欄では受けず、ボタンにフォーカスがあっても受ける
+        [
+            "button",
+            "input",
+            "select",
+            "textarea",
+        ],  # 文字キー用: 入力欄・ボタンでは受けない
+        [
+            "input",
+            "select",
+            "textarea",
+        ],  # Undo・Redo 用: 入力欄では受けず、ボタンにフォーカスがあっても受ける
     ]
 
 
-async def test_undo_works_when_a_button_has_the_focus(user: User, tmp_path: Path) -> None:
+async def test_undo_works_when_a_button_has_the_focus(
+    user: User, tmp_path: Path
+) -> None:
     """ボタンにフォーカスがあると、文字キー用は NiceGUI が送らない。Undo 用の側だけで、1 回だけ戻ること。"""
     save_cache({}, tmp_path)
     views: list[MainView] = []
@@ -5155,15 +6404,35 @@ async def test_undo_works_when_a_button_has_the_focus(user: User, tmp_path: Path
 
 
 def test_header_css_reads_the_custom_variables_and_keeps_the_current_defaults() -> None:
-    assert "background: var(--app-header, var(--q-primary)); color: var(--app-header-fg, #fff)" in HEADER_CSS
-    assert "body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, var(--q-primary) 55%, #000)); }" in HEADER_CSS
-    assert ".app-header .app-menu-btn { background: var(--app-header-chip, rgba(255, 255, 255, 0.18));" in HEADER_CSS
-    assert ".app-header .app-menu-btn:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }" in HEADER_CSS
-    assert "border-radius: 9999px; background: var(--app-header-chip, rgba(255, 255, 255, 0.18))" in HEADER_CSS
-    assert ".app-git-chip:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }" in HEADER_CSS
+    assert (
+        "background: var(--app-header, var(--q-primary)); color: var(--app-header-fg, #fff)"
+        in HEADER_CSS
+    )
+    assert (
+        "body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, var(--q-primary) 55%, #000)); }"
+        in HEADER_CSS
+    )
+    assert (
+        ".app-header .app-menu-btn { background: var(--app-header-chip, rgba(255, 255, 255, 0.18));"
+        in HEADER_CSS
+    )
+    assert (
+        ".app-header .app-menu-btn:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }"
+        in HEADER_CSS
+    )
+    assert (
+        "border-radius: 9999px; background: var(--app-header-chip, rgba(255, 255, 255, 0.18))"
+        in HEADER_CSS
+    )
+    assert (
+        ".app-git-chip:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }"
+        in HEADER_CSS
+    )
 
 
-async def test_apply_theme_custom_sets_dark_mode_from_the_base_and_the_variables(user: User, tmp_path: Path) -> None:
+async def test_apply_theme_custom_sets_dark_mode_from_the_base_and_the_variables(
+    user: User, tmp_path: Path
+) -> None:
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -5176,10 +6445,16 @@ async def test_apply_theme_custom_sets_dark_mode_from_the_base_and_the_variables
     assert len(scripts) == 1 and 'setProperty("--app-bg", "#1e1e2e")' in scripts[0]
     view.apply_theme("light")
     assert view.dark.value is False
-    assert len(scripts) == 2 and 'setProperty("--q-primary", "#5898d4")' in scripts[1] and 'removeProperty("--app-bg")' in scripts[1]
+    assert (
+        len(scripts) == 2
+        and 'setProperty("--q-primary", "#5898d4")' in scripts[1]
+        and 'removeProperty("--app-bg")' in scripts[1]
+    )
 
 
-async def test_apply_theme_with_a_preview_color_does_not_change_the_saved_color(user: User, tmp_path: Path) -> None:
+async def test_apply_theme_with_a_preview_color_does_not_change_the_saved_color(
+    user: User, tmp_path: Path
+) -> None:
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -5187,13 +6462,21 @@ async def test_apply_theme_with_a_preview_color_does_not_change_the_saved_color(
     scripts: list[str] = []
     view.run_js = lambda script, **kw: scripts.append(script)  # type: ignore[method-assign]
     saved = view.custom_theme
-    view.apply_theme("custom", CustomTheme("dark", "#112233", None, "#000000", "#ffffff"))
+    view.apply_theme(
+        "custom", CustomTheme("dark", "#112233", None, "#000000", "#ffffff")
+    )
     assert view.custom_theme == saved
     assert '"#112233"' in scripts[0] and view.dark.value is True
 
 
-async def test_starting_with_the_custom_theme_applies_the_saved_colors(user: User, tmp_path: Path) -> None:
-    save_custom_theme(CustomTheme("dark", "#7e57c2", None, "#1e1e2e", "#e6e6f0"), tmp_path, select=True)
+async def test_starting_with_the_custom_theme_applies_the_saved_colors(
+    user: User, tmp_path: Path
+) -> None:
+    save_custom_theme(
+        CustomTheme("dark", "#7e57c2", None, "#1e1e2e", "#e6e6f0"),
+        tmp_path,
+        select=True,
+    )
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -5201,15 +6484,21 @@ async def test_starting_with_the_custom_theme_applies_the_saved_colors(user: Use
     assert views[0].custom_theme.primary == "#7e57c2"
 
 
-async def test_starting_with_custom_and_no_colors_uses_the_light_default(user: User, tmp_path: Path) -> None:
-    (tmp_path / "config.json").write_text(json.dumps({"theme": "custom"}), encoding="utf-8")
+async def test_starting_with_custom_and_no_colors_uses_the_light_default(
+    user: User, tmp_path: Path
+) -> None:
+    (tmp_path / "config.json").write_text(
+        json.dumps({"theme": "custom"}), encoding="utf-8"
+    )
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
     assert views[0].theme == "custom" and views[0].dark.value is False
 
 
-async def test_selecting_custom_in_the_menu_saves_the_theme_and_keeps_the_colors(user: User, tmp_path: Path) -> None:
+async def test_selecting_custom_in_the_menu_saves_the_theme_and_keeps_the_colors(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_header_view(user, tmp_path)
     user.find(marker="theme-custom").click()
     assert view.theme == "custom"
@@ -5217,7 +6506,9 @@ async def test_selecting_custom_in_the_menu_saves_the_theme_and_keeps_the_colors
     assert load_custom_theme(tmp_path) == view.custom_theme
 
 
-async def test_theme_dialog_preview_then_cancel_restores_the_previous_theme(user: User, tmp_path: Path) -> None:
+async def test_theme_dialog_preview_then_cancel_restores_the_previous_theme(
+    user: User, tmp_path: Path
+) -> None:
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -5232,7 +6523,9 @@ async def test_theme_dialog_preview_then_cancel_restores_the_previous_theme(user
     assert load_custom_theme(tmp_path) == DEFAULTS["light"]  # 何も保存していない
 
 
-async def test_theme_dialog_apply_saves_the_colors_and_selects_custom(user: User, tmp_path: Path) -> None:
+async def test_theme_dialog_apply_saves_the_colors_and_selects_custom(
+    user: User, tmp_path: Path
+) -> None:
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -5245,7 +6538,9 @@ async def test_theme_dialog_apply_saves_the_colors_and_selects_custom(user: User
     assert load_custom_theme(tmp_path).primary == "#7e57c2"
 
 
-async def test_theme_dialog_apply_failure_notifies_and_keeps_saved_state(user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_theme_dialog_apply_failure_notifies_and_keeps_saved_state(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -5263,13 +6558,17 @@ async def test_theme_dialog_apply_failure_notifies_and_keeps_saved_state(user: U
     await user.should_see(marker="theme-apply")  # ダイアログは開いたまま
 
 
-async def test_selecting_custom_settings_in_the_menu_opens_the_dialog(user: User, tmp_path: Path) -> None:
+async def test_selecting_custom_settings_in_the_menu_opens_the_dialog(
+    user: User, tmp_path: Path
+) -> None:
     await open_header_view(user, tmp_path)
     user.find(marker="theme-custom-settings").click()
     await user.should_see(marker="theme-apply")
 
 
-async def test_today_color_dialog_apply_saves_the_color_without_touching_the_theme(user: User, tmp_path: Path) -> None:
+async def test_today_color_dialog_apply_saves_the_color_without_touching_the_theme(
+    user: User, tmp_path: Path
+) -> None:
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -5283,7 +6582,9 @@ async def test_today_color_dialog_apply_saves_the_color_without_touching_the_the
     assert view.theme == "auto" and load_theme(tmp_path) == "auto"  # テーマは変えない
 
 
-async def test_today_color_dialog_cancel_keeps_the_saved_color(user: User, tmp_path: Path) -> None:
+async def test_today_color_dialog_cancel_keeps_the_saved_color(
+    user: User, tmp_path: Path
+) -> None:
     save_today_color("#1e88e5", tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -5296,7 +6597,9 @@ async def test_today_color_dialog_cancel_keeps_the_saved_color(user: User, tmp_p
     assert view.today_color == "#1e88e5" and load_today_color(tmp_path) == "#1e88e5"
 
 
-async def test_today_color_dialog_reset_then_apply_returns_to_the_default(user: User, tmp_path: Path) -> None:
+async def test_today_color_dialog_reset_then_apply_returns_to_the_default(
+    user: User, tmp_path: Path
+) -> None:
     save_today_color("#1e88e5", tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -5308,7 +6611,9 @@ async def test_today_color_dialog_reset_then_apply_returns_to_the_default(user: 
     assert view.today_color is None and load_today_color(tmp_path) is None
 
 
-async def test_today_color_apply_failure_notifies_and_keeps_saved_state(user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_today_color_apply_failure_notifies_and_keeps_saved_state(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -5326,7 +6631,9 @@ async def test_today_color_apply_failure_notifies_and_keeps_saved_state(user: Us
     await user.should_see(marker="today-apply")  # ダイアログは開いたまま
 
 
-async def test_warning_color_dialog_apply_saves_the_color_without_touching_the_theme(user: User, tmp_path: Path) -> None:
+async def test_warning_color_dialog_apply_saves_the_color_without_touching_the_theme(
+    user: User, tmp_path: Path
+) -> None:
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -5340,7 +6647,9 @@ async def test_warning_color_dialog_apply_saves_the_color_without_touching_the_t
     assert view.theme == "auto" and load_theme(tmp_path) == "auto"  # テーマは変えない
 
 
-async def test_warning_color_dialog_cancel_keeps_the_saved_color(user: User, tmp_path: Path) -> None:
+async def test_warning_color_dialog_cancel_keeps_the_saved_color(
+    user: User, tmp_path: Path
+) -> None:
     save_warning_color("#fdd835", tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -5353,7 +6662,9 @@ async def test_warning_color_dialog_cancel_keeps_the_saved_color(user: User, tmp
     assert view.warning_color == "#fdd835" and load_warning_color(tmp_path) == "#fdd835"
 
 
-async def test_warning_color_dialog_reset_then_apply_returns_to_the_default(user: User, tmp_path: Path) -> None:
+async def test_warning_color_dialog_reset_then_apply_returns_to_the_default(
+    user: User, tmp_path: Path
+) -> None:
     save_warning_color("#fdd835", tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -5365,7 +6676,9 @@ async def test_warning_color_dialog_reset_then_apply_returns_to_the_default(user
     assert view.warning_color is None and load_warning_color(tmp_path) is None
 
 
-async def test_warning_color_apply_failure_notifies_and_keeps_saved_state(user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_warning_color_apply_failure_notifies_and_keeps_saved_state(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -5383,9 +6696,15 @@ async def test_warning_color_apply_failure_notifies_and_keeps_saved_state(user: 
     await user.should_see(marker="warning-apply")  # ダイアログは開いたまま
 
 
-def test_header_project_select_follows_the_header_text_color_and_keeps_the_defaults() -> None:
+def test_header_project_select_follows_the_header_text_color_and_keeps_the_defaults() -> (
+    None
+):
     assert ".app-header .app-project-select .q-field__native" in HEADER_CSS
-    assert "color: var(--app-header-fg, #fff)" in HEADER_CSS.split(".app-header .app-project-select {")[1].split("\n")[0] or "var(--app-header-fg, #fff)" in HEADER_CSS
+    assert (
+        "color: var(--app-header-fg, #fff)"
+        in HEADER_CSS.split(".app-header .app-project-select {")[1].split("\n")[0]
+        or "var(--app-header-fg, #fff)" in HEADER_CSS
+    )
     assert "var(--app-header-border, hsla(0, 0%, 100%, 0.24))" in HEADER_CSS
     assert "var(--app-header-label, rgba(255, 255, 255, 0.7))" in HEADER_CSS
 
@@ -5394,7 +6713,9 @@ def selects(view: MainView) -> list[ui.select]:
     return [e for e in view.client.elements.values() if isinstance(e, ui.select)]
 
 
-async def test_selects_open_their_options_in_a_dialog_while_zoomed(user: User, tmp_path: Path) -> None:
+async def test_selects_open_their_options_in_a_dialog_while_zoomed(
+    user: User, tmp_path: Path
+) -> None:
     """CSS の zoom 中は、Quasar のメニューが画面の高さを誤るので、下の候補が画面の外に出る。zoom 中は専用の枠で出す。"""
     view, _ = await open_zoom_view(user, tmp_path)
     assert selects(view)
@@ -5407,7 +6728,9 @@ async def test_selects_open_their_options_in_a_dialog_while_zoomed(user: User, t
     assert all("behavior" not in s.props for s in selects(view))
 
 
-async def test_selects_created_while_zoomed_also_open_in_a_dialog(user: User, tmp_path: Path) -> None:
+async def test_selects_created_while_zoomed_also_open_in_a_dialog(
+    user: User, tmp_path: Path
+) -> None:
     view, _ = await open_zoom_view(user, tmp_path)
     view.on_key(key_event("=", ctrl=True))
     with view.client:
@@ -5419,14 +6742,18 @@ async def test_selects_created_while_zoomed_also_open_in_a_dialog(user: User, tm
     assert "behavior" not in later.props
 
 
-async def test_starting_zoomed_opens_selects_in_a_dialog(user: User, tmp_path: Path) -> None:
+async def test_starting_zoomed_opens_selects_in_a_dialog(
+    user: User, tmp_path: Path
+) -> None:
     save_zoom(130, tmp_path)
     view, _ = await open_zoom_view(user, tmp_path)
     assert selects(view)
     assert all(s.props.get("behavior") == "dialog" for s in selects(view))
 
 
-async def test_apply_base_date_changes_marks_dirty_and_undoes(user: User, tmp_path: Path) -> None:
+async def test_apply_base_date_changes_marks_dirty_and_undoes(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
@@ -5441,7 +6768,9 @@ async def test_apply_base_date_changes_marks_dirty_and_undoes(user: User, tmp_pa
     assert view.project.base_date == date(2026, 10, 5)
 
 
-async def test_apply_base_date_with_the_same_day_does_nothing(user: User, tmp_path: Path) -> None:
+async def test_apply_base_date_with_the_same_day_does_nothing(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     make_view(tmp_path, views)
@@ -5454,7 +6783,9 @@ async def test_apply_base_date_with_the_same_day_does_nothing(user: User, tmp_pa
     assert not view.history.can_undo()
 
 
-async def test_settings_dialog_changes_the_base_date_of_the_project(user: User, tmp_path: Path) -> None:
+async def test_settings_dialog_changes_the_base_date_of_the_project(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -5469,13 +6800,20 @@ async def test_settings_dialog_changes_the_base_date_of_the_project(user: User, 
     assert view.is_dirty()
 
 
-async def test_a_later_base_date_keeps_earlier_tasks_and_moves_the_drag_limit(user: User, tmp_path: Path) -> None:
+async def test_a_later_base_date_keeps_earlier_tasks_and_moves_the_drag_limit(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
     view = views[0]
-    task = Task("a", planned_start=datetime(2026, 10, 7, 9), planned_end=datetime(2026, 10, 8, 18), planned_end_manual=True)
+    task = Task(
+        "a",
+        planned_start=datetime(2026, 10, 7, 9),
+        planned_end=datetime(2026, 10, 8, 18),
+        planned_end_manual=True,
+    )
     view.project.base_date = date(2026, 10, 5)
     view.project.tasks.append(task)
     view.apply_base_date(date(2026, 10, 20))  # タスクより後ろの基準日(案 A)
@@ -5487,7 +6825,9 @@ async def test_a_later_base_date_keeps_earlier_tasks_and_moves_the_drag_limit(us
     assert task.planned_start == datetime(2026, 10, 9, 9)
 
 
-async def test_decompose_button_is_not_shown_for_a_summary_child(user: User, tmp_path: Path) -> None:
+async def test_decompose_button_is_not_shown_for_a_summary_child(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     child = Task("子", id="c1", effort_hours=2.0)
     parent = Task("親", id="p1", kind=TaskKind.SUMMARY, children=["c1"])
@@ -5504,7 +6844,9 @@ async def test_decompose_button_is_not_shown_for_a_summary_child(user: User, tmp
     await user.should_not_see(marker="task-decompose")
 
 
-async def test_decompose_without_chain_warns_about_the_overallocation(user: User, tmp_path: Path) -> None:
+async def test_decompose_without_chain_warns_about_the_overallocation(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -5513,11 +6855,20 @@ async def test_decompose_without_chain_warns_about_the_overallocation(user: User
     view.project.base_date = date(2026, 10, 5)
     view.apply_members([Member("田中")], {})
     view.project.tasks.append(
-        Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=13.0, assignees=[Assignee("田中")])
+        Task(
+            "a",
+            planned_start=datetime(2026, 10, 5, 9),
+            effort_hours=13.0,
+            assignees=[Assignee("田中")],
+        )
     )
-    view.apply_decompose((), 0, [Part("x", 6.5), Part("y", 6.5)], chain=False, new_section=False)
+    view.apply_decompose(
+        (), 0, [Part("x", 6.5), Part("y", 6.5)], chain=False, new_section=False
+    )
     await user.should_see("田中 最大200%になる期間があります")
-    assert len([n for n in user.notify.messages if "田中 最大" in n]) == 1  # 子の数だけ出さない
+    assert (
+        len([n for n in user.notify.messages if "田中 最大" in n]) == 1
+    )  # 子の数だけ出さない
 
 
 async def test_decompose_with_chain_does_not_warn(user: User, tmp_path: Path) -> None:
@@ -5529,15 +6880,25 @@ async def test_decompose_with_chain_does_not_warn(user: User, tmp_path: Path) ->
     view.project.base_date = date(2026, 10, 5)
     view.apply_members([Member("田中")], {})
     view.project.tasks.append(
-        Task("a", planned_start=datetime(2026, 10, 5, 9), effort_hours=13.0, assignees=[Assignee("田中")])
+        Task(
+            "a",
+            planned_start=datetime(2026, 10, 5, 9),
+            effort_hours=13.0,
+            assignees=[Assignee("田中")],
+        )
     )
-    view.apply_decompose((), 0, [Part("x", 6.5), Part("y", 6.5)], chain=True, new_section=False)
+    view.apply_decompose(
+        (), 0, [Part("x", 6.5), Part("y", 6.5)], chain=True, new_section=False
+    )
     assert not user.notify.contains("割り当て")
 
 
 async def open_context_menu_on_the_only_task(user: User, tmp_path: Path) -> MainView:
     save_cache({}, tmp_path)
-    save_project(Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]), tmp_path)
+    save_project(
+        Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]),
+        tmp_path,
+    )
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -5549,14 +6910,18 @@ async def open_context_menu_on_the_only_task(user: User, tmp_path: Path) -> Main
     return view
 
 
-async def test_context_menu_copy_puts_the_copy_right_after(user: User, tmp_path: Path) -> None:
+async def test_context_menu_copy_puts_the_copy_right_after(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_context_menu_on_the_only_task(user, tmp_path)
     user.find(marker="context-copy").click()
     assert [t.name for t in view.project.sections[0].tasks] == ["実装", "実装(コピー)"]
     assert view.is_dirty()
 
 
-async def test_context_menu_rename_changes_only_the_name(user: User, tmp_path: Path) -> None:
+async def test_context_menu_rename_changes_only_the_name(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_context_menu_on_the_only_task(user, tmp_path)
     before = view.project.sections[0].tasks[0]
     user.find(marker="context-rename").click()
@@ -5567,7 +6932,9 @@ async def test_context_menu_rename_changes_only_the_name(user: User, tmp_path: P
     assert view.is_dirty()
 
 
-async def test_context_menu_rename_rejects_an_invalid_name(user: User, tmp_path: Path) -> None:
+async def test_context_menu_rename_rejects_an_invalid_name(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_context_menu_on_the_only_task(user, tmp_path)
     user.find(marker="context-rename").click()
     user.find(marker="project-name").elements.pop().set_value("   ")
@@ -5592,7 +6959,9 @@ async def test_context_menu_delete_can_be_cancelled(user: User, tmp_path: Path) 
     assert len(view.project.sections[0].tasks) == 1
 
 
-async def test_context_menu_decompose_opens_the_decompose_dialog(user: User, tmp_path: Path) -> None:
+async def test_context_menu_decompose_opens_the_decompose_dialog(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_context_menu_on_the_only_task(user, tmp_path)
     user.find(marker="context-decompose").click()
     user.find(marker="decompose-apply").click()
@@ -5621,7 +6990,9 @@ async def open_section_menu_on_a_project(user: User, tmp_path: Path) -> MainView
     return view
 
 
-async def test_section_menu_copy_puts_the_copy_after_it_and_follows_the_collapsed_state(user: User, tmp_path: Path) -> None:
+async def test_section_menu_copy_puts_the_copy_after_it_and_follows_the_collapsed_state(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_section_menu_on_a_project(user, tmp_path)
     view.gantt.collapsed.add((1,))  # 企画を折りたたむ
     view.gantt.open_section_menu((0,))
@@ -5632,7 +7003,9 @@ async def test_section_menu_copy_puts_the_copy_after_it_and_follows_the_collapse
     await user.should_see("セクション「開発」をコピーしました")
 
 
-async def test_section_menu_rename_changes_only_the_name(user: User, tmp_path: Path) -> None:
+async def test_section_menu_rename_changes_only_the_name(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_section_menu_on_a_project(user, tmp_path)
     view.gantt.open_section_menu((0, 0))  # サブセクション
     user.find(marker="section-context-rename").click()
@@ -5643,7 +7016,9 @@ async def test_section_menu_rename_changes_only_the_name(user: User, tmp_path: P
     assert view.is_dirty()
 
 
-async def test_section_menu_rename_rejects_an_empty_name(user: User, tmp_path: Path) -> None:
+async def test_section_menu_rename_rejects_an_empty_name(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_section_menu_on_a_project(user, tmp_path)
     view.gantt.open_section_menu((0,))
     user.find(marker="section-context-rename").click()
@@ -5653,18 +7028,25 @@ async def test_section_menu_rename_rejects_an_empty_name(user: User, tmp_path: P
     assert view.project.sections[0].name == "開発"
 
 
-async def test_section_menu_delete_asks_then_moves_the_tasks_to_the_root_and_notifies(user: User, tmp_path: Path) -> None:
+async def test_section_menu_delete_asks_then_moves_the_tasks_to_the_root_and_notifies(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_section_menu_on_a_project(user, tmp_path)
     view.gantt.collapsed.update({(0,), (1,)})
     view.gantt.open_section_menu((0,))
     user.find(marker="section-context-delete").click()
     await user.should_see("セクション「開発」を削除しますか?")
-    assert [s.name for s in view.project.sections] == ["開発", "企画"]  # 確認するまでは消さない
+    assert [s.name for s in view.project.sections] == [
+        "開発",
+        "企画",
+    ]  # 確認するまでは消さない
     user.find(marker="confirm-ok").click()
     assert [s.name for s in view.project.sections] == ["企画"]
     assert [t.name for t in view.project.tasks] == ["直下", "a", "c"]
     assert view.gantt.collapsed == {(0,)}  # 企画の分だけ残り、番号は詰まる
-    await user.should_see("セクション「開発」を削除しました(タスク 2 件は、セクションなしへ移しました)")
+    await user.should_see(
+        "セクション「開発」を削除しました(タスク 2 件は、セクションなしへ移しました)"
+    )
 
 
 async def test_section_menu_delete_can_be_cancelled(user: User, tmp_path: Path) -> None:
@@ -5675,7 +7057,9 @@ async def test_section_menu_delete_can_be_cancelled(user: User, tmp_path: Path) 
     assert [s.name for s in view.project.sections] == ["開発", "企画"]
 
 
-async def test_double_click_and_enter_adds_a_named_task_below_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
+async def test_double_click_and_enter_adds_a_named_task_below_and_it_can_be_undone(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_context_menu_on_the_only_task(user, tmp_path)
     user.find(marker="task-0-0").trigger("dblclick")
     await user.should_see(marker="quick-add-input")
@@ -5705,7 +7089,9 @@ async def open_a_summary_project(user: User, tmp_path: Path) -> MainView:
     return view
 
 
-async def test_double_click_on_a_summary_adds_a_child_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
+async def test_double_click_on_a_summary_adds_a_child_and_it_can_be_undone(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_a_summary_project(user, tmp_path)
     user.find(marker="task-0-0").trigger("dblclick")
     await user.should_see(marker="quick-add-input")
@@ -5719,7 +7105,9 @@ async def test_double_click_on_a_summary_adds_a_child_and_it_can_be_undone(user:
     assert view.project.sections[0].tasks[0].children == ["c0", "c1"]
 
 
-async def test_ctrl_double_click_adds_a_summary_with_its_first_child_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
+async def test_ctrl_double_click_adds_a_summary_with_its_first_child_and_it_can_be_undone(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_a_summary_project(user, tmp_path)
     user.find(marker="task-0-0").trigger("dblclick", args={"ctrl": True})
     await user.should_see(marker="quick-add-input")
@@ -5732,7 +7120,9 @@ async def test_ctrl_double_click_adds_a_summary_with_its_first_child_and_it_can_
     assert [t.name for t in view.project.sections[0].tasks] == ["まとめ", "子0", "子1"]
 
 
-async def test_double_click_on_a_child_adds_a_sibling_child_below_it(user: User, tmp_path: Path) -> None:
+async def test_double_click_on_a_child_adds_a_sibling_child_below_it(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_a_summary_project(user, tmp_path)
     user.find(marker="task-0-1").trigger("dblclick")
     await user.should_see(marker="quick-add-input")
@@ -5742,7 +7132,9 @@ async def test_double_click_on_a_child_adds_a_sibling_child_below_it(user: User,
     assert tasks[0].children == ["c0", tasks[2].id, "c1"]
 
 
-async def test_shift_double_click_and_enter_adds_a_named_section_and_it_can_be_undone(user: User, tmp_path: Path) -> None:
+async def test_shift_double_click_and_enter_adds_a_named_section_and_it_can_be_undone(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_context_menu_on_the_only_task(user, tmp_path)
     user.find(marker="task-0-0").trigger("dblclick", args={"shift": True})
     await user.should_see(marker="quick-add-input")
@@ -5755,7 +7147,9 @@ async def test_shift_double_click_and_enter_adds_a_named_section_and_it_can_be_u
     assert view.project.sections[0].sections == []
 
 
-async def test_shift_double_click_on_the_end_row_adds_a_top_level_section(user: User, tmp_path: Path) -> None:
+async def test_shift_double_click_on_the_end_row_adds_a_top_level_section(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_context_menu_on_the_only_task(user, tmp_path)
     count = len(view.project.sections)
     user.find(marker="top-end").trigger("dblclick", args={"shift": True})
@@ -5764,7 +7158,9 @@ async def test_shift_double_click_on_the_end_row_adds_a_top_level_section(user: 
     assert [s.name for s in view.project.sections][count:] == ["最上位"]
 
 
-async def test_member_work_days_are_edited_in_a_sub_dialog_and_applied_with_the_tab(user: User, tmp_path: Path) -> None:
+async def test_member_work_days_are_edited_in_a_sub_dialog_and_applied_with_the_tab(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("甲", 1.0, {}, "m1")]
     view.mark_clean()
@@ -5778,13 +7174,22 @@ async def test_member_work_days_are_edited_in_a_sub_dialog_and_applied_with_the_
     user.find(marker="member-workday-0-end").type("16")
     user.find(marker="member-workday-close").click()
     await settle()
-    assert user.find(marker="members-dirty").elements.pop().text == "●"  # 未適用の編集がある
+    assert (
+        user.find(marker="members-dirty").elements.pop().text == "●"
+    )  # 未適用の編集がある
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: view.project.members[0].work_days == [WorkDay(date(2026, 10, 17), time(13), time(16))])
+    assert await wait_until(
+        lambda: (
+            view.project.members[0].work_days
+            == [WorkDay(date(2026, 10, 17), time(13), time(16))]
+        )
+    )
     assert view.is_dirty()
 
 
-async def test_a_rest_work_day_disables_the_time_inputs_and_a_bad_window_shows_the_error(user: User, tmp_path: Path) -> None:
+async def test_a_rest_work_day_disables_the_time_inputs_and_a_bad_window_shows_the_error(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("甲", 1.0, {}, "m1")]
     view.mark_clean()
@@ -5809,7 +7214,9 @@ async def test_a_rest_work_day_disables_the_time_inputs_and_a_bad_window_shows_t
     assert view.project.members[0].work_days == []
 
 
-async def test_work_day_inputs_have_calendar_and_time_pickers(user: User, tmp_path: Path) -> None:
+async def test_work_day_inputs_have_calendar_and_time_pickers(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("甲", 1.0, {}, "m1")]
     view.mark_clean()
@@ -5819,13 +7226,16 @@ async def test_work_day_inputs_have_calendar_and_time_pickers(user: User, tmp_pa
     user.find(marker="member-workday-add").click()
     for field in ("day", "start", "end"):
         await user.should_see(marker=f"open-member-workday-0-{field}-picker")
+
     def picker_open() -> bool:
         element = user.find(marker="member-workday-0-start-picker").elements.pop()
         while not isinstance(element, ui.dialog):
             element = element.parent_slot.parent
         return element.value
 
-    user.find(marker="member-workday-0-rest").click()  # 休みのあいだは、時刻の選択を開かない
+    user.find(
+        marker="member-workday-0-rest"
+    ).click()  # 休みのあいだは、時刻の選択を開かない
     await settle()
     user.find(marker="open-member-workday-0-start-picker").click()
     await settle()
@@ -5841,40 +7251,56 @@ def task_box(user: User) -> ui.checkbox:
     return user.find(marker="select-task-top-0").elements.pop()
 
 
-async def test_the_preview_starts_with_everything_selected(user: User, tmp_path: Path) -> None:
+async def test_the_preview_starts_with_everything_selected(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     assert view.preview is not None and view.preview.excluded == frozenset()
     assert task_box(user).value is True
     assert user.find(marker="preview-select-all").elements.pop().value is True
-    assert user.find(marker="preview-select-count").elements.pop().text == "1 / 1 件を出力"
+    assert (
+        user.find(marker="preview-select-count").elements.pop().text == "1 / 1 件を出力"
+    )
 
 
-async def test_unchecking_a_task_excludes_it_and_updates_the_select_all_box(user: User, tmp_path: Path) -> None:
+async def test_unchecking_a_task_excludes_it_and_updates_the_select_all_box(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter(), extra=Task("実装"))
     ids = [t.id for t in view.project.tasks]
     task_box(user).set_value(False)
     assert view.preview is not None and view.preview.excluded == frozenset({ids[0]})
     assert user.find(marker="preview-select-all").elements.pop().value is None  # 中間
-    assert user.find(marker="preview-select-count").elements.pop().text == "1 / 2 件を出力"
+    assert (
+        user.find(marker="preview-select-count").elements.pop().text == "1 / 2 件を出力"
+    )
 
 
-async def test_the_select_all_box_unchecks_and_rechecks_every_task(user: User, tmp_path: Path) -> None:
+async def test_the_select_all_box_unchecks_and_rechecks_every_task(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter(), extra=Task("実装"))
     user.find(marker="preview-select-all").elements.pop().set_value(False)
-    assert view.preview is not None and view.preview.excluded == {t.id for t in view.project.tasks}
+    assert view.preview is not None and view.preview.excluded == {
+        t.id for t in view.project.tasks
+    }
     assert user.find(marker="preview-select-all").elements.pop().value is False
     user.find(marker="preview-select-all").elements.pop().set_value(True)
     assert view.preview.excluded == frozenset()
 
 
-async def test_the_selection_survives_changing_the_preview_settings(user: User, tmp_path: Path) -> None:
+async def test_the_selection_survives_changing_the_preview_settings(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     task_box(user).set_value(False)
     user.find(marker="preview-scale").elements.pop().set_value("週次")
     assert view.preview is not None and len(view.preview.excluded) == 1
 
 
-async def test_a_new_preview_starts_with_everything_selected_again(user: User, tmp_path: Path) -> None:
+async def test_a_new_preview_starts_with_everything_selected_again(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     task_box(user).set_value(False)
     view.exit_preview()
@@ -5882,11 +7308,24 @@ async def test_a_new_preview_starts_with_everything_selected_again(user: User, t
     assert view.preview is not None and view.preview.excluded == frozenset()
 
 
-async def test_save_plantuml_leaves_out_the_unchecked_tasks(user: User, tmp_path: Path) -> None:
+async def test_save_plantuml_leaves_out_the_unchecked_tasks(
+    user: User, tmp_path: Path
+) -> None:
     target = tmp_path / "chart.puml"
-    view = await open_preview(user, tmp_path, FakeExporter(path=target), extra=Task("外す", planned_start=datetime(2026, 10, 8, 9), planned_end=datetime(2026, 10, 9, 18)))
+    view = await open_preview(
+        user,
+        tmp_path,
+        FakeExporter(path=target),
+        extra=Task(
+            "外す",
+            planned_start=datetime(2026, 10, 8, 9),
+            planned_end=datetime(2026, 10, 9, 18),
+        ),
+    )
     user.find(marker="select-task-top-1").elements.pop().set_value(False)
-    view.snapshot = asdict(view.project)  # open_preview がタスクを足すので、保存の直前を基準にする
+    view.snapshot = asdict(
+        view.project
+    )  # open_preview がタスクを足すので、保存の直前を基準にする
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: target.exists())
     text = target.read_text(encoding="utf-8")
@@ -5894,7 +7333,9 @@ async def test_save_plantuml_leaves_out_the_unchecked_tasks(user: User, tmp_path
     assert view.preview is not None and not view.is_dirty()
 
 
-async def test_save_plantuml_with_every_task_unchecked_writes_nothing(user: User, tmp_path: Path) -> None:
+async def test_save_plantuml_with_every_task_unchecked_writes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=tmp_path / "chart.puml")
     await open_preview(user, tmp_path, exporter)
     task_box(user).set_value(False)
@@ -5903,12 +7344,20 @@ async def test_save_plantuml_with_every_task_unchecked_writes_nothing(user: User
     assert exporter.asked == []
 
 
-async def test_save_image_leaves_out_the_unchecked_rows_and_restores_them(user: User, tmp_path: Path) -> None:
+async def test_save_image_leaves_out_the_unchecked_rows_and_restores_them(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=tmp_path / "chart.png")
     view = await open_preview(user, tmp_path, exporter, extra=Task("実装"))
     seen: list[tuple[int, int]] = []
     exporter.on_capture = lambda: seen.append(
-        (len(view.gantt.task_rows), sum("select-task-top-0" in e._markers for e in view.gantt.client.elements.values()))
+        (
+            len(view.gantt.task_rows),
+            sum(
+                "select-task-top-0" in e._markers
+                for e in view.gantt.client.elements.values()
+            ),
+        )
     )
     user.find(marker="select-task-top-1").elements.pop().set_value(False)
     user.find(marker="preview-save").click()
@@ -5919,20 +7368,37 @@ async def test_save_image_leaves_out_the_unchecked_rows_and_restores_them(user: 
     assert view.preview is not None and len(view.preview.excluded) == 1
 
 
-async def test_save_image_hides_the_checkboxes_even_when_nothing_is_unchecked(user: User, tmp_path: Path) -> None:
+async def test_save_image_hides_the_checkboxes_even_when_nothing_is_unchecked(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=tmp_path / "chart.png")
     view = await open_preview(user, tmp_path, exporter, extra=Task("実装"))
     seen: list[tuple[int, int]] = []
     exporter.on_capture = lambda: seen.append(
-        (len(view.gantt.task_rows), sum(any(m.startswith("select-") for m in e._markers) for e in view.gantt.client.elements.values()))
+        (
+            len(view.gantt.task_rows),
+            sum(
+                any(m.startswith("select-") for m in e._markers)
+                for e in view.gantt.client.elements.values()
+            ),
+        )
     )
     user.find(marker="preview-save").click()
     assert await wait_until(lambda: (tmp_path / "chart.png").exists())
-    assert seen == [(2, 0)]  # 全部チェックのままでも、撮る間はチェックボックスを描かない
-    assert await wait_until(lambda: any("select-task-top-0" in e._markers for e in view.gantt.client.elements.values()))  # 撮ったあとは戻る
+    assert seen == [
+        (2, 0)
+    ]  # 全部チェックのままでも、撮る間はチェックボックスを描かない
+    assert await wait_until(
+        lambda: any(
+            "select-task-top-0" in e._markers
+            for e in view.gantt.client.elements.values()
+        )
+    )  # 撮ったあとは戻る
 
 
-async def test_save_image_with_every_task_unchecked_notifies_and_captures_nothing(user: User, tmp_path: Path) -> None:
+async def test_save_image_with_every_task_unchecked_notifies_and_captures_nothing(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=tmp_path / "chart.png")
     await open_preview(user, tmp_path, exporter)
     task_box(user).set_value(False)
@@ -5941,11 +7407,23 @@ async def test_save_image_with_every_task_unchecked_notifies_and_captures_nothin
     assert exporter.captured == [] and exporter.asked == []
 
 
-async def test_save_plantuml_warns_when_a_same_day_handover_looks_over_100_percent(user: User, tmp_path: Path) -> None:
+async def test_save_plantuml_warns_when_a_same_day_handover_looks_over_100_percent(
+    user: User, tmp_path: Path
+) -> None:
     target = tmp_path / "chart.puml"
     members = [Member("田中")]
-    a = Task("前", planned_start=datetime(2026, 10, 13, 9), planned_end=datetime(2026, 10, 14, 12), assignees=[Assignee("田中", 0.6)])
-    b = Task("後", planned_start=datetime(2026, 10, 14, 13), planned_end=datetime(2026, 10, 15, 18), assignees=[Assignee("田中", 0.6)])
+    a = Task(
+        "前",
+        planned_start=datetime(2026, 10, 13, 9),
+        planned_end=datetime(2026, 10, 14, 12),
+        assignees=[Assignee("田中", 0.6)],
+    )
+    b = Task(
+        "後",
+        planned_start=datetime(2026, 10, 14, 13),
+        planned_end=datetime(2026, 10, 15, 18),
+        assignees=[Assignee("田中", 0.6)],
+    )
     view = await open_preview(user, tmp_path, FakeExporter(path=target), extra=a)
     view.project.members = members
     view.save_task((), None, b)
@@ -5956,7 +7434,9 @@ async def test_save_plantuml_warns_when_a_same_day_handover_looks_over_100_perce
     await user.should_see("保存しました")
 
 
-async def test_save_plantuml_shows_no_overload_warning_normally(user: User, tmp_path: Path) -> None:
+async def test_save_plantuml_shows_no_overload_warning_normally(
+    user: User, tmp_path: Path
+) -> None:
     target = tmp_path / "chart.puml"
     await open_preview(user, tmp_path, FakeExporter(path=target))
     user.find(marker="preview-plantuml").click()
@@ -5965,10 +7445,22 @@ async def test_save_plantuml_shows_no_overload_warning_normally(user: User, tmp_
     await user.should_not_see("日単位")
 
 
-async def test_save_plantuml_skips_the_overload_warning_when_the_option_is_off(user: User, tmp_path: Path) -> None:
+async def test_save_plantuml_skips_the_overload_warning_when_the_option_is_off(
+    user: User, tmp_path: Path
+) -> None:
     target = tmp_path / "chart.puml"
-    a = Task("前", planned_start=datetime(2026, 10, 13, 9), planned_end=datetime(2026, 10, 14, 12), assignees=[Assignee("田中", 0.6)])
-    b = Task("後", planned_start=datetime(2026, 10, 14, 13), planned_end=datetime(2026, 10, 15, 18), assignees=[Assignee("田中", 0.6)])
+    a = Task(
+        "前",
+        planned_start=datetime(2026, 10, 13, 9),
+        planned_end=datetime(2026, 10, 14, 12),
+        assignees=[Assignee("田中", 0.6)],
+    )
+    b = Task(
+        "後",
+        planned_start=datetime(2026, 10, 14, 13),
+        planned_end=datetime(2026, 10, 15, 18),
+        assignees=[Assignee("田中", 0.6)],
+    )
     view = await open_preview(user, tmp_path, FakeExporter(path=target), extra=a)
     view.project.members = [Member("田中")]
     view.project.plantuml_overload_notice = False
@@ -5980,7 +7472,9 @@ async def test_save_plantuml_skips_the_overload_warning_when_the_option_is_off(u
     await user.should_not_see("田中 10/14")
 
 
-async def test_apply_plantuml_notice_is_an_undoable_unsaved_edit(user: User, tmp_path: Path) -> None:
+async def test_apply_plantuml_notice_is_an_undoable_unsaved_edit(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     save_project(Project("既存", sections=[Section("開発", [Task("実装")])]), tmp_path)
     views: list[MainView] = []
@@ -5996,7 +7490,9 @@ async def test_apply_plantuml_notice_is_an_undoable_unsaved_edit(user: User, tmp
     assert view.project.plantuml_overload_notice is True and not view.is_dirty()
 
 
-async def test_editing_one_week_changes_only_that_week_and_the_union(user: User, tmp_path: Path) -> None:
+async def test_editing_one_week_changes_only_that_week_and_the_union(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     weeks = [[Assignee("田中")], [Assignee("田中"), Assignee("鈴木")]]
     task = Task(
@@ -6007,7 +7503,11 @@ async def test_editing_one_week_changes_only_that_week_and_the_union(user: User,
         assignees=[Assignee("田中"), Assignee("鈴木")],
         weekly_crew=weeks,
     )
-    project = Project("既存", members=[Member("田中"), Member("鈴木")], sections=[Section("開発", [task])])
+    project = Project(
+        "既存",
+        members=[Member("田中"), Member("鈴木")],
+        sections=[Section("開発", [task])],
+    )
     save_project(project, tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -6028,18 +7528,25 @@ async def test_editing_one_week_changes_only_that_week_and_the_union(user: User,
     assert view.is_dirty()
 
 
-async def test_editing_a_week_past_the_defined_ones_adds_the_weeks_in_between(user: User, tmp_path: Path) -> None:
+async def test_editing_a_week_past_the_defined_ones_adds_the_weeks_in_between(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     weeks = [[Assignee("田中")], [Assignee("田中")]]
     task = Task(
         "実装",
         planned_start=datetime.combine(date.today(), time.min),
-        planned_end=datetime.combine(date.today() + timedelta(days=21), time.min),  # 3 週ぶんの棒。第3週は定義がなく、最後の週の担当が続く
+        planned_end=datetime.combine(
+            date.today() + timedelta(days=21), time.min
+        ),  # 3 週ぶんの棒。第3週は定義がなく、最後の週の担当が続く
         assignees=[Assignee("田中")],
         weekly_crew=weeks,
     )
     project = Project(
-        "既存", base_date=date.today(), members=[Member("田中"), Member("鈴木")], sections=[Section("開発", [task])]
+        "既存",
+        base_date=date.today(),
+        members=[Member("田中"), Member("鈴木")],
+        sections=[Section("開発", [task])],
     )
     save_project(project, tmp_path)
     views: list[MainView] = []
@@ -6057,11 +7564,17 @@ async def test_editing_a_week_past_the_defined_ones_adds_the_weeks_in_between(us
         user.find(marker="week-edit-assignee-2").elements.pop().set_value("鈴木")
     user.find(marker="week-edit-save").click()
     after = view.project.sections[0].tasks[0]
-    assert after.weekly_crew == [[Assignee("田中")], [Assignee("田中")], [Assignee("田中"), Assignee("鈴木")]]
+    assert after.weekly_crew == [
+        [Assignee("田中")],
+        [Assignee("田中")],
+        [Assignee("田中"), Assignee("鈴木")],
+    ]
     assert after.assignees == [Assignee("田中"), Assignee("鈴木")]
 
 
-async def test_toggle_weeks_splits_into_every_week_and_back(user: User, tmp_path: Path) -> None:
+async def test_toggle_weeks_splits_into_every_week_and_back(
+    user: User, tmp_path: Path
+) -> None:
     save_cache({}, tmp_path)
     task = Task(
         "実装",
@@ -6070,7 +7583,10 @@ async def test_toggle_weeks_splits_into_every_week_and_back(user: User, tmp_path
         assignees=[Assignee("田中")],
     )
     project = Project(
-        "既存", base_date=date.today(), members=[Member("田中")], sections=[Section("開発", [task])]
+        "既存",
+        base_date=date.today(),
+        members=[Member("田中")],
+        sections=[Section("開発", [task])],
     )
     save_project(project, tmp_path)
     views: list[MainView] = []
@@ -6080,16 +7596,29 @@ async def test_toggle_weeks_splits_into_every_week_and_back(user: User, tmp_path
     await choose_in_combo(user, "既存")
     assert await wait_until(lambda: view.path is not None)
     view.toggle_weeks((0,), 0)
-    assert view.project.sections[0].tasks[0].weekly_crew == [[Assignee("田中")]] * 3  # 15 日 = 3 週
+    assert (
+        view.project.sections[0].tasks[0].weekly_crew == [[Assignee("田中")]] * 3
+    )  # 15 日 = 3 週
     assert view.is_dirty()
     view.project.sections[0].tasks[0].weekly_crew[0] = [Assignee("田中", 0.5)]
     view.toggle_weeks((0,), 0)
     back = view.project.sections[0].tasks[0]
-    assert (back.weekly_crew, back.assignees) == ([], [Assignee("田中", 0.5)])  # 第1週の担当が全期間の担当に戻る
+    assert (back.weekly_crew, back.assignees) == (
+        [],
+        [Assignee("田中", 0.5)],
+    )  # 第1週の担当が全期間の担当に戻る
 
 
-def reference_setup(tmp_path: Path, mode: ReferenceMode = ReferenceMode.LIVE) -> Project:
-    save_project(Project("基盤", tasks=[Task("x", planned_start=datetime(2026, 10, 5, 9), effort_hours=8.0)]), tmp_path)
+def reference_setup(
+    tmp_path: Path, mode: ReferenceMode = ReferenceMode.LIVE
+) -> Project:
+    save_project(
+        Project(
+            "基盤",
+            tasks=[Task("x", planned_start=datetime(2026, 10, 5, 9), effort_hours=8.0)],
+        ),
+        tmp_path,
+    )
     ref = Task("基盤開発", id="ref", kind=TaskKind.REFERENCE, ref_project="基盤")
     return Project("本体", reference_mode=mode, tasks=[ref])
 
@@ -6114,11 +7643,15 @@ def current_snapshot_setup(tmp_path: Path) -> None:
 
 def stale_setup(tmp_path: Path) -> None:
     project = reference_setup(tmp_path, ReferenceMode.SNAPSHOT)
-    project.tasks[0].ref_snapshot = ReferenceValue(planned_start=datetime(2026, 1, 1), planned_end=datetime(2026, 1, 2))
+    project.tasks[0].ref_snapshot = ReferenceValue(
+        planned_start=datetime(2026, 1, 1), planned_end=datetime(2026, 1, 2)
+    )
     save_project(project, tmp_path)
 
 
-async def test_clicking_a_live_reference_opens_the_project(user: User, tmp_path: Path) -> None:
+async def test_clicking_a_live_reference_opens_the_project(
+    user: User, tmp_path: Path
+) -> None:
     save_project(reference_setup(tmp_path), tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -6129,7 +7662,9 @@ async def test_clicking_a_live_reference_opens_the_project(user: User, tmp_path:
     assert view.current_name() == "基盤"
 
 
-async def test_a_stale_snapshot_asks_before_opening_and_update_then_asks_to_save(user: User, tmp_path: Path) -> None:
+async def test_a_stale_snapshot_asks_before_opening_and_update_then_asks_to_save(
+    user: User, tmp_path: Path
+) -> None:
     stale_setup(tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -6142,13 +7677,19 @@ async def test_a_stale_snapshot_asks_before_opening_and_update_then_asks_to_save
         view.open_reference("ref")
     await user.should_see(marker="stale-update")
     user.find(marker="stale-update").click()
-    await user.should_see(marker="unsaved-save")  # 更新で未保存になったので、続けて保存の確認
+    await user.should_see(
+        marker="unsaved-save"
+    )  # 更新で未保存になったので、続けて保存の確認
     user.find(marker="unsaved-save").click()
     assert view.current_name() == "基盤"
-    assert load_project(tmp_path / "本体.json").tasks[0].ref_snapshot.planned_start != datetime(2026, 1, 1)  # 更新した値が保存された
+    assert load_project(tmp_path / "本体.json").tasks[
+        0
+    ].ref_snapshot.planned_start != datetime(2026, 1, 1)  # 更新した値が保存された
 
 
-async def test_skipping_the_stale_dialog_opens_without_changing_the_snapshot(user: User, tmp_path: Path) -> None:
+async def test_skipping_the_stale_dialog_opens_without_changing_the_snapshot(
+    user: User, tmp_path: Path
+) -> None:
     stale_setup(tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -6161,10 +7702,14 @@ async def test_skipping_the_stale_dialog_opens_without_changing_the_snapshot(use
         view.open_reference("ref")
     user.find(marker="stale-skip").click()
     assert view.current_name() == "基盤"
-    assert load_project(tmp_path / "本体.json").tasks[0].ref_snapshot.planned_start == datetime(2026, 1, 1)
+    assert load_project(tmp_path / "本体.json").tasks[
+        0
+    ].ref_snapshot.planned_start == datetime(2026, 1, 1)
 
 
-async def test_a_missing_target_notifies_once_when_the_project_is_opened(user: User, tmp_path: Path) -> None:
+async def test_a_missing_target_notifies_once_when_the_project_is_opened(
+    user: User, tmp_path: Path
+) -> None:
     ref = Task("基盤開発", id="ref", kind=TaskKind.REFERENCE, ref_project="ない")
     save_project(Project("本体", tasks=[ref]), tmp_path)
     views: list[MainView] = []
@@ -6174,7 +7719,9 @@ async def test_a_missing_target_notifies_once_when_the_project_is_opened(user: U
     await user.should_see("参照先のプロジェクトが見つかりません: ない")
 
 
-async def test_refreshing_a_snapshot_takes_the_current_value_and_marks_the_project_dirty(user: User, tmp_path: Path) -> None:
+async def test_refreshing_a_snapshot_takes_the_current_value_and_marks_the_project_dirty(
+    user: User, tmp_path: Path
+) -> None:
     current_snapshot_setup(tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -6185,7 +7732,9 @@ async def test_refreshing_a_snapshot_takes_the_current_value_and_marks_the_proje
     assert view.project.tasks[0].ref_snapshot is not None and view.is_dirty()
 
 
-async def test_switching_the_mode_takes_or_drops_the_snapshots(user: User, tmp_path: Path) -> None:
+async def test_switching_the_mode_takes_or_drops_the_snapshots(
+    user: User, tmp_path: Path
+) -> None:
     save_project(reference_setup(tmp_path), tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -6198,7 +7747,9 @@ async def test_switching_the_mode_takes_or_drops_the_snapshots(user: User, tmp_p
     assert view.project.tasks[0].ref_snapshot is None
 
 
-async def test_the_preview_draws_the_reference_band_without_the_click_handler(user: User, tmp_path: Path) -> None:
+async def test_the_preview_draws_the_reference_band_without_the_click_handler(
+    user: User, tmp_path: Path
+) -> None:
     save_project(reference_setup(tmp_path), tmp_path)
     views: list[MainView] = []
     mount_preview(tmp_path, views, FakeExporter())
@@ -6206,10 +7757,14 @@ async def test_the_preview_draws_the_reference_band_without_the_click_handler(us
     views[0].request_open("本体")
     views[0].enter_preview()
     await user.should_see(marker="bar-top-0")
-    assert "ref-link" not in user.find(marker="bar-top-0").elements.pop().classes  # 読み取り専用では、クリックで開かない
+    assert (
+        "ref-link" not in user.find(marker="bar-top-0").elements.pop().classes
+    )  # 読み取り専用では、クリックで開かない
 
 
-async def test_opening_a_project_with_a_stale_snapshot_asks_and_update_refreshes_it(user: User, tmp_path: Path) -> None:
+async def test_opening_a_project_with_a_stale_snapshot_asks_and_update_refreshes_it(
+    user: User, tmp_path: Path
+) -> None:
     stale_setup(tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -6223,7 +7778,9 @@ async def test_opening_a_project_with_a_stale_snapshot_asks_and_update_refreshes
     assert view.is_dirty()
 
 
-async def test_opening_a_project_with_a_current_snapshot_does_not_ask(user: User, tmp_path: Path) -> None:
+async def test_opening_a_project_with_a_current_snapshot_does_not_ask(
+    user: User, tmp_path: Path
+) -> None:
     current_snapshot_setup(tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -6233,7 +7790,9 @@ async def test_opening_a_project_with_a_current_snapshot_does_not_ask(user: User
     await user.should_not_see(marker="snapshot-update")
 
 
-async def stale_view_with_task_edit(user: User, tmp_path: Path) -> tuple[MainView, Task]:
+async def stale_view_with_task_edit(
+    user: User, tmp_path: Path
+) -> tuple[MainView, Task]:
     stale_setup(tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -6242,11 +7801,17 @@ async def stale_view_with_task_edit(user: User, tmp_path: Path) -> tuple[MainVie
     with view.client:
         view.request_open("本体")
     user.find(marker="snapshot-skip").click()
-    drop_dialog(user, "snapshot-skip")  # 閉じた確認が残ると、次の確認のボタンと取り違える
-    return view, Task("本体の作業", planned_start=datetime(2026, 10, 5, 9), effort_hours=8.0)
+    drop_dialog(
+        user, "snapshot-skip"
+    )  # 閉じた確認が残ると、次の確認のボタンと取り違える
+    return view, Task(
+        "本体の作業", planned_start=datetime(2026, 10, 5, 9), effort_hours=8.0
+    )
 
 
-async def test_saving_a_task_with_a_stale_snapshot_asks_first(user: User, tmp_path: Path) -> None:
+async def test_saving_a_task_with_a_stale_snapshot_asks_first(
+    user: User, tmp_path: Path
+) -> None:
     view, task = await stale_view_with_task_edit(user, tmp_path)
     with view.client:
         view.save_task((), None, task)
@@ -6257,7 +7822,9 @@ async def test_saving_a_task_with_a_stale_snapshot_asks_first(user: User, tmp_pa
     assert view.project.tasks[0].ref_snapshot.planned_start != datetime(2026, 1, 1)
 
 
-async def test_saving_without_updating_keeps_the_old_snapshot(user: User, tmp_path: Path) -> None:
+async def test_saving_without_updating_keeps_the_old_snapshot(
+    user: User, tmp_path: Path
+) -> None:
     view, task = await stale_view_with_task_edit(user, tmp_path)
     with view.client:
         view.save_task((), None, task)
@@ -6266,7 +7833,9 @@ async def test_saving_without_updating_keeps_the_old_snapshot(user: User, tmp_pa
     assert view.project.tasks[0].ref_snapshot.planned_start == datetime(2026, 1, 1)
 
 
-async def test_cancelling_the_stale_snapshot_dialog_does_not_save(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_stale_snapshot_dialog_does_not_save(
+    user: User, tmp_path: Path
+) -> None:
     view, task = await stale_view_with_task_edit(user, tmp_path)
     with view.client:
         view.save_task((), None, task)
@@ -6274,7 +7843,9 @@ async def test_cancelling_the_stale_snapshot_dialog_does_not_save(user: User, tm
     assert len(view.project.tasks) == 1
 
 
-async def test_saving_a_task_with_a_current_snapshot_does_not_ask(user: User, tmp_path: Path) -> None:
+async def test_saving_a_task_with_a_current_snapshot_does_not_ask(
+    user: User, tmp_path: Path
+) -> None:
     current_snapshot_setup(tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -6287,7 +7858,9 @@ async def test_saving_a_task_with_a_current_snapshot_does_not_ask(user: User, tm
     assert len(view.project.tasks) == 2
 
 
-async def test_a_project_opened_from_a_reference_has_a_link_back(user: User, tmp_path: Path) -> None:
+async def test_a_project_opened_from_a_reference_has_a_link_back(
+    user: User, tmp_path: Path
+) -> None:
     save_project(reference_setup(tmp_path), tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -6305,7 +7878,9 @@ async def test_a_project_opened_from_a_reference_has_a_link_back(user: User, tmp
     await user.should_not_see(marker="back-to-origin")
 
 
-async def test_the_link_back_goes_away_when_another_project_is_opened(user: User, tmp_path: Path) -> None:
+async def test_the_link_back_goes_away_when_another_project_is_opened(
+    user: User, tmp_path: Path
+) -> None:
     save_project(reference_setup(tmp_path), tmp_path)
     save_project(Project("別"), tmp_path)
     views: list[MainView] = []
@@ -6320,7 +7895,13 @@ async def test_the_link_back_goes_away_when_another_project_is_opened(user: User
 
 
 def members_dialog(user: User) -> ui.dialog:
-    return next(a for a in user.find(marker="members-parameters-panels").elements.pop().ancestors() if isinstance(a, ui.dialog))
+    return next(
+        a
+        for a in user.find(marker="members-parameters-panels")
+        .elements.pop()
+        .ancestors()
+        if isinstance(a, ui.dialog)
+    )
 
 
 async def test_close_applies_both_tabs_and_closes(user: User, tmp_path: Path) -> None:
@@ -6348,7 +7929,9 @@ async def test_close_without_changes_just_closes(user: User, tmp_path: Path) -> 
     assert not view.is_dirty()
 
 
-async def test_close_with_an_error_stays_open_and_shows_the_tab(user: User, tmp_path: Path) -> None:
+async def test_close_with_an_error_stays_open_and_shows_the_tab(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     dialog = members_dialog(user)
@@ -6360,9 +7943,13 @@ async def test_close_with_an_error_stays_open_and_shows_the_tab(user: User, tmp_
     assert view.project.parameters == []
 
 
-async def test_close_continues_after_the_parameter_delete_confirmation(user: User, tmp_path: Path) -> None:
+async def test_close_continues_after_the_parameter_delete_confirmation(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
-    view.project.parameters = [Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)])]
+    view.project.parameters = [
+        Parameter("経験", [Level("初級", -0.2), Level("上級", 0.2)])
+    ]
     view.project.members = [Member("田中", 1.0, {"経験": "上級"})]
     view.mark_clean()
     await open_members_parameters(user)
@@ -6385,7 +7972,9 @@ async def apply_one_member(user: User) -> None:
     user.find(marker="member-apply").click()
 
 
-async def test_cancel_after_applying_asks_and_back_keeps_the_dialog(user: User, tmp_path: Path) -> None:
+async def test_cancel_after_applying_asks_and_back_keeps_the_dialog(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     dialog = members_dialog(user)
@@ -6399,7 +7988,9 @@ async def test_cancel_after_applying_asks_and_back_keeps_the_dialog(user: User, 
     assert [m.name for m in view.project.members] == ["田中"]
 
 
-async def test_cancel_unapplied_only_keeps_what_was_applied(user: User, tmp_path: Path) -> None:
+async def test_cancel_unapplied_only_keeps_what_was_applied(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     dialog = members_dialog(user)
@@ -6417,7 +8008,9 @@ async def test_cancel_unapplied_only_keeps_what_was_applied(user: User, tmp_path
     assert view.history.can_undo()
 
 
-async def test_cancel_all_restores_the_project_and_history_at_opening(user: User, tmp_path: Path) -> None:
+async def test_cancel_all_restores_the_project_and_history_at_opening(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.tasks = [Task("a")]
     view.mark_clean()
@@ -6465,11 +8058,15 @@ async def test_import_csv_opens_an_unsaved_project(user: User, tmp_path: Path) -
     assert [t.name for t in view.project.sections[0].tasks] == ["1.1#設計"]
     assert [m.name for m in view.project.members] == ["田中"]
     assert exporter.asked_open == [CSV_OPEN_FILE_TYPES]
-    await user.should_see("取り込みました(タスク 1 件、セクション 1 件、メンバー 1 人を作成)")
+    await user.should_see(
+        "取り込みました(タスク 1 件、セクション 1 件、メンバー 1 人を作成)"
+    )
     assert not [f for f in tmp_path.glob("*.json") if f.name != "holidays.json"]
 
 
-async def test_cancelling_the_csv_dialog_changes_nothing(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_csv_dialog_changes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(open_path=None)
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-csv").click()
@@ -6477,7 +8074,9 @@ async def test_cancelling_the_csv_dialog_changes_nothing(user: User, tmp_path: P
     assert view.project.name == "新規プロジェクト" and not view.is_dirty()
 
 
-async def test_import_csv_refuses_a_file_without_the_title_column(user: User, tmp_path: Path) -> None:
+async def test_import_csv_refuses_a_file_without_the_title_column(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(open_path=write_csv(tmp_path, "名前\n田中"))
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-csv").click()
@@ -6485,7 +8084,9 @@ async def test_import_csv_refuses_a_file_without_the_title_column(user: User, tm
     assert view.project.name == "新規プロジェクト" and not view.is_dirty()
 
 
-async def test_the_csv_import_item_is_hidden_without_the_native_window(user: User, tmp_path: Path) -> None:
+async def test_the_csv_import_item_is_hidden_without_the_native_window(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(open_path=write_csv(tmp_path), available=False)
     await open_for_import(user, tmp_path, exporter)
     await user.should_see(marker="file-import-plantuml")  # ほかの項目は出る
@@ -6493,7 +8094,9 @@ async def test_the_csv_import_item_is_hidden_without_the_native_window(user: Use
     assert exporter.asked_open == []
 
 
-async def test_import_csv_asks_before_dropping_unsaved_edits(user: User, tmp_path: Path) -> None:
+async def test_import_csv_asks_before_dropping_unsaved_edits(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(open_path=write_csv(tmp_path))
     view = await open_for_import(user, tmp_path, exporter)
     view.save_section("追加")
@@ -6504,7 +8107,9 @@ async def test_import_csv_asks_before_dropping_unsaved_edits(user: User, tmp_pat
     assert await wait_until(lambda: view.project.name == "in")
 
 
-async def test_export_tsv_writes_the_file_without_touching_the_project(user: User, tmp_path: Path) -> None:
+async def test_export_tsv_writes_the_file_without_touching_the_project(
+    user: User, tmp_path: Path
+) -> None:
     target = tmp_path / "out" / "plan.tsv"
     target.parent.mkdir()
     exporter = FakeExporter(path=target, open_path=write_csv(tmp_path))
@@ -6515,13 +8120,20 @@ async def test_export_tsv_writes_the_file_without_touching_the_project(user: Use
     user.find(marker="export-tsv").click()
     assert await wait_until(target.exists)
     lines = target.read_text(encoding="utf-8").splitlines()
-    assert lines[1:] == ["\t" * 6, "\t" * 6, "1\t計画\t\t\t\t\t", "1.1\t設計\t田中\t26年 10月 13日\t26年 10月 15日\t2\t50%"]
+    assert lines[1:] == [
+        "\t" * 6,
+        "\t" * 6,
+        "1\t計画\t\t\t\t\t",
+        "1.1\t設計\t田中\t26年 10月 13日\t26年 10月 15日\t2\t50%",
+    ]
     assert exporter.asked == ["out.tsv"] and exporter.asked_types == [TSV_FILE_TYPES]
     assert view.is_dirty() == dirty
     await user.should_see("書き出しました(タスク 1 件、参照 0 件、セクション 1 件)")
 
 
-async def test_export_tsv_needs_something_to_write_and_the_native_window(user: User, tmp_path: Path) -> None:
+async def test_export_tsv_needs_something_to_write_and_the_native_window(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=tmp_path / "x.tsv")
     await open_for_import(user, tmp_path, exporter)
     user.find(marker="export-tsv").click()
@@ -6537,7 +8149,9 @@ async def test_export_tsv_needs_the_native_window(user: User, tmp_path: Path) ->
     assert exporter.asked == []
 
 
-async def test_export_settings_writes_the_file_without_touching_the_project(user: User, tmp_path: Path) -> None:
+async def test_export_settings_writes_the_file_without_touching_the_project(
+    user: User, tmp_path: Path
+) -> None:
     target = tmp_path / "out" / "settings.json"
     target.parent.mkdir()
     exporter = FakeExporter(path=target)
@@ -6547,13 +8161,19 @@ async def test_export_settings_writes_the_file_without_touching_the_project(user
     user.find(marker="export-settings").click()
     assert await wait_until(target.exists)
     data = json.loads(target.read_text(encoding="utf-8"))
-    assert data["kind"] == "projectapp-settings" and [m["name"] for m in data["members"]] == ["田中"]
-    assert exporter.asked == [SETTINGS_DEFAULT_FILENAME] and exporter.asked_types == [SETTINGS_FILE_TYPES]
+    assert data["kind"] == "projectapp-settings" and [
+        m["name"] for m in data["members"]
+    ] == ["田中"]
+    assert exporter.asked == [SETTINGS_DEFAULT_FILENAME] and exporter.asked_types == [
+        SETTINGS_FILE_TYPES
+    ]
     assert view.is_dirty() == dirty and view.project.members == [Member("田中", 1.2)]
     await user.should_see("書き出しました")
 
 
-async def test_cancelling_the_settings_save_dialog_writes_nothing(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_settings_save_dialog_writes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=None)
     await open_for_import(user, tmp_path, exporter)
     user.find(marker="export-settings").click()
@@ -6561,14 +8181,18 @@ async def test_cancelling_the_settings_save_dialog_writes_nothing(user: User, tm
     assert not list(tmp_path.glob("settings*.json"))
 
 
-async def test_the_settings_export_item_is_hidden_without_the_native_window(user: User, tmp_path: Path) -> None:
+async def test_the_settings_export_item_is_hidden_without_the_native_window(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(path=tmp_path / "x.json", available=False)
     await open_for_import(user, tmp_path, exporter)
     await user.should_see(marker="export-tsv")
     await user.should_not_see(marker="export-settings")
 
 
-def write_settings_file(tmp_path: Path, project: Project, name: str = "in.json") -> Path:
+def write_settings_file(
+    tmp_path: Path, project: Project, name: str = "in.json"
+) -> Path:
     folder = tmp_path / "other"
     folder.mkdir(exist_ok=True)
     return write_settings(folder / name, build_settings(project))
@@ -6578,8 +8202,14 @@ def incoming_file(project: Project):
     return parse_settings(json.dumps(build_settings(project)))
 
 
-async def test_import_settings_adds_the_items_in_one_undoable_unsaved_edit(user: User, tmp_path: Path) -> None:
-    source = Project("元", members=[Member("鈴木", 1.1)], parameters=[Parameter("経験", [Level("上級", 0.2)])])
+async def test_import_settings_adds_the_items_in_one_undoable_unsaved_edit(
+    user: User, tmp_path: Path
+) -> None:
+    source = Project(
+        "元",
+        members=[Member("鈴木", 1.1)],
+        parameters=[Parameter("経験", [Level("上級", 0.2)])],
+    )
     exporter = FakeExporter(open_path=write_settings_file(tmp_path, source))
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-settings").click()
@@ -6591,10 +8221,16 @@ async def test_import_settings_adds_the_items_in_one_undoable_unsaved_edit(user:
     assert exporter.asked_open == [SETTINGS_FILE_TYPES]
     await user.should_see("取り込みました(メンバー 1 件、パラメータ 1 件)")
     view.undo()
-    assert view.project.members == [] and view.project.parameters == [] and not view.is_dirty()
+    assert (
+        view.project.members == []
+        and view.project.parameters == []
+        and not view.is_dirty()
+    )
 
 
-async def test_import_settings_skips_a_duplicate_unless_it_is_overwritten(user: User, tmp_path: Path) -> None:
+async def test_import_settings_skips_a_duplicate_unless_it_is_overwritten(
+    user: User, tmp_path: Path
+) -> None:
     source = Project("元", members=[Member("田中", 1.5)])
     exporter = FakeExporter(open_path=write_settings_file(tmp_path, source))
     view = await open_for_import(user, tmp_path, exporter)
@@ -6609,7 +8245,11 @@ async def test_import_settings_skips_a_duplicate_unless_it_is_overwritten(user: 
 
 
 async def test_an_unchecked_section_is_not_imported(user: User, tmp_path: Path) -> None:
-    source = Project("元", members=[Member("鈴木")], parameters=[Parameter("経験", [Level("上級", 0.2)])])
+    source = Project(
+        "元",
+        members=[Member("鈴木")],
+        parameters=[Parameter("経験", [Level("上級", 0.2)])],
+    )
     exporter = FakeExporter(open_path=write_settings_file(tmp_path, source))
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-settings").click()
@@ -6620,89 +8260,141 @@ async def test_an_unchecked_section_is_not_imported(user: User, tmp_path: Path) 
     assert view.project.members == []
 
 
-async def test_cancelling_the_file_dialog_or_the_import_dialog_changes_nothing(user: User, tmp_path: Path) -> None:
+async def test_cancelling_the_file_dialog_or_the_import_dialog_changes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     exporter = FakeExporter(open_path=None)
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-settings").click()
     assert await wait_until(lambda: exporter.asked_open != [])
     assert not view.is_dirty()
-    exporter.open_path = write_settings_file(tmp_path, Project("元", members=[Member("鈴木")]))
+    exporter.open_path = write_settings_file(
+        tmp_path, Project("元", members=[Member("鈴木")])
+    )
     user.find(marker="file-import-settings").click()
     await user.should_see(marker="import-cancel")
     user.find(marker="import-cancel").click()
     assert view.project.members == [] and not view.is_dirty()
 
 
-async def test_a_broken_settings_file_is_refused_with_a_notice(user: User, tmp_path: Path) -> None:
+async def test_a_broken_settings_file_is_refused_with_a_notice(
+    user: User, tmp_path: Path
+) -> None:
     folder = tmp_path / "other"
     folder.mkdir()
     broken = folder / "bad.json"
-    broken.write_text('{"kind": "projectapp-settings", "version": 1, "members": "abc"}', encoding="utf-8")
+    broken.write_text(
+        '{"kind": "projectapp-settings", "version": 1, "members": "abc"}',
+        encoding="utf-8",
+    )
     view = await open_for_import(user, tmp_path, FakeExporter(open_path=broken))
     user.find(marker="file-import-settings").click()
     await user.should_see("取り込めませんでした")
     assert view.project.members == [] and not view.is_dirty()
 
 
-async def test_a_file_with_nothing_to_import_says_so(user: User, tmp_path: Path) -> None:
-    view = await open_for_import(user, tmp_path, FakeExporter(open_path=write_settings_file(tmp_path, Project("元"))))
+async def test_a_file_with_nothing_to_import_says_so(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_for_import(
+        user,
+        tmp_path,
+        FakeExporter(open_path=write_settings_file(tmp_path, Project("元"))),
+    )
     user.find(marker="file-import-settings").click()
     await user.should_see("取り込める項目がありません")
     assert not view.is_dirty()
 
 
-async def test_the_settings_import_item_is_hidden_without_the_native_window(user: User, tmp_path: Path) -> None:
+async def test_the_settings_import_item_is_hidden_without_the_native_window(
+    user: User, tmp_path: Path
+) -> None:
     await open_for_import(user, tmp_path, FakeExporter(available=False))
     await user.should_see(marker="file-import-plantuml")
     await user.should_not_see(marker="file-import-settings")
 
 
-async def test_import_with_changed_limits_asks_and_cancel_keeps_only_the_other_items(user: User, tmp_path: Path) -> None:
+async def test_import_with_changed_limits_asks_and_cancel_keeps_only_the_other_items(
+    user: User, tmp_path: Path
+) -> None:
     view = await _open_existing(user, tmp_path, _progress_project())
     source = Project("元", ratio_limit_upper=1.0, members=[Member("鈴木")])
     view.apply_settings_import(incoming_file(source), {"project", "members"}, set())
     await user.should_see("見直して適用")
-    assert view.project.ratio_limit_upper is None and len(view.project.members) == 1  # 確認の前は変わらない
+    assert (
+        view.project.ratio_limit_upper is None and len(view.project.members) == 1
+    )  # 確認の前は変わらない
     user.find(marker="limit-review-cancel").click()
     assert await wait_until(lambda: len(view.project.members) == 2)
     assert view.project.ratio_limit_upper is None  # プロジェクト設定だけ取り消す
     await user.should_see("プロジェクト設定は取り込みませんでした")
 
 
-async def test_import_with_changed_limits_can_review_the_planned_end(user: User, tmp_path: Path) -> None:
+async def test_import_with_changed_limits_can_review_the_planned_end(
+    user: User, tmp_path: Path
+) -> None:
     view = await _open_existing(user, tmp_path, _progress_project())
-    view.apply_settings_import(incoming_file(Project("元", ratio_limit_upper=1.0)), {"project"}, set())
+    view.apply_settings_import(
+        incoming_file(Project("元", ratio_limit_upper=1.0)), {"project"}, set()
+    )
     user.find(marker="limit-review-apply").click()
     assert await wait_until(lambda: view.project.ratio_limit_upper == 1.0)
     assert view.project.all_tasks()[0].planned_end_manual is True
     view.undo()
-    assert view.project.ratio_limit_upper is None and not view.project.all_tasks()[0].planned_end_manual
+    assert (
+        view.project.ratio_limit_upper is None
+        and not view.project.all_tasks()[0].planned_end_manual
+    )
 
 
-async def test_import_keeps_the_task_assignment_when_a_member_is_overwritten(user: User, tmp_path: Path) -> None:
+async def test_import_keeps_the_task_assignment_when_a_member_is_overwritten(
+    user: User, tmp_path: Path
+) -> None:
     view = await _open_existing(user, tmp_path, _progress_project())
     source = Project("元", members=[Member("田中", 1.4)])
-    view.apply_settings_import(incoming_file(source), {"members"}, {("members", "田中")})
+    view.apply_settings_import(
+        incoming_file(source), {"members"}, {("members", "田中")}
+    )
     assert [a.name for a in view.project.all_tasks()[0].assignees] == ["田中"]
     assert view.project.members[0].ratio == 1.4
 
 
-async def test_import_switching_to_snapshot_retakes_the_snapshots(user: User, tmp_path: Path, monkeypatch) -> None:
+async def test_import_switching_to_snapshot_retakes_the_snapshots(
+    user: User, tmp_path: Path, monkeypatch
+) -> None:
     view = await _open_existing(user, tmp_path, Project("既存"))
     calls: list[ReferenceMode] = []
-    monkeypatch.setattr(view, "refresh_all_snapshots", lambda: calls.append(view.project.reference_mode))
-    view.apply_settings_import(incoming_file(Project("元", reference_mode=ReferenceMode.SNAPSHOT)), {"project"}, set())
-    assert calls == [ReferenceMode.SNAPSHOT] and view.project.reference_mode is ReferenceMode.SNAPSHOT
+    monkeypatch.setattr(
+        view, "refresh_all_snapshots", lambda: calls.append(view.project.reference_mode)
+    )
+    view.apply_settings_import(
+        incoming_file(Project("元", reference_mode=ReferenceMode.SNAPSHOT)),
+        {"project"},
+        set(),
+    )
+    assert (
+        calls == [ReferenceMode.SNAPSHOT]
+        and view.project.reference_mode is ReferenceMode.SNAPSHOT
+    )
 
 
 def _progress_project() -> Project:
     parameters = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
     member = Member("田中", 1.0, {"a": "高", "b": "高", "c": "高"})
     task = Task(
-        "実装", assignees=[Assignee("田中", 1.0)], effort_hours=20.0, status=Status.RUNNING, progress=50,
+        "実装",
+        assignees=[Assignee("田中", 1.0)],
+        effort_hours=20.0,
+        status=Status.RUNNING,
+        progress=50,
         planned_start=datetime(2026, 10, 5, 9),
     )
-    return Project("既存", members=[member], parameters=parameters, sections=[Section("開発", [task])])
+    return Project(
+        "既存",
+        members=[member],
+        parameters=parameters,
+        sections=[Section("開発", [task])],
+    )
 
 
 async def _open_existing(user: User, tmp_path: Path, project: Project) -> MainView:
@@ -6717,16 +8409,25 @@ async def _open_existing(user: User, tmp_path: Path, project: Project) -> MainVi
     return view
 
 
-async def test_apply_ratio_limits_without_affected_tasks_is_an_undoable_unsaved_edit(user: User, tmp_path: Path) -> None:
-    view = await _open_existing(user, tmp_path, Project("既存", sections=[Section("開発", [Task("実装")])]))
+async def test_apply_ratio_limits_without_affected_tasks_is_an_undoable_unsaved_edit(
+    user: User, tmp_path: Path
+) -> None:
+    view = await _open_existing(
+        user, tmp_path, Project("既存", sections=[Section("開発", [Task("実装")])])
+    )
     assert not view.is_dirty()
     view.apply_ratio_limits(RatioLimits(upper=1.5, lower=0.5))
-    assert (view.project.ratio_limit_upper, view.project.ratio_limit_lower) == (1.5, 0.5) and view.is_dirty()
+    assert (view.project.ratio_limit_upper, view.project.ratio_limit_lower) == (
+        1.5,
+        0.5,
+    ) and view.is_dirty()
     view.undo()
     assert view.project.ratio_limits == RatioLimits() and not view.is_dirty()
 
 
-async def test_apply_ratio_limits_asks_before_changing_a_task_with_progress(user: User, tmp_path: Path) -> None:
+async def test_apply_ratio_limits_asks_before_changing_a_task_with_progress(
+    user: User, tmp_path: Path
+) -> None:
     view = await _open_existing(user, tmp_path, _progress_project())
     view.apply_ratio_limits(RatioLimits(upper=1.0))
     await user.should_see("見直して適用")
@@ -6748,10 +8449,16 @@ async def test_apply_ratio_limits_with_review_sets_the_manual_planned_end_in_one
     assert task.planned_end_manual is True and task.planned_end is not None
     view.undo()
     task = view.project.all_tasks()[0]
-    assert view.project.ratio_limit_upper is None and task.planned_end_manual is False and not view.is_dirty()
+    assert (
+        view.project.ratio_limit_upper is None
+        and task.planned_end_manual is False
+        and not view.is_dirty()
+    )
 
 
-async def test_apply_ratio_limits_without_review_keeps_the_planned_end(user: User, tmp_path: Path) -> None:
+async def test_apply_ratio_limits_without_review_keeps_the_planned_end(
+    user: User, tmp_path: Path
+) -> None:
     view = await _open_existing(user, tmp_path, _progress_project())
     view.apply_ratio_limits(RatioLimits(upper=1.0))
     user.find(marker="limit-review-skip").click()
@@ -6759,13 +8466,17 @@ async def test_apply_ratio_limits_without_review_keeps_the_planned_end(user: Use
     assert view.project.ratio_limit_upper == 1.0 and task.planned_end_manual is False
 
 
-async def test_the_parameter_tab_caption_shows_the_default_range(user: User, tmp_path: Path) -> None:
+async def test_the_parameter_tab_caption_shows_the_default_range(
+    user: User, tmp_path: Path
+) -> None:
     await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     await user.should_see("50〜150% に丸めます")
 
 
-async def test_the_parameter_tab_caption_follows_the_ratio_limits(user: User, tmp_path: Path) -> None:
+async def test_the_parameter_tab_caption_follows_the_ratio_limits(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.ratio_limit_upper, view.project.ratio_limit_lower = 1.2, 0.8
     await open_members_parameters(user)
@@ -6793,10 +8504,17 @@ async def test_a_work_day_row_note_is_applied(user: User, tmp_path: Path) -> Non
     user.find(marker="member-workday-close").click()
     await settle()
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: view.project.members[0].work_days == [WorkDay(date(2026, 10, 17), note="通院")])
+    assert await wait_until(
+        lambda: (
+            view.project.members[0].work_days
+            == [WorkDay(date(2026, 10, 17), note="通院")]
+        )
+    )
 
 
-async def test_the_range_dialog_adds_one_row_per_workday(user: User, tmp_path: Path) -> None:
+async def test_the_range_dialog_adds_one_row_per_workday(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_work_day_dialog(user, tmp_path)
     user.find(marker="member-workday-range-open").click()
     await user.should_see(marker="member-workday-range-period")
@@ -6812,22 +8530,31 @@ async def test_the_range_dialog_adds_one_row_per_workday(user: User, tmp_path: P
     assert await wait_until(lambda: view.project.members[0].work_days == expected)
 
 
-async def test_the_range_dialog_shows_an_error_and_stays_open(user: User, tmp_path: Path) -> None:
+async def test_the_range_dialog_shows_an_error_and_stays_open(
+    user: User, tmp_path: Path
+) -> None:
     await open_work_day_dialog(user, tmp_path)
     user.find(marker="member-workday-range-open").click()
     await user.should_see(marker="member-workday-range-add")
     user.find(marker="member-workday-range-add").click()  # 期間が空
     await settle()
     assert "期間" in user.find(marker="member-workday-range-error").elements.pop().text
-    user.find(marker="member-workday-range-period").type("2026-10-31 〜 2026-11-01")  # 土日だけ
+    user.find(marker="member-workday-range-period").type(
+        "2026-10-31 〜 2026-11-01"
+    )  # 土日だけ
     user.find(marker="member-workday-range-add").click()
     await settle()
-    assert "追加する日がありません" in user.find(marker="member-workday-range-error").elements.pop().text
+    assert (
+        "追加する日がありません"
+        in user.find(marker="member-workday-range-error").elements.pop().text
+    )
     await user.should_see(marker="member-workday-range-add")  # 閉じていない
     await user.should_not_see(marker="member-workday-0-day")  # 行は増えていない
 
 
-async def test_the_range_dialog_skips_days_that_already_have_a_row(user: User, tmp_path: Path) -> None:
+async def test_the_range_dialog_skips_days_that_already_have_a_row(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_work_day_dialog(user, tmp_path)
     user.find(marker="member-workday-add").click()
     await user.should_see(marker="member-workday-0-day")
@@ -6843,14 +8570,20 @@ async def test_the_range_dialog_skips_days_that_already_have_a_row(user: User, t
     await settle()
     user.find(marker="member-apply").click()
     assert await wait_until(lambda: len(view.project.members[0].work_days) == 3)
-    kept = next(w for w in view.project.members[0].work_days if w.day == date(2026, 10, 27))
+    kept = next(
+        w for w in view.project.members[0].work_days if w.day == date(2026, 10, 27)
+    )
     assert (kept.start, kept.end) == (time(13), time(16))  # 既存の行は上書きしない
 
 
-async def test_the_view_holidays_include_closed_events_but_the_base_does_not(user: User, tmp_path: Path) -> None:
+async def test_the_view_holidays_include_closed_events_but_the_base_does_not(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.base_holidays = {date(2026, 10, 12): "スポーツの日"}
-    view.project.events = [Event(date(2026, 10, 26), date(2026, 10, 27), "夏季休業", closed=True)]
+    view.project.events = [
+        Event(date(2026, 10, 26), date(2026, 10, 27), "夏季休業", closed=True)
+    ]
     assert view.holidays == {
         date(2026, 10, 12): "スポーツの日",
         date(2026, 10, 26): "夏季休業",
@@ -6861,7 +8594,9 @@ async def test_the_view_holidays_include_closed_events_but_the_base_does_not(use
     assert view.holidays == {date(2026, 10, 12): "スポーツの日"}  # 休みを外すと戻る
 
 
-async def test_the_teams_tab_adds_renames_and_applies_without_closing(user: User, tmp_path: Path) -> None:
+async def test_the_teams_tab_adds_renames_and_applies_without_closing(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     await user.should_see(marker="tab-teams")
@@ -6874,18 +8609,24 @@ async def test_the_teams_tab_adds_renames_and_applies_without_closing(user: User
     await user.should_see(marker="members-parameters-panels")  # 閉じない
 
 
-async def test_the_teams_tab_shows_errors_and_changes_nothing(user: User, tmp_path: Path) -> None:
+async def test_the_teams_tab_shows_errors_and_changes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     user.find(marker="tab-teams").click()
     user.find(marker="team-add").click()
     await user.should_see(marker="team-name-0")
     user.find(marker="team-apply").click()  # 名前が空
-    assert await wait_until(lambda: "名前を入力" in user.find(marker="team-error").elements.pop().text)
+    assert await wait_until(
+        lambda: "名前を入力" in user.find(marker="team-error").elements.pop().text
+    )
     assert view.project.teams == []
 
 
-async def test_team_delete_without_members_applies_without_a_confirmation(user: User, tmp_path: Path) -> None:
+async def test_team_delete_without_members_applies_without_a_confirmation(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.teams = [Team("開発", id="t1")]
     view.mark_clean()
@@ -6896,11 +8637,22 @@ async def test_team_delete_without_members_applies_without_a_confirmation(user: 
     assert await wait_until(lambda: view.project.teams == [])
 
 
-async def test_team_delete_with_members_asks_then_drops_memberships_and_renormalizes(user: User, tmp_path: Path) -> None:
+async def test_team_delete_with_members_asks_then_drops_memberships_and_renormalizes(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
-    view.project.teams = [Team("開発", id="t1"), Team("QA", id="t2"), Team("運用", id="t3")]
+    view.project.teams = [
+        Team("開発", id="t1"),
+        Team("QA", id="t2"),
+        Team("運用", id="t3"),
+    ]
     view.project.members = [
-        Member("甲", 1.0, id="m1", teams=[Membership("t1", 60), Membership("t2", 30), Membership("t3", 10)])
+        Member(
+            "甲",
+            1.0,
+            id="m1",
+            teams=[Membership("t1", 60), Membership("t2", 30), Membership("t3", 10)],
+        )
     ]
     view.mark_clean()
     await open_members_parameters(user)
@@ -6910,7 +8662,9 @@ async def test_team_delete_with_members_asks_then_drops_memberships_and_renormal
     await user.should_see(marker="team-delete-confirm")
     assert view.project.teams[2].name == "運用"  # 確認の前は変わらない
     user.find(marker="team-delete-confirm").click()
-    assert await wait_until(lambda: [t.name for t in view.project.teams] == ["開発", "QA"])
+    assert await wait_until(
+        lambda: [t.name for t in view.project.teams] == ["開発", "QA"]
+    )
     assert view.project.members[0].teams == [Membership("t1", 67), Membership("t2", 33)]
 
 
@@ -6919,7 +8673,9 @@ async def test_team_delete_also_fixes_unapplied_member_rows_without_marking_the_
 ) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.teams = [Team("開発", id="t1"), Team("QA", id="t2")]
-    view.project.members = [Member("甲", 1.0, id="m1", teams=[Membership("t1", 60), Membership("t2", 40)])]
+    view.project.members = [
+        Member("甲", 1.0, id="m1", teams=[Membership("t1", 60), Membership("t2", 40)])
+    ]
     view.mark_clean()
     await open_members_parameters(user)
     members_mark = user.find(marker="members-dirty").elements.pop()
@@ -6931,7 +8687,9 @@ async def test_team_delete_also_fixes_unapplied_member_rows_without_marking_the_
     user.find(marker="team-delete-confirm").click()
     assert await wait_until(lambda: [t.name for t in view.project.teams] == ["開発"])
     user.find(marker="tab-members").click()
-    user.find(marker="member-apply").click()  # 未適用の行の所属が正規化されているので、検証を通る
+    user.find(
+        marker="member-apply"
+    ).click()  # 未適用の行の所属が正規化されているので、検証を通る
     assert await wait_until(lambda: [m.name for m in view.project.members] == ["甲田"])
     assert view.project.members[0].teams == [Membership("t1", 100)]
     assert members_mark.text == ""
@@ -6948,7 +8706,9 @@ async def test_closing_applies_teams_before_members(user: User, tmp_path: Path) 
     assert await wait_until(lambda: [t.name for t in view.project.teams] == ["開発"])
 
 
-async def test_the_teams_tab_shows_a_mark_while_it_has_unapplied_edits(user: User, tmp_path: Path) -> None:
+async def test_the_teams_tab_shows_a_mark_while_it_has_unapplied_edits(
+    user: User, tmp_path: Path
+) -> None:
     await open_members_view(user, tmp_path)
     await open_members_parameters(user)
     teams_mark = user.find(marker="teams-dirty").elements.pop()
@@ -6960,11 +8720,16 @@ async def test_the_teams_tab_shows_a_mark_while_it_has_unapplied_edits(user: Use
 
 def team_members_view_setup(view: MainView) -> None:
     view.project.teams = [Team("開発", id="t1"), Team("QA", id="t2")]
-    view.project.members = [Member("甲", 1.0, id="m1"), Member("乙", 1.0, id="m2", teams=[Membership("t1", 100)])]
+    view.project.members = [
+        Member("甲", 1.0, id="m1"),
+        Member("乙", 1.0, id="m2", teams=[Membership("t1", 100)]),
+    ]
     view.mark_clean()
 
 
-async def test_the_members_table_has_a_teams_column_only_when_teams_exist(user: User, tmp_path: Path) -> None:
+async def test_the_members_table_has_a_teams_column_only_when_teams_exist(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("甲", 1.0, id="m1")]
     view.mark_clean()
@@ -6981,7 +8746,9 @@ async def test_the_teams_button_shows_the_summary(user: User, tmp_path: Path) ->
     assert user.find(marker="member-teams-open-1").elements.pop().text == "開発"
 
 
-async def test_choosing_two_teams_splits_evenly_and_saves_on_apply(user: User, tmp_path: Path) -> None:
+async def test_choosing_two_teams_splits_evenly_and_saves_on_apply(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     team_members_view_setup(view)
     await open_members_parameters(user)
@@ -6993,13 +8760,25 @@ async def test_choosing_two_teams_splits_evenly_and_saves_on_apply(user: User, t
     user.find(marker="mteam-percent-0").elements.pop().set_value(70)
     user.find(marker="mteam-percent-1").elements.pop().set_value(30)
     user.find(marker="mteam-save").click()
-    assert await wait_until(lambda: user.find(marker="member-teams-open-0").elements.pop().text == "開発 70%・QA 30%")
+    assert await wait_until(
+        lambda: (
+            user.find(marker="member-teams-open-0").elements.pop().text
+            == "開発 70%・QA 30%"
+        )
+    )
     assert view.project.members[0].teams == []  # 適用するまでは変わらない
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: view.project.members[0].teams == [Membership("t1", 70), Membership("t2", 30)])
+    assert await wait_until(
+        lambda: (
+            view.project.members[0].teams
+            == [Membership("t1", 70), Membership("t2", 30)]
+        )
+    )
 
 
-async def test_choosing_one_team_hides_the_percent_and_saves_100(user: User, tmp_path: Path) -> None:
+async def test_choosing_one_team_hides_the_percent_and_saves_100(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     team_members_view_setup(view)
     await open_members_parameters(user)
@@ -7009,10 +8788,14 @@ async def test_choosing_one_team_hides_the_percent_and_saves_100(user: User, tmp
     await user.should_not_see(marker="mteam-percent-1")  # 1 つだけなら割合は出さない
     user.find(marker="mteam-save").click()
     user.find(marker="member-apply").click()
-    assert await wait_until(lambda: view.project.members[0].teams == [Membership("t2", 100)])
+    assert await wait_until(
+        lambda: view.project.members[0].teams == [Membership("t2", 100)]
+    )
 
 
-async def test_a_bad_total_shows_an_error_and_keeps_the_dialog_open(user: User, tmp_path: Path) -> None:
+async def test_a_bad_total_shows_an_error_and_keeps_the_dialog_open(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     team_members_view_setup(view)
     await open_members_parameters(user)
@@ -7023,17 +8806,23 @@ async def test_a_bad_total_shows_an_error_and_keeps_the_dialog_open(user: User, 
     user.find(marker="mteam-percent-0").elements.pop().set_value(70)
     user.find(marker="mteam-percent-1").elements.pop().set_value(40)
     user.find(marker="mteam-save").click()
-    assert await wait_until(lambda: "合計を 100%" in user.find(marker="mteam-error").elements.pop().text)
+    assert await wait_until(
+        lambda: "合計を 100%" in user.find(marker="mteam-error").elements.pop().text
+    )
     await user.should_see(marker="mteam-save")  # 閉じない
 
 
-async def test_unchecking_every_team_clears_the_membership(user: User, tmp_path: Path) -> None:
+async def test_unchecking_every_team_clears_the_membership(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_members_view(user, tmp_path)
     team_members_view_setup(view)
     await open_members_parameters(user)
     user.find(marker="member-teams-open-1").click()
     await user.should_see(marker="mteam-save")
-    assert user.find(marker="mteam-check-0").elements.pop().value is True  # 今の所属が入っている
+    assert (
+        user.find(marker="mteam-check-0").elements.pop().value is True
+    )  # 今の所属が入っている
     user.find(marker="mteam-check-0").elements.pop().set_value(False)
     user.find(marker="mteam-save").click()
     user.find(marker="member-apply").click()
@@ -7043,15 +8832,23 @@ async def test_unchecking_every_team_clears_the_membership(user: User, tmp_path:
 async def open_team_dashboard(user: User, tmp_path: Path) -> MainView:
     view = await open_dashboard_view(user, tmp_path)
     view.project.teams = [Team("開発", id="t1")]
-    view.project.members = [Member("甲", 1.0, id="m1", teams=[Membership("t1", 100)]), Member("乙", 1.0, id="m2")]
-    view.project.tasks = [Task("甲の", assignees=[Assignee("甲", 1.0)]), Task("乙の", assignees=[Assignee("乙", 1.0)])]
+    view.project.members = [
+        Member("甲", 1.0, id="m1", teams=[Membership("t1", 100)]),
+        Member("乙", 1.0, id="m2"),
+    ]
+    view.project.tasks = [
+        Task("甲の", assignees=[Assignee("甲", 1.0)]),
+        Task("乙の", assignees=[Assignee("乙", 1.0)]),
+    ]
     user.find(marker="open-dashboard").click()
     await user.should_see(marker="dashboard-member")
     view.refresh_dashboard()
     return view
 
 
-async def test_the_dashboard_dropdown_lists_teams_and_choosing_one_filters(user: User, tmp_path: Path) -> None:
+async def test_the_dashboard_dropdown_lists_teams_and_choosing_one_filters(
+    user: User, tmp_path: Path
+) -> None:
     from projectapp.scope import team_key
 
     view = await open_team_dashboard(user, tmp_path)
@@ -7062,7 +8859,9 @@ async def test_the_dashboard_dropdown_lists_teams_and_choosing_one_filters(user:
     await user.should_see("チーム「開発」・10/05〜10/11 にかかるタスク")
 
 
-async def test_choosing_a_member_after_a_team_clears_the_team(user: User, tmp_path: Path) -> None:
+async def test_choosing_a_member_after_a_team_clears_the_team(
+    user: User, tmp_path: Path
+) -> None:
     from projectapp.scope import team_key
 
     view = await open_team_dashboard(user, tmp_path)
@@ -7072,7 +8871,9 @@ async def test_choosing_a_member_after_a_team_clears_the_team(user: User, tmp_pa
     assert view.dashboard_member == "乙" and view.dashboard_team is None
 
 
-async def test_a_team_that_vanished_from_the_roster_returns_to_everyone(user: User, tmp_path: Path) -> None:
+async def test_a_team_that_vanished_from_the_roster_returns_to_everyone(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_team_dashboard(user, tmp_path)
     view.change_dashboard_team("開発")
     assert view.dashboard_team == "開発"
@@ -7086,8 +8887,12 @@ async def test_the_working_view_carries_the_team_and_a_vanished_saved_team_is_no
 ) -> None:
     view = await open_team_dashboard(user, tmp_path)
     view.change_dashboard_team("開発")
-    assert view.working_spec("x").team == "開発" and view.working_spec("x").member is None
-    saved = ViewSpec("保存済み", PeriodKind.WEEK, None, False, DEFAULT_ORDER, None, "消えたチーム")
+    assert (
+        view.working_spec("x").team == "開発" and view.working_spec("x").member is None
+    )
+    saved = ViewSpec(
+        "保存済み", PeriodKind.WEEK, None, False, DEFAULT_ORDER, None, "消えたチーム"
+    )
     view.dashboard_views = [saved]
     view.apply_dashboard_view(saved)
     view.refresh_dashboard()
@@ -7095,41 +8900,66 @@ async def test_the_working_view_carries_the_team_and_a_vanished_saved_team_is_no
     assert not view.dashboard_dirty()
 
 
-async def test_a_view_with_both_member_and_team_uses_the_member(user: User, tmp_path: Path) -> None:
+async def test_a_view_with_both_member_and_team_uses_the_member(
+    user: User, tmp_path: Path
+) -> None:
     view = await open_team_dashboard(user, tmp_path)
-    view.apply_dashboard_view(ViewSpec("両方", PeriodKind.WEEK, "乙", False, DEFAULT_ORDER, None, "開発"))
+    view.apply_dashboard_view(
+        ViewSpec("両方", PeriodKind.WEEK, "乙", False, DEFAULT_ORDER, None, "開発")
+    )
     assert view.dashboard_member == "乙" and view.dashboard_team is None
 
 
-async def test_the_cross_switch_adds_the_other_projects_remaining_hours(user: User, tmp_path: Path) -> None:
+async def test_the_cross_switch_adds_the_other_projects_remaining_hours(
+    user: User, tmp_path: Path
+) -> None:
     other = Project(
         "別",
         base_date=date(2026, 10, 5),
         members=[Member("田中", 1.0)],
-        tasks=[Task("別の作業", assignees=[Assignee("田中")], planned_start=datetime(2026, 10, 8, 9), effort_hours=6.5)],
+        tasks=[
+            Task(
+                "別の作業",
+                assignees=[Assignee("田中")],
+                planned_start=datetime(2026, 10, 8, 9),
+                effort_hours=6.5,
+            )
+        ],
     )
     save_project(other, tmp_path)
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     await user.should_see(marker="dashboard-load-田中")
-    assert view.dashboard_view.data is not None and view.dashboard_view.data.backlog.hours == 0
+    assert (
+        view.dashboard_view.data is not None
+        and view.dashboard_view.data.backlog.hours == 0
+    )
     view.change_dashboard_cross(True)
-    assert view.dashboard_view.data.backlog.hours == 6.5  # 開いているプロジェクトには、工数のあるタスクがない
+    assert (
+        view.dashboard_view.data.backlog.hours == 6.5
+    )  # 開いているプロジェクトには、工数のあるタスクがない
     view.change_dashboard_project("別", False)
     assert view.dashboard_view.data.backlog.hours == 0
     view.change_dashboard_cross(False)
     assert view.dashboard_view.data.backlog.hours == 0
 
 
-def legacy_color_setup(tmp_path: Path, version: int = 17, colors: tuple[str, ...] = ("red", "orange")) -> None:
-    events = [Event(date(2026, 10, 1 + i), date(2026, 10, 2 + i), f"e{i}", c, id=f"e{i}") for i, c in enumerate(colors)]
+def legacy_color_setup(
+    tmp_path: Path, version: int = 17, colors: tuple[str, ...] = ("red", "orange")
+) -> None:
+    events = [
+        Event(date(2026, 10, 1 + i), date(2026, 10, 2 + i), f"e{i}", c, id=f"e{i}")
+        for i, c in enumerate(colors)
+    ]
     path = save_project(Project("古い", events=events), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     raw["version"] = version
     path.write_text(json.dumps(raw), encoding="utf-8")
 
 
-async def test_a_legacy_file_with_color_names_asks_to_convert_them(user: User, tmp_path: Path) -> None:
+async def test_a_legacy_file_with_color_names_asks_to_convert_them(
+    user: User, tmp_path: Path
+) -> None:
     legacy_color_setup(tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -7146,7 +8976,9 @@ async def test_a_legacy_file_with_color_names_asks_to_convert_them(user: User, t
     assert [e.color for e in view.project.events] == ["red", "orange"]  # 元に戻せる
 
 
-async def test_keeping_the_color_names_changes_nothing(user: User, tmp_path: Path) -> None:
+async def test_keeping_the_color_names_changes_nothing(
+    user: User, tmp_path: Path
+) -> None:
     legacy_color_setup(tmp_path)
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
@@ -7160,8 +8992,12 @@ async def test_keeping_the_color_names_changes_nothing(user: User, tmp_path: Pat
     assert not view.is_dirty()
 
 
-async def test_a_current_file_or_one_without_color_names_does_not_ask(user: User, tmp_path: Path) -> None:
-    legacy_color_setup(tmp_path, version=18)  # 18 で保存したファイルは、色名が残っていても促さない
+async def test_a_current_file_or_one_without_color_names_does_not_ask(
+    user: User, tmp_path: Path
+) -> None:
+    legacy_color_setup(
+        tmp_path, version=18
+    )  # 18 で保存したファイルは、色名が残っていても促さない
     views: list[MainView] = []
     mount_capturing(tmp_path, views)
     await user.open("/")
@@ -7171,7 +9007,9 @@ async def test_a_current_file_or_one_without_color_names_does_not_ask(user: User
     await user.should_not_see(marker="color-convert")
 
 
-async def test_a_legacy_file_without_events_does_not_ask(user: User, tmp_path: Path) -> None:
+async def test_a_legacy_file_without_events_does_not_ask(
+    user: User, tmp_path: Path
+) -> None:
     legacy_color_setup(tmp_path, colors=())
     views: list[MainView] = []
     mount_capturing(tmp_path, views)

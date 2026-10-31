@@ -5,7 +5,6 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.filtering import TaskFilter
@@ -29,7 +28,9 @@ def rows(chart) -> list[str]:
     return chart.visible_task_ids()
 
 
-async def test_visible_task_ids_follow_render_order_and_skip_collapsed_children(user: User) -> None:
+async def test_visible_task_ids_follow_render_order_and_skip_collapsed_children(
+    user: User,
+) -> None:
     charts, _ = mount_chart(bulk_project())
     await user.open("/")
     chart = charts[0]
@@ -41,7 +42,9 @@ async def test_visible_task_ids_follow_render_order_and_skip_collapsed_children(
     assert rows(chart) == ["s", "c0", "c1"]  # 子が一致するまとめも出す
 
 
-async def test_ctrl_click_selects_and_marks_rows_without_re_rendering(user: User) -> None:
+async def test_ctrl_click_selects_and_marks_rows_without_re_rendering(
+    user: User,
+) -> None:
     charts, _ = mount_chart(bulk_project())
     await user.open("/")
     chart = charts[0]
@@ -54,7 +57,9 @@ async def test_ctrl_click_selects_and_marks_rows_without_re_rendering(user: User
         assert chart.render_count == before  # 描き直さない
 
 
-async def test_plain_click_does_nothing_and_shift_click_selects_a_range(user: User) -> None:
+async def test_plain_click_does_nothing_and_shift_click_selects_a_range(
+    user: User,
+) -> None:
     charts, _ = mount_chart(bulk_project())
     await user.open("/")
     chart = charts[0]
@@ -65,7 +70,9 @@ async def test_plain_click_does_nothing_and_shift_click_selects_a_range(user: Us
     assert chart.bulk.ids == {"top", "s", "c0", "c1"}
 
 
-async def test_the_bar_actions_pass_visible_selected_ids_in_render_order(user: User) -> None:
+async def test_the_bar_actions_pass_visible_selected_ids_in_render_order(
+    user: User,
+) -> None:
     charts, recorder = mount_chart(bulk_project())
     await user.open("/")
     chart = charts[0]
@@ -73,10 +80,15 @@ async def test_the_bar_actions_pass_visible_selected_ids_in_render_order(user: U
     chart.clicked_task("top", {"ctrl": True})
     user.find(marker="bulk-edit").click()
     user.find(marker="bulk-delete").click()
-    assert recorder.events == [("bulk_edit", (["top", "low"],)), ("bulk_delete", (["top", "low"],))]
+    assert recorder.events == [
+        ("bulk_edit", (["top", "low"],)),
+        ("bulk_delete", (["top", "low"],)),
+    ]
 
 
-async def test_rows_hidden_by_a_filter_are_not_targets_but_stay_selected(user: User) -> None:
+async def test_rows_hidden_by_a_filter_are_not_targets_but_stay_selected(
+    user: User,
+) -> None:
     charts, recorder = mount_chart(bulk_project())
     await user.open("/")
     chart = charts[0]
@@ -89,7 +101,9 @@ async def test_rows_hidden_by_a_filter_are_not_targets_but_stay_selected(user: U
     assert user.find(marker="bulk-count").elements.pop().text.startswith("1 件選択中")
 
 
-async def test_clear_selection_hides_the_bar_and_set_project_prunes_gone_ids(user: User) -> None:
+async def test_clear_selection_hides_the_bar_and_set_project_prunes_gone_ids(
+    user: User,
+) -> None:
     charts, _ = mount_chart(bulk_project())
     await user.open("/")
     chart = charts[0]
@@ -104,7 +118,9 @@ async def test_clear_selection_hides_the_bar_and_set_project_prunes_gone_ids(use
     await user.should_not_see(marker="bulk-bar")
 
 
-async def test_the_context_menu_offers_bulk_items_only_on_a_selected_row(user: User) -> None:
+async def test_the_context_menu_offers_bulk_items_only_on_a_selected_row(
+    user: User,
+) -> None:
     charts, recorder = mount_chart(bulk_project())
     await user.open("/")
     chart = charts[0]
@@ -128,7 +144,9 @@ async def test_read_only_charts_ignore_selection(user: User) -> None:
     await user.should_not_see(marker="bulk-bar")
 
 
-def test_the_click_script_filters_modifiers_and_excluded_targets(tmp_path: Path) -> None:
+def test_the_click_script_filters_modifiers_and_excluded_targets(
+    tmp_path: Path,
+) -> None:
     node = shutil.which("node")
     if node is None:
         pytest.skip("node がないので動きを確かめない")
@@ -143,7 +161,9 @@ def test_the_click_script_filters_modifiers_and_excluded_targets(tmp_path: Path)
         "  meta: run({ meta: true }, false), shift: run({ shift: true }, false), button: run({ ctrl: true }, true) }));\n",
         encoding="utf-8",
     )
-    result = subprocess.run([node, str(sim), SELECT_CLICK_JS], capture_output=True, text=True)
+    result = subprocess.run(
+        [node, str(sim), SELECT_CLICK_JS], capture_output=True, text=True
+    )
     assert result.returncode == 0, result.stderr
     out = json.loads(result.stdout)
     assert out["plain"]["out"] == []  # 修飾なしは何も送らない
@@ -153,27 +173,37 @@ def test_the_click_script_filters_modifiers_and_excluded_targets(tmp_path: Path)
     assert out["button"]["out"] == []  # ボタン・リンク・入力欄の上は選択にしない
 
 
-async def test_the_menu_hides_bulk_items_without_a_selection_and_the_bar_hints_when_one_is_selected(user: User) -> None:
+async def test_the_menu_hides_bulk_items_without_a_selection_and_the_bar_hints_when_one_is_selected(
+    user: User,
+) -> None:
     charts, _ = mount_chart(bulk_project())
     await user.open("/")
     chart = charts[0]
-    assert not chart.bulk_edit_item.visible and not chart.bulk_delete_item.visible  # 選択がないときは出さない
+    assert (
+        not chart.bulk_edit_item.visible and not chart.bulk_delete_item.visible
+    )  # 選択がないときは出さない
     chart.clicked_task("top", {"ctrl": True})
-    assert "Cmd/Ctrl+クリック" in user.find(marker="bulk-count").elements.pop().text  # 1 件目は使い方を添える
+    assert (
+        "Cmd/Ctrl+クリック" in user.find(marker="bulk-count").elements.pop().text
+    )  # 1 件目は使い方を添える
     chart.clicked_task("low", {"ctrl": True})
     assert user.find(marker="bulk-count").elements.pop().text == "2 件選択中"
     chart.clear_selection()
     assert not chart.bulk_edit_item.visible and not chart.bulk_delete_item.visible
 
 
-async def test_bulk_menu_parts_are_hidden_with_display_none_and_keep_no_stale_label(user: User) -> None:
+async def test_bulk_menu_parts_are_hidden_with_display_none_and_keep_no_stale_label(
+    user: User,
+) -> None:
     charts, _ = mount_chart(bulk_project())
     await user.open("/")
     chart = charts[0]
     chart.open_menu((), 0)  # 選択なし
     for part in (chart.bulk_edit_item, chart.bulk_delete_item, chart.bulk_separator):
         assert part._style.get("display") == "none"
-    assert "0 件" not in chart.bulk_delete_label.text  # 選択がないときは件数入りの文言にしない
+    assert (
+        "0 件" not in chart.bulk_delete_label.text
+    )  # 選択がないときは件数入りの文言にしない
     chart.clicked_task("top", {"ctrl": True})
     chart.open_menu((), 0)
     assert "display" not in chart.bulk_delete_item._style

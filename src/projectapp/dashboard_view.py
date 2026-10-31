@@ -22,8 +22,19 @@ from projectapp.dashboard import (
     TeamProgress,
 )
 from projectapp.dashboard_drag import DASHBOARD_DRAG_CSS, DASHBOARD_DRAG_JS
-from projectapp.dashboard_views import DEFAULT_ORDER, STANDARD_NAME, CardId, ViewState, parse_card_move
-from projectapp.gantt import STATUS_COLORS, STATUS_DARK_COLORS, WARNING_BACKGROUND, WEEKDAYS
+from projectapp.dashboard_views import (
+    DEFAULT_ORDER,
+    STANDARD_NAME,
+    CardId,
+    ViewState,
+    parse_card_move,
+)
+from projectapp.gantt import (
+    STATUS_COLORS,
+    STATUS_DARK_COLORS,
+    WARNING_BACKGROUND,
+    WEEKDAYS,
+)
 from projectapp.models import Status
 from projectapp.periodfield import add_range_picker, normalize_period
 from projectapp.scope import read_scope, scope_options, scope_value
@@ -33,7 +44,9 @@ TRACK_STYLE = (
     "height: 10px; width: 100%; border-radius: 5px; overflow: hidden;"
     " background: rgba(128, 128, 128, 0.25); position: relative"
 )
-TICK_STYLE = "position: absolute; top: 0; bottom: 0; width: 2px; background: currentColor"
+TICK_STYLE = (
+    "position: absolute; top: 0; bottom: 0; width: 2px; background: currentColor"
+)
 GRID_STYLE = "display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: 16px; width: 100%"
 LOAD_COLOR = "#1e88e5"  # 負荷・進捗
 OVER_COLOR = "#ef5350"  # 100% を超える日がある負荷(予定超過の赤と同じ系統)
@@ -56,16 +69,22 @@ CARD_TITLES = {
 }
 REFRESH_SECONDS = 300  # 表示中に集計し直す間隔(今日の残り時間が変わるため)
 ALL_MEMBERS = ""  # プルダウンの`全員`の値
-MAX_TIP_CHIPS = 10  # 凡例のツールチップに並べるチップの上限。超えた分は「+n件」にまとめる
+MAX_TIP_CHIPS = (
+    10  # 凡例のツールチップに並べるチップの上限。超えた分は「+n件」にまとめる
+)
 PIE_DIAMETER = "9rem"
 PIE_HOLE_PERCENT = 60  # 中央に進捗率を出すための穴(円の半径に対する割合)
-PIE_VARS = {status: f"--pie-{status.name.lower().replace('_', '-')}" for status in Status}
+PIE_VARS = {
+    status: f"--pie-{status.name.lower().replace('_', '-')}" for status in Status
+}
 # 状態色はガントチャートの棒と同じ。ダークテーマでは明るい色に替える
 PIE_CSS = (
     ":root { "
     + " ".join(f"{PIE_VARS[status]}: {STATUS_COLORS[status]};" for status in Status)
     + " }\nbody.body--dark { "
-    + " ".join(f"{PIE_VARS[status]}: {STATUS_DARK_COLORS[status]};" for status in Status)
+    + " ".join(
+        f"{PIE_VARS[status]}: {STATUS_DARK_COLORS[status]};" for status in Status
+    )
     + " }"
 )
 
@@ -107,7 +126,11 @@ def cell_title(name: str, load: DayLoad) -> str:
     head = f"{name} {load.day:%m/%d}({WEEKDAYS[load.day.weekday()]}) {load.total * 100:.0f}%"
     lines = [html.escape(head)]
     if load.by_project:
-        lines.append(html.escape(" / ".join(f"{p.project} {p.peak * 100:.0f}%" for p in load.by_project)))
+        lines.append(
+            html.escape(
+                " / ".join(f"{p.project} {p.peak * 100:.0f}%" for p in load.by_project)
+            )
+        )
     return "&#10;".join(lines)
 
 
@@ -153,24 +176,34 @@ def percent_width(fraction: float) -> str:
     return f"{min(max(fraction, 0.0), 1.0) * 100:.1f}%"
 
 
-def bar(fraction: float, color: str, tick: float | None = None, marker: str | None = None) -> None:
+def bar(
+    fraction: float, color: str, tick: float | None = None, marker: str | None = None
+) -> None:
     """横棒。`tick` があれば、その位置に縦の印を出す(最大値など)。`marker` は塗りの部分に付ける。"""
     with ui.element("div").style(TRACK_STYLE):
-        fill = ui.element("div").style(f"height: 100%; width: {percent_width(fraction)}; background: {color}")
+        fill = ui.element("div").style(
+            f"height: 100%; width: {percent_width(fraction)}; background: {color}"
+        )
         if marker is not None:
             fill.mark(marker)
         if tick is not None:
             ui.element("div").style(f"{TICK_STYLE}; left: {percent_width(tick)}")
 
 
-def stacked_bar(parts: list[tuple[float, str, str | None, str | None] | tuple[float, str, str | None, str | None, str]]) -> None:
+def stacked_bar(
+    parts: list[
+        tuple[float, str, str | None, str | None]
+        | tuple[float, str, str | None, str | None, str]
+    ],
+) -> None:
     """積み上げの横棒。(割合, 色, マーク, ホバーの文字[, 追加の CSS])を左から並べ、区切りに 2px の隙間を空ける。割合の合計が 1 を超えないこと。"""
     with ui.element("div").style(TRACK_STYLE + "; display: flex; gap: 2px"):
         for fraction, color, marker, tip, *extra in parts:
             if fraction <= 0:
                 continue
             fill = ui.element("div").style(
-                f"height: 100%; width: {percent_width(fraction)}; background: {color}" + (f"; {extra[0]}" if extra else "")
+                f"height: 100%; width: {percent_width(fraction)}; background: {color}"
+                + (f"; {extra[0]}" if extra else "")
             )
             if marker is not None:
                 fill.mark(marker)
@@ -194,9 +227,9 @@ def legend(prefix: str, entries: tuple[tuple[str, str, str], ...]) -> None:
     with ui.row().classes("items-center gap-4 text-caption"):
         for label, color, key in entries:
             with ui.row().classes("items-center no-wrap gap-1"):
-                ui.element("div").style(f"width: 10px; height: 10px; border-radius: 2px; background: {color}").mark(
-                    f"{prefix}-swatch-{key}"
-                )
+                ui.element("div").style(
+                    f"width: 10px; height: 10px; border-radius: 2px; background: {color}"
+                ).mark(f"{prefix}-swatch-{key}")
                 ui.label(label).mark(f"{prefix}-legend-{key}")
 
 
@@ -213,7 +246,9 @@ def pie_background(team: TeamProgress) -> str:
 
 def warning_icon(marker: str) -> ui.icon:
     """警告の印。警告の色(`--warning`)のアイコン。文字そのものは色づけしない(白地で読めないため)。"""
-    return ui.icon("warning_amber", size="xs").style("color: var(--warning)").mark(marker)
+    return (
+        ui.icon("warning_amber", size="xs").style("color: var(--warning)").mark(marker)
+    )
 
 
 def card(title: str, marker: str) -> ui.card:
@@ -230,30 +265,38 @@ def empty_message(marker: str) -> None:
 def references_note(data: Dashboard, key: str) -> None:
     """参照先のプロジェクトのタスクを数えているときの注記。`key`はカードごとのマークの末尾(team・progress)。"""
     if data.references:
-        ui.label(f"参照先 {data.references} 件を含む").classes("text-caption text-grey").mark(f"dashboard-{key}-references")
+        ui.label(f"参照先 {data.references} 件を含む").classes(
+            "text-caption text-grey"
+        ).mark(f"dashboard-{key}-references")
 
 
 def weighted_note(data: Dashboard, key: str) -> None:
     """チームを選んでいるときの注記。`key`はカードごとのマークの末尾(load・hours・backlog)。"""
     if data.team_name:
-        ui.label(f"チーム「{data.team_name}」の所属の割合で按分しています").classes("text-caption text-grey").mark(
-            f"dashboard-weighted-note-{key}"
-        )
+        ui.label(f"チーム「{data.team_name}」の所属の割合で按分しています").classes(
+            "text-caption text-grey"
+        ).mark(f"dashboard-weighted-note-{key}")
 
 
 def cross_note(data: Dashboard) -> None:
     """全プロジェクトを重ねているときの、残りの工数のカードの注記。"""
     if data.cross is not None:
         count = len(data.cross.projects) - len(data.cross.excluded)
-        ui.label(f"全 {count} プロジェクトを重ねています。稼働時間と祝日は開いているプロジェクトの設定で数えます").classes(
-            "text-caption text-grey"
-        ).mark("dashboard-backlog-cross-note")
+        ui.label(
+            f"全 {count} プロジェクトを重ねています。稼働時間と祝日は開いているプロジェクトの設定で数えます"
+        ).classes("text-caption text-grey").mark("dashboard-backlog-cross-note")
 
 
 def shortage_text(value: float) -> str:
     """不足する人数の表示。負は余裕。表示の桁で 0 になるときは「あと 0.0 人」と出さず「ちょうど」にする。"""
     short = round(value, 1)
-    return f"あと {short:.1f} 人" if short > 0 else f"余裕 {-short:.1f} 人" if short < 0 else "ちょうど"
+    return (
+        f"あと {short:.1f} 人"
+        if short > 0
+        else f"余裕 {-short:.1f} 人"
+        if short < 0
+        else "ちょうど"
+    )
 
 
 def days_text(days: float) -> str:
@@ -315,16 +358,27 @@ class DashboardView:
         self.custom_field: ui.input | None = None
         self.custom_box: ui.column | None = None
         self.custom_error: ui.label | None = None
-        self.on_back, self.on_change, self.on_member_change = on_back, on_change, on_member_change
-        self.on_cross_change, self.on_project_change = on_cross_change, on_project_change
+        self.on_back, self.on_change, self.on_member_change = (
+            on_back,
+            on_change,
+            on_member_change,
+        )
+        self.on_cross_change, self.on_project_change = (
+            on_cross_change,
+            on_project_change,
+        )
         self.cross_switch: ui.switch | None = None
         self.box: ui.column | None = None
         self.toggle: ui.toggle | None = None
         self.member_select: ui.select | None = None
         self.data: Dashboard | None = None
         self.icons: dict[str, str] = {}  # メンバー名 → アイコン(ある人だけ)
-        self.syncing = False  # 開き直しでトグルの値を書き換えるあいだは、変更を通知しない
-        self.state: ViewState | None = None  # ビューの選択・カードの並び。None のあいだは既定の順で全部出す
+        self.syncing = (
+            False  # 開き直しでトグルの値を書き換えるあいだは、変更を通知しない
+        )
+        self.state: ViewState | None = (
+            None  # ビューの選択・カードの並び。None のあいだは既定の順で全部出す
+        )
         self.card_order: tuple[CardId, ...] = DEFAULT_ORDER
 
     def build(self) -> None:
@@ -337,77 +391,111 @@ class DashboardView:
         with ui.column().classes("w-full gap-4") as box:
             self.box = box
             box.mark("dashboard-box")
-            with ui.row().classes("w-full items-center gap-4 justify-between") as self.top_bar:  # 1 段目: ビューの管理と画面操作
+            with ui.row().classes(
+                "w-full items-center gap-4 justify-between"
+            ) as self.top_bar:  # 1 段目: ビューの管理と画面操作
                 self.top_bar.mark("dashboard-bar-top")
                 with ui.row().classes("items-center gap-2"):
                     ui.label("ダッシュボード").classes("text-h5")
                     self.view_select = (
-                        ui.select({STANDARD_NAME: STANDARD_NAME}, value=STANDARD_NAME, on_change=self.on_view)
+                        ui.select(
+                            {STANDARD_NAME: STANDARD_NAME},
+                            value=STANDARD_NAME,
+                            on_change=self.on_view,
+                        )
                         .props("dense outlined options-dense")
                         .style("min-width: 8rem")
                         .mark("dashboard-view")
                     )
                     self.dirty_mark = (
-                        ui.label("●").classes("text-warning").tooltip("保存していない変更があります").mark("dashboard-view-dirty")
+                        ui.label("●")
+                        .classes("text-warning")
+                        .tooltip("保存していない変更があります")
+                        .mark("dashboard-view-dirty")
                     )
                     self.save_button = (
-                        ui.button("保存", on_click=lambda: self.act("save")).props("flat dense").mark("dashboard-view-save")
+                        ui.button("保存", on_click=lambda: self.act("save"))
+                        .props("flat dense")
+                        .mark("dashboard-view-save")
                     )
-                    with ui.button(icon="more_vert").props("flat dense round").mark("dashboard-view-menu"):
+                    with (
+                        ui.button(icon="more_vert")
+                        .props("flat dense round")
+                        .mark("dashboard-view-menu")
+                    ):
                         with ui.menu():
-                            self.save_as_item = ui.menu_item("名前をつけて保存", on_click=lambda: self.act("save_as")).mark(
-                                "dashboard-view-save-as"
-                            )
-                            self.revert_item = ui.menu_item("元に戻す", on_click=lambda: self.act("revert")).mark(
-                                "dashboard-view-revert"
-                            )
+                            self.save_as_item = ui.menu_item(
+                                "名前をつけて保存", on_click=lambda: self.act("save_as")
+                            ).mark("dashboard-view-save-as")
+                            self.revert_item = ui.menu_item(
+                                "元に戻す", on_click=lambda: self.act("revert")
+                            ).mark("dashboard-view-revert")
                             ui.separator()
-                            self.rename_item = ui.menu_item("名前の変更", on_click=lambda: self.act("rename")).mark(
-                                "dashboard-view-rename"
-                            )
-                            self.delete_item = ui.menu_item("削除", on_click=lambda: self.act("delete")).mark(
-                                "dashboard-view-delete"
-                            )
+                            self.rename_item = ui.menu_item(
+                                "名前の変更", on_click=lambda: self.act("rename")
+                            ).mark("dashboard-view-rename")
+                            self.delete_item = ui.menu_item(
+                                "削除", on_click=lambda: self.act("delete")
+                            ).mark("dashboard-view-delete")
                     for item in (self.dirty_mark, self.save_button):
                         item.set_visibility(False)
                 with ui.row().classes("items-center gap-2"):
                     self.edit_button = (
-                        ui.button("カードを編集", icon="edit", on_click=lambda: self.set_edit_mode(not self.edit_mode))
+                        ui.button(
+                            "カードを編集",
+                            icon="edit",
+                            on_click=lambda: self.set_edit_mode(not self.edit_mode),
+                        )
                         .props("flat dense")
                         .mark("dashboard-edit-toggle")
                     )
-                    ui.button("戻る", icon="arrow_back", on_click=lambda: self.on_back()).props("flat").mark(
-                        "dashboard-back"
-                    )
-            with ui.row().classes("w-full items-start gap-4") as self.filter_bar:  # 2 段目: 表示条件の絞り込み
+                    ui.button(
+                        "戻る", icon="arrow_back", on_click=lambda: self.on_back()
+                    ).props("flat").mark("dashboard-back")
+            with ui.row().classes(
+                "w-full items-start gap-4"
+            ) as self.filter_bar:  # 2 段目: 表示条件の絞り込み
                 self.filter_bar.mark("dashboard-bar-filters")
                 self.toggle = ui.toggle(
                     {kind.value: kind.value for kind in PeriodKind},
                     value=PeriodKind.WEEK.value,
                     on_change=self.on_toggle,
                 ).mark("dashboard-period")
-                with ui.column().classes("gap-0") as custom_box:  # `指定` のときだけ出す期間欄
+                with ui.column().classes(
+                    "gap-0"
+                ) as custom_box:  # `指定` のときだけ出す期間欄
                     self.custom_field = (
-                        ui.input(placeholder="2026-10-01 〜 2026-10-31", on_change=self.on_custom)
+                        ui.input(
+                            placeholder="2026-10-01 〜 2026-10-31",
+                            on_change=self.on_custom,
+                        )
                         .props("dense outlined")
                         .style("width: 17rem")
                         .mark("dashboard-period-field")
                     )
                     add_range_picker(self.custom_field, "dashboard-period")
                     self.custom_field.on("blur", lambda _e: self.normalize_custom())
-                    self.custom_error = ui.label("").classes("text-negative text-caption").mark("dashboard-period-error")
+                    self.custom_error = (
+                        ui.label("")
+                        .classes("text-negative text-caption")
+                        .mark("dashboard-period-error")
+                    )
                 self.custom_box = custom_box
                 custom_box.set_visibility(False)
                 self.custom_field.set_visibility(False)
                 self.member_select = (
-                    ui.select({ALL_MEMBERS: "全員"}, value=ALL_MEMBERS, on_change=self.on_member)
+                    ui.select(
+                        {ALL_MEMBERS: "全員"},
+                        value=ALL_MEMBERS,
+                        on_change=self.on_member,
+                    )
                     .props("dense outlined options-dense")
                     .style("min-width: 8rem")
                     .mark("dashboard-member")
                 )
-                self.cross_switch = ui.switch("全プロジェクト", value=False, on_change=self.on_cross).mark(
-                    "dashboard-cross"
-                )
+                self.cross_switch = ui.switch(
+                    "全プロジェクト", value=False, on_change=self.on_cross
+                ).mark("dashboard-cross")
             self.cards()
         box.set_visibility(False)
 
@@ -429,10 +517,14 @@ class DashboardView:
         element.props(f"data-dash-card={card_id.value}")
         with element:
             with ui.row().classes("w-full items-center justify-between no-wrap") as bar:
-                ui.icon("drag_indicator").props(f"data-dash-handle={card_id.value} draggable=true").classes("text-grey")
-                ui.button(icon="close", on_click=lambda c=card_id: self.act("hide_card", c)).props(
-                    "flat dense round size=sm"
-                ).mark(f"dashboard-hide-{card_id.value}")
+                ui.icon("drag_indicator").props(
+                    f"data-dash-handle={card_id.value} draggable=true"
+                ).classes("text-grey")
+                ui.button(
+                    icon="close", on_click=lambda c=card_id: self.act("hide_card", c)
+                ).props("flat dense round size=sm").mark(
+                    f"dashboard-hide-{card_id.value}"
+                )
         bar.move(element, target_index=0)
 
     def act(self, name: str, *args: object) -> None:
@@ -451,7 +543,9 @@ class DashboardView:
             return
         self.syncing = True
         try:
-            self.view_select.set_options({name: name for name in state.names}, value=state.current)
+            self.view_select.set_options(
+                {name: name for name in state.names}, value=state.current
+            )
         finally:
             self.syncing = False
         if self.dirty_mark is not None:
@@ -460,11 +554,15 @@ class DashboardView:
             self.save_button.set_visibility(state.dirty)
             self.save_button.set_enabled(state.save_block is None)
             if state.save_block is not None:
-                self.save_button.props(f'title="{state.save_block}"')  # 押せない理由(ネイティブのヒント)
+                self.save_button.props(
+                    f'title="{state.save_block}"'
+                )  # 押せない理由(ネイティブのヒント)
             else:
                 self.save_button.props(remove="title")
         if self.revert_item is not None:
-            self.revert_item.set_enabled(state.dirty)  # 元に戻すは、変更があるときだけ押せる(⋮ の中)
+            self.revert_item.set_enabled(
+                state.dirty
+            )  # 元に戻すは、変更があるときだけ押せる(⋮ の中)
         standard = state.current == STANDARD_NAME
         for item in (self.rename_item, self.delete_item):
             if item is not None:
@@ -525,7 +623,11 @@ class DashboardView:
         self.state = view_state
         self.card_order = view_state.cards if view_state is not None else DEFAULT_ORDER
         self.sync_toolbar()
-        if self.custom_box is not None and self.custom_field is not None and self.custom_error is not None:
+        if (
+            self.custom_box is not None
+            and self.custom_field is not None
+            and self.custom_error is not None
+        ):
             self.custom_box.set_visibility(kind is PeriodKind.CUSTOM)
             self.custom_field.set_visibility(kind is PeriodKind.CUSTOM)
             if custom_text is not None and self.custom_field.value != custom_text:
@@ -545,10 +647,14 @@ class DashboardView:
             options = scope_options("全員", data.members, data.teams)
             self.syncing = True
             try:
-                self.member_select.set_options(options, value=scope_value(data.member, data.team_name))
+                self.member_select.set_options(
+                    options, value=scope_value(data.member, data.team_name)
+                )
             finally:
                 self.syncing = False
-        if self.cross_switch is not None and self.cross_switch.value != (data.cross is not None):
+        if self.cross_switch is not None and self.cross_switch.value != (
+            data.cross is not None
+        ):
             self.syncing = True
             try:
                 self.cross_switch.value = data.cross is not None
@@ -560,7 +666,12 @@ class DashboardView:
 
     def tick(self) -> None:
         """表示中だけ、集計し直す。カードの編集中は、並べ替えの途中で描き直さない。"""
-        if self.on_tick is not None and self.box is not None and self.box.visible and not self.edit_mode:
+        if (
+            self.on_tick is not None
+            and self.box is not None
+            and self.box.visible
+            and not self.edit_mode
+        ):
             self.on_tick()
 
     def hide(self) -> None:
@@ -590,7 +701,9 @@ class DashboardView:
                 before = len(grid.default_slot.children)
                 builders[card_id](data)
                 created = grid.default_slot.children[before:]
-                if self.edit_mode and created:  # 何も描かないカード(空の横断など)は、取っ手を付けない
+                if (
+                    self.edit_mode and created
+                ):  # 何も描かないカード(空の横断など)は、取っ手を付けない
                     self.decorate(created[0], card_id)
             if self.edit_mode:
                 ui.element("div").props("data-dash-end=1").style(
@@ -601,19 +714,27 @@ class DashboardView:
                 ui.label("隠したカード").classes("text-caption text-grey")
                 for card_id in self.state.hidden:
                     ui.button(
-                        CARD_TITLES[card_id], icon="add", on_click=lambda c=card_id: self.act("show_card", c)
+                        CARD_TITLES[card_id],
+                        icon="add",
+                        on_click=lambda c=card_id: self.act("show_card", c),
                     ).props("flat dense").mark(f"dashboard-hidden-{card_id.value}")
 
     def team_card(self, data: Dashboard) -> None:
         team = data.team
         with card("チーム全体の進捗", "dashboard-team"):
             period = team.period
-            scope = "すべてのタスク" if period is None else f"{period.start:%m/%d}〜{period.end:%m/%d} にかかるタスク"
+            scope = (
+                "すべてのタスク"
+                if period is None
+                else f"{period.start:%m/%d}〜{period.end:%m/%d} にかかるタスク"
+            )
             if data.member:
                 scope = f"{data.member}・{scope}"
             elif data.team_name:
                 scope = f"チーム「{data.team_name}」・{scope}"
-            ui.label(scope).classes("text-caption text-grey").mark("dashboard-team-scope")
+            ui.label(scope).classes("text-caption text-grey").mark(
+                "dashboard-team-scope"
+            )
             references_note(data, "team")
             if team.percent is None:
                 empty_message("dashboard-empty-team")
@@ -627,16 +748,18 @@ class DashboardView:
                         f"width: 100%; height: 100%; border-radius: 50%; background: {pie_background(team)};"
                         f" -webkit-mask: {hole}; mask: {hole}"
                     ).mark("dashboard-team-pie")
-                    ui.label(f"{team.percent:.0f}%").classes("text-h6 absolute-center").mark("dashboard-team-percent")
+                    ui.label(f"{team.percent:.0f}%").classes(
+                        "text-h6 absolute-center"
+                    ).mark("dashboard-team-percent")
                 with ui.column().classes("gap-1"):
                     for status, hours, fraction in team.slices():
                         with ui.row().classes("items-center no-wrap gap-2"):
                             ui.element("span").style(
                                 f"width: 10px; height: 10px; border-radius: 2px; background: var({PIE_VARS[status]})"
                             )
-                            ui.label(f"{status.value} {team.counts[status]}件 {hours:.1f}h ({fraction * 100:.0f}%)").mark(
-                                f"dashboard-team-legend-{status.name}"
-                            )
+                            ui.label(
+                                f"{status.value} {team.counts[status]}件 {hours:.1f}h ({fraction * 100:.0f}%)"
+                            ).mark(f"dashboard-team-legend-{status.name}")
                             self.status_tip(team, status)
 
     def status_tip(self, team: TeamProgress, status: Status) -> None:
@@ -645,11 +768,15 @@ class DashboardView:
         with ui.tooltip().classes("bg-grey-9 text-white").style("max-width: 28rem"):
             with ui.row().classes("gap-1"):
                 for name in names[:MAX_TIP_CHIPS]:
-                    ui.chip(name, color=None).props("dense square outline").classes("ellipsis").style(
+                    ui.chip(name, color=None).props("dense square outline").classes(
+                        "ellipsis"
+                    ).style(
                         f"color: var({PIE_VARS[status]})"  # 枠と文字が currentColor になり、凡例の色と揃う
                     ).mark(f"dashboard-team-chip-{status.name}")
                 if len(names) > MAX_TIP_CHIPS:
-                    ui.label(f"+{len(names) - MAX_TIP_CHIPS}件").mark(f"dashboard-team-more-{status.name}")
+                    ui.label(f"+{len(names) - MAX_TIP_CHIPS}件").mark(
+                        f"dashboard-team-more-{status.name}"
+                    )
 
     def progress_card(self, data: Dashboard) -> None:
         progress = data.progress
@@ -658,15 +785,21 @@ class DashboardView:
             if progress.percent is None:
                 empty_message("dashboard-empty-progress")
                 return
-            ui.label(f"{progress.percent:.0f}%").classes("text-h4").mark("dashboard-progress-percent")
+            ui.label(f"{progress.percent:.0f}%").classes("text-h4").mark(
+                "dashboard-progress-percent"
+            )
             bar(progress.percent / 100, LOAD_COLOR)
             with ui.row().classes("gap-4"):
                 for status in Status:
-                    ui.label(f"{status.value} {progress.counts[status]}").mark(f"dashboard-count-{status.name}")
+                    ui.label(f"{status.value} {progress.counts[status]}").mark(
+                        f"dashboard-count-{status.name}"
+                    )
                 with ui.row().classes("items-center no-wrap gap-1"):
                     if progress.warnings:
                         warning_icon("dashboard-count-warning-icon")
-                    ui.label(f"警告 {progress.warnings}").mark("dashboard-count-warning")
+                    ui.label(f"警告 {progress.warnings}").mark(
+                        "dashboard-count-warning"
+                    )
             if progress.by_member:
                 ui.label("メンバー別").classes("text-subtitle2")
                 for row in progress.by_member:
@@ -681,8 +814,12 @@ class DashboardView:
             for index, row in enumerate(progress.overdue):
                 with ui.row().classes("w-full items-center no-wrap gap-2"):
                     ui.label(moment_text(row.limit)).classes("text-negative")
-                    ui.label(row.name).classes("col ellipsis").mark(f"dashboard-overdue-name-{index}")
-                    self.assignee_chips(row.assignee_names, f"dashboard-overdue-assignee-{index}")
+                    ui.label(row.name).classes("col ellipsis").mark(
+                        f"dashboard-overdue-name-{index}"
+                    )
+                    self.assignee_chips(
+                        row.assignee_names, f"dashboard-overdue-assignee-{index}"
+                    )
 
     def member_icon(self, name: str, marker: str | None = None) -> None:
         """メンバーのアイコン(なければ頭文字の丸)。メンバーでない行(`未割り当て`)には出さない。"""
@@ -700,24 +837,30 @@ class DashboardView:
                     self.member_icon(name)
                     ui.label(name).classes("text-caption")
 
-    def member_progress_row(self, row: MemberProgress, marker: str = "dashboard-member") -> None:
+    def member_progress_row(
+        self, row: MemberProgress, marker: str = "dashboard-member"
+    ) -> None:
         with ui.column().classes("w-full gap-1"):
             with ui.row().classes("items-center no-wrap gap-2"):
                 if marker == "dashboard-member":  # チーム別の行はメンバーではない
                     self.member_icon(row.name, f"{marker}-icon-{row.name}")
                 ui.label(row.name)
                 if row.over_limit:
-                    warning_icon(f"{marker}-limit-{row.name}").tooltip(f"警告が閾値({row.limit} 件)に達しています")
+                    warning_icon(f"{marker}-limit-{row.name}").tooltip(
+                        f"警告が閾値({row.limit} 件)に達しています"
+                    )
             if row.warnings:
                 ui.label(f"警告 {row.warnings} 件").classes(
                     "text-caption" + (" text-weight-bold" if row.over_limit else "")
                 ).mark(f"{marker}-warning-{row.name}")
             if row.percent is None:
-                ui.label("タスクなし").classes("text-caption text-grey").mark(f"{marker}-progress-{row.name}")
+                ui.label("タスクなし").classes("text-caption text-grey").mark(
+                    f"{marker}-progress-{row.name}"
+                )
                 return
-            ui.label(f"{row.percent:.0f}% / {sum(row.counts.values())}件").classes("text-caption").mark(
-                f"{marker}-progress-{row.name}"
-            )
+            ui.label(f"{row.percent:.0f}% / {sum(row.counts.values())}件").classes(
+                "text-caption"
+            ).mark(f"{marker}-progress-{row.name}")
             bar(row.percent / 100, LOAD_COLOR)
 
     def load_row(self, name: str, stats: LoadStats, scale: float) -> None:
@@ -728,8 +871,14 @@ class DashboardView:
                 ui.label(name)
             ui.label(
                 f"平均 {stats.average * 100:.0f}% / 最大 {stats.peak * 100:.0f}% / 割り当て超過 {stats.overload_days} 日"
-            ).classes("text-caption" + (" text-negative" if over else "")).mark(f"dashboard-load-{name}")
-            bar(stats.average / scale, OVER_COLOR if over else LOAD_COLOR, tick=stats.peak / scale)
+            ).classes("text-caption" + (" text-negative" if over else "")).mark(
+                f"dashboard-load-{name}"
+            )
+            bar(
+                stats.average / scale,
+                OVER_COLOR if over else LOAD_COLOR,
+                tick=stats.peak / scale,
+            )
 
     def load_card(self, data: Dashboard) -> None:
         with card("人ごとの負荷", "dashboard-load"):
@@ -753,11 +902,15 @@ class DashboardView:
         box.style("grid-column: 1 / -1; min-width: 0")
         with box:
             if not any(entry.days for entry in cross.loads.values()):
-                ui.label("稼働日がありません").classes("text-grey").mark("dashboard-heatmap-empty")
+                ui.label("稼働日がありません").classes("text-grey").mark(
+                    "dashboard-heatmap-empty"
+                )
                 return
             columns = max(len(entry.days) for entry in cross.loads.values())
             if columns > HEATMAP_HINT_DAYS:
-                ui.label("横にスクロールできます").classes("text-caption text-grey").mark("dashboard-heatmap-hint")
+                ui.label("横にスクロールできます").classes(
+                    "text-caption text-grey"
+                ).mark("dashboard-heatmap-hint")
             ui.html(legend_html(), sanitize=False)
             ui.html(heatmap_html(cross, self.icons), sanitize=False).style(
                 "min-width: 0; max-width: 100%; overflow-x: auto"
@@ -772,12 +925,16 @@ class DashboardView:
                 ui.checkbox(
                     name,
                     value=name not in cross.excluded,
-                    on_change=lambda event, name=name: self.on_project(name, bool(event.value)),
+                    on_change=lambda event, name=name: self.on_project(
+                        name, bool(event.value)
+                    ),
                 ).mark(f"dashboard-cross-project-{name}")
         for index, failure in enumerate(cross.failures):
-            ui.label(f"読み込めなかったファイル: {failure.name}({failure.reason})").classes(
-                "text-caption text-negative"
-            ).mark(f"dashboard-cross-failure-{index}")
+            ui.label(
+                f"読み込めなかったファイル: {failure.name}({failure.reason})"
+            ).classes("text-caption text-negative").mark(
+                f"dashboard-cross-failure-{index}"
+            )
         if not cross.loads:
             empty_message("dashboard-empty-load")
             return
@@ -786,9 +943,9 @@ class DashboardView:
             self.load_row(name, entry.total, scale)
             with ui.expansion("プロジェクト別").classes("w-full text-caption"):
                 for index, row in enumerate(entry.by_project):
-                    ui.label(f"{row.project}: 平均 {row.average * 100:.0f}% / 最大 {row.peak * 100:.0f}%").mark(
-                        f"dashboard-cross-detail-{name}-{index}"
-                    )
+                    ui.label(
+                        f"{row.project}: 平均 {row.average * 100:.0f}% / 最大 {row.peak * 100:.0f}%"
+                    ).mark(f"dashboard-cross-detail-{name}-{index}")
 
     def hours_card(self, data: Dashboard) -> None:
         with card("工数の予定と実績", "dashboard-hours"):
@@ -796,21 +953,30 @@ class DashboardView:
             if not data.workload:
                 empty_message("dashboard-empty-hours")
                 return
-            legend("dashboard-hours", (("予定", PLANNED_COLOR, "planned"), ("実績", ACTUAL_COLOR, "actual")))
-            scale = max((max(row.planned_hours, row.actual_hours) for row in data.workload), default=0.0) or 1.0
+            legend(
+                "dashboard-hours",
+                (("予定", PLANNED_COLOR, "planned"), ("実績", ACTUAL_COLOR, "actual")),
+            )
+            scale = (
+                max(
+                    (max(row.planned_hours, row.actual_hours) for row in data.workload),
+                    default=0.0,
+                )
+                or 1.0
+            )
             for row in data.workload:
                 with ui.column().classes("w-full gap-1"):
                     with ui.row().classes("items-center no-wrap gap-2"):
                         self.member_icon(row.name, f"dashboard-hours-icon-{row.name}")
                         ui.label(row.name)
-                    ui.label(f"予定 {row.planned_hours:.1f}h / 実績 {row.actual_hours:.1f}h").classes(
-                        "text-caption"
-                    ).mark(f"dashboard-hours-{row.name}")
+                    ui.label(
+                        f"予定 {row.planned_hours:.1f}h / 実績 {row.actual_hours:.1f}h"
+                    ).classes("text-caption").mark(f"dashboard-hours-{row.name}")
                     bar(row.planned_hours / scale, PLANNED_COLOR)
                     bar(row.actual_hours / scale, ACTUAL_COLOR)
-            ui.label(f"合計 予定 {data.planned_total:.1f}h / 実績 {data.actual_total:.1f}h").classes(
-                "text-subtitle2"
-            ).mark("dashboard-hours-total")
+            ui.label(
+                f"合計 予定 {data.planned_total:.1f}h / 実績 {data.actual_total:.1f}h"
+            ).classes("text-subtitle2").mark("dashboard-hours-total")
 
     def backlog_card(self, data: Dashboard) -> None:
         backlog = data.backlog
@@ -823,29 +989,49 @@ class DashboardView:
             known = backlog.required is not None and backlog.shortfall is not None
             if backlog.shortfall is not None:  # 答え(あと何人)を先頭に出す
                 ui.label(shortage_text(backlog.shortfall)).classes(
-                    "text-h6" + (" text-negative" if round(backlog.shortfall, 1) > 0 else "")
+                    "text-h6"
+                    + (" text-negative" if round(backlog.shortfall, 1) > 0 else "")
                 ).mark("dashboard-backlog-gap")
-            ui.label(f"残りの工数 {backlog.hours:.1f}h({late_summary(backlog)})").classes("text-subtitle2" if known else "text-h6").mark(
+            ui.label(
+                f"残りの工数 {backlog.hours:.1f}h({late_summary(backlog)})"
+            ).classes("text-subtitle2" if known else "text-h6").mark(
                 "dashboard-backlog-hours"
             )
             self.hours_graph(backlog)
             self.late_line(backlog)
             if backlog.unset_count:
-                ui.label(f"工数未設定 {backlog.unset_count} 件(合計に入れていません)").classes(
-                    "text-caption text-grey"
-                ).mark("dashboard-backlog-unset")
+                ui.label(
+                    f"工数未設定 {backlog.unset_count} 件(合計に入れていません)"
+                ).classes("text-caption text-grey").mark("dashboard-backlog-unset")
             if backlog.required is None or backlog.shortfall is None:
-                reason = "期間がすでに終わっている" if backlog.days == 0 else "期間が決まらない"
-                ui.label(f"{reason}ため、必要な人数は出せません").classes("text-grey").mark("dashboard-backlog-nodays")
+                reason = (
+                    "期間がすでに終わっている"
+                    if backlog.days == 0
+                    else "期間が決まらない"
+                )
+                ui.label(f"{reason}ため、必要な人数は出せません").classes(
+                    "text-grey"
+                ).mark("dashboard-backlog-nodays")
             else:
-                ui.label(f"稼働 {days_text(backlog.days)} 日で終える場合").classes("text-caption").mark("dashboard-backlog-days")
+                ui.label(f"稼働 {days_text(backlog.days)} 日で終える場合").classes(
+                    "text-caption"
+                ).mark("dashboard-backlog-days")
                 scale = max(backlog.required, backlog.supply) or 1.0
                 overdue = min(backlog.overdue_required or 0.0, backlog.required)
-                warned = min(backlog.warning_required or 0.0, backlog.required - overdue)
-                ui.label(f"必要 {backlog.required:.1f} 人").mark("dashboard-backlog-need")
+                warned = min(
+                    backlog.warning_required or 0.0, backlog.required - overdue
+                )
+                ui.label(f"必要 {backlog.required:.1f} 人").mark(
+                    "dashboard-backlog-need"
+                )
                 stacked_bar(
                     [
-                        ((backlog.required - overdue - warned) / scale, NEED_COLOR, "dashboard-backlog-bar-need", None),
+                        (
+                            (backlog.required - overdue - warned) / scale,
+                            NEED_COLOR,
+                            "dashboard-backlog-bar-need",
+                            None,
+                        ),
                         (
                             warned / scale,
                             WARNING_FILL,
@@ -853,36 +1039,63 @@ class DashboardView:
                             f"警告 {backlog.warning_hours:.1f}h({warned:.1f} 人)",
                             WARNING_OUTLINE,
                         ),
-                        (overdue / scale, LATE_COLOR, "dashboard-backlog-bar-late", f"遅れ {backlog.overdue_hours:.1f}h({overdue:.1f} 人)"),
+                        (
+                            overdue / scale,
+                            LATE_COLOR,
+                            "dashboard-backlog-bar-late",
+                            f"遅れ {backlog.overdue_hours:.1f}h({overdue:.1f} 人)",
+                        ),
                     ]
                 )
                 entries = (
-                    (("うち警告", WARNING_FILL, "warning"),) if backlog.warning_count and warned > 0 else ()
-                ) + ((("うち遅れ", LATE_COLOR, "late"),) if backlog.overdue_count and overdue > 0 else ())
+                    (("うち警告", WARNING_FILL, "warning"),)
+                    if backlog.warning_count and warned > 0
+                    else ()
+                ) + (
+                    (("うち遅れ", LATE_COLOR, "late"),)
+                    if backlog.overdue_count and overdue > 0
+                    else ()
+                )
                 if entries:  # 凡例は、積み上げの棒のすぐ下に置く
                     legend("dashboard-backlog", entries)
-                ui.label(f"稼働できる人員 {backlog.supply:.1f} 人").mark("dashboard-backlog-have")
-                bar(backlog.supply / scale, HAVE_COLOR, marker="dashboard-backlog-bar-have")
-                ui.label("人は、100% の人に換算した数です。今日は、今から稼働の枠の終わりまでの残り時間で数えます。").classes(
-                    "text-caption text-grey"
-                ).mark("dashboard-backlog-unit")
+                ui.label(f"稼働できる人員 {backlog.supply:.1f} 人").mark(
+                    "dashboard-backlog-have"
+                )
+                bar(
+                    backlog.supply / scale,
+                    HAVE_COLOR,
+                    marker="dashboard-backlog-bar-have",
+                )
+                ui.label(
+                    "人は、100% の人に換算した数です。今日は、今から稼働の枠の終わりまでの残り時間で数えます。"
+                ).classes("text-caption text-grey").mark("dashboard-backlog-unit")
                 if backlog.nominal_supply is not None:
                     ui.label(
                         f"相対比率の合計 {backlog.nominal_supply:.1f} 人 → 稼働を反映して {backlog.supply:.1f} 人"
-                    ).classes("text-caption text-grey").mark("dashboard-backlog-supply-note")
+                    ).classes("text-caption text-grey").mark(
+                        "dashboard-backlog-supply-note"
+                    )
             if backlog.by_member:
                 ui.label("担当別").classes("text-subtitle2")
                 top = max(hours for _, hours in backlog.by_member)
                 for name, hours in backlog.by_member:
                     with ui.row().classes("items-center no-wrap gap-2"):
                         self.member_icon(name, f"dashboard-backlog-member-icon-{name}")
-                        ui.label(f"{name} {hours:.1f}h").classes("text-caption").mark(f"dashboard-backlog-member-{name}")
-                    bar(hours / top, NEED_COLOR, marker=f"dashboard-backlog-member-bar-{name}")
+                        ui.label(f"{name} {hours:.1f}h").classes("text-caption").mark(
+                            f"dashboard-backlog-member-{name}"
+                        )
+                    bar(
+                        hours / top,
+                        NEED_COLOR,
+                        marker=f"dashboard-backlog-member-bar-{name}",
+                    )
             if backlog.by_team:
                 ui.label("チーム別").classes("text-subtitle2")
                 top = max(hours for _, hours in backlog.by_team)
                 for name, hours in backlog.by_team:
-                    ui.label(f"{name} {hours:.1f}h").classes("text-caption").mark(f"dashboard-backlog-team-{name}")
+                    ui.label(f"{name} {hours:.1f}h").classes("text-caption").mark(
+                        f"dashboard-backlog-team-{name}"
+                    )
                     bar(hours / top, NEED_COLOR)
 
     def hours_graph(self, backlog: Backlog) -> None:
@@ -892,13 +1105,21 @@ class DashboardView:
             return
         stacked_bar(
             [
-                (hours / total, f"var({PIE_VARS[status]})", f"dashboard-backlog-hours-bar-{status.name.lower()}", f"{status.value} {hours:.1f}h")
+                (
+                    hours / total,
+                    f"var({PIE_VARS[status]})",
+                    f"dashboard-backlog-hours-bar-{status.name.lower()}",
+                    f"{status.value} {hours:.1f}h",
+                )
                 for status, hours in backlog.by_status.items()
             ]
         )
         legend(
             "dashboard-backlog-hours",
-            tuple((status.value, f"var({PIE_VARS[status]})", status.name.lower()) for status in backlog.by_status),
+            tuple(
+                (status.value, f"var({PIE_VARS[status]})", status.name.lower())
+                for status in backlog.by_status
+            ),
         )
 
     def late_line(self, backlog: Backlog) -> None:
@@ -907,13 +1128,23 @@ class DashboardView:
         required, without = backlog.late_required, backlog.shortfall_without_overdue
         if backlog.late_count and required is not None and without is not None:
             name = "遅れ・警告" if backlog.late_basis is LateBasis.WARNING else "遅れ"
-            ui.label(f"{name}がなければ {shortage_text(without)}").classes("text-caption").mark("dashboard-backlog-late")
+            ui.label(f"{name}がなければ {shortage_text(without)}").classes(
+                "text-caption"
+            ).mark("dashboard-backlog-late")
         with ui.button_group().props("flat dense").mark("dashboard-backlog-late-basis"):
-            for basis, marker in ((LateBasis.DELAY, "delay"), (LateBasis.WARNING, "warning")):
-                props = "dense no-caps color=primary size=sm" + ("" if backlog.late_basis is basis else " outline")
-                ui.button(basis.value, on_click=lambda b=basis, now=backlog.late_basis: self.pick_late_basis(b, now)).props(
-                    props
-                ).mark(f"dashboard-backlog-late-{marker}")
+            for basis, marker in (
+                (LateBasis.DELAY, "delay"),
+                (LateBasis.WARNING, "warning"),
+            ):
+                props = "dense no-caps color=primary size=sm" + (
+                    "" if backlog.late_basis is basis else " outline"
+                )
+                ui.button(
+                    basis.value,
+                    on_click=lambda b=basis, now=backlog.late_basis: (
+                        self.pick_late_basis(b, now)
+                    ),
+                ).props(props).mark(f"dashboard-backlog-late-{marker}")
 
     def pick_late_basis(self, basis: LateBasis, current: LateBasis) -> None:
         """遅れの判定の基準を選ぶ。今の基準と同じなら何もしない。"""
@@ -932,9 +1163,17 @@ class DashboardView:
                     line.style(f"background: {WARNING_BACKGROUND}")
                 with line:
                     ui.label(moment_text(row.moment)).classes(color.strip())
-                    ui.label(row.kind).classes("text-caption" + color).mark(f"dashboard-due-kind-{index}")
-                    ui.label(row.name).classes("col ellipsis" + color).mark(f"dashboard-due-{index}")
+                    ui.label(row.kind).classes("text-caption" + color).mark(
+                        f"dashboard-due-kind-{index}"
+                    )
+                    ui.label(row.name).classes("col ellipsis" + color).mark(
+                        f"dashboard-due-{index}"
+                    )
                     if row.warning:
                         warning_icon(f"dashboard-due-warning-icon-{index}")
-                        ui.label("警告").classes("text-caption").mark(f"dashboard-due-warning-{index}")
-                    self.assignee_chips(row.assignee_names, f"dashboard-due-assignee-{index}")
+                        ui.label("警告").classes("text-caption").mark(
+                            f"dashboard-due-warning-{index}"
+                        )
+                    self.assignee_chips(
+                        row.assignee_names, f"dashboard-due-assignee-{index}"
+                    )

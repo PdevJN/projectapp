@@ -3,7 +3,18 @@ from dataclasses import replace
 from datetime import date, datetime
 
 from projectapp import arrange
-from projectapp.models import Actual, Assignee, Priority, Project, ReferenceValue, Section, Status, Task, TaskKind, TaskUrl
+from projectapp.models import (
+    Actual,
+    Assignee,
+    Priority,
+    Project,
+    ReferenceValue,
+    Section,
+    Status,
+    Task,
+    TaskKind,
+    TaskUrl,
+)
 
 
 def names(tasks: list[Task]) -> list[str]:
@@ -170,7 +181,20 @@ def test_parse_position() -> None:
     assert arrange.parse_position(["top", 0]) == ((), 0)
     assert arrange.parse_position(["2", 5]) == ((2,), 5)
     assert arrange.parse_position(("1", 0)) == ((1,), 0)
-    for bad in (None, 3, "ab", ["1"], ["1", 2, 3], ["x", 1], ["1", True], ["0", 1.5], ["0", "1"], ["0", True], [None, 0], [2, 5]):
+    for bad in (
+        None,
+        3,
+        "ab",
+        ["1"],
+        ["1", 2, 3],
+        ["x", 1],
+        ["1", True],
+        ["0", 1.5],
+        ["0", "1"],
+        ["0", True],
+        [None, 0],
+        [2, 5],
+    ):
         assert arrange.parse_position(bad) is None
 
 
@@ -200,13 +224,24 @@ def test_parse_shift_accepts_integers_within_the_limit_only() -> None:
 
 def test_min_shift_days_stops_at_the_base_date() -> None:
     base = date(2026, 10, 5)
-    assert arrange.min_shift_days(Task("x", planned_start=datetime(2026, 10, 7, 15)), base) == -2
-    assert arrange.min_shift_days(Task("x", planned_start=datetime(2026, 10, 5, 9)), base) == 0
+    assert (
+        arrange.min_shift_days(Task("x", planned_start=datetime(2026, 10, 7, 15)), base)
+        == -2
+    )
+    assert (
+        arrange.min_shift_days(Task("x", planned_start=datetime(2026, 10, 5, 9)), base)
+        == 0
+    )
 
 
-def test_min_shift_days_lets_a_task_already_before_the_base_date_move_only_right() -> None:
+def test_min_shift_days_lets_a_task_already_before_the_base_date_move_only_right() -> (
+    None
+):
     base = date(2026, 10, 5)
-    assert arrange.min_shift_days(Task("x", planned_start=datetime(2026, 10, 3, 9)), base) == 0
+    assert (
+        arrange.min_shift_days(Task("x", planned_start=datetime(2026, 10, 3, 9)), base)
+        == 0
+    )
 
 
 def test_min_shift_days_without_a_start_is_zero() -> None:
@@ -235,7 +270,9 @@ def test_move_keeps_actuals() -> None:
     moved = project.sections[0].tasks[1]
     moved.actuals = [Actual(datetime(2026, 10, 5, 9), None)]
     arrange.move_task(project, ((0,), 1), ((1,), 0))
-    assert project.sections[1].tasks[0].actuals == [Actual(datetime(2026, 10, 5, 9), None)]
+    assert project.sections[1].tasks[0].actuals == [
+        Actual(datetime(2026, 10, 5, 9), None)
+    ]
 
 
 def test_copy_task_gets_a_new_id_and_no_predecessors() -> None:
@@ -260,7 +297,11 @@ def test_shift_task_of_a_pushed_task_starts_from_the_shown_start() -> None:
 
 
 def test_shift_task_without_a_push_is_unchanged() -> None:
-    task = Task("b", planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 6, 9))
+    task = Task(
+        "b",
+        planned_start=datetime(2026, 10, 5, 9),
+        planned_end=datetime(2026, 10, 6, 9),
+    )
     assert arrange.shift_task(task, 1)
     assert (task.planned_start, task.planned_end) == (
         datetime(2026, 10, 6, 9),
@@ -276,7 +317,9 @@ def test_min_shift_days_stops_at_the_base_date_and_the_predecessors_finish() -> 
     assert arrange.min_shift_days(task, base, None, floor) == -4  # 12 → 8
     pushed_shown = datetime(2026, 10, 8, 15, 30)
     assert arrange.min_shift_days(task, base, pushed_shown, floor) == 0
-    assert arrange.min_shift_days(task, date(2026, 10, 10), None, floor) == -2  # 基準日が遅いとき
+    assert (
+        arrange.min_shift_days(task, date(2026, 10, 10), None, floor) == -2
+    )  # 基準日が遅いとき
 
 
 def test_copy_task_keeps_the_links_as_independent_copies() -> None:
@@ -300,12 +343,26 @@ def test_copy_does_not_share_the_assignees() -> None:
 def tree() -> Project:
     deep = Section("孫", [Task("g")])
     child = Section("子", [Task("c1"), Task("c2")], [deep])
-    return Project("p", tasks=[Task("r0"), Task("r1")], sections=[Section("親", [Task("p0")], [child]), Section("別", [Task("o0")])])
+    return Project(
+        "p",
+        tasks=[Task("r0"), Task("r1")],
+        sections=[Section("親", [Task("p0")], [child]), Section("別", [Task("o0")])],
+    )
 
 
 @pytest.mark.parametrize(
     ("path", "found"),
-    [((), None), ((0,), "親"), ((0, 0), "子"), ((0, 0, 0), "孫"), ((1,), "別"), ((2,), None), ((0, 1), None), ((-1,), None), ((0, 0, 0, 0), None)],
+    [
+        ((), None),
+        ((0,), "親"),
+        ((0, 0), "子"),
+        ((0, 0, 0), "孫"),
+        ((1,), "別"),
+        ((2,), None),
+        ((0, 1), None),
+        ((-1,), None),
+        ((0, 0, 0, 0), None),
+    ],
 )
 def test_section_at(path: tuple[int, ...], found: str | None) -> None:
     section = arrange.section_at(tree(), path)
@@ -316,14 +373,25 @@ def test_tasks_at_returns_the_list_of_the_section() -> None:
     project = tree()
     assert [t.name for t in arrange.tasks_at(project, ())] == ["r0", "r1"]
     assert [t.name for t in arrange.tasks_at(project, (0, 0))] == ["c1", "c2"]
-    assert arrange.tasks_at(project, (0, 0, 0)) is project.sections[0].sections[0].sections[0].tasks
+    assert (
+        arrange.tasks_at(project, (0, 0, 0))
+        is project.sections[0].sections[0].sections[0].tasks
+    )
     with pytest.raises(IndexError):
         arrange.tasks_at(project, (5,))
 
 
 @pytest.mark.parametrize(
     ("path", "valid"),
-    [((), True), ((0,), True), ((0, 0, 0), True), ((0, 0, 1), False), ((3,), False), ((0, 0, 0, 0), False), ((-1,), False)],
+    [
+        ((), True),
+        ((0,), True),
+        ((0, 0, 0), True),
+        ((0, 0, 1), False),
+        ((3,), False),
+        ((0, 0, 0, 0), False),
+        ((-1,), False),
+    ],
 )
 def test_valid_section(path: tuple[int, ...], valid: bool) -> None:
     assert arrange.valid_section(tree(), path) is valid
@@ -340,7 +408,25 @@ def test_section_key_and_parse_are_inverse(path: tuple[int, ...], key: str) -> N
 
 @pytest.mark.parametrize(
     "bad",
-    ["", " ", "0.", ".0", "-1", "01", "0.01", "0.0.0.0", "top.1", "x", "0,1", " 0", "0 ", "１", "0..1", "1e3", "+1"],
+    [
+        "",
+        " ",
+        "0.",
+        ".0",
+        "-1",
+        "01",
+        "0.01",
+        "0.0.0.0",
+        "top.1",
+        "x",
+        "0,1",
+        " 0",
+        "0 ",
+        "１",
+        "0..1",
+        "1e3",
+        "+1",
+    ],
 )
 def test_parse_section_key_rejects_malformed_keys(bad: str) -> None:
     assert arrange.parse_section_key(bad) is None
@@ -365,21 +451,30 @@ def test_moving_inside_one_nested_list_adjusts_the_position() -> None:
     project = tree()
     assert arrange.move_task(project, ((0, 0), 0), ((0, 0), 2)) is True
     assert [t.name for t in project.sections[0].sections[0].tasks] == ["c2", "c1"]
-    assert arrange.move_task(project, ((0, 0), 0), ((0, 0), 1)) is False  # 位置が変わらない
+    assert (
+        arrange.move_task(project, ((0, 0), 0), ((0, 0), 1)) is False
+    )  # 位置が変わらない
 
 
 def test_copy_task_into_a_deep_section() -> None:
     project = tree()
     copy = arrange.copy_task(project, ((0, 0), 0), ((0, 0, 0), 0))
     assert copy.name == "c1(コピー)"
-    assert [t.name for t in project.sections[0].sections[0].sections[0].tasks] == ["c1(コピー)", "g"]
+    assert [t.name for t in project.sections[0].sections[0].sections[0].tasks] == [
+        "c1(コピー)",
+        "g",
+    ]
     assert [t.name for t in project.sections[0].sections[0].tasks] == ["c1", "c2"]
 
 
 def test_has_task_and_has_list_follow_the_path() -> None:
     project = tree()
-    assert arrange.has_task(project, ((0, 0), 1)) and not arrange.has_task(project, ((0, 0), 2))
-    assert arrange.has_list(project, ((0, 0, 0), 5)) and not arrange.has_list(project, ((0, 0, 1), 0))
+    assert arrange.has_task(project, ((0, 0), 1)) and not arrange.has_task(
+        project, ((0, 0), 2)
+    )
+    assert arrange.has_list(project, ((0, 0, 0), 5)) and not arrange.has_list(
+        project, ((0, 0, 1), 0)
+    )
 
 
 def test_parse_position_accepts_keys_only() -> None:
@@ -390,7 +485,9 @@ def test_parse_position_accepts_keys_only() -> None:
         assert arrange.parse_position(bad) is None
 
 
-def test_copy_gets_an_id_that_is_not_used_in_the_project(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_copy_gets_an_id_that_is_not_used_in_the_project(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import projectapp.models as models
 
     project = sample()
@@ -438,8 +535,14 @@ def test_insert_named_task_after_a_summary_goes_behind_its_children() -> None:
 
 def summary_project() -> tuple[Project, Task, list[Task]]:
     kids = [Task("c0", id="c0"), Task("c1", id="c1")]
-    parent = Task("まとめ", id="s", kind=TaskKind.SUMMARY, children=[k.id for k in kids])
-    return Project("p", sections=[Section("A", [parent, *kids, Task("z", id="z")])]), parent, kids
+    parent = Task(
+        "まとめ", id="s", kind=TaskKind.SUMMARY, children=[k.id for k in kids]
+    )
+    return (
+        Project("p", sections=[Section("A", [parent, *kids, Task("z", id="z")])]),
+        parent,
+        kids,
+    )
 
 
 def test_parent_of_a_child_is_its_summary() -> None:
@@ -469,7 +572,9 @@ def test_insert_named_child_right_below_a_child_goes_behind_that_child() -> None
 def test_insert_named_child_into_a_childless_summary_makes_the_first_child() -> None:
     parent = Task("まとめ", id="s", kind=TaskKind.SUMMARY)
     project = Project("p", sections=[Section("A", [parent, Task("z")])])
-    child = arrange.insert_named_child(project, arrange.after_task(project, ((0,), 0)), "新規", "s")
+    child = arrange.insert_named_child(
+        project, arrange.after_task(project, ((0,), 0)), "新規", "s"
+    )
     assert names(project.sections[0].tasks) == ["まとめ", "新規", "z"]
     assert parent.children == [child.id]
 
@@ -490,7 +595,9 @@ def test_insert_named_summary_makes_a_summary_with_one_child() -> None:
     assert summary is tasks[1] and summary.kind is TaskKind.SUMMARY
     assert summary.children == [tasks[2].id]
     assert tasks[2].kind is TaskKind.NORMAL and tasks[2].children == []
-    assert len({t.id for t in project.all_tasks()}) == len(project.all_tasks())  # id は重ならない
+    assert len({t.id for t in project.all_tasks()}) == len(
+        project.all_tasks()
+    )  # id は重ならない
 
 
 def test_insert_named_summary_into_an_empty_section_and_the_root() -> None:
@@ -502,7 +609,9 @@ def test_insert_named_summary_into_an_empty_section_and_the_root() -> None:
 
 
 def test_copying_a_task_keeps_its_parameters_as_an_independent_list() -> None:
-    project = Project("p", sections=[Section("s", [Task("a", id="a", parameters=["P"])])])
+    project = Project(
+        "p", sections=[Section("s", [Task("a", id="a", parameters=["P"])])]
+    )
     arrange.copy_task(project, ((0,), 0), ((0,), 1))
     original, copied = project.sections[0].tasks
     assert copied.parameters == ["P"]
@@ -511,13 +620,28 @@ def test_copying_a_task_keeps_its_parameters_as_an_independent_list() -> None:
 
 
 def test_a_copied_reference_row_keeps_its_target_and_snapshot() -> None:
-    value = ReferenceValue(planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 6))
+    value = ReferenceValue(
+        planned_start=datetime(2026, 10, 5), planned_end=datetime(2026, 10, 6)
+    )
     project = Project(
-        "p", tasks=[Task("基盤開発", id="r", kind=TaskKind.REFERENCE, ref_project="基盤", ref_snapshot=value)]
+        "p",
+        tasks=[
+            Task(
+                "基盤開発",
+                id="r",
+                kind=TaskKind.REFERENCE,
+                ref_project="基盤",
+                ref_snapshot=value,
+            )
+        ],
     )
     arrange.copy_task(project, ((), 0), ((), 1))
     copy = project.tasks[1]
-    assert (copy.kind, copy.ref_project, copy.ref_snapshot) == (TaskKind.REFERENCE, "基盤", value)
+    assert (copy.kind, copy.ref_project, copy.ref_snapshot) == (
+        TaskKind.REFERENCE,
+        "基盤",
+        value,
+    )
     assert copy.id != "r"
 
 
@@ -557,7 +681,10 @@ def test_move_a_child_alone_still_moves_only_the_child() -> None:
 
 def test_dropping_below_a_summary_row_puts_the_task_after_its_children() -> None:
     summary = Task("S", id="s", kind=TaskKind.SUMMARY, children=["c1", "c2"])
-    project = Project("p", tasks=[Task("X", id="x"), summary, Task("c1", id="c1"), Task("c2", id="c2")])
+    project = Project(
+        "p",
+        tasks=[Task("X", id="x"), summary, Task("c1", id="c1"), Task("c2", id="c2")],
+    )
     assert arrange.move_task(project, ((), 0), ((), 2))
     assert [t.name for t in project.tasks] == ["S", "c1", "c2", "X"]
     assert summary.children == ["c1", "c2"]

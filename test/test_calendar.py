@@ -33,7 +33,9 @@ def test_parse_holidays_csv() -> None:
 
 
 def test_parse_skips_broken_rows() -> None:
-    raw = (HEADER + "abc,x\n2026/2/30,存在しない日\n2026/2/11,建国記念の日\n").encode("cp932")
+    raw = (HEADER + "abc,x\n2026/2/30,存在しない日\n2026/2/11,建国記念の日\n").encode(
+        "cp932"
+    )
     assert parse_holidays_csv(raw) == {date(2026, 2, 11): "建国記念の日"}
 
 
@@ -91,7 +93,10 @@ def test_work_day_note() -> None:
     }
     assert work_day_note(date(2026, 10, 17), holidays, days) == "稼働 13:00〜16:00"
     assert work_day_note(date(2026, 10, 16), holidays, days) == "休み"
-    assert work_day_note(date(2026, 10, 12), holidays, days) == "稼働 10:00〜12:00(祝日: スポーツの日)"
+    assert (
+        work_day_note(date(2026, 10, 12), holidays, days)
+        == "稼働 10:00〜12:00(祝日: スポーツの日)"
+    )
     assert work_day_note(date(2026, 10, 13), holidays, days) is None
     assert work_day_note(date(2026, 10, 13), holidays, None) is None
 
@@ -104,8 +109,13 @@ def test_work_day_note_with_a_memo() -> None:
         date(2026, 10, 12): WorkDay(date(2026, 10, 12), note="夏季休暇"),
     }
     assert work_day_note(date(2026, 10, 16), holidays, days) == "休み(夏季休暇)"
-    assert work_day_note(date(2026, 10, 17), holidays, days) == "稼働 13:00〜16:00(通院)"
-    assert work_day_note(date(2026, 10, 12), holidays, days) == "休み(夏季休暇。祝日: スポーツの日)"
+    assert (
+        work_day_note(date(2026, 10, 17), holidays, days) == "稼働 13:00〜16:00(通院)"
+    )
+    assert (
+        work_day_note(date(2026, 10, 12), holidays, days)
+        == "休み(夏季休暇。祝日: スポーツの日)"
+    )
 
 
 def test_member_notes_include_the_memo() -> None:
@@ -128,6 +138,8 @@ def test_member_notes_list_each_assignees_override_by_day() -> None:
 
 
 def test_member_notes_ignore_non_members_and_unassigned_tasks() -> None:
-    project = Project("p", members=[Member("田中", work_days=[WorkDay(date(2026, 10, 17))])])
+    project = Project(
+        "p", members=[Member("田中", work_days=[WorkDay(date(2026, 10, 17))])]
+    )
     assert member_notes(Task("t"), project, {}) == {}
     assert member_notes(Task("t", assignees=[Assignee("他", 1.0)]), project, {}) == {}

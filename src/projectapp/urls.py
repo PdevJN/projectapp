@@ -44,7 +44,9 @@ def validate_templates(templates: list[UrlTemplate]) -> None:
             raise ValueError(f"テンプレート名「{name}」が重複しています")
         seen.add(name)
         if not has_allowed_scheme(template.pattern):
-            raise ValueError(f"テンプレート「{name}」の URL の型は http:// か https:// で始めてください")
+            raise ValueError(
+                f"テンプレート「{name}」の URL の型は http:// か https:// で始めてください"
+            )
 
 
 def validate_urls(urls: list[TaskUrl], templates: list[UrlTemplate]) -> None:
@@ -53,7 +55,9 @@ def validate_urls(urls: list[TaskUrl], templates: list[UrlTemplate]) -> None:
 
 
 def count_usage(project: Project, name: str) -> int:
-    return sum(link.template == name for task in project.all_tasks() for link in task.urls)
+    return sum(
+        link.template == name for task in project.all_tasks() for link in task.urls
+    )
 
 
 def expand_template(project: Project, name: str) -> int:

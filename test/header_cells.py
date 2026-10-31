@@ -11,7 +11,7 @@ from collections.abc import Callable
 
 from nicegui.testing import User
 
-CELL_START = re.compile(r'(?=<div[^>]*data-col=)')  # セルの開始タグの直前で分ける
+CELL_START = re.compile(r"(?=<div[^>]*data-col=)")  # セルの開始タグの直前で分ける
 DAY = re.compile(r'data-col="([^"]+)"')
 LINE = re.compile(r"<div>(.*?)</div>", re.S)  # 属性のない <div> が、セルの中の行
 
@@ -30,7 +30,11 @@ def header_cells(user: User) -> dict[str, tuple[str, str | None]]:
     return cells
 
 
-async def settles(user: User, condition: Callable[[dict[str, tuple[str, str | None]]], bool], retries: int = 6) -> None:
+async def settles(
+    user: User,
+    condition: Callable[[dict[str, tuple[str, str | None]]], bool],
+    retries: int = 6,
+) -> None:
     """ヘッダーが `condition` を満たすまで待つ(描き直しは、背景タスクで起きる)。"""
     for _ in range(retries):
         if condition(header_cells(user)):

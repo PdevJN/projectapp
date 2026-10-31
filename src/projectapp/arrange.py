@@ -63,12 +63,16 @@ def tasks_at(project: Project, path: SectionPath) -> list[Task]:
 
 
 def valid_section(project: Project, path: SectionPath) -> bool:
-    return not path or (len(path) <= MAX_SECTION_DEPTH and section_at(project, path) is not None)
+    return not path or (
+        len(path) <= MAX_SECTION_DEPTH and section_at(project, path) is not None
+    )
 
 
 def has_task(project: Project, position: Position) -> bool:
     section, index = position
-    return valid_section(project, section) and 0 <= index < len(tasks_at(project, section))
+    return valid_section(project, section) and 0 <= index < len(
+        tasks_at(project, section)
+    )
 
 
 def has_list(project: Project, position: Position) -> bool:
@@ -97,7 +101,11 @@ def move_task(project: Project, src: Position, dst: Position) -> bool:
 def _outside_blocks(tasks: list[Task], index: int, moving: Task) -> int:
     """まとめと子のあいだ(かたまりの内側)への挿入は、かたまりの後ろへ送る。同じまとめの子の並べ替えは除く。"""
     for start, task in enumerate(tasks):
-        if task.kind is not TaskKind.SUMMARY or moving.id in task.children or moving is task:
+        if (
+            task.kind is not TaskKind.SUMMARY
+            or moving.id in task.children
+            or moving is task
+        ):
             continue
         end = start + _block_size(tasks, start)
         if start < index < end:
@@ -155,19 +163,29 @@ def parent_of(project: Project, src: Position) -> Task | None:
     path, index = src
     tasks = tasks_at(project, path)
     task = tasks[index]
-    return next((t for t in tasks if t.kind is TaskKind.SUMMARY and task.id in t.children), None)
+    return next(
+        (t for t in tasks if t.kind is TaskKind.SUMMARY and task.id in t.children), None
+    )
 
 
-def insert_named_child(project: Project, dst: Position, name: str, parent_id: str) -> Task:
+def insert_named_child(
+    project: Project, dst: Position, name: str, parent_id: str
+) -> Task:
     """名前だけの通常タスクを dst に挿入し、まとめ parent_id の子にする。直前が子ならその子の後ろ、そうでなければ子の末尾に入る。"""
     path, index = dst
     tasks = tasks_at(project, path)
-    parent = next((t for t in tasks if t.id == parent_id and t.kind is TaskKind.SUMMARY), None)
+    parent = next(
+        (t for t in tasks if t.id == parent_id and t.kind is TaskKind.SUMMARY), None
+    )
     if parent is None:
         raise ValueError("まとめが見つかりません")
     before = tasks[index - 1].id if 0 < index <= len(tasks) else None
     task = insert_named_task(project, dst, name)
-    at = parent.children.index(before) + 1 if before in parent.children else len(parent.children)
+    at = (
+        parent.children.index(before) + 1
+        if before in parent.children
+        else len(parent.children)
+    )
     parent.children.insert(at, task.id)
     return task
 
@@ -191,7 +209,11 @@ def copy_task(project: Project, src: Position, dst: Position) -> Task:
     taken = project.used_ids()
     copy_id = new_id(taken)
     taken.add(copy_id)
-    copy = _plain_copy(original, copy_id, original.name[: MAX_TASK_NAME_LENGTH - len(COPY_SUFFIX)] + COPY_SUFFIX)  # 上限を超えないよう、元の名前を切り詰める
+    copy = _plain_copy(
+        original,
+        copy_id,
+        original.name[: MAX_TASK_NAME_LENGTH - len(COPY_SUFFIX)] + COPY_SUFFIX,
+    )  # 上限を超えないよう、元の名前を切り詰める
     copies = [copy]
     if original.kind is TaskKind.SUMMARY:
         kids = children_of(original, project.task_map())
@@ -201,7 +223,9 @@ def copy_task(project: Project, src: Position, dst: Position) -> Task:
             taken.add(renamed[kid.id])
         for kid in kids:
             kid_copy = _plain_copy(kid, renamed[kid.id], kid.name)
-            kid_copy.predecessors = [renamed[pid] for pid in kid.predecessors if pid in renamed]
+            kid_copy.predecessors = [
+                renamed[pid] for pid in kid.predecessors if pid in renamed
+            ]
             copies.append(kid_copy)
         copy.children = [renamed[kid.id] for kid in kids]
     else:
@@ -222,7 +246,9 @@ def _sections_list(project: Project, path: SectionPath) -> list[Section]:
     return parent.sections
 
 
-def _copy_sections(section: Section, task_ids: dict[str, str], taken: set[str]) -> Section:
+def _copy_sections(
+    section: Section, task_ids: dict[str, str], taken: set[str]
+) -> Section:
     """セクションの木を、新しい id で複製する(タスクの連結・まとめの子は、あとで付け替える)。"""
     tasks = []
     for task in section.tasks:
@@ -253,7 +279,9 @@ def copy_section(project: Project, path: SectionPath) -> Section:
     old_tasks = {task.id: task for task in original.all_tasks()}
     for task in copy.all_tasks():
         source = old_tasks[old_by_new[task.id]]
-        task.predecessors = [task_ids[pid] for pid in source.predecessors if pid in task_ids]
+        task.predecessors = [
+            task_ids[pid] for pid in source.predecessors if pid in task_ids
+        ]
         task.children = [task_ids[cid] for cid in source.children if cid in task_ids]
         if task.kind is TaskKind.SUMMARY and not task.children:
             task.kind = TaskKind.NORMAL
@@ -275,7 +303,10 @@ def move_section(project: Project, path: SectionPath, to_index: int) -> bool:
         return False
     siblings = _sections_list(project, path)
     index = path[-1]
-    if not (0 <= index < len(siblings) and 0 <= to_index < len(siblings)) or index == to_index:
+    if (
+        not (0 <= index < len(siblings) and 0 <= to_index < len(siblings))
+        or index == to_index
+    ):
         return False
     siblings.insert(to_index, siblings.pop(index))
     return True
@@ -304,12 +335,18 @@ def reorder_collapsed(
 
 def collapsed_ids(project: Project, collapsed: set[SectionPath]) -> set[str]:
     """折りたたんだセクションの id(存在しないパスは無視する)。元に戻す・やり直しで状態を引き継ぐのに使う。"""
-    return {section.id for path, section in walk_sections(project.sections) if path in collapsed}
+    return {
+        section.id
+        for path, section in walk_sections(project.sections)
+        if path in collapsed
+    }
 
 
 def collapsed_paths(project: Project, ids: set[str]) -> set[SectionPath]:
     """id のセクションのパス(いまのプロジェクトにないものは落とす)。"""
-    return {path for path, section in walk_sections(project.sections) if section.id in ids}
+    return {
+        path for path, section in walk_sections(project.sections) if section.id in ids
+    }
 
 
 def remap_collapsed(
@@ -339,7 +376,11 @@ def shift_task(task: Task, days: int, shown_start: datetime | None = None) -> bo
     """
     if task.planned_start is None:
         return False
-    shown = task.planned_start if shown_start is None else max(shown_start, task.planned_start)
+    shown = (
+        task.planned_start
+        if shown_start is None
+        else max(shown_start, task.planned_start)
+    )
     try:
         delta = timedelta(days=days)
         pushed = shown - task.planned_start

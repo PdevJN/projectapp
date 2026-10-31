@@ -13,7 +13,9 @@ def downstream_ids(project: Project, task_id: str) -> set[str]:
     while frontier:
         current = frontier.pop()
         for task in tasks:
-            if (current in task.predecessors or current in task.children) and task.id not in found:
+            if (
+                current in task.predecessors or current in task.children
+            ) and task.id not in found:
                 found.add(task.id)
                 frontier.append(task.id)
     return found
@@ -39,11 +41,15 @@ def validate_links(tasks: list[Task]) -> None:
         for cid in task.children:
             child = by_id.get(cid)
             if cid == task.id or child is None:
-                raise ValueError(f"まとめが存在しない子(または自分自身)を指しています: {task.name}")
+                raise ValueError(
+                    f"まとめが存在しない子(または自分自身)を指しています: {task.name}"
+                )
             if child.kind is TaskKind.SUMMARY:
                 raise ValueError(f"まとめの子をまとめにはできません: {task.name}")
             if cid in parents:
-                raise ValueError(f"1 つのタスクが複数のまとめに属しています: {child.name}")
+                raise ValueError(
+                    f"1 つのタスクが複数のまとめに属しています: {child.name}"
+                )
             parents[cid] = task.id
     for task in tasks:
         if len(set(task.predecessors)) != len(task.predecessors):
@@ -90,14 +96,20 @@ def link_options(project: Project, task: Task | None) -> dict[str, str]:
     """
     excluded: set[str] = set()
     if task is not None:
-        excluded = {task.id, *downstream_ids(project, task.id), *task.children}  # まとめが自分の子を先行にすると循環する
+        excluded = {
+            task.id,
+            *downstream_ids(project, task.id),
+            *task.children,
+        }  # まとめが自分の子を先行にすると循環する
         parent = parent_map(project).get(task.id)
         if parent is not None:
             excluded.add(parent)  # 子が親のまとめを先行にすると循環する
     labelled: list[tuple[str, str]] = [(t.id, t.name) for t in project.tasks]
     names: dict[tuple[int, ...], str] = {}
     for path, section in walk_sections(project.sections):
-        names[path] = f"{names[path[:-1]]} / {section.name}" if path[:-1] else section.name
+        names[path] = (
+            f"{names[path[:-1]]} / {section.name}" if path[:-1] else section.name
+        )
         labelled += [(t.id, f"{names[path]} / {t.name}") for t in section.tasks]
     seen: dict[str, int] = {}
     options: dict[str, str] = {}

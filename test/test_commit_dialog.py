@@ -11,11 +11,17 @@ CHANGES = [
 ]
 
 
-def mount(calls: list[tuple], *, push_blocked: str | None = None, unsaved: bool = False) -> None:
+def mount(
+    calls: list[tuple], *, push_blocked: str | None = None, unsaved: bool = False
+) -> None:
     @ui.page("/")
     def index() -> None:
         open_commit_dialog(
-            CHANGES, default_message, push_blocked, unsaved, lambda names, message, push: calls.append((names, message, push))
+            CHANGES,
+            default_message,
+            push_blocked,
+            unsaved,
+            lambda names, message, push: calls.append((names, message, push)),
         )
 
 
@@ -73,7 +79,9 @@ async def test_commit_and_push_asks_for_the_push(user: User) -> None:
     mount(calls)
     await user.open("/")
     user.find(marker="commit-submit-push").click()
-    assert calls == [(["乙.json", "丁.json", "甲.json"], "プロジェクトを更新: 乙, 丁, 甲", True)]
+    assert calls == [
+        (["乙.json", "丁.json", "甲.json"], "プロジェクトを更新: 乙, 丁, 甲", True)
+    ]
 
 
 async def test_cancel_does_nothing(user: User) -> None:
@@ -85,16 +93,24 @@ async def test_cancel_does_nothing(user: User) -> None:
     assert not dialog_is_open(user)
 
 
-async def test_nothing_checked_or_an_empty_message_blocks_both_buttons(user: User) -> None:
+async def test_nothing_checked_or_an_empty_message_blocks_both_buttons(
+    user: User,
+) -> None:
     mount([])
     await user.open("/")
     for change in CHANGES:
         user.find(marker=f"commit-file-{change.name}").click()
-    assert not element(user, "commit-submit").enabled and not element(user, "commit-submit-push").enabled
+    assert (
+        not element(user, "commit-submit").enabled
+        and not element(user, "commit-submit-push").enabled
+    )
     user.find(marker="commit-file-甲.json").click()
     assert element(user, "commit-submit").enabled
     user.find(marker="commit-message").clear()
-    assert not element(user, "commit-submit").enabled and not element(user, "commit-submit-push").enabled
+    assert (
+        not element(user, "commit-submit").enabled
+        and not element(user, "commit-submit-push").enabled
+    )
 
 
 async def test_a_blocked_push_disables_only_commit_and_push(user: User) -> None:

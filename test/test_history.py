@@ -8,6 +8,7 @@ from projectapp.models import Project, Task
 
 pytestmark = pytest.mark.smoke
 
+
 def project_with(*names: str) -> Project:
     return Project("p", tasks=[Task(name) for name in names])
 

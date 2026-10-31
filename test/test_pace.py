@@ -10,7 +10,12 @@ MON = datetime(2026, 10, 5, 9)
 
 
 def project_of(*tasks: Task) -> Project:
-    return Project("P", base_date=date(2026, 10, 5), members=[Member("田中", 1.0)], sections=[Section("s", list(tasks))])
+    return Project(
+        "P",
+        base_date=date(2026, 10, 5),
+        members=[Member("田中", 1.0)],
+        sections=[Section("s", list(tasks))],
+    )
 
 
 def judged(task: Task, now: datetime = NOW) -> Pace | None:
@@ -47,8 +52,12 @@ def test_the_boundary_is_one_point_one() -> None:
 
 def test_a_manual_end_with_room_is_not_a_warning() -> None:
     task = Task(
-        "余裕あり", planned_start=MON, effort_hours=19.5, progress=50,
-        planned_end=datetime(2026, 10, 9, 15, 30), planned_end_manual=True,
+        "余裕あり",
+        planned_start=MON,
+        effort_hours=19.5,
+        progress=50,
+        planned_end=datetime(2026, 10, 9, 15, 30),
+        planned_end_manual=True,
     )
     value = judged(task)
     assert value is not None and not value.warning
@@ -56,8 +65,11 @@ def test_a_manual_end_with_room_is_not_a_warning() -> None:
 
 def test_a_plan_too_short_for_the_effort_warns_before_the_start() -> None:
     task = Task(
-        "足りない計画", planned_start=MON, effort_hours=40,
-        planned_end=datetime(2026, 10, 6, 15, 30), planned_end_manual=True,
+        "足りない計画",
+        planned_start=MON,
+        effort_hours=40,
+        planned_end=datetime(2026, 10, 6, 15, 30),
+        planned_end_manual=True,
     )
     value = judged(task, now=datetime(2026, 10, 5, 8))
     assert value is not None and value.warning and value.ratio == pytest.approx(40 / 13)
@@ -76,16 +88,29 @@ def test_a_task_before_its_start_follows_the_plan() -> None:
 
 def test_no_capacity_with_work_left_is_a_warning() -> None:
     task = Task(
-        "枠がない", planned_start=datetime(2026, 10, 9, 15, 30), effort_hours=1,
-        planned_end=datetime(2026, 10, 10, 10), planned_end_manual=True,
+        "枠がない",
+        planned_start=datetime(2026, 10, 9, 15, 30),
+        effort_hours=1,
+        planned_end=datetime(2026, 10, 10, 10),
+        planned_end_manual=True,
     )
     value = judged(task, now=datetime(2026, 10, 9, 16))
-    assert value is not None and value.capacity == 0 and value.ratio == float("inf") and value.warning
+    assert (
+        value is not None
+        and value.capacity == 0
+        and value.ratio == float("inf")
+        and value.warning
+    )
 
 
 def test_overdue_tasks_are_left_to_the_red_row() -> None:
     late_end = Task("完了予定を過ぎた", planned_start=MON, effort_hours=6.5)
-    late_deadline = Task("締切を過ぎた", planned_start=NOW, effort_hours=6.5, deadline=datetime(2026, 10, 7, 10))
+    late_deadline = Task(
+        "締切を過ぎた",
+        planned_start=NOW,
+        effort_hours=6.5,
+        deadline=datetime(2026, 10, 7, 10),
+    )
     assert judged(late_end) is None
     assert judged(late_deadline) is None
 
@@ -110,6 +135,12 @@ def test_the_hint_names_the_numbers() -> None:
 
 
 def test_assignees_change_the_capacity() -> None:
-    task = Task("二人分", planned_start=MON, effort_hours=19.5, progress=50, assignees=[Assignee("田中", 1.0)])
+    task = Task(
+        "二人分",
+        planned_start=MON,
+        effort_hours=19.5,
+        progress=50,
+        assignees=[Assignee("田中", 1.0)],
+    )
     value = judged(task)
     assert value is not None and value.capacity == pytest.approx(3.5)

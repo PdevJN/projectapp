@@ -13,8 +13,18 @@ from nicegui import run, ui
 from nicegui.events import KeyEventArguments
 
 from projectapp.calendar import load_cache
-from projectapp.events import EffectiveHolidays, color_name_events, effective_holidays, with_color_codes
-from projectapp.extract import check as check_extraction, extract, name_error as extract_name_error, selection_error
+from projectapp.events import (
+    EffectiveHolidays,
+    color_name_events,
+    effective_holidays,
+    with_color_codes,
+)
+from projectapp.extract import (
+    check as check_extraction,
+    extract,
+    name_error as extract_name_error,
+    selection_error,
+)
 from projectapp.categories import CategoryEdit
 from projectapp.icons import ICON_FILE_TYPES, IconError, load_icon
 from projectapp.categories import apply_edit as apply_category_edit
@@ -49,8 +59,16 @@ from projectapp.config import (
     step_zoom,
 )
 from projectapp.bulk_dialog import open_bulk_dialog
-from projectapp.bulk_edit import BulkChanges, BulkResult, delete_summary, delete_tasks, store
-from projectapp.bulk_edit import apply_bulk as apply_bulk_changes  # MainView.apply_bulk と紛れないように
+from projectapp.bulk_edit import (
+    BulkChanges,
+    BulkResult,
+    delete_summary,
+    delete_tasks,
+    store,
+)
+from projectapp.bulk_edit import (
+    apply_bulk as apply_bulk_changes,
+)  # MainView.apply_bulk と紛れないように
 from projectapp.forms import (
     MEMBER_TABLE_CSS,
     open_commit_dialog,
@@ -79,8 +97,26 @@ from projectapp.reference import (
     missing_references,
     take_snapshot,
 )
-from projectapp.shortcuts import Screen, defers_to_inputs, help_entries, key_guard_js, label_for, resolve
-from projectapp.dashboard import MAX_CUSTOM_DAYS, CrossSummary, LateBasis, Period, PeriodKind, custom_period_error, period_for, summarize, summarize_cross_backlog, summarize_cross_loads
+from projectapp.shortcuts import (
+    Screen,
+    defers_to_inputs,
+    help_entries,
+    key_guard_js,
+    label_for,
+    resolve,
+)
+from projectapp.dashboard import (
+    MAX_CUSTOM_DAYS,
+    CrossSummary,
+    LateBasis,
+    Period,
+    PeriodKind,
+    custom_period_error,
+    period_for,
+    summarize,
+    summarize_cross_backlog,
+    summarize_cross_loads,
+)
 from projectapp.dashboard_view import DashboardView, ViewActions
 from projectapp.dashboard_views import (
     DEFAULT_ORDER,
@@ -118,16 +154,38 @@ from projectapp.handoff import (
     write_json,
 )
 from projectapp.handoff import default_filename as handoff_filename
-from projectapp.plantuml import PLANTUML_FILE_TYPES, build_plantuml, day_overload_notice, weekly_crew_notice, write_text
+from projectapp.plantuml import (
+    PLANTUML_FILE_TYPES,
+    build_plantuml,
+    day_overload_notice,
+    weekly_crew_notice,
+    write_text,
+)
 from projectapp.plantuml import default_filename as plantuml_filename
 from projectapp.csv_export import DEFAULT_FILENAME as TSV_DEFAULT_FILENAME
 from projectapp.csv_export import TSV_FILE_TYPES, build_tsv, write_tsv
-from projectapp.csv_import import CSV_OPEN_FILE_TYPES, CsvImportError, parse_csv, read_table
+from projectapp.csv_import import (
+    CSV_OPEN_FILE_TYPES,
+    CsvImportError,
+    parse_csv,
+    read_table,
+)
 from projectapp.csv_import import summary as csv_import_summary
 from projectapp.settings_io import DEFAULT_FILENAME as SETTINGS_DEFAULT_FILENAME
 from projectapp.settings_dialog import open_import_dialog
-from projectapp.settings_io import SETTINGS_FILE_TYPES, ImportFile, ImportResult, apply_import, build_settings
-from projectapp.settings_io import copy_into, parse_settings, plan_import, write_settings
+from projectapp.settings_io import (
+    SETTINGS_FILE_TYPES,
+    ImportFile,
+    ImportResult,
+    apply_import,
+    build_settings,
+)
+from projectapp.settings_io import (
+    copy_into,
+    parse_settings,
+    plan_import,
+    write_settings,
+)
 from projectapp.settings_io import summary as settings_import_summary
 from projectapp.puml_import import (
     PLANTUML_OPEN_FILE_TYPES,
@@ -137,7 +195,14 @@ from projectapp.puml_import import (
 )
 from projectapp.puml_import import summary as import_summary
 from projectapp.filemanager import open_folder
-from projectapp.gitops import FileChange, GitResult, PullKind, PullOps, default_message, list_changes
+from projectapp.gitops import (
+    FileChange,
+    GitResult,
+    PullKind,
+    PullOps,
+    default_message,
+    list_changes,
+)
 from projectapp.gitops import commit as commit_files_in_git
 from projectapp.gitops import push as push_to_remote
 from projectapp.gitstate import GitKind, GitState, describe, read_git_state, tooltip
@@ -146,8 +211,25 @@ from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, short_date
-from projectapp.models import MAX_SECTION_DEPTH, MAX_WEEKS, ActualMode, Assignee, Event, Member, Project, RatioLimits, ReferenceMode, ReferenceValue, Section, SectionPath, Task, TaskKind, Team, WorkDay, new_id, union_assignees
-from projectapp.workdays import work_day_map
+from projectapp.models import (
+    MAX_SECTION_DEPTH,
+    MAX_WEEKS,
+    ActualMode,
+    Assignee,
+    Event,
+    Member,
+    Project,
+    RatioLimits,
+    ReferenceMode,
+    ReferenceValue,
+    Section,
+    SectionPath,
+    Task,
+    TaskKind,
+    Team,
+    new_id,
+    union_assignees,
+)
 from projectapp.selection import set_checked
 from projectapp.preview import (
     LARGE_IMAGE_MESSAGE,
@@ -174,12 +256,29 @@ from projectapp.storage import (
     validate_name,
 )
 from projectapp.summary import parent_map
-from projectapp.task_dialog import open_quick_progress_dialog, open_task_dialog, open_week_crew_dialog
-from projectapp.teams import removal_impacts, replace_teams, team_scope, teams_with_members
-from projectapp.theme import BODY_CSS, CustomTheme, theme_js, today_color_js, warning_color_js
+from projectapp.task_dialog import (
+    open_quick_progress_dialog,
+    open_task_dialog,
+    open_week_crew_dialog,
+)
+from projectapp.teams import (
+    removal_impacts,
+    replace_teams,
+    team_scope,
+    teams_with_members,
+)
+from projectapp.theme import (
+    BODY_CSS,
+    CustomTheme,
+    theme_js,
+    today_color_js,
+    warning_color_js,
+)
 from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
 from projectapp.theme_dialog import open_today_color_dialog as show_today_color_dialog
-from projectapp.theme_dialog import open_warning_color_dialog as show_warning_color_dialog
+from projectapp.theme_dialog import (
+    open_warning_color_dialog as show_warning_color_dialog,
+)
 from projectapp.urls import TemplateEdit, apply_template_edit, count_usage
 from projectapp.ratios import ParameterEdit, apply_parameter_edit, impact_lines
 from projectapp.reassign import limit_reviews
@@ -194,11 +293,21 @@ from projectapp.timeline import (
     week_count,
 )
 
-THEME_LABELS = {"auto": "自動", "light": "ライト", "dark": "ダーク", "custom": "カスタム"}
+THEME_LABELS = {
+    "auto": "自動",
+    "light": "ライト",
+    "dark": "ダーク",
+    "custom": "カスタム",
+}
 CUSTOM_COLORS_LABEL = "カスタムの色…"
 TODAY_COLOR_LABEL = "今日の線の色…"
 WARNING_COLOR_LABEL = "警告の色…"
-THEME_ICONS = {"auto": "brightness_auto", "light": "light_mode", "dark": "dark_mode", "custom": "palette"}
+THEME_ICONS = {
+    "auto": "brightness_auto",
+    "light": "light_mode",
+    "dark": "dark_mode",
+    "custom": "palette",
+}
 
 
 @dataclass(frozen=True)
@@ -210,6 +319,8 @@ class MenuItem:
     handler: Callable[[], object]
     marker: str
     key: str = ""
+
+
 NEW_PROJECT_NAME = "新規プロジェクト"
 # ヘッダーは、画面の上端・左右いっぱいの四角い帯(ui.header)。テーマカラーの背景 + 白文字(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
 # メニューのボタンは折り返さない(縮むのはプロジェクト選択のコンボだけ。中のファイル名は 10px)。プロジェクト名は、ヘッダーの外(メイン側の左上)に、12px の太字(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
@@ -267,55 +378,105 @@ class MainView:
         self.transport = transport
         self.exporter: ImageExporter = exporter or NativeImageExporter()
         self.preview: PreviewSettings | None = None
-        self.preview_notice: str | None = None  # スケールを粗くして開いたときのお知らせ。設定を変えたら消す
+        self.preview_notice: str | None = (
+            None  # スケールを粗くして開いたときのお知らせ。設定を変えたら消す
+        )
         self.now: Callable[[], datetime] = datetime.now  # テストで差し替える
-        self.dashboard_kind: PeriodKind | None = None  # 開いているときの期間。保存しない
+        self.dashboard_kind: PeriodKind | None = (
+            None  # 開いているときの期間。保存しない
+        )
         self.dashboard_custom: Period | None = None  # `指定` の期間。保存しない
         self.dashboard_custom_error = ""  # `指定` の欄の入力が不正なときの、エラー文
-        self.dashboard_member: str | None = None  # ダッシュボードで絞り込み中のメンバー。保存しない
-        self.dashboard_team: str | None = None  # 絞り込み中のチーム名。メンバーとは同時に使わない。保存しない
+        self.dashboard_member: str | None = (
+            None  # ダッシュボードで絞り込み中のメンバー。保存しない
+        )
+        self.dashboard_team: str | None = (
+            None  # 絞り込み中のチーム名。メンバーとは同時に使わない。保存しない
+        )
         self.dashboard_cross = False  # 全プロジェクトを重ねるか。保存しない
-        self.dashboard_late_basis = LateBasis.DELAY  # 残りの工数の遅れの判定。保存しない・ビューに入れない
-        self.dashboard_excluded: set[str] = set()  # 重ねるのから外したプロジェクトの名前。保存しない
-        self.dashboard_views = load_dashboard_views(base_dir)  # 保存したビュー(`標準` を含まない)。全プロジェクト共通
-        self.dashboard_view_name = load_dashboard_view_last(base_dir) or STANDARD_NAME  # 最後に使ったビュー
-        self.dashboard_cards: tuple[CardId, ...] = DEFAULT_ORDER  # 表示するカードの並び。保存するのはビューにしたときだけ
-        self.dashboard_names: list[str] = []  # 今の名簿(refresh のたびに更新)。保存したメンバーが残っているかの判定に使う
-        self.open_folder: Callable[[Path], object] = open_folder  # テストで差し替える(実際にはファイラを開かない)
+        self.dashboard_late_basis = (
+            LateBasis.DELAY
+        )  # 残りの工数の遅れの判定。保存しない・ビューに入れない
+        self.dashboard_excluded: set[str] = (
+            set()
+        )  # 重ねるのから外したプロジェクトの名前。保存しない
+        self.dashboard_views = load_dashboard_views(
+            base_dir
+        )  # 保存したビュー(`標準` を含まない)。全プロジェクト共通
+        self.dashboard_view_name = (
+            load_dashboard_view_last(base_dir) or STANDARD_NAME
+        )  # 最後に使ったビュー
+        self.dashboard_cards: tuple[CardId, ...] = (
+            DEFAULT_ORDER  # 表示するカードの並び。保存するのはビューにしたときだけ
+        )
+        self.dashboard_names: list[
+            str
+        ] = []  # 今の名簿(refresh のたびに更新)。保存したメンバーが残っているかの判定に使う
+        self.open_folder: Callable[[Path], object] = (
+            open_folder  # テストで差し替える(実際にはファイラを開かない)
+        )
         self.saving = False
         self.zoom = load_zoom(base_dir)  # 画面全体の倍率(%)。全プロジェクト共通
-        self.task_sections = load_task_sections(base_dir)  # タスクのダイアログで開いている節。全プロジェクト共通
+        self.task_sections = load_task_sections(
+            base_dir
+        )  # タスクのダイアログで開いている節。全プロジェクト共通
         self.run_js: Callable[..., Any] = ui.run_javascript  # テストで差し替える
         self.project = Project(NEW_PROJECT_NAME)
-        self.files: dict[str, Path] = {p.stem: p for p in list_project_files(self.project_dir)}
-        self.origin: str | None = None  # 参照行のクリックで開いたときの、元のプロジェクト名(戻るリンク用。保存しない)
-        self.pending_origin: tuple[str, str] | None = None  # (元, 開く先)。開くのが確認で取りやめになったら、次の切り替えでは使わない
+        self.files: dict[str, Path] = {
+            p.stem: p for p in list_project_files(self.project_dir)
+        }
+        self.origin: str | None = (
+            None  # 参照行のクリックで開いたときの、元のプロジェクト名(戻るリンク用。保存しない)
+        )
+        self.pending_origin: tuple[str, str] | None = (
+            None  # (元, 開く先)。開くのが確認で取りやめになったら、次の切り替えでは使わない
+        )
         self.path: Path | None = None
-        self.digest: str | None = None  # 読み込み(保存)時のファイルの内容のハッシュ。外部変更の検知用
-        self.read_git: Callable[[Path], GitState] = read_git_state  # テストで差し替える(本物の git を呼ばない)
-        self.git_state: GitState = GitState(GitKind.NOT_REPO)  # 最後に読んだ結果。読むまでは出さない
+        self.digest: str | None = (
+            None  # 読み込み(保存)時のファイルの内容のハッシュ。外部変更の検知用
+        )
+        self.read_git: Callable[[Path], GitState] = (
+            read_git_state  # テストで差し替える(本物の git を呼ばない)
+        )
+        self.git_state: GitState = GitState(
+            GitKind.NOT_REPO
+        )  # 最後に読んだ結果。読むまでは出さない
         self.git_generation = 0  # 読み込みのたびに進める。古い結果を捨てる印
-        self.read_changes: Callable[[Path], list[FileChange] | GitResult] = list_changes  # テストで差し替える
-        self.commit_files: Callable[[Path, list[str], str], GitResult] = commit_files_in_git
+        self.read_changes: Callable[[Path], list[FileChange] | GitResult] = (
+            list_changes  # テストで差し替える
+        )
+        self.commit_files: Callable[[Path, list[str], str], GitResult] = (
+            commit_files_in_git
+        )
         self.push_remote: Callable[[Path], GitResult] = push_to_remote
         self.git_busy = False  # コミット・プッシュの実行中。二重に始めない
         self.pull_ops = PullOps()  # プルの各段階。テストで差し替える
-        self.menu_entries: dict[str, ui.menu_item] = {}  # メニューの項目(マーカー → 項目)
+        self.menu_entries: dict[
+            str, ui.menu_item
+        ] = {}  # メニューの項目(マーカー → 項目)
         self.git_menu_tips: dict[str, ui.tooltip] = {}  # 押せない理由を出すツールチップ
         self.mark_clean()
         self.history = History()  # 元に戻す・やり直しの履歴。保存しても残し、別のプロジェクトに切り替えると捨てる
-        self.committed = deepcopy(self.project)  # 最後に確定した状態。これと違えば、編集があったとみなして履歴に積む
+        self.committed = deepcopy(
+            self.project
+        )  # 最後に確定した状態。これと違えば、編集があったとみなして履歴に積む
         self.theme = load_theme(base_dir)
         self.custom_theme = load_custom_theme(base_dir)  # 保存済みのカスタムの色
-        self.today_color = load_today_color(base_dir)  # 今日の線の色。None は既定(テーマに従う)
+        self.today_color = load_today_color(
+            base_dir
+        )  # 今日の線の色。None は既定(テーマに従う)
         self.warning_color = load_warning_color(base_dir)  # 警告の色。None は既定(黄)
         self.dark = ui.dark_mode()
         self.dark.value = self.dark_value(self.theme, self.custom_theme)
         cached = load_cache(base_dir)
-        self.base_holidays: dict[date, str] = cached or {}  # 祝日だけ。計算には、休みのイベントを足した holidays を使う
+        self.base_holidays: dict[date, str] = (
+            cached or {}
+        )  # 祝日だけ。計算には、休みのイベントを足した holidays を使う
         self._effective_holidays = EffectiveHolidays()
         self.needs_first_fetch = cached is None
-        self.reference_resolver = ReferenceResolver(lambda: self.project_dir, lambda: self.base_holidays)
+        self.reference_resolver = ReferenceResolver(
+            lambda: self.project_dir, lambda: self.base_holidays
+        )
         self.gantt = GanttChart(
             self.project,
             self.base_holidays,
@@ -350,10 +511,16 @@ class MainView:
                 refresh_reference=self.refresh_reference,
             ),
             name_width=load_name_width(base_dir),
-            references=lambda: build_references(self.project, self.reference_resolver, datetime.now()),
+            references=lambda: build_references(
+                self.project, self.reference_resolver, datetime.now()
+            ),
         )
         self.preview_bar = PreviewBar(
-            self.on_preview_change, self.exit_preview, self.save_image, self.save_plantuml, self.on_select_all
+            self.on_preview_change,
+            self.exit_preview,
+            self.save_image,
+            self.save_plantuml,
+            self.on_select_all,
         )
         self.dashboard_view = DashboardView(
             self.close_dashboard,
@@ -405,7 +572,12 @@ class MainView:
     def open_theme_dialog(self) -> None:
         """カスタムの色のダイアログ。色を変えると画面に反映し(プレビュー)、キャンセルで開く前に戻す。"""
         previous = self.theme
-        show_theme_dialog(self.custom_theme, self.preview_custom, self.apply_custom, lambda: self.restore_theme(previous))
+        show_theme_dialog(
+            self.custom_theme,
+            self.preview_custom,
+            self.apply_custom,
+            lambda: self.restore_theme(previous),
+        )
 
     def preview_custom(self, theme: CustomTheme) -> None:
         self.apply_theme("custom", theme)
@@ -538,7 +710,9 @@ class MainView:
     def save_then(self, after: Callable[[], object]) -> None:
         """保存に成功したときだけ、続きの処理を行う(外部変更の確認を挟んだときも、続きは引き継ぐ)。"""
         if self.path is None:
-            with self.client:  # 確認ダイアログの中で作ると、確認が閉じて削除されるときに一緒に消える
+            with (
+                self.client
+            ):  # 確認ダイアログの中で作ると、確認が閉じて削除されるときに一緒に消える
                 open_name_dialog(
                     lambda name: self.save_as_new(name, after),
                     lambda name: validate_name(name, self.project_dir, new=True),
@@ -549,7 +723,9 @@ class MainView:
     def open_project(self, name: str) -> None:
         path = self.files[name]
         try:
-            digest = file_digest(path)  # 読み込みの前に取る。間にファイルが変わっても、保存時に CHANGED になる側へ倒れる
+            digest = file_digest(
+                path
+            )  # 読み込みの前に取る。間にファイルが変わっても、保存時に CHANGED になる側へ倒れる
             project = load_project(path)
         except (OSError, ValueError, KeyError) as exc:
             ui.notify(f"開けませんでした: {exc}", type="negative")
@@ -566,26 +742,41 @@ class MainView:
         except (OSError, ValueError):
             return
         if old and (named := color_name_events(self.project.events)):
-            open_color_convert_dialog(len(named), lambda: self.apply_events(with_color_codes(self.project.events)))
+            open_color_convert_dialog(
+                len(named),
+                lambda: self.apply_events(with_color_codes(self.project.events)),
+            )
 
-    def show_project(self, project: Project, path: Path | None, digest: str | None = None) -> None:
+    def show_project(
+        self, project: Project, path: Path | None, digest: str | None = None
+    ) -> None:
         """別のプロジェクトに切り替える(開いたとき・新規作成のとき)。保存済みの状態から始める。"""
         pending, self.pending_origin = self.pending_origin, None
-        self.origin = pending[0] if pending is not None and path is not None and path.stem == pending[1] else None
+        self.origin = (
+            pending[0]
+            if pending is not None and path is not None and path.stem == pending[1]
+            else None
+        )
         self.path, self.project, self.digest = path, project, digest
         self.mark_clean()
         self.file_select.set_value(path.stem if path else None)
         self.title.refresh()
         self.gantt.reset_collapsed()  # 折りたたみは保存しない。別のプロジェクトは全展開から始める
-        self.gantt.set_period(None)  # 表示期間も、別のプロジェクトでは古い期間が何も映さないことがあるので自動に戻す
+        self.gantt.set_period(
+            None
+        )  # 表示期間も、別のプロジェクトでは古い期間が何も映さないことがあるので自動に戻す
         self.reset_history()
         self.gantt.set_project(self.project)
         self.gantt.reset_filter()
         self.gantt.scroll_on_open()  # 別のプロジェクトは、先頭に戻してから今日の位置へ(編集後の再描画では動かさない)
-        for name in missing_references(project, self.reference_resolver, datetime.now()):
+        for name in missing_references(
+            project, self.reference_resolver, datetime.now()
+        ):
             ui.notify(f"参照先のプロジェクトが見つかりません: {name}", type="warning")
         if stale := self.stale_references():
-            open_stale_snapshot_dialog(stale, "続ける", self.refresh_stale_snapshots, lambda: None)
+            open_stale_snapshot_dialog(
+                stale, "続ける", self.refresh_stale_snapshots, lambda: None
+            )
 
     def open_project_folder(self) -> None:
         """プロジェクトの格納フォルダを、ファイラで開く。開けなければ通知する。"""
@@ -642,7 +833,9 @@ class MainView:
             ui.notify(f"取り込めませんでした: {exc}", type="negative")
             return
         self.show_project(result.project, None)
-        self.snapshot = asdict(Project(NEW_PROJECT_NAME))  # 空の新規とは別物なので、未保存の扱いにする
+        self.snapshot = asdict(
+            Project(NEW_PROJECT_NAME)
+        )  # 空の新規とは別物なので、未保存の扱いにする
         ui.notify(csv_import_summary(result))
 
     def request_import_settings(self) -> None:
@@ -668,9 +861,16 @@ class MainView:
             ui.notify("取り込める項目がありません")
             return
         with self.client:
-            open_import_dialog(plan, lambda sections, overwrite: self.apply_settings_import(incoming, sections, overwrite))
+            open_import_dialog(
+                plan,
+                lambda sections, overwrite: self.apply_settings_import(
+                    incoming, sections, overwrite
+                ),
+            )
 
-    def apply_settings_import(self, incoming: ImportFile, sections: set[str], overwrite: set[tuple[str, str]]) -> None:
+    def apply_settings_import(
+        self, incoming: ImportFile, sections: set[str], overwrite: set[tuple[str, str]]
+    ) -> None:
         """選んだ内容を取り込む。相対比率の上限・下限が変わり、見直しが要るタスクがあるときは、先に選ばせる。"""
         try:
             result = apply_import(self.project, incoming, sections, overwrite)
@@ -680,7 +880,9 @@ class MainView:
         old, new = self.project.ratio_limits, result.project.ratio_limits
         reviews: list[tuple[Task, datetime]] = []
         if new != old:
-            before = replace(result.project, ratio_limit_upper=old.upper, ratio_limit_lower=old.lower)
+            before = replace(
+                result.project, ratio_limit_upper=old.upper, ratio_limit_lower=old.lower
+            )
             reviews = limit_reviews(before, new, self.holidays, datetime.now())
         if not reviews:
             self.commit_settings_import(result)
@@ -693,9 +895,13 @@ class MainView:
             else:
                 self.commit_settings_import(result, ends if review else None)
 
-        self.ask_limit_review(len(reviews), choose, "プロジェクト設定は取り込みませんでした")
+        self.ask_limit_review(
+            len(reviews), choose, "プロジェクト設定は取り込みませんでした"
+        )
 
-    def commit_settings_import(self, result: ImportResult, ends: dict[str, datetime] | None = None) -> None:
+    def commit_settings_import(
+        self, result: ImportResult, ends: dict[str, datetime] | None = None
+    ) -> None:
         """取り込み後のプロジェクトを今のプロジェクトへ移し、1 回の編集として確定する。"""
         for task in result.project.all_tasks():
             if ends and task.id in ends:
@@ -712,7 +918,9 @@ class MainView:
         if not self.exporter.available:
             ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
             return
-        path = await self.exporter.ask_path(SETTINGS_DEFAULT_FILENAME, SETTINGS_FILE_TYPES)
+        path = await self.exporter.ask_path(
+            SETTINGS_DEFAULT_FILENAME, SETTINGS_FILE_TYPES
+        )
         if path is None:
             return
         try:
@@ -730,11 +938,17 @@ class MainView:
         now = datetime.now()
         values = {
             tid: ref.value
-            for tid, ref in build_references(self.project, self.reference_resolver, now).items()
+            for tid, ref in build_references(
+                self.project, self.reference_resolver, now
+            ).items()
             if ref.value is not None
         }
         result = build_tsv(self.project, self.holidays, values)
-        if result.task_count == 0 and result.section_count == 0 and result.references == 0:
+        if (
+            result.task_count == 0
+            and result.section_count == 0
+            and result.references == 0
+        ):
             ui.notify("書き出せるタスクがありません", type="warning")
             return
         path = await self.exporter.ask_path(TSV_DEFAULT_FILENAME, TSV_FILE_TYPES)
@@ -746,9 +960,15 @@ class MainView:
             ui.notify(f"保存できませんでした: {exc}", type="negative")
             return
         notes = [
-            f"{result.skipped} 件(まとめ・節目)は書き出していません" if result.skipped else "",
-            f"担当者が複数の {result.multiple_owners} 件は筆頭だけを書きました" if result.multiple_owners else "",
-            f"参照先が読めない {result.unresolved} 件は、日付と完了率を空にしました" if result.unresolved else "",
+            f"{result.skipped} 件(まとめ・節目)は書き出していません"
+            if result.skipped
+            else "",
+            f"担当者が複数の {result.multiple_owners} 件は筆頭だけを書きました"
+            if result.multiple_owners
+            else "",
+            f"参照先が読めない {result.unresolved} 件は、日付と完了率を空にしました"
+            if result.unresolved
+            else "",
         ]
         detail = "、".join(note for note in notes if note)
         head = f"書き出しました(タスク {result.task_count} 件、参照 {result.references} 件、セクション {result.section_count} 件)"
@@ -770,7 +990,9 @@ class MainView:
             ui.notify(f"取り込めませんでした: {exc}", type="negative")
             return
         self.show_project(result.project, None)
-        self.snapshot = asdict(Project(NEW_PROJECT_NAME))  # 空の新規とは別物なので、未保存の扱いにする
+        self.snapshot = asdict(
+            Project(NEW_PROJECT_NAME)
+        )  # 空の新規とは別物なので、未保存の扱いにする
         ui.notify(import_summary(result))
 
     def request_change_project_dir(self) -> None:
@@ -831,7 +1053,9 @@ class MainView:
         self.save_as_then(None)
 
     def save_as_then(self, after: Callable[[], object] | None) -> None:
-        with self.client:  # 確認ダイアログの中で作ると、確認が閉じて削除されるときに一緒に消える
+        with (
+            self.client
+        ):  # 確認ダイアログの中で作ると、確認が閉じて削除されるときに一緒に消える
             open_name_dialog(
                 lambda name: self.save_as_new(name, after),
                 lambda name: validate_name(name, self.project_dir, new=True),
@@ -857,7 +1081,9 @@ class MainView:
             template_usage=lambda name: count_usage(self.project, name),
             on_templates=self.apply_templates,
             categories=self.project.categories,
-            category_usage=lambda category_id: count_category_usage(self.project, category_id),
+            category_usage=lambda category_id: count_category_usage(
+                self.project, category_id
+            ),
             on_categories=self.apply_categories,
             events=self.project.events,
             on_events=self.apply_events,
@@ -964,7 +1190,9 @@ class MainView:
         return Screen.DASHBOARD if self.dashboard_kind is not None else Screen.MAIN
 
     def dialog_open(self) -> bool:
-        return any(isinstance(e, ui.dialog) and e.value for e in self.client.elements.values())
+        return any(
+            isinstance(e, ui.dialog) and e.value for e in self.client.elements.values()
+        )
 
     def on_key(self, event: KeyEventArguments) -> None:
         """キー操作を、メニューと同じ操作へ振り分ける。ESC は、プレビューまたはダッシュボードから戻る
@@ -1045,19 +1273,34 @@ class MainView:
         if self.dashboard_kind is None:
             return
         now = self.now()
-        period = period_for(self.dashboard_kind, now.date(), self.project, self.holidays, self.dashboard_custom)
+        period = period_for(
+            self.dashboard_kind,
+            now.date(),
+            self.project,
+            self.holidays,
+            self.dashboard_custom,
+        )
         projects = [self.project]
         failures = []
         if self.dashboard_cross:
             others, failures = load_others(self.project_dir, self.path)
-            if self.project.name in {p.name for p in others}:  # 保存前の新規などが、ファイルと同名のとき
-                projects = [replace(self.project, name=f"{self.project.name}(開いている)")]
+            if self.project.name in {
+                p.name for p in others
+            }:  # 保存前の新規などが、ファイルと同名のとき
+                projects = [
+                    replace(self.project, name=f"{self.project.name}(開いている)")
+                ]
             projects += others
         names = list(dict.fromkeys(m.name for p in projects for m in p.members))
         self.dashboard_names = names
         if self.dashboard_member not in names:
-            self.dashboard_member = None  # 削除・改名・横断オフで見えなくなったメンバーは、全員に戻す
-        if self.dashboard_member is not None or self.dashboard_team not in (None, *teams_with_members(self.project)):
+            self.dashboard_member = (
+                None  # 削除・改名・横断オフで見えなくなったメンバーは、全員に戻す
+            )
+        if self.dashboard_member is not None or self.dashboard_team not in (
+            None,
+            *teams_with_members(self.project),
+        ):
             self.dashboard_team = None  # 消えたチームは全員に戻す。メンバーを選んでいるときはチームを使わない
         data = summarize(
             self.project,
@@ -1072,17 +1315,43 @@ class MainView:
         )
         if self.dashboard_cross:
             chosen = [p for p in projects if p.name not in self.dashboard_excluded]
-            scope = self.dashboard_member if self.dashboard_member is not None else team_scope(self.project, self.dashboard_team)
+            scope = (
+                self.dashboard_member
+                if self.dashboard_member is not None
+                else team_scope(self.project, self.dashboard_team)
+            )
             loads = summarize_cross_loads(chosen, period, self.base_holidays, scope)
-            data.backlog = summarize_cross_backlog(chosen, projects[0], period, self.dashboard_kind, now, self.base_holidays, scope, self.dashboard_late_basis)
+            data.backlog = summarize_cross_backlog(
+                chosen,
+                projects[0],
+                period,
+                self.dashboard_kind,
+                now,
+                self.base_holidays,
+                scope,
+                self.dashboard_late_basis,
+            )
             titles = [p.name for p in projects]
-            data.cross = CrossSummary(loads, titles, self.dashboard_excluded & set(titles), failures)
+            data.cross = CrossSummary(
+                loads, titles, self.dashboard_excluded & set(titles), failures
+            )
             data.members = names
-        icons = {m.name: m.icon for p in reversed(projects) for m in p.members if m.icon}
+        icons = {
+            m.name: m.icon for p in reversed(projects) for m in p.members if m.icon
+        }
         # 入力が不正なあいだは、欄の文字を書き換えない(入力中の値を残す)
-        custom_text = format_period(period.start, period.end) if sync_field and not self.dashboard_custom_error else None
+        custom_text = (
+            format_period(period.start, period.end)
+            if sync_field and not self.dashboard_custom_error
+            else None
+        )
         self.dashboard_view.show(
-            data, self.dashboard_kind, icons, custom_text, self.dashboard_custom_error, self.dashboard_view_state()
+            data,
+            self.dashboard_kind,
+            icons,
+            custom_text,
+            self.dashboard_custom_error,
+            self.dashboard_view_state(),
         )
 
     def change_dashboard_cross(self, on: bool) -> None:
@@ -1101,16 +1370,24 @@ class MainView:
     def change_dashboard_project(self, name: str, included: bool) -> None:
         if self.dashboard_kind is None:
             return
-        (self.dashboard_excluded.discard if included else self.dashboard_excluded.add)(name)
+        (self.dashboard_excluded.discard if included else self.dashboard_excluded.add)(
+            name
+        )
         self.refresh_dashboard()
 
     def starting_custom_period(self) -> Period:
         """`指定` を始めるときの期間 = 直前に見ていた期間。全期間が長いときは、終わりの側の上限の長さに切る。"""
         previous = period_for(
-            self.dashboard_kind or PeriodKind.WEEK, self.now().date(), self.project, self.holidays, self.dashboard_custom
+            self.dashboard_kind or PeriodKind.WEEK,
+            self.now().date(),
+            self.project,
+            self.holidays,
+            self.dashboard_custom,
         )
         if custom_period_error(previous):
-            previous = Period(previous.end - timedelta(days=MAX_CUSTOM_DAYS - 1), previous.end)
+            previous = Period(
+                previous.end - timedelta(days=MAX_CUSTOM_DAYS - 1), previous.end
+            )
         return previous
 
     def change_dashboard_period(self, kind: PeriodKind) -> None:
@@ -1137,9 +1414,13 @@ class MainView:
         self.dashboard_custom_error = error
         if period is not None and period != self.dashboard_custom:
             self.dashboard_custom = period
-            self.refresh_dashboard(sync_field=False)  # 期間が変わったときだけ、集計し直す
+            self.refresh_dashboard(
+                sync_field=False
+            )  # 期間が変わったときだけ、集計し直す
         else:
-            self.dashboard_view.set_custom_error(error)  # 入力の途中(不正・同じ期間)では、エラー表示だけを更新する
+            self.dashboard_view.set_custom_error(
+                error
+            )  # 入力の途中(不正・同じ期間)では、エラー表示だけを更新する
 
     def change_dashboard_member(self, name: str | None) -> None:
         if self.dashboard_kind is None:
@@ -1157,12 +1438,18 @@ class MainView:
 
     def saved_dashboard_view(self, name: str) -> ViewSpec:
         """保存済みのビュー。名前がなければ `標準`。"""
-        return next((v for v in self.dashboard_views if v.name == name), standard_view())
+        return next(
+            (v for v in self.dashboard_views if v.name == name), standard_view()
+        )
 
     def working_spec(self, name: str) -> ViewSpec:
         """今の画面の条件とカードの並びを、ビューの形にしたもの。"""
         custom = None
-        if self.dashboard_kind is PeriodKind.CUSTOM and self.dashboard_custom is not None and not self.dashboard_custom_error:
+        if (
+            self.dashboard_kind is PeriodKind.CUSTOM
+            and self.dashboard_custom is not None
+            and not self.dashboard_custom_error
+        ):
             custom = (self.dashboard_custom.start, self.dashboard_custom.end)
         return ViewSpec(
             name,
@@ -1187,7 +1474,9 @@ class MainView:
         return self.working_spec(saved.name) != saved
 
     def custom_save_block(self) -> str | None:
-        if self.dashboard_kind is PeriodKind.CUSTOM and (self.dashboard_custom_error or self.dashboard_custom is None):
+        if self.dashboard_kind is PeriodKind.CUSTOM and (
+            self.dashboard_custom_error or self.dashboard_custom is None
+        ):
             return "期間の欄を直してください"
         return None
 
@@ -1212,7 +1501,11 @@ class MainView:
         self.dashboard_view_name = spec.name
         self.dashboard_kind = spec.period
         if spec.period is PeriodKind.CUSTOM:
-            self.dashboard_custom = Period(*spec.custom) if spec.custom is not None else self.starting_custom_period()
+            self.dashboard_custom = (
+                Period(*spec.custom)
+                if spec.custom is not None
+                else self.starting_custom_period()
+            )
         self.dashboard_custom_error = ""
         self.dashboard_member = spec.member
         self.dashboard_team = None if spec.member is not None else spec.team
@@ -1227,11 +1520,18 @@ class MainView:
                 save_dashboard_views(self.dashboard_views, self.base_dir)
             if last:
                 save_dashboard_view_last(self.dashboard_view_name, self.base_dir)
-        except (OSError, ValueError):  # ValueError = 壊れた config.json(読めないファイルは上書きしない)
-            ui.notify("ダッシュボードのビューを保存できませんでした(この画面では使い続けられます)")
+        except (
+            OSError,
+            ValueError,
+        ):  # ValueError = 壊れた config.json(読めないファイルは上書きしない)
+            ui.notify(
+                "ダッシュボードのビューを保存できませんでした(この画面では使い続けられます)"
+            )
 
     def select_dashboard_view(self, name: str) -> None:
-        if self.dashboard_kind is None or (name != STANDARD_NAME and all(v.name != name for v in self.dashboard_views)):
+        if self.dashboard_kind is None or (
+            name != STANDARD_NAME and all(v.name != name for v in self.dashboard_views)
+        ):
             return
         self.apply_dashboard_view(self.saved_dashboard_view(name))
         self.persist_dashboard(last=True)
@@ -1244,7 +1544,10 @@ class MainView:
             ui.notify(reason)
             return
         name = self.dashboard_view_name
-        self.dashboard_views = [self.working_spec(name) if v.name == name else v for v in self.dashboard_views]
+        self.dashboard_views = [
+            self.working_spec(name) if v.name == name else v
+            for v in self.dashboard_views
+        ]
         self.persist_dashboard(views=True)
         self.refresh_dashboard()
         ui.notify(f"ビュー「{name}」を保存しました")
@@ -1281,14 +1584,21 @@ class MainView:
             return
 
         def apply(name: str) -> None:
-            self.dashboard_views = [replace(v, name=name) if v.name == old else v for v in self.dashboard_views]
+            self.dashboard_views = [
+                replace(v, name=name) if v.name == old else v
+                for v in self.dashboard_views
+            ]
             self.dashboard_view_name = name
             self.persist_dashboard(views=True, last=True)
             self.refresh_dashboard()
 
         others = [v.name for v in self.dashboard_views if v.name != old]
         open_name_dialog(
-            apply, lambda clean: validate_view_name(clean, others), title="ビュー名の変更", initial=old, label="ビュー名"
+            apply,
+            lambda clean: validate_view_name(clean, others),
+            title="ビュー名の変更",
+            initial=old,
+            label="ビュー名",
         )
 
     def delete_dashboard_view(self) -> None:
@@ -1341,15 +1651,31 @@ class MainView:
         if self.preview is not None or self.dashboard_kind is not None:
             return
         if self.gantt.period is not None:
-            period = self.gantt.period  # メインで期間を指定しているときは、それから始める
+            period = (
+                self.gantt.period
+            )  # メインで期間を指定しているときは、それから始める
             start = period[0]
         else:
-            start, end = visible_range(self.project, self.holidays, self.reference_values())
-            period = (start, max(end - timedelta(days=1), start))  # タスクがないと、範囲が空になる。基準日の 1 日にする
+            start, end = visible_range(
+                self.project, self.holidays, self.reference_values()
+            )
+            period = (
+                start,
+                max(end - timedelta(days=1), start),
+            )  # タスクがないと、範囲が空になる。基準日の 1 日にする
         scale = fit_scale(
-            self.project, self.holidays, period, self.gantt.scale, self.gantt.name_width, self.reference_values()
+            self.project,
+            self.holidays,
+            period,
+            self.gantt.scale,
+            self.gantt.name_width,
+            self.reference_values(),
         )
-        self.preview_notice = coarser_notice(scale, self.gantt.scale) if scale is not self.gantt.scale else None
+        self.preview_notice = (
+            coarser_notice(scale, self.gantt.scale)
+            if scale is not self.gantt.scale
+            else None
+        )
         self.preview = PreviewSettings(start, period[1], scale)
         self.set_header_visible(False)
         self.preview_bar.show(self.preview)
@@ -1370,7 +1696,9 @@ class MainView:
         if self.preview is None or self.saving:
             return  # 保存中は、撮っている画面を変えない
         self.preview_notice = None  # 利用者が設定を変えたので、お知らせは消す
-        start_text, end_text, scale, chips, alerts, events, today = self.preview_bar.read()
+        start_text, end_text, scale, chips, alerts, events, today = (
+            self.preview_bar.read()
+        )
         try:
             start, end = validate_period(start_text, end_text)
         except ValueError as exc:
@@ -1378,18 +1706,40 @@ class MainView:
             self.preview_bar.set_warning(None)
             self.preview_bar.set_save_enabled(False)
             return
-        too_long = check_column_count(scale, len(build_columns(self.project, scale, self.holidays, (start, end), self.reference_values())))
+        too_long = check_column_count(
+            scale,
+            len(
+                build_columns(
+                    self.project,
+                    scale,
+                    self.holidays,
+                    (start, end),
+                    self.reference_values(),
+                )
+            ),
+        )
         if too_long is not None:
             self.preview_bar.set_error(too_long)
             self.preview_bar.set_warning(None)
             self.preview_bar.set_save_enabled(False)
             return
-        self.preview = PreviewSettings(start, end, scale, chips, alerts, events, self.preview.excluded, show_today=today)
+        self.preview = PreviewSettings(
+            start,
+            end,
+            scale,
+            chips,
+            alerts,
+            events,
+            self.preview.excluded,
+            show_today=today,
+        )
         self.apply_preview(self.preview)
 
     def selectable_ids(self) -> list[str]:
         """出力の選択の対象になる全タスクの id(まとめ自身は除く)。"""
-        return [t.id for t in self.project.all_tasks() if t.kind is not TaskKind.SUMMARY]
+        return [
+            t.id for t in self.project.all_tasks() if t.kind is not TaskKind.SUMMARY
+        ]
 
     def select_in_preview(self, ids: list[str], checked: bool) -> None:
         """プレビューで、ids を出力する・しないにする。保存中は撮っている画面を変えない。"""
@@ -1405,7 +1755,9 @@ class MainView:
     def apply_preview(self, settings: PreviewSettings) -> None:
         self.gantt.set_options(settings.to_options(self.select_in_preview))
         ids = self.selectable_ids()
-        self.preview_bar.set_selection(sum(1 for i in ids if i not in settings.excluded), len(ids))
+        self.preview_bar.set_selection(
+            sum(1 for i in ids if i not in settings.excluded), len(ids)
+        )
         self.preview_bar.set_error(None)
         available = self.exporter.available
         self.preview_bar.set_save_enabled(available and not self.saving)
@@ -1420,7 +1772,9 @@ class MainView:
         """プレビューを画像にして、選んだ場所へ保存する。失敗しても、プレビューに留まる。"""
         if self.preview is None or self.saving or not self.exporter.available:
             return
-        if self.preview.excluded and len(self.preview.excluded) >= len(self.selectable_ids()):
+        if self.preview.excluded and len(self.preview.excluded) >= len(
+            self.selectable_ids()
+        ):
             ui.notify("出力するタスクがありません", type="warning")
             return
         self.saving = True
@@ -1430,14 +1784,20 @@ class MainView:
         try:
             ratio = export_pixel_ratio(self.gantt.content_width())
             # チェックを外した行とチェックボックスは、撮る間だけ描かない(全部チェックのままでも、チェックボックスは出さない)
-            self.gantt.set_options(replace(self.preview.to_options(), selectable=False, hide_excluded=True))
-            await asyncio.sleep(0)  # 描き直し(バックグラウンドで走る)を先に進めてから撮る
+            self.gantt.set_options(
+                replace(self.preview.to_options(), selectable=False, hide_excluded=True)
+            )
+            await asyncio.sleep(
+                0
+            )  # 描き直し(バックグラウンドで走る)を先に進めてから撮る
             try:
                 data = await self.exporter.capture(ratio)
             except ExportError as exc:
                 ui.notify(f"画像を作れませんでした: {exc}", type="negative")
                 return
-            path = await self.exporter.ask_path(default_filename(self.project.name, date.today()), PNG_FILE_TYPES)
+            path = await self.exporter.ask_path(
+                default_filename(self.project.name, date.today()), PNG_FILE_TYPES
+            )
             if path is None:
                 return
             try:
@@ -1480,7 +1840,9 @@ class MainView:
         self.saving = True
         self.preview_bar.set_save_enabled(False)
         try:
-            path = await self.exporter.ask_path(plantuml_filename(self.project.name, date.today()), PLANTUML_FILE_TYPES)
+            path = await self.exporter.ask_path(
+                plantuml_filename(self.project.name, date.today()), PLANTUML_FILE_TYPES
+            )
             if path is None:
                 return
             try:
@@ -1488,9 +1850,16 @@ class MainView:
             except OSError as exc:
                 ui.notify(f"保存できませんでした: {exc}", type="negative")
                 return
-            note = f"(期間の外などで {result.skipped} 件を省きました)" if result.skipped else ""
+            note = (
+                f"(期間の外などで {result.skipped} 件を省きました)"
+                if result.skipped
+                else ""
+            )
             ui.notify(f"保存しました{note}")
-            if self.project.plantuml_overload_notice and (warning := day_overload_notice(result.day_overloads)) is not None:
+            if (
+                self.project.plantuml_overload_notice
+                and (warning := day_overload_notice(result.day_overloads)) is not None
+            ):
                 ui.notify(warning, type="warning", timeout=10000)
             if (approx := weekly_crew_notice(result.weekly_tasks)) is not None:
                 ui.notify(approx, type="warning", timeout=10000)
@@ -1517,7 +1886,9 @@ class MainView:
         result = build_todos(self.project, member_name, self.holidays)
         if result.task_count == 0:
             return False
-        path = await self.exporter.ask_path(handoff_filename(member_name), JSON_FILE_TYPES)
+        path = await self.exporter.ask_path(
+            handoff_filename(member_name), JSON_FILE_TYPES
+        )
         if path is None:
             return False
         try:
@@ -1529,7 +1900,9 @@ class MainView:
         return True
 
     def open_members_parameters(self) -> None:
-        opened = deepcopy(self.project)  # 開いた時点。`キャンセル`の「すべて取り消す」で戻る
+        opened = deepcopy(
+            self.project
+        )  # 開いた時点。`キャンセル`の「すべて取り消す」で戻る
         saved_history = self.history.snapshot()
 
         def rollback() -> None:
@@ -1566,7 +1939,9 @@ class MainView:
             return None
 
     def assigned_count(self, name: str) -> int:
-        return sum(1 for task in self.project.all_tasks() if name in task.assignee_names)
+        return sum(
+            1 for task in self.project.all_tasks() if name in task.assignee_names
+        )
 
     def apply_members(self, members: list[Member], renames: dict[str, str]) -> None:
         """メンバーを更新し、改名をタスクの担当者に伝える。保存はしない(編集中の判定に入る)。"""
@@ -1575,14 +1950,19 @@ class MainView:
         self.project.members = members
         if renames:
             for task in self.project.all_tasks():
-                for assignee in [*task.assignees, *(a for week in task.weekly_crew for a in week)]:
+                for assignee in [
+                    *task.assignees,
+                    *(a for week in task.weekly_crew for a in week),
+                ]:
                     if assignee.name in renames:
                         assignee.name = renames[assignee.name]
         self.after_edit()
 
     def apply_teams(self, teams: list[Team]) -> None:
         """チームを更新し、消えたチームへの所属をメンバーから外す。保存はしない(編集中の判定に入る)。"""
-        if [(t.id, t.name) for t in teams] == [(t.id, t.name) for t in self.project.teams]:
+        if [(t.id, t.name) for t in teams] == [
+            (t.id, t.name) for t in self.project.teams
+        ]:
             return
         replace_teams(self.project, teams)
         self.after_edit()
@@ -1630,19 +2010,30 @@ class MainView:
             if review:
                 for task, end in reviews:
                     task.planned_end, task.planned_end_manual = end, True
-            self.project.ratio_limit_upper, self.project.ratio_limit_lower = limits.upper, limits.lower
+            self.project.ratio_limit_upper, self.project.ratio_limit_lower = (
+                limits.upper,
+                limits.lower,
+            )
             self.after_edit()
 
         if not reviews:
             commit(False)
             return
         self.ask_limit_review(
-            len(reviews), lambda review: commit(review) if review is not None else None, "上限・下限は変更しませんでした"
+            len(reviews),
+            lambda review: commit(review) if review is not None else None,
+            "上限・下限は変更しませんでした",
         )
 
-    def ask_limit_review(self, count: int, on_choice: Callable[[bool | None], None], cancel_message: str) -> None:
+    def ask_limit_review(
+        self, count: int, on_choice: Callable[[bool | None], None], cancel_message: str
+    ) -> None:
         """相対比率の上限・下限の変更で完了予定を見直すかを選ばせる。見直す=True・見直さない=False・キャンセル=None で on_choice を 1 回呼ぶ。"""
-        with self.client, ui.dialog() as dialog, ui.card():  # 設定ダイアログの中で作ると、それが閉じるときに一緒に消える
+        with (
+            self.client,
+            ui.dialog() as dialog,
+            ui.card(),
+        ):  # 設定ダイアログの中で作ると、それが閉じるときに一緒に消える
             ui.label(
                 f"上限・下限の変更で、実績か進捗のある {count} 件のタスクの換算率が変わります。\n"
                 "残りの作業を新しい条件で見直して、完了予定を手で指定の値にしますか。"
@@ -1666,9 +2057,15 @@ class MainView:
             dialog.on("hide", cancel)
 
             with ui.row():
-                ui.button("見直して適用", on_click=lambda: choose(True)).mark("limit-review-apply")
-                ui.button("見直さずに適用", on_click=lambda: choose(False)).props("flat").mark("limit-review-skip")
-                ui.button("キャンセル", on_click=cancel).props("flat").mark("limit-review-cancel")
+                ui.button("見直して適用", on_click=lambda: choose(True)).mark(
+                    "limit-review-apply"
+                )
+                ui.button("見直さずに適用", on_click=lambda: choose(False)).props(
+                    "flat"
+                ).mark("limit-review-skip")
+                ui.button("キャンセル", on_click=cancel).props("flat").mark(
+                    "limit-review-cancel"
+                )
         dialog.open()
 
     def apply_reference_mode(self, mode: ReferenceMode) -> None:
@@ -1685,18 +2082,27 @@ class MainView:
         snapshot = self.project.reference_mode is ReferenceMode.SNAPSHOT
         for task in self.project.all_tasks():
             if task.kind is TaskKind.REFERENCE:
-                task.ref_snapshot = take_snapshot(self.reference_resolver, task.ref_project, now) if snapshot else None
+                task.ref_snapshot = (
+                    take_snapshot(self.reference_resolver, task.ref_project, now)
+                    if snapshot
+                    else None
+                )
 
     def refresh_reference(self, path: SectionPath, index: int) -> None:
         """参照行のスナップショットを、今の参照先の値に取り直す(スナップショットの方式のときだけ)。"""
         self.refresh_snapshot(self.tasks_in(path)[index])
 
     def refresh_snapshot(self, task: Task) -> bool:
-        if task.kind is not TaskKind.REFERENCE or self.project.reference_mode is not ReferenceMode.SNAPSHOT:
+        if (
+            task.kind is not TaskKind.REFERENCE
+            or self.project.reference_mode is not ReferenceMode.SNAPSHOT
+        ):
             return False
         taken = take_snapshot(self.reference_resolver, task.ref_project, datetime.now())
         if taken is None:
-            ui.notify(f"「{task.ref_project}」を読めないため、更新できません", type="warning")
+            ui.notify(
+                f"「{task.ref_project}」を読めないため、更新できません", type="warning"
+            )
             return False
         task.ref_snapshot = taken
         self.after_edit()
@@ -1713,14 +2119,18 @@ class MainView:
         if name not in self.files:
             ui.notify(f"参照先のプロジェクトが見つかりません: {name}", type="warning")
             return
-        ref = build_references(self.project, self.reference_resolver, datetime.now()).get(task_id)
+        ref = build_references(
+            self.project, self.reference_resolver, datetime.now()
+        ).get(task_id)
         if ref is not None and ref.stale:
 
             def update_then_open() -> None:
                 self.refresh_snapshot(task)
                 self.go_to_reference(name)
 
-            open_stale_reference_dialog(name, update_then_open, lambda: self.go_to_reference(name))
+            open_stale_reference_dialog(
+                name, update_then_open, lambda: self.go_to_reference(name)
+            )
             return
         self.go_to_reference(name)
 
@@ -1768,7 +2178,9 @@ class MainView:
         self.project.name = previous
         return False
 
-    def write(self, *, overwrite: bool, after: Callable[[], object] | None = None) -> bool:
+    def write(
+        self, *, overwrite: bool, after: Callable[[], object] | None = None
+    ) -> bool:
         """保存して画面を更新する。成功したら `after` を呼ぶ。失敗したら通知だけ出し、状態は変えない。
 
         上書き保存の直前に、読み込んだあとの外部変更を調べる。変更があれば確認を出して False を返し、
@@ -1787,7 +2199,9 @@ class MainView:
                 )
                 return False
             if change is ExternalChange.MISSING:
-                ui.notify("ファイルが見つかりませんでした。新しく作成します", type="warning")
+                ui.notify(
+                    "ファイルが見つかりませんでした。新しく作成します", type="warning"
+                )
         return self.commit(overwrite=overwrite, after=after)
 
     def overwrite_external(self, after: Callable[[], object] | None) -> None:
@@ -1798,7 +2212,10 @@ class MainView:
             except FileNotFoundError:
                 pass  # 確認の間に消えた。退避するものがない
             except OSError:
-                ui.notify("バックアップを作れなかったため、保存しませんでした", type="negative")
+                ui.notify(
+                    "バックアップを作れなかったため、保存しませんでした",
+                    type="negative",
+                )
                 return
         self.commit(overwrite=True, after=after)
 
@@ -1835,7 +2252,9 @@ class MainView:
         self.after_edit()
 
     def add_subsection(self, path: SectionPath) -> None:
-        open_section_dialog(lambda name: self.save_subsection(path, name), title="サブセクションの追加")
+        open_section_dialog(
+            lambda name: self.save_subsection(path, name), title="サブセクションの追加"
+        )
 
     def save_subsection(self, path: SectionPath, name: str) -> None:
         """セクションの末尾にサブセクションを足す。親がない・root・3 階層目の親は何もしない。"""
@@ -1865,7 +2284,9 @@ class MainView:
             "sections": self.task_sections,
             "on_sections_change": self.set_task_sections,
             "reference_choices": sorted(
-                p.stem for p in list_project_files(self.project_dir) if p.stem != self.current_name()
+                p.stem
+                for p in list_project_files(self.project_dir)
+                if p.stem != self.current_name()
             ),  # プロジェクト参照の参照先(自分を除く)
         }
 
@@ -1918,7 +2339,9 @@ class MainView:
     ) -> None:
         """分解ダイアログを開く。実行は `apply_decompose`。`on_done` は、分解に成功したあとに呼ぶ(開いたままの編集ダイアログを閉じる)。"""
 
-        def apply(parts: list[Part], chain: bool, new_section: bool, params: ParamMode) -> None:
+        def apply(
+            parts: list[Part], chain: bool, new_section: bool, params: ParamMode
+        ) -> None:
             self.apply_decompose(path, index, parts, chain, new_section, params)
             if on_done is not None:
                 on_done()
@@ -1940,7 +2363,13 @@ class MainView:
             self.tasks_in(path)[index] = replace(task, name=name)
             self.after_edit()
 
-        open_name_dialog(apply, task_name_error, title="タスク名の変更", initial=task.name, label="タスク名")
+        open_name_dialog(
+            apply,
+            task_name_error,
+            title="タスク名の変更",
+            initial=task.name,
+            label="タスク名",
+        )
 
     def toggle_weeks(self, path: SectionPath, index: int) -> None:
         """担当を週ごとに分ける(今の担当を、開始から完了までの全部の週に入れる)/ 週ごとをやめる(第1週の担当に戻す)。"""
@@ -1951,8 +2380,14 @@ class MainView:
             schedule = Schedule(self.project, self.holidays)
             start = effective_start(task, self.project, self.holidays, schedule)
             end = effective_end(task, self.project, self.holidays, schedule)
-            weeks = week_count(start, end) if start is not None and end is not None and end > start else 1
-            saved = replace(task, weekly_crew=[list(task.assignees) for _ in range(weeks)])
+            weeks = (
+                week_count(start, end)
+                if start is not None and end is not None and end > start
+                else 1
+            )
+            saved = replace(
+                task, weekly_crew=[list(task.assignees) for _ in range(weeks)]
+            )
         else:
             ui.notify("担当者のいないタスクは、週ごとに分けられません")
             return
@@ -1964,7 +2399,9 @@ class MainView:
         task = self.tasks_in(path)[index]
         if not task.weekly_crew or week >= MAX_WEEKS:
             return
-        shown = task.weekly_crew[min(week, len(task.weekly_crew) - 1)]  # 定義した週より後は、最後の週の担当が続いている
+        shown = task.weekly_crew[
+            min(week, len(task.weekly_crew) - 1)
+        ]  # 定義した週より後は、最後の週の担当が続いている
 
         def apply(crew: list[Assignee]) -> None:
             weeks = [list(w) for w in task.weekly_crew]
@@ -1978,7 +2415,9 @@ class MainView:
 
         period = ""
         schedule = Schedule(self.project, self.holidays)
-        if (start := effective_start(task, self.project, self.holidays, schedule)) is not None:
+        if (
+            start := effective_start(task, self.project, self.holidays, schedule)
+        ) is not None:
             first = start.date() + timedelta(days=7 * week)
             period = f"{short_date(first)}〜{short_date(first + timedelta(days=6))}"
         open_week_crew_dialog(week + 1, shown, self.project.members, apply, period)
@@ -1994,14 +2433,18 @@ class MainView:
         def apply(saved: Task) -> None:
             self.save_task(path, index, saved)
 
-        open_quick_progress_dialog(task, self.project.actual_mode is ActualMode.INTERVALS, apply)
+        open_quick_progress_dialog(
+            task, self.project.actual_mode is ActualMode.INTERVALS, apply
+        )
 
     def add_named_task(self, path: SectionPath, index: int, name: str) -> None:
         """名前だけの通常タスクを、セクション(root は ())の index 番目に作る(名前の入力行の確定)。"""
         arrange.insert_named_task(self.project, (path, index), name)
         self.after_edit()
 
-    def add_named_child(self, path: SectionPath, index: int, name: str, parent_id: str) -> None:
+    def add_named_child(
+        self, path: SectionPath, index: int, name: str, parent_id: str
+    ) -> None:
         """名前だけの通常タスクを、まとめ(parent_id)の子として、index 番目に作る(名前の入力行の確定)。"""
         arrange.insert_named_child(self.project, (path, index), name, parent_id)
         self.after_edit()
@@ -2021,8 +2464,16 @@ class MainView:
     def confirm_delete_task(self, path: SectionPath, index: int) -> None:
         """確認してから、タスクを削除する。"""
         task = self.tasks_in(path)[index]
-        detail = f"子のタスク {len(task.children)} 件は、通常のタスクとして残ります" if task.kind is TaskKind.SUMMARY else None
-        open_confirm_dialog(f"「{task.name}」を削除しますか?", lambda: self.delete_task(path, index), detail=detail)
+        detail = (
+            f"子のタスク {len(task.children)} 件は、通常のタスクとして残ります"
+            if task.kind is TaskKind.SUMMARY
+            else None
+        )
+        open_confirm_dialog(
+            f"「{task.name}」を削除しますか?",
+            lambda: self.delete_task(path, index),
+            detail=detail,
+        )
 
     def copy_section(self, path: SectionPath) -> None:
         """セクションを、中のタスク・サブセクションごと複製して、直後に置く。"""
@@ -2030,7 +2481,9 @@ class MainView:
         assert section is not None
         name = section.name
         arrange.copy_section(self.project, path)
-        self.gantt.remap_collapsed(path[:-1], path[-1] + 1, 1)  # 後ろの兄弟の番号が 1 つずれる
+        self.gantt.remap_collapsed(
+            path[:-1], path[-1] + 1, 1
+        )  # 後ろの兄弟の番号が 1 つずれる
         self.after_edit()
         ui.notify(f"セクション「{name}」をコピーしました")
 
@@ -2043,15 +2496,29 @@ class MainView:
             section.name = name
             self.after_edit()
 
-        open_name_dialog(apply, section_name_error, title="セクション名の変更", initial=section.name, label="セクション名")
+        open_name_dialog(
+            apply,
+            section_name_error,
+            title="セクション名の変更",
+            initial=section.name,
+            label="セクション名",
+        )
 
     def confirm_delete_section(self, path: SectionPath) -> None:
         """確認してから、セクションを削除する。中のタスクは、セクションなしへ移す。"""
         section = arrange.section_at(self.project, path)
         assert section is not None
         count = len(section.all_tasks())
-        detail = f"中のタスク {count} 件(サブセクションのも含む)は、セクションなしへ移します" if count else None
-        open_confirm_dialog(f"セクション「{section.name}」を削除しますか?", lambda: self.delete_section(path), detail=detail)
+        detail = (
+            f"中のタスク {count} 件(サブセクションのも含む)は、セクションなしへ移します"
+            if count
+            else None
+        )
+        open_confirm_dialog(
+            f"セクション「{section.name}」を削除しますか?",
+            lambda: self.delete_section(path),
+            detail=detail,
+        )
 
     def delete_section(self, path: SectionPath) -> None:
         section = arrange.section_at(self.project, path)
@@ -2060,7 +2527,9 @@ class MainView:
         moved = arrange.delete_section(self.project, path)
         self.gantt.remap_collapsed(path[:-1], path[-1], -1)
         self.after_edit()
-        tail = f"(タスク {len(moved)} 件は、セクションなしへ移しました)" if moved else ""
+        tail = (
+            f"(タスク {len(moved)} 件は、セクションなしへ移しました)" if moved else ""
+        )
         ui.notify(f"セクション「{name}」を削除しました{tail}")
 
     def move_section(self, src: SectionPath, dst: SectionPath) -> None:
@@ -2107,7 +2576,12 @@ class MainView:
     def bulk_edit(self, ids: list[str]) -> None:
         """選択中のタスクの一括編集ダイアログを開く。"""
         if ids:
-            open_bulk_dialog(self.project, ids, self.holidays, lambda changes: self.apply_bulk(ids, changes))
+            open_bulk_dialog(
+                self.project,
+                ids,
+                self.holidays,
+                lambda changes: self.apply_bulk(ids, changes),
+            )
 
     def apply_bulk(self, ids: list[str], changes: BulkChanges) -> None:
         """一括編集を適用する。置き換えで週ごとが解除されるときだけ、先に件数を出して確認する。"""
@@ -2127,16 +2601,30 @@ class MainView:
         self.after_edit()  # 適用 1 回 = 元に戻す 1 ステップ
         ui.notify(f"{result.changed} 件を一括編集しました")
         if result.skipped:
-            reasons = "・".join(f"{reason} {count}" for reason, count in result.skips.items())
+            reasons = "・".join(
+                f"{reason} {count}" for reason, count in result.skips.items()
+            )
             ui.notify(f"スキップ {result.skipped} 項目: {reasons}", type="warning")
         if result.review_needed:
-            ui.notify(f"完了予定の見直しが要るタスクが {result.review_needed} 件あります", type="warning")
+            ui.notify(
+                f"完了予定の見直しが要るタスクが {result.review_needed} 件あります",
+                type="warning",
+            )
         if result.manual_switched:
-            ui.notify(f"自動算出から手で指定に変わったタスク {result.manual_switched} 件(設定を変えても追従しません)", type="warning")
+            ui.notify(
+                f"自動算出から手で指定に変わったタスク {result.manual_switched} 件(設定を変えても追従しません)",
+                type="warning",
+            )
         if result.emptied:
-            ui.notify(f"担当がいなくなったタスクが {result.emptied} 件あります", type="warning")
+            ui.notify(
+                f"担当がいなくなったタスクが {result.emptied} 件あります",
+                type="warning",
+            )
         if result.filled_weeks:
-            ui.notify(f"担当のいなくなった週 {result.filled_weeks} 週を、隣の週の担当にしました", type="warning")
+            ui.notify(
+                f"担当のいなくなった週 {result.filled_weeks} 週を、隣の週の担当にしました",
+                type="warning",
+            )
         self.warn_overallocation(*result.tasks.values(), limit=3)
 
     def extract_tasks(self, ids: list[str]) -> None:
@@ -2149,7 +2637,9 @@ class MainView:
 
         def validate(name: str) -> str | None:
             existing = {p.stem for p in self.project_dir.glob("*.json")}
-            return extract_name_error(self.project, name, existing) or validate_name(name, self.project_dir, new=True)
+            return extract_name_error(self.project, name, existing) or validate_name(
+                name, self.project_dir, new=True
+            )
 
         open_name_dialog(
             lambda name: self.apply_extract(ids, name),
@@ -2165,16 +2655,26 @@ class MainView:
             result = extract(self.project, ids, name)
             now = self.now()
             if self.project.reference_mode is ReferenceMode.SNAPSHOT:
-                value = compute_reference(result.child, effective_holidays(result.child, self.base_holidays), now)
-                reference = next(t for t in result.parent.all_tasks() if t.id == result.reference_id)
+                value = compute_reference(
+                    result.child,
+                    effective_holidays(result.child, self.base_holidays),
+                    now,
+                )
+                reference = next(
+                    t for t in result.parent.all_tasks() if t.id == result.reference_id
+                )
                 reference.ref_snapshot = replace(value, taken_at=now)
             check_extraction(result)
-            saved = save_project(result.child, self.project_dir, overwrite=False)  # 子を先に保存する。失敗したら親は変えない
+            saved = save_project(
+                result.child, self.project_dir, overwrite=False
+            )  # 子を先に保存する。失敗したら親は変えない
         except (OSError, ValueError) as exc:
             ui.notify(f"切り出せませんでした: {exc}", type="negative")
             return False
         self.files[saved.stem] = saved
-        self.file_select.set_options(sorted(self.files), value=self.current_name())  # 開いているプロジェクトの選択は変えない
+        self.file_select.set_options(
+            sorted(self.files), value=self.current_name()
+        )  # 開いているプロジェクトの選択は変えない
         self.request_git_refresh()
         self.project = result.parent
         self.gantt.clear_selection()
@@ -2184,7 +2684,10 @@ class MainView:
             "親を保存してください",
             "元に戻しても子のファイルは残ります",
         ]
-        ui.notify(f"「{name.strip()}」に {result.moved} 件を切り出しました。" + "。".join(n for n in notes if n))
+        ui.notify(
+            f"「{name.strip()}」に {result.moved} 件を切り出しました。"
+            + "。".join(n for n in notes if n)
+        )
         return True
 
     def confirm_bulk_delete(self, ids: list[str]) -> None:
@@ -2192,7 +2695,11 @@ class MainView:
             return
         info = delete_summary(self.project, ids)
         message = f"{info.total} 件のタスクを削除します(うちまとめ {info.summaries} 件・子 {info.children} 件)"
-        detail = f"実行中の記録があるタスクが {info.running} 件あります" if info.running else None
+        detail = (
+            f"実行中の記録があるタスクが {info.running} 件あります"
+            if info.running
+            else None
+        )
         open_confirm_dialog(message, lambda: self.bulk_delete(ids), detail=detail)
 
     def bulk_delete(self, ids: list[str]) -> None:
@@ -2200,9 +2707,13 @@ class MainView:
         self.gantt.clear_selection()
         self.after_edit()
 
-    def move_task(self, src: arrange.Position, dst: arrange.Position, copy: bool) -> None:
+    def move_task(
+        self, src: arrange.Position, dst: arrange.Position, copy: bool
+    ) -> None:
         """行を動かす(copy が真なら複製を置く)。位置が不正・変化なしなら何もしない。"""
-        if not arrange.has_task(self.project, src) or not arrange.has_list(self.project, dst):
+        if not arrange.has_task(self.project, src) or not arrange.has_list(
+            self.project, dst
+        ):
             return
         name = arrange.tasks_at(self.project, src[0])[src[1]].name
         if copy:
@@ -2220,7 +2731,9 @@ class MainView:
         schedule = Schedule(self.project, self.holidays)
         shown = schedule.start(task)
         floor = schedule.latest_finish(task)
-        days = max(days, arrange.min_shift_days(task, self.project.base_date, shown, floor))
+        days = max(
+            days, arrange.min_shift_days(task, self.project.base_date, shown, floor)
+        )
         if days == 0:
             return
         if not arrange.shift_task(task, days, shown):
@@ -2238,14 +2751,22 @@ class MainView:
         """スナップショットが今の参照先と違う参照行の、参照先の名前(重複なし)。常に最新のときは空。"""
         refs = build_references(self.project, self.reference_resolver, datetime.now())
         tasks = self.project.task_map()
-        return list(dict.fromkeys(tasks[tid].ref_project for tid, ref in refs.items() if ref.stale))
+        return list(
+            dict.fromkeys(
+                tasks[tid].ref_project for tid, ref in refs.items() if ref.stale
+            )
+        )
 
     def refresh_stale_snapshots(self, then: Callable[[], object] | None = None) -> None:
         """古いスナップショットをすべて今の参照先の値に取り直す。`then` があれば、その中で再描画する(なければ描き直す)。"""
         now = datetime.now()
         refs = build_references(self.project, self.reference_resolver, now)
         for task in self.project.all_tasks():
-            if task.kind is TaskKind.REFERENCE and refs.get(task.id) is not None and refs[task.id].stale:
+            if (
+                task.kind is TaskKind.REFERENCE
+                and refs.get(task.id) is not None
+                and refs[task.id].stale
+            ):
                 taken = take_snapshot(self.reference_resolver, task.ref_project, now)
                 if taken is not None:
                     task.ref_snapshot = taken
@@ -2254,15 +2775,15 @@ class MainView:
         else:
             then()
 
-    def save_task(
-        self, path: SectionPath, task_index: int | None, task: Task
-    ) -> None:
+    def save_task(self, path: SectionPath, task_index: int | None, task: Task) -> None:
         """タスクを保存する。スナップショットが古い参照先があるときは、先に確認する(キャンセルなら保存しない)。"""
         if stale := self.stale_references():
             open_stale_snapshot_dialog(
                 stale,
                 "保存",
-                lambda: self.refresh_stale_snapshots(lambda: self.apply_task(path, task_index, task)),
+                lambda: self.refresh_stale_snapshots(
+                    lambda: self.apply_task(path, task_index, task)
+                ),
                 lambda: self.apply_task(path, task_index, task),
             )
             return
@@ -2272,7 +2793,9 @@ class MainView:
         tasks = self.tasks_in(path)
         if task_index is None:
             if task.id in self.project.used_ids():
-                task.id = new_id(self.project.used_ids())  # 他のタスク・メンバー・セクションと同じ id にならないように
+                task.id = new_id(
+                    self.project.used_ids()
+                )  # 他のタスク・メンバー・セクションと同じ id にならないように
             tasks.append(task)
         else:
             tasks[task_index] = task
@@ -2287,7 +2810,11 @@ class MainView:
         if not any(task.assignees for task in tasks):
             return
         overloads = overallocations(self.project, self.holidays)
-        mine = [o for task in tasks for o in clip_overloads(task, self.project, self.holidays, overloads)]
+        mine = [
+            o
+            for task in tasks
+            for o in clip_overloads(task, self.project, self.holidays, overloads)
+        ]
         names = dict.fromkeys(name for task in tasks for name in task.assignee_names)
         notified = 0
         for name in names:
@@ -2303,7 +2830,10 @@ class MainView:
                 type="warning",
             )
         if limit is not None and notified > limit:
-            ui.notify(f"ほか {notified - limit} 人も割り当てが 100% を超える期間があります", type="warning")
+            ui.notify(
+                f"ほか {notified - limit} 人も割り当てが 100% を超える期間があります",
+                type="warning",
+            )
 
     @property
     def holidays(self) -> dict[date, str]:
@@ -2318,7 +2848,11 @@ class MainView:
         """祝日を取得してチャートに反映する。失敗しても画面は変えず通知だけ出す。"""
         try:
             self.base_holidays = await download_holidays(self.base_dir, self.transport)
-        except (httpx.HTTPError, ValueError, OSError):  # OSErrorはキャッシュの書き込み失敗
+        except (
+            httpx.HTTPError,
+            ValueError,
+            OSError,
+        ):  # OSErrorはキャッシュの書き込み失敗
             ui.notify("祝日データを取得できませんでした", type="warning")
             return
         self.gantt.set_holidays(self.base_holidays)
@@ -2353,9 +2887,15 @@ class MainView:
             self.run_js(today_color_js(self.today_color))
         if self.warning_color is not None:
             self.run_js(warning_color_js(self.warning_color))
-        ui.keyboard(on_key=self.on_plain_key)  # 入力欄・ボタンにフォーカスがあるときは、受けない
-        ui.keyboard(on_key=self.on_modified_key, ignore=[])  # Ctrl/Cmd 付きだけは、入力欄でも受ける(Ctrl/Cmd+Z を除く)
-        ui.keyboard(on_key=self.on_undo_key, ignore=["input", "select", "textarea"])  # Ctrl/Cmd+Z: 入力欄では文字の取り消し
+        ui.keyboard(
+            on_key=self.on_plain_key
+        )  # 入力欄・ボタンにフォーカスがあるときは、受けない
+        ui.keyboard(
+            on_key=self.on_modified_key, ignore=[]
+        )  # Ctrl/Cmd 付きだけは、入力欄でも受ける(Ctrl/Cmd+Z を除く)
+        ui.keyboard(
+            on_key=self.on_undo_key, ignore=["input", "select", "textarea"]
+        )  # Ctrl/Cmd+Z: 入力欄では文字の取り消し
         if self.startup_notice:
             ui.notify(self.startup_notice, type="warning")
         if self.needs_first_fetch:
@@ -2363,7 +2903,9 @@ class MainView:
 
     def header(self) -> None:
         """ヘッダー(画面の上端に固定する 1 行。左からメニュー 4 つ、右側にコンボ・ダッシュボード・テーマ。プロジェクト名は、ヘッダーの外): タイトル・メニュー 4 つ・(右側)プロジェクトの切り替え・ダッシュボード・テーマ。"""
-        with ui.header(elevated=False, wrap=False).classes("row items-center no-wrap gap-1 app-header") as box:
+        with ui.header(elevated=False, wrap=False).classes(
+            "row items-center no-wrap gap-1 app-header"
+        ) as box:
             self.header_box = box
             box.mark("header-box")
             self.header_menu(
@@ -2371,24 +2913,59 @@ class MainView:
                 "menu-file",
                 [
                     MenuItem("開く", "folder_open", self.show_file_list, "file-open"),
-                    MenuItem("PlantUML を取り込む", "upload_file", self.request_import_plantuml, "file-import-plantuml"),
+                    MenuItem(
+                        "PlantUML を取り込む",
+                        "upload_file",
+                        self.request_import_plantuml,
+                        "file-import-plantuml",
+                    ),
                     *(  # ファイル選択はネイティブのみなので、Web では項目を出さない
-                        [MenuItem("CSV を取り込む", "table_view", self.request_import_csv, "file-import-csv")]
+                        [
+                            MenuItem(
+                                "CSV を取り込む",
+                                "table_view",
+                                self.request_import_csv,
+                                "file-import-csv",
+                            )
+                        ]
                         if self.exporter.available
                         else []
                     ),
                     *(
-                        [MenuItem("設定を取り込む", "settings_backup_restore", self.request_import_settings, "file-import-settings")]
+                        [
+                            MenuItem(
+                                "設定を取り込む",
+                                "settings_backup_restore",
+                                self.request_import_settings,
+                                "file-import-settings",
+                            )
+                        ]
                         if self.exporter.available
                         else []
                     ),
-                    MenuItem("新規プロジェクト作成", "note_add", self.request_new, "file-new"),
+                    MenuItem(
+                        "新規プロジェクト作成", "note_add", self.request_new, "file-new"
+                    ),
                     None,  # 水平線(開く・作る / 保存 / データの更新)
-                    MenuItem("上書き保存", "save", self.save_project_clicked, "save-project"),
-                    MenuItem("名前をつけて保存", "save_as", self.save_as, "file-save-as"),
+                    MenuItem(
+                        "上書き保存", "save", self.save_project_clicked, "save-project"
+                    ),
+                    MenuItem(
+                        "名前をつけて保存", "save_as", self.save_as, "file-save-as"
+                    ),
                     None,
-                    MenuItem("格納先を変更", "drive_file_move", self.request_change_project_dir, "file-change-dir"),
-                    MenuItem("祝日を更新", "event_repeat", self.refresh_holidays, "refresh-holidays"),
+                    MenuItem(
+                        "格納先を変更",
+                        "drive_file_move",
+                        self.request_change_project_dir,
+                        "file-change-dir",
+                    ),
+                    MenuItem(
+                        "祝日を更新",
+                        "event_repeat",
+                        self.refresh_holidays,
+                        "refresh-holidays",
+                    ),
                 ],
             )
             self.header_menu(
@@ -2396,19 +2973,49 @@ class MainView:
                 "menu-project",
                 [
                     MenuItem("設定", "settings", self.open_settings, "open-settings"),
-                    MenuItem("メンバーとパラメータ", "groups", self.open_members_parameters, "open-members-parameters"),
-                    MenuItem("ダッシュボード", "dashboard", self.open_dashboard, "menu-open-dashboard", "D"),
+                    MenuItem(
+                        "メンバーとパラメータ",
+                        "groups",
+                        self.open_members_parameters,
+                        "open-members-parameters",
+                    ),
+                    MenuItem(
+                        "ダッシュボード",
+                        "dashboard",
+                        self.open_dashboard,
+                        "menu-open-dashboard",
+                        "D",
+                    ),
                 ],
             )
             self.header_menu(
                 "エクスポート",
                 "menu-export",
                 [
-                    MenuItem("チャートプレビュー", "visibility", self.enter_preview, "export-preview"),
-                    MenuItem("担当者へ書き出し", "ios_share", self.open_handoff, "export-handoff"),
-                    MenuItem("TSV として書き出す", "download", self.export_tsv, "export-tsv"),
+                    MenuItem(
+                        "チャートプレビュー",
+                        "visibility",
+                        self.enter_preview,
+                        "export-preview",
+                    ),
+                    MenuItem(
+                        "担当者へ書き出し",
+                        "ios_share",
+                        self.open_handoff,
+                        "export-handoff",
+                    ),
+                    MenuItem(
+                        "TSV として書き出す", "download", self.export_tsv, "export-tsv"
+                    ),
                     *(
-                        [MenuItem("設定を書き出す", "save_alt", self.export_settings, "export-settings")]
+                        [
+                            MenuItem(
+                                "設定を書き出す",
+                                "save_alt",
+                                self.export_settings,
+                                "export-settings",
+                            )
+                        ]
                         if self.exporter.available
                         else []
                     ),
@@ -2418,43 +3025,93 @@ class MainView:
                 "Git",
                 "menu-git",
                 [
-                    MenuItem("コミット…", "commit", self.open_git_commit, "git-commit", label_for("git_commit")),
-                    MenuItem("プッシュ", "cloud_upload", self.start_git_push, "git-push", label_for("git_push")),
-                    MenuItem("プル", "cloud_download", self.start_git_pull, "git-pull", label_for("git_pull")),
-                    MenuItem("状態を読み直す", "refresh", self.request_git_refresh, "git-refresh"),
+                    MenuItem(
+                        "コミット…",
+                        "commit",
+                        self.open_git_commit,
+                        "git-commit",
+                        label_for("git_commit"),
+                    ),
+                    MenuItem(
+                        "プッシュ",
+                        "cloud_upload",
+                        self.start_git_push,
+                        "git-push",
+                        label_for("git_push"),
+                    ),
+                    MenuItem(
+                        "プル",
+                        "cloud_download",
+                        self.start_git_pull,
+                        "git-pull",
+                        label_for("git_pull"),
+                    ),
+                    MenuItem(
+                        "状態を読み直す",
+                        "refresh",
+                        self.request_git_refresh,
+                        "git-refresh",
+                    ),
                 ],
             )
             self.header_menu(
-                "ヘルプ", "menu-help", [MenuItem("ショートカットヘルプ", "keyboard", self.help_dialog.open, "help-shortcuts")]
+                "ヘルプ",
+                "menu-help",
+                [
+                    MenuItem(
+                        "ショートカットヘルプ",
+                        "keyboard",
+                        self.help_dialog.open,
+                        "help-shortcuts",
+                    )
+                ],
             )
             ui.space()
             self.git_chip()
-            self.file_select = ui.select(
-                list(self.files),
-                label="プロジェクトファイル",
-                on_change=lambda e: self.request_open(e.value),
-            ).props("dense outlined dark popup-content-class=app-select-popup").classes("app-project-select").mark("project-select")
-            ui.button(icon="dashboard", color=None, on_click=self.open_dashboard).props("flat round dense").tooltip(
-                "ダッシュボード"
-            ).mark("open-dashboard")
-            ui.button(icon="folder_special", color=None, on_click=self.open_project_folder).props(
+            self.file_select = (
+                ui.select(
+                    list(self.files),
+                    label="プロジェクトファイル",
+                    on_change=lambda e: self.request_open(e.value),
+                )
+                .props("dense outlined dark popup-content-class=app-select-popup")
+                .classes("app-project-select")
+                .mark("project-select")
+            )
+            ui.button(icon="dashboard", color=None, on_click=self.open_dashboard).props(
                 "flat round dense"
-            ).tooltip("プロジェクトの格納フォルダを開く").mark("open-folder")
+            ).tooltip("ダッシュボード").mark("open-dashboard")
+            ui.button(
+                icon="folder_special", color=None, on_click=self.open_project_folder
+            ).props("flat round dense").tooltip(
+                "プロジェクトの格納フォルダを開く"
+            ).mark("open-folder")
             self.theme_menu()
             self.update_git_menu()
 
-    def header_menu(self, label: str, marker: str, items: list[MenuItem | None]) -> None:
+    def header_menu(
+        self, label: str, marker: str, items: list[MenuItem | None]
+    ) -> None:
         """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(None は水平線)。"""
-        with ui.button(label, color=None).props("unelevated rounded no-caps").classes("app-menu-btn").mark(marker):
+        with (
+            ui.button(label, color=None)
+            .props("unelevated rounded no-caps")
+            .classes("app-menu-btn")
+            .mark(marker)
+        ):
             with ui.menu().props("content-class=app-menu").mark(f"{marker}-items"):
                 for item in items:
                     if item is None:
                         ui.separator().mark(f"{marker}-separator")
                         continue
-                    self.menu_entries[item.marker] = self.menu_entry(item.text, item.icon, item.handler, item.marker, item.key)
+                    self.menu_entries[item.marker] = self.menu_entry(
+                        item.text, item.icon, item.handler, item.marker, item.key
+                    )
 
     @staticmethod
-    def menu_entry(text: str, icon: str, handler: Callable[[], object], marker: str, key: str = "") -> ui.menu_item:
+    def menu_entry(
+        text: str, icon: str, handler: Callable[[], object], marker: str, key: str = ""
+    ) -> ui.menu_item:
         """メニューの 1 項目(左にアイコン、右端にキー)。文言の ItemSection は、menu_item が作る。"""
         with ui.menu_item(text, on_click=handler).mark(marker) as entry:
             with ui.item_section().props("avatar") as avatar:
@@ -2465,7 +3122,12 @@ class MainView:
         return entry
 
     NOT_WORK_TREE = "git の作業ツリーではありません"
-    GIT_MENU = (("commit", "git-commit"), ("push", "git-push"), ("pull", "git-pull"), ("refresh", "git-refresh"))
+    GIT_MENU = (
+        ("commit", "git-commit"),
+        ("push", "git-push"),
+        ("pull", "git-pull"),
+        ("refresh", "git-refresh"),
+    )
 
     def git_reason(self, action: str) -> str | None:
         """Git メニューの操作が、今できない理由(できるときは None)。`action`は commit・push・pull・push_after_commit・refresh。
@@ -2545,7 +3207,9 @@ class MainView:
             default_message,
             self.git_reason("push_after_commit"),
             self.is_dirty(),
-            lambda names, message, push: self.later(lambda: self.run_commit(names, message, push)),
+            lambda names, message, push: self.later(
+                lambda: self.run_commit(names, message, push)
+            ),
         )
 
     async def run_commit(self, names: list[str], message: str, push: bool) -> None:
@@ -2554,7 +3218,9 @@ class MainView:
             return
         self.set_git_busy(True)
         try:
-            result = await run.io_bound(self.commit_files, self.project_dir, names, message)
+            result = await run.io_bound(
+                self.commit_files, self.project_dir, names, message
+            )
             if result is None:  # アプリの終了中
                 return
             if not result.ok:
@@ -2568,7 +3234,10 @@ class MainView:
                 if pushed.ok:
                     ui.notify(pushed.message)
                 else:
-                    ui.notify(f"コミットしました。プッシュに失敗しました: {pushed.message}", type="warning")
+                    ui.notify(
+                        f"コミットしました。プッシュに失敗しました: {pushed.message}",
+                        type="warning",
+                    )
         finally:
             self.set_git_busy(False)
             self.request_git_refresh()
@@ -2619,8 +3288,13 @@ class MainView:
             if plan.kind is PullKind.UP_TO_DATE:
                 ui.notify("最新です")
                 return
-            if self.is_dirty():  # 取得している間に編集された。読み直しで捨てないよう、始めない
-                ui.notify("保存されていない編集があるため、取り込みを中止しました。先に保存・コミットしてください", type="warning")
+            if (
+                self.is_dirty()
+            ):  # 取得している間に編集された。読み直しで捨てないよう、始めない
+                ui.notify(
+                    "保存されていない編集があるため、取り込みを中止しました。先に保存・コミットしてください",
+                    type="warning",
+                )
                 return
             if plan.kind is PullKind.FAST_FORWARD:
                 done = await run.io_bound(ops.fast_forward, self.project_dir)
@@ -2657,7 +3331,9 @@ class MainView:
                         await self.abort_pull()
                         return False
                     picked += len(outcome.conflicts)
-                    outcome = merge_files(file.name, file.base, file.ours, file.theirs, choices)
+                    outcome = merge_files(
+                        file.name, file.base, file.ours, file.theirs, choices
+                    )
                 merged[file.name] = outcome.text
                 notes += outcome.notes
         except Exception as exc:  # ValueError(読めない・検証を通らない)以外でも、マージを途中のまま残さない
@@ -2681,7 +3357,9 @@ class MainView:
         if done is None:  # アプリの終了中
             return
         if not done.ok:
-            ui.notify(f"取り込みを中止できませんでした: {done.message}", type="negative")
+            ui.notify(
+                f"取り込みを中止できませんでした: {done.message}", type="negative"
+            )
         elif reason is None:
             ui.notify("取り込みを中止しました")
         else:
@@ -2704,7 +3382,10 @@ class MainView:
         self.file_select.set_options(sorted(self.files), value=self.current_name())
         name = self.current_name()
         if self.is_dirty():  # 取り込み中に編集された。読み直すと捨ててしまう
-            ui.notify("取り込み中に編集があったため、画面は読み直していません。保存すると取り込んだ内容を上書きします", type="warning")
+            ui.notify(
+                "取り込み中に編集があったため、画面は読み直していません。保存すると取り込んだ内容を上書きします",
+                type="warning",
+            )
         elif name is not None and name in self.files:
             self.open_project(name)
 
@@ -2730,7 +3411,12 @@ class MainView:
         text = describe(self.git_state)
         if not text:
             return
-        chip = ui.label(text).classes("app-git-chip").tooltip(tooltip(self.git_state)).mark("git-state")
+        chip = (
+            ui.label(text)
+            .classes("app-git-chip")
+            .tooltip(tooltip(self.git_state))
+            .mark("git-state")
+        )
         chip.on("click", self.request_git_refresh)
         if self.git_state.error is not None:
             chip.classes("app-git-error")
@@ -2742,28 +3428,55 @@ class MainView:
     @ui.refreshable_method
     def title(self) -> None:
         ui.label(self.project.name).classes("app-title")
-        if self.origin is not None and self.origin in self.files:  # 参照行から開いたときだけ
-            ui.button(f"{self.origin}に戻る", icon="arrow_back", on_click=self.return_to_origin).props(
-                "flat dense no-caps size=sm"
-            ).tooltip("参照した元のプロジェクトに戻る").mark("back-to-origin")
+        if (
+            self.origin is not None and self.origin in self.files
+        ):  # 参照行から開いたときだけ
+            ui.button(
+                f"{self.origin}に戻る",
+                icon="arrow_back",
+                on_click=self.return_to_origin,
+            ).props("flat dense no-caps size=sm").tooltip(
+                "参照した元のプロジェクトに戻る"
+            ).mark("back-to-origin")
 
     @ui.refreshable_method
     def theme_menu(self) -> None:
         """ヘッダー右端のテーマのメニュー。ボタンの絵が今のテーマで、開いたメニューの選択中の項目が強調される。"""
-        with ui.button(icon=THEME_ICONS[self.theme], color=None).props("flat round dense").tooltip("テーマ").mark(
-            "menu-theme"
+        with (
+            ui.button(icon=THEME_ICONS[self.theme], color=None)
+            .props("flat round dense")
+            .tooltip("テーマ")
+            .mark("menu-theme")
         ):
             with ui.menu().props("content-class=app-menu").mark("menu-theme-items"):
                 for theme in THEMES:
                     item = self.menu_entry(
-                        THEME_LABELS[theme], THEME_ICONS[theme], lambda t=theme: self.set_theme(t), f"theme-{theme}"
+                        THEME_LABELS[theme],
+                        THEME_ICONS[theme],
+                        lambda t=theme: self.set_theme(t),
+                        f"theme-{theme}",
                     )
                     if theme == self.theme:
                         item.props("active")
                 ui.separator().mark("theme-separator")
-                self.menu_entry(CUSTOM_COLORS_LABEL, "tune", self.open_theme_dialog, "theme-custom-settings")
-                self.menu_entry(TODAY_COLOR_LABEL, "event", self.open_today_color_dialog, "theme-today-color")
-                self.menu_entry(WARNING_COLOR_LABEL, "warning_amber", self.open_warning_color_dialog, "theme-warning-color")
+                self.menu_entry(
+                    CUSTOM_COLORS_LABEL,
+                    "tune",
+                    self.open_theme_dialog,
+                    "theme-custom-settings",
+                )
+                self.menu_entry(
+                    TODAY_COLOR_LABEL,
+                    "event",
+                    self.open_today_color_dialog,
+                    "theme-today-color",
+                )
+                self.menu_entry(
+                    WARNING_COLOR_LABEL,
+                    "warning_amber",
+                    self.open_warning_color_dialog,
+                    "theme-warning-color",
+                )
 
     def build_help_dialog(self) -> ui.dialog:
         """ショートカットヘルプのダイアログ(ヘルプメニューから開く)。"""
@@ -2771,7 +3484,11 @@ class MainView:
             ui.label("キー操作").classes("text-h6")
             for key, desc in help_entries():
                 ui.label(f"{key}: {desc}")
-            ui.label("Ctrl/Cmd+クリック: タスクを選択に加える・外す(名前の欄。まとめは子も)").mark("help-bulk-click")
-            ui.label("Shift+クリック: 最後に選んだ行との間を選ぶ。ESC か選択バーの解除で解除").mark("help-bulk-range")
+            ui.label(
+                "Ctrl/Cmd+クリック: タスクを選択に加える・外す(名前の欄。まとめは子も)"
+            ).mark("help-bulk-click")
+            ui.label(
+                "Shift+クリック: 最後に選んだ行との間を選ぶ。ESC か選択バーの解除で解除"
+            ).mark("help-bulk-range")
             ui.button("閉じる", on_click=dialog.close)
         return dialog

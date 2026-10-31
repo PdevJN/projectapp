@@ -12,7 +12,12 @@ def menu_project() -> Project:
     return Project(
         "demo",
         base_date=date(2026, 10, 5),
-        sections=[Section("開発", [Task("通常", id="a"), Task("実行中", id="b", status=Status.RUNNING)])],
+        sections=[
+            Section(
+                "開発",
+                [Task("通常", id="a"), Task("実行中", id="b", status=Status.RUNNING)],
+            )
+        ],
         tasks=[Task("直下", id="t")],
     )
 
@@ -27,7 +32,9 @@ def menu_project() -> Project:
         ("context-delete", "delete_task"),
     ],
 )
-async def test_each_menu_item_acts_on_the_right_clicked_task(user: User, marker: str, event: str) -> None:
+async def test_each_menu_item_acts_on_the_right_clicked_task(
+    user: User, marker: str, event: str
+) -> None:
     charts, recorder = mount_chart(menu_project())
     await user.open("/")
     charts[0].open_menu((0,), 0)
@@ -43,7 +50,9 @@ async def test_the_menu_acts_on_a_task_directly_under_the_root(user: User) -> No
     assert recorder.events == [("rename_task", ((), 0))]
 
 
-async def test_decompose_is_disabled_for_a_task_that_cannot_be_decomposed(user: User) -> None:
+async def test_decompose_is_disabled_for_a_task_that_cannot_be_decomposed(
+    user: User,
+) -> None:
     charts, _ = mount_chart(menu_project())
     await user.open("/")
     item = user.find(marker="context-decompose").elements.pop()
@@ -58,17 +67,21 @@ async def test_every_row_opens_the_shared_menu_on_right_click(user: User) -> Non
     await user.open("/")
     for marker in ("row-0-0", "row-0-1", "row-top-0"):
         row = user.find(marker=marker).elements.pop()
-        listeners = [l for l in row._event_listeners.values() if l.type == "contextmenu"]
+        listeners = [
+            ev for ev in row._event_listeners.values() if ev.type == "contextmenu"
+        ]
         handler = listeners[0].js_handler or ""
         assert "preventDefault" in handler
-        assert ".show(e)" in handler and "qRef" not in handler  # QMenu は getElement が直接返す(qRef は無い)
+        assert (
+            ".show(e)" in handler and "qRef" not in handler
+        )  # QMenu は getElement が直接返す(qRef は無い)
 
 
 async def test_read_only_rows_have_no_menu(user: User) -> None:
     mount_with(menu_project(), ViewOptions(read_only=True))
     await user.open("/")
     row = user.find(marker="row-0-0").elements.pop()
-    assert not [l for l in row._event_listeners.values() if l.type == "contextmenu"]
+    assert not [ev for ev in row._event_listeners.values() if ev.type == "contextmenu"]
 
 
 async def test_pressing_anywhere_outside_the_menu_closes_it(user: User) -> None:
@@ -85,7 +98,9 @@ async def test_the_menu_is_compact(user: User) -> None:
     charts, _ = mount_chart(menu_project())
     await user.open("/")
     assert "app-context-menu" in charts[0].menu.classes  # type: ignore[union-attr]
-    assert "min-height: 26px" in CONTEXT_MENU_CSS and "font-size: 12px" in CONTEXT_MENU_CSS
+    assert (
+        "min-height: 26px" in CONTEXT_MENU_CSS and "font-size: 12px" in CONTEXT_MENU_CSS
+    )
 
 
 async def test_the_toolbar_shows_no_browser_menu_on_right_click(user: User) -> None:
@@ -93,5 +108,7 @@ async def test_the_toolbar_shows_no_browser_menu_on_right_click(user: User) -> N
     mount_chart(menu_project())
     await user.open("/")
     toolbar = user.find(marker="chart-toolbar").elements.pop()
-    listeners = [l for l in toolbar._event_listeners.values() if l.type == "contextmenu"]
+    listeners = [
+        ev for ev in toolbar._event_listeners.values() if ev.type == "contextmenu"
+    ]
     assert listeners and "preventDefault" in (listeners[0].js_handler or "")

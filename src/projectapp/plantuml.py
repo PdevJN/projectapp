@@ -11,7 +11,15 @@ from pathlib import Path
 
 from projectapp.events import color_hex
 from projectapp.filtering import TaskFilter, matches, section_has_match
-from projectapp.models import Assignee, Project, ReferenceValue, Section, Status, Task, TaskKind
+from projectapp.models import (
+    Assignee,
+    Project,
+    ReferenceValue,
+    Section,
+    Status,
+    Task,
+    TaskKind,
+)
 from projectapp.timeline import (
     Scale,
     Schedule,
@@ -106,7 +114,9 @@ def _resource(name: str) -> str:
 
 
 def _percent(a: Assignee) -> int:
-    return max(1, min(100, round(a.allocation * 100))) if isfinite(a.allocation) else 100
+    return (
+        max(1, min(100, round(a.allocation * 100))) if isfinite(a.allocation) else 100
+    )
 
 
 def _assignees(task: Task) -> str:
@@ -114,12 +124,19 @@ def _assignees(task: Task) -> str:
     parts = []
     for a in task.assignees:
         percent = _percent(a)
-        parts.append(f"{{{_resource(a.name)}}}" if percent == 100 else f"{{{_resource(a.name)}:{percent}%}}")
+        parts.append(
+            f"{{{_resource(a.name)}}}"
+            if percent == 100
+            else f"{{{_resource(a.name)}:{percent}%}}"
+        )
     return f" on {' '.join(parts)}" if parts else ""
 
 
 def _day_overloads(
-    project: Project, holidays: dict[date, str], drawn: list[Task], days: dict[str, tuple[date, date]]
+    project: Project,
+    holidays: dict[date, str],
+    drawn: list[Task],
+    days: dict[str, tuple[date, date]],
 ) -> tuple[tuple[str, date], ...]:
     """PlantUML が(日単位の合計で)100% 超に描くが、アプリの時刻での判定では超過でない(担当者, 日)。"""
     totals: dict[tuple[str, date], int] = {}
@@ -134,7 +151,11 @@ def _day_overloads(
                 totals[key] = totals.get(key, 0) + _percent(a)
     real: set[tuple[str, date]] = set()
     for over in overallocations(project, holidays, drawn):
-        for offset in range((over.end - timedelta(microseconds=1)).date().toordinal() - over.start.date().toordinal() + 1):
+        for offset in range(
+            (over.end - timedelta(microseconds=1)).date().toordinal()
+            - over.start.date().toordinal()
+            + 1
+        ):
             real.add((over.member, over.start.date() + timedelta(days=offset)))
     flagged = [key for key, total in totals.items() if total > 100 and key not in real]
     return tuple(sorted(flagged, key=lambda key: (key[1], key[0])))
@@ -162,7 +183,9 @@ def build_plantuml(
     used: set[str] = set()
     aliases: dict[str, str] = {}  # タスクの id → 別名(T1, T2, ...)。出したものだけ
     order: list[Task] = []
-    drawn_days: dict[str, tuple[date, date]] = {}  # 出したタスクの id → PlantUML に渡した日付の範囲(含む)
+    drawn_days: dict[
+        str, tuple[date, date]
+    ] = {}  # 出したタスクの id → PlantUML に渡した日付の範囲(含む)
     skipped = 0
 
     def unique(label: str) -> str:
@@ -204,7 +227,9 @@ def build_plantuml(
             event_lines.append(f"[E{n}] is colored in {color_hex(e.color)}")
 
     if show_today and p_start <= now.date() <= p_end:
-        head.append(f"{now.date().isoformat()} is colored in {today_color or 'red'}")  # PlantUML は線を引けないので、列を塗る
+        head.append(
+            f"{now.date().isoformat()} is colored in {today_color or 'red'}"
+        )  # PlantUML は線を引けないので、列を塗る
 
     def emit(task: Task, target: list[str]) -> None:
         nonlocal skipped
@@ -222,28 +247,44 @@ def build_plantuml(
             return
         first, last = max(first, p_start), min(last, p_end)
         alias = f"T{len(aliases) + 1}"
-        label = unique(_safe(f"{task.name}(参照)" if task.kind is TaskKind.REFERENCE else task.name))
+        label = unique(
+            _safe(
+                f"{task.name}(参照)" if task.kind is TaskKind.REFERENCE else task.name
+            )
+        )
         aliases[task.id] = alias
         order.append(task)
         drawn_days[task.id] = (first, last)
         if task.kind is TaskKind.CHECKPOINT:
             target.append(f"[{label}] as [{alias}] happens on {first.isoformat()}")
-        elif task.kind is TaskKind.REFERENCE:  # 参照先全体の 1 本の帯。担当者・進捗は出さない
-            target.append(f"[{label}] as [{alias}] starts {first.isoformat()} and ends {last.isoformat()}")
+        elif (
+            task.kind is TaskKind.REFERENCE
+        ):  # 参照先全体の 1 本の帯。担当者・進捗は出さない
+            target.append(
+                f"[{label}] as [{alias}] starts {first.isoformat()} and ends {last.isoformat()}"
+            )
             value = (references or {}).get(task.id)
             late = show_alerts and value is not None and value.delayed > 0
-            target.append(f"[{alias}] is colored in {OVERDUE_COLOR if late else STATUS_COLORS[Status.NOT_STARTED]}")
+            target.append(
+                f"[{alias}] is colored in {OVERDUE_COLOR if late else STATUS_COLORS[Status.NOT_STARTED]}"
+            )
             return
         else:
             on = _assignees(task) if show_chips else ""
-            target.append(f"[{label}] as [{alias}]{on} starts {first.isoformat()} and ends {last.isoformat()}")
+            target.append(
+                f"[{label}] as [{alias}]{on} starts {first.isoformat()} and ends {last.isoformat()}"
+            )
             progress = current_progress(task)
             if show_chips and progress is not None:
                 target.append(f"[{alias}] is {progress}% completed")
         overdue = show_alerts and is_overdue(task, project, holidays, now, schedule)
-        target.append(f"[{alias}] is colored in {OVERDUE_COLOR if overdue else STATUS_COLORS[task.status]}")
+        target.append(
+            f"[{alias}] is colored in {OVERDUE_COLOR if overdue else STATUS_COLORS[task.status]}"
+        )
 
-    root_body: list[str] = []  # セクションに属さないタスク(区切りなし)。イベントの区切りより前に置く
+    root_body: list[
+        str
+    ] = []  # セクションに属さないタスク(区切りなし)。イベントの区切りより前に置く
     for task in project.tasks:
         if matches(task, task_filter):
             emit(task, root_body)
@@ -285,10 +326,14 @@ def build_plantuml(
             alias = source_alias(pid)
             if alias is not None and pid != task.id:
                 arrows.append(f"[{alias}] -> [{aliases[task.id]}]")
-    day_overloads = _day_overloads(project, holidays, order, drawn_days) if show_chips else ()
+    day_overloads = (
+        _day_overloads(project, holidays, order, drawn_days) if show_chips else ()
+    )
     lines = [*head, *root_body]
     if event_lines:
         lines += [f"-- {EVENT_SECTION} --", *event_lines]
     lines += [*section_body, *arrows, "@endgantt"]
     weekly_tasks = sum(1 for t in order if t.weekly_crew) if show_chips else 0
-    return PlantUml("\n".join(lines) + "\n", len(aliases), skipped, day_overloads, weekly_tasks)
+    return PlantUml(
+        "\n".join(lines) + "\n", len(aliases), skipped, day_overloads, weekly_tasks
+    )

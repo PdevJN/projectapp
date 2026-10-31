@@ -24,18 +24,24 @@ def decode(uri: str) -> Image.Image:
 
 
 @pytest.mark.parametrize("fmt", ["PNG", "JPEG", "GIF", "WEBP"])
-def test_make_icon_accepts_each_format_and_returns_a_128_square_png(make_png, fmt: str) -> None:
+def test_make_icon_accepts_each_format_and_returns_a_128_square_png(
+    make_png, fmt: str
+) -> None:
     image = decode(make_icon(make_png((300, 200), fmt=fmt)))
     assert image.format == "PNG" and image.size == (ICON_SIZE, ICON_SIZE)
 
 
 def test_make_icon_crops_the_center_of_a_wide_image() -> None:
     wide = Image.new("RGBA", (300, 100), (255, 0, 0, 255))
-    wide.paste((0, 0, 255, 255), (250, 0, 300, 100))  # 右端だけ青。中央の切り抜き(100〜200)には入らない
+    wide.paste(
+        (0, 0, 255, 255), (250, 0, 300, 100)
+    )  # 右端だけ青。中央の切り抜き(100〜200)には入らない
     buffer = io.BytesIO()
     wide.save(buffer, "PNG")
     image = decode(make_icon(buffer.getvalue())).convert("RGBA")
-    assert image.getpixel((2, 64))[:3] == (255, 0, 0) and image.getpixel((125, 64))[:3] == (255, 0, 0)
+    assert image.getpixel((2, 64))[:3] == (255, 0, 0) and image.getpixel((125, 64))[
+        :3
+    ] == (255, 0, 0)
 
 
 def test_make_icon_keeps_transparency(make_png) -> None:
@@ -70,7 +76,9 @@ def test_make_icon_uses_the_first_frame_of_an_animation() -> None:
     frames = [Image.new("RGB", (30, 30), color) for color in ((255, 0, 0), (0, 0, 255))]
     buffer = io.BytesIO()
     frames[0].save(buffer, "GIF", save_all=True, append_images=frames[1:])
-    assert decode(make_icon(buffer.getvalue())).convert("RGB").getpixel((64, 64))[0] > 200
+    assert (
+        decode(make_icon(buffer.getvalue())).convert("RGB").getpixel((64, 64))[0] > 200
+    )
 
 
 def test_make_icon_scales_up_a_tiny_image(make_png) -> None:
@@ -80,7 +88,12 @@ def test_make_icon_scales_up_a_tiny_image(make_png) -> None:
 
 @pytest.mark.parametrize(
     "data",
-    [b"", b"not an image", b"<svg xmlns='http://www.w3.org/2000/svg'/>", b"\x89PNG\r\n\x1a\nbroken"],
+    [
+        b"",
+        b"not an image",
+        b"<svg xmlns='http://www.w3.org/2000/svg'/>",
+        b"\x89PNG\r\n\x1a\nbroken",
+    ],
 )
 def test_make_icon_rejects_what_is_not_a_supported_image(data: bytes) -> None:
     with pytest.raises(IconError):
@@ -118,7 +131,9 @@ def test_the_icon_stays_within_the_size_limit_even_for_noise() -> None:
     assert len(base64.b64decode(uri[len(DATA_PREFIX) :])) <= MAX_ICON_BYTES
 
 
-def test_load_icon_reads_a_file_and_reports_a_missing_one(tmp_path: Path, make_png) -> None:
+def test_load_icon_reads_a_file_and_reports_a_missing_one(
+    tmp_path: Path, make_png
+) -> None:
     path = tmp_path / "a.png"
     path.write_bytes(make_png())
     assert is_valid_icon(load_icon(path))
@@ -142,7 +157,9 @@ def test_is_valid_icon(icon: str) -> None:
     assert not is_valid_icon("data:image/jpeg;base64," + body)
     assert not is_valid_icon(DATA_PREFIX + "!!!not base64!!!")
     assert not is_valid_icon(DATA_PREFIX + base64.b64encode(b"not a png").decode())
-    assert not is_valid_icon(DATA_PREFIX + base64.b64encode(b"\0" * (MAX_ICON_BYTES + 1)).decode())
+    assert not is_valid_icon(
+        DATA_PREFIX + base64.b64encode(b"\0" * (MAX_ICON_BYTES + 1)).decode()
+    )
     assert not is_valid_icon(DATA_PREFIX + body[: len(body) // 2])  # 途中で切れた PNG
 
 
@@ -152,10 +169,20 @@ def crafted_png(width: int, height: int, idat: bytes) -> bytes:
     import zlib
 
     def chunk(tag: bytes, body: bytes) -> bytes:
-        return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body))
+        return (
+            struct.pack(">I", len(body))
+            + tag
+            + body
+            + struct.pack(">I", zlib.crc32(tag + body))
+        )
 
     header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", idat)
+        + chunk(b"IEND", b"")
+    )
 
 
 def as_icon(raw: bytes) -> str:
@@ -163,10 +190,14 @@ def as_icon(raw: bytes) -> str:
 
 
 @pytest.mark.parametrize("size", [(20000, 20000), (60000, 60000)])
-def test_is_valid_icon_rejects_a_huge_declared_size_without_raising(size: tuple[int, int]) -> None:
+def test_is_valid_icon_rejects_a_huge_declared_size_without_raising(
+    size: tuple[int, int],
+) -> None:
     import zlib
 
-    assert is_valid_icon(as_icon(crafted_png(*size, zlib.compress(b"\0" * 100)))) is False
+    assert (
+        is_valid_icon(as_icon(crafted_png(*size, zlib.compress(b"\0" * 100)))) is False
+    )
 
 
 def test_is_valid_icon_rejects_a_png_that_is_not_128_square(make_png) -> None:
@@ -180,7 +211,11 @@ def test_is_valid_icon_rejects_a_png_whose_pixels_cannot_be_decoded(icon: str) -
     raw = bytearray(base64.b64decode(icon[len(DATA_PREFIX) :]))
     start = raw.index(b"IDAT") + 4
     length = struct.unpack(">I", raw[start - 8 : start - 4])[0]
-    body = bytes(b ^ 0xFF for b in raw[start : start + length])  # 中身を壊し、CRC は合わせ直す
+    body = bytes(
+        b ^ 0xFF for b in raw[start : start + length]
+    )  # 中身を壊し、CRC は合わせ直す
     raw[start : start + length] = body
-    raw[start + length : start + length + 4] = struct.pack(">I", zlib.crc32(b"IDAT" + body))
+    raw[start + length : start + length + 4] = struct.pack(
+        ">I", zlib.crc32(b"IDAT" + body)
+    )
     assert is_valid_icon(as_icon(bytes(raw))) is False

@@ -15,8 +15,13 @@ from test_gantt import mount_chart
 def summary_project() -> Project:
     def kid(name: str, day: int, status: Status = Status.NOT_STARTED) -> Task:
         return Task(
-            name, id=name, planned_start=datetime(2026, 10, day, 9), planned_end=datetime(2026, 10, day + 1, 17),
-            status=status, effort_hours=4.0, assignees=[Assignee("田中")],
+            name,
+            id=name,
+            planned_start=datetime(2026, 10, day, 9),
+            planned_end=datetime(2026, 10, day + 1, 17),
+            status=status,
+            effort_hours=4.0,
+            assignees=[Assignee("田中")],
         )
 
     return Project(
@@ -24,12 +29,20 @@ def summary_project() -> Project:
         base_date=date(2026, 10, 5),
         members=[Member("田中")],
         sections=[
-            Section("開発", [
-                Task("実装", id="m", kind=TaskKind.SUMMARY, children=["a", "b"]),
-                kid("a", 6, Status.RUNNING),
-                kid("b", 9),
-                Task("後続", id="z", planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 6, 9)),
-            ])
+            Section(
+                "開発",
+                [
+                    Task("実装", id="m", kind=TaskKind.SUMMARY, children=["a", "b"]),
+                    kid("a", 6, Status.RUNNING),
+                    kid("b", 9),
+                    Task(
+                        "後続",
+                        id="z",
+                        planned_start=datetime(2026, 10, 5, 9),
+                        planned_end=datetime(2026, 10, 6, 9),
+                    ),
+                ],
+            )
         ],
     )
 
@@ -52,7 +65,9 @@ async def test_a_summary_name_is_bold_and_has_no_assignee_chip(user: User) -> No
     await user.should_see(marker="task-assignee-0-1")
 
 
-async def test_children_are_indented_one_level_more_than_other_tasks(user: User) -> None:
+async def test_children_are_indented_one_level_more_than_other_tasks(
+    user: User,
+) -> None:
     mount_chart(summary_project())
     await user.open("/")
     child_cell = user.find(marker="task-0-1").elements.pop()
@@ -89,7 +104,9 @@ async def test_a_collapsed_summary_shows_the_child_count(user: User) -> None:
     assert user.find(marker="summary-count-0-0").elements.pop().text == "2件"
 
 
-async def test_the_section_toggle_does_not_reopen_the_children_of_a_collapsed_summary(user: User) -> None:
+async def test_the_section_toggle_does_not_reopen_the_children_of_a_collapsed_summary(
+    user: User,
+) -> None:
     mount_chart(summary_project())
     await user.open("/")
     user.find(marker="summary-toggle-0-0").click()
@@ -108,16 +125,22 @@ async def test_filtering_ignores_the_summary_collapse(user: User) -> None:
     await user.should_see(marker="task-0-0")  # b を子に持つまとめ
 
 
-async def test_a_summary_row_is_never_drawn_red_even_when_its_end_has_passed(user: User) -> None:
+async def test_a_summary_row_is_never_drawn_red_even_when_its_end_has_passed(
+    user: User,
+) -> None:
     mount_chart(summary_project(), now=datetime(2027, 1, 1))
     await user.open("/")
     row = user.find(marker="row-0-0").elements.pop()
     assert "239, 83, 80" not in row._style.get("background", "")
     child_row = user.find(marker="row-0-2").elements.pop()
-    assert "239, 83, 80" in child_row._style.get("background", "")  # 子は赤くなる(テスト自体が効いている確認)
+    assert "239, 83, 80" in child_row._style.get(
+        "background", ""
+    )  # 子は赤くなる(テスト自体が効いている確認)
 
 
-async def test_links_from_a_hidden_child_disappear_while_the_summary_is_collapsed(user: User) -> None:
+async def test_links_from_a_hidden_child_disappear_while_the_summary_is_collapsed(
+    user: User,
+) -> None:
     project = summary_project()
     project.sections[0].tasks[3].predecessors = ["a", "m"]
     mount_chart(project)
@@ -138,14 +161,18 @@ def mount_decompose(
 ) -> None:
     @ui.page("/")
     def index() -> None:
-        def on_apply(parts: list[Part], chain: bool, new_section: bool, params: ParamMode) -> None:
+        def on_apply(
+            parts: list[Part], chain: bool, new_section: bool, params: ParamMode
+        ) -> None:
             if fail:
                 raise ValueError(fail)
             calls.append((parts, chain, new_section))
             if modes is not None:
                 modes.append(params)
 
-        ui.button("開く", on_click=lambda: open_decompose_dialog(task, reason, on_apply))
+        ui.button(
+            "開く", on_click=lambda: open_decompose_dialog(task, reason, on_apply)
+        )
 
 
 async def test_the_dialog_starts_with_two_even_rows(user: User) -> None:
@@ -221,12 +248,14 @@ async def test_an_error_from_the_callback_keeps_the_dialog_open(user: User) -> N
     await user.should_see(marker="decompose-apply")
 
 
-async def test_the_arrow_stops_the_click_from_reaching_the_row_editor(user: User) -> None:
+async def test_the_arrow_stops_the_click_from_reaching_the_row_editor(
+    user: User,
+) -> None:
     mount_chart(summary_project())
     await user.open("/")
     arrow = user.find(marker="summary-toggle-0-0").elements.pop()
-    clicks = [l for l in arrow._event_listeners.values() if l.type == "click"]
-    assert clicks and all("stopPropagation" in (l.js_handler or "") for l in clicks)
+    clicks = [ev for ev in arrow._event_listeners.values() if ev.type == "click"]
+    assert clicks and all("stopPropagation" in (ev.js_handler or "") for ev in clicks)
 
 
 async def test_a_summary_of_done_children_is_struck_through(user: User) -> None:
@@ -235,7 +264,10 @@ async def test_a_summary_of_done_children_is_struck_through(user: User) -> None:
         task.status = Status.DONE
     mount_chart(project)
     await user.open("/")
-    assert user.find(marker="task-name-0-0").elements.pop()._style.get("text-decoration") == "line-through"
+    assert (
+        user.find(marker="task-name-0-0").elements.pop()._style.get("text-decoration")
+        == "line-through"
+    )
 
 
 async def test_the_section_count_does_not_count_summaries(user: User) -> None:
@@ -244,7 +276,9 @@ async def test_the_section_count_does_not_count_summaries(user: User) -> None:
     assert user.find(marker="section-count-0").elements.pop().text == "(3)"
 
 
-async def test_a_link_from_a_hidden_child_is_redrawn_from_the_collapsed_summary(user: User) -> None:
+async def test_a_link_from_a_hidden_child_is_redrawn_from_the_collapsed_summary(
+    user: User,
+) -> None:
     project = summary_project()
     project.sections[0].tasks[3].predecessors = ["a"]  # 子 a → 後続 z
     mount_chart(project)
@@ -257,11 +291,15 @@ async def test_a_link_from_a_hidden_child_is_redrawn_from_the_collapsed_summary(
     assert 'data-link="a-z"' in user.find(marker="links").elements.pop().content
 
 
-async def test_dropping_below_a_collapsed_summary_lands_after_its_hidden_children(user: User) -> None:
+async def test_dropping_below_a_collapsed_summary_lands_after_its_hidden_children(
+    user: User,
+) -> None:
     charts, recorder = mount_chart(summary_project())
     await user.open("/")
     user.find(marker="summary-toggle-0-0").click()
-    charts[0].handle_move({"src": ["top", 0], "dst": ["0", 1], "copy": False})  # まとめの直後 = 隠れた子の手前
+    charts[0].handle_move(
+        {"src": ["top", 0], "dst": ["0", 1], "copy": False}
+    )  # まとめの直後 = 隠れた子の手前
     assert recorder.events == [("move_task", (((), 0), ((0,), 3), False))]
     recorder.events.clear()
     user.find(marker="summary-toggle-0-0").click()  # 開いていれば、そのまま
@@ -274,23 +312,35 @@ def mount_settled(task: Task, calls: list[tuple[list[Part], bool, bool]]) -> Non
 
     @ui.page("/")
     def page() -> None:
-        def apply(parts: list[Part], chain: bool, new_section: bool, params: ParamMode) -> None:
+        def apply(
+            parts: list[Part], chain: bool, new_section: bool, params: ParamMode
+        ) -> None:
             calls.append((parts, chain, new_section))
 
         open_decompose_dialog(task, None, apply, Settled(3.0, []))
 
 
-async def test_the_settled_dialog_fixes_the_first_row_and_splits_the_rest(user: User) -> None:
+async def test_the_settled_dialog_fixes_the_first_row_and_splits_the_rest(
+    user: User,
+) -> None:
     calls: list[tuple[list[Part], bool, bool]] = []
-    mount_settled(Task("実装", effort_hours=10.0, weekly_crew=[[Assignee("田中")]]), calls)
+    mount_settled(
+        Task("実装", effort_hours=10.0, weekly_crew=[[Assignee("田中")]]), calls
+    )
     await user.open("/")
     await user.should_see(marker="decompose-settled-note")
     await user.should_see(marker="decompose-weekly-note")
     assert not user.find(marker="decompose-effort-0").elements.pop().enabled
-    assert [user.find(marker=f"decompose-effort-{n}").elements.pop().value for n in range(3)] == [3.0, 3.5, 3.5]
+    assert [
+        user.find(marker=f"decompose-effort-{n}").elements.pop().value for n in range(3)
+    ] == [3.0, 3.5, 3.5]
     await user.should_not_see(marker="decompose-remove-1")  # 3 行より減らせない
     user.find(marker="decompose-apply").click()
-    assert [(p.name, p.effort_hours) for p in calls[0][0]] == [("実装 1", 3.0), ("実装 2", 3.5), ("実装 3", 3.5)]
+    assert [(p.name, p.effort_hours) for p in calls[0][0]] == [
+        ("実装 1", 3.0),
+        ("実装 2", 3.5),
+        ("実装 3", 3.5),
+    ]
 
 
 def param_task(*parameters: str) -> Task:
@@ -304,7 +354,9 @@ async def test_the_parameter_option_is_hidden_without_parameters(user: User) -> 
     await user.should_not_see(marker="decompose-params")
 
 
-async def test_the_parameter_option_defaults_to_inherit_and_passes_the_mode(user: User) -> None:
+async def test_the_parameter_option_defaults_to_inherit_and_passes_the_mode(
+    user: User,
+) -> None:
     calls: list[tuple[list[Part], bool, bool]] = []
     modes: list[ParamMode] = []
     mount_decompose(param_task("A", "B"), calls, modes=modes)
@@ -324,7 +376,10 @@ async def test_choosing_none_passes_the_mode_and_keeps_the_rows(user: User) -> N
     user.find("開く").click()
     user.find(marker="decompose-params").elements.pop().set_value(ParamMode.NONE)
     user.find(marker="decompose-apply").click()
-    assert modes == [ParamMode.NONE] and [p.name for p in calls[0][0]] == ["実装 1", "実装 2"]
+    assert modes == [ParamMode.NONE] and [p.name for p in calls[0][0]] == [
+        "実装 1",
+        "実装 2",
+    ]
 
 
 async def test_per_parameter_makes_one_fixed_row_per_parameter(user: User) -> None:
@@ -333,8 +388,12 @@ async def test_per_parameter_makes_one_fixed_row_per_parameter(user: User) -> No
     mount_decompose(param_task("A", "B", "C"), calls, modes=modes)
     await user.open("/")
     user.find("開く").click()
-    user.find(marker="decompose-params").elements.pop().set_value(ParamMode.PER_PARAMETER)
-    assert [user.find(marker=f"decompose-name-{n}").elements.pop().value for n in range(3)] == ["A", "B", "C"]
+    user.find(marker="decompose-params").elements.pop().set_value(
+        ParamMode.PER_PARAMETER
+    )
+    assert [
+        user.find(marker=f"decompose-name-{n}").elements.pop().value for n in range(3)
+    ] == ["A", "B", "C"]
     assert user.find(marker="decompose-effort-0").elements.pop().value == 3.0
     assert not user.find(marker="decompose-add").elements.pop().enabled
     await user.should_not_see(marker="decompose-remove-0")
@@ -356,7 +415,9 @@ async def test_leaving_per_parameter_restores_the_two_default_rows(user: User) -
     assert user.find(marker="decompose-add").elements.pop().enabled
 
 
-async def test_per_parameter_is_not_offered_with_the_reason_when_unavailable(user: User) -> None:
+async def test_per_parameter_is_not_offered_with_the_reason_when_unavailable(
+    user: User,
+) -> None:
     mount_decompose(param_task("A"), [])
     await user.open("/")
     user.find("開く").click()

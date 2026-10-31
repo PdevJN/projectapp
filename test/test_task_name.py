@@ -6,9 +6,18 @@ from projectapp.models import MAX_TASK_NAME_LENGTH, has_control_char, tidy_task_
 @pytest.mark.parametrize(
     "text",
     [
-        "a\nb", "a\tb", "a\rb", "a\x00b", "a\x7fb", "a\x85b",  # Cc
-        "a\u200bb", "a\u200db", "a\ufeffb", "a\u202eb",  # Cf: ゼロ幅スペース・ゼロ幅結合子・BOM・右から左への上書き
-        "a\u2028b", "a\u2029b",  # Zl・Zp: 行区切り・段落区切り
+        "a\nb",
+        "a\tb",
+        "a\rb",
+        "a\x00b",
+        "a\x7fb",
+        "a\x85b",  # Cc
+        "a\u200bb",
+        "a\u200db",
+        "a\ufeffb",
+        "a\u202eb",  # Cf: ゼロ幅スペース・ゼロ幅結合子・BOM・右から左への上書き
+        "a\u2028b",
+        "a\u2029b",  # Zl・Zp: 行区切り・段落区切り
     ],
 )
 def test_has_control_char_detects_control_characters(text: str) -> None:

@@ -28,7 +28,11 @@ from projectapp.models import (
     UrlTemplate,
     WorkDay,
 )
-from projectapp.task_dialog import open_quick_progress_dialog, open_task_dialog, open_week_crew_dialog
+from projectapp.task_dialog import (
+    open_quick_progress_dialog,
+    open_task_dialog,
+    open_week_crew_dialog,
+)
 
 
 def mount_dialog(
@@ -62,7 +66,9 @@ def mount_dialog(
                 task,
                 saved.append,
                 work_start=work_start,
-                on_delete=None if deleted is None else lambda: deleted.append("deleted"),
+                on_delete=None
+                if deleted is None
+                else lambda: deleted.append("deleted"),
                 daily_hours=daily_hours,
                 holidays=holidays,
                 members=members,
@@ -79,7 +85,9 @@ def mount_dialog(
                 now=now or datetime.now,
                 reference_choices=reference_choices,
                 teams=teams,
-                open_url=(lambda url: opened.append(url)) if opened is not None else default_open_url,
+                open_url=(lambda url: opened.append(url))
+                if opened is not None
+                else default_open_url,
             ),
         )
 
@@ -160,7 +168,9 @@ async def test_unchecking_resets_the_times_to_the_defaults(user: User) -> None:
     assert saved[0].planned_end == datetime(2026, 10, 7, 16, 45)  # 終了は変わらない
 
 
-async def test_a_typed_start_time_is_kept_when_the_checkbox_is_toggled(user: User) -> None:
+async def test_a_typed_start_time_is_kept_when_the_checkbox_is_toggled(
+    user: User,
+) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
     user.find(marker="task-start-use-time").click()
@@ -170,8 +180,14 @@ async def test_a_typed_start_time_is_kept_when_the_checkbox_is_toggled(user: Use
     assert user.find(marker="task-start-time").elements.pop().value == "11:00"
 
 
-async def test_an_existing_end_time_is_kept_when_the_checkbox_is_toggled(user: User) -> None:
-    task = Task("旧", planned_start=datetime(2026, 10, 5, 9, 0), planned_end=datetime(2026, 10, 5, 15, 30))
+async def test_an_existing_end_time_is_kept_when_the_checkbox_is_toggled(
+    user: User,
+) -> None:
+    task = Task(
+        "旧",
+        planned_start=datetime(2026, 10, 5, 9, 0),
+        planned_end=datetime(2026, 10, 5, 15, 30),
+    )
     mount_dialog(task, [])
     await open_dialog(user)
     user.find(marker="task-end-use-time").click()  # 外す
@@ -233,8 +249,14 @@ async def test_only_the_end_time_can_be_specified(user: User) -> None:
     assert saved[0].planned_end == datetime(2026, 10, 7, 16, 45)
 
 
-async def test_a_task_with_non_default_times_opens_with_the_times_shown(user: User) -> None:
-    task = Task("既存", planned_start=datetime(2026, 10, 5, 10, 15), planned_end=datetime(2026, 10, 7, 16, 45))
+async def test_a_task_with_non_default_times_opens_with_the_times_shown(
+    user: User,
+) -> None:
+    task = Task(
+        "既存",
+        planned_start=datetime(2026, 10, 5, 10, 15),
+        planned_end=datetime(2026, 10, 7, 16, 45),
+    )
     mount_dialog(task, [])
     await open_dialog(user)
     await user.should_see(marker="task-start-time")
@@ -243,8 +265,14 @@ async def test_a_task_with_non_default_times_opens_with_the_times_shown(user: Us
     assert user.find(marker="task-end-time").elements.pop().value == "16:45"
 
 
-async def test_a_task_with_default_times_opens_with_the_times_hidden(user: User) -> None:
-    task = Task("既存", planned_start=datetime(2026, 10, 5, 9, 0), planned_end=datetime(2026, 10, 7, 18, 0))
+async def test_a_task_with_default_times_opens_with_the_times_hidden(
+    user: User,
+) -> None:
+    task = Task(
+        "既存",
+        planned_start=datetime(2026, 10, 5, 9, 0),
+        planned_end=datetime(2026, 10, 7, 18, 0),
+    )
     mount_dialog(task, [])
     await open_dialog(user)
     await user.should_not_see(marker="task-start-time")
@@ -253,7 +281,11 @@ async def test_a_task_with_default_times_opens_with_the_times_hidden(user: User)
 
 async def test_an_automatic_end_shows_only_the_end_time(user: User) -> None:
     # 開始は始業時刻のままなので、時刻入力が出るのは終了側だけ
-    task = Task("旧", planned_start=datetime(2026, 10, 5, 9, 0), planned_end=datetime(2026, 10, 5, 15, 30))
+    task = Task(
+        "旧",
+        planned_start=datetime(2026, 10, 5, 9, 0),
+        planned_end=datetime(2026, 10, 5, 15, 30),
+    )
     mount_dialog(task, [])
     await open_dialog(user)
     await user.should_not_see(marker="task-start-time")
@@ -315,7 +347,11 @@ async def test_an_impossible_date_is_rejected(user: User) -> None:
 
 async def test_clearing_the_end_date_saves_an_empty_end(user: User) -> None:
     saved: list[Task] = []
-    task = Task("既存", planned_start=datetime(2026, 10, 5, 9, 0), planned_end=datetime(2026, 10, 7, 18, 0))
+    task = Task(
+        "既存",
+        planned_start=datetime(2026, 10, 5, 9, 0),
+        planned_end=datetime(2026, 10, 7, 18, 0),
+    )
     mount_dialog(task, saved)
     await open_dialog(user)
     user.find(marker="task-end-date").clear()
@@ -327,8 +363,16 @@ async def test_start_and_end_are_side_by_side(user: User) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
     # 日付の入力は、側ごとの列の中の「編集用の入れ物」の、「日付と時刻の行」に入っている
-    start_column = user.find(marker="task-start-date").elements.pop().parent_slot.parent.parent_slot.parent.parent_slot.parent
-    end_column = user.find(marker="task-end-date").elements.pop().parent_slot.parent.parent_slot.parent.parent_slot.parent
+    start_column = (
+        user.find(marker="task-start-date")
+        .elements.pop()
+        .parent_slot.parent.parent_slot.parent.parent_slot.parent
+    )
+    end_column = (
+        user.find(marker="task-end-date")
+        .elements.pop()
+        .parent_slot.parent.parent_slot.parent.parent_slot.parent
+    )
     assert start_column is not end_column
     assert start_column.parent_slot.parent is end_column.parent_slot.parent
     assert isinstance(start_column.parent_slot.parent, ui.row)
@@ -379,21 +423,31 @@ def confirm_dialog_of(user: User) -> ui.dialog:
 
 def escape_listener_id(dialog: ui.dialog) -> str:
     """ダイアログの ESC を受けるリスナー。persistent の Quasar は escapeKey を送らないので、keydown で受ける。"""
-    return next(i for i, listener in dialog._event_listeners.items() if listener.type == "keydown")
+    return next(
+        i
+        for i, listener in dialog._event_listeners.items()
+        if listener.type == "keydown"
+    )
 
 
 def press_escape(dialog: ui.dialog) -> None:
     dialog._handle_event({"listener_id": escape_listener_id(dialog), "args": {}})
 
 
-async def test_the_dialog_is_persistent_and_listens_for_escape_as_a_keydown(user: User) -> None:
+async def test_the_dialog_is_persistent_and_listens_for_escape_as_a_keydown(
+    user: User,
+) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
     dialog = dialog_of(user)
     assert dialog.props.get("persistent") is True
     # Quasar は、persistent のダイアログでは escapeKey を送らず、ゆらすだけ(実機で ESC が効かなかった)
-    assert "escapeKey" not in {listener.type for listener in dialog._event_listeners.values()}
-    assert "Escape" in (dialog._event_listeners[escape_listener_id(dialog)].js_handler or "")
+    assert "escapeKey" not in {
+        listener.type for listener in dialog._event_listeners.values()
+    }
+    assert "Escape" in (
+        dialog._event_listeners[escape_listener_id(dialog)].js_handler or ""
+    )
 
 
 async def test_escape_without_changes_closes_the_dialog(user: User) -> None:
@@ -442,7 +496,12 @@ def test_the_escape_handler_ignores_other_keys_and_composition():
         path.write_text(script)
         run = subprocess.run([node, str(path)], capture_output=True, text=True)
     assert run.returncode == 0, run.stderr
-    assert json.loads(run.stdout) == {"esc": 1, "ime": 1, "composing": 0, "other": 0}  # 変換中の ESC は、変換の取り消し
+    assert json.loads(run.stdout) == {
+        "esc": 1,
+        "ime": 1,
+        "composing": 0,
+        "other": 0,
+    }  # 変換中の ESC は、変換の取り消し
 
 
 def test_the_escape_handler_stops_the_keydown_so_quasar_does_not_close_the_confirm_on_keyup():
@@ -476,7 +535,10 @@ def test_the_escape_handler_stops_the_keydown_so_quasar_does_not_close_the_confi
     assert run.returncode == 0, run.stderr
     assert json.loads(run.stdout) == {
         "esc": {"emitted": 1, "stopped": 1},
-        "composing": {"emitted": 0, "stopped": 0},  # 変換の取り消しの ESC は、Quasar に任せる
+        "composing": {
+            "emitted": 0,
+            "stopped": 0,
+        },  # 変換の取り消しの ESC は、Quasar に任せる
         "other": {"emitted": 0, "stopped": 0},
     }
 
@@ -557,7 +619,11 @@ async def test_changing_only_the_checkbox_is_not_a_change(user: User) -> None:
 
 
 async def test_changing_a_date_counts_as_a_change(user: User) -> None:
-    task = Task("既存", planned_start=datetime(2026, 10, 5, 9, 0), planned_end=datetime(2026, 10, 7, 18, 0))
+    task = Task(
+        "既存",
+        planned_start=datetime(2026, 10, 5, 9, 0),
+        planned_end=datetime(2026, 10, 7, 18, 0),
+    )
     mount_dialog(task, [])
     await open_dialog(user)
     user.find(marker="task-end-date").clear().type("2026-10-08")
@@ -587,7 +653,9 @@ async def test_an_existing_task_without_a_delete_callback_has_no_delete_button(
     await user.should_not_see(marker="task-delete")
 
 
-async def test_delete_asks_for_confirmation_and_cancel_keeps_the_task(user: User) -> None:
+async def test_delete_asks_for_confirmation_and_cancel_keeps_the_task(
+    user: User,
+) -> None:
     deleted: list[str] = []
     mount_dialog(Task("既存"), [], deleted=deleted)
     await open_dialog(user)
@@ -598,7 +666,9 @@ async def test_delete_asks_for_confirmation_and_cancel_keeps_the_task(user: User
     assert dialog_of(user).value is True
 
 
-async def test_delete_confirm_calls_the_callback_and_closes_the_dialog(user: User) -> None:
+async def test_delete_confirm_calls_the_callback_and_closes_the_dialog(
+    user: User,
+) -> None:
     deleted: list[str] = []
     mount_dialog(Task("既存"), [], deleted=deleted)
     await open_dialog(user)
@@ -619,8 +689,14 @@ async def test_delete_does_not_ask_about_unsaved_changes(user: User) -> None:
     assert confirm_dialog_of(user).value is False
 
 
-async def test_a_manual_end_with_a_custom_time_can_still_be_unchecked(user: User) -> None:
-    task = Task("手入力", planned_start=datetime(2026, 10, 5, 9, 0), planned_end=datetime(2026, 10, 5, 15, 30))
+async def test_a_manual_end_with_a_custom_time_can_still_be_unchecked(
+    user: User,
+) -> None:
+    task = Task(
+        "手入力",
+        planned_start=datetime(2026, 10, 5, 9, 0),
+        planned_end=datetime(2026, 10, 5, 15, 30),
+    )
     mount_dialog(task, [])
     await open_dialog(user)
     checkbox = user.find(marker="task-end-use-time").elements.pop()
@@ -688,7 +764,9 @@ async def test_without_effort_the_planned_end_is_editable_and_has_no_manual_chec
     assert "翌日" in user.find(marker="task-end-hint").elements.pop().text
 
 
-async def test_with_effort_the_planned_end_is_computed_and_read_only(user: User) -> None:
+async def test_with_effort_the_planned_end_is_computed_and_read_only(
+    user: User,
+) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
     user.find(marker="task-start-date").type("2026-10-09")
@@ -717,7 +795,9 @@ async def test_the_computed_end_follows_the_holidays(user: User) -> None:
     await open_dialog(user)
     user.find(marker="task-start-date").type("2026-10-09")
     user.find(marker="task-effort").clear().type("15")
-    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-14 11:00"
+    assert (
+        user.find(marker="task-end-computed").elements.pop().value == "2026-10-14 11:00"
+    )
 
 
 async def test_manual_check_makes_the_planned_end_editable_and_keeps_the_typed_value(
@@ -730,15 +810,23 @@ async def test_manual_check_makes_the_planned_end_editable_and_keeps_the_typed_v
     user.find(marker="task-start-date").type("2026-10-09")
     user.find(marker="task-end-date").type("2026-10-20")
     user.find(marker="task-effort").clear().type("15")
-    await user.should_not_see(marker="task-end-date")  # 工数ありで手指定なしなので隠れる
+    await user.should_not_see(
+        marker="task-end-date"
+    )  # 工数ありで手指定なしなので隠れる
     user.find(marker="task-end-manual").click()
     await user.should_see(marker="task-end-date")
-    assert user.find(marker="task-end-date").elements.pop().value == "2026-10-20"  # 値は保たれている
-    await user.should_see(marker="task-end-computed")  # 手で指定でも、算出値を参考値として出す
+    assert (
+        user.find(marker="task-end-date").elements.pop().value == "2026-10-20"
+    )  # 値は保たれている
+    await user.should_see(
+        marker="task-end-computed"
+    )  # 手で指定でも、算出値を参考値として出す
     computed = user.find(marker="task-end-computed").elements.pop()
     assert computed.value == "2026-10-13 11:00"
     assert computed.props["label"] == "算出値(参考)"
-    assert "遅い" in user.find(marker="task-end-hint").elements.pop().text  # 10/20 は算出値の 10/13 より 7 日遅い
+    assert (
+        "遅い" in user.find(marker="task-end-hint").elements.pop().text
+    )  # 10/20 は算出値の 10/13 より 7 日遅い
     assert "7 日" in user.find(marker="task-end-hint").elements.pop().text
     user.find(marker="task-save").click()
     assert saved[0].planned_end_manual is True
@@ -754,7 +842,9 @@ async def test_unchecking_manual_returns_to_the_computed_value(user: User) -> No
     user.find(marker="task-end-manual").click()
     await user.should_see(marker="task-end-computed")
     await user.should_not_see(marker="task-end-date")
-    assert user.find(marker="task-end-computed").elements.pop().props["label"] == "算出値"
+    assert (
+        user.find(marker="task-end-computed").elements.pop().props["label"] == "算出値"
+    )
 
 
 async def test_clearing_the_effort_while_manual_is_on_makes_the_end_editable_and_not_manual(
@@ -774,7 +864,9 @@ async def test_clearing_the_effort_while_manual_is_on_makes_the_end_editable_and
     assert saved[0].planned_end_manual is False
 
 
-async def test_the_deadline_is_entered_with_a_date_and_an_optional_time(user: User) -> None:
+async def test_the_deadline_is_entered_with_a_date_and_an_optional_time(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved)
     await open_dialog(user)
@@ -815,7 +907,9 @@ async def test_an_existing_task_opens_with_its_values(user: User) -> None:
     assert user.find(marker="task-deadline-date").elements.pop().value == "2026-10-12"
 
 
-async def test_closing_asks_for_confirmation_after_the_manual_check_changes(user: User) -> None:
+async def test_closing_asks_for_confirmation_after_the_manual_check_changes(
+    user: User,
+) -> None:
     task = Task("旧", planned_start=datetime(2026, 10, 5, 9), effort_hours=8.0)
     mount_dialog(task, [])
     await open_dialog(user)
@@ -840,7 +934,9 @@ async def test_the_end_hint_mentions_the_deadline(user: User) -> None:
     assert "翌日" in hint
 
 
-async def test_the_end_hint_is_a_label_outside_the_input_row_so_it_cannot_overlap(user: User) -> None:
+async def test_the_end_hint_is_a_label_outside_the_input_row_so_it_cannot_overlap(
+    user: User,
+) -> None:
     """入力欄の hint は固定の高さで、時刻の入力が並んで欄が狭まり 2 行に折り返すと、下のチップに重なった(実機で見つけた)。"""
     mount_dialog(None, [])
     await open_dialog(user)
@@ -848,7 +944,9 @@ async def test_the_end_hint_is_a_label_outside_the_input_row_so_it_cannot_overla
     assert "hint" not in end.props
     row = end.parent_slot.parent  # 日付と時刻の行
     hint = user.find(marker="task-end-hint").elements.pop()
-    assert hint.parent_slot.parent is row.parent_slot.parent  # 行の下に、同じ列の通常の流れで置く
+    assert (
+        hint.parent_slot.parent is row.parent_slot.parent
+    )  # 行の下に、同じ列の通常の流れで置く
     assert hint.parent_slot.parent is not row
 
 
@@ -892,7 +990,9 @@ async def test_the_assignee_is_chosen_from_the_members(user: User) -> None:
     assert saved[0].assignees == [Assignee("田中", 1.0)]
 
 
-async def test_without_an_assignee_the_allocation_is_hidden_and_nobody_is_saved(user: User) -> None:
+async def test_without_an_assignee_the_allocation_is_hidden_and_nobody_is_saved(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved, members=[TANAKA])
     await open_dialog(user)
@@ -966,7 +1066,9 @@ async def test_the_computed_end_reflects_the_conversion(user: User) -> None:
         user.find(marker="task-assignee").elements.pop().set_value("田中")
     user.find(marker="task-effort").clear().type("15")
     # 15h / 1.5 = 10h → 金6.5h + 月3.5h
-    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-12 12:30"
+    assert (
+        user.find(marker="task-end-computed").elements.pop().value == "2026-10-12 12:30"
+    )
 
 
 async def test_changing_the_assignee_asks_for_confirmation_on_close(user: User) -> None:
@@ -978,7 +1080,9 @@ async def test_changing_the_assignee_asks_for_confirmation_on_close(user: User) 
     await user.should_see(marker="close-save")
 
 
-async def test_an_assignee_missing_from_the_members_is_kept_when_saving(user: User) -> None:
+async def test_an_assignee_missing_from_the_members_is_kept_when_saving(
+    user: User,
+) -> None:
     saved: list[Task] = []
     task = Task("旧", assignees=[Assignee("不明", 0.5)])
     mount_dialog(task, saved, members=[TANAKA])
@@ -1003,7 +1107,9 @@ async def test_actual_inputs_save_an_actual(user: User) -> None:
     user.find(marker="task-actual-end-date").type("2026-10-05")
     user.find(marker="task-actual-end-time").type("17:45")
     user.find(marker="task-save").click()
-    assert saved[0].actuals == [Actual(datetime(2026, 10, 5, 9, 15), datetime(2026, 10, 5, 17, 45))]
+    assert saved[0].actuals == [
+        Actual(datetime(2026, 10, 5, 9, 15), datetime(2026, 10, 5, 17, 45))
+    ]
 
 
 async def test_existing_actual_is_shown_in_the_inputs(user: User) -> None:
@@ -1156,7 +1262,9 @@ async def test_progress_can_be_entered_without_an_actual(user: User) -> None:
     assert saved[0].progress == 0 and saved[0].actuals == []
 
 
-async def test_hundred_percent_without_an_end_does_not_suggest_a_status(user: User) -> None:
+async def test_hundred_percent_without_an_end_does_not_suggest_a_status(
+    user: User,
+) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
     task_progress_input(user).set_value(100)
@@ -1190,7 +1298,9 @@ async def test_the_task_progress_is_entered_and_saved(user: User) -> None:
     assert saved[0].progress == 40 and saved[0].actuals == []
 
 
-async def test_the_existing_task_progress_is_shown_and_can_be_cleared(user: User) -> None:
+async def test_the_existing_task_progress_is_shown_and_can_be_cleared(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_dialog(Task("旧", progress=70), saved)
     await open_dialog(user)
@@ -1200,7 +1310,9 @@ async def test_the_existing_task_progress_is_shown_and_can_be_cleared(user: User
     assert saved[0].progress is None
 
 
-async def test_the_task_progress_is_hidden_for_a_checkpoint_and_cleared_on_save(user: User) -> None:
+async def test_the_task_progress_is_hidden_for_a_checkpoint_and_cleared_on_save(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_dialog(Task("旧", progress=40, deadline=datetime(2026, 10, 9, 17, 0)), saved)
     await open_dialog(user)
@@ -1210,7 +1322,9 @@ async def test_the_task_progress_is_hidden_for_a_checkpoint_and_cleared_on_save(
     assert saved[0].kind is TaskKind.CHECKPOINT and saved[0].progress is None
 
 
-async def test_changing_the_task_progress_counts_as_a_change_when_closing(user: User) -> None:
+async def test_changing_the_task_progress_counts_as_a_change_when_closing(
+    user: User,
+) -> None:
     mount_dialog(Task("旧"), [])
     await open_dialog(user)
     task_progress_input(user).set_value(40)
@@ -1241,7 +1355,9 @@ def interval_inputs(user: User, n: int, start: str, end: str = "") -> None:
         user.find(marker=f"task-interval-{n}-end-time").clear().type(clock)
 
 
-async def test_interval_mode_shows_no_rows_for_a_task_without_actuals(user: User) -> None:
+async def test_interval_mode_shows_no_rows_for_a_task_without_actuals(
+    user: User,
+) -> None:
     mount_dialog(None, [], actual_mode=INTERVALS)
     await open_dialog(user)
     await user.should_see(marker="task-interval-add")
@@ -1297,7 +1413,9 @@ async def test_a_row_can_be_removed(user: User) -> None:
 
 async def test_empty_rows_are_ignored_on_save(user: User) -> None:
     saved: list[Task] = []
-    one = Task("旧", actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12))])
+    one = Task(
+        "旧", actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12))]
+    )
     mount_dialog(one, saved, actual_mode=INTERVALS)
     await open_dialog(user)
     user.find(marker="task-interval-0-remove").click()
@@ -1320,7 +1438,9 @@ async def test_overlapping_rows_show_the_error_and_keep_the_dialog(user: User) -
     assert saved == []
 
 
-async def test_the_error_row_number_follows_the_position_after_a_removal(user: User) -> None:
+async def test_the_error_row_number_follows_the_position_after_a_removal(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved, actual_mode=INTERVALS)
     await open_dialog(user)
@@ -1360,7 +1480,9 @@ async def test_an_open_interval_in_the_middle_of_a_hand_edited_file_blocks_savin
     assert saved == []
 
 
-async def test_interval_mode_suggests_paused_when_the_last_interval_ended(user: User) -> None:
+async def test_interval_mode_suggests_paused_when_the_last_interval_ended(
+    user: User,
+) -> None:
     mount_dialog(None, [], actual_mode=INTERVALS)
     await open_dialog(user)
     user.find(marker="task-interval-add").click()
@@ -1400,7 +1522,9 @@ async def test_adding_a_row_counts_as_a_change_when_closing(user: User) -> None:
     assert confirm_dialog_of(user).value is True
 
 
-async def test_simple_mode_keeps_two_actuals_read_only_with_the_mode_argument(user: User) -> None:
+async def test_simple_mode_keeps_two_actuals_read_only_with_the_mode_argument(
+    user: User,
+) -> None:
     kept = [
         Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12)),
         Actual(datetime(2026, 10, 6, 9), None),
@@ -1415,11 +1539,22 @@ DEV = Category("開発", prj_code="PRJ-1", id="aaaaaaaa")
 OPS = Category("保守", id="bbbbbbbb")
 
 
-BIG = Category("あ" * 20, "業務", None, "blue", "PRJ-9", "cccccccc")  # 名前が長いカテゴリ
+BIG = Category(
+    "あ" * 20, "業務", None, "blue", "PRJ-9", "cccccccc"
+)  # 名前が長いカテゴリ
 
 
 async def test_category_options_show_the_kind_and_the_prj_code(user: User) -> None:
-    mount_dialog(None, [], categories=[DEV, OPS, Category("ドキュメント", kind="社内", id="dddddddd"), BIG])
+    mount_dialog(
+        None,
+        [],
+        categories=[
+            DEV,
+            OPS,
+            Category("ドキュメント", kind="社内", id="dddddddd"),
+            BIG,
+        ],
+    )
     await open_dialog(user)
     select = user.find(marker="task-category").elements.pop()
     assert list(select.options.values()) == [
@@ -1429,7 +1564,13 @@ async def test_category_options_show_the_kind_and_the_prj_code(user: User) -> No
         "ドキュメント(社内)",
         "あ" * 12 + "…(業務・PRJ-9)",  # 長い名前だけを省略し、種別と PRJコードは残す
     ]
-    assert list(select.options.keys()) == ["", "aaaaaaaa", "bbbbbbbb", "dddddddd", "cccccccc"]  # 値は id のまま
+    assert list(select.options.keys()) == [
+        "",
+        "aaaaaaaa",
+        "bbbbbbbb",
+        "dddddddd",
+        "cccccccc",
+    ]  # 値は id のまま
 
 
 async def test_an_abbreviated_option_shows_its_full_text_on_hover(user: User) -> None:
@@ -1439,13 +1580,19 @@ async def test_an_abbreviated_option_shows_its_full_text_on_hover(user: User) ->
     full = "あ" * 20 + "(業務・PRJ-9)"
     for slot in ("option", "selected-item"):
         template = select.slots[slot].template
-        assert ":title=" in template and "props.opt.value" in template  # NiceGUI の value は番号。番号で全文を引く
+        assert (
+            ":title=" in template and "props.opt.value" in template
+        )  # NiceGUI の value は番号。番号で全文を引く
         assert full in template  # 全文が、マウスオーバーの文字として入っている
     option = select.slots["option"].template
-    assert '&quot;&quot;' in option  # 省略しない選択肢(未定・開発)の全文は空で、マウスオーバーに何も出さない
+    assert (
+        "&quot;&quot;" in option
+    )  # 省略しない選択肢(未定・開発)の全文は空で、マウスオーバーに何も出さない
 
 
-async def test_category_is_saved_by_id_even_when_the_label_is_abbreviated(user: User) -> None:
+async def test_category_is_saved_by_id_even_when_the_label_is_abbreviated(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved, categories=[DEV, BIG])
     await open_dialog(user)
@@ -1455,7 +1602,9 @@ async def test_category_is_saved_by_id_even_when_the_label_is_abbreviated(user: 
     assert saved[0].category_id == "cccccccc"
 
 
-async def test_category_select_lists_undecided_first_and_defaults_to_it(user: User) -> None:
+async def test_category_select_lists_undecided_first_and_defaults_to_it(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved, categories=[DEV, OPS])
     await open_dialog(user)
@@ -1486,7 +1635,9 @@ async def test_existing_category_is_shown_and_kept(user: User) -> None:
     assert saved[0].category_id == "aaaaaaaa"
 
 
-async def test_a_category_that_no_longer_exists_is_shown_as_undecided(user: User) -> None:
+async def test_a_category_that_no_longer_exists_is_shown_as_undecided(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_dialog(Task("旧", category_id="zzzzzzzz"), saved, categories=[DEV])
     await open_dialog(user)
@@ -1504,7 +1655,9 @@ async def test_the_category_can_be_set_back_to_undecided(user: User) -> None:
     assert saved[0].category_id is None
 
 
-async def test_changing_the_category_counts_as_a_change_when_closing(user: User) -> None:
+async def test_changing_the_category_counts_as_a_change_when_closing(
+    user: User,
+) -> None:
     mount_dialog(None, [], categories=[DEV])
     await open_dialog(user)
     user.find(marker="task-category").elements.pop().set_value("aaaaaaaa")
@@ -1514,7 +1667,12 @@ async def test_changing_the_category_counts_as_a_change_when_closing(user: User)
 
 async def test_a_checkpoint_keeps_its_category(user: User) -> None:
     saved: list[Task] = []
-    checkpoint = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17), category_id="aaaaaaaa")
+    checkpoint = Task(
+        "節目",
+        kind=TaskKind.CHECKPOINT,
+        deadline=datetime(2026, 10, 9, 17),
+        category_id="aaaaaaaa",
+    )
     mount_dialog(checkpoint, saved, categories=[DEV])
     await open_dialog(user)
     user.find(marker="task-save").click()
@@ -1523,7 +1681,9 @@ async def test_a_checkpoint_keeps_its_category(user: User) -> None:
 
 async def test_predecessors_are_saved_from_the_select(user: User) -> None:
     saved: list[Task] = []
-    mount_dialog(None, saved, link_options={"aaaaaaaa": "設計", "bbbbbbbb": "開発 / 実装"})
+    mount_dialog(
+        None, saved, link_options={"aaaaaaaa": "設計", "bbbbbbbb": "開発 / 実装"}
+    )
     await open_dialog(user)
     user.find(marker="task-name").type("テスト")
     select = user.find(marker="task-predecessors").elements.pop()
@@ -1559,7 +1719,9 @@ async def test_the_hint_shows_only_when_pushed(user: User) -> None:
 
 
 async def test_the_hint_is_hidden_without_a_push(user: User) -> None:
-    task = Task("後続", planned_start=datetime(2026, 10, 12, 9, 0), predecessors=["aaaaaaaa"])
+    task = Task(
+        "後続", planned_start=datetime(2026, 10, 12, 9, 0), predecessors=["aaaaaaaa"]
+    )
     mount_dialog(
         task,
         [],
@@ -1567,7 +1729,9 @@ async def test_the_hint_is_hidden_without_a_push(user: User) -> None:
         finish_of=lambda pid: datetime(2026, 10, 5, 9, 0),
     )
     await open_dialog(user)
-    await user.should_not_see(marker="task-predecessors-hint")  # 非表示の要素は、User から見えない
+    await user.should_not_see(
+        marker="task-predecessors-hint"
+    )  # 非表示の要素は、User から見えない
 
 
 async def test_changing_the_predecessors_counts_as_an_edit(user: User) -> None:
@@ -1637,8 +1801,14 @@ async def test_saving_a_checkpoint_clears_the_normal_fields(user: User) -> None:
     user.find(marker="task-save").click()
     result = saved[0]
     assert result.kind is TaskKind.CHECKPOINT
-    assert result.deadline == datetime(2026, 10, 12, 18, 0)  # 時刻を指定しない締切の、補う時刻
-    assert (result.planned_start, result.effort_hours, result.assignees) == (None, 0.0, [])
+    assert result.deadline == datetime(
+        2026, 10, 12, 18, 0
+    )  # 時刻を指定しない締切の、補う時刻
+    assert (result.planned_start, result.effort_hours, result.assignees) == (
+        None,
+        0.0,
+        [],
+    )
 
 
 async def test_a_checkpoint_without_a_deadline_shows_the_error(user: User) -> None:
@@ -1681,7 +1851,9 @@ async def test_changing_the_kind_counts_as_an_edit(user: User) -> None:
 
 async def test_a_checkpoint_never_shows_the_pushed_start_hint(user: User) -> None:
     """チェックポイントは押し出されないので、「実際の開始」のヒントは出さない。トグルでも更新される。"""
-    task = Task("後続", planned_start=datetime(2026, 10, 5, 9, 0), predecessors=["aaaaaaaa"])
+    task = Task(
+        "後続", planned_start=datetime(2026, 10, 5, 9, 0), predecessors=["aaaaaaaa"]
+    )
     mount_dialog(
         task,
         [],
@@ -1696,8 +1868,15 @@ async def test_a_checkpoint_never_shows_the_pushed_start_hint(user: User) -> Non
     await user.should_see(marker="task-predecessors-hint")
 
 
-async def test_selecting_a_predecessor_of_a_new_checkpoint_shows_no_hint(user: User) -> None:
-    mount_dialog(None, [], link_options={"aaaaaaaa": "設計"}, finish_of=lambda pid: datetime(2026, 10, 5, 15, 30))
+async def test_selecting_a_predecessor_of_a_new_checkpoint_shows_no_hint(
+    user: User,
+) -> None:
+    mount_dialog(
+        None,
+        [],
+        link_options={"aaaaaaaa": "設計"},
+        finish_of=lambda pid: datetime(2026, 10, 5, 15, 30),
+    )
     await open_dialog(user)
     await set_kind(user, TaskKind.CHECKPOINT)
     user.find(marker="task-predecessors").elements.pop().set_value(["aaaaaaaa"])
@@ -1745,14 +1924,18 @@ async def test_the_value_label_and_text_follow_the_template_choice(user: User) -
     assert element(user, "task-url-1-value").props["label"] == "URL"
     element(user, "task-url-1-template").set_value("チケット")
     assert element(user, "task-url-1-value").props["label"] == "ID"
-    assert element(user, "task-url-1-value").value == ""  # なし → あり では、値を空にする
+    assert (
+        element(user, "task-url-1-value").value == ""
+    )  # なし → あり では、値を空にする
     user.find(marker="task-url-1-value").type("231")
     element(user, "task-url-1-template").set_value("")
     assert element(user, "task-url-1-value").props["label"] == "URL"
     assert element(user, "task-url-1-value").value == ""
 
 
-async def test_an_incomplete_link_keeps_the_dialog_open_with_a_row_number(user: User) -> None:
+async def test_an_incomplete_link_keeps_the_dialog_open_with_a_row_number(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved, url_templates=[TICKET])
     await open_dialog(user)
@@ -1818,7 +2001,10 @@ async def test_a_failure_to_open_is_notified(user: User) -> None:
 
     @ui.page("/")
     def index() -> None:
-        ui.button("open", on_click=lambda: open_task_dialog(task, lambda t: None, open_url=fail))
+        ui.button(
+            "open",
+            on_click=lambda: open_task_dialog(task, lambda t: None, open_url=fail),
+        )
 
     await open_dialog(user)
     user.find(marker="task-url-1-open").click()
@@ -1873,10 +2059,15 @@ async def test_a_second_assignee_row_can_be_added_and_saved(user: User) -> None:
         user.find(marker="task-assignee-2").elements.pop().set_value("鈴木")
         user.find(marker="task-allocation-2").elements.pop().set_value(50)
     user.find(marker="task-save").click()
-    assert saved[0].assignees == [Assignee("田中", 1.0), Assignee("鈴木", pytest.approx(0.5))]
+    assert saved[0].assignees == [
+        Assignee("田中", 1.0),
+        Assignee("鈴木", pytest.approx(0.5)),
+    ]
 
 
-async def test_a_member_chosen_in_one_row_is_not_offered_in_the_others(user: User) -> None:
+async def test_a_member_chosen_in_one_row_is_not_offered_in_the_others(
+    user: User,
+) -> None:
     mount_dialog(None, [], members=[TANAKA, SUZUKI, SATO])
     await open_dialog(user)
     user.find(marker="task-assignee-add").click()
@@ -1885,7 +2076,12 @@ async def test_a_member_chosen_in_one_row_is_not_offered_in_the_others(user: Use
     second = user.find(marker="task-assignee-2").elements.pop()
     assert second.options == {"": "(なし)", "鈴木": "鈴木", "佐藤": "佐藤"}
     first = user.find(marker="task-assignee").elements.pop()
-    assert first.options == {"": "(なし)", "田中": "田中", "鈴木": "鈴木", "佐藤": "佐藤"}
+    assert first.options == {
+        "": "(なし)",
+        "田中": "田中",
+        "鈴木": "鈴木",
+        "佐藤": "佐藤",
+    }
 
 
 async def test_removing_a_row_returns_the_member_to_the_others(user: User) -> None:
@@ -1923,7 +2119,10 @@ async def test_the_conversion_adds_up_every_assignee(user: User) -> None:
         user.find(marker="task-allocation-2").elements.pop().set_value(50)
     user.find(marker="task-effort").clear().type("19.5")
     # 換算率 1.0×100% + 1.0×50% = 150% → 19.5h / 1.5 / 6.5h = 2.0日
-    assert conversion.text == "換算率 150%(田中 100%×100% + 鈴木 100%×50%)→ 19.5h は約 2.0日分"
+    assert (
+        conversion.text
+        == "換算率 150%(田中 100%×100% + 鈴木 100%×50%)→ 19.5h は約 2.0日分"
+    )
 
 
 async def test_two_assignees_shorten_the_computed_end(user: User) -> None:
@@ -1937,7 +2136,9 @@ async def test_two_assignees_shorten_the_computed_end(user: User) -> None:
         user.find(marker="task-assignee-2").elements.pop().set_value("鈴木")
     user.find(marker="task-effort").clear().type("13")
     # 13h / 2.0 = 6.5h → 金のうちに終わる
-    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-09 15:30"
+    assert (
+        user.find(marker="task-end-computed").elements.pop().value == "2026-10-09 15:30"
+    )
 
 
 async def test_adding_a_row_counts_as_a_change_on_close(user: User) -> None:
@@ -1959,7 +2160,9 @@ async def test_the_assignee_rows_are_hidden_for_a_checkpoint(user: User) -> None
 
 async def test_the_conversion_uses_the_effective_ratio(user: User) -> None:
     members = [Member("田中", 1.0, {"経験": "上級"})]
-    mount_dialog(None, [], members=members, parameters=[Parameter("経験", [Level("上級", 0.2)])])
+    mount_dialog(
+        None, [], members=members, parameters=[Parameter("経験", [Level("上級", 0.2)])]
+    )
     await open_dialog(user)
     conversion = user.find(marker="task-conversion").elements.pop()
     with user.client:
@@ -1969,16 +2172,22 @@ async def test_the_conversion_uses_the_effective_ratio(user: User) -> None:
     assert conversion.text == "換算率 120%(田中 120%×100%)→ 15h は約 1.9日分"
 
 
-async def test_the_computed_end_follows_the_parameters_in_the_dialog(user: User) -> None:
+async def test_the_computed_end_follows_the_parameters_in_the_dialog(
+    user: User,
+) -> None:
     members = [Member("田中", 1.0, {"経験": "上級"})]
-    mount_dialog(None, [], members=members, parameters=[Parameter("経験", [Level("上級", 0.5)])])
+    mount_dialog(
+        None, [], members=members, parameters=[Parameter("経験", [Level("上級", 0.5)])]
+    )
     await open_dialog(user)
     user.find(marker="task-start-date").type("2026-10-09")
     with user.client:
         user.find(marker="task-assignee").elements.pop().set_value("田中")
     user.find(marker="task-effort").clear().type("15")
     # 15h / 1.5 = 10h → 金6.5h + 月3.5h
-    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-12 12:30"
+    assert (
+        user.find(marker="task-end-computed").elements.pop().value == "2026-10-12 12:30"
+    )
 
 
 async def test_the_name_input_is_cut_to_the_limit_in_characters(user: User) -> None:
@@ -1986,7 +2195,9 @@ async def test_the_name_input_is_cut_to_the_limit_in_characters(user: User) -> N
     mount_dialog(None, saved)
     await open_dialog(user)
     name = user.find(marker="task-name").elements.pop()
-    assert name._props.get("maxlength") is None  # ブラウザの maxlength は UTF-16 単位で、文字数とずれる
+    assert (
+        name._props.get("maxlength") is None
+    )  # ブラウザの maxlength は UTF-16 単位で、文字数とずれる
     name.set_value("あ" * 60)
     assert name.value == "あ" * 50
     name.set_value("😀" * 50)  # 絵文字は 1 文字と数える(UTF-16 では 2 単位)
@@ -2011,7 +2222,9 @@ async def test_enter_in_the_name_does_not_add_a_line_break(user: User) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
     name = user.find(marker="task-name").elements.pop()
-    assert any(l.type == "keydown.enter.prevent" for l in name._event_listeners.values())
+    assert any(
+        ev.type == "keydown.enter.prevent" for ev in name._event_listeners.values()
+    )
 
 
 async def test_a_pasted_line_break_in_the_name_becomes_a_space(user: User) -> None:
@@ -2034,7 +2247,10 @@ def blur(user: User, marker: str) -> None:
     for listener in element._event_listeners.values():
         if listener.type == "blur":
             events.handle_event(
-                listener.handler, events.GenericEventArguments(sender=element, client=element.client, args={})
+                listener.handler,
+                events.GenericEventArguments(
+                    sender=element, client=element.client, args={}
+                ),
             )
 
 
@@ -2044,7 +2260,9 @@ def fixed_today(monkeypatch: pytest.MonkeyPatch) -> date:
     return TODAY
 
 
-async def test_blur_completes_short_dates_and_times(user: User, fixed_today: date) -> None:
+async def test_blur_completes_short_dates_and_times(
+    user: User, fixed_today: date
+) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
     user.find(marker="task-start-use-time").click()
@@ -2056,7 +2274,9 @@ async def test_blur_completes_short_dates_and_times(user: User, fixed_today: dat
     assert user.find(marker="task-start-time").elements.pop().value == "09:30"
 
 
-async def test_planned_dates_roll_to_next_year_but_actual_dates_do_not(user: User, fixed_today: date) -> None:
+async def test_planned_dates_roll_to_next_year_but_actual_dates_do_not(
+    user: User, fixed_today: date
+) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
     user.find(marker="task-deadline-date").type("10/01")
@@ -2064,10 +2284,14 @@ async def test_planned_dates_roll_to_next_year_but_actual_dates_do_not(user: Use
     assert user.find(marker="task-deadline-date").elements.pop().value == "2027-10-01"
     user.find(marker="task-actual-start-date").type("10/01")
     blur(user, "task-actual-start-date")
-    assert user.find(marker="task-actual-start-date").elements.pop().value == "2026-10-01"
+    assert (
+        user.find(marker="task-actual-start-date").elements.pop().value == "2026-10-01"
+    )
 
 
-async def test_blur_leaves_unreadable_text_as_typed(user: User, fixed_today: date) -> None:
+async def test_blur_leaves_unreadable_text_as_typed(
+    user: User, fixed_today: date
+) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
     user.find(marker="task-start-date").type("2026-1")  # 入力の途中
@@ -2089,10 +2313,14 @@ async def test_shortcut_chips_fill_the_date(user: User, fixed_today: date) -> No
     assert saved[0].deadline == datetime(2026, 10, 19, 18, 0)
 
 
-async def test_the_end_chips_show_only_while_the_end_is_editable(user: User, fixed_today: date) -> None:
+async def test_the_end_chips_show_only_while_the_end_is_editable(
+    user: User, fixed_today: date
+) -> None:
     mount_dialog(Task("a", effort_hours=8.0), [])
     await open_dialog(user)
-    await user.should_not_see(marker="task-end-shortcut-today")  # 工数があり、算出値のとき
+    await user.should_not_see(
+        marker="task-end-shortcut-today"
+    )  # 工数があり、算出値のとき
     user.find(marker="task-end-manual").click()
     await user.should_see(marker="task-end-shortcut-today")
 
@@ -2102,11 +2330,12 @@ async def test_date_and_time_share_a_row_and_the_dialog_is_wider(user: User) -> 
     await open_dialog(user)
     day = user.find(marker="task-start-date").elements.pop()
     clock = user.find(marker="task-start-time").elements.pop()
-    assert day.parent_slot.parent is clock.parent_slot.parent  # 日付と時刻は、同じ行の直下
+    assert (
+        day.parent_slot.parent is clock.parent_slot.parent
+    )  # 日付と時刻は、同じ行の直下
     assert isinstance(day.parent_slot.parent, ui.row)
     card = next(a for a in day.ancestors() if isinstance(a, ui.card))
     assert "w-[44rem]" in card.classes
-
 
 
 def set_unit(user: User, unit: EffortUnit) -> None:
@@ -2126,9 +2355,15 @@ async def test_the_effort_unit_converts_to_hours_on_save(user: User) -> None:
 
 @pytest.mark.parametrize(
     "unit, typed, hours",
-    [(EffortUnit.HOURS, "8", 8.0), (EffortUnit.WEEKS, "3", 97.5), (EffortUnit.MONTHS, "1", 130.0)],
+    [
+        (EffortUnit.HOURS, "8", 8.0),
+        (EffortUnit.WEEKS, "3", 97.5),
+        (EffortUnit.MONTHS, "1", 130.0),
+    ],
 )
-async def test_each_unit_converts(user: User, unit: EffortUnit, typed: str, hours: float) -> None:
+async def test_each_unit_converts(
+    user: User, unit: EffortUnit, typed: str, hours: float
+) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved)
     await open_dialog(user)
@@ -2157,7 +2392,9 @@ async def test_switching_the_unit_does_not_change_the_hours(user: User) -> None:
     user.find(marker="task-name").type("設計")
     user.find(marker="task-effort").type("10")
     set_unit(user, EffortUnit.DAYS)
-    assert user.find(marker="task-effort").elements.pop().value == 1.54  # 表示だけ丸める
+    assert (
+        user.find(marker="task-effort").elements.pop().value == 1.54
+    )  # 表示だけ丸める
     set_unit(user, EffortUnit.HOURS)
     assert user.find(marker="task-effort").elements.pop().value == 10
     set_unit(user, EffortUnit.DAYS)  # 日のまま保存しても、時間は 10h
@@ -2172,7 +2409,9 @@ async def test_a_preset_chip_sets_the_hours_in_the_current_unit(user: User) -> N
     user.find(marker="task-name").type("設計")
     set_unit(user, EffortUnit.DAYS)
     user.find(marker="task-effort-preset-4").click()
-    assert user.find(marker="task-effort").elements.pop().value == 0.62  # 4h = 0.615日(表示)
+    assert (
+        user.find(marker="task-effort").elements.pop().value == 0.62
+    )  # 4h = 0.615日(表示)
     user.find(marker="task-save").click()
     assert saved[0].effort_hours == 4.0
 
@@ -2195,7 +2434,9 @@ async def test_an_existing_effort_opens_in_hours(user: User) -> None:
     assert user.find(marker="task-effort-unit").elements.pop().value is EffortUnit.HOURS
 
 
-async def test_hours_with_three_decimals_are_rejected_with_a_message(user: User) -> None:
+async def test_hours_with_three_decimals_are_rejected_with_a_message(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved)
     await open_dialog(user)
@@ -2206,7 +2447,9 @@ async def test_hours_with_three_decimals_are_rejected_with_a_message(user: User)
     await user.should_see("工数は小数点以下2桁")
 
 
-async def test_an_existing_three_decimal_effort_can_be_saved_untouched(user: User) -> None:
+async def test_an_existing_three_decimal_effort_can_be_saved_untouched(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_dialog(Task("a", effort_hours=1.234), saved)
     await open_dialog(user)
@@ -2215,16 +2458,22 @@ async def test_an_existing_three_decimal_effort_can_be_saved_untouched(user: Use
     assert saved[0].effort_hours == 1.234
 
 
-async def test_the_effort_change_updates_the_computed_end_and_the_conversion(user: User) -> None:
+async def test_the_effort_change_updates_the_computed_end_and_the_conversion(
+    user: User,
+) -> None:
     mount_dialog(None, [], members=[Member("田中", 1.0)])
     await open_dialog(user)
     user.find(marker="task-start-date").type("2026-10-05")
     set_unit(user, EffortUnit.DAYS)
     user.find(marker="task-effort").type("2")
-    assert user.find(marker="task-end-computed").elements.pop().value != ""  # 13h から算出
+    assert (
+        user.find(marker="task-end-computed").elements.pop().value != ""
+    )  # 13h から算出
 
 
-async def test_the_allocation_hides_again_when_cleared_and_keeps_its_value(user: User) -> None:
+async def test_the_allocation_hides_again_when_cleared_and_keeps_its_value(
+    user: User,
+) -> None:
     mount_dialog(None, [], members=[TANAKA])
     await open_dialog(user)
     select = user.find(marker="task-assignee").elements.pop()
@@ -2235,7 +2484,9 @@ async def test_the_allocation_hides_again_when_cleared_and_keeps_its_value(user:
     await user.should_not_see(marker="task-allocation")
     with user.client:
         select.set_value("田中")
-    assert user.find(marker="task-allocation").elements.pop().value == 50  # 隠しても値は残る
+    assert (
+        user.find(marker="task-allocation").elements.pop().value == 50
+    )  # 隠しても値は残る
 
 
 def rich_task() -> Task:
@@ -2250,7 +2501,11 @@ def rich_task() -> Task:
     )
 
 
-RICH_MEMBERS = {"link_options": {"p1": "先行"}, "categories": [Category("開発", id="c1")], "members": [Member("田中", 1.0)]}
+RICH_MEMBERS = {
+    "link_options": {"p1": "先行"},
+    "categories": [Category("開発", id="c1")],
+    "members": [Member("田中", 1.0)],
+}
 
 
 def section_of(user: User, key: str) -> ui.expansion:
@@ -2262,12 +2517,21 @@ async def test_a_new_task_opens_only_the_basic_fields(user: User) -> None:
     await open_dialog(user)
     for key in ("assignees", "actuals", "related"):
         assert section_of(user, key).value is False
-    for marker in ("task-name", "task-kind", "task-category", "task-start-date", "task-effort", "task-status"):
+    for marker in (
+        "task-name",
+        "task-kind",
+        "task-category",
+        "task-start-date",
+        "task-effort",
+        "task-status",
+    ):
         await user.should_see(marker=marker)
 
 
 async def test_an_edit_opens_the_sections_with_values(user: User) -> None:
-    mount_dialog(Task("a", progress=40, assignees=[Assignee("田中", 0.5)]), [], **RICH_MEMBERS)
+    mount_dialog(
+        Task("a", progress=40, assignees=[Assignee("田中", 0.5)]), [], **RICH_MEMBERS
+    )
     await open_dialog(user)
     assert section_of(user, "assignees").value is True
     assert section_of(user, "actuals").value is True
@@ -2328,9 +2592,16 @@ async def test_a_closed_section_shows_its_summary_in_the_header(user: User) -> N
         predecessors=["p1"],
         priority=Priority.HIGH,
     )
-    mount_dialog(task, [], members=[Member("田中", 1.0), Member("鈴木", 1.0)], link_options={"p1": "先行"})
+    mount_dialog(
+        task,
+        [],
+        members=[Member("田中", 1.0), Member("鈴木", 1.0)],
+        link_options={"p1": "先行"},
+    )
     await open_dialog(user)
-    assert section_of(user, "assignees").props["caption"] == ""  # 開いている間は出さない
+    assert (
+        section_of(user, "assignees").props["caption"] == ""
+    )  # 開いている間は出さない
     for key in ("assignees", "actuals", "related"):
         section_of(user, key).set_value(False)
     assert section_of(user, "assignees").props["caption"] == "田中 100%・鈴木 50%"
@@ -2379,7 +2650,9 @@ async def test_an_error_in_the_simple_actuals_opens_the_section(user: User) -> N
     assert section_of(user, "actuals").value is True
 
 
-async def test_an_out_of_range_year_in_the_simple_actuals_opens_the_section(user: User) -> None:
+async def test_an_out_of_range_year_in_the_simple_actuals_opens_the_section(
+    user: User,
+) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
     user.find(marker="task-name").type("設計")
@@ -2420,7 +2693,13 @@ async def test_a_checkpoint_hides_the_normal_sections(user: User) -> None:
     mount_dialog(None, [], **RICH_MEMBERS)
     await open_dialog(user)
     user.find(marker="task-kind").elements.pop().set_value(TaskKind.CHECKPOINT)
-    for marker in ("task-start-date", "task-effort", "task-actual-start-date", "task-section-assignees", "task-section-actuals"):
+    for marker in (
+        "task-start-date",
+        "task-effort",
+        "task-actual-start-date",
+        "task-section-assignees",
+        "task-section-actuals",
+    ):
         await user.should_not_see(marker=marker)
     await user.should_see(marker="task-deadline-date")
     await user.should_see(marker="task-section-related")
@@ -2438,7 +2717,9 @@ async def test_the_conversion_is_shown_in_the_basic_fields(user: User) -> None:
     assert "換算率" in conversion.text
 
 
-async def test_clearing_the_assignee_after_editing_the_hidden_allocation_is_not_a_change(user: User) -> None:
+async def test_clearing_the_assignee_after_editing_the_hidden_allocation_is_not_a_change(
+    user: User,
+) -> None:
     mount_dialog(None, [], members=[TANAKA])
     await open_dialog(user)
     select = user.find(marker="task-assignee").elements.pop()
@@ -2447,7 +2728,9 @@ async def test_clearing_the_assignee_after_editing_the_hidden_allocation_is_not_
         user.find(marker="task-allocation").elements.pop().set_value(50)
         select.set_value("")  # (なし)に戻す。割り当て率は隠れて、値だけが残る
     user.find(marker="task-cancel").click()
-    assert dialog_of(user).value is False  # 実質、何も変わっていないので、確認なしで閉じる
+    assert (
+        dialog_of(user).value is False
+    )  # 実質、何も変わっていないので、確認なしで閉じる
     assert confirm_dialog_of(user).value is False
 
 
@@ -2461,22 +2744,37 @@ async def test_a_real_allocation_change_still_asks_before_closing(user: User) ->
     assert confirm_dialog_of(user).value is True
 
 
-async def test_a_summary_dialog_shows_only_name_category_priority_and_links(user: User) -> None:
+async def test_a_summary_dialog_shows_only_name_category_priority_and_links(
+    user: User,
+) -> None:
     mount_dialog(Task("m", id="m", kind=TaskKind.SUMMARY, children=["a"]), [])
     await open_dialog(user)
     await user.should_see(marker="task-name")
     await user.should_see(marker="task-category")
-    for marker in ("task-status", "task-kind", "task-predecessors", "task-color", "task-conversion"):
+    for marker in (
+        "task-status",
+        "task-kind",
+        "task-predecessors",
+        "task-color",
+        "task-conversion",
+    ):
         await user.should_not_see(marker=marker)
 
 
 async def test_a_summary_dialog_saves_a_summary(user: User) -> None:
     saved: list[Task] = []
-    mount_dialog(Task("m", id="m", kind=TaskKind.SUMMARY, children=["a"], effort_hours=0.0), saved)
+    mount_dialog(
+        Task("m", id="m", kind=TaskKind.SUMMARY, children=["a"], effort_hours=0.0),
+        saved,
+    )
     await open_dialog(user)
     user.find(marker="task-name").type("改名")
     user.find(marker="task-save").click()
-    assert (saved[0].kind, saved[0].children, saved[0].name.endswith("改名")) == (TaskKind.SUMMARY, ["a"], True)
+    assert (saved[0].kind, saved[0].children, saved[0].name.endswith("改名")) == (
+        TaskKind.SUMMARY,
+        ["a"],
+        True,
+    )
 
 
 async def test_the_kind_toggle_never_offers_summary(user: User) -> None:
@@ -2486,13 +2784,17 @@ async def test_the_kind_toggle_never_offers_summary(user: User) -> None:
     assert TaskKind.SUMMARY not in toggle.options
 
 
-async def test_decompose_button_calls_back_without_closing_the_edit_dialog(user: User) -> None:
+async def test_decompose_button_calls_back_without_closing_the_edit_dialog(
+    user: User,
+) -> None:
     calls: list[Callable[[], object]] = []
     mount_dialog(Task("x"), [], on_decompose=calls.append)
     await open_dialog(user)
     user.find(marker="task-decompose").click()
     assert len(calls) == 1
-    await user.should_see(marker="task-save")  # 閉じて開くと画面が一瞬消えるので、編集は開いたまま重ねる
+    await user.should_see(
+        marker="task-save"
+    )  # 閉じて開くと画面が一瞬消えるので、編集は開いたまま重ねる
     assert dialog_of(user).value is True
     calls[0]()  # 分解に成功したときに、呼び出し側が閉じる
     assert dialog_of(user).value is False
@@ -2505,19 +2807,29 @@ async def test_decompose_button_is_not_shown_for_a_new_task(user: User) -> None:
 
 
 async def test_decompose_button_is_not_shown_for_a_checkpoint(user: User) -> None:
-    mount_dialog(Task("c", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 12, 17)), [], on_decompose=lambda close: None)
+    mount_dialog(
+        Task("c", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 12, 17)),
+        [],
+        on_decompose=lambda close: None,
+    )
     await open_dialog(user)
     await user.should_not_see(marker="task-decompose")
 
 
-async def test_decompose_button_is_not_shown_for_a_task_with_actuals(user: User) -> None:
-    task = Task("r", actuals=[Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12))])
+async def test_decompose_button_is_not_shown_for_a_task_with_actuals(
+    user: User,
+) -> None:
+    task = Task(
+        "r", actuals=[Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12))]
+    )
     mount_dialog(task, [], on_decompose=lambda close: None)
     await open_dialog(user)
     await user.should_not_see(marker="task-decompose")
 
 
-async def test_decompose_button_asks_to_save_first_when_the_form_was_edited(user: User) -> None:
+async def test_decompose_button_asks_to_save_first_when_the_form_was_edited(
+    user: User,
+) -> None:
     calls: list[str] = []
     mount_dialog(Task("x"), [], on_decompose=lambda close: calls.append("go"))
     await open_dialog(user)
@@ -2528,7 +2840,9 @@ async def test_decompose_button_asks_to_save_first_when_the_form_was_edited(user
 
 
 @pytest.mark.parametrize("fields", [{"status": Status.RUNNING}, {"progress": 40}])
-async def test_decompose_button_is_not_shown_for_a_task_with_status_or_progress(user: User, fields: dict[str, object]) -> None:
+async def test_decompose_button_is_not_shown_for_a_task_with_status_or_progress(
+    user: User, fields: dict[str, object]
+) -> None:
     mount_dialog(Task("r", **fields), [], on_decompose=lambda close: None)  # type: ignore[arg-type]
     await open_dialog(user)
     await user.should_not_see(marker="task-decompose")
@@ -2549,8 +2863,12 @@ SLOW = Member("遅", 0.5)
 
 def reassign_task(**kwargs) -> Task:
     base = dict(
-        name="設計", planned_start=datetime(2026, 10, 12, 9, 0), effort_hours=16.0, status=Status.RUNNING,
-        progress=50, assignees=[Assignee("早", 1.0)],
+        name="設計",
+        planned_start=datetime(2026, 10, 12, 9, 0),
+        effort_hours=16.0,
+        status=Status.RUNNING,
+        progress=50,
+        assignees=[Assignee("早", 1.0)],
     )
     return Task(**{**base, **kwargs})
 
@@ -2571,16 +2889,22 @@ async def test_switching_a_member_with_progress_asks_for_a_review(user: User) ->
     assert "2026-10-16 13:00" in user.find(marker="reassign-text").elements.pop().text
 
 
-async def test_the_review_uses_the_unclamped_ratio_of_the_new_member(user: User) -> None:
+async def test_the_review_uses_the_unclamped_ratio_of_the_new_member(
+    user: User,
+) -> None:
     saved: list[Task] = []
-    big = Member("大", 2.0, ratio_unclamped=True)  # 200%。丸め直すと 150% になり、完了予定が遅くなる
+    big = Member(
+        "大", 2.0, ratio_unclamped=True
+    )  # 200%。丸め直すと 150% になり、完了予定が遅くなる
     mount_dialog(reassign_task(), saved, members=[FAST, big], now=lambda: REASSIGN_NOW)
     await open_dialog(user)
     with user.client:
         user.find(marker="task-assignee").elements.pop().set_value("大")
     user.find(marker="task-save").click()
     await user.should_see(marker="reassign-text")
-    assert "2026-10-14 14:00" in user.find(marker="reassign-text").elements.pop().text  # 残り 8h ÷ 200% = 4h
+    assert (
+        "2026-10-14 14:00" in user.find(marker="reassign-text").elements.pop().text
+    )  # 残り 8h ÷ 200% = 4h
 
 
 async def test_applying_the_review_saves_the_end_as_manual(user: User) -> None:
@@ -2655,30 +2979,48 @@ async def test_a_new_task_is_saved_without_asking(user: User) -> None:
     assert len(saved) == 1
 
 
-SAT_WORKER = Member("田中", 1.0, work_days=[WorkDay(date(2026, 10, 10), time(9), time(15, 30))])
+SAT_WORKER = Member(
+    "田中", 1.0, work_days=[WorkDay(date(2026, 10, 10), time(9), time(15, 30))]
+)
 
 
 async def test_the_computed_end_uses_the_assignees_work_days(user: User) -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 9, 9), effort_hours=13, assignees=[Assignee("田中", 1.0)])
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 9, 9),
+        effort_hours=13,
+        assignees=[Assignee("田中", 1.0)],
+    )
     mount_dialog(task, [], members=[SAT_WORKER])
     await open_dialog(user)
     await user.should_see(marker="task-end-computed")
-    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-10 15:30"  # 金曜 6.5h + 土曜 6.5h
+    assert (
+        user.find(marker="task-end-computed").elements.pop().value == "2026-10-10 15:30"
+    )  # 金曜 6.5h + 土曜 6.5h
 
 
-async def test_choosing_an_assignee_recomputes_the_end_with_their_work_days(user: User) -> None:
+async def test_choosing_an_assignee_recomputes_the_end_with_their_work_days(
+    user: User,
+) -> None:
     mount_dialog(None, [], members=[SAT_WORKER])
     await open_dialog(user)
     user.find(marker="task-start-date").type("2026-10-09")
     user.find(marker="task-effort").clear().type("13")
     await user.should_see(marker="task-end-computed")
-    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-12 15:30"  # 担当なしは通常カレンダー
+    assert (
+        user.find(marker="task-end-computed").elements.pop().value == "2026-10-12 15:30"
+    )  # 担当なしは通常カレンダー
     with user.client:
         user.find(marker="task-assignee").elements.pop().set_value("田中")
-    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-10 15:30"
+    assert (
+        user.find(marker="task-end-computed").elements.pop().value == "2026-10-10 15:30"
+    )
 
 
-PYTHON_JAVA = [Parameter("Python", [Level("上級", 0.5)]), Parameter("Java", [Level("初級", -0.5)])]
+PYTHON_JAVA = [
+    Parameter("Python", [Level("上級", 0.5)]),
+    Parameter("Java", [Level("初級", -0.5)]),
+]
 SKILLED = Member("田中", 1.0, {"Python": "上級", "Java": "初級"})  # 全合計は 100%
 
 
@@ -2693,13 +3035,17 @@ async def test_the_parameter_select_saves_the_choice(user: User) -> None:
     assert saved[0].parameters == ["Python"]
 
 
-async def test_the_parameter_select_starts_with_the_attached_ones_and_hides_unregistered_names(user: User) -> None:
+async def test_the_parameter_select_starts_with_the_attached_ones_and_hides_unregistered_names(
+    user: User,
+) -> None:
     mount_dialog(Task("a", parameters=["Java", "ない"]), [], parameters=PYTHON_JAVA)
     await open_dialog(user)
     assert user.find(marker="task-parameters").elements.pop().value == ["Java"]
 
 
-async def test_no_parameter_select_without_registered_parameters_and_the_attached_ones_are_kept(user: User) -> None:
+async def test_no_parameter_select_without_registered_parameters_and_the_attached_ones_are_kept(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_dialog(Task("a", parameters=["P"]), saved, parameters=[])
     await open_dialog(user)
@@ -2723,19 +3069,28 @@ async def test_the_conversion_follows_the_chosen_parameters(user: User) -> None:
     assert conversion.text.startswith("換算率 100%")
     with user.client:
         user.find(marker="task-parameters").elements.pop().set_value(["Python"])
-    assert conversion.text.startswith("換算率 150%") and "Pythonを反映" in conversion.text
+    assert (
+        conversion.text.startswith("換算率 150%") and "Pythonを反映" in conversion.text
+    )
 
 
-async def test_changing_the_parameters_of_a_task_with_progress_asks_for_a_review(user: User) -> None:
+async def test_changing_the_parameters_of_a_task_with_progress_asks_for_a_review(
+    user: User,
+) -> None:
     saved: list[Task] = []
     task = reassign_task(assignees=[Assignee("田中", 1.0)])
-    mount_dialog(task, saved, members=[SKILLED], parameters=PYTHON_JAVA, now=lambda: REASSIGN_NOW)
+    mount_dialog(
+        task, saved, members=[SKILLED], parameters=PYTHON_JAVA, now=lambda: REASSIGN_NOW
+    )
     await open_dialog(user)
     with user.client:
         user.find(marker="task-parameters").elements.pop().set_value(["Python"])
     user.find(marker="task-save").click()
     await user.should_see(marker="reassign-text")
-    assert "担当またはパラメータの変更で" in user.find(marker="reassign-text").elements.pop().text
+    assert (
+        "担当またはパラメータの変更で"
+        in user.find(marker="reassign-text").elements.pop().text
+    )
     assert saved == []
 
 
@@ -2743,26 +3098,22 @@ WEEKS = [[Assignee("田中")], [Assignee("田中"), Assignee("鈴木", 0.5)]]
 
 
 def weekly_task_of(**kwargs) -> Task:
-    return Task("週", assignees=[Assignee("田中"), Assignee("鈴木", 0.5)], weekly_crew=[list(w) for w in WEEKS], **kwargs)
-
-
-
-
-
-
-
-
-
-
-
-
+    return Task(
+        "週",
+        assignees=[Assignee("田中"), Assignee("鈴木", 0.5)],
+        weekly_crew=[list(w) for w in WEEKS],
+        **kwargs,
+    )
 
 
 async def test_the_conversion_lists_each_week(user: User) -> None:
     mount_dialog(weekly_task_of(effort_hours=20.0), [], members=[TANAKA, SUZUKI])
     await open_dialog(user)
     text = user.find(marker="task-conversion").elements.pop().text
-    assert text == "換算率 第1週: 田中 120%×100% = 120% / 第2週: 田中 120%×100% + 鈴木 100%×50% = 170%"
+    assert (
+        text
+        == "換算率 第1週: 田中 120%×100% = 120% / 第2週: 田中 120%×100% + 鈴木 100%×50% = 170%"
+    )
 
 
 async def test_the_computed_end_follows_the_weeks(user: User) -> None:
@@ -2776,11 +3127,15 @@ async def test_the_computed_end_follows_the_weeks(user: User) -> None:
     )
     mount_dialog(task, [], members=[a, b])
     await open_dialog(user)
-    assert user.find(marker="task-end-computed").elements.pop().value == "2026-10-14 12:45"
+    assert (
+        user.find(marker="task-end-computed").elements.pop().value == "2026-10-14 12:45"
+    )
 
 
 async def test_the_decompose_button_is_hidden_for_a_weekly_task(user: User) -> None:
-    mount_dialog(weekly_task_of(), [], members=[TANAKA, SUZUKI], on_decompose=lambda close: None)
+    mount_dialog(
+        weekly_task_of(), [], members=[TANAKA, SUZUKI], on_decompose=lambda close: None
+    )
     await open_dialog(user)
     await user.should_not_see(marker="task-decompose")
 
@@ -2788,10 +3143,17 @@ async def test_the_decompose_button_is_hidden_for_a_weekly_task(user: User) -> N
 def mount_week_dialog(crew: list[Assignee], saved: list[list[Assignee]]) -> None:
     @ui.page("/")
     def index() -> None:
-        ui.button("open", on_click=lambda: open_week_crew_dialog(2, crew, [TANAKA, SUZUKI], saved.append)).mark("open")
+        ui.button(
+            "open",
+            on_click=lambda: open_week_crew_dialog(
+                2, crew, [TANAKA, SUZUKI], saved.append
+            ),
+        ).mark("open")
 
 
-async def test_the_week_dialog_starts_from_that_weeks_crew_and_saves_the_edit(user: User) -> None:
+async def test_the_week_dialog_starts_from_that_weeks_crew_and_saves_the_edit(
+    user: User,
+) -> None:
     saved: list[list[Assignee]] = []
     mount_week_dialog([Assignee("田中", 0.5)], saved)
     await open_dialog(user)
@@ -2813,19 +3175,26 @@ async def test_the_week_dialog_needs_at_least_one_assignee(user: User) -> None:
     with user.client:
         user.find(marker="week-edit-assignee").elements.pop().set_value("")
     user.find(marker="week-edit-save").click()
-    assert "担当者を選んでください" in user.find(marker="week-edit-error").elements.pop().text
+    assert (
+        "担当者を選んでください"
+        in user.find(marker="week-edit-error").elements.pop().text
+    )
     assert saved == []
 
 
 async def test_a_plain_task_has_no_weekly_switch_or_note(user: User) -> None:
-    mount_dialog(Task("通常", assignees=[Assignee("田中")]), [], members=[TANAKA, SUZUKI])
+    mount_dialog(
+        Task("通常", assignees=[Assignee("田中")]), [], members=[TANAKA, SUZUKI]
+    )
     await open_dialog(user)
     await user.should_see(marker="task-assignee")
     await user.should_not_see(marker="task-weekly")
     await user.should_not_see(marker="task-weekly-note")
 
 
-async def test_a_weekly_task_is_not_edited_here_and_saves_its_weeks_unchanged(user: User) -> None:
+async def test_a_weekly_task_is_not_edited_here_and_saves_its_weeks_unchanged(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_dialog(weekly_task_of(), saved, members=[TANAKA, SUZUKI])
     await open_dialog(user)
@@ -2838,7 +3207,6 @@ async def test_a_weekly_task_is_not_edited_here_and_saves_its_weeks_unchanged(us
     assert saved[0].assignees == [Assignee("田中"), Assignee("鈴木", 0.5)]
 
 
-
 async def test_the_dialog_saves_a_project_reference(user: User) -> None:
     saved: list[Task] = []
     mount_dialog(None, saved, reference_choices=["基盤", "共通"])
@@ -2848,21 +3216,29 @@ async def test_the_dialog_saves_a_project_reference(user: User) -> None:
     user.find(marker="task-name").type("基盤開発")
     user.find(marker="task-ref-project").elements.pop().set_value("基盤")
     user.find(marker="task-save").click()
-    assert [(t.kind, t.ref_project, t.name) for t in saved] == [(TaskKind.REFERENCE, "基盤", "基盤開発")]
+    assert [(t.kind, t.ref_project, t.name) for t in saved] == [
+        (TaskKind.REFERENCE, "基盤", "基盤開発")
+    ]
 
 
 async def test_the_reference_kind_is_offered_only_with_choices(user: User) -> None:
     mount_dialog(None, [])
     await open_dialog(user)
-    assert TaskKind.REFERENCE not in user.find(marker="task-kind").elements.pop().options
+    assert (
+        TaskKind.REFERENCE not in user.find(marker="task-kind").elements.pop().options
+    )
 
 
-async def test_a_reference_row_hides_the_normal_fields_and_keeps_its_missing_target(user: User) -> None:
+async def test_a_reference_row_hides_the_normal_fields_and_keeps_its_missing_target(
+    user: User,
+) -> None:
     saved: list[Task] = []
     task = Task("基盤開発", kind=TaskKind.REFERENCE, ref_project="ない")
     mount_dialog(task, saved, reference_choices=["基盤"])
     await open_dialog(user)
-    assert user.find(marker="task-ref-project").elements.pop().value == "ない"  # 見つからない参照先も残す
+    assert (
+        user.find(marker="task-ref-project").elements.pop().value == "ない"
+    )  # 見つからない参照先も残す
     await user.should_not_see(marker="task-effort")
     user.find(marker="task-save").click()
     assert saved[0].ref_project == "ない"
@@ -2871,8 +3247,19 @@ async def test_a_reference_row_hides_the_normal_fields_and_keeps_its_missing_tar
 async def test_the_conversion_text_names_a_limited_assignee(user: User) -> None:
     params = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
     member = Member("田中", 1.0, {"a": "高", "b": "高", "c": "高"})
-    task = Task("t", assignees=[Assignee("田中", 1.0)], effort_hours=10.0, parameters=["a", "b", "c"])
-    mount_dialog(task, [], members=[member], parameters=params, ratio_limits=RatioLimits(upper=1.0))
+    task = Task(
+        "t",
+        assignees=[Assignee("田中", 1.0)],
+        effort_hours=10.0,
+        parameters=["a", "b", "c"],
+    )
+    mount_dialog(
+        task,
+        [],
+        members=[member],
+        parameters=params,
+        ratio_limits=RatioLimits(upper=1.0),
+    )
     await open_dialog(user)
     text = user.find(marker="task-conversion").elements.pop().text
     assert "換算率 100%" in text and "田中 相対比率 250% → 上限 100% に制限" in text
@@ -2881,7 +3268,12 @@ async def test_the_conversion_text_names_a_limited_assignee(user: User) -> None:
 async def test_the_conversion_text_has_no_limit_note_without_limits(user: User) -> None:
     params = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
     member = Member("田中", 1.0, {"a": "高", "b": "高", "c": "高"})
-    task = Task("t", assignees=[Assignee("田中", 1.0)], effort_hours=10.0, parameters=["a", "b", "c"])
+    task = Task(
+        "t",
+        assignees=[Assignee("田中", 1.0)],
+        effort_hours=10.0,
+        parameters=["a", "b", "c"],
+    )
     mount_dialog(task, [], members=[member], parameters=params)
     await open_dialog(user)
     text = user.find(marker="task-conversion").elements.pop().text
@@ -2902,9 +3294,16 @@ async def test_the_team_row_is_hidden_when_no_team_has_members(user: User) -> No
     await user.should_not_see(marker="task-team-add")
 
 
-async def test_adding_a_team_puts_its_members_in_the_crew_at_the_given_rate(user: User) -> None:
+async def test_adding_a_team_puts_its_members_in_the_crew_at_the_given_rate(
+    user: User,
+) -> None:
     saved: list[Task] = []
-    mount_dialog(None, saved, members=teamed_members(), teams=[Team("開発", id="t1"), Team("QA", id="t2")])
+    mount_dialog(
+        None,
+        saved,
+        members=teamed_members(),
+        teams=[Team("開発", id="t1"), Team("QA", id="t2")],
+    )
     await open_dialog(user)
     user.find(marker="task-name").type("設計")
     with user.client:
@@ -2912,10 +3311,15 @@ async def test_adding_a_team_puts_its_members_in_the_crew_at_the_given_rate(user
     user.find(marker="task-team-add").click()
     await user.should_see(marker="task-assignee-2")  # 2 人ぶんの行ができる
     user.find(marker="task-save").click()
-    assert saved[0].assignees == [Assignee("甲", pytest.approx(0.8)), Assignee("乙", pytest.approx(0.8))]
+    assert saved[0].assignees == [
+        Assignee("甲", pytest.approx(0.8)),
+        Assignee("乙", pytest.approx(0.8)),
+    ]
 
 
-async def test_adding_a_team_updates_the_rate_of_people_already_in_the_crew(user: User) -> None:
+async def test_adding_a_team_updates_the_rate_of_people_already_in_the_crew(
+    user: User,
+) -> None:
     saved: list[Task] = []
     task = Task("a", assignees=[Assignee("甲", 0.5), Assignee("丙", 1.0)])
     mount_dialog(task, saved, members=teamed_members(), teams=[Team("開発", id="t1")])
@@ -2923,7 +3327,11 @@ async def test_adding_a_team_updates_the_rate_of_people_already_in_the_crew(user
     user.find(marker="task-team-add").click()  # 既定の割り当て率は 100%
     await user.should_see(marker="task-assignee-3")
     user.find(marker="task-save").click()
-    assert saved[0].assignees == [Assignee("甲", 1.0), Assignee("丙", 1.0), Assignee("乙", 1.0)]
+    assert saved[0].assignees == [
+        Assignee("甲", 1.0),
+        Assignee("丙", 1.0),
+        Assignee("乙", 1.0),
+    ]
 
 
 async def test_a_bad_team_rate_notifies_and_changes_nothing(user: User) -> None:
@@ -2939,8 +3347,12 @@ async def test_a_bad_team_rate_notifies_and_changes_nothing(user: User) -> None:
     assert saved[0].assignees == []
 
 
-async def test_the_team_row_follows_the_assignee_fields_when_the_task_is_weekly(user: User) -> None:
-    task = Task("a", assignees=[Assignee("甲", 1.0)], weekly_crew=[[Assignee("甲", 1.0)]])
+async def test_the_team_row_follows_the_assignee_fields_when_the_task_is_weekly(
+    user: User,
+) -> None:
+    task = Task(
+        "a", assignees=[Assignee("甲", 1.0)], weekly_crew=[[Assignee("甲", 1.0)]]
+    )
     mount_dialog(task, [], members=teamed_members(), teams=[Team("開発", id="t1")])
     await open_dialog(user)
     await user.should_not_see(marker="task-team-add")
@@ -2949,7 +3361,10 @@ async def test_the_team_row_follows_the_assignee_fields_when_the_task_is_weekly(
 def mount_quick_dialog(task: Task, saved: list[Task], intervals: bool = False) -> None:
     @ui.page("/")
     def index() -> None:
-        ui.button("open", on_click=lambda: open_quick_progress_dialog(task, intervals, saved.append)).mark("open")
+        ui.button(
+            "open",
+            on_click=lambda: open_quick_progress_dialog(task, intervals, saved.append),
+        ).mark("open")
 
 
 async def test_the_quick_dialog_saves_the_progress_and_the_actual(user: User) -> None:
@@ -2960,7 +3375,9 @@ async def test_the_quick_dialog_saves_the_progress_and_the_actual(user: User) ->
     assert user.find(marker="quick-progress").elements.pop().value == 20
     with user.client:
         user.find(marker="quick-progress").elements.pop().set_value(60)
-        user.find(marker="task-actual-start-date").elements.pop().set_value("2026-10-05")
+        user.find(marker="task-actual-start-date").elements.pop().set_value(
+            "2026-10-05"
+        )
         user.find(marker="task-actual-start-time").elements.pop().set_value("09:00")
     user.find(marker="quick-save").click()
     assert len(saved) == 1
@@ -2980,7 +3397,9 @@ async def test_the_quick_dialog_shows_the_error_and_does_not_save(user: User) ->
     assert saved == []
 
 
-async def test_the_quick_dialog_only_edits_the_progress_for_several_intervals(user: User) -> None:
+async def test_the_quick_dialog_only_edits_the_progress_for_several_intervals(
+    user: User,
+) -> None:
     saved: list[Task] = []
     first = Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12))
     second = Actual(datetime(2026, 10, 6, 9))

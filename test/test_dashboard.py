@@ -25,7 +25,19 @@ from projectapp.dashboard import (
     summarize_workload,
 )
 from projectapp.timeline import overallocations
-from projectapp.models import Assignee, Actual, Event, Member, Membership, Project, Status, Task, TaskKind, Team, WorkDay
+from projectapp.models import (
+    Assignee,
+    Actual,
+    Event,
+    Member,
+    Membership,
+    Project,
+    Status,
+    Task,
+    TaskKind,
+    Team,
+    WorkDay,
+)
 
 TODAY = date(2026, 10, 7)  # 水曜
 NOW = datetime(2026, 10, 7, 12)
@@ -45,7 +57,9 @@ def project_of(*tasks: Task, members: list[Member] | None = None) -> Project:
         (date(2026, 12, 31), date(2026, 12, 28), date(2027, 1, 3)),  # 年またぎ
     ],
 )
-def test_the_week_runs_from_monday_to_sunday(today: date, start: date, end: date) -> None:
+def test_the_week_runs_from_monday_to_sunday(
+    today: date, start: date, end: date
+) -> None:
     assert period_for(PeriodKind.WEEK, today, project_of(), {}) == Period(start, end)
 
 
@@ -57,12 +71,16 @@ def test_the_week_runs_from_monday_to_sunday(today: date, start: date, end: date
         (date(2028, 2, 10), date(2028, 2, 1), date(2028, 2, 29)),  # うるう年
     ],
 )
-def test_the_month_runs_from_the_first_to_the_last_day(today: date, start: date, end: date) -> None:
+def test_the_month_runs_from_the_first_to_the_last_day(
+    today: date, start: date, end: date
+) -> None:
     assert period_for(PeriodKind.MONTH, today, project_of(), {}) == Period(start, end)
 
 
 def test_the_whole_period_is_today_when_nothing_has_a_date() -> None:
-    assert period_for(PeriodKind.ALL, TODAY, project_of(Task("a")), {}) == Period(TODAY, TODAY)
+    assert period_for(PeriodKind.ALL, TODAY, project_of(Task("a")), {}) == Period(
+        TODAY, TODAY
+    )
 
 
 def test_the_whole_period_spans_planned_dates_deadlines_and_actuals() -> None:
@@ -73,7 +91,9 @@ def test_the_whole_period_spans_planned_dates_deadlines_and_actuals() -> None:
         deadline=datetime(2026, 10, 20, 17),
         actuals=[Actual(datetime(2026, 10, 3, 9), datetime(2026, 10, 3, 12))],
     )
-    assert period_for(PeriodKind.ALL, TODAY, project_of(task), {}) == Period(date(2026, 10, 3), date(2026, 10, 20))
+    assert period_for(PeriodKind.ALL, TODAY, project_of(task), {}) == Period(
+        date(2026, 10, 3), date(2026, 10, 20)
+    )
 
 
 def test_a_period_lists_its_days_and_its_bounds() -> None:
@@ -83,12 +103,23 @@ def test_a_period_lists_its_days_and_its_bounds() -> None:
 
 
 def test_progress_is_the_effort_weighted_average() -> None:
-    a = Task("A", effort_hours=10, status=Status.RUNNING, actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12))], progress=50)
+    a = Task(
+        "A",
+        effort_hours=10,
+        status=Status.RUNNING,
+        actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 12))],
+        progress=50,
+    )
     b = Task("B", status=Status.DONE)  # 工数なしは重み 1。終了は 100%
     c = Task("C", effort_hours=10)  # 進捗の入力なしは 0%
     progress = summarize_progress(project_of(a, b, c), {}, NOW)
     assert progress.percent == pytest.approx(600 / 21)
-    assert progress.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 1}
+    assert progress.counts == {
+        Status.NOT_STARTED: 1,
+        Status.RUNNING: 1,
+        Status.PAUSED: 0,
+        Status.DONE: 1,
+    }
 
 
 def test_progress_uses_the_task_value_without_actuals() -> None:
@@ -104,7 +135,12 @@ def test_progress_is_none_without_tasks() -> None:
 
 
 def test_overdue_rows_use_the_earliest_passed_limit_and_are_sorted() -> None:
-    late = Task("late", status=Status.RUNNING, deadline=datetime(2026, 10, 6, 17), assignees=[Assignee("田中")])
+    late = Task(
+        "late",
+        status=Status.RUNNING,
+        deadline=datetime(2026, 10, 6, 17),
+        assignees=[Assignee("田中")],
+    )
     ended = Task(
         "ended",
         status=Status.RUNNING,
@@ -126,7 +162,9 @@ def test_overdue_rows_use_the_earliest_passed_limit_and_are_sorted() -> None:
         deadline=datetime(2026, 10, 6),
         actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 7, 9))],
     )
-    rows = summarize_progress(project_of(late, ended, both, fine, done_late), {}, NOW).overdue
+    rows = summarize_progress(
+        project_of(late, ended, both, fine, done_late), {}, NOW
+    ).overdue
     assert [(r.name, r.limit) for r in rows] == [
         ("both", datetime(2026, 10, 5, 17)),
         ("ended", datetime(2026, 10, 6, 12)),
@@ -138,7 +176,9 @@ def test_overdue_rows_use_the_earliest_passed_limit_and_are_sorted() -> None:
 WEEK = Period(date(2026, 10, 5), date(2026, 10, 11))
 
 
-def span_task(name: str, start_day: int, end_day: int, allocation: float, **kwargs) -> Task:
+def span_task(
+    name: str, start_day: int, end_day: int, allocation: float, **kwargs
+) -> Task:
     return Task(
         name,
         planned_start=datetime(2026, 10, start_day, 9),
@@ -175,7 +215,9 @@ def test_finished_tasks_do_not_load_a_member() -> None:
 
 
 def test_holidays_are_not_workdays() -> None:
-    stats = summarize_loads(project_of(span_task("a", 5, 7, 0.5)), WEEK, {date(2026, 10, 6): "祝"})["田中"]
+    stats = summarize_loads(
+        project_of(span_task("a", 5, 7, 0.5)), WEEK, {date(2026, 10, 6): "祝"}
+    )["田中"]
     assert stats.average == pytest.approx(0.25)  # 月・水・木・金の 4 日で割る
 
 
@@ -189,7 +231,9 @@ def test_loads_list_the_members_in_order_and_skip_non_members() -> None:
     members = [Member("田中", 1.0), Member("佐藤", 1.0)]
     stranger = span_task("x", 5, 7, 0.5)
     stranger.assignees = [Assignee("鈴木")]
-    loads = summarize_loads(project_of(span_task("a", 5, 7, 0.5), stranger, members=members), WEEK, {})
+    loads = summarize_loads(
+        project_of(span_task("a", 5, 7, 0.5), stranger, members=members), WEEK, {}
+    )
     assert list(loads) == ["田中", "佐藤"]
     assert loads["佐藤"].peak == 0.0
 
@@ -206,11 +250,16 @@ def test_cross_load_with_one_project_matches_the_single_project_load() -> None:
     assert cross.total == summarize_loads(project, WEEK, {})["田中"]
 
 
-def test_cross_load_adds_the_same_person_across_projects_and_counts_the_overload() -> None:
+def test_cross_load_adds_the_same_person_across_projects_and_counts_the_overload() -> (
+    None
+):
     first = named("A", span_task("a", 5, 6, 0.6))
     second = named("B", span_task("b", 5, 6, 0.6))
     cross = summarize_cross_loads([first, second], WEEK, {})["田中"]
-    assert (cross.total.peak, cross.total.overload_days) == (pytest.approx(1.2), 2)  # 1 件ずつは 60%
+    assert (cross.total.peak, cross.total.overload_days) == (
+        pytest.approx(1.2),
+        2,
+    )  # 1 件ずつは 60%
     assert [(p.project, p.peak) for p in cross.by_project] == [("A", 0.6), ("B", 0.6)]
 
 
@@ -228,15 +277,21 @@ def test_cross_load_skips_finished_tasks() -> None:
     assert cross.total.overload_days == 0
 
 
-def test_cross_load_overlays_projects_with_different_working_hours_by_date_and_time() -> None:
+def test_cross_load_overlays_projects_with_different_working_hours_by_date_and_time() -> (
+    None
+):
     first = named("A", span_task("a", 5, 6, 0.6))
     second = named("B", span_task("b", 5, 6, 0.6))
     second.daily_hours = 4.0
     cross = summarize_cross_loads([first, second], WEEK, {})["田中"]
-    assert cross.total.peak == pytest.approx(1.2)  # 期間は各自の設定で求め、日時のまま重ねる
+    assert cross.total.peak == pytest.approx(
+        1.2
+    )  # 期間は各自の設定で求め、日時のまま重ねる
 
 
-def test_cross_load_lists_a_person_who_is_only_in_one_project_with_that_project_only() -> None:
+def test_cross_load_lists_a_person_who_is_only_in_one_project_with_that_project_only() -> (
+    None
+):
     first = named("A", span_task("a", 5, 6, 0.5))
     second = named("B", members=[Member("佐藤", 1.0)])
     loads = summarize_cross_loads([first, second], WEEK, {})
@@ -275,7 +330,10 @@ def test_cross_days_list_the_workdays_only() -> None:
 def test_cross_days_add_projects_on_the_same_day_and_break_them_down() -> None:
     first = named("A", span_task("a", 5, 6, 0.6))
     second = named("B", span_task("b", 6, 7, 0.6))
-    days = {day.day: day for day in summarize_cross_loads([first, second], WEEK, {})["田中"].days}
+    days = {
+        day.day: day
+        for day in summarize_cross_loads([first, second], WEEK, {})["田中"].days
+    }
     only_a = days[date(2026, 10, 5)]
     assert only_a.total == 0.6
     assert [(p.project, p.peak) for p in only_a.by_project] == [("A", 0.6)]
@@ -287,39 +345,67 @@ def test_cross_days_add_projects_on_the_same_day_and_break_them_down() -> None:
 
 
 def test_cross_days_are_filled_for_a_single_project_too() -> None:
-    cross = summarize_cross_loads([named("A", span_task("a", 5, 6, 0.5))], WEEK, {})["田中"]
+    cross = summarize_cross_loads([named("A", span_task("a", 5, 6, 0.5))], WEEK, {})[
+        "田中"
+    ]
     assert len(cross.days) == 5
 
 
 DAY = Period(date(2026, 10, 6), date(2026, 10, 6))
 
 
-def test_planned_hours_use_allocation_and_daily_hours_and_include_finished_tasks() -> None:
+def test_planned_hours_use_allocation_and_daily_hours_and_include_finished_tasks() -> (
+    None
+):
     project = project_of(span_task("a", 5, 7, 0.5, status=Status.DONE))
     rows = summarize_workload(project, DAY, NOW, {})
     assert [(r.name, r.planned_hours) for r in rows] == [("田中", 0.5 * 6.5)]
-    assert summarize_workload(project, Period(date(2026, 10, 5), date(2026, 10, 7)), NOW, {})[0].planned_hours == pytest.approx(9.75)
+    assert summarize_workload(
+        project, Period(date(2026, 10, 5), date(2026, 10, 7)), NOW, {}
+    )[0].planned_hours == pytest.approx(9.75)
 
 
 def test_unassigned_work_is_grouped_and_only_listed_when_it_has_hours() -> None:
-    unassigned = Task("u", planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 6, 17))
+    unassigned = Task(
+        "u",
+        planned_start=datetime(2026, 10, 5, 9),
+        planned_end=datetime(2026, 10, 6, 17),
+    )
     members = [Member("田中", 1.0), Member("佐藤", 1.0)]
     rows = summarize_workload(project_of(unassigned, members=members), DAY, NOW, {})
-    assert [(r.name, r.planned_hours) for r in rows] == [("田中", 0.0), ("佐藤", 0.0), (UNASSIGNED, 6.5)]
-    assert [r.name for r in summarize_workload(project_of(members=members), DAY, NOW, {})] == ["田中", "佐藤"]
+    assert [(r.name, r.planned_hours) for r in rows] == [
+        ("田中", 0.0),
+        ("佐藤", 0.0),
+        (UNASSIGNED, 6.5),
+    ]
+    assert [
+        r.name for r in summarize_workload(project_of(members=members), DAY, NOW, {})
+    ] == ["田中", "佐藤"]
 
 
 def test_actual_hours_clip_to_the_period_and_run_until_now() -> None:
-    crossing = Actual(datetime(2026, 10, 5, 22), datetime(2026, 10, 6, 2))  # 期間内は 2 時間
+    crossing = Actual(
+        datetime(2026, 10, 5, 22), datetime(2026, 10, 6, 2)
+    )  # 期間内は 2 時間
     running = Actual(datetime(2026, 10, 6, 9))  # now(11:30)まで 2.5 時間
     outside = Actual(datetime(2026, 10, 1, 9), datetime(2026, 10, 1, 12))
-    project = project_of(Task("a", assignees=[Assignee("田中")], actuals=[crossing, running, outside]))
+    project = project_of(
+        Task("a", assignees=[Assignee("田中")], actuals=[crossing, running, outside])
+    )
     rows = summarize_workload(project, DAY, datetime(2026, 10, 6, 11, 30), {})
     assert rows[0].actual_hours == pytest.approx(4.5)
 
 
 def test_dashboard_totals_add_up_the_rows() -> None:
-    project = project_of(span_task("a", 6, 6, 1.0, actuals=[Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12))]))
+    project = project_of(
+        span_task(
+            "a",
+            6,
+            6,
+            1.0,
+            actuals=[Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12))],
+        )
+    )
     dashboard = summarize(project, DAY, NOW, {})
     assert dashboard.planned_total == pytest.approx(6.5)
     assert dashboard.actual_total == pytest.approx(3.0)
@@ -336,33 +422,63 @@ def test_due_rows_list_deadlines_and_planned_ends_in_the_period_sorted() -> None
         planned_end=datetime(2026, 10, 9, 12),
     )
     late = Task("late", status=Status.RUNNING, deadline=datetime(2026, 10, 6, 17))
-    edge_in = Task("in", deadline=datetime(2026, 10, 5, 0, 0))  # 期間の開始ちょうどは入る
-    edge_out = Task("out", deadline=datetime(2026, 10, 12, 0, 0))  # 終了日の翌日 0 時は入らない
+    edge_in = Task(
+        "in", deadline=datetime(2026, 10, 5, 0, 0)
+    )  # 期間の開始ちょうどは入る
+    edge_out = Task(
+        "out", deadline=datetime(2026, 10, 12, 0, 0)
+    )  # 終了日の翌日 0 時は入らない
     outside = Task("far", deadline=datetime(2026, 10, 20, 17))
     done = Task("done", status=Status.DONE, deadline=datetime(2026, 10, 7, 9))
-    rows = summarize_due(project_of(both, late, edge_in, edge_out, outside, done), WEEK, NOW, {})
+    rows = summarize_due(
+        project_of(both, late, edge_in, edge_out, outside, done), WEEK, NOW, {}
+    )
     assert rows == [
         DueRow(datetime(2026, 10, 5, 0, 0), "締切", "in", None, True),
         DueRow(datetime(2026, 10, 6, 17), "締切", "late", None, True),
-        DueRow(datetime(2026, 10, 8, 17), "締切", "t1", "田中", False, False, ("田中",)),
-        DueRow(datetime(2026, 10, 9, 12), "完了予定", "t1", "田中", False, False, ("田中",)),
+        DueRow(
+            datetime(2026, 10, 8, 17), "締切", "t1", "田中", False, False, ("田中",)
+        ),
+        DueRow(
+            datetime(2026, 10, 9, 12), "完了予定", "t1", "田中", False, False, ("田中",)
+        ),
     ]
 
 
 def test_the_whole_period_reaches_today_while_an_actual_is_running() -> None:
     task = Task("a", actuals=[Actual(datetime(2026, 10, 3, 9))])
-    assert period_for(PeriodKind.ALL, TODAY, project_of(task), {}) == Period(date(2026, 10, 3), TODAY)
+    assert period_for(PeriodKind.ALL, TODAY, project_of(task), {}) == Period(
+        date(2026, 10, 3), TODAY
+    )
 
 
 def test_a_running_actual_is_counted_until_now_over_the_whole_period() -> None:
-    project = project_of(Task("a", assignees=[Assignee("田中")], actuals=[Actual(datetime(2026, 10, 6, 9))]))
+    project = project_of(
+        Task(
+            "a",
+            assignees=[Assignee("田中")],
+            actuals=[Actual(datetime(2026, 10, 6, 9))],
+        )
+    )
     period = period_for(PeriodKind.ALL, TODAY, project, {})
-    assert summarize_workload(project, period, NOW, {})[0].actual_hours == pytest.approx(27.0)  # 10/6 9:00 → 10/7 12:00
+    assert summarize_workload(project, period, NOW, {})[
+        0
+    ].actual_hours == pytest.approx(27.0)  # 10/6 9:00 → 10/7 12:00
 
 
 def test_back_to_back_tasks_on_one_day_are_not_an_overload_like_the_stripes() -> None:
-    first = Task("a", planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 6, 12), assignees=[Assignee("田中", 1.0)])
-    second = Task("b", planned_start=datetime(2026, 10, 6, 12), planned_end=datetime(2026, 10, 6, 17), assignees=[Assignee("田中", 1.0)])
+    first = Task(
+        "a",
+        planned_start=datetime(2026, 10, 6, 9),
+        planned_end=datetime(2026, 10, 6, 12),
+        assignees=[Assignee("田中", 1.0)],
+    )
+    second = Task(
+        "b",
+        planned_start=datetime(2026, 10, 6, 12),
+        planned_end=datetime(2026, 10, 6, 17),
+        assignees=[Assignee("田中", 1.0)],
+    )
     project = project_of(first, second)
     stats = summarize_loads(project, WEEK, {})["田中"]
     assert (stats.peak, stats.overload_days) == (1.0, 0)
@@ -371,20 +487,34 @@ def test_back_to_back_tasks_on_one_day_are_not_an_overload_like_the_stripes() ->
 
 
 def test_overload_days_are_the_days_the_stripes_touch() -> None:
-    long = Task("a", planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 8, 12), assignees=[Assignee("田中", 0.6)])
-    short = Task("b", planned_start=datetime(2026, 10, 7, 9), planned_end=datetime(2026, 10, 7, 17), assignees=[Assignee("田中", 0.6)])
+    long = Task(
+        "a",
+        planned_start=datetime(2026, 10, 6, 9),
+        planned_end=datetime(2026, 10, 8, 12),
+        assignees=[Assignee("田中", 0.6)],
+    )
+    short = Task(
+        "b",
+        planned_start=datetime(2026, 10, 7, 9),
+        planned_end=datetime(2026, 10, 7, 17),
+        assignees=[Assignee("田中", 0.6)],
+    )
     project = project_of(long, short)
     stats = summarize_loads(project, WEEK, {})["田中"]
     assert (stats.peak, stats.overload_days) == (pytest.approx(1.2), 1)
     assert stats.average == pytest.approx(0.48)
     stripes = overallocations(project, {})
-    assert [(o.start, o.end) for o in stripes] == [(datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 17))]
+    assert [(o.start, o.end) for o in stripes] == [
+        (datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 17))
+    ]
 
 
 def test_workload_uses_the_pushed_start() -> None:
     from projectapp.dashboard import Period, summarize_workload
 
-    a = Task("a", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5 * 5)
+    a = Task(
+        "a", id="aaaaaaaa", planned_start=datetime(2026, 10, 5, 9), effort_hours=6.5 * 5
+    )
     b = Task(
         "b",
         id="bbbbbbbb",
@@ -405,7 +535,10 @@ def test_assignee_label_joins_the_names() -> None:
 
     assert assignee_label(Task("t")) is None
     assert assignee_label(Task("t", assignees=[Assignee("田中")])) == "田中"
-    assert assignee_label(Task("t", assignees=[Assignee("田中"), Assignee("鈴木")])) == "田中、鈴木"
+    assert (
+        assignee_label(Task("t", assignees=[Assignee("田中"), Assignee("鈴木")]))
+        == "田中、鈴木"
+    )
 
 
 def test_load_counts_each_assignee_with_his_own_allocation() -> None:
@@ -415,7 +548,12 @@ def test_load_counts_each_assignee_with_his_own_allocation() -> None:
         planned_end=datetime(2026, 10, 6, 17),
         assignees=[Assignee("田中", 0.6), Assignee("鈴木", 0.3)],
     )
-    other = Task("b", planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 6, 17), assignees=[Assignee("田中", 0.6)])
+    other = Task(
+        "b",
+        planned_start=datetime(2026, 10, 6, 9),
+        planned_end=datetime(2026, 10, 6, 17),
+        assignees=[Assignee("田中", 0.6)],
+    )
     project = project_of(task, other, members=[Member("田中"), Member("鈴木")])
     loads = summarize_loads(project, Period(date(2026, 10, 6), date(2026, 10, 6)), {})
     assert loads["田中"].peak == pytest.approx(1.2) and loads["田中"].overload_days == 1
@@ -431,18 +569,29 @@ def test_planned_hours_use_each_assignees_allocation() -> None:
     )
     project = project_of(task, members=[Member("田中"), Member("鈴木")])
     project.daily_hours = 6.5
-    rows = summarize_workload(project, Period(date(2026, 10, 6), date(2026, 10, 6)), NOW, {})
-    assert {r.name: r.planned_hours for r in rows} == {"田中": pytest.approx(6.5), "鈴木": pytest.approx(3.25)}
+    rows = summarize_workload(
+        project, Period(date(2026, 10, 6), date(2026, 10, 6)), NOW, {}
+    )
+    assert {r.name: r.planned_hours for r in rows} == {
+        "田中": pytest.approx(6.5),
+        "鈴木": pytest.approx(3.25),
+    }
 
 
 def test_actual_hours_are_split_by_allocation() -> None:
     task = Task(
         "a",
-        assignees=[Assignee("田中", 0.75), Assignee("鈴木", 0.25), Assignee("不明", 1.0)],
+        assignees=[
+            Assignee("田中", 0.75),
+            Assignee("鈴木", 0.25),
+            Assignee("不明", 1.0),
+        ],
         actuals=[Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 11))],
     )
     project = project_of(task, members=[Member("田中"), Member("鈴木")])
-    rows = summarize_workload(project, Period(date(2026, 10, 6), date(2026, 10, 6)), NOW, {})
+    rows = summarize_workload(
+        project, Period(date(2026, 10, 6), date(2026, 10, 6)), NOW, {}
+    )
     by_name = {r.name: r.actual_hours for r in rows}
     # 2h を 0.75 : 0.25 : 1.0 で按分(合計 2.0)。メンバーでない担当者の分は「未割当」
     assert by_name["田中"] == pytest.approx(0.75)
@@ -470,14 +619,21 @@ def test_team_progress_sums_effort_by_status_and_matches_the_progress_rate() -> 
     c = Task("C", effort_hours=10)
     project = project_of(a, b, c)
     team = summarize_team_progress(project)
-    assert team.hours == {Status.NOT_STARTED: 10, Status.RUNNING: 10, Status.PAUSED: 0, Status.DONE: 1}
+    assert team.hours == {
+        Status.NOT_STARTED: 10,
+        Status.RUNNING: 10,
+        Status.PAUSED: 0,
+        Status.DONE: 1,
+    }
     assert team.percent == pytest.approx(summarize_progress(project, {}, NOW).percent)
     assert team.total == 21
 
 
 def test_team_progress_counts_each_task_once_whatever_the_assignees() -> None:
     members = [Member("田中", 1.0), Member("佐藤", 1.0)]
-    shared = Task("共同", effort_hours=8, assignees=[Assignee("田中", 1.0), Assignee("佐藤", 1.0)])
+    shared = Task(
+        "共同", effort_hours=8, assignees=[Assignee("田中", 1.0), Assignee("佐藤", 1.0)]
+    )
     alone = Task("担当なし", effort_hours=2)
     team = summarize_team_progress(project_of(shared, alone, members=members))
     assert team.hours[Status.NOT_STARTED] == 10
@@ -487,9 +643,16 @@ def test_team_progress_skips_summaries_and_checkpoints() -> None:
     child = Task("子", effort_hours=4, status=Status.PAUSED)
     summary = Task("まとめ", kind=TaskKind.SUMMARY, effort_hours=4)
     summary.children = [child.id]
-    checkpoint = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17))
+    checkpoint = Task(
+        "節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17)
+    )
     team = summarize_team_progress(project_of(summary, child, checkpoint))
-    assert team.hours == {Status.NOT_STARTED: 0, Status.RUNNING: 0, Status.PAUSED: 4, Status.DONE: 0}
+    assert team.hours == {
+        Status.NOT_STARTED: 0,
+        Status.RUNNING: 0,
+        Status.PAUSED: 4,
+        Status.DONE: 0,
+    }
 
 
 def test_team_progress_is_empty_without_tasks() -> None:
@@ -537,18 +700,34 @@ def test_team_progress_keeps_only_tasks_overlapping_the_period() -> None:
 def test_team_progress_counts_a_deadline_or_an_actual_inside_the_period() -> None:
     due = Task("締切", effort_hours=1, deadline=datetime(2026, 10, 9, 17))
     worked = Task(
-        "実績", effort_hours=3, status=Status.DONE,
+        "実績",
+        effort_hours=3,
+        status=Status.DONE,
         actuals=[Actual(datetime(2026, 10, 6, 9), datetime(2026, 10, 6, 12))],
     )
-    running = Task("実行中", effort_hours=4, status=Status.RUNNING, actuals=[Actual(datetime(2026, 9, 1, 9), None)])
-    old = Task("昔", effort_hours=8, status=Status.DONE, actuals=[Actual(datetime(2026, 9, 1, 9), datetime(2026, 9, 1, 12))])
+    running = Task(
+        "実行中",
+        effort_hours=4,
+        status=Status.RUNNING,
+        actuals=[Actual(datetime(2026, 9, 1, 9), None)],
+    )
+    old = Task(
+        "昔",
+        effort_hours=8,
+        status=Status.DONE,
+        actuals=[Actual(datetime(2026, 9, 1, 9), datetime(2026, 9, 1, 12))],
+    )
     team = summarize_team_progress(project_of(due, worked, running, old), WEEK, NOW, {})
-    assert team.total == 8  # 昔だけ外れる。終了していない実績は now まで続くので期間にかかる
+    assert (
+        team.total == 8
+    )  # 昔だけ外れる。終了していない実績は now まで続くので期間にかかる
     assert team.percent == pytest.approx(300 / 8)
 
 
 def test_team_progress_without_a_period_counts_every_task() -> None:
-    team = summarize_team_progress(project_of(dated("後", 20, 21), Task("日程なし", effort_hours=5)))
+    team = summarize_team_progress(
+        project_of(dated("後", 20, 21), Task("日程なし", effort_hours=5))
+    )
     assert team.total == 7
     assert team.period is None
 
@@ -561,40 +740,74 @@ def test_summarize_filters_the_team_card_except_for_the_whole_period() -> None:
     assert summarize(project, WEEK, NOW, {}).team.total == 4  # 種別を渡さなければ全期間
 
 
-def test_team_progress_counts_tasks_by_status_without_checkpoints_or_summaries() -> None:
+def test_team_progress_counts_tasks_by_status_without_checkpoints_or_summaries() -> (
+    None
+):
     child = Task("子", effort_hours=4, status=Status.PAUSED)
     summary = Task("まとめ", kind=TaskKind.SUMMARY, children=[child.id])
-    checkpoint = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17))
+    checkpoint = Task(
+        "節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17)
+    )
     a, b = Task("A", effort_hours=2), Task("B", effort_hours=3, status=Status.DONE)
     team = summarize_team_progress(project_of(a, b, child, summary, checkpoint))
-    assert team.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 0, Status.PAUSED: 1, Status.DONE: 1}
+    assert team.counts == {
+        Status.NOT_STARTED: 1,
+        Status.RUNNING: 0,
+        Status.PAUSED: 1,
+        Status.DONE: 1,
+    }
 
 
 def test_team_progress_counts_follow_the_period() -> None:
-    team = summarize_team_progress(project_of(dated("中", 6, 7), dated("後", 20, 21)), WEEK, NOW, {})
+    team = summarize_team_progress(
+        project_of(dated("中", 6, 7), dated("後", 20, 21)), WEEK, NOW, {}
+    )
     assert team.counts[Status.NOT_STARTED] == 1
 
 
 def test_team_progress_lists_task_names_by_status_in_order() -> None:
     child = Task("子", effort_hours=4, status=Status.PAUSED)
     summary = Task("まとめ", kind=TaskKind.SUMMARY, children=[child.id])
-    checkpoint = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17))
-    a, b, c = Task("A", effort_hours=2), Task("B", effort_hours=3, status=Status.DONE), Task("C")
+    checkpoint = Task(
+        "節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17)
+    )
+    a, b, c = (
+        Task("A", effort_hours=2),
+        Task("B", effort_hours=3, status=Status.DONE),
+        Task("C"),
+    )
     team = summarize_team_progress(project_of(a, b, child, summary, checkpoint, c))
-    assert team.tasks == {Status.NOT_STARTED: ["A", "C"], Status.RUNNING: [], Status.PAUSED: ["子"], Status.DONE: ["B"]}
+    assert team.tasks == {
+        Status.NOT_STARTED: ["A", "C"],
+        Status.RUNNING: [],
+        Status.PAUSED: ["子"],
+        Status.DONE: ["B"],
+    }
     assert {status: len(names) for status, names in team.tasks.items()} == team.counts
 
 
 def test_team_progress_task_names_follow_the_period() -> None:
-    team = summarize_team_progress(project_of(dated("中", 6, 7), dated("後", 20, 21)), WEEK, NOW, {})
+    team = summarize_team_progress(
+        project_of(dated("中", 6, 7), dated("後", 20, 21)), WEEK, NOW, {}
+    )
     assert team.tasks[Status.NOT_STARTED] == ["中"]
 
 
 def shared_project() -> Project:
     members = [Member("田中", 1.0), Member("佐藤", 1.0)]
-    mine = Task("田中の", effort_hours=2, status=Status.RUNNING, progress=50, assignees=[Assignee("田中", 1.0)])
-    shared = Task("共同", effort_hours=6, assignees=[Assignee("田中", 0.5), Assignee("佐藤", 0.5)])
-    other = Task("佐藤の", effort_hours=4, status=Status.DONE, assignees=[Assignee("佐藤", 1.0)])
+    mine = Task(
+        "田中の",
+        effort_hours=2,
+        status=Status.RUNNING,
+        progress=50,
+        assignees=[Assignee("田中", 1.0)],
+    )
+    shared = Task(
+        "共同", effort_hours=6, assignees=[Assignee("田中", 0.5), Assignee("佐藤", 0.5)]
+    )
+    other = Task(
+        "佐藤の", effort_hours=4, status=Status.DONE, assignees=[Assignee("佐藤", 1.0)]
+    )
     unassigned = Task("担当なし", effort_hours=1)
     ghost = Task("退職者の", effort_hours=1, assignees=[Assignee("退職者", 1.0)])
     return project_of(mine, shared, other, unassigned, ghost, members=members)
@@ -602,13 +815,25 @@ def shared_project() -> Project:
 
 def test_the_member_filter_keeps_tasks_the_member_is_on_as_whole_tasks() -> None:
     progress = summarize_progress(shared_project(), {}, NOW, "田中")
-    assert progress.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 0}
-    assert progress.percent == pytest.approx(100 / 8)  # (2h × 50% + 6h × 0%) / 8h。共同タスクは丸ごと
+    assert progress.counts == {
+        Status.NOT_STARTED: 1,
+        Status.RUNNING: 1,
+        Status.PAUSED: 0,
+        Status.DONE: 0,
+    }
+    assert progress.percent == pytest.approx(
+        100 / 8
+    )  # (2h × 50% + 6h × 0%) / 8h。共同タスクは丸ごと
 
 
 def test_the_member_filter_leaves_out_unassigned_and_non_member_tasks() -> None:
     team = summarize_team_progress(shared_project(), member="佐藤")
-    assert team.hours == {Status.NOT_STARTED: 6, Status.RUNNING: 0, Status.PAUSED: 0, Status.DONE: 4}
+    assert team.hours == {
+        Status.NOT_STARTED: 6,
+        Status.RUNNING: 0,
+        Status.PAUSED: 0,
+        Status.DONE: 4,
+    }
     assert team.tasks[Status.NOT_STARTED] == ["共同"]
 
 
@@ -632,22 +857,39 @@ def test_the_member_filter_limits_loads_and_workload_to_that_member() -> None:
     assert loads["田中"] == summarize_loads(project, WEEK, {})["田中"]
     rows = summarize_workload(project, WEEK, NOW, {}, "田中")
     assert [row.name for row in rows] == ["田中"]
-    assert rows[0] == next(row for row in summarize_workload(project, WEEK, NOW, {}) if row.name == "田中")
+    assert rows[0] == next(
+        row for row in summarize_workload(project, WEEK, NOW, {}) if row.name == "田中"
+    )
 
 
 def test_the_member_filter_hides_the_unassigned_workload_row() -> None:
-    project = project_of(dated("担当なし", 6, 7), dated("田中の", 6, 7, assignees=[Assignee("田中", 1.0)]))
-    assert UNASSIGNED in [row.name for row in summarize_workload(project, WEEK, NOW, {})]
-    assert [row.name for row in summarize_workload(project, WEEK, NOW, {}, "田中")] == ["田中"]
+    project = project_of(
+        dated("担当なし", 6, 7),
+        dated("田中の", 6, 7, assignees=[Assignee("田中", 1.0)]),
+    )
+    assert UNASSIGNED in [
+        row.name for row in summarize_workload(project, WEEK, NOW, {})
+    ]
+    assert [row.name for row in summarize_workload(project, WEEK, NOW, {}, "田中")] == [
+        "田中"
+    ]
 
 
 def test_the_member_filter_keeps_schedules_pushed_by_other_members_tasks() -> None:
     blocker = dated("佐藤の", 6, 9, assignees=[Assignee("佐藤", 1.0)])
-    pushed = dated("田中の", 6, 7, assignees=[Assignee("田中", 1.0)], predecessors=[blocker.id])
-    project = project_of(blocker, pushed, members=[Member("田中", 1.0), Member("佐藤", 1.0)])
-    everyone = next(row for row in summarize_due(project, WEEK, NOW, {}) if row.name == "田中の")
+    pushed = dated(
+        "田中の", 6, 7, assignees=[Assignee("田中", 1.0)], predecessors=[blocker.id]
+    )
+    project = project_of(
+        blocker, pushed, members=[Member("田中", 1.0), Member("佐藤", 1.0)]
+    )
+    everyone = next(
+        row for row in summarize_due(project, WEEK, NOW, {}) if row.name == "田中の"
+    )
     only = summarize_due(project, WEEK, NOW, {}, "田中")
-    assert [row.name for row in only] == ["田中の"] and only[0].moment == everyone.moment
+    assert [row.name for row in only] == ["田中の"] and only[
+        0
+    ].moment == everyone.moment
 
 
 def test_summarize_passes_the_member_and_lists_the_member_names() -> None:
@@ -656,36 +898,67 @@ def test_summarize_passes_the_member_and_lists_the_member_names() -> None:
     assert everyone.member is None and everyone.members == ["田中", "佐藤"]
     only = summarize(project, WEEK, NOW, {}, member="田中")
     assert only.member == "田中" and only.members == ["田中", "佐藤"]
-    assert only.progress.counts[Status.DONE] == 0 and everyone.progress.counts[Status.DONE] == 1
-    assert list(only.loads) == ["田中"] and [row.name for row in only.workload] == ["田中"]
+    assert (
+        only.progress.counts[Status.DONE] == 0
+        and everyone.progress.counts[Status.DONE] == 1
+    )
+    assert list(only.loads) == ["田中"] and [row.name for row in only.workload] == [
+        "田中"
+    ]
     assert only.team.tasks[Status.NOT_STARTED] == ["共同"]
 
 
-def test_member_progress_has_a_row_per_member_and_counts_shared_tasks_for_each() -> None:
+def test_member_progress_has_a_row_per_member_and_counts_shared_tasks_for_each() -> (
+    None
+):
     rows = summarize_member_progress(shared_project())
     assert [row.name for row in rows] == ["田中", "佐藤", UNASSIGNED]
     tanaka, sato, nobody = rows
     assert tanaka.percent == pytest.approx(100 / 8)
-    assert tanaka.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 0}
+    assert tanaka.counts == {
+        Status.NOT_STARTED: 1,
+        Status.RUNNING: 1,
+        Status.PAUSED: 0,
+        Status.DONE: 0,
+    }
     assert sato.percent == pytest.approx(40)  # 共同(6h × 0%)と佐藤の(4h × 100%)
-    assert sato.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 0, Status.PAUSED: 0, Status.DONE: 1}
-    assert nobody.percent == pytest.approx(0)  # 担当なしと、メンバーでない担当者だけのタスク
+    assert sato.counts == {
+        Status.NOT_STARTED: 1,
+        Status.RUNNING: 0,
+        Status.PAUSED: 0,
+        Status.DONE: 1,
+    }
+    assert nobody.percent == pytest.approx(
+        0
+    )  # 担当なしと、メンバーでない担当者だけのタスク
     assert nobody.counts[Status.NOT_STARTED] == 2
 
 
-def test_member_progress_marks_a_member_without_tasks_and_skips_an_empty_unassigned_row() -> None:
+def test_member_progress_marks_a_member_without_tasks_and_skips_an_empty_unassigned_row() -> (
+    None
+):
     project = project_of(
         Task("田中の", effort_hours=1, assignees=[Assignee("田中", 1.0)]),
         members=[Member("田中", 1.0), Member("山田", 1.0)],
     )
     rows = summarize_member_progress(project)
-    assert [row.name for row in rows] == ["田中", "山田"]  # 未割り当ては、該当するタスクがあるときだけ
+    assert [row.name for row in rows] == [
+        "田中",
+        "山田",
+    ]  # 未割り当ては、該当するタスクがあるときだけ
     assert rows[1].percent is None and sum(rows[1].counts.values()) == 0
 
 
 def test_member_progress_ignores_summaries() -> None:
-    child = Task("子", effort_hours=4, status=Status.DONE, assignees=[Assignee("田中", 1.0)])
-    summary = Task("まとめ", kind=TaskKind.SUMMARY, children=[child.id], assignees=[Assignee("田中", 1.0)])
+    child = Task(
+        "子", effort_hours=4, status=Status.DONE, assignees=[Assignee("田中", 1.0)]
+    )
+    summary = Task(
+        "まとめ",
+        kind=TaskKind.SUMMARY,
+        children=[child.id],
+        assignees=[Assignee("田中", 1.0)],
+    )
     rows = summarize_member_progress(project_of(summary, child))
     assert rows[0].counts[Status.DONE] == 1 and rows[0].percent == pytest.approx(100)
     assert isinstance(rows[0], MemberProgress)
@@ -693,9 +966,15 @@ def test_member_progress_ignores_summaries() -> None:
 
 def test_by_member_is_built_for_everyone_only() -> None:
     project = shared_project()
-    assert [row.name for row in summarize_progress(project, {}, NOW).by_member] == ["田中", "佐藤", UNASSIGNED]
+    assert [row.name for row in summarize_progress(project, {}, NOW).by_member] == [
+        "田中",
+        "佐藤",
+        UNASSIGNED,
+    ]
     assert summarize_progress(project, {}, NOW, "田中").by_member == []
-    assert [row.name for row in summarize(project, WEEK, NOW, {}).progress.by_member][0] == "田中"
+    assert [row.name for row in summarize(project, WEEK, NOW, {}).progress.by_member][
+        0
+    ] == "田中"
 
 
 def test_member_progress_is_empty_without_members() -> None:
@@ -705,33 +984,64 @@ def test_member_progress_is_empty_without_members() -> None:
 
 
 def test_member_progress_does_not_list_checkpoints_as_unassigned() -> None:
-    checkpoint = Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17))
-    project = project_of(Task("田中の", effort_hours=1, assignees=[Assignee("田中", 1.0)]), checkpoint)
-    assert [row.name for row in summarize_member_progress(project)] == ["田中"]  # 節目は担当を持てず、重みもない
+    checkpoint = Task(
+        "節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17)
+    )
+    project = project_of(
+        Task("田中の", effort_hours=1, assignees=[Assignee("田中", 1.0)]), checkpoint
+    )
+    assert [row.name for row in summarize_member_progress(project)] == [
+        "田中"
+    ]  # 節目は担当を持てず、重みもない
 
 
 def test_planned_hours_use_the_hours_of_each_workday() -> None:
     """土曜を 3h 稼働にすると、その日にかかるタスクの予定が 3h × 割り当て率 増える。"""
     project = Project(
         "p",
-        members=[Member("田中", 1.0, id="m1", work_days=[WorkDay(date(2026, 10, 17), time(13), time(16))])],
-        tasks=[Task("t", planned_start=datetime(2026, 10, 16, 9), planned_end=datetime(2026, 10, 18, 9),
-                    assignees=[Assignee("田中", 1.0)], id="t1")],
+        members=[
+            Member(
+                "田中",
+                1.0,
+                id="m1",
+                work_days=[WorkDay(date(2026, 10, 17), time(13), time(16))],
+            )
+        ],
+        tasks=[
+            Task(
+                "t",
+                planned_start=datetime(2026, 10, 16, 9),
+                planned_end=datetime(2026, 10, 18, 9),
+                assignees=[Assignee("田中", 1.0)],
+                id="t1",
+            )
+        ],
     )
     period = Period(date(2026, 10, 12), date(2026, 10, 18))
     rows = summarize_workload(project, period, datetime(2026, 10, 18), {})
-    assert rows[0].planned_hours == pytest.approx(project.daily_hours + 3)  # 金曜 6.5h + 土曜 3h
+    assert rows[0].planned_hours == pytest.approx(
+        project.daily_hours + 3
+    )  # 金曜 6.5h + 土曜 3h
 
 
 def test_planned_hours_are_unchanged_without_overrides() -> None:
     project = Project(
         "p",
         members=[Member("田中", 1.0, id="m1")],
-        tasks=[Task("t", planned_start=datetime(2026, 10, 16, 9), planned_end=datetime(2026, 10, 18, 9),
-                    assignees=[Assignee("田中", 1.0)], id="t1")],
+        tasks=[
+            Task(
+                "t",
+                planned_start=datetime(2026, 10, 16, 9),
+                planned_end=datetime(2026, 10, 18, 9),
+                assignees=[Assignee("田中", 1.0)],
+                id="t1",
+            )
+        ],
     )
     period = Period(date(2026, 10, 12), date(2026, 10, 18))
-    assert summarize_workload(project, period, datetime(2026, 10, 18), {})[0].planned_hours == pytest.approx(6.5)
+    assert summarize_workload(project, period, datetime(2026, 10, 18), {})[
+        0
+    ].planned_hours == pytest.approx(6.5)
 
 
 def test_a_rest_weekday_is_not_a_workday_for_the_load() -> None:
@@ -739,17 +1049,41 @@ def test_a_rest_weekday_is_not_a_workday_for_the_load() -> None:
         return Project(
             "p",
             members=[Member("田中", 1.0, id="m1", work_days=work_days)],
-            tasks=[Task("t", planned_start=datetime(2026, 10, 14, 9), planned_end=datetime(2026, 10, 14, 18),
-                        assignees=[Assignee("田中", 1.0)], id="t1")],  # 水曜だけのタスク
+            tasks=[
+                Task(
+                    "t",
+                    planned_start=datetime(2026, 10, 14, 9),
+                    planned_end=datetime(2026, 10, 14, 18),
+                    assignees=[Assignee("田中", 1.0)],
+                    id="t1",
+                )
+            ],  # 水曜だけのタスク
         )
 
     period = Period(date(2026, 10, 12), date(2026, 10, 16))  # 月〜金
-    assert summarize_loads(project([]), period, {})["田中"].average == pytest.approx(1 / 5)
-    assert summarize_loads(project([WorkDay(date(2026, 10, 14))]), period, {})["田中"].average == 0  # 水曜が休み → 数えない
+    assert summarize_loads(project([]), period, {})["田中"].average == pytest.approx(
+        1 / 5
+    )
+    assert (
+        summarize_loads(project([WorkDay(date(2026, 10, 14))]), period, {})[
+            "田中"
+        ].average
+        == 0
+    )  # 水曜が休み → 数えない
 
 
 def test_cross_load_columns_are_the_union_of_each_projects_workdays() -> None:
-    a = Project("A", members=[Member("田中", 1.0, id="a1", work_days=[WorkDay(date(2026, 10, 17), time(9), time(12))])])  # A だけ土曜が稼働
+    a = Project(
+        "A",
+        members=[
+            Member(
+                "田中",
+                1.0,
+                id="a1",
+                work_days=[WorkDay(date(2026, 10, 17), time(9), time(12))],
+            )
+        ],
+    )  # A だけ土曜が稼働
     b = Project("B", members=[Member("田中", 1.0, id="b1")])
     period = Period(date(2026, 10, 12), date(2026, 10, 18))
     loads = summarize_cross_loads([a, b], period, {})
@@ -759,14 +1093,30 @@ def test_cross_load_columns_are_the_union_of_each_projects_workdays() -> None:
 
 
 def test_cross_load_ignores_a_project_on_days_it_does_not_work() -> None:
-    def proj(name: str, alloc: float, start: datetime, end: datetime, work_days: list[WorkDay]) -> Project:
+    def proj(
+        name: str,
+        alloc: float,
+        start: datetime,
+        end: datetime,
+        work_days: list[WorkDay],
+    ) -> Project:
         task = Task("t", planned_start=start, planned_end=end, planned_end_manual=True)
         task.assignees = [Assignee("田中", alloc)]
-        return Project(name, members=[Member("田中", work_days=work_days)], tasks=[task])
+        return Project(
+            name, members=[Member("田中", work_days=work_days)], tasks=[task]
+        )
 
     b = proj("B", 1.0, datetime(2026, 10, 16, 9), datetime(2026, 10, 19, 17), [])
-    a = proj("A", 0.3, datetime(2026, 10, 17, 13), datetime(2026, 10, 17, 16), [WorkDay(date(2026, 10, 17), time(13), time(16))])
-    load = summarize_cross_loads([a, b], Period(date(2026, 10, 12), date(2026, 10, 18)), {})["田中"]
+    a = proj(
+        "A",
+        0.3,
+        datetime(2026, 10, 17, 13),
+        datetime(2026, 10, 17, 16),
+        [WorkDay(date(2026, 10, 17), time(13), time(16))],
+    )
+    load = summarize_cross_loads(
+        [a, b], Period(date(2026, 10, 12), date(2026, 10, 18)), {}
+    )["田中"]
     saturday = next(d for d in load.days if d.day == date(2026, 10, 17))
     assert saturday.total == pytest.approx(0.3)  # B は土曜に稼働しないので数えない
     assert [p.project for p in saturday.by_project] == ["A"]
@@ -774,65 +1124,135 @@ def test_cross_load_ignores_a_project_on_days_it_does_not_work() -> None:
 
 def test_load_counts_only_the_members_own_workdays() -> None:
     sat = WorkDay(date(2026, 10, 17), time(9), time(12))
-    task = Task("t", planned_start=datetime(2026, 10, 16, 9), planned_end=datetime(2026, 10, 19, 17), planned_end_manual=True)
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 16, 9),
+        planned_end=datetime(2026, 10, 19, 17),
+        planned_end_manual=True,
+    )
     task.assignees = [Assignee("甲", 1.0), Assignee("乙", 1.0)]
-    project = Project("p", members=[Member("甲", work_days=[sat]), Member("乙")], tasks=[task])
+    project = Project(
+        "p", members=[Member("甲", work_days=[sat]), Member("乙")], tasks=[task]
+    )
     period = Period(date(2026, 10, 12), date(2026, 10, 18))
     loads = summarize_loads(project, period, {})
     assert loads["甲"].peak == pytest.approx(1.0)
     # 土曜を稼働日に数える甲は 6 日、乙は 5 日。平均 = 負荷のある日(金・土 / 金) ÷ 日数
-    assert loads["甲"].average == pytest.approx(2 / 6) and loads["乙"].average == pytest.approx(1 / 5)
+    assert loads["甲"].average == pytest.approx(2 / 6) and loads[
+        "乙"
+    ].average == pytest.approx(1 / 5)
     cross = summarize_cross_loads([project], period, {})
-    assert next(d for d in cross["甲"].days if d.day == date(2026, 10, 17)).total == pytest.approx(1.0)
-    assert next(d for d in cross["乙"].days if d.day == date(2026, 10, 17)).total == 0.0  # 乙は土曜に稼働しない
+    assert next(
+        d for d in cross["甲"].days if d.day == date(2026, 10, 17)
+    ).total == pytest.approx(1.0)
+    assert (
+        next(d for d in cross["乙"].days if d.day == date(2026, 10, 17)).total == 0.0
+    )  # 乙は土曜に稼働しない
 
 
 def test_planned_hours_use_each_members_calendar() -> None:
     sat = WorkDay(date(2026, 10, 17), time(9), time(12))
-    task = Task("t", planned_start=datetime(2026, 10, 17, 9), planned_end=datetime(2026, 10, 17, 17), planned_end_manual=True)
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 17, 9),
+        planned_end=datetime(2026, 10, 17, 17),
+        planned_end_manual=True,
+    )
     task.assignees = [Assignee("甲", 1.0), Assignee("乙", 1.0)]
-    project = Project("p", members=[Member("甲", work_days=[sat]), Member("乙")], tasks=[task])
-    rows = {r.name: r.planned_hours for r in summarize_workload(project, Period(date(2026, 10, 12), date(2026, 10, 18)), NOW, {})}
+    project = Project(
+        "p", members=[Member("甲", work_days=[sat]), Member("乙")], tasks=[task]
+    )
+    rows = {
+        r.name: r.planned_hours
+        for r in summarize_workload(
+            project, Period(date(2026, 10, 12), date(2026, 10, 18)), NOW, {}
+        )
+    }
     assert rows["甲"] == pytest.approx(3.0)  # 土曜 9–12
     assert rows["乙"] == pytest.approx(0.0)
 
 
 def test_unassigned_planned_hours_use_the_default_calendar() -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 16, 9), planned_end=datetime(2026, 10, 17, 17), planned_end_manual=True)
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 16, 9),
+        planned_end=datetime(2026, 10, 17, 17),
+        planned_end_manual=True,
+    )
     project = Project("p", tasks=[task])
-    rows = {r.name: r.planned_hours for r in summarize_workload(project, Period(date(2026, 10, 12), date(2026, 10, 18)), NOW, {})}
+    rows = {
+        r.name: r.planned_hours
+        for r in summarize_workload(
+            project, Period(date(2026, 10, 12), date(2026, 10, 18)), NOW, {}
+        )
+    }
     assert rows[UNASSIGNED] == pytest.approx(project.daily_hours)  # 金曜だけ
 
 
 def test_cross_load_averages_count_only_the_persons_own_workdays() -> None:
-    task = Task("t", planned_start=datetime(2026, 10, 19, 9), planned_end=datetime(2026, 10, 23, 17), planned_end_manual=True)
+    task = Task(
+        "t",
+        planned_start=datetime(2026, 10, 19, 9),
+        planned_end=datetime(2026, 10, 23, 17),
+        planned_end_manual=True,
+    )
     task.assignees = [Assignee("田中", 1.0)]
-    tanaka = Project("p", members=[Member("田中"), Member("鈴木", work_days=[WorkDay(date(2026, 10, 24), time(9), time(12))])], tasks=[task])
+    tanaka = Project(
+        "p",
+        members=[
+            Member("田中"),
+            Member("鈴木", work_days=[WorkDay(date(2026, 10, 24), time(9), time(12))]),
+        ],
+        tasks=[task],
+    )
     period = Period(date(2026, 10, 19), date(2026, 10, 25))
     alone = summarize_loads(tanaka, period, {})["田中"]
     cross = summarize_cross_loads([tanaka], period, {})["田中"]
     assert alone.average == pytest.approx(1.0)
-    assert cross.total.average == pytest.approx(alone.average)  # 鈴木の土曜は、田中の平均を薄めない
+    assert cross.total.average == pytest.approx(
+        alone.average
+    )  # 鈴木の土曜は、田中の平均を薄めない
     assert cross.by_project[0].average == pytest.approx(alone.average)
-    assert next(d for d in cross.days if d.day == date(2026, 10, 24)).total == 0.0  # 列には出る
+    assert (
+        next(d for d in cross.days if d.day == date(2026, 10, 24)).total == 0.0
+    )  # 列には出る
 
 
-def test_a_custom_period_is_used_as_given_and_falls_back_to_the_week_without_one() -> None:
+def test_a_custom_period_is_used_as_given_and_falls_back_to_the_week_without_one() -> (
+    None
+):
     custom = Period(date(2026, 10, 1), date(2026, 10, 31))
     assert period_for(PeriodKind.CUSTOM, TODAY, project_of(), {}, custom) == custom
-    assert period_for(PeriodKind.CUSTOM, TODAY, project_of(), {}) == period_for(PeriodKind.WEEK, TODAY, project_of(), {})
+    assert period_for(PeriodKind.CUSTOM, TODAY, project_of(), {}) == period_for(
+        PeriodKind.WEEK, TODAY, project_of(), {}
+    )
 
 
 def test_custom_period_error_limits_the_length() -> None:
     start = date(2026, 1, 1)
-    assert custom_period_error(Period(start, start + timedelta(days=MAX_CUSTOM_DAYS - 1))) is None
-    message = custom_period_error(Period(start, start + timedelta(days=MAX_CUSTOM_DAYS)))
+    assert (
+        custom_period_error(Period(start, start + timedelta(days=MAX_CUSTOM_DAYS - 1)))
+        is None
+    )
+    message = custom_period_error(
+        Period(start, start + timedelta(days=MAX_CUSTOM_DAYS))
+    )
     assert message is not None and str(MAX_CUSTOM_DAYS) in message
 
 
 def test_the_team_progress_follows_a_custom_period_like_the_week_and_month() -> None:
-    inside = Task("中", planned_start=datetime(2026, 10, 6, 9), planned_end=datetime(2026, 10, 7, 9), effort_hours=4)
-    outside = Task("外", planned_start=datetime(2026, 12, 1, 9), planned_end=datetime(2026, 12, 2, 9), effort_hours=4)
+    inside = Task(
+        "中",
+        planned_start=datetime(2026, 10, 6, 9),
+        planned_end=datetime(2026, 10, 7, 9),
+        effort_hours=4,
+    )
+    outside = Task(
+        "外",
+        planned_start=datetime(2026, 12, 1, 9),
+        planned_end=datetime(2026, 12, 2, 9),
+        effort_hours=4,
+    )
     project = project_of(inside, outside)
     period = Period(date(2026, 10, 1), date(2026, 10, 31))
     custom = summarize(project, period, NOW, {}, PeriodKind.CUSTOM)
@@ -852,14 +1272,20 @@ def test_cross_load_applies_each_projects_own_closed_events() -> None:
     assert not plain.events  # 開いているほうのイベントは混ざらない
 
 
-def test_loads_for_a_weighted_scope_scale_average_and_peak_but_not_the_overload_days() -> None:
-    project = project_of(span_task("a", 5, 6, 0.8), span_task("b", 5, 6, 0.4))  # 田中は 120%
+def test_loads_for_a_weighted_scope_scale_average_and_peak_but_not_the_overload_days() -> (
+    None
+):
+    project = project_of(
+        span_task("a", 5, 6, 0.8), span_task("b", 5, 6, 0.4)
+    )  # 田中は 120%
     plain = summarize_loads(project, WEEK, {})["田中"]
     scaled = summarize_loads(project, WEEK, {}, {"田中": 0.6})["田中"]
     assert scaled.average == pytest.approx(plain.average * 0.6)
     assert scaled.peak == pytest.approx(plain.peak * 0.6)
     assert scaled.peak < 1.0 < plain.peak
-    assert scaled.overload_days == plain.overload_days > 0  # 超過は、掛ける前の値で判定する
+    assert (
+        scaled.overload_days == plain.overload_days > 0
+    )  # 超過は、掛ける前の値で判定する
 
 
 def test_loads_for_a_set_or_a_string_scope_are_not_scaled() -> None:
@@ -870,7 +1296,13 @@ def test_loads_for_a_set_or_a_string_scope_are_not_scaled() -> None:
 
 
 def test_workload_for_a_weighted_scope_scales_planned_and_actual() -> None:
-    task = span_task("作業", 5, 6, 1.0, actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 13))])
+    task = span_task(
+        "作業",
+        5,
+        6,
+        1.0,
+        actuals=[Actual(datetime(2026, 10, 5, 9), datetime(2026, 10, 5, 13))],
+    )
     project = project_of(task)
     plain = summarize_workload(project, WEEK, NOW, {})[0]
     scaled = summarize_workload(project, WEEK, NOW, {}, {"田中": 0.6})[0]
@@ -887,9 +1319,25 @@ def teamed_project() -> Project:
         Member("山田", 1.0),
     ]
     tasks = [
-        Task("田中の", effort_hours=2, status=Status.RUNNING, progress=50, assignees=[Assignee("田中", 1.0)]),
-        Task("共同", effort_hours=6, assignees=[Assignee("田中", 0.5), Assignee("鈴木", 0.5)]),
-        Task("鈴木の", effort_hours=4, status=Status.DONE, progress=100, assignees=[Assignee("鈴木", 1.0)]),
+        Task(
+            "田中の",
+            effort_hours=2,
+            status=Status.RUNNING,
+            progress=50,
+            assignees=[Assignee("田中", 1.0)],
+        ),
+        Task(
+            "共同",
+            effort_hours=6,
+            assignees=[Assignee("田中", 0.5), Assignee("鈴木", 0.5)],
+        ),
+        Task(
+            "鈴木の",
+            effort_hours=4,
+            status=Status.DONE,
+            progress=100,
+            assignees=[Assignee("鈴木", 1.0)],
+        ),
         Task("山田の", effort_hours=1, assignees=[Assignee("山田", 1.0)]),
         Task("担当なし", effort_hours=1),
     ]
@@ -899,26 +1347,48 @@ def teamed_project() -> Project:
 
 
 def test_a_set_scope_keeps_tasks_any_of_the_names_is_on() -> None:
-    progress = summarize_progress(teamed_project(), {}, NOW, frozenset({"田中", "鈴木"}))
-    assert progress.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 1}
-    assert progress.by_member == [] and progress.by_team == []  # 絞り込み中は、メンバー別・チーム別を出さない
+    progress = summarize_progress(
+        teamed_project(), {}, NOW, frozenset({"田中", "鈴木"})
+    )
+    assert progress.counts == {
+        Status.NOT_STARTED: 1,
+        Status.RUNNING: 1,
+        Status.PAUSED: 0,
+        Status.DONE: 1,
+    }
+    assert (
+        progress.by_member == [] and progress.by_team == []
+    )  # 絞り込み中は、メンバー別・チーム別を出さない
 
 
 def test_a_weighted_scope_selects_its_keys_like_a_set() -> None:
     progress = summarize_progress(teamed_project(), {}, NOW, {"田中": 1.0, "鈴木": 1.0})
-    assert progress.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 1}
+    assert progress.counts == {
+        Status.NOT_STARTED: 1,
+        Status.RUNNING: 1,
+        Status.PAUSED: 0,
+        Status.DONE: 1,
+    }
 
 
 def test_a_string_scope_still_means_one_member() -> None:
-    assert summarize_progress(teamed_project(), {}, NOW, "山田").counts[Status.NOT_STARTED] == 1
+    assert (
+        summarize_progress(teamed_project(), {}, NOW, "山田").counts[Status.NOT_STARTED]
+        == 1
+    )
 
 
 def test_summarize_with_a_team_filters_loads_and_workload_to_its_members() -> None:
     data = summarize(teamed_project(), WEEK, NOW, {}, team="開発")
     assert data.team_name == "開発" and data.member is None
     assert list(data.loads) == ["田中", "佐藤"]
-    assert [row.name for row in data.workload] == ["田中", "佐藤"]  # 未割り当てを出さない
-    assert data.team.tasks[Status.NOT_STARTED] == ["共同"]  # 鈴木のだけのタスクは入らない
+    assert [row.name for row in data.workload] == [
+        "田中",
+        "佐藤",
+    ]  # 未割り当てを出さない
+    assert data.team.tasks[Status.NOT_STARTED] == [
+        "共同"
+    ]  # 鈴木のだけのタスクは入らない
 
 
 def test_summarize_lists_the_teams_that_have_members_for_the_dropdown() -> None:
@@ -952,28 +1422,45 @@ def test_the_backlog_for_a_team_counts_only_the_team_members() -> None:
 
 def test_the_backlog_for_a_weighted_scope_scales_each_members_share() -> None:
     project = project_of(
-        Task("共同", effort_hours=8, assignees=[Assignee("田中", 0.5), Assignee("佐藤", 0.5)]),
+        Task(
+            "共同",
+            effort_hours=8,
+            assignees=[Assignee("田中", 0.5), Assignee("佐藤", 0.5)],
+        ),
         members=[Member("田中", 1.0), Member("佐藤", 1.0)],
     )
     plain = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {})
-    scaled = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, {"田中": 1.0, "佐藤": 0.25})
+    scaled = summarize_backlog(
+        project, WEEK, PeriodKind.ALL, NOW, {}, {"田中": 1.0, "佐藤": 0.25}
+    )
     assert plain.hours == pytest.approx(8)
-    assert dict(scaled.by_member) == {"田中": pytest.approx(4.0), "佐藤": pytest.approx(1.0)}
+    assert dict(scaled.by_member) == {
+        "田中": pytest.approx(4.0),
+        "佐藤": pytest.approx(1.0),
+    }
     assert scaled.hours == pytest.approx(5.0)
     assert sum(scaled.by_status.values()) == pytest.approx(5.0)
     assert scaled.supply == pytest.approx(1.25)
-    assert scaled.days == plain.days  # 日数は、絞ったタスクの日程から決める。重みでは変わらない
+    assert (
+        scaled.days == plain.days
+    )  # 日数は、絞ったタスクの日程から決める。重みでは変わらない
 
 
-def test_the_backlog_for_a_single_membership_team_is_the_same_as_the_member_scope() -> None:
-    project = project_of(Task("作業", effort_hours=6, assignees=[Assignee("田中", 1.0)]))
+def test_the_backlog_for_a_single_membership_team_is_the_same_as_the_member_scope() -> (
+    None
+):
+    project = project_of(
+        Task("作業", effort_hours=6, assignees=[Assignee("田中", 1.0)])
+    )
     by_name = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, "田中")
     by_team = summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, {"田中": 1.0})
     assert by_team == by_name
 
 
 def test_backlog_by_team_hands_a_members_hours_to_each_team_by_percent() -> None:
-    project = teamed_project()  # 田中 A100 / 佐藤 A60・B40 / 鈴木 B100 / 山田 チームなし
+    project = (
+        teamed_project()
+    )  # 田中 A100 / 佐藤 A60・B40 / 鈴木 B100 / 山田 チームなし
     project.tasks = [
         Task("田中", effort_hours=10, assignees=[Assignee("田中", 1.0)]),
         Task("佐藤", effort_hours=10, assignees=[Assignee("佐藤", 1.0)]),
@@ -993,8 +1480,13 @@ def test_backlog_by_team_hands_a_members_hours_to_each_team_by_percent() -> None
 
 def test_backlog_by_team_is_empty_with_a_filter_or_without_teams() -> None:
     project = teamed_project()
-    assert summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, "田中").by_team == []
-    assert summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, {"田中": 1.0}).by_team == []
+    assert (
+        summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, "田中").by_team == []
+    )
+    assert (
+        summarize_backlog(project, WEEK, PeriodKind.ALL, NOW, {}, {"田中": 1.0}).by_team
+        == []
+    )
     bare = project_of(Task("作業", effort_hours=2, assignees=[Assignee("田中", 1.0)]))
     assert summarize_backlog(bare, WEEK, PeriodKind.ALL, NOW, {}).by_team == []
 
@@ -1008,43 +1500,79 @@ def test_the_due_rows_for_a_team_only_list_its_tasks() -> None:
 
 
 def test_the_cross_loads_for_a_name_set_only_include_those_members() -> None:
-    loads = summarize_cross_loads([teamed_project()], WEEK, {}, frozenset({"田中", "佐藤"}))
+    loads = summarize_cross_loads(
+        [teamed_project()], WEEK, {}, frozenset({"田中", "佐藤"})
+    )
     assert list(loads) == ["田中", "佐藤"]
 
 
-def test_by_team_has_a_row_per_team_with_members_and_counts_shared_tasks_for_each() -> None:
+def test_by_team_has_a_row_per_team_with_members_and_counts_shared_tasks_for_each() -> (
+    None
+):
     dev, qa = summarize_team_rows(teamed_project())
     assert (dev.name, qa.name) == ("開発", "QA")
-    assert dev.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 1, Status.PAUSED: 0, Status.DONE: 0}
-    assert qa.counts == {Status.NOT_STARTED: 1, Status.RUNNING: 0, Status.PAUSED: 0, Status.DONE: 1}  # 共同(鈴木)と鈴木の
+    assert dev.counts == {
+        Status.NOT_STARTED: 1,
+        Status.RUNNING: 1,
+        Status.PAUSED: 0,
+        Status.DONE: 0,
+    }
+    assert qa.counts == {
+        Status.NOT_STARTED: 1,
+        Status.RUNNING: 0,
+        Status.PAUSED: 0,
+        Status.DONE: 1,
+    }  # 共同(鈴木)と鈴木の
     assert dev.percent == pytest.approx(100 * 1 / 8)  # 田中の(2h × 50%)と共同(6h × 0%)
     assert qa.percent == pytest.approx(40)  # 共同(6h × 0%)と鈴木の(4h × 100%)
 
 
 def test_by_team_is_built_for_everyone_only_and_skipped_without_teams() -> None:
     project = teamed_project()
-    assert [row.name for row in summarize_progress(project, {}, NOW).by_team] == ["開発", "QA"]
+    assert [row.name for row in summarize_progress(project, {}, NOW).by_team] == [
+        "開発",
+        "QA",
+    ]
     assert summarize_progress(project, {}, NOW, "田中").by_team == []
     bare = project_of(Task("作業", effort_hours=2))
-    assert summarize_team_rows(bare) == [] and summarize_progress(bare, {}, NOW).by_team == []
+    assert (
+        summarize_team_rows(bare) == []
+        and summarize_progress(bare, {}, NOW).by_team == []
+    )
 
 
 MON = datetime(2026, 10, 5, 9)
 
 
-def warned_task(name: str, *assignees: str, progress: int = 50, effort: float = 19.5) -> Task:
+def warned_task(
+    name: str, *assignees: str, progress: int = 50, effort: float = 19.5
+) -> Task:
     """月曜 9:00 開始の 19.5h(担当 1 人)。NOW(水曜の昼)で、進捗 50% は警告、82% は予定どおり。"""
-    return Task(name, planned_start=MON, effort_hours=effort, progress=progress, status=Status.RUNNING, assignees=[Assignee(a) for a in assignees])
+    return Task(
+        name,
+        planned_start=MON,
+        effort_hours=effort,
+        progress=progress,
+        status=Status.RUNNING,
+        assignees=[Assignee(a) for a in assignees],
+    )
 
 
 def test_progress_counts_the_warning_tasks_once() -> None:
-    project = project_of(warned_task("a", "田中"), warned_task("b", "田中", "鈴木", effort=39), warned_task("c", "田中", progress=82), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    project = project_of(
+        warned_task("a", "田中"),
+        warned_task("b", "田中", "鈴木", effort=39),
+        warned_task("c", "田中", progress=82),
+        members=[Member("田中", 1.0), Member("鈴木", 1.0)],
+    )
     assert summarize_progress(project, {}, NOW).warnings == 2  # 共同タスクは 1 件のまま
 
 
 def test_member_rows_count_a_shared_warning_task_for_each_assignee() -> None:
     project = project_of(
-        warned_task("a", "田中"), warned_task("b", "田中", "鈴木", effort=39), warned_task("c", "田中", progress=82),
+        warned_task("a", "田中"),
+        warned_task("b", "田中", "鈴木", effort=39),
+        warned_task("c", "田中", progress=82),
         members=[Member("田中", 1.0, warning_limit=2), Member("鈴木", 1.0)],
     )
     rows = {row.name: row for row in summarize_progress(project, {}, NOW).by_member}
@@ -1054,13 +1582,19 @@ def test_member_rows_count_a_shared_warning_task_for_each_assignee() -> None:
 
 
 def test_the_limit_is_reached_exactly_at_the_limit() -> None:
-    at = project_of(warned_task("a", "田中"), members=[Member("田中", 1.0, warning_limit=1)])
+    at = project_of(
+        warned_task("a", "田中"), members=[Member("田中", 1.0, warning_limit=1)]
+    )
     assert summarize_progress(at, {}, NOW).by_member[0].over_limit
-    below = project_of(warned_task("a", "田中"), members=[Member("田中", 1.0, warning_limit=2)])
+    below = project_of(
+        warned_task("a", "田中"), members=[Member("田中", 1.0, warning_limit=2)]
+    )
     assert not summarize_progress(below, {}, NOW).by_member[0].over_limit
 
 
-def test_a_warning_task_without_a_member_assignee_counts_for_the_unassigned_row() -> None:
+def test_a_warning_task_without_a_member_assignee_counts_for_the_unassigned_row() -> (
+    None
+):
     project = project_of(warned_task("a"), warned_task("b", "外部の人"))
     rows = {row.name: row for row in summarize_progress(project, {}, NOW).by_member}
     assert rows[UNASSIGNED].warnings == 2 and rows[UNASSIGNED].limit is None
@@ -1068,8 +1602,12 @@ def test_a_warning_task_without_a_member_assignee_counts_for_the_unassigned_row(
 
 def test_team_rows_count_warnings_per_team_and_are_never_limited() -> None:
     project = project_of(
-        warned_task("t1", "田中"), warned_task("t2", "田中", "鈴木", effort=39),
-        members=[Member("田中", 1.0, teams=[Membership("a", 100)], warning_limit=1), Member("鈴木", 1.0, teams=[Membership("b", 100)])],
+        warned_task("t1", "田中"),
+        warned_task("t2", "田中", "鈴木", effort=39),
+        members=[
+            Member("田中", 1.0, teams=[Membership("a", 100)], warning_limit=1),
+            Member("鈴木", 1.0, teams=[Membership("b", 100)]),
+        ],
     )
     project.teams = [Team("開発", id="a"), Team("QA", id="b")]
     rows = {row.name: row for row in summarize_progress(project, {}, NOW).by_team}
@@ -1078,7 +1616,11 @@ def test_team_rows_count_warnings_per_team_and_are_never_limited() -> None:
 
 
 def test_warnings_follow_the_member_filter() -> None:
-    project = project_of(warned_task("a", "田中"), warned_task("b", "鈴木"), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    project = project_of(
+        warned_task("a", "田中"),
+        warned_task("b", "鈴木"),
+        members=[Member("田中", 1.0), Member("鈴木", 1.0)],
+    )
     progress = summarize_progress(project, {}, NOW, "田中")
     assert progress.warnings == 1 and progress.by_member == []
 
@@ -1086,17 +1628,45 @@ def test_warnings_follow_the_member_filter() -> None:
 def test_warnings_in_a_referenced_project_use_that_projects_own_settings() -> None:
     # 同じタスク(進捗 50%)でも、参照先の稼働可能時間が 3.25h だと完了予定が遅くなり、稼働量が足りて警告にならない
     own = project_of()
-    same = Project("子", base_date=date(2026, 10, 5), members=[Member("田中", 1.0)], tasks=[warned_task("子の作業", "田中")])
-    slow = Project("子", base_date=date(2026, 10, 5), daily_hours=3.25, members=[Member("田中", 1.0)], tasks=[warned_task("子の作業", "田中")])
-    assert summarize_progress(own, {}, NOW, children={"子": ChildProject(same, {})}).warnings == 1
-    assert summarize_progress(own, {}, NOW, children={"子": ChildProject(slow, {})}).warnings == 0
+    same = Project(
+        "子",
+        base_date=date(2026, 10, 5),
+        members=[Member("田中", 1.0)],
+        tasks=[warned_task("子の作業", "田中")],
+    )
+    slow = Project(
+        "子",
+        base_date=date(2026, 10, 5),
+        daily_hours=3.25,
+        members=[Member("田中", 1.0)],
+        tasks=[warned_task("子の作業", "田中")],
+    )
+    assert (
+        summarize_progress(
+            own, {}, NOW, children={"子": ChildProject(same, {})}
+        ).warnings
+        == 1
+    )
+    assert (
+        summarize_progress(
+            own, {}, NOW, children={"子": ChildProject(slow, {})}
+        ).warnings
+        == 0
+    )
 
 
 def test_due_rows_mark_the_warning_tasks_and_not_the_overdue_ones() -> None:
     warned = warned_task("警告", "田中")
     warned.deadline = datetime(2026, 10, 9, 17)
-    late = Task("超過", planned_start=MON, effort_hours=6.5, assignees=[Assignee("田中")])
-    rows = summarize_due(project_of(warned, late), Period(date(2026, 10, 5), date(2026, 10, 11)), NOW, {})
+    late = Task(
+        "超過", planned_start=MON, effort_hours=6.5, assignees=[Assignee("田中")]
+    )
+    rows = summarize_due(
+        project_of(warned, late), Period(date(2026, 10, 5), date(2026, 10, 11)), NOW, {}
+    )
     by_key = {(row.name, row.kind): row for row in rows}
     assert by_key[("警告", "締切")].warning and not by_key[("警告", "締切")].overdue
-    assert not by_key[("超過", "完了予定")].warning and by_key[("超過", "完了予定")].overdue
+    assert (
+        not by_key[("超過", "完了予定")].warning
+        and by_key[("超過", "完了予定")].overdue
+    )
