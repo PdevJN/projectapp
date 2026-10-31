@@ -8,8 +8,9 @@ from datetime import date, datetime
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
-from projectapp.avatar import avatar
+from projectapp.avatar import avatar, avatar_html
 from projectapp.dashboard import (
+    UNASSIGNED,
     Backlog,
     CrossSummary,
     Dashboard,
@@ -110,8 +111,8 @@ def cell_title(name: str, load: DayLoad) -> str:
     return "&#10;".join(lines)
 
 
-def heatmap_html(cross: CrossSummary) -> str:
-    """人×稼働日の表。名前・プロジェクト名はエスケープする。"""
+def heatmap_html(cross: CrossSummary, icons: dict[str, str] | None = None) -> str:
+    """人×稼働日の表。名前・プロジェクト名はエスケープする。名前の前にアイコン(なければ頭文字の丸)を付ける。"""
     first = next(iter(cross.loads.values()), None)
     days = first.days if first is not None else []
     head = "".join(
@@ -126,7 +127,8 @@ def heatmap_html(cross: CrossSummary) -> str:
             f' title="{cell_title(name, day)}" style="{cell_style(day.total)}"></td>'
             for day in entry.days
         )
-        label = f'<th class="heatmap-name text-body2" style="text-align: left">{html.escape(name)}</th>'
+        mark = avatar_html(name, (icons or {}).get(name, ""), 20)
+        label = f'<th class="heatmap-name text-body2" style="text-align: left">{mark}{html.escape(name)}</th>'
         rows.append(f"<tr>{label}{cells}</tr>")
     return (
         '<div class="heatmap-scroll">'
@@ -680,13 +682,29 @@ class DashboardView:
                 with ui.row().classes("w-full items-center no-wrap gap-2"):
                     ui.label(moment_text(row.limit)).classes("text-negative")
                     ui.label(row.name).classes("col ellipsis").mark(f"dashboard-overdue-name-{index}")
-                    ui.label(row.assignee or "").classes("text-caption")
+                    self.assignee_chips(row.assignee_names, f"dashboard-overdue-assignee-{index}")
+
+    def member_icon(self, name: str, marker: str | None = None) -> None:
+        """メンバーのアイコン(なければ頭文字の丸)。メンバーでない行(`未割り当て`)には出さない。"""
+        if name == UNASSIGNED:
+            return
+        element = avatar(name, self.icons.get(name, ""), 20)
+        if marker:
+            element.mark(marker)
+
+    def assignee_chips(self, names: tuple[str, ...], marker: str) -> None:
+        """担当者を、アイコンと名前の組で人ごとに並べる。担当なしは何も出さない。"""
+        with ui.row().classes("items-center no-wrap gap-2").mark(marker):
+            for name in names:
+                with ui.row().classes("items-center no-wrap gap-1"):
+                    self.member_icon(name)
+                    ui.label(name).classes("text-caption")
 
     def member_progress_row(self, row: MemberProgress, marker: str = "dashboard-member") -> None:
         with ui.column().classes("w-full gap-1"):
             with ui.row().classes("items-center no-wrap gap-2"):
-                if marker == "dashboard-member" and (icon := self.icons.get(row.name)):
-                    avatar(row.name, icon, 20).mark(f"{marker}-icon-{row.name}")
+                if marker == "dashboard-member":  # チーム別の行はメンバーではない
+                    self.member_icon(row.name, f"{marker}-icon-{row.name}")
                 ui.label(row.name)
                 if row.over_limit:
                     warning_icon(f"{marker}-limit-{row.name}").tooltip(f"警告が閾値({row.limit} 件)に達しています")
@@ -706,8 +724,7 @@ class DashboardView:
         over = stats.overload_days > 0
         with ui.column().classes("w-full gap-1"):
             with ui.row().classes("items-center no-wrap gap-2"):
-                if icon := self.icons.get(name):
-                    avatar(name, icon, 20).mark(f"dashboard-load-icon-{name}")
+                self.member_icon(name, f"dashboard-load-icon-{name}")
                 ui.label(name)
             ui.label(
                 f"平均 {stats.average * 100:.0f}% / 最大 {stats.peak * 100:.0f}% / 割り当て超過 {stats.overload_days} 日"
@@ -742,7 +759,7 @@ class DashboardView:
             if columns > HEATMAP_HINT_DAYS:
                 ui.label("横にスクロールできます").classes("text-caption text-grey").mark("dashboard-heatmap-hint")
             ui.html(legend_html(), sanitize=False)
-            ui.html(heatmap_html(cross), sanitize=False).style(
+            ui.html(heatmap_html(cross, self.icons), sanitize=False).style(
                 "min-width: 0; max-width: 100%; overflow-x: auto"
             ).mark("dashboard-heatmap-table")
 
@@ -783,7 +800,9 @@ class DashboardView:
             scale = max((max(row.planned_hours, row.actual_hours) for row in data.workload), default=0.0) or 1.0
             for row in data.workload:
                 with ui.column().classes("w-full gap-1"):
-                    ui.label(row.name)
+                    with ui.row().classes("items-center no-wrap gap-2"):
+                        self.member_icon(row.name, f"dashboard-hours-icon-{row.name}")
+                        ui.label(row.name)
                     ui.label(f"予定 {row.planned_hours:.1f}h / 実績 {row.actual_hours:.1f}h").classes(
                         "text-caption"
                     ).mark(f"dashboard-hours-{row.name}")
@@ -855,7 +874,9 @@ class DashboardView:
                 ui.label("担当別").classes("text-subtitle2")
                 top = max(hours for _, hours in backlog.by_member)
                 for name, hours in backlog.by_member:
-                    ui.label(f"{name} {hours:.1f}h").classes("text-caption").mark(f"dashboard-backlog-member-{name}")
+                    with ui.row().classes("items-center no-wrap gap-2"):
+                        self.member_icon(name, f"dashboard-backlog-member-icon-{name}")
+                        ui.label(f"{name} {hours:.1f}h").classes("text-caption").mark(f"dashboard-backlog-member-{name}")
                     bar(hours / top, NEED_COLOR, marker=f"dashboard-backlog-member-bar-{name}")
             if backlog.by_team:
                 ui.label("チーム別").classes("text-subtitle2")
@@ -916,4 +937,4 @@ class DashboardView:
                     if row.warning:
                         warning_icon(f"dashboard-due-warning-icon-{index}")
                         ui.label("警告").classes("text-caption").mark(f"dashboard-due-warning-{index}")
-                    ui.label(row.assignee or "").classes("text-caption")
+                    self.assignee_chips(row.assignee_names, f"dashboard-due-assignee-{index}")
