@@ -191,3 +191,4 @@
 - 要望 102(smoke テスト。2026-10-31): チャットで設計を確認(bounded)。コアの範囲は案のとおり、目標は 1 分以内。`pyproject.toml`に`smoke`のマーカーと`--strict-markers`を足し、9 ファイルをファイル単位、`test_storage`・`test_views`・`test_task_dialog`・`test_gantt`を代表の関数単位で付けた。`pytest -m smoke`は 453 件・約 7 秒。余裕があるので、足りないと感じたら代表を増やせる。実機確認は不要(テスト基盤のみ)。
 - smoke テストの運用ルール(2026-10-31、利用者の指示): 実装のたびに`uv run pytest -m smoke`を実行し、失敗したら全テストで詳細を確認する。PR・コミットの前は全体を実行する。`.claude/RULE.md`の「テスト」に追記し、`docs/development.md`の記述をそろえた。
 - 要望 102 のマージ(2026-10-31): PR #150(cee1610)で`develop`へマージ。全テスト 4,527 件通過。これ以降、実装後は`uv run pytest -m smoke`で素早く確認し、PR の前に全体を実行する。
+- 全テストの実行オプションの見直し(2026-10-31、利用者の指示): `pytest-xdist` を入れているので、全テストは`uv run pytest -n auto`で実行する。実測は 4,527 件通過・65 秒(論理 8 CPU。直列は約 5 分)。`.claude/RULE.md`と`docs/development.md`を更新した。並列で原因が分かりにくいときは、失敗したテストだけ`-n 0`で直列に実行し直す。
