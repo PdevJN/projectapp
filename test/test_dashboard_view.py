@@ -722,7 +722,7 @@ async def test_the_backlog_card_shows_hours_required_people_and_the_shortfall(us
     assert text(user, "dashboard-backlog-hours") == "残りの工数 19.5h"
     assert text(user, "dashboard-backlog-unset") == "工数未設定 2 件(合計に入れていません)"
     assert text(user, "dashboard-backlog-days") == "稼働 3 日で終える場合"
-    assert text(user, "dashboard-backlog-people") == "必要 2.0 人 / 今いる人員 1.5 人"
+    assert text(user, "dashboard-backlog-people") == "必要 2.0 人 / 稼働できる人員 1.5 人"
     assert text(user, "dashboard-backlog-gap") == "あと 0.5 人"
     assert text(user, "dashboard-backlog-member-田中") == "田中 13.0h"
     assert text(user, f"dashboard-backlog-member-{UNASSIGNED}") == f"{UNASSIGNED} 6.5h"
@@ -776,7 +776,7 @@ async def test_the_backlog_card_notes_what_the_supply_reflects(user: User) -> No
     views[0].show(with_backlog(Backlog(6.5, 0, 3, 0.5, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-note")
     assert text(user, "dashboard-backlog-note") == (
-        "今いる人員は、メンバーの稼働日の上書き(休み・短時間・追加の稼働日)を反映しています。今日は、今から稼働の枠の終わりまでの残り時間で数えます。"
+        "稼働できる人員は、メンバーの稼働日の上書き(休み・短時間・追加の稼働日)を反映しています。今日は、今から稼働の枠の終わりまでの残り時間で数えます。"
     )
 
 
@@ -909,3 +909,40 @@ async def test_the_backlog_card_shows_the_unadjusted_supply_only_when_it_changed
     views[0].show(with_backlog(Backlog(6.5, 0, 3, 0.5, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-people")
     await user.should_not_see(marker="dashboard-backlog-supply-note")
+
+
+def swatch_color(user: User, marker: str) -> str:
+    return user.find(marker=marker).elements.pop()._style["background"]
+
+
+async def test_the_backlog_card_has_its_own_colors_and_a_legend(user: User) -> None:
+    from projectapp.dashboard_view import HAVE_COLOR, NEED_COLOR, PLANNED_COLOR
+
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(Backlog(19.5, 0, 3, 2.0, 1.5, [("田中", 13.0)])), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-people")
+    assert text(user, "dashboard-backlog-legend-need") == "必要"
+    assert text(user, "dashboard-backlog-legend-have") == "稼働可能"
+    assert swatch_color(user, "dashboard-backlog-swatch-need") == NEED_COLOR
+    assert swatch_color(user, "dashboard-backlog-swatch-have") == HAVE_COLOR
+    assert len({NEED_COLOR, HAVE_COLOR, PLANNED_COLOR}) == 3  # 予定の青・実績の緑と混ざらない
+
+
+async def test_the_backlog_member_bars_use_the_need_color(user: User) -> None:
+    from projectapp.dashboard_view import NEED_COLOR
+
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(Backlog(13, 0, 3, 2.0, 1.5, [("田中", 13.0)])), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-member-田中")
+    bars = [e for e in user.find(marker="dashboard-backlog-member-bar-田中").elements]
+    assert bars and bars[0]._style["background"] == NEED_COLOR
+
+
+async def test_the_backlog_card_has_no_legend_when_no_people_are_shown(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(Backlog(6.5, 0, None, None, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-nodays")
+    await user.should_not_see(marker="dashboard-backlog-legend-need")
