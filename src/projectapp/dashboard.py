@@ -599,11 +599,11 @@ class Backlog:
     unset_count: int  # 工数のない未終了のタスク(合計に入れない)
     days: float | None  # 割る期間の稼働日数(今日は残りの時間を稼働可能時間で割った小数)。決まらないときは None
     required: float | None  # 必要な人数(100% の人に換算)。days が None か 0 のときは None
-    supply: float  # 今いる人員(相対比率の合計)
+    supply: float  # 稼働できる人員(相対比率の合計)
     by_member: list[tuple[str, float]]  # (担当者, 残りの工数)。共同タスクは割り当て率の比で按分
     by_status: dict[Status, float] = field(default_factory=dict)  # 状態ごとの残りの工数(0 は除く)
     by_team: list[tuple[str, float]] = field(default_factory=list)  # (チーム, 残りの工数)。全員のときだけ。メンバーの分を所属の割合で配る
-    nominal_supply: float | None = None  # 稼働日の上書きで調整する前の今いる人員。調整で値が変わるときだけ
+    nominal_supply: float | None = None  # 稼働日の上書きで調整する前の稼働できる人員。調整で値が変わるときだけ
 
     @property
     def shortfall(self) -> float | None:
@@ -942,7 +942,7 @@ def summarize_cross_backlog(
 ) -> Backlog:
     """複数のプロジェクトを重ねた残りの工数と必要人数。同じ名前のメンバーを同一人物とみなす。
     工数は各プロジェクト自身の日程・休みで数え、割る側(稼働時間)は base(開いているプロジェクト)の稼働可能時間・休みで数える。
-    今いる人員は、名前ごとに 1 回(projects の先頭に近いプロジェクトの相対比率)。"""
+    稼働できる人員は、名前ごとに 1 回(projects の先頭に近いプロジェクトの相対比率)。"""
     parts = [_backlog_parts(p, period, kind, now, effective_holidays(p, holidays), member) for p in projects]
     owners = {m.name: (m, p) for p in reversed(projects) for m in p.members}  # 先頭のプロジェクトが勝つ
     names = list(dict.fromkeys(m.name for p in projects for m in p.members))

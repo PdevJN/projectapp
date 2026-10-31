@@ -37,7 +37,7 @@ OVER_COLOR = "#ef5350"  # 100% を超える日がある負荷(予定超過の赤
 PLANNED_COLOR = "#1e88e5"  # 予定の時間。dataviz の検証で、灰青は「灰色に見える」ため不合格。青と緑の組は全項目 PASS
 ACTUAL_COLOR = "#43a047"  # 実績の時間
 NEED_COLOR = "#6250d6"  # 残りの工数と必要人数: これから要る量(必要人数・担当別・チーム別の残りの工数)。予定の青と混ざらないすみれ
-HAVE_COLOR = "#1baf7a"  # 残りの工数と必要人数: 今いる人員。実績の緑と混ざらない青緑(ライトでは背景との比が 3:1 未満なので、値は文字でも出す)
+HAVE_COLOR = "#1baf7a"  # 残りの工数と必要人数: 稼働できる人員。実績の緑と混ざらない青緑(ライトでは背景との比が 3:1 未満なので、値は文字でも出す)
 EMPTY = "データがありません"
 CARD_TITLES = {
     CardId.TEAM: "チーム全体の進捗",
@@ -761,7 +761,7 @@ class DashboardView:
                 ui.label(f"{reason}ため、必要な人数は出せません").classes("text-grey").mark("dashboard-backlog-nodays")
             else:
                 ui.label(f"稼働 {days_text(backlog.days)} 日で終える場合").classes("text-caption").mark("dashboard-backlog-days")
-                ui.label(f"必要 {backlog.required:.1f} 人 / 今いる人員 {backlog.supply:.1f} 人").mark(
+                ui.label(f"必要 {backlog.required:.1f} 人 / 稼働できる人員 {backlog.supply:.1f} 人").mark(
                     "dashboard-backlog-people"
                 )
                 if backlog.nominal_supply is not None:
@@ -769,7 +769,7 @@ class DashboardView:
                         f"相対比率の合計 {backlog.nominal_supply:.1f} 人 → 稼働を反映して {backlog.supply:.1f} 人"
                     ).classes("text-caption text-grey").mark("dashboard-backlog-supply-note")
                 scale = max(backlog.required, backlog.supply) or 1.0
-                legend("dashboard-backlog", (("必要", NEED_COLOR, "need"), ("今いる", HAVE_COLOR, "have")))
+                legend("dashboard-backlog", (("必要", NEED_COLOR, "need"), ("稼働可能", HAVE_COLOR, "have")))
                 bar(backlog.required / scale, NEED_COLOR)
                 bar(backlog.supply / scale, HAVE_COLOR)
                 short = round(backlog.shortfall, 1)  # 表示の桁で 0 になるときは「あと 0.0 人」と出さない
@@ -777,7 +777,7 @@ class DashboardView:
                 ui.label(gap).classes("text-subtitle2" + (" text-negative" if short > 0 else "")).mark(
                     "dashboard-backlog-gap"
                 )
-                ui.label("今いる人員は、メンバーの稼働日の上書き(休み・短時間・追加の稼働日)を反映しています。今日は、今から稼働の枠の終わりまでの残り時間で数えます。").classes(
+                ui.label("稼働できる人員は、メンバーの稼働日の上書き(休み・短時間・追加の稼働日)を反映しています。今日は、今から稼働の枠の終わりまでの残り時間で数えます。").classes(
                     "text-caption text-grey"
                 ).mark("dashboard-backlog-note")
             if backlog.by_member:

@@ -722,7 +722,7 @@ async def test_the_backlog_card_shows_hours_required_people_and_the_shortfall(us
     assert text(user, "dashboard-backlog-hours") == "残りの工数 19.5h"
     assert text(user, "dashboard-backlog-unset") == "工数未設定 2 件(合計に入れていません)"
     assert text(user, "dashboard-backlog-days") == "稼働 3 日で終える場合"
-    assert text(user, "dashboard-backlog-people") == "必要 2.0 人 / 今いる人員 1.5 人"
+    assert text(user, "dashboard-backlog-people") == "必要 2.0 人 / 稼働できる人員 1.5 人"
     assert text(user, "dashboard-backlog-gap") == "あと 0.5 人"
     assert text(user, "dashboard-backlog-member-田中") == "田中 13.0h"
     assert text(user, f"dashboard-backlog-member-{UNASSIGNED}") == f"{UNASSIGNED} 6.5h"
@@ -776,7 +776,7 @@ async def test_the_backlog_card_notes_what_the_supply_reflects(user: User) -> No
     views[0].show(with_backlog(Backlog(6.5, 0, 3, 0.5, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-note")
     assert text(user, "dashboard-backlog-note") == (
-        "今いる人員は、メンバーの稼働日の上書き(休み・短時間・追加の稼働日)を反映しています。今日は、今から稼働の枠の終わりまでの残り時間で数えます。"
+        "稼働できる人員は、メンバーの稼働日の上書き(休み・短時間・追加の稼働日)を反映しています。今日は、今から稼働の枠の終わりまでの残り時間で数えます。"
     )
 
 
@@ -923,7 +923,7 @@ async def test_the_backlog_card_has_its_own_colors_and_a_legend(user: User) -> N
     views[0].show(with_backlog(Backlog(19.5, 0, 3, 2.0, 1.5, [("田中", 13.0)])), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-people")
     assert text(user, "dashboard-backlog-legend-need") == "必要"
-    assert text(user, "dashboard-backlog-legend-have") == "今いる"
+    assert text(user, "dashboard-backlog-legend-have") == "稼働可能"
     assert swatch_color(user, "dashboard-backlog-swatch-need") == NEED_COLOR
     assert swatch_color(user, "dashboard-backlog-swatch-have") == HAVE_COLOR
     assert len({NEED_COLOR, HAVE_COLOR, PLANNED_COLOR}) == 3  # 予定の青・実績の緑と混ざらない
