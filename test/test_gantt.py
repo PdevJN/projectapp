@@ -3881,7 +3881,7 @@ def reference_chart(
 
 
 SPAN = ReferenceValue(
-    planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 16, 17), progress=45, delayed=3,
+    planned_start=datetime(2026, 10, 5, 9), planned_end=datetime(2026, 10, 16, 17), progress=45, delayed=3, warned=2,
     peak_load=1.3, peak_member="田中",
     overloads=(OverloadSpan("田中", datetime(2026, 10, 8, 9), datetime(2026, 10, 9, 17), 1.3),),
 )
@@ -3894,6 +3894,28 @@ async def test_a_reference_row_draws_one_band_with_delay_and_load_chips(user: Us
     assert "遅延 3件" in user.find(marker="ref-delay-top-0").elements.pop().text
     assert "負荷 130%" in user.find(marker="ref-load-top-0").elements.pop().text
     await user.should_see(marker="overload-top-0-0")  # 超過の期間に縞
+
+
+async def test_a_reference_row_shows_the_warning_chip(user: User) -> None:
+    reference_chart(SPAN)
+    await user.open("/")
+    assert "警告 2件" in user.find(marker="ref-warning-top-0").elements.pop().text
+
+
+async def test_no_warning_chip_without_warned_tasks(user: User) -> None:
+    from dataclasses import replace
+
+    reference_chart(replace(SPAN, warned=0))
+    await user.open("/")
+    await user.should_see(marker="ref-delay-top-0")
+    await user.should_not_see(marker="ref-warning-top-0")
+
+
+async def test_the_reference_hover_lists_the_warning_count(user: User) -> None:
+    reference_chart(SPAN)
+    await user.open("/")
+    bar = user.find(marker="bar-top-0").elements.pop()
+    assert "警告 2 件" in tooltips_targeting(bar)[0]
 
 
 async def test_the_reference_hover_says_it_opens_on_click_and_the_band_underlines(user: User) -> None:

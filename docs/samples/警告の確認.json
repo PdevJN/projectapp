@@ -1,5 +1,5 @@
 {
-  "version": 18,
+  "version": 19,
   "name": "警告の確認",
   "base_date": "2026-11-02",
   "daily_hours": 6.5,
@@ -13,7 +13,8 @@
       "icon": "",
       "work_days": [],
       "ratio_unclamped": false,
-      "teams": []
+      "teams": [],
+      "warning_limit": 2
     },
     {
       "name": "鈴木",
@@ -23,7 +24,8 @@
       "icon": "",
       "work_days": [],
       "ratio_unclamped": false,
-      "teams": []
+      "teams": [],
+      "warning_limit": null
     }
   ],
   "sections": [

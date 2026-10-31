@@ -1193,6 +1193,22 @@ async def test_the_members_dialog_applies_ratio_unclamped(user: User, tmp_path: 
     assert await wait_until(lambda: [(m.ratio, m.ratio_unclamped) for m in view.project.members] == [(2.0, True)])
 
 
+async def test_the_members_dialog_applies_and_clears_the_warning_limit(user: User, tmp_path: Path) -> None:
+    view = await open_members_view(user, tmp_path)
+    await open_members_parameters(user)
+    user.find(marker="member-add").click()
+    await user.should_see(marker="member-name-0")
+    await user.should_see(marker="member-header-warning-limit")
+    user.find(marker="member-name-0").type("田中")
+    user.find(marker="member-warning-limit-0").elements.pop().set_value(3)
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: [m.warning_limit for m in view.project.members] == [3])
+    await asyncio.sleep(0.5)  # 適用後の表の描き直しを待つ(古い行の入力欄を触らない)
+    user.find(marker="member-warning-limit-0").elements.pop().set_value(None)
+    user.find(marker="member-apply").click()
+    assert await wait_until(lambda: [m.warning_limit for m in view.project.members] == [None])
+
+
 async def test_the_members_dialog_rejects_a_duplicate_name(user: User, tmp_path: Path) -> None:
     view = await open_members_view(user, tmp_path)
     view.project.members = [Member("田中", 1.0)]
@@ -4184,8 +4200,8 @@ async def test_the_members_dialog_is_a_table_whose_columns_follow_the_parameters
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    # アイコン・名前・相対比率・丸めない・稼働日・削除
-    assert len(grid_columns(user)) == 6
+    # アイコン・名前・相対比率・丸めない・警告の件数・稼働日・削除
+    assert len(grid_columns(user)) == 7
 
 
 async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path) -> None:
@@ -4194,8 +4210,8 @@ async def test_the_table_gets_a_column_per_parameter(user: User, tmp_path: Path)
     view.project.parameters.append(Parameter("専門性", [Level("高", 0.1)]))
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    # アイコン・名前・基本比率・丸めない・経験・専門性・相対比率・稼働日・削除
-    assert len(grid_columns(user)) == 9
+    # アイコン・名前・基本比率・丸めない・警告の件数・経験・専門性・相対比率・稼働日・削除
+    assert len(grid_columns(user)) == 10
     assert user.find(marker="member-header-level-1").elements.pop().text == "専門性"
 
 
@@ -4211,7 +4227,7 @@ async def test_the_table_scrolls_sideways_and_keeps_the_name_column_wide(user: U
     grid = user.find(marker="member-grid").elements.pop()
     assert "min-width" in grid._style  # 列を押しつぶさない
     assert grid_columns(user)[1] == "7rem"  # 名前の列は、列の数にかかわらず固定(狭くも広くもならない)
-    assert len(grid_columns(user)) == 4 + 7 + 3
+    assert len(grid_columns(user)) == 5 + 7 + 3
 
 
 async def test_the_table_area_grows_with_the_rows(user: User, tmp_path: Path) -> None:
@@ -4243,15 +4259,15 @@ async def test_the_name_column_is_a_narrow_fixed_width_with_or_without_parameter
     view.project.members = [Member("田中", 1.0)]
     await open_members_parameters(user)
     await user.should_see(marker="member-grid")
-    assert grid_columns(user) == ["6rem", "7rem", "7rem", "5rem", "7rem", "3rem"]  # アイコン・名前・相対比率・丸めない・稼働日・削除
+    assert grid_columns(user) == ["6rem", "7rem", "7rem", "5rem", "6rem", "7rem", "3rem"]  # アイコン・名前・相対比率・丸めない・警告の件数・稼働日・削除
 
 
 async def test_the_dialog_width_follows_the_columns_without_the_old_wide_name(user: User, tmp_path: Path) -> None:
     from projectapp.forms import member_table_min_rem
 
-    # アイコン 6rem + 名前 7rem + 比率 7rem + 丸めない 5rem + 稼働日 7rem + 削除 3rem + 列の間隔。以前の名前 12rem 以上の幅ではない
-    assert member_table_min_rem(0, False) == 6 + 7 + 7 + 5 + 7 + 3 + 2 * 6
-    assert member_table_min_rem(2, True) == 6 + 7 + 7 + 5 + 9 * 2 + 11 + 7 + 3 + 2 * 9
+    # アイコン 6rem + 名前 7rem + 比率 7rem + 丸めない 5rem + 警告の件数 6rem + 稼働日 7rem + 削除 3rem + 列の間隔。以前の名前 12rem 以上の幅ではない
+    assert member_table_min_rem(0, False) == 6 + 7 + 7 + 5 + 6 + 7 + 3 + 2 * 7
+    assert member_table_min_rem(2, True) == 6 + 7 + 7 + 5 + 6 + 9 * 2 + 11 + 7 + 3 + 2 * 10
 
 
 async def test_the_member_table_uses_14px_controls(user: User, tmp_path: Path) -> None:

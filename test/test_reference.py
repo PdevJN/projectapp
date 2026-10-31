@@ -48,6 +48,40 @@ def test_delay_counts_unfinished_tasks_past_their_end() -> None:
     assert value.delayed == 1  # b は完了予定(10/7)を過ぎて終了していない。a は終了、c は先
 
 
+WARN_NOW = datetime(2026, 10, 7, 12)  # 水曜の昼。月曜 9:00 開始の 19.5h・進捗 50% は警告、進捗 82% は予定どおり
+
+
+def warn_task(name: str, progress: int) -> Task:
+    return Task(name, planned_start=D(10, 5), effort_hours=19.5, progress=progress, status=Status.RUNNING)
+
+
+def test_warned_counts_the_warning_tasks_only() -> None:
+    project = Project("基盤", members=[Member("田中", 1.0)], tasks=[warn_task("a", 50), warn_task("b", 50), warn_task("c", 82)])
+    assert compute_reference(project, {}, WARN_NOW).warned == 2
+
+
+def test_warned_uses_the_referenced_projects_own_settings() -> None:
+    # 同じタスク(進捗 50%)でも、稼働可能時間が 3.25h だと完了予定が遅くなり、稼働量が足りて警告にならない
+    normal = Project("基盤", members=[Member("田中", 1.0)], tasks=[warn_task("a", 50)])
+    short = Project("基盤", daily_hours=3.25, members=[Member("田中", 1.0)], tasks=[warn_task("a", 50)])
+    assert compute_reference(normal, {}, WARN_NOW).warned == 1
+    assert compute_reference(short, {}, WARN_NOW).warned == 0
+
+
+def test_overdue_and_done_tasks_are_not_counted_as_warned() -> None:
+    late = Task("超過", planned_start=D(10, 5), effort_hours=6.5)
+    done = Task("終了", planned_start=D(10, 5), effort_hours=19.5, status=Status.DONE)
+    project = Project("基盤", members=[Member("田中", 1.0)], tasks=[late, done])
+    assert compute_reference(project, {}, WARN_NOW).warned == 0
+
+
+def test_the_snapshot_differs_when_only_the_warned_count_differs() -> None:
+    from dataclasses import replace
+
+    value = compute_reference(source(), {}, NOW)
+    assert not value.same_as(replace(value, warned=value.warned + 1))
+
+
 def test_overlapping_assignments_become_a_peak_and_spans() -> None:
     project = Project(
         "基盤",

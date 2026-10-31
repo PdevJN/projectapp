@@ -24,6 +24,7 @@ VALUE = ReferenceValue(
     progress=45,
     finished=False,
     delayed=3,
+    warned=2,
     peak_load=1.3,
     peak_member="田中",
     overloads=(OverloadSpan("田中", datetime(2026, 10, 1, 9), datetime(2026, 10, 3, 9), 1.3),),
@@ -36,7 +37,7 @@ def reference_task(**kwargs: object) -> Task:
 
 
 def test_format_version_is_12() -> None:
-    assert FORMAT_VERSION == 18
+    assert FORMAT_VERSION == 19
 
 
 def test_a_reference_task_round_trips_with_its_snapshot() -> None:
@@ -86,3 +87,17 @@ def test_invalid_references_are_rejected(change, message: str) -> None:
     change(raw)
     with pytest.raises(ValueError, match=message):
         parse_project(json.dumps(raw), "p")
+
+
+def test_a_snapshot_without_warned_is_read_as_zero_and_a_bad_one_is_rejected() -> None:
+    project = Project("p", reference_mode=ReferenceMode.SNAPSHOT, sections=[Section("s", [reference_task(ref_snapshot=VALUE)])])
+    data = json.loads(dumps_project(project))
+    snapshot = data["sections"][0]["tasks"][0]["ref_snapshot"]
+    assert snapshot["warned"] == 2
+    del snapshot["warned"]
+    loaded = parse_project(json.dumps(data), "p")
+    assert loaded.sections[0].tasks[0].ref_snapshot.warned == 0  # type: ignore[union-attr]
+    for bad in (True, -1, 1.5, "2"):
+        snapshot["warned"] = bad
+        with pytest.raises(ValueError, match="警告の件数"):
+            parse_project(json.dumps(data), "p")

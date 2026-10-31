@@ -8,6 +8,7 @@ from pathlib import Path
 from projectapp.dashboard import ChildProject, _progress_weight
 from projectapp.events import effective_holidays
 from projectapp.models import OverloadSpan, Project, ReferenceMode, ReferenceValue, Status, Task, TaskKind
+from projectapp.pace import warning_pace
 from projectapp.storage import file_digest, load_project
 from projectapp.timeline import Schedule, is_overdue, overallocations
 
@@ -30,6 +31,7 @@ def compute_reference(project: Project, holidays: dict[date, str], now: datetime
     weights = [w for task in tasks if (w := _progress_weight(task)) is not None]
     total = sum(weight for weight, _ in weights)
     progress = round(sum(weight * percent for weight, percent in weights) / total) if total > 0 else None
+    warned = sum(1 for task in tasks if warning_pace(task, project, holidays, now, schedule) is not None)
     delayed = sum(1 for task in tasks if task.status is not Status.DONE and is_overdue(task, project, holidays, now, schedule))
     overloads = tuple(
         OverloadSpan(o.member, o.start, o.end, o.total) for o in overallocations(project, holidays, tasks)
@@ -43,6 +45,7 @@ def compute_reference(project: Project, holidays: dict[date, str], now: datetime
         progress=progress,
         finished=bool(tasks) and all(task.status is Status.DONE for task in tasks),
         delayed=delayed,
+        warned=warned,
         peak_load=peak.total if peak else 0.0,
         peak_member=peak.member if peak else "",
         overloads=overloads,

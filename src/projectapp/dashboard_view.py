@@ -21,7 +21,7 @@ from projectapp.dashboard import (
 )
 from projectapp.dashboard_drag import DASHBOARD_DRAG_CSS, DASHBOARD_DRAG_JS
 from projectapp.dashboard_views import DEFAULT_ORDER, STANDARD_NAME, CardId, ViewState, parse_card_move
-from projectapp.gantt import STATUS_COLORS, STATUS_DARK_COLORS, WEEKDAYS
+from projectapp.gantt import STATUS_COLORS, STATUS_DARK_COLORS, WARNING_BACKGROUND, WEEKDAYS
 from projectapp.models import Status
 from projectapp.periodfield import add_range_picker, normalize_period
 from projectapp.scope import read_scope, scope_options, scope_value
@@ -192,6 +192,11 @@ def pie_background(team: TeamProgress) -> str:
         stops.append(f"var({PIE_VARS[status]}) {start:.1f}% {end:.1f}%")
         start = end
     return f"conic-gradient({', '.join(stops)})"
+
+
+def warning_icon(marker: str) -> ui.icon:
+    """警告の印。警告の色(`--warning`)のアイコン。文字そのものは色づけしない(白地で読めないため)。"""
+    return ui.icon("warning_amber", size="xs").style("color: var(--warning)").mark(marker)
 
 
 def card(title: str, marker: str) -> ui.card:
@@ -639,6 +644,10 @@ class DashboardView:
             with ui.row().classes("gap-4"):
                 for status in Status:
                     ui.label(f"{status.value} {progress.counts[status]}").mark(f"dashboard-count-{status.name}")
+                with ui.row().classes("items-center no-wrap gap-1"):
+                    if progress.warnings:
+                        warning_icon("dashboard-count-warning-icon")
+                    ui.label(f"警告 {progress.warnings}").mark("dashboard-count-warning")
             if progress.by_member:
                 ui.label("メンバー別").classes("text-subtitle2")
                 for row in progress.by_member:
@@ -662,6 +671,12 @@ class DashboardView:
                 if marker == "dashboard-member" and (icon := self.icons.get(row.name)):
                     avatar(row.name, icon, 20).mark(f"{marker}-icon-{row.name}")
                 ui.label(row.name)
+                if row.over_limit:
+                    warning_icon(f"{marker}-limit-{row.name}").tooltip(f"警告が閾値({row.limit} 件)に達しています")
+            if row.warnings:
+                ui.label(f"警告 {row.warnings} 件").classes(
+                    "text-caption" + (" text-weight-bold" if row.over_limit else "")
+                ).mark(f"{marker}-warning-{row.name}")
             if row.percent is None:
                 ui.label("タスクなし").classes("text-caption text-grey").mark(f"{marker}-progress-{row.name}")
                 return
@@ -858,8 +873,14 @@ class DashboardView:
                 return
             for index, row in enumerate(data.due):
                 color = " text-negative" if row.overdue else ""
-                with ui.row().classes("w-full items-center no-wrap gap-2"):
+                line = ui.row().classes("w-full items-center no-wrap gap-2")
+                if row.warning:
+                    line.style(f"background: {WARNING_BACKGROUND}")
+                with line:
                     ui.label(moment_text(row.moment)).classes(color.strip())
                     ui.label(row.kind).classes("text-caption" + color).mark(f"dashboard-due-kind-{index}")
                     ui.label(row.name).classes("col ellipsis" + color).mark(f"dashboard-due-{index}")
+                    if row.warning:
+                        warning_icon(f"dashboard-due-warning-icon-{index}")
+                        ui.label("警告").classes("text-caption").mark(f"dashboard-due-warning-{index}")
                     ui.label(row.assignee or "").classes("text-caption")

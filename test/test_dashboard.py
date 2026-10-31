@@ -4,6 +4,7 @@ import pytest
 
 from projectapp.dashboard import (
     NO_TEAM,
+    ChildProject,
     UNASSIGNED,
     DueRow,
     MemberProgress,
@@ -1026,3 +1027,76 @@ def test_by_team_is_built_for_everyone_only_and_skipped_without_teams() -> None:
     assert summarize_progress(project, {}, NOW, "田中").by_team == []
     bare = project_of(Task("作業", effort_hours=2))
     assert summarize_team_rows(bare) == [] and summarize_progress(bare, {}, NOW).by_team == []
+
+
+MON = datetime(2026, 10, 5, 9)
+
+
+def warned_task(name: str, *assignees: str, progress: int = 50, effort: float = 19.5) -> Task:
+    """月曜 9:00 開始の 19.5h(担当 1 人)。NOW(水曜の昼)で、進捗 50% は警告、82% は予定どおり。"""
+    return Task(name, planned_start=MON, effort_hours=effort, progress=progress, status=Status.RUNNING, assignees=[Assignee(a) for a in assignees])
+
+
+def test_progress_counts_the_warning_tasks_once() -> None:
+    project = project_of(warned_task("a", "田中"), warned_task("b", "田中", "鈴木", effort=39), warned_task("c", "田中", progress=82), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    assert summarize_progress(project, {}, NOW).warnings == 2  # 共同タスクは 1 件のまま
+
+
+def test_member_rows_count_a_shared_warning_task_for_each_assignee() -> None:
+    project = project_of(
+        warned_task("a", "田中"), warned_task("b", "田中", "鈴木", effort=39), warned_task("c", "田中", progress=82),
+        members=[Member("田中", 1.0, warning_limit=2), Member("鈴木", 1.0)],
+    )
+    rows = {row.name: row for row in summarize_progress(project, {}, NOW).by_member}
+    assert (rows["田中"].warnings, rows["鈴木"].warnings) == (2, 1)
+    assert (rows["田中"].limit, rows["鈴木"].limit) == (2, None)
+    assert rows["田中"].over_limit and not rows["鈴木"].over_limit
+
+
+def test_the_limit_is_reached_exactly_at_the_limit() -> None:
+    at = project_of(warned_task("a", "田中"), members=[Member("田中", 1.0, warning_limit=1)])
+    assert summarize_progress(at, {}, NOW).by_member[0].over_limit
+    below = project_of(warned_task("a", "田中"), members=[Member("田中", 1.0, warning_limit=2)])
+    assert not summarize_progress(below, {}, NOW).by_member[0].over_limit
+
+
+def test_a_warning_task_without_a_member_assignee_counts_for_the_unassigned_row() -> None:
+    project = project_of(warned_task("a"), warned_task("b", "外部の人"))
+    rows = {row.name: row for row in summarize_progress(project, {}, NOW).by_member}
+    assert rows[UNASSIGNED].warnings == 2 and rows[UNASSIGNED].limit is None
+
+
+def test_team_rows_count_warnings_per_team_and_are_never_limited() -> None:
+    project = project_of(
+        warned_task("t1", "田中"), warned_task("t2", "田中", "鈴木", effort=39),
+        members=[Member("田中", 1.0, teams=[Membership("a", 100)], warning_limit=1), Member("鈴木", 1.0, teams=[Membership("b", 100)])],
+    )
+    project.teams = [Team("開発", id="a"), Team("QA", id="b")]
+    rows = {row.name: row for row in summarize_progress(project, {}, NOW).by_team}
+    assert (rows["開発"].warnings, rows["QA"].warnings) == (2, 1)
+    assert rows["開発"].limit is None and not rows["開発"].over_limit
+
+
+def test_warnings_follow_the_member_filter() -> None:
+    project = project_of(warned_task("a", "田中"), warned_task("b", "鈴木"), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    progress = summarize_progress(project, {}, NOW, "田中")
+    assert progress.warnings == 1 and progress.by_member == []
+
+
+def test_warnings_in_a_referenced_project_use_that_projects_own_settings() -> None:
+    # 同じタスク(進捗 50%)でも、参照先の稼働可能時間が 3.25h だと完了予定が遅くなり、稼働量が足りて警告にならない
+    own = project_of()
+    same = Project("子", base_date=date(2026, 10, 5), members=[Member("田中", 1.0)], tasks=[warned_task("子の作業", "田中")])
+    slow = Project("子", base_date=date(2026, 10, 5), daily_hours=3.25, members=[Member("田中", 1.0)], tasks=[warned_task("子の作業", "田中")])
+    assert summarize_progress(own, {}, NOW, children={"子": ChildProject(same, {})}).warnings == 1
+    assert summarize_progress(own, {}, NOW, children={"子": ChildProject(slow, {})}).warnings == 0
+
+
+def test_due_rows_mark_the_warning_tasks_and_not_the_overdue_ones() -> None:
+    warned = warned_task("警告", "田中")
+    warned.deadline = datetime(2026, 10, 9, 17)
+    late = Task("超過", planned_start=MON, effort_hours=6.5, assignees=[Assignee("田中")])
+    rows = summarize_due(project_of(warned, late), Period(date(2026, 10, 5), date(2026, 10, 11)), NOW, {})
+    by_key = {(row.name, row.kind): row for row in rows}
+    assert by_key[("警告", "締切")].warning and not by_key[("警告", "締切")].overdue
+    assert not by_key[("超過", "完了予定")].warning and by_key[("超過", "完了予定")].overdue

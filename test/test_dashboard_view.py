@@ -297,6 +297,79 @@ async def test_the_progress_card_lists_progress_per_member(user: User) -> None:
     assert text(user, "dashboard-member-progress-佐藤") == "タスクなし"
 
 
+def warned_sample() -> Dashboard:
+    counts = {Status.NOT_STARTED: 0, Status.RUNNING: 2, Status.PAUSED: 0, Status.DONE: 0}
+    data = sample()
+    data.progress = Progress(
+        40.0,
+        counts,
+        [],
+        [
+            MemberProgress("田中", 40.0, counts, warnings=3, limit=3),  # 閾値ちょうど
+            MemberProgress("鈴木", 40.0, counts, warnings=2, limit=3),  # 閾値の手前
+            MemberProgress("佐藤", 40.0, counts, warnings=4, limit=None),  # 閾値なし
+            MemberProgress("高橋", 40.0, counts, warnings=0, limit=1),  # 0 件
+        ],
+        [MemberProgress("甲", 40.0, counts, warnings=5)],
+        warnings=5,
+    )
+    data.due = [
+        DueRow(datetime(2026, 10, 8, 17), "締切", "警告の作業", "田中", False, True),
+        DueRow(datetime(2026, 10, 9, 12), "完了予定", "遅れ", None, True, False),
+        DueRow(datetime(2026, 10, 9, 17), "締切", "ふつう", None, False, False),
+    ]
+    return data
+
+
+async def test_the_progress_card_shows_the_warning_count(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(warned_sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-count-warning")
+    assert text(user, "dashboard-count-warning") == "警告 5"
+
+
+async def test_member_and_team_rows_show_the_warning_count_only_when_there_is_one(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(warned_sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-member-warning-田中")
+    assert text(user, "dashboard-member-warning-田中") == "警告 3 件"
+    assert text(user, "dashboard-team-row-warning-甲") == "警告 5 件"
+    await user.should_not_see(marker="dashboard-member-warning-高橋")
+
+
+async def test_a_member_at_the_limit_is_highlighted_and_others_are_not(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(warned_sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-member-limit-田中")
+    await user.should_not_see(marker="dashboard-member-limit-鈴木")
+    await user.should_not_see(marker="dashboard-member-limit-佐藤")
+    await user.should_not_see(marker="dashboard-member-limit-高橋")
+    assert "text-weight-bold" in user.find(marker="dashboard-member-warning-田中").elements.pop().classes
+    assert "text-weight-bold" not in user.find(marker="dashboard-member-warning-鈴木").elements.pop().classes
+
+
+async def test_the_team_row_is_never_highlighted(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(warned_sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-team-row-warning-甲")
+    await user.should_not_see(marker="dashboard-team-row-limit-甲")
+
+
+async def test_the_due_card_marks_the_warning_rows_only(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(warned_sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-due-warning-0")
+    assert text(user, "dashboard-due-warning-0") == "警告"
+    await user.should_not_see(marker="dashboard-due-warning-1")
+    await user.should_not_see(marker="dashboard-due-warning-2")
+    assert "text-negative" in user.find(marker="dashboard-due-1").elements.pop().classes
+
+
 async def test_the_member_rows_are_not_shown_while_filtering(user: User) -> None:
     views, _, _ = mount()
     await user.open("/")

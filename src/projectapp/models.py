@@ -8,7 +8,7 @@ import secrets
 import unicodedata
 from enum import StrEnum
 
-FORMAT_VERSION = 18  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕。16: メンバーの丸め対象外〔members[].ratio_unclamped〕。17: チーム〔teams・members[].teams〕。18: イベントの色に #rrggbb を許す)
+FORMAT_VERSION = 19  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕。16: メンバーの丸め対象外〔members[].ratio_unclamped〕。17: チーム〔teams・members[].teams〕。18: イベントの色に #rrggbb を許す)。19: メンバーの警告の件数の閾値 warning_limit
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -111,6 +111,10 @@ class Team:
     id: str = field(default_factory=new_id, compare=False)  # 安定した識別子。ファイルに保存する
 
 
+MIN_WARNING_LIMIT = 1
+MAX_WARNING_LIMIT = 999
+
+
 @dataclass
 class Member:
     name: str
@@ -121,6 +125,7 @@ class Member:
     work_days: list[WorkDay] = field(default_factory=list)  # 稼働日の上書き(日付の昇順。このメンバーだけに効く)
     ratio_unclamped: bool = False  # 真なら、相対比率を 50〜150%(設定の上限・下限)に丸めない(10〜300% の安全範囲だけ守る)
     teams: list[Membership] = field(default_factory=list)  # 所属するチーム。空はチームなし。あれば割合の合計が 100
+    warning_limit: int | None = None  # 警告のタスクの件数がこの数以上のとき、ダッシュボードで強調する(1〜999。None は強調しない)
 
 
 @dataclass
@@ -234,6 +239,7 @@ class ReferenceValue:
     peak_member: str = ""
     overloads: tuple[OverloadSpan, ...] = ()
     taken_at: datetime | None = None  # スナップショットを取った日時(保存した値だけ)
+    warned: int = 0  # 警告(完了予定を過ぎる見込み)のタスク数。参照先自身の設定で数える
 
     def same_as(self, other: "ReferenceValue") -> bool:
         """取得日時を除いて同じ値か(スナップショットが古いかの判定)。"""

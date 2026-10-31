@@ -2285,6 +2285,10 @@ class GanttChart:
             ui.label(f"遅延 {value.delayed}件").style(REFERENCE_CHIP_STYLE + f" background: {OVERDUE_COLOR_SOLID};").mark(
                 f"ref-delay-{key}-{ti}"
             )
+        if self.options.show_alerts and value.warned:
+            ui.label(f"警告 {value.warned}件").style(
+                REFERENCE_CHIP_STYLE + " background: var(--warning); color: #212121;"
+            ).mark(f"ref-warning-{key}-{ti}")
         if self.options.show_alerts and value.peak_load > 1.0:
             ui.label(f"負荷 {round(value.peak_load * 100)}%").style(REFERENCE_CHIP_STYLE).mark(f"ref-load-{key}-{ti}")
         if value.progress is not None:
@@ -2301,6 +2305,7 @@ class GanttChart:
             tail = short_date(value.actual_end.date()) if value.actual_end is not None else ""
             lines.append(f"実績 {short_date(value.actual_start.date())}〜{tail}")
         lines.append(f"遅延 {value.delayed} 件")
+        lines.append(f"警告 {value.warned} 件")
         lines.append(
             f"ピーク負荷 {round(value.peak_load * 100)}%({value.peak_member})" if value.peak_load > 1.0 else "負荷の超過なし"
         )

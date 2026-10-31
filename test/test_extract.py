@@ -117,6 +117,13 @@ def test_only_the_members_in_the_selected_tasks_are_carried() -> None:
     assert [m.name for m in result.parent.members] == ["田中", "鈴木", "佐藤"]  # 親の名簿は変えない
 
 
+def test_the_warning_limit_goes_with_the_members_who_move() -> None:
+    project = make()
+    project.members[0].warning_limit = 3
+    result = extract(project, ["a", "b"], "子")
+    assert next(m for m in result.child.members if m.name == "田中").warning_limit == 3
+
+
 def test_members_in_weekly_crew_are_carried() -> None:
     project = make()
     task = project.sections[0].tasks[0]

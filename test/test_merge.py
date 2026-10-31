@@ -621,6 +621,21 @@ def test_a_member_ratio_unclamped_changed_on_one_side_is_taken() -> None:
     assert result.conflicts == [] and result.project.members[0].ratio_unclamped is True
 
 
+def test_a_member_warning_limit_changed_on_one_side_is_taken() -> None:
+    base = proj(members=[Member("甲", 1.0, id="m1")])
+    ours = proj(members=[Member("甲", 1.0, id="m1", warning_limit=3)])
+    result = merge_projects(base, ours, base)
+    assert result.conflicts == [] and result.project.members[0].warning_limit == 3
+
+
+def test_a_warning_limit_changed_to_different_values_on_both_sides_conflicts() -> None:
+    base = proj(members=[Member("甲", 1.0, id="m1")])
+    ours = proj(members=[Member("甲", 1.0, id="m1", warning_limit=3)])
+    theirs = proj(members=[Member("甲", 1.0, id="m1", warning_limit=5)])
+    result = merge_projects(base, ours, theirs)
+    assert [c.field for c in result.conflicts] == ["警告の件数"]
+
+
 def test_ratio_unclamped_and_ratio_changed_on_different_sides_merge_without_conflict() -> None:
     base = proj(members=[Member("甲", 2.0, id="m1")])
     ours = proj(members=[Member("甲", 2.0, id="m1", ratio_unclamped=True)])
