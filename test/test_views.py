@@ -6920,3 +6920,23 @@ async def test_a_view_with_both_member_and_team_uses_the_member(user: User, tmp_
     view = await open_team_dashboard(user, tmp_path)
     view.apply_dashboard_view(ViewSpec("両方", PeriodKind.WEEK, "乙", False, DEFAULT_ORDER, None, "開発"))
     assert view.dashboard_member == "乙" and view.dashboard_team is None
+
+
+async def test_the_cross_switch_adds_the_other_projects_remaining_hours(user: User, tmp_path: Path) -> None:
+    other = Project(
+        "別",
+        base_date=date(2026, 10, 5),
+        members=[Member("田中", 1.0)],
+        tasks=[Task("別の作業", assignees=[Assignee("田中")], planned_start=datetime(2026, 10, 8, 9), effort_hours=6.5)],
+    )
+    save_project(other, tmp_path)
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-load-田中")
+    assert view.dashboard_view.data is not None and view.dashboard_view.data.backlog.hours == 0
+    view.change_dashboard_cross(True)
+    assert view.dashboard_view.data.backlog.hours == 6.5  # 開いているプロジェクトには、工数のあるタスクがない
+    view.change_dashboard_project("別", False)
+    assert view.dashboard_view.data.backlog.hours == 0
+    view.change_dashboard_cross(False)
+    assert view.dashboard_view.data.backlog.hours == 0

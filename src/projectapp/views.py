@@ -77,7 +77,7 @@ from projectapp.reference import (
     take_snapshot,
 )
 from projectapp.shortcuts import Screen, defers_to_inputs, help_entries, key_guard_js, label_for, resolve
-from projectapp.dashboard import MAX_CUSTOM_DAYS, CrossSummary, Period, PeriodKind, custom_period_error, period_for, summarize, summarize_cross_loads
+from projectapp.dashboard import MAX_CUSTOM_DAYS, CrossSummary, Period, PeriodKind, custom_period_error, period_for, summarize, summarize_cross_backlog, summarize_cross_loads
 from projectapp.dashboard_view import DashboardView, ViewActions
 from projectapp.dashboard_views import (
     DEFAULT_ORDER,
@@ -1008,6 +1008,7 @@ class MainView:
             chosen = [p for p in projects if p.name not in self.dashboard_excluded]
             scope = self.dashboard_member if self.dashboard_member is not None else team_scope(self.project, self.dashboard_team)
             loads = summarize_cross_loads(chosen, period, self.base_holidays, scope)
+            data.backlog = summarize_cross_backlog(chosen, projects[0], period, self.dashboard_kind, now, self.base_holidays, scope)
             titles = [p.name for p in projects]
             data.cross = CrossSummary(loads, titles, self.dashboard_excluded & set(titles), failures)
             data.members = names

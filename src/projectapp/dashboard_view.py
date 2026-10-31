@@ -188,6 +188,15 @@ def weighted_note(data: Dashboard, key: str) -> None:
         )
 
 
+def cross_note(data: Dashboard) -> None:
+    """全プロジェクトを重ねているときの、残りの工数のカードの注記。"""
+    if data.cross is not None:
+        count = len(data.cross.projects) - len(data.cross.excluded)
+        ui.label(f"全 {count} プロジェクトを重ねています。稼働時間と祝日は開いているプロジェクトの設定で数えます").classes(
+            "text-caption text-grey"
+        ).mark("dashboard-backlog-cross-note")
+
+
 def days_text(days: float) -> str:
     """稼働日数の表示。小数 1 桁(整数なら小数点なし)。"""
     return f"{days:.1f}".removesuffix(".0")
@@ -723,6 +732,7 @@ class DashboardView:
         backlog = data.backlog
         with card("残りの工数と必要人数", "dashboard-backlog"):
             weighted_note(data, "backlog")
+            cross_note(data)
             if backlog.hours <= 0 and not backlog.unset_count:
                 empty_message("dashboard-empty-backlog")
                 return

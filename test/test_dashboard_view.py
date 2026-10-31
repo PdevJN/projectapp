@@ -877,3 +877,23 @@ async def test_the_tick_refreshes_only_while_shown_and_not_editing(user: User) -
     view.hide()
     view.tick()
     assert ticks == [1]  # 隠したら止まる
+
+
+async def test_the_backlog_card_notes_the_projects_it_overlays(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = with_backlog(Backlog(6.5, 0, 3, 1.0, 1.5, [("田中", 6.5)]))
+    data.cross = CrossSummary({}, ["A", "B", "C"], {"C"}, [])
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-cross-note")
+    assert text(user, "dashboard-backlog-cross-note") == (
+        "全 2 プロジェクトを重ねています。稼働時間と祝日は開いているプロジェクトの設定で数えます"
+    )
+
+
+async def test_the_backlog_card_has_no_overlay_note_for_one_project(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(Backlog(6.5, 0, 3, 1.0, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-hours")
+    await user.should_not_see(marker="dashboard-backlog-cross-note")
