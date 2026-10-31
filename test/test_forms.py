@@ -1443,6 +1443,25 @@ def test_build_members_carries_ratio_unclamped() -> None:
     assert [m.ratio_unclamped for m in members] == [True, False]
 
 
+def test_build_members_carries_the_warning_limit_as_an_int() -> None:
+    rows = [MemberRow(None, "田中", 100.0, warning_limit=3.0), MemberRow(None, "鈴木", 100.0)]
+    members, _ = build_members(rows, [], lambda _: 0)
+    assert [m.warning_limit for m in members] == [3, None]
+    assert isinstance(members[0].warning_limit, int)
+
+
+@pytest.mark.parametrize("bad", [0.0, -1.0, 1000.0, 1.5, float("nan"), float("inf")])
+def test_build_members_rejects_a_bad_warning_limit(bad: float) -> None:
+    with pytest.raises(ValueError, match="警告の件数は1〜999の整数"):
+        build_members([MemberRow(None, "田中", 100.0, warning_limit=bad)], [], lambda _: 0)
+
+
+@pytest.mark.parametrize("good", [1.0, 999.0])
+def test_build_members_accepts_the_edges_of_the_warning_limit(good: float) -> None:
+    members, _ = build_members([MemberRow(None, "田中", 100.0, warning_limit=good)], [], lambda _: 0)
+    assert members[0].warning_limit == int(good)
+
+
 def test_effective_ratio_text_for_an_unclamped_member() -> None:
     row = MemberRow(None, "a", 200.0, ratio_unclamped=True)
     assert effective_ratio_text(row, [EXPERIENCE]) == "相対比率 200%(丸め対象外)"
@@ -2198,7 +2217,7 @@ def test_build_members_carries_work_day_rows_and_prefixes_errors_with_the_name()
 
 
 def test_member_columns_include_the_work_days_column() -> None:
-    assert len(member_columns(0, False)) == 6  # アイコン・名前・比率・丸めない・稼働日・削除
+    assert len(member_columns(0, False)) == 7  # アイコン・名前・比率・丸めない・警告の件数・稼働日・削除
     assert member_table_min_rem(0, False) > MEMBER_ICON_COLUMN_REM + MEMBER_NAME_COLUMN_REM + MEMBER_RATIO_COLUMN_REM
 
 

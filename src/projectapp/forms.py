@@ -34,6 +34,8 @@ from projectapp.models import (
     MAX_CATEGORY_KIND_LENGTH,
     MAX_CATEGORY_NAME_LENGTH,
     MAX_EVENT_TEXT_LENGTH,
+    MAX_WARNING_LIMIT,
+    MIN_WARNING_LIMIT,
     Event,
     DEFAULT_RATIO_MAX,
     DEFAULT_RATIO_MIN,
@@ -893,6 +895,7 @@ class MemberRow:
     work_days: list[WorkDayRow] = field(default_factory=list)  # 稼働日の上書きの入力行
     ratio_unclamped: bool = False  # 丸めない(相対比率を 50〜150% に丸めない)
     teams: list[Membership] = field(default_factory=list)  # 所属するチーム(割合の合計 100。空はチームなし)
+    warning_limit: float | None = None  # 警告の件数の閾値(1〜999 の整数。空は閾値なし)
 
 
 def build_members(
@@ -934,11 +937,19 @@ def build_members(
         team_error = membership_error(row.teams, team_ids)
         if team_error is not None:
             raise ValueError(f"{name}: {team_error}")
+        limit = row.warning_limit
+        if limit is not None and not (
+            isfinite(limit) and limit == int(limit) and MIN_WARNING_LIMIT <= limit <= MAX_WARNING_LIMIT
+        ):
+            raise ValueError(f"{name}: 警告の件数は{MIN_WARNING_LIMIT}〜{MAX_WARNING_LIMIT}の整数で入力してください")
         member_id = row.id or new_id(used)
         used.add(member_id)
         teams = [Membership(s.team_id, s.percent) for s in row.teams]
         members.append(
-            Member(name, round(ratio / 100, 4), levels, member_id, row.icon, work_days, row.ratio_unclamped, teams)
+            Member(
+                name, round(ratio / 100, 4), levels, member_id, row.icon, work_days, row.ratio_unclamped, teams,
+                None if limit is None else int(limit),
+            )
         )
         if row.original is not None and row.original != name:
             renames[row.original] = name
@@ -1915,6 +1926,7 @@ MEMBER_ICON_SIZE_PX = 28
 MEMBER_NAME_COLUMN_REM = 7  # 名前の列(固定。列の数や画面の幅で変わらない)
 MEMBER_RATIO_COLUMN_REM = 7
 MEMBER_UNCLAMPED_COLUMN_REM = 5  # 丸めないのチェックの列
+MEMBER_WARNING_COLUMN_REM = 6  # 警告の件数の列
 MEMBER_LEVEL_COLUMN_REM = 9
 MEMBER_EFFECTIVE_COLUMN_REM = 11
 MEMBER_WORK_DAYS_COLUMN_REM = 7
@@ -1935,12 +1947,13 @@ MEMBER_TABLE_CSS = f"""
 
 
 def member_columns(level_count: int, with_effective: bool, with_teams: bool = False) -> list[str]:
-    """メンバーの表の列の幅(アイコン・名前・基本比率・丸めない・パラメータごとの段階・実効比率・チーム・稼働日・削除)。"""
+    """メンバーの表の列の幅(アイコン・名前・基本比率・丸めない・警告の件数・パラメータごとの段階・実効比率・チーム・稼働日・削除)。"""
     columns = [
         f"{MEMBER_ICON_COLUMN_REM}rem",
         f"{MEMBER_NAME_COLUMN_REM}rem",
         f"{MEMBER_RATIO_COLUMN_REM}rem",
         f"{MEMBER_UNCLAMPED_COLUMN_REM}rem",
+        f"{MEMBER_WARNING_COLUMN_REM}rem",
     ]
     columns += [f"{MEMBER_LEVEL_COLUMN_REM}rem"] * level_count
     if with_effective:
@@ -1964,12 +1977,13 @@ def member_table_min_rem(level_count: int, with_effective: bool, with_teams: boo
         + MEMBER_NAME_COLUMN_REM
         + MEMBER_RATIO_COLUMN_REM
         + MEMBER_UNCLAMPED_COLUMN_REM
+        + MEMBER_WARNING_COLUMN_REM
         + MEMBER_LEVEL_COLUMN_REM * level_count
         + (MEMBER_EFFECTIVE_COLUMN_REM if with_effective else 0)
         + (MEMBER_TEAMS_COLUMN_REM if with_teams else 0)
         + MEMBER_WORK_DAYS_COLUMN_REM
         + MEMBER_DELETE_COLUMN_REM
-        + 2 * (6 + level_count + (1 if with_effective else 0) + (1 if with_teams else 0))  # 列の間隔(gap 0.5rem)の概算
+        + 2 * (7 + level_count + (1 if with_effective else 0) + (1 if with_teams else 0))  # 列の間隔(gap 0.5rem)の概算
     )
 
 
@@ -2023,6 +2037,7 @@ def members_panel(
                 work_day_rows(m),
                 m.ratio_unclamped,
                 [Membership(s.team_id, s.percent) for s in m.teams],
+                m.warning_limit,
             )
             for m in get_members()
         ]
@@ -2065,6 +2080,7 @@ def members_panel(
                     "member-header-ratio"
                 )
                 ui.label("丸めない").classes(header).mark("member-header-unclamped")
+                ui.label("警告の件数").classes(header).mark("member-header-warning-limit")
                 for p, parameter in enumerate(chosen_parameters):
                     ui.label(parameter.name).classes(f"{header} ellipsis").mark(f"member-header-level-{p}")
                 if with_effective:
@@ -2115,6 +2131,20 @@ def members_panel(
                     ).tooltip(
                         "50〜150%(設定の上限・下限)に丸めず、基本比率 + 判定値をそのまま使います。10〜300% は常に守ります"
                     ).mark(f"member-unclamped-{index}")
+
+                    def on_warning_limit(e, r=row) -> None:  # noqa: ANN001
+                        r.warning_limit = e.value
+
+                    ui.number(
+                        value=row.warning_limit,
+                        min=MIN_WARNING_LIMIT,
+                        max=MAX_WARNING_LIMIT,
+                        step=1,
+                        precision=0,
+                        on_change=on_warning_limit,
+                    ).props("dense outlined clearable aria-label=警告の件数").classes("w-full").tooltip(
+                        "警告のタスクの件数がこの数以上になったら、ダッシュボードで強調します。空は強調しません"
+                    ).mark(f"member-warning-limit-{index}")
                     for p, parameter in enumerate(chosen_parameters):
 
                         def on_level(e, r=row, name=parameter.name) -> None:  # noqa: ANN001
