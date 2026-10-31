@@ -9,7 +9,7 @@ from math import isfinite
 from typing import NamedTuple
 
 from projectapp.events import effective_holidays
-from projectapp.models import Assignee, Project, Status, Task, TaskKind, WorkDay
+from projectapp.models import Assignee, Member, Project, Status, Task, TaskKind, WorkDay
 from projectapp.ratios import effective_ratio
 from projectapp.reassign import consumed_hours
 from projectapp.timeline import (
@@ -788,16 +788,24 @@ def _backlog_by_team(project: Project, split: dict[str, float]) -> list[tuple[st
     return [(name, value) for name, value in hours.items() if value > 0]
 
 
-def summarize_backlog(
+@dataclass
+class _BacklogParts:
+    """1 プロジェクトぶんの残りの工数の集計の途中経過(重ねるときは、これを足し合わせる)。"""
+
+    split: dict[str, float]  # 担当者(メンバーでない人と担当なしは「未割当」)ごとの残りの工数
+    by_status: dict[Status, float]
+    unset: int  # 工数のない未終了のタスク
+    ends: list[datetime]  # 数えたタスクの完了予定・締切(必要人数の期間を決める)
+
+
+def _backlog_parts(
     project: Project,
     period: Period,
     kind: PeriodKind,
     now: datetime,
     holidays: dict[date, str],
-    member: Scope = None,
-) -> Backlog:
-    """残りの工数(未着手の全量と、実行中・一時停止の消化分を除いた分)の合計と、それを期間内に終えるのに要る人数。全期間以外は、期間の終わりまでに予定した分。
-    メンバーで絞るときは、共同タスクのその人の分(割り当て率の比)だけを数える。"""
+    member: Scope,
+) -> _BacklogParts:
     schedule = Schedule(project, holidays)
     names = [m.name for m in project.members]
     scoped = _names(member)
@@ -828,20 +836,83 @@ def summarize_backlog(
             split[key] += portion
             if scoped is None or key in scoped:
                 by_status[task.status] += portion * _factor(member, key)
-    shown = [name for name in (*names, UNASSIGNED) if scoped is None or name in scoped]
+    return _BacklogParts(split, by_status, unset, ends)
+
+
+def _assemble_backlog(
+    base: Project,
+    period: Period,
+    kind: PeriodKind,
+    now: datetime,
+    holidays: dict[date, str],
+    member: Scope,
+    parts: list[_BacklogParts],
+    supply_from: list[tuple[Member, Project]],
+) -> Backlog:
+    """部品を足し合わせて Backlog にする。割る側の稼働時間は base のカレンダー(holidays は base の休み)で数える。"""
+    scoped = _names(member)
+    split: dict[str, float] = {}
+    for part in parts:
+        for key, value in part.split.items():
+            split[key] = split.get(key, 0.0) + value
+    split.setdefault(UNASSIGNED, 0.0)
+    shown = [name for name in (*(k for k in split if k != UNASSIGNED), UNASSIGNED) if scoped is None or name in scoped]
+    by_status = {status: sum(part.by_status[status] for part in parts) for status in OPEN_STATUSES}
     hours = sum(split[name] * _factor(member, name) for name in shown)
-    capacity = _backlog_hours(project, period, kind, now, holidays, ends)
-    days = None if capacity is None else capacity / project.daily_hours
+    ends = [moment for part in parts for moment in part.ends]
+    capacity = _backlog_hours(base, period, kind, now, holidays, ends)
+    days = None if capacity is None else capacity / base.daily_hours
     required = hours / capacity if capacity else None
     supply = sum(
-        effective_ratio(m, project.parameters, None, project.ratio_limits) * _factor(member, m.name)
-        for m in project.members
+        effective_ratio(m, owner.parameters, None, owner.ratio_limits) * _factor(member, m.name)
+        for m, owner in supply_from
         if scoped is None or m.name in scoped
     )
     rows = [(name, split[name] * _factor(member, name)) for name in shown if split[name] > 0]
-    by_team = _backlog_by_team(project, split) if scoped is None else []
+    by_team = _backlog_by_team(base, split) if scoped is None else []
     return Backlog(
-        hours, unset, days, required, supply, rows, {k: v for k, v in by_status.items() if v > 0}, by_team
+        hours,
+        sum(part.unset for part in parts),
+        days,
+        required,
+        supply,
+        rows,
+        {k: v for k, v in by_status.items() if v > 0},
+        by_team,
+    )
+
+
+def summarize_backlog(
+    project: Project,
+    period: Period,
+    kind: PeriodKind,
+    now: datetime,
+    holidays: dict[date, str],
+    member: Scope = None,
+) -> Backlog:
+    """残りの工数(未着手の全量と、実行中・一時停止の消化分を除いた分)の合計と、それを期間内に終えるのに要る人数。全期間以外は、期間の終わりまでに予定した分。
+    メンバーで絞るときは、共同タスクのその人の分(割り当て率の比)だけを数える。"""
+    parts = [_backlog_parts(project, period, kind, now, holidays, member)]
+    return _assemble_backlog(project, period, kind, now, holidays, member, parts, [(m, project) for m in project.members])
+
+
+def summarize_cross_backlog(
+    projects: list[Project],
+    base: Project,
+    period: Period,
+    kind: PeriodKind,
+    now: datetime,
+    holidays: dict[date, str],
+    member: Scope = None,
+) -> Backlog:
+    """複数のプロジェクトを重ねた残りの工数と必要人数。同じ名前のメンバーを同一人物とみなす。
+    工数は各プロジェクト自身の日程・休みで数え、割る側(稼働時間)は base(開いているプロジェクト)の稼働可能時間・休みで数える。
+    今いる人員は、名前ごとに 1 回(projects の先頭に近いプロジェクトの相対比率)。"""
+    parts = [_backlog_parts(p, period, kind, now, effective_holidays(p, holidays), member) for p in projects]
+    owners = {m.name: (m, p) for p in reversed(projects) for m in p.members}  # 先頭のプロジェクトが勝つ
+    names = list(dict.fromkeys(m.name for p in projects for m in p.members))
+    return _assemble_backlog(
+        base, period, kind, now, effective_holidays(base, holidays), member, parts, [owners[name] for name in names]
     )
 
 

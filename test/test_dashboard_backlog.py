@@ -1,6 +1,13 @@
 from datetime import date, datetime
 
-from projectapp.dashboard import UNASSIGNED, Period, PeriodKind, summarize, summarize_backlog
+from projectapp.dashboard import (
+    UNASSIGNED,
+    Period,
+    PeriodKind,
+    summarize,
+    summarize_backlog,
+    summarize_cross_backlog,
+)
 from projectapp.models import Actual, Assignee, Member, Project, Status, Task, TaskKind
 
 NOW = datetime(2026, 10, 7, 12)  # 水曜。稼働の枠は 9:00〜15:30(残り 3.5h)
@@ -405,3 +412,72 @@ def test_progress_does_not_change_the_all_period() -> None:
 def test_an_overdue_task_with_progress_still_counts_the_whole_rest() -> None:
     overdue = Task("遅れ", planned_start=datetime(2026, 9, 1, 9), effort_hours=8, status=Status.RUNNING, progress=25)
     assert summarize_backlog(project_of(overdue), WEEK, PeriodKind.WEEK, NOW, {}).hours == 6
+
+
+def named(name: str, *tasks: Task, members: list[Member] | None = None, daily_hours: float = 6.5) -> Project:
+    chosen = [Member("田中", 1.0)] if members is None else members
+    return Project(name, base_date=date(2026, 10, 5), members=chosen, tasks=list(tasks), daily_hours=daily_hours)
+
+
+def cross(*projects: Project, base: Project | None = None, kind: PeriodKind = PeriodKind.WEEK, member: str | None = None):  # type: ignore[no-untyped-def]
+    return summarize_cross_backlog(list(projects), base or projects[0], WEEK, kind, MORNING, {}, member)
+
+
+def test_cross_backlog_sums_the_remaining_hours_of_every_project_by_name() -> None:
+    first = named("甲", todo("a", 6.5, assignees=[Assignee("田中")]))
+    second = named("乙", todo("b", 3, assignees=[Assignee("田中")]))
+    backlog = cross(first, second)
+    assert backlog.hours == 9.5
+    assert backlog.by_member == [("田中", 9.5)]
+
+
+def test_cross_backlog_counts_each_project_with_its_own_schedule() -> None:
+    far = Task("来月", planned_start=datetime(2026, 11, 2, 9), effort_hours=8)
+    assert cross(named("甲", todo("a", 4)), named("乙", far)).hours == 4  # 乙は今週に予定がない
+    assert cross(named("甲", todo("a", 4)), named("乙", far), kind=PeriodKind.ALL).hours == 12
+
+
+def test_cross_backlog_supply_counts_each_name_once_preferring_the_open_project() -> None:
+    first = named("甲", todo("a", 6.5), members=[Member("田中", 1.0)])
+    second = named("乙", todo("b", 3), members=[Member("田中", 0.5), Member("鈴木", 0.5)])
+    assert cross(first, second).supply == 1.5  # 田中は甲の 1.0、鈴木は乙の 0.5
+
+
+def test_cross_backlog_divides_by_the_calendar_of_the_open_project() -> None:
+    first = named("甲", todo("a", 6.5))
+    second = named("乙", todo("b", 13), daily_hours=4)  # 乙の稼働可能時間は使わない
+    backlog = cross(first, second)
+    assert backlog.days == 3  # 始業前の水・木・金。甲の 6.5h × 3
+    assert backlog.required == (6.5 + 13) / 19.5
+
+
+def test_cross_backlog_leaves_out_projects_that_are_not_chosen_but_keeps_the_base_calendar() -> None:
+    first, second = named("甲", todo("a", 6.5)), named("乙", todo("b", 3))
+    backlog = cross(second, base=first)
+    assert backlog.hours == 3
+    assert backlog.days == 3
+
+
+def test_cross_backlog_filters_the_member_by_name_across_projects() -> None:
+    first = named("甲", todo("a", 6.5, assignees=[Assignee("田中")]), members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    second = named("乙", todo("b", 3, assignees=[Assignee("鈴木")]), members=[Member("鈴木", 1.0)])
+    backlog = cross(first, second, member="鈴木")
+    assert backlog.hours == 3
+    assert backlog.by_member == [("鈴木", 3)]
+    assert backlog.supply == 1.0
+
+
+def test_cross_backlog_counts_a_non_member_assignee_as_unassigned_per_project() -> None:
+    first = named("甲", todo("a", 6.5, assignees=[Assignee("外部")]))
+    second = named("乙", todo("b", 3, assignees=[Assignee("田中")]), members=[Member("田中", 1.0)])
+    assert dict(cross(first, second).by_member) == {"田中": 3, UNASSIGNED: 6.5}
+
+
+def test_cross_backlog_of_one_project_equals_the_plain_backlog() -> None:
+    project = named("甲", todo("a", 6.5), todo("b", 10, status=Status.RUNNING, progress=40))
+    assert cross(project) == summarize_backlog(project, WEEK, PeriodKind.WEEK, MORNING, {})
+
+
+def test_cross_backlog_with_nothing_chosen_is_empty() -> None:
+    backlog = summarize_cross_backlog([], named("甲", todo("a", 6.5)), WEEK, PeriodKind.WEEK, MORNING, {})
+    assert (backlog.hours, backlog.supply, backlog.by_member) == (0, 0, [])
