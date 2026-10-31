@@ -29,6 +29,7 @@ from projectapp.gantt import (
     TODAY_DARK_COLOR,
     TODAY_LINE_WIDTH_PX,
     BAR_SHIFT_CLICK_JS,
+    PLAIN_CLICK_JS,
     WEEK_PX,
     today_scroll_js,
     week_scroll_js,
@@ -4393,3 +4394,37 @@ def test_the_bar_click_script_sends_only_for_shift_and_not_over_buttons(tmp_path
     assert out["plain"] == {"sent": 0, "stopped": False}  # ふつうのクリックは何もしない
     assert out["shift"] == {"sent": 1, "stopped": True}
     assert out["button"]["sent"] == 0
+
+
+def click_scripts(user: User, marker: str) -> list[str | None]:
+    element = user.find(marker=marker).elements.pop()
+    return [listener.js_handler for listener in element._event_listeners.values() if listener.type == "click"]
+
+
+async def test_a_week_chip_leaves_modified_clicks_to_the_bar(user: User) -> None:
+    # チップの上の Shift クリックは、チップの編集ではなく、棒の簡易入力だけを開く(両方開かない)
+    mount(weekly_chart_project())
+    await user.open("/")
+    assert click_scripts(user, "week-chip-top-0-1") == [PLAIN_CLICK_JS]  # 修飾キーつきは送らず、棒へ伝える
+    assert click_scripts(user, "bar-top-0") == [BAR_SHIFT_CLICK_JS]
+
+
+def test_the_plain_click_script_ignores_modified_clicks_and_lets_them_bubble(tmp_path: Path) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node がないので動きを確かめない")
+    sim = tmp_path / "sim.js"
+    sim.write_text(
+        "const fn = eval(process.argv[2]);\n"
+        "const run = (mods) => { let sent = 0, stopped = false;\n"
+        "  const e = { shiftKey: !!mods.shift, ctrlKey: !!mods.ctrl, metaKey: !!mods.meta, stopPropagation: () => { stopped = true; } };\n"
+        "  global.emit = () => { sent += 1; }; fn(e); return { sent, stopped }; };\n"
+        "console.log(JSON.stringify({ plain: run({}), shift: run({ shift: true }), ctrl: run({ ctrl: true }), meta: run({ meta: true }) }));\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run([node, str(sim), PLAIN_CLICK_JS], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["plain"] == {"sent": 1, "stopped": True}  # ふつうのクリックは送り、棒へ伝えない
+    for key in ("shift", "ctrl", "meta"):
+        assert out[key] == {"sent": 0, "stopped": False}  # 修飾キーつきは送らず、伝える

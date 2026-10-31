@@ -2352,7 +2352,10 @@ class GanttChart:
                 title += f"\n⚠ {load}"
             chip.tooltip(title).mark(f"week-chip-{key}-{ti}-{index}")
             if not self.options.read_only:
-                chip.style("cursor: pointer").on("click", lambda _e, week=index: self.actions.edit_week_crew(path, ti, week))
+                # 修飾キーつきのクリックは、チップで受けず棒へ伝える(棒の Shift クリックは進捗度・実績の簡易入力。両方は開かない)
+                chip.style("cursor: pointer").on(
+                    "click", lambda week=index: self.actions.edit_week_crew(path, ti, week), js_handler=PLAIN_CLICK_JS
+                )
 
     def overload_stripes(
         self,
