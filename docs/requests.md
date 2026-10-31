@@ -1045,7 +1045,7 @@ PlantUML は日単位で担当者の割り当てを集計するので、同じ�
 
 ## 要望 103: 遅延のほかに、`警告`の意味を持つ状態を足す(2026-10-31 に受領)
 
-> **状態**: 段階 1(判定・ガントチャート・警告の色)はマージ済み(PR #161)。段階 2(ダッシュボード・メンバーの閾値〔version 19〕・参照行の`警告 n件`)はマージ済み(PR #162)。段階 3(98 の`警告を含む`ボタン)を実装済み(PR 作成中)。計画は[`2026-10-31-warning-stage2.md`](superpowers/plans/2026-10-31-warning-stage2.md)・[`2026-10-31-warning-stage3.md`](superpowers/plans/2026-10-31-warning-stage3.md)。設計書は[`2026-10-31-warning-status-design.md`](superpowers/specs/2026-10-31-warning-status-design.md)、計画は[`2026-10-31-warning-stage1.md`](superpowers/plans/2026-10-31-warning-stage1.md)。段階 1〜3 で要望 103 は完了(マージ後に状態を更新する)。
+> **状態**: 完了(PR #161・#162・#163。`develop`へマージ済み。2026-10-31)。段階 1(判定・ガントチャート・警告の色)はマージ済み(PR #161)。段階 2(ダッシュボード・メンバーの閾値〔version 19〕・参照行の`警告 n件`)はマージ済み(PR #162)。段階 3(98 の`警告を含む`ボタン)はマージ済み(PR #163)。計画は[`2026-10-31-warning-stage2.md`](superpowers/plans/2026-10-31-warning-stage2.md)・[`2026-10-31-warning-stage3.md`](superpowers/plans/2026-10-31-warning-stage3.md)。設計書は[`2026-10-31-warning-status-design.md`](superpowers/specs/2026-10-31-warning-status-design.md)、計画は[`2026-10-31-warning-stage1.md`](superpowers/plans/2026-10-31-warning-stage1.md)。段階 1〜3 で要望 103 は完了。警告の分を遅れと分けて見せる案は要望 108。
 
 ### 要望
 遅延のほかに、`警告`の意味を持つステータスを足したい。進捗率と残りの工数の開きを、パーセンテージで判断する。
