@@ -150,6 +150,42 @@ def _tasks(project: Project, member: Scope = None) -> list[Task]:
     ]
 
 
+@dataclass(frozen=True)
+class ChildProject:
+    """参照先のプロジェクトと、その休み(参照先自身のイベントを反映したもの)。"""
+
+    project: Project
+    holidays: dict[date, str]
+
+
+class Entry(NamedTuple):
+    """集計の 1 件。タスクと、それが属するプロジェクトの日程(参照先のタスクは参照先自身の日程)。"""
+
+    task: Task
+    project: Project
+    schedule: Schedule
+    origin: str  # 参照先のタスクなら参照先の名前。開いているプロジェクトのタスクは空
+
+    @property
+    def label(self) -> str:
+        return f"{self.task.name}({self.origin})" if self.origin else self.task.name
+
+
+def _entries(
+    project: Project,
+    holidays: dict[date, str],
+    member: Scope = None,
+    children: Mapping[str, ChildProject] | None = None,
+) -> list[Entry]:
+    """進捗の集計の対象。開いているプロジェクトのタスクに、参照先のタスクが続く(参照先の順)。"""
+    own = Schedule(project, holidays)
+    entries = [Entry(task, project, own, "") for task in _tasks(project, member)]
+    for name, child in (children or {}).items():
+        schedule = Schedule(child.project, child.holidays)
+        entries += [Entry(task, child.project, schedule, name) for task in _tasks(child.project, member)]
+    return entries
+
+
 def _weight(effort_hours: float) -> float:
     return effort_hours if isfinite(effort_hours) and effort_hours > 0 else 1.0
 
@@ -196,22 +232,23 @@ def summarize_team_progress(
     now: datetime | None = None,
     holidays: dict[date, str] | None = None,
     member: Scope = None,
+    children: Mapping[str, ChildProject] | None = None,
 ) -> TeamProgress:
-    """チーム全体の進捗。担当者に関わらず、1 タスクを 1 回だけ数える。`period` があれば、期間にかかるタスクだけ。"""
+    """チーム全体の進捗。担当者に関わらず、1 タスクを 1 回だけ数える。`period` があれば、期間にかかるタスクだけ。参照先のタスクも同列に数える。"""
     hours = {status: 0.0 for status in Status}
     counts = {status: 0 for status in Status}
     names: dict[Status, list[str]] = {status: [] for status in Status}
     weighted = total = 0.0
-    schedule = Schedule(project, holidays or {})
     moment = now or datetime.now()
-    for task in _tasks(project, member):
+    for entry in _entries(project, holidays or {}, member, children):
+        task = entry.task
         weight_and_percent = _progress_weight(task)
-        if weight_and_percent is None or (period is not None and not _touches(task, schedule, period, moment)):
+        if weight_and_percent is None or (period is not None and not _touches(task, entry.schedule, period, moment)):
             continue
         weight, percent = weight_and_percent
         hours[task.status] += weight
         counts[task.status] += 1
-        names[task.status].append(task.name)
+        names[task.status].append(entry.label)
         weighted += weight * percent
         total += weight
     return TeamProgress(weighted / total if total else None, hours, period, counts, names)
