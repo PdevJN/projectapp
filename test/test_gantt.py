@@ -1,3 +1,7 @@
+from pathlib import Path
+import subprocess
+import shutil
+import json
 import asyncio
 import re
 from collections.abc import Callable
@@ -24,6 +28,8 @@ from projectapp.gantt import (
     TODAY_CSS,
     TODAY_DARK_COLOR,
     TODAY_LINE_WIDTH_PX,
+    BAR_SHIFT_CLICK_JS,
+    PLAIN_CLICK_JS,
     WEEK_PX,
     today_scroll_js,
     week_scroll_js,
@@ -138,6 +144,7 @@ class Recorder:
             add_named_section=lambda parent, name: self.events.append(("add_named_section", (parent, name))),
             toggle_weeks=lambda path, ti: self.events.append(("toggle_weeks", (path, ti))),
             edit_week_crew=lambda path, ti, week: self.events.append(("edit_week_crew", (path, ti, week))),
+            edit_progress=lambda path, ti: self.events.append(("edit_progress", (path, ti))),
             open_reference=lambda task_id: self.events.append(("open_reference", (task_id,))),
             refresh_reference=lambda path, ti: self.events.append(("refresh_reference", (path, ti))),
         )
@@ -298,14 +305,15 @@ async def test_clicks_call_the_actions(user: User) -> None:
 
 
 async def test_left_click_does_not_edit_the_task(user: User) -> None:
-    # 編集は右クリックのメニューからだけ。バー・名前の欄・締切・実績・チェックポイントの左クリックでは開かない
+    # 編集は右クリックのメニューからだけ。名前の欄・締切・実績・チェックポイントの左クリックでは開かない
+    # (バーは Shift クリックだけが進捗度・実績の簡易入力を呼ぶ。ふつうのクリックを送らないことは、下のスクリプトのテストで確かめる)
     project = sample_project()
     project.sections[0].tasks[0].deadline = datetime(2026, 10, 8, 12)
     project.sections[0].tasks[0].actuals = [Actual(datetime(2026, 10, 6, 12), datetime(2026, 10, 8, 12))]
     project.sections[0].tasks.append(Task("節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 12)))
     recorder = mount(project)
     await user.open("/")
-    for marker in ("bar-0-0", "task-0-1", "deadline-0-0", "actual-0-0-0", "checkpoint-0-2"):
+    for marker in ("task-0-1", "deadline-0-0", "actual-0-0-0", "checkpoint-0-2"):
         user.find(marker=marker).click()
     assert recorder.events == []
 
@@ -4349,3 +4357,74 @@ async def test_the_first_task_item_is_disabled_without_scheduled_tasks(user: Use
     assert charts[0].first_task_day() is None
     assert not charts[0].move_items["first"][0].enabled
     assert charts[0].move_items["first"][1].text == "移れるタスクがありません"
+
+
+async def test_a_normal_bar_asks_for_the_quick_progress_edit(user: User) -> None:
+    recorder = mount(sample_project())
+    await user.open("/")
+    user.find(marker="bar-0-0").click()  # 修飾キーの判定はブラウザ側(下のスクリプトのテスト)
+    assert recorder.events == [("edit_progress", ((0,), 0))]
+
+
+async def test_the_quick_edit_is_not_offered_in_the_read_only_preview(user: User) -> None:
+    charts, recorder = mount_chart(sample_project(), now=NOON)
+    await user.open("/")
+    charts[0].set_options(ViewOptions(read_only=True))
+    await asyncio.sleep(0.3)
+    user.find(marker="bar-0-0").click()
+    assert recorder.events == []
+
+
+def test_the_bar_click_script_sends_only_for_shift_and_not_over_buttons(tmp_path: Path) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node がないので動きを確かめない")
+    sim = tmp_path / "sim.js"
+    sim.write_text(
+        "const fn = eval(process.argv[2]);\n"
+        "const run = (shift, excluded) => { const out = []; let stopped = false;\n"
+        "  const e = { shiftKey: shift, target: { closest: () => (excluded ? {} : null) }, stopPropagation: () => { stopped = true; } };\n"
+        "  global.emit = () => out.push(1); fn(e); return { sent: out.length, stopped }; };\n"
+        "console.log(JSON.stringify({ plain: run(false, false), shift: run(true, false), button: run(true, true) }));\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run([node, str(sim), BAR_SHIFT_CLICK_JS], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["plain"] == {"sent": 0, "stopped": False}  # ふつうのクリックは何もしない
+    assert out["shift"] == {"sent": 1, "stopped": True}
+    assert out["button"]["sent"] == 0
+
+
+def click_scripts(user: User, marker: str) -> list[str | None]:
+    element = user.find(marker=marker).elements.pop()
+    return [listener.js_handler for listener in element._event_listeners.values() if listener.type == "click"]
+
+
+async def test_a_week_chip_leaves_modified_clicks_to_the_bar(user: User) -> None:
+    # チップの上の Shift クリックは、チップの編集ではなく、棒の簡易入力だけを開く(両方開かない)
+    mount(weekly_chart_project())
+    await user.open("/")
+    assert click_scripts(user, "week-chip-top-0-1") == [PLAIN_CLICK_JS]  # 修飾キーつきは送らず、棒へ伝える
+    assert click_scripts(user, "bar-top-0") == [BAR_SHIFT_CLICK_JS]
+
+
+def test_the_plain_click_script_ignores_modified_clicks_and_lets_them_bubble(tmp_path: Path) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node がないので動きを確かめない")
+    sim = tmp_path / "sim.js"
+    sim.write_text(
+        "const fn = eval(process.argv[2]);\n"
+        "const run = (mods) => { let sent = 0, stopped = false;\n"
+        "  const e = { shiftKey: !!mods.shift, ctrlKey: !!mods.ctrl, metaKey: !!mods.meta, stopPropagation: () => { stopped = true; } };\n"
+        "  global.emit = () => { sent += 1; }; fn(e); return { sent, stopped }; };\n"
+        "console.log(JSON.stringify({ plain: run({}), shift: run({ shift: true }), ctrl: run({ ctrl: true }), meta: run({ meta: true }) }));\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run([node, str(sim), PLAIN_CLICK_JS], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["plain"] == {"sent": 1, "stopped": True}  # ふつうのクリックは送り、棒へ伝えない
+    for key in ("shift", "ctrl", "meta"):
+        assert out[key] == {"sent": 0, "stopped": False}  # 修飾キーつきは送らず、伝える

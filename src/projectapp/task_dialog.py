@@ -25,6 +25,7 @@ from projectapp.forms import (
     STANDARD_WORK_HOURS,
     ActualRow,
     UrlRow,
+    apply_quick_progress,
     bind_picker,
     build_actuals,
     build_task,
@@ -879,6 +880,41 @@ def open_week_crew_dialog(
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")
             ui.button("保存", on_click=save).mark("week-edit-save")
+    dialog.open()
+
+
+def open_quick_progress_dialog(
+    task: Task, intervals: bool, on_save: Callable[[Task], object]
+) -> None:
+    """ガントチャートの棒の Shift クリックで開く、進捗度と実績(開始・終了)だけを直す小さなダイアログ。
+    実績が 2 件以上のタスクは、進捗度だけを直せる。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
+        ui.label(task.name).classes("text-h6 ellipsis").mark("quick-title")
+        progress = (
+            ui.number("進捗度(%)", value=task.progress, min=MIN_PROGRESS, max=MAX_PROGRESS, precision=0)
+            .classes("w-full")
+            .mark("quick-progress")
+        )
+        with ui.expansion("実績", icon="schedule").classes("w-full").mark("quick-actuals-box"):
+            fields = ActualFields(task)
+            if not fields.read_only:
+                ui.label("実績を変えたときは、状態を実績に合わせます").classes("text-caption text-grey").mark("quick-status-note")
+        error = ui.label("").classes("text-negative").mark("quick-error")
+
+        def save() -> None:
+            try:
+                saved = apply_quick_progress(
+                    task, progress.value, fields.start_text(), fields.end_text(), intervals=intervals
+                )
+            except ValueError as exc:
+                error.set_text(str(exc))
+                return
+            dialog.close()
+            on_save(saved)
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat")
+            ui.button("保存", on_click=save).mark("quick-save")
     dialog.open()
 
 
