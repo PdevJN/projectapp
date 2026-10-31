@@ -37,5 +37,8 @@ dev = [
 testpaths = ["test"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "-p nicegui.testing.user_plugin"
+addopts = "-p nicegui.testing.user_plugin --strict-markers"
+markers = [
+    "smoke: コア機能(保存・読込、日程の計算、元に戻す、3 者マージ、起動・追加・編集・保存)が壊れていないことの確認。`pytest -m smoke` で 1 分以内",
+]
 main_file = ""

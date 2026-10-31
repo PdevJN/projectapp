@@ -16,6 +16,8 @@ from projectapp.ratios import (
     validate_parameters,
 )
 
+pytestmark = pytest.mark.smoke
+
 EXPERIENCE = Parameter("経験", [Level("初級", -0.2), Level("中級", 0.0), Level("上級", 0.2)])
 FIELD = Parameter("専門", [Level("低", -0.1), Level("高", 0.15)])
 PARAMETERS = [EXPERIENCE, FIELD]
