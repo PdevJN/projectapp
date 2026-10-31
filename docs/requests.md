@@ -849,7 +849,7 @@ PlantUML は日単位で担当者の割り当てを集計するので、同じ�
 
 ## 要望 90: ダッシュボードに、プロジェクト参照行の進捗を載せる(2026-10-31 に受領)
 
-> **状態**: 実装済み(実機確認待ち。2026-10-31)。[設計書](superpowers/specs/2026-10-31-dashboard-references-design.md)・[計画](superpowers/plans/2026-10-31-dashboard-references.md)。
+> **状態**: 完了(実機確認済み。2026-10-31。PR #135〔d895d4a〕で`develop`へマージ)。[設計書](superpowers/specs/2026-10-31-dashboard-references-design.md)・[計画](superpowers/plans/2026-10-31-dashboard-references.md)。
 
 ### 要望
 タスクを子プロジェクトに切り出して(要望 89)も、親のダッシュボードの進捗の数字が変わらないようにする。
