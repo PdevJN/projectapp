@@ -37,7 +37,7 @@ def sample() -> Dashboard:
         Progress(
             42.4,
             {Status.NOT_STARTED: 1, Status.RUNNING: 2, Status.PAUSED: 0, Status.DONE: 3},
-            [OverdueRow("遅れた作業", "田中", datetime(2026, 10, 6, 17))],
+            [OverdueRow("遅れた作業", "田中", datetime(2026, 10, 6, 17), ("田中",))],
             [
                 MemberProgress("田中", 40.0, {Status.NOT_STARTED: 1, Status.RUNNING: 2, Status.PAUSED: 0, Status.DONE: 0}),
                 MemberProgress("佐藤", None, {status: 0 for status in Status}),
@@ -46,7 +46,7 @@ def sample() -> Dashboard:
         {"田中": LoadStats(0.5, 1.2, 2), "佐藤": LoadStats(0.0, 0.0, 0)},
         [WorkloadRow("田中", 9.5, 3.0), WorkloadRow("佐藤", 0.0, 0.0), WorkloadRow(UNASSIGNED, 6.5, 0.0)],
         [
-            DueRow(datetime(2026, 10, 8, 17), "締切", "設計", "田中", False),
+            DueRow(datetime(2026, 10, 8, 17), "締切", "設計", "田中", False, False, ("田中",)),
             DueRow(datetime(2026, 10, 9, 12), "完了予定", "遅れ", None, True),
         ],
         TeamProgress(
@@ -186,15 +186,37 @@ async def test_the_load_card_shows_the_icon_of_a_member_who_has_one(user: User, 
     views[0].show(sample(), PeriodKind.WEEK, {"田中": icon})
     await user.should_see(marker="dashboard-load-icon-田中")
     assert user.find(marker="dashboard-load-icon-田中").elements.pop()._props["src"] == icon
-    await user.should_not_see(marker="dashboard-load-icon-佐藤")  # アイコンのない人には出さない
+    assert user.find(marker="dashboard-load-icon-佐藤").elements.pop().text == "佐"  # アイコンのない人は頭文字の丸
 
 
-async def test_the_load_card_shows_no_icon_when_none_are_given(user: User) -> None:
+async def test_the_load_card_shows_the_initial_when_no_icon_is_given(user: User) -> None:
     views, _, _ = mount()
     await user.open("/")
     views[0].show(sample(), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-load-田中")
-    await user.should_not_see(marker="dashboard-load-icon-田中")
+    assert user.find(marker="dashboard-load-icon-田中").elements.pop().text == "田"
+
+
+async def test_every_row_with_a_name_has_an_icon_or_initial(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    backlog = Backlog(20.0, 0, 2, 4.0, 3.0, [("田中", 12.0), ("未割り当て", 8.0)])
+    views[0].show(with_backlog(backlog), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-member-田中")
+    assert user.find(marker="dashboard-backlog-member-icon-田中").elements.pop().text == "田"
+    await user.should_not_see(marker="dashboard-backlog-member-icon-未割り当て")  # メンバーでない行には出さない
+    await user.should_see(marker="dashboard-overdue-assignee-0")
+    row = user.find(marker="dashboard-overdue-assignee-0").elements.pop()
+    assert [c.text for c in row.descendants() if getattr(c, "text", None)] == ["田", "田中"]  # 頭文字の丸と名前
+    await user.should_see(marker="dashboard-hours-icon-田中")
+    await user.should_see(marker="dashboard-due-assignee-0")
+
+
+def test_the_heatmap_names_have_an_icon_or_initial(icon: str) -> None:
+    cross = long_heat_summary(2)
+    assert ">田</span>田中" in heatmap_html(cross)
+    with_icon = heatmap_html(cross, {"田中": icon})
+    assert "<img" in with_icon and ">田</span>" not in with_icon
 
 
 async def test_the_team_card_draws_the_pie_and_lists_status_hours(user: User) -> None:

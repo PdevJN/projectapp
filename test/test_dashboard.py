@@ -344,8 +344,8 @@ def test_due_rows_list_deadlines_and_planned_ends_in_the_period_sorted() -> None
     assert rows == [
         DueRow(datetime(2026, 10, 5, 0, 0), "締切", "in", None, True),
         DueRow(datetime(2026, 10, 6, 17), "締切", "late", None, True),
-        DueRow(datetime(2026, 10, 8, 17), "締切", "t1", "田中", False),
-        DueRow(datetime(2026, 10, 9, 12), "完了予定", "t1", "田中", False),
+        DueRow(datetime(2026, 10, 8, 17), "締切", "t1", "田中", False, False, ("田中",)),
+        DueRow(datetime(2026, 10, 9, 12), "完了予定", "t1", "田中", False, False, ("田中",)),
     ]
 
 

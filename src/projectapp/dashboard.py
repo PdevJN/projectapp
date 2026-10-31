@@ -110,6 +110,7 @@ class OverdueRow:
     name: str
     assignee: str | None
     limit: datetime  # 過ぎている基準(締切と完了予定のうち、早いほう)
+    assignee_names: tuple[str, ...] = ()  # 担当者の名前(アイコンを人ごとに並べる表示用。assignee と同じ並び)
 
 
 @dataclass(frozen=True)
@@ -344,7 +345,7 @@ def summarize_progress(
                 if limit is not None and moment > limit
             ]
             limit = min(limits, default=task.deadline or now)  # 見込みの超過は、締切を基準にする
-            overdue.append(OverdueRow(entry.label, assignee_label(task), limit))
+            overdue.append(OverdueRow(entry.label, assignee_label(task), limit, tuple(task.assignee_names)))
     overdue.sort(key=lambda row: row.limit)
     by_member = summarize_member_progress(project, children, warned) if member is None else []
     by_team = summarize_team_rows(project, children, warned) if member is None else []
@@ -419,6 +420,7 @@ class DueRow:
     assignee: str | None
     overdue: bool
     warning: bool = False  # 警告(完了予定を過ぎる見込み)。予定超過の行は警告にしない
+    assignee_names: tuple[str, ...] = ()  # 担当者の名前(アイコンを人ごとに並べる表示用)
 
 
 def _workdays(
@@ -617,7 +619,7 @@ def summarize_due(
             if kind == PLANNED_END and moment == task.deadline:
                 continue  # 締切だけのタスクは、完了予定が締切と同じになる。同じ日時の 2 行にしない
             if moment is not None and low <= moment < high:
-                rows.append(DueRow(moment, kind, task.name, assignee_label(task), late, warning))
+                rows.append(DueRow(moment, kind, task.name, assignee_label(task), late, warning, tuple(task.assignee_names)))
     rows.sort(key=lambda row: (row.moment, row.kind))
     return rows
 
