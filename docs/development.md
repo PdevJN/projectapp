@@ -85,7 +85,7 @@ uv run ty check src
 
 ### smoke テスト(`-m smoke`)
 
-全テスト(約 4,500 件・約 5 分)の前に、コア機能が壊れていないことを素早く確かめるためのタグ。`pyproject.toml` の `markers` に登録し、`--strict-markers` でつづりミスはエラーになる。開発中の小さな変更は `-m smoke`、PR の前は全体を実行する(CI はない)。
+全テスト(約 4,500 件・約 5 分)の前に、コア機能が壊れていないことを素早く確かめるためのタグ。`pyproject.toml` の `markers` に登録し、`--strict-markers` でつづりミスはエラーになる。実装のたびに `-m smoke` を実行し(`.claude/RULE.md`)、失敗したら全体を実行して詳細を確かめる。PR の前も全体を実行する(CI はない)。
 
 - 付け方: 純粋関数のファイルは、ファイルの先頭に `pytestmark = pytest.mark.smoke`(`test_timeline`・`test_schedule`・`test_ratios`・`test_workdays`・`test_history`・`test_merge`・`test_models`・`test_filemanager`・`test_main`)。件数が多く重い画面系と保存・読込のファイルは、代表だけに `@pytest.mark.smoke`(`test_storage`・`test_views`・`test_task_dialog`・`test_gantt`)。
 - 範囲: 保存・読込(往復・version・不正値)、日程の計算、元に戻す・やり直し、3 者マージ、起動の引数、プロジェクトの新規・開く・保存・未保存の確認、タスクの追加・編集・削除・分解、ガントチャートの描画。ダッシュボード・プレビュー・PlantUML・CSV・git・テーマなどの周辺は含めない。
