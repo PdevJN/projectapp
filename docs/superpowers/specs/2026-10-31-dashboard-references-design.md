@@ -1,6 +1,6 @@
 # ダッシュボードのプロジェクト参照行の進捗の設計
 
-> **状態**: 設計(2026-10-31 に承認済み)。実装は未着手。要望 90。
+> **状態**: 設計(2026-10-31 に承認済み)。実装済み(計画 [`plans/2026-10-31-dashboard-references.md`](../plans/2026-10-31-dashboard-references.md))。要望 90。
 
 ## 目的
 
@@ -19,7 +19,7 @@
 ## データの流れ
 
 - `ReferenceResolver` に `project(name, now)` を足す。参照先の `Project` を返し、内容のハッシュと日付が同じ間はキャッシュする(`live` と同じ鍵)。見つからない・読めないときは `None` を返し、そのファイルは数えない(開いたときの通知で足りる)。
-- 画面側(`dashboard_view.py`)が、開いているプロジェクトの参照行から参照先名を集め(重複は 1 回)、`children: Mapping[str, Project]` を作って `summarize` に渡す。`summarize` は NiceGUI にも読み込みにも依存しない。
+- 画面側(`views.py` の `refresh_dashboard`。参照先は `reference.load_children` が読む)が、開いているプロジェクトの参照行から参照先名を集め(重複は 1 回)、`children: Mapping[str, ChildProject]`(参照先の `Project` と、参照先自身のイベントを反映した休み)を作って `summarize` に渡す。`summarize` は NiceGUI にも読み込みにも依存しない。
 - 集計の内部は、タスクだけでなく `Entry(task, project, schedule)` の組を扱う。期間の判定(`_touches`)と予定超過の判定(`is_overdue`)は、各タスクの属するプロジェクト自身の稼働設定・祝日・イベントで行う(祝日は `effective_holidays(project, holidays)`)。
 - 参照先の中の参照行は展開しない(1 段のみ。循環を避ける。`reference.COUNTED_KINDS` と同じ規則)。まとめは従来どおり数えない。
 - 同じ参照先を 2 つの参照行が指していても、1 回だけ数える。
