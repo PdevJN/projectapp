@@ -604,11 +604,28 @@ class Backlog:
     by_status: dict[Status, float] = field(default_factory=dict)  # 状態ごとの残りの工数(0 は除く)
     by_team: list[tuple[str, float]] = field(default_factory=list)  # (チーム, 残りの工数)。全員のときだけ。メンバーの分を所属の割合で配る
     nominal_supply: float | None = None  # 稼働日の上書きで調整する前の稼働できる人員。調整で値が変わるときだけ
+    overdue_hours: float = 0.0  # hours のうち、遅れたタスクの残りの工数(要望 98)
+    overdue_count: int = 0  # 遅れたタスクの件数
 
     @property
     def shortfall(self) -> float | None:
         """不足する人数。負なら余裕。"""
         return None if self.required is None else self.required - self.supply
+
+    @property
+    def overdue_required(self) -> float | None:
+        """遅れの分だけで要る人数(必要人数と同じ期間で割る)。必要人数が出せないときは None。"""
+        if self.required is None:
+            return None
+        return self.required * self.overdue_hours / self.hours if self.hours > 0 else 0.0
+
+    @property
+    def shortfall_without_overdue(self) -> float | None:
+        """遅れがなかった場合の不足する人数(負なら余裕)。遅れの分の人数を、不足から引く。"""
+        shortfall, overdue = self.shortfall, self.overdue_required
+        if shortfall is None or overdue is None:
+            return None
+        return shortfall - overdue
 
 
 def _next_workday(day: date, holidays: dict[date, str]) -> date:
@@ -813,6 +830,11 @@ def _backlog_by_team(project: Project, split: dict[str, float]) -> list[tuple[st
     return [(name, value) for name, value in hours.items() if value > 0]
 
 
+def _is_late(task: Task, project: Project, holidays: dict[date, str], now: datetime, schedule: Schedule) -> bool:
+    """遅れたタスクか(要望 98)。今は予定超過(ガントチャートの赤みと同じ判定)。警告を含める選択は未実装(警告の状態を作るときに足す)。"""
+    return is_overdue(task, project, holidays, now, schedule)
+
+
 @dataclass
 class _BacklogParts:
     """1 プロジェクトぶんの残りの工数の集計の途中経過(重ねるときは、これを足し合わせる)。"""
@@ -821,6 +843,8 @@ class _BacklogParts:
     by_status: dict[Status, float]
     unset: int  # 工数のない未終了のタスク
     ends: list[datetime]  # 数えたタスクの完了予定・締切(必要人数の期間を決める)
+    overdue_split: dict[str, float] = field(default_factory=dict)  # split のうち、遅れたタスクの分
+    overdue_count: int = 0  # 遅れたタスクの件数(絞り込みの範囲に担当がいるもの)
 
 
 def _backlog_parts(
@@ -838,6 +862,8 @@ def _backlog_parts(
     ends: list[datetime] = []
     split = {name: 0.0 for name in (*names, UNASSIGNED)}
     by_status = {status: 0.0 for status in OPEN_STATUSES}
+    overdue_split = {name: 0.0 for name in (*names, UNASSIGNED)}
+    overdue_count = 0
     targets = [
         task for task in _tasks(project, member) if task.status in OPEN_STATUSES and task.kind is TaskKind.NORMAL
     ]
@@ -856,12 +882,18 @@ def _backlog_parts(
         ends.extend(moment for moment in (schedule.end(task), task.deadline) if moment is not None)
         rest = _remaining_hours(task, project, holidays, now)
         due = max(0.0, rest - task.effort_hours * (1 - fraction))  # 期間の終わりまでに予定した工数 − 消化分
+        late = _is_late(task, project, holidays, now, schedule)
+        counted = False
         for key, _, share in _remaining_shares(task, project, schedule, holidays, rest, names):
             portion = due * share
             split[key] += portion
+            if late:
+                overdue_split[key] += portion
             if scoped is None or key in scoped:
                 by_status[task.status] += portion * _factor(member, key)
-    return _BacklogParts(split, by_status, unset, ends)
+                counted = counted or (late and portion > 0)
+        overdue_count += counted
+    return _BacklogParts(split, by_status, unset, ends, overdue_split, overdue_count)
 
 
 def _assemble_backlog(
@@ -884,6 +916,11 @@ def _assemble_backlog(
     shown = [name for name in (*(k for k in split if k != UNASSIGNED), UNASSIGNED) if scoped is None or name in scoped]
     by_status = {status: sum(part.by_status[status] for part in parts) for status in OPEN_STATUSES}
     hours = sum(split[name] * _factor(member, name) for name in shown)
+    overdue_split: dict[str, float] = {}
+    for part in parts:
+        for key, value in part.overdue_split.items():
+            overdue_split[key] = overdue_split.get(key, 0.0) + value
+    overdue_hours = sum(overdue_split.get(name, 0.0) * _factor(member, name) for name in shown)
     ends = [moment for part in parts for moment in part.ends]
     window = _backlog_window(base, period, kind, now, holidays, ends)
     standard = 0.0 if window is None else _window_hours(base, holidays, window, now)
@@ -914,6 +951,8 @@ def _assemble_backlog(
         {k: v for k, v in by_status.items() if v > 0},
         by_team,
         nominal if abs(nominal - supply) > 1e-9 else None,
+        overdue_hours,
+        sum(part.overdue_count for part in parts),
     )
 
 

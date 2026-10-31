@@ -2,6 +2,7 @@ from datetime import date, datetime, time
 
 from projectapp.dashboard import (
     UNASSIGNED,
+    Backlog,
     Period,
     PeriodKind,
     summarize,
@@ -559,3 +560,96 @@ def test_cross_backlog_uses_the_overrides_of_the_open_project_member() -> None:
     first = named("甲", todo("a", 19.5), members=[with_days(off)])
     second = named("乙", todo("b", 3), members=[Member("田中", 1.0)])  # 同名。先頭の甲の田中を使う
     assert cross(first, second).supply == 2 / 3
+
+
+# --- 要望 98: 遅れの取り戻し ---
+
+
+def late_and_on_time() -> Project:
+    """水曜の昼に、火曜に終わる予定だった 6.5h(遅延)と、今日終わる予定の 6.5h(遅れていない)。"""
+    return project_of(
+        todo("遅れた", 6.5),
+        Task("間に合う", planned_start=datetime(2026, 10, 7, 9), effort_hours=6.5),
+    )
+
+
+def test_the_overdue_part_counts_only_open_tasks_past_their_planned_end() -> None:
+    backlog = summarize_backlog(late_and_on_time(), WEEK, PeriodKind.WEEK, NOW, {})
+    assert backlog.hours == 13
+    assert backlog.overdue_hours == 6.5
+    assert backlog.overdue_count == 1
+
+
+def test_the_overdue_part_is_the_rest_after_the_progress() -> None:
+    project = project_of(todo("遅れた", 6.5, status=Status.RUNNING, progress=40))
+    backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {})
+    assert backlog.overdue_hours == 3.9
+    assert backlog.overdue_count == 1
+
+
+def test_no_overdue_tasks_leave_the_overdue_part_empty() -> None:
+    project = project_of(Task("間に合う", planned_start=datetime(2026, 10, 7, 9), effort_hours=6.5))
+    backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {})
+    assert backlog.overdue_hours == 0
+    assert backlog.overdue_count == 0
+    assert backlog.shortfall_without_overdue == backlog.shortfall
+
+
+def test_a_deadline_past_counts_as_overdue() -> None:
+    project = project_of(
+        Task(
+            "締切超過",
+            planned_start=datetime(2026, 10, 7, 9),
+            effort_hours=6.5,
+            deadline=datetime(2026, 10, 7, 10),
+        )
+    )
+    assert summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}).overdue_count == 1
+
+
+def test_the_member_filter_counts_only_the_overdue_tasks_of_that_member() -> None:
+    project = project_of(
+        todo("田中の遅れ", 6.5, assignees=[Assignee("田中")]),
+        todo("鈴木の遅れ", 6.5, assignees=[Assignee("鈴木")]),
+        members=[Member("田中", 1.0), Member("鈴木", 1.0)],
+    )
+    backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}, "田中")
+    assert backlog.overdue_hours == 6.5
+    assert backlog.overdue_count == 1
+
+
+def test_a_shared_overdue_task_counts_by_the_assignee_ratio() -> None:
+    project = project_of(
+        todo("共同の遅れ", 10, assignees=[Assignee("田中", 1.0), Assignee("鈴木", 1.0)]),
+        members=[Member("田中", 1.0), Member("鈴木", 1.0)],
+    )
+    backlog = summarize_backlog(project, WEEK, PeriodKind.WEEK, NOW, {}, "田中")
+    assert backlog.overdue_hours == 5
+
+
+def test_the_overdue_people_are_the_overdue_hours_over_the_same_capacity() -> None:
+    backlog = Backlog(20.0, 0, 2, 4.0, 3.0, [], overdue_hours=10.0, overdue_count=2)
+    assert backlog.overdue_required == 2.0
+
+
+def test_the_shortfall_without_the_overdue_part_takes_the_overdue_people_off() -> None:
+    short = Backlog(20.0, 0, 2, 4.0, 3.0, [], overdue_hours=10.0, overdue_count=2)  # 不足 1.0、遅れの分は 2.0 人
+    assert short.shortfall_without_overdue == -1.0  # 遅れがなければ余裕 1.0
+    roomy = Backlog(20.0, 0, 2, 4.0, 5.0, [], overdue_hours=10.0, overdue_count=2)  # 余裕 1.0 → 遅れがなければ余裕 3.0
+    assert roomy.shortfall_without_overdue == -3.0
+    thin = Backlog(20.0, 0, 2, 4.0, 1.0, [], overdue_hours=10.0, overdue_count=2)  # 不足 3.0 → 遅れがなくても不足 1.0
+    assert thin.shortfall_without_overdue == 1.0
+
+
+def test_the_shortfall_without_the_overdue_part_is_unknown_without_a_period() -> None:
+    backlog = Backlog(20.0, 0, None, None, 3.0, [], overdue_hours=10.0, overdue_count=2)
+    assert backlog.overdue_required is None
+    assert backlog.shortfall_without_overdue is None
+
+
+def test_cross_backlog_adds_the_overdue_part_of_every_project() -> None:
+    first = late_and_on_time()
+    second = late_and_on_time()
+    backlog = summarize_cross_backlog([first, second], first, WEEK, PeriodKind.WEEK, NOW, {})
+    assert backlog.overdue_hours == 13
+    assert backlog.overdue_count == 2
