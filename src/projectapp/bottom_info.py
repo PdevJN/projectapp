@@ -122,11 +122,11 @@ def _notes(
 
 def _overlaps(task: Task, schedule: Schedule, period: tuple[date, date]) -> bool:
     start, end = schedule.start(task), schedule.end(task)
-    if start is None and end is None:
+    first = start or end
+    last = end or start
+    if first is None or last is None:
         return False
-    first = (start or end).date()
-    last = (end or start).date()
-    return first <= period[1] and last >= period[0]
+    return first.date() <= period[1] and last.date() >= period[0]
 
 
 def period_summary(
