@@ -1980,6 +1980,20 @@ async def test_event_color_field_is_a_color_input_that_takes_a_code(user: User) 
     assert event.color == "#ffaa00"
 
 
+async def test_event_color_picker_is_compact_and_returns_a_hex_code(user: User) -> None:
+    mount_event_settings([Event(date(2026, 10, 1), date(2026, 10, 2), "x", "red", id="e1")], [], [])
+    await user.open("/")
+    user.find("open").click()
+    await asyncio.sleep(0.2)
+    field = user.find(marker="settings-event-0-color").elements.pop()
+    assert isinstance(field, ui.color_input)
+    props = field.picker.q_color.props
+    # 低いウィンドウで、メニューがスクロールしないよう、ヘッダーとフッターを省く
+    assert props["no-header"] and props["no-footer"]
+    # 元の値が色名でも、選んだ色は rgb() でなく #rrggbb で返す(rgb() は保存できない)
+    assert props["format-model"] == "hex"
+
+
 async def test_event_swatch_follows_a_color_code_too(user: User) -> None:
     mount_event_settings([Event(date(2026, 10, 1), date(2026, 10, 2), "x", "red", id="e1")], [], [])
     await user.open("/")

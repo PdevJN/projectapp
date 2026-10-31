@@ -1621,11 +1621,15 @@ def open_settings_dialog(
                                 ).classes("w-36").mark(f"settings-event-{n}-end")
                                 swatch = ui.icon("circle").style(f"color: {swatch_color(erow.color)}")
                                 swatch.mark(f"settings-event-{n}-swatch")
-                                ui.color_input(
+                                event_color = ui.color_input(
                                     "色(#RRGGBB・red など)",
                                     value=erow.color,
                                     on_change=lambda e, r=erow, s=swatch: change_event_color(r, s, e.value or ""),
                                 ).classes("grow").mark(f"settings-event-{n}-color")
+                                # 欄に直接打てるので、値の表示(ヘッダー)と表示の切り替え(フッター)は省く。ウィンドウが
+                                # 低いと、メニューの高さが空きに制限されて、スクロールバーが出るため。元の値が色名だと
+                                # q-color は rgb() で返すので、`#rrggbb` で返させる
+                                event_color.picker.q_color.props("no-header no-footer format-model=hex")
                                 ui.checkbox(
                                     "稼働日を休みにする",
                                     value=erow.closed,
