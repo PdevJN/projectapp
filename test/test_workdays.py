@@ -5,6 +5,8 @@ import pytest
 from projectapp.models import Member, WorkDay
 from projectapp.workdays import expand_range, sort_work_days, validate_work_days, work_day_map
 
+pytestmark = pytest.mark.smoke
+
 
 def test_work_day_defaults_to_a_rest_day_marker_of_none() -> None:
     rest = WorkDay(date(2026, 10, 12))

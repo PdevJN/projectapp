@@ -26,6 +26,8 @@ from projectapp.models import (
     union_assignees,
 )
 
+pytestmark = pytest.mark.smoke
+
 
 def proj(**kw) -> Project:
     return Project(name="p", base_date=date(2026, 10, 1), **kw)

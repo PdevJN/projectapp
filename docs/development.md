@@ -79,8 +79,17 @@ git-flow に従う(`.claude/BRANCH.md`)。作業は `develop` から `feature/*`
 uv sync
 uv run pytest --cov=projectapp
 uv run pytest -n auto          # 並列(pytest-xdist)。--cov とも併用できる
+uv run pytest -m smoke         # コア機能の確認だけ(約 450 件・10 秒以内)
 uv run ty check src
 ```
+
+### smoke テスト(`-m smoke`)
+
+全テスト(約 4,500 件・約 5 分)の前に、コア機能が壊れていないことを素早く確かめるためのタグ。`pyproject.toml` の `markers` に登録し、`--strict-markers` でつづりミスはエラーになる。開発中の小さな変更は `-m smoke`、PR の前は全体を実行する(CI はない)。
+
+- 付け方: 純粋関数のファイルは、ファイルの先頭に `pytestmark = pytest.mark.smoke`(`test_timeline`・`test_schedule`・`test_ratios`・`test_workdays`・`test_history`・`test_merge`・`test_models`・`test_filemanager`・`test_main`)。件数が多く重い画面系と保存・読込のファイルは、代表だけに `@pytest.mark.smoke`(`test_storage`・`test_views`・`test_task_dialog`・`test_gantt`)。
+- 範囲: 保存・読込(往復・version・不正値)、日程の計算、元に戻す・やり直し、3 者マージ、起動の引数、プロジェクトの新規・開く・保存・未保存の確認、タスクの追加・編集・削除・分解、ガントチャートの描画。ダッシュボード・プレビュー・PlantUML・CSV・git・テーマなどの周辺は含めない。
+- 新しいコア機能のテストを足すときは、上の範囲に入るなら付ける。画面系は代表だけにして、`-m smoke` が 1 分を超えないようにする(2026-10-31 時点は 453 件・約 7 秒)。
 
 並列は、直列の約 3.5 倍速い(1,075 件: 直列 33〜40 秒、`-n 2` 17.5 秒、`-n 4` 10.8 秒、`-n auto`(論理 8 CPU)約 9.4 秒。繰り返しても失敗なし)。分散は、既定の `load` が速い(`--dist loadfile` は、大きなファイル(`test_gantt.py`・`test_views.py`)が 1 つのワーカーに偏って、`-n auto` で約 14 秒)。既定の `addopts` には入れていない(1 件だけ走らせるときも、ワーカーの起動で遅くなるため)。各ワーカーは別のプロセスなので、`conftest.py` の解放と凍結も、ワーカーごとに働く。実際のホームの `~/.projectapp` を読み書きするテストはない(`tmp_path` を使う)ので、競合しない。
 

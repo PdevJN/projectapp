@@ -152,6 +152,7 @@ async def test_refresh_button_fetches_again(user: User, tmp_path: Path) -> None:
     assert await wait_until(lambda: stripes_have_holiday(user))
 
 
+@pytest.mark.smoke
 async def test_add_section_then_task_shows_a_bar(user: User, tmp_path: Path) -> None:
     save_cache({}, tmp_path)
     mount(tmp_path, make_transport(200, []))
@@ -234,6 +235,7 @@ async def test_edit_top_level_task_opens_the_edit_dialog(user: User, tmp_path: P
     await user.should_see("タスクの編集")
 
 
+@pytest.mark.smoke
 async def test_save_task_adds_then_replaces(user: User, tmp_path: Path) -> None:
     save_cache({}, tmp_path)
     views: list[MainView] = []
@@ -289,6 +291,7 @@ async def test_a_task_with_only_a_start_shows_a_one_day_bar(user: User, tmp_path
     assert bar._style["width"] == "40.0px"  # 完了予定は開始予定の翌日
 
 
+@pytest.mark.smoke
 async def test_save_new_project_asks_for_a_name_then_writes_the_file(
     user: User, tmp_path: Path
 ) -> None:
@@ -317,6 +320,7 @@ async def test_save_new_project_rejects_an_existing_name(user: User, tmp_path: P
     assert views[0].path is None
 
 
+@pytest.mark.smoke
 async def test_save_an_opened_project_overwrites_without_asking(
     user: User, tmp_path: Path
 ) -> None:
@@ -336,6 +340,7 @@ async def test_save_an_opened_project_overwrites_without_asking(
     assert [s.name for s in saved.sections] == ["元", "追加"]
 
 
+@pytest.mark.smoke
 @pytest.mark.parametrize(
     ("error", "message"),
     [
@@ -395,6 +400,7 @@ async def test_failed_open_keeps_the_current_project_and_path(
     assert view.project.name == "新規プロジェクト"
 
 
+@pytest.mark.smoke
 async def test_choosing_in_the_combo_opens_a_clean_project_at_once(
     user: User, tmp_path: Path
 ) -> None:
@@ -439,6 +445,7 @@ async def test_the_filter_does_not_make_the_project_dirty(user: User, tmp_path: 
     assert not view.is_dirty()
 
 
+@pytest.mark.smoke
 async def test_is_dirty_follows_open_edit_and_save(user: User, tmp_path: Path) -> None:
     save_cache({}, tmp_path)
     save_project(Project("既存"), tmp_path)
@@ -470,6 +477,7 @@ async def test_saving_a_new_project_does_not_reload_it(user: User, tmp_path: Pat
     assert view.file_select.value == "デモ"
 
 
+@pytest.mark.smoke
 async def test_dirty_project_asks_before_switching_and_cancel_keeps_it(
     user: User, tmp_path: Path
 ) -> None:
@@ -674,6 +682,7 @@ async def test_changed_settings_ask_before_switching_projects(
     assert views[0].path is None
 
 
+@pytest.mark.smoke
 async def test_delete_task_removes_only_that_task_and_makes_the_view_dirty(
     user: User, tmp_path: Path
 ) -> None:
@@ -722,6 +731,7 @@ async def test_delete_task_keeps_the_summary_consistent(user: User, tmp_path: Pa
     assert view.project.tasks[0].kind is TaskKind.NORMAL
 
 
+@pytest.mark.smoke
 async def test_decompose_task_makes_a_summary_in_one_undo_step(user: User, tmp_path: Path) -> None:
     save_cache({}, tmp_path)
     save_project(Project("既存", sections=[Section("開発", [Task("実装", effort_hours=4.0)])]), tmp_path)
