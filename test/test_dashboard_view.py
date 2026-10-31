@@ -770,13 +770,13 @@ async def test_the_backlog_card_says_just_right_instead_of_zero_point_zero(user:
     assert "text-negative" not in user.find(marker="dashboard-backlog-gap").elements.pop().classes
 
 
-async def test_the_backlog_card_notes_what_the_supply_leaves_out(user: User) -> None:
+async def test_the_backlog_card_notes_what_the_supply_reflects(user: User) -> None:
     views, _, _ = mount()
     await user.open("/")
     views[0].show(with_backlog(Backlog(6.5, 0, 3, 0.5, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-note")
     assert text(user, "dashboard-backlog-note") == (
-        "稼働日の上書きと休暇は反映していません。今日は、今から稼働の枠の終わりまでの残り時間で数えます。"
+        "今いる人員は、メンバーの稼働日の上書き(休み・短時間・追加の稼働日)を反映しています。今日は、今から稼働の枠の終わりまでの残り時間で数えます。"
     )
 
 
@@ -897,3 +897,15 @@ async def test_the_backlog_card_has_no_overlay_note_for_one_project(user: User) 
     views[0].show(with_backlog(Backlog(6.5, 0, 3, 1.0, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-hours")
     await user.should_not_see(marker="dashboard-backlog-cross-note")
+
+
+async def test_the_backlog_card_shows_the_unadjusted_supply_only_when_it_changed(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    changed = Backlog(6.5, 0, 3, 0.5, 1.6, [("田中", 6.5)], nominal_supply=2.0)
+    views[0].show(with_backlog(changed), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-supply-note")
+    assert text(user, "dashboard-backlog-supply-note") == "相対比率の合計 2.0 人 → 稼働を反映して 1.6 人"
+    views[0].show(with_backlog(Backlog(6.5, 0, 3, 0.5, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-people")
+    await user.should_not_see(marker="dashboard-backlog-supply-note")
