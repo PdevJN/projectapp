@@ -266,11 +266,11 @@ def _member_row(name: str, tasks: list[Task]) -> MemberProgress:
     return MemberProgress(name, weighted / total if total else None, counts)
 
 
-def summarize_member_progress(project: Project) -> list[MemberProgress]:
-    """メンバーごとの進捗。共同タスクは担当の全員の行に数える。メンバーが担当にいないタスクは`未割り当て`。"""
+def summarize_member_progress(project: Project, children: Mapping[str, ChildProject] | None = None) -> list[MemberProgress]:
+    """メンバーごとの進捗。共同タスクは担当の全員の行に数える。メンバーが担当にいないタスクは`未割り当て`。参照先のタスクは名前で当てる。"""
     if not project.members:
         return []
-    tasks = _tasks(project)
+    tasks = [entry.task for entry in _entries(project, {}, None, children)]
     names = {member.name for member in project.members}
     rows = [_member_row(m.name, [t for t in tasks if m.name in t.assignee_names]) for m in project.members]
     # 節目は担当を持てず、進捗の重みもないので、割り当て漏れには数えない
@@ -280,9 +280,9 @@ def summarize_member_progress(project: Project) -> list[MemberProgress]:
     return rows
 
 
-def summarize_team_rows(project: Project) -> list[MemberProgress]:
+def summarize_team_rows(project: Project, children: Mapping[str, ChildProject] | None = None) -> list[MemberProgress]:
     """チームごとの進捗(メンバーのいるチームだけ)。共同タスクは、担当が所属する全チームの行に数える。"""
-    tasks = _tasks(project)
+    tasks = [entry.task for entry in _entries(project, {}, None, children)]
     rows = []
     for name in teams_with_members(project):
         scoped = team_scope(project, name)
@@ -292,30 +292,34 @@ def summarize_team_rows(project: Project) -> list[MemberProgress]:
 
 
 def summarize_progress(
-    project: Project, holidays: dict[date, str], now: datetime, member: Scope = None
+    project: Project,
+    holidays: dict[date, str],
+    now: datetime,
+    member: Scope = None,
+    children: Mapping[str, ChildProject] | None = None,
 ) -> Progress:
     counts = {status: 0 for status in Status}
     weighted = total = 0.0
     overdue: list[OverdueRow] = []
-    schedule = Schedule(project, holidays)
-    for task in _tasks(project, member):
+    for entry in _entries(project, holidays, member, children):
+        task = entry.task
         counts[task.status] += 1
         if (weight_and_percent := _progress_weight(task)) is not None:  # 節目は進捗率の重みに入れない
             weight, percent = weight_and_percent
             weighted += weight * percent
             total += weight
-        if task.status is not Status.DONE and is_overdue(task, project, holidays, now, schedule):
+        if task.status is not Status.DONE and is_overdue(task, entry.project, entry.schedule.holidays, now, entry.schedule):
             moment = actual_end(task) or now
             limits = [
                 limit
-                for limit in (task.deadline, schedule.end(task))
+                for limit in (task.deadline, entry.schedule.end(task))
                 if limit is not None and moment > limit
             ]
             limit = min(limits, default=task.deadline or now)  # 見込みの超過は、締切を基準にする
-            overdue.append(OverdueRow(task.name, assignee_label(task), limit))
+            overdue.append(OverdueRow(entry.label, assignee_label(task), limit))
     overdue.sort(key=lambda row: row.limit)
-    by_member = summarize_member_progress(project) if member is None else []
-    by_team = summarize_team_rows(project) if member is None else []
+    by_member = summarize_member_progress(project, children) if member is None else []
+    by_team = summarize_team_rows(project, children) if member is None else []
     return Progress(weighted / total if total else None, counts, overdue, by_member, by_team)
 
 
@@ -817,6 +821,7 @@ class Dashboard:
     teams: list[str] = field(default_factory=list)  # プルダウンの選択肢のチーム(メンバーのいるものだけ)
     cross: CrossSummary | None = None  # 全プロジェクトを重ねるとき。None は開いているプロジェクトだけ
     backlog: Backlog = field(default_factory=lambda: Backlog(0.0, 0, None, None, 0.0, []))
+    references: int = 0  # 進捗に数えた参照先のプロジェクトの数
 
     @property
     def planned_total(self) -> float:
@@ -835,20 +840,22 @@ def summarize(
     kind: PeriodKind = PeriodKind.ALL,
     member: str | None = None,
     team: str | None = None,
+    children: Mapping[str, ChildProject] | None = None,
 ) -> Dashboard:
     """`member`があれば`team`は無視する。存在しない・メンバーのいないチームは絞り込まない。"""
     team_members = team_scope(project, team) if member is None else None
     scope: Scope = member if member is not None else team_weights(project, team)
     return Dashboard(
         period,
-        summarize_progress(project, holidays, now, scope),
+        summarize_progress(project, holidays, now, scope, children),
         summarize_loads(project, period, holidays, scope),
         summarize_workload(project, period, now, holidays, scope),
         summarize_due(project, period, now, holidays, scope),
-        summarize_team_progress(project, None if kind is PeriodKind.ALL else period, now, holidays, scope),
+        summarize_team_progress(project, None if kind is PeriodKind.ALL else period, now, holidays, scope, children),
         member,
         [m.name for m in project.members],
         backlog=summarize_backlog(project, period, kind, now, holidays, scope),
         team_name=team if team_members is not None else None,
         teams=teams_with_members(project),
+        references=len(children or {}),
     )
