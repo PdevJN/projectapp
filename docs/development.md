@@ -31,6 +31,11 @@
 | `bulk_select.py` | 一括操作の選択(要望 35)。`BulkSelection`(`toggle`・`extend`・`effective`・`prune`・`clear`)と `with_children`(まとめを選ぶと子も入る)。タスクの id で持つ。純粋関数(NiceGUI に依存しない) |
 | `bulk_edit.py` | 一括編集・一括削除(要望 35)。`apply_bulk` はプロジェクトを変えず、変更後のタスクを `BulkResult` で返す(ダイアログの見込みもこのドライラン)。担当 4 モード・カテゴリ・完了予定(日付/ずらし。ずらしの基準は `timeline.own_end`)・工数。`store` で差し込み、`delete_summary`・`delete_tasks` で削除。純粋関数 |
 | `bulk_dialog.py` | 一括編集のダイアログ。節ごとに「変更する」をオンにしたものだけを `BulkChanges` にし、入力のたびにドライランの見込みを出す |
+| `pace.py` | 警告の判定(要望 103)。`Pace`・`pace`(残りの工数 ÷ 完了予定までの稼働量の比。稼働量は、担当者の稼働日の上書き・祝日・イベントの休み・週ごとの担当を反映)・`warning_pace`(比が`WARNING_RATIO`〔110%〕以上なら警告)。予定超過のタスクは赤に任せる。純粋関数 |
+| `remaining.py` | 残りの工数の計算(要望 98・103)。`total_effort`・`overlap_hours`・`open_hours`・`remaining_hours`。ダッシュボードと警告の判定が共有する。純粋関数 |
+| `periodfield.py` | 期間の欄(`2026-10-01 〜 2026-10-31`)の読み書き(`validate_period`・`format_period`・`split_period`・`normalize_period`・`check_column_count`)と、範囲カレンダー(`add_range_picker`)。プレビュー・メイン・ダッシュボードが共用する |
+| `task_sections.py` | タスクのダイアログの節(基本・担当とパラメータ・実績と進捗・関連)の決まりごと。`FOLDABLE`・`has_values`・`initial_open`(開く節)・各節の要約(`assignees_summary`・`actuals_summary`・`related_summary`)・`section_of_error`。純粋関数 |
+| `workdays.py` | メンバーの稼働日の上書きの規則。`validate_work_days`・`validate_note`・`sort_work_days`・`work_day_map`・`expand_range`(期間で追加)。純粋関数 |
 | `reassign.py` | 担当の付け替えで換算率が変わったときの、完了予定の見直し。`consumed_hours`(消化分)・`needs_review`(確認を出すか)・`reviewed_end`(残りを新換算率で割り当てた完了予定)。純粋関数。編集ダイアログの`save()`が使う |
 | `browser.py` | URL を既定のブラウザで開く(`open_url`)。`http`・`https` 以外と、開けなかったときは `OSError`。開く処理は差し替えられる |
 | `history.py` | 元に戻す・やり直しの履歴(`History`・`HISTORY_LIMIT`)。`Project` の複製を `deque(maxlen=50)` で持つ(Undo と Redo の 2 本)。NiceGUI に依存しない。`record` は新しい編集で Redo を空にし、直前と同じ状態は積まない |
@@ -67,7 +72,7 @@
 
 ## 設計書と実装計画
 
-機能ごとに、設計 → 設計書 → 実装計画の順で進めた(`docs/superpowers/specs/`・`docs/superpowers/plans/`)。一覧と、各機能の状態・後の変更は、[`docs/superpowers/README.md`](superpowers/README.md) にある。設計書と実装計画は、その時点の記録で、後の変更は本文に反映していない。現在の仕様は `CLAUDE.md`、実装の注意は下の「ファイル形式の注意」を正とする。
+機能ごとに、設計 → 設計書 → 実装計画の順で進めた(`docs/superpowers/specs/`・`docs/superpowers/plans/`)。一覧と、各機能の状態・後の変更は、[`docs/superpowers/README.md`](superpowers/README.md) にある。設計書と実装計画は、その時点の記録で、後の変更は本文に反映していない。現在の仕様は `CLAUDE.md`(入口)と `.claude/spec/`、実装の注意は下の「ファイル形式の注意」を正とする。
 
 ## ブランチ
 
@@ -85,9 +90,13 @@ uvx ruff check                  # lint(設定は pyproject.toml の [tool.ruff])
 uvx ruff format src test        # 整形。確認だけなら --check
 ```
 
+### lint とフォーマット(ruff)
+
+依存には入れず、`uvx ruff`で実行する。設定は`pyproject.toml`の`[tool.ruff]`(`target-version = "py313"`、lint は`E4`・`E7`・`E9`・`F`)。実装の完了時に、`uvx ruff check`が 0 件で、`uvx ruff format --check src test`に差分がないことを確かめる(`.claude/RULE.md`)。`docs/`の Markdown 内のコード例は対象にしない。
+
 ### smoke テスト(`-m smoke`)
 
-全テスト(約 4,500 件。直列で約 5 分、`-n auto` で約 1 分)の前に、コア機能が壊れていないことを素早く確かめるためのタグ。`pyproject.toml` の `markers` に登録し、`--strict-markers` でつづりミスはエラーになる。実装のたびに `-m smoke` を実行し(`.claude/RULE.md`)、失敗したら全体(`-n auto`)を実行して詳細を確かめる。PR の前も全体を実行する(CI はない)。
+全テスト(約 4,700 件。直列で約 5 分、`-n auto` で約 1 分)の前に、コア機能が壊れていないことを素早く確かめるためのタグ。`pyproject.toml` の `markers` に登録し、`--strict-markers` でつづりミスはエラーになる。実装のたびに `-m smoke` を実行し(`.claude/RULE.md`)、失敗したら全体(`-n auto`)を実行して詳細を確かめる。PR の前も全体を実行する(CI はない)。
 
 - 付け方: 純粋関数のファイルは、ファイルの先頭に `pytestmark = pytest.mark.smoke`(`test_timeline`・`test_schedule`・`test_ratios`・`test_workdays`・`test_history`・`test_merge`・`test_models`・`test_filemanager`・`test_main`)。件数が多く重い画面系と保存・読込のファイルは、代表だけに `@pytest.mark.smoke`(`test_storage`・`test_views`・`test_task_dialog`・`test_gantt`)。
 - 範囲: 保存・読込(往復・version・不正値)、日程の計算、元に戻す・やり直し、3 者マージ、起動の引数、プロジェクトの新規・開く・保存・未保存の確認、タスクの追加・編集・削除・分解、ガントチャートの描画。ダッシュボード・プレビュー・PlantUML・CSV・git・テーマなどの周辺は含めない。

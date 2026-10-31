@@ -1,6 +1,6 @@
 # イベントの期間を休みにする設計(要望 82)
 
-> **状態**: 設計書承認済み(2026-10-28)。実装計画 [`plans/2026-10-28-event-closed.md`](../plans/2026-10-28-event-closed.md) — 要望 82 — `feature/event-closed`。
+> **状態**: 完了(PR #117。実機確認済み。2026-10-29)。実装計画 [`plans/2026-10-28-event-closed.md`](../plans/2026-10-28-event-closed.md) — 要望 82。現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) に反映済み。
 
 ## 目的
 

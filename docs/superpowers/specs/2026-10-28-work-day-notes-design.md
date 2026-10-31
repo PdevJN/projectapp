@@ -1,6 +1,6 @@
 # 稼働日の上書きの拡張の設計(要望 44〜46)
 
-> **状態**: 設計書承認済み(2026-10-28)。実装計画 [`plans/2026-10-28-work-day-notes.md`](../plans/2026-10-28-work-day-notes.md)— 要望 44〜46 — `feature/work-day-notes`。
+> **状態**: 完了(PR #114。実機確認済み)。実装計画 [`plans/2026-10-28-work-day-notes.md`](../plans/2026-10-28-work-day-notes.md) — 要望 44〜46。現在の仕様は [`CLAUDE.md`](../../../CLAUDE.md) に反映済み。
 
 ## 目的
 

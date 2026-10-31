@@ -16,6 +16,11 @@ mindmap
 
 - uv
 
+## 仕様の文書
+
+- `CLAUDE.md`は入口で、200 行以内に保つ。詳しい仕様は`.claude/spec/`に話題別に置く(索引は`CLAUDE.md`)
+- 仕様を変えたら、該当する`.claude/spec/`のファイルを更新する。`CLAUDE.md`に詳細を書き足さない
+
 ## コード規約
 
 - `The Zen of Python`（REPLで、`import this`で表示される）と[PEP8](https://pep8-ja.readthedocs.io/ja/latest/)とする
