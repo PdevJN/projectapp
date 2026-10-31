@@ -65,6 +65,7 @@ from projectapp.timeline import (
     expected_progress,
     interval_span,
     is_overdue,
+    overdue_reasons,
     month_bands,
     overallocations,
     progress_state,
@@ -2014,6 +2015,10 @@ class GanttChart:
                     )
                 if warning is not None:
                     name.tooltip(warning.hint())
+                elif overdue and task.kind is not TaskKind.REFERENCE:  # 参照行の名前は、開くヒントを優先する
+                    reasons = overdue_reasons(task, self.project, self.holidays, now, self.schedule)
+                    if reasons:
+                        name.tooltip("\n".join(reasons))
                 if finished:  # 終了したタスクは、名前に取り消し線を引く
                     name.style("text-decoration: line-through")
                 name.mark(f"task-name-{key}-{ti}")
@@ -2421,7 +2426,7 @@ class GanttChart:
         if value is None:
             return
         if self.options.show_alerts and value.delayed:
-            ui.label(f"遅延 {value.delayed}件").style(REFERENCE_CHIP_STYLE + f" background: {OVERDUE_COLOR_SOLID};").mark(
+            ui.label(f"遅れ {value.delayed}件").style(REFERENCE_CHIP_STYLE + f" background: {OVERDUE_COLOR_SOLID};").mark(
                 f"ref-delay-{key}-{ti}"
             )
         if self.options.show_alerts and value.warned:
@@ -2443,7 +2448,7 @@ class GanttChart:
         if value.actual_start is not None:
             tail = short_date(value.actual_end.date()) if value.actual_end is not None else ""
             lines.append(f"実績 {short_date(value.actual_start.date())}〜{tail}")
-        lines.append(f"遅延 {value.delayed} 件")
+        lines.append(f"遅れ {value.delayed} 件")
         lines.append(f"警告 {value.warned} 件")
         lines.append(
             f"ピーク負荷 {round(value.peak_load * 100)}%({value.peak_member})" if value.peak_load > 1.0 else "負荷の超過なし"

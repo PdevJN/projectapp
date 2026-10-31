@@ -181,7 +181,7 @@ def late_summary(backlog: Backlog) -> str:
     """残りの工数の見出しの括弧の中身。予定超過と警告(`警告を含む`のときだけ)の件数と工数。なければ`遅れなし`。"""
     parts = []
     if backlog.overdue_count:
-        parts.append(f"遅延 {backlog.overdue_count} 件・{backlog.overdue_hours:.1f}h")
+        parts.append(f"遅れ {backlog.overdue_count} 件・{backlog.overdue_hours:.1f}h")
     if backlog.warning_count:
         parts.append(f"警告 {backlog.warning_count} 件・{backlog.warning_hours:.1f}h")
     return "うち" + "、".join(parts) if parts else "遅れなし"
@@ -673,7 +673,7 @@ class DashboardView:
                 ui.label("チーム別").classes("text-subtitle2")
                 for row in progress.by_team:
                     self.member_progress_row(row, "dashboard-team-row")
-            ui.label("予定超過").classes("text-subtitle2")
+            ui.label("遅れ").classes("text-subtitle2")
             if not progress.overdue:
                 ui.label("なし").classes("text-grey").mark("dashboard-overdue-none")
             for index, row in enumerate(progress.overdue):
@@ -710,7 +710,7 @@ class DashboardView:
                     avatar(name, icon, 20).mark(f"dashboard-load-icon-{name}")
                 ui.label(name)
             ui.label(
-                f"平均 {stats.average * 100:.0f}% / 最大 {stats.peak * 100:.0f}% / 超過 {stats.overload_days} 日"
+                f"平均 {stats.average * 100:.0f}% / 最大 {stats.peak * 100:.0f}% / 割り当て超過 {stats.overload_days} 日"
             ).classes("text-caption" + (" text-negative" if over else "")).mark(f"dashboard-load-{name}")
             bar(stats.average / scale, OVER_COLOR if over else LOAD_COLOR, tick=stats.peak / scale)
 
@@ -885,7 +885,7 @@ class DashboardView:
         選んでいる側は塗りつぶし、押すと on_late_basis_change で基準を切り替える(選択は保存しない)。"""
         required, without = backlog.late_required, backlog.shortfall_without_overdue
         if backlog.late_count and required is not None and without is not None:
-            name = "遅延・警告" if backlog.late_basis is LateBasis.WARNING else "遅れ"
+            name = "遅れ・警告" if backlog.late_basis is LateBasis.WARNING else "遅れ"
             ui.label(f"{name}がなければ {shortage_text(without)}").classes("text-caption").mark("dashboard-backlog-late")
         with ui.button_group().props("flat dense").mark("dashboard-backlog-late-basis"):
             for basis, marker in ((LateBasis.DELAY, "delay"), (LateBasis.WARNING, "warning")):

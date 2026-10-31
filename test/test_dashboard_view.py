@@ -124,7 +124,7 @@ async def test_the_load_card_shows_average_peak_and_overload_days(user: User) ->
     views[0].show(sample(), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-progress-percent")  # refresh は遅延実行なので、描かれるのを待つ
     label = user.find(marker="dashboard-load-田中").elements.pop()
-    assert label.text == "平均 50% / 最大 120% / 超過 2 日"
+    assert label.text == "平均 50% / 最大 120% / 割り当て超過 2 日"
     assert "text-negative" in label.classes  # 100% を超える日があれば強調する
     assert "text-negative" not in user.find(marker="dashboard-load-佐藤").elements.pop().classes
 
@@ -442,7 +442,7 @@ async def test_the_cross_load_card_shows_the_total_and_the_project_breakdown(use
     await user.open("/")
     views[0].show(cross_sample(), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-load-田中")
-    assert text(user, "dashboard-load-田中") == "平均 70% / 最大 120% / 超過 1 日"
+    assert text(user, "dashboard-load-田中") == "平均 70% / 最大 120% / 割り当て超過 1 日"
     assert text(user, "dashboard-cross-detail-田中-0") == "A: 平均 40% / 最大 60%"
     assert text(user, "dashboard-cross-detail-田中-1") == "B: 平均 30% / 最大 60%"
     await user.should_see(marker="dashboard-cross-note")
@@ -474,7 +474,7 @@ async def test_without_cross_the_load_card_is_unchanged_and_the_switch_is_off(us
     await user.open("/")
     views[0].show(sample(), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-load-田中")
-    assert text(user, "dashboard-load-田中") == "平均 50% / 最大 120% / 超過 2 日"
+    assert text(user, "dashboard-load-田中") == "平均 50% / 最大 120% / 割り当て超過 2 日"
     await user.should_not_see(marker="dashboard-cross-note")
     assert user.find(marker="dashboard-cross").elements.pop().value is False
     assert crosses == []  # 表示の同期では通知しない
@@ -1052,7 +1052,7 @@ async def test_the_headline_is_the_shortfall_and_the_late_row_shows_it_without_t
     views[0].show(with_backlog(backlog), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-gap")
     assert text(user, "dashboard-backlog-gap") == "あと 1.0 人"
-    assert text(user, "dashboard-backlog-hours") == "残りの工数 20.0h(うち遅延 2 件・10.0h)"
+    assert text(user, "dashboard-backlog-hours") == "残りの工数 20.0h(うち遅れ 2 件・10.0h)"
     assert text(user, "dashboard-backlog-late") == "遅れがなければ 余裕 1.0 人"
     assert "text-h6" in user.find(marker="dashboard-backlog-gap").elements.pop().classes
 
@@ -1083,7 +1083,7 @@ async def test_the_late_part_has_no_people_without_a_period(user: User) -> None:
     backlog = Backlog(20.0, 0, None, None, 3.0, [], overdue_hours=10.0, overdue_count=2)
     views[0].show(with_backlog(backlog), PeriodKind.ALL)
     await user.should_see(marker="dashboard-backlog-hours")
-    assert text(user, "dashboard-backlog-hours") == "残りの工数 20.0h(うち遅延 2 件・10.0h)"
+    assert text(user, "dashboard-backlog-hours") == "残りの工数 20.0h(うち遅れ 2 件・10.0h)"
     await user.should_not_see(marker="dashboard-backlog-late")  # 人数は出せない
     assert "text-h6" in user.find(marker="dashboard-backlog-hours").elements.pop().classes  # 人数が出せないときは時間が見出し
 
@@ -1130,7 +1130,7 @@ async def test_both_late_bases_are_selectable_and_the_current_one_is_filled(user
     delay = next(iter(user.find(marker="dashboard-backlog-late-delay").elements))
     warning = next(iter(user.find(marker="dashboard-backlog-late-warning").elements))
     assert delay.props.get("disable") is None and warning.props.get("disable") is None
-    assert delay.text == "遅延のみ" and warning.text == "警告を含む"
+    assert delay.text == "遅れのみ" and warning.text == "警告を含む"
     assert "outline" not in delay.props and "outline" in warning.props
 
 
@@ -1166,7 +1166,7 @@ async def test_the_headline_lists_overdue_and_warning_separately(user: User) -> 
     )  # fmt: skip
     views[0].show(with_backlog(both), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-hours")
-    assert text(user, "dashboard-backlog-hours") == "残りの工数 20.0h(うち遅延 1 件・6.5h、警告 2 件・3.5h)"
+    assert text(user, "dashboard-backlog-hours") == "残りの工数 20.0h(うち遅れ 1 件・6.5h、警告 2 件・3.5h)"
     only_warning = Backlog(20.0, 0, 2, 4.0, 3.0, [("田中", 20.0)], late_basis=LateBasis.WARNING, warning_hours=3.5, warning_count=2)
     views[0].show(with_backlog(only_warning), PeriodKind.WEEK)
     await asyncio.sleep(0.3)  # 描き直しを待つ
@@ -1189,7 +1189,7 @@ async def test_the_need_bar_has_a_warning_segment_and_legend_only_for_warnings(u
     await user.should_see(marker="dashboard-backlog-bar-late")
     assert text(user, "dashboard-backlog-legend-warning") == "うち警告"
     assert text(user, "dashboard-backlog-legend-late") == "うち遅れ"
-    assert text(user, "dashboard-backlog-late").startswith("遅延・警告がなければ")
+    assert text(user, "dashboard-backlog-late").startswith("遅れ・警告がなければ")
     delay = Backlog(20.0, 0, 2, 4.0, 3.0, [("田中", 20.0)], overdue_hours=6.0, overdue_count=1)
     views[0].show(with_backlog(delay), PeriodKind.WEEK)
     await asyncio.sleep(0.3)

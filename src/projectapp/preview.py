@@ -114,7 +114,7 @@ class PreviewBar:
                     with ui.menu():  # チェックを押してもメニューは閉じない(Quasar の既定。auto-close は付けない)
                         with ui.column().classes("gap-0 q-pa-sm"):
                             self.chips = ui.checkbox("チップと進捗", value=True).mark("preview-chips")
-                            self.alerts = ui.checkbox("予定超過の赤みと割り当て超過の縞", value=True).mark(
+                            self.alerts = ui.checkbox("遅れの赤みと割り当て超過の縞", value=True).mark(
                                 "preview-alerts"
                             )
                             self.events = ui.checkbox("イベント", value=True).mark("preview-events")

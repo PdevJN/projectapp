@@ -827,12 +827,43 @@ def is_overdue(
     return end is not None and moment > end
 
 
+def overdue_reasons(
+    task: Task,
+    project: Project,
+    holidays: dict[date, str],
+    now: datetime,
+    schedule: Schedule | None = None,
+) -> list[str]:
+    """遅れ(`is_overdue`)の原因を、画面に出す文にする。完了予定を過ぎたら`予定超過`、締切を過ぎたら`期限超過`(両方なら両方)。
+    遅れていなければ空。判定は`is_overdue`と同じ(要望 109)。"""
+    if not is_overdue(task, project, holidays, now, schedule):
+        return []
+    reasons: list[str] = []
+    moment = actual_end(task) or now
+    if task.kind is TaskKind.REFERENCE:  # 参照先の完了予定が、自分の締切を超える
+        if task.deadline is not None:
+            reasons.append(f"期限超過(締切 {task.deadline:%m/%d %H:%M} を過ぎる見込みです)")
+        return reasons
+    if task.deadline is not None:
+        floor = None
+        if task.kind is TaskKind.CHECKPOINT and task.predecessors:
+            floor = (schedule or Schedule(project, holidays)).latest_finish(task)
+        if moment > task.deadline or (floor is not None and floor > task.deadline):
+            reasons.append(f"期限超過(締切 {task.deadline:%m/%d %H:%M} を過ぎています)")
+    if task.kind is TaskKind.CHECKPOINT:  # 完了予定を持たない
+        return reasons
+    end = effective_end(task, project, holidays, schedule)
+    if end is not None and moment > end:
+        reasons.append(f"予定超過(完了予定 {end:%m/%d %H:%M} を過ぎています)")
+    return reasons
+
+
 class ProgressState(StrEnum):
     NORMAL = "通常"
-    DELAYED = "遅延"
+    DELAYED = "進捗不足"
     AHEAD = "前倒し"
     DONE = "完了"
-    LATE_DONE = "遅延完了"
+    LATE_DONE = "遅れて完了"
 
 
 PROGRESS_TOLERANCE = 10  # 進んでいるはずの割合との差の許容幅(パーセントポイント)

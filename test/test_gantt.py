@@ -1524,7 +1524,7 @@ async def test_state_mark_tooltips(user: User) -> None:
     mount(progress_project(10), now=MID)
     await user.open("/")
     mark = user.find(marker="progress-state-0-0").elements.pop()
-    assert tooltip_texts(user, mark) == ["遅延(進捗 10% / 予定 50%)"]
+    assert tooltip_texts(user, mark) == ["進捗不足(進捗 10% / 予定 50%)"]
 
 
 async def test_done_mark_tooltip_has_no_progress_part(user: User) -> None:
@@ -1672,7 +1672,7 @@ OVERDUE_ON_DARK = over((239, 83, 80, 0.18), DARK_PAGE)  # 予定超過の行の�
 def test_dark_state_colors_are_readable_on_the_dark_page(state: ProgressState) -> None:
     color = PROGRESS_STATE_DARK_COLORS[state]
     assert contrast(color, DARK_PAGE) >= 4.5
-    assert contrast(color, OVERDUE_ON_DARK) >= 4.5  # 遅延完了の行は赤みの背景になる
+    assert contrast(color, OVERDUE_ON_DARK) >= 4.5  # 遅れて完了の行は赤みの背景になる
 
 
 @pytest.mark.parametrize("state", list(PROGRESS_STATE_COLORS))
@@ -3901,7 +3901,7 @@ async def test_a_reference_row_draws_one_band_with_delay_and_load_chips(user: Us
     reference_chart(SPAN)
     await user.open("/")
     await user.should_see(marker="bar-top-0")
-    assert "遅延 3件" in user.find(marker="ref-delay-top-0").elements.pop().text
+    assert "遅れ 3件" in user.find(marker="ref-delay-top-0").elements.pop().text
     assert "負荷 130%" in user.find(marker="ref-load-top-0").elements.pop().text
     await user.should_see(marker="overload-top-0-0")  # 超過の期間に縞
 
@@ -3933,7 +3933,7 @@ async def test_the_reference_hover_says_it_opens_on_click_and_the_band_underline
     await user.open("/")
     bar = user.find(marker="bar-top-0").elements.pop()
     text = tooltips_targeting(bar)[0]
-    assert "基盤開発 10/5〜10/16" in text and "遅延 3 件" in text and "ピーク負荷 130%(田中)" in text
+    assert "基盤開発 10/5〜10/16" in text and "遅れ 3 件" in text and "ピーク負荷 130%(田中)" in text
     assert text.endswith("クリックすると「基盤」プロジェクトを開く")
     assert "ref-link" in bar.classes
 
@@ -4262,6 +4262,8 @@ async def test_an_overdue_task_stays_red_and_gets_no_warning(user: User) -> None
     mount(warning_project(), now=datetime(2026, 10, 8))
     await user.open("/")
     assert row_background(user, "task-0-0") == OVERDUE_COLOR
+    tips = name_tooltips(user, "task-name-0-0")
+    assert len(tips) == 1 and tips[0].startswith("予定超過(完了予定 ")
 
 
 async def test_a_done_task_gets_no_warning(user: User) -> None:
