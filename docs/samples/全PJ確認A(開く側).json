@@ -1,0 +1,100 @@
+{
+  "version": 17,
+  "name": "全PJ確認A(開く側)",
+  "base_date": "2026-11-02",
+  "daily_hours": 6.5,
+  "work_start": "09:00:00",
+  "members": [
+    {
+      "name": "田中",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "e86527ec",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": []
+    },
+    {
+      "name": "鈴木",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "f0d08b51",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": []
+    }
+  ],
+  "sections": [],
+  "tasks": [
+    {
+      "name": "A1 未着手 13h",
+      "id": "7af44a8e",
+      "planned_start": "2026-11-04T09:00:00",
+      "effort_hours": 13,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "e86527ec",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": []
+    },
+    {
+      "name": "A2 未着手 6.5h",
+      "id": "a9959222",
+      "planned_start": "2026-11-05T09:00:00",
+      "effort_hours": 6.5,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "f0d08b51",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": []
+    }
+  ],
+  "actual_mode": "simple",
+  "url_templates": [],
+  "parameters": [],
+  "categories": [],
+  "events": [],
+  "teams": [],
+  "reference_mode": "live",
+  "plantuml_overload_notice": true,
+  "ratio_limit_upper": null,
+  "ratio_limit_lower": null
+}
