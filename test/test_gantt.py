@@ -24,7 +24,9 @@ from projectapp.gantt import (
     TODAY_CSS,
     TODAY_DARK_COLOR,
     TODAY_LINE_WIDTH_PX,
+    WEEK_PX,
     today_scroll_js,
+    week_scroll_js,
     ViewOptions,
     crew_text,
     SHIFT_HINT,
@@ -4267,3 +4269,83 @@ async def test_show_alerts_false_hides_the_warning_tint(user: User) -> None:
     await user.open("/")
     assert row_background(user, "task-0-0") is None
     assert name_cell_image(user, "task-0-0") is None
+
+
+async def test_the_move_menu_goes_to_the_base_date_and_the_first_task(user: User) -> None:
+    charts, _ = mount_chart(sample_project(), now=NOON)
+    await user.open("/")
+    chart = charts[0]
+    sent = record_javascript(chart)
+    user.find(marker="move-base").click()
+    assert sent == [today_scroll_js(chart.date_x(BASE), chart.name_width)]
+    sent.clear()
+    user.find(marker="move-first").click()
+    assert chart.first_task_day() == date(2026, 10, 5)
+    assert sent == [today_scroll_js(chart.date_x(date(2026, 10, 5)), chart.name_width)]
+
+
+async def test_the_move_menu_shifts_by_a_week_on_every_scale(user: User) -> None:
+    charts, _ = mount_chart(sample_project(), now=NOON)
+    await user.open("/")
+    chart = charts[0]
+    sent = record_javascript(chart)
+    user.find(marker="move-next").click()
+    user.find(marker="move-prev").click()
+    assert sent == [week_scroll_js(WEEK_PX[Scale.DAY]), week_scroll_js(-WEEK_PX[Scale.DAY])]
+    chart.set_scale(Scale.MONTH)
+    sent.clear()
+    chart.shift_weeks(1)
+    assert sent == [week_scroll_js(WEEK_PX[Scale.MONTH])]
+    assert WEEK_PX[Scale.DAY] == 7 * COLUMN_WIDTH_PX[Scale.DAY]
+    assert WEEK_PX[Scale.WEEK] == COLUMN_WIDTH_PX[Scale.WEEK]
+
+
+async def test_go_to_date_reads_short_forms_and_explains_what_it_cannot_do(user: User) -> None:
+    charts, _ = mount_chart(sample_project(), now=NOON)
+    await user.open("/")
+    chart = charts[0]
+    sent = record_javascript(chart)
+    assert chart.go_to_date("10/6") is None
+    assert chart.go_to_date("20261008") is None
+    assert len(sent) == 2
+    sent.clear()
+    assert "読めません" in (chart.go_to_date("あした") or "")
+    assert "表示期間の外" in (chart.go_to_date("2030-01-01") or "")
+    assert sent == []  # 移れないときは動かさない
+
+
+async def test_the_goto_dialog_moves_on_apply_and_shows_the_error_otherwise(user: User) -> None:
+    charts, _ = mount_chart(sample_project(), now=NOON)
+    await user.open("/")
+    chart = charts[0]
+    sent = record_javascript(chart)
+    chart.open_goto_dialog()
+    user.find(marker="goto-input").type("2030-01-01")
+    user.find(marker="goto-apply").click()
+    assert "表示期間の外" in user.find(marker="goto-error").elements.pop().text
+    assert not [code for code in sent if "scrollTo" in code]
+    user.find(marker="goto-input").clear().type("10/8")
+    user.find(marker="goto-apply").click()
+    assert len([code for code in sent if "scrollTo" in code]) == 1
+
+
+async def test_move_items_are_disabled_with_a_reason_when_they_cannot_go(user: User) -> None:
+    charts, _ = mount_chart(sample_project(), now=NOON)
+    await user.open("/")
+    chart = charts[0]
+    base, first = chart.move_items["base"][0], chart.move_items["first"][0]
+    assert base.enabled and first.enabled
+    chart.set_period((date(2026, 11, 1), date(2026, 11, 30)))
+    await settled(lambda: not base.enabled)
+    assert not first.enabled and not chart.move_items["today"][0].enabled
+    assert "表示期間の外" in chart.move_items["base"][1].text
+    chart.set_period(None)
+    await settled(lambda: base.enabled and first.enabled)
+
+
+async def test_the_first_task_item_is_disabled_without_scheduled_tasks(user: User) -> None:
+    charts, _ = mount_chart(Project("p", base_date=BASE, sections=[Section("s", [Task("日程なし")])]), now=NOON)
+    await user.open("/")
+    assert charts[0].first_task_day() is None
+    assert not charts[0].move_items["first"][0].enabled
+    assert charts[0].move_items["first"][1].text == "移れるタスクがありません"

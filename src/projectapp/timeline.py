@@ -185,6 +185,11 @@ def today_position(now: datetime, columns: list[Column], scale: Scale) -> float 
     return None
 
 
+def date_position(day: date, columns: list[Column], scale: Scale) -> float | None:
+    """ある日の左端のチャート内の位置(列の単位)。範囲の外なら None。日次はその日の 0 時、週次・月次は今日の線と同じ規則。"""
+    return today_position(datetime.combine(day, time.min), columns, scale)
+
+
 def interval_span(start: datetime, end: datetime, columns: list[Column]) -> tuple[float, float]:
     """区間の(左端, 幅)を列の単位で返す。幅は0以上。"""
     left = _position(start, columns)

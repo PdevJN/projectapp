@@ -932,6 +932,12 @@ class MainView:
         "undo": "undo",
         "redo": "redo",
         "bulk_delete": "delete_selected",
+        "go_today": "go_today",
+        "go_base": "go_base",
+        "go_first_task": "go_first_task",
+        "go_date": "go_date",
+        "go_prev_week": "go_prev_week",
+        "go_next_week": "go_next_week",
     }
 
     def on_plain_key(self, event: KeyEventArguments) -> None:
@@ -981,6 +987,24 @@ class MainView:
             self.change_zoom(ZOOM_DIRECTIONS[action])
         elif action is not None:
             getattr(self, self.SHORTCUT_METHODS[action])()
+
+    def go_today(self) -> None:
+        self.gantt.scroll_to_today()
+
+    def go_base(self) -> None:
+        self.gantt.go_to_base()
+
+    def go_first_task(self) -> None:
+        self.gantt.go_to_first_task()
+
+    def go_date(self) -> None:
+        self.gantt.open_goto_dialog()
+
+    def go_prev_week(self) -> None:
+        self.gantt.shift_weeks(-1)
+
+    def go_next_week(self) -> None:
+        self.gantt.shift_weeks(1)
 
     def delete_selected(self) -> None:
         """Delete キー。選択中のタスクの一括削除を、確認つきで呼ぶ(選択がなければ何もしない)。"""
