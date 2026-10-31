@@ -597,7 +597,7 @@ def summarize_due(
 class Backlog:
     hours: float  # 残りの工数の合計(100% の人の時間)
     unset_count: int  # 工数のない未終了のタスク(合計に入れない)
-    days: int | None  # 割る期間の稼働日数。決まらないときは None
+    days: float | None  # 割る期間の稼働日数(今日は残りの時間を稼働可能時間で割った小数)。決まらないときは None
     required: float | None  # 必要な人数(100% の人に換算)。days が None か 0 のときは None
     supply: float  # 今いる人員(相対比率の合計)
     by_member: list[tuple[str, float]]  # (担当者, 残りの工数)。共同タスクは割り当て率の比で按分
@@ -615,10 +615,11 @@ def _next_workday(day: date, holidays: dict[date, str]) -> date:
     return next((d for d in (day + timedelta(days=i) for i in range(14)) if is_workday(d, holidays)), day)
 
 
-def _backlog_days(
+def _backlog_hours(
     project: Project, period: Period, kind: PeriodKind, now: datetime, holidays: dict[date, str], ends: list[datetime]
-) -> int | None:
-    """必要人数の分母にする稼働日数(通常カレンダー)。今日より前の日は数えない。今日以降に日がなければ 0。"""
+) -> float | None:
+    """必要人数の分母にする稼働時間(通常カレンダー)。今日は、今から稼働の枠の終わりまでの残り(始業前は枠の全体、
+    終業後は 0)。今日より前の日は数えない。期間がすでに終わっていれば 0。"""
     today = now.date()
     if kind is PeriodKind.ALL:  # 全期間は、数えたタスクの最も遅い終わりまで
         if not ends:
@@ -628,11 +629,15 @@ def _backlog_days(
     else:
         start, end = max(today, period.start), period.end
     if start > end:
-        return 0  # 期間がすでに終わっている
-    count = sum(is_workday(day, holidays) for day in Period(start, end).days())
-    if count == 0 and is_workday(_next_workday(end + timedelta(days=1), holidays), holidays):
-        return 1  # 残りの日が休みだけのときは、次の稼働日の 1 日で終える場合を示す
-    return count
+        return 0.0  # 期間がすでに終わっている
+    rest_of_today = datetime.combine(today + timedelta(days=1), time.min)
+    total = sum(
+        _overlap_hours(project, holidays, day, now, rest_of_today) if day == today else day_hours(day, project.daily_hours, holidays)
+        for day in Period(start, end).days()
+    )
+    if total <= 0 and is_workday(_next_workday(end + timedelta(days=1), holidays), holidays):
+        return project.daily_hours  # 残りが休みだけ(今日の稼働が終わっている場合を含む)のときは、次の稼働日の 1 日で終える場合を示す
+    return total
 
 
 class _WorkHours:
@@ -824,8 +829,9 @@ def summarize_backlog(
                 by_status[task.status] += portion * _factor(member, key)
     shown = [name for name in (*names, UNASSIGNED) if scoped is None or name in scoped]
     hours = sum(split[name] * _factor(member, name) for name in shown)
-    days = _backlog_days(project, period, kind, now, holidays, ends)
-    required = hours / (project.daily_hours * days) if days else None
+    capacity = _backlog_hours(project, period, kind, now, holidays, ends)
+    days = None if capacity is None else capacity / project.daily_hours
+    required = hours / capacity if capacity else None
     supply = sum(
         effective_ratio(m, project.parameters, None, project.ratio_limits) * _factor(member, m.name)
         for m in project.members

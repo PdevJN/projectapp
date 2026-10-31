@@ -46,6 +46,7 @@ CARD_TITLES = {
     CardId.BACKLOG: "残りの工数と必要人数",
     CardId.DUE: "期限とマイルストーン",
 }
+REFRESH_SECONDS = 300  # 表示中に集計し直す間隔(今日の残り時間が変わるため)
 ALL_MEMBERS = ""  # プルダウンの`全員`の値
 MAX_TIP_CHIPS = 10  # 凡例のツールチップに並べるチップの上限。超えた分は「+n件」にまとめる
 PIE_DIAMETER = "9rem"
@@ -187,6 +188,11 @@ def weighted_note(data: Dashboard, key: str) -> None:
         )
 
 
+def days_text(days: float) -> str:
+    """稼働日数の表示。小数 1 桁(整数なら小数点なし)。"""
+    return f"{days:.1f}".removesuffix(".0")
+
+
 def moment_text(moment: datetime) -> str:
     return f"{moment:%m/%d %H:%M}"
 
@@ -219,8 +225,10 @@ class DashboardView:
         on_custom_change: Callable[[str], object] | None = None,
         on_team_change: Callable[[str | None], object] | None = None,
         actions: ViewActions | None = None,
+        on_tick: Callable[[], object] | None = None,
     ) -> None:
         self.actions = actions
+        self.on_tick = on_tick
         self.edit_mode = False
         self.edit_button: ui.button | None = None
         self.view_select: ui.select | None = None
@@ -255,6 +263,7 @@ class DashboardView:
         ui.add_css(DASHBOARD_DRAG_CSS)
         ui.add_head_html(f"<script>{DASHBOARD_DRAG_JS}</script>")
         ui.on("dashboard_move_card", lambda e: self.handle_move(e.args))
+        ui.timer(REFRESH_SECONDS, self.tick)
         with ui.column().classes("w-full gap-4") as box:
             self.box = box
             box.mark("dashboard-box")
@@ -478,6 +487,11 @@ class DashboardView:
         if self.box is not None:
             self.box.set_visibility(True)
         self.cards.refresh()
+
+    def tick(self) -> None:
+        """表示中だけ、集計し直す。カードの編集中は、並べ替えの途中で描き直さない。"""
+        if self.on_tick is not None and self.box is not None and self.box.visible and not self.edit_mode:
+            self.on_tick()
 
     def hide(self) -> None:
         self.edit_mode = False  # 編集モードは持ち越さない(次に開くときは、ふだんの表示)
@@ -725,7 +739,7 @@ class DashboardView:
                 reason = "期間がすでに終わっている" if backlog.days == 0 else "期間が決まらない"
                 ui.label(f"{reason}ため、必要な人数は出せません").classes("text-grey").mark("dashboard-backlog-nodays")
             else:
-                ui.label(f"稼働 {backlog.days} 日で終える場合").classes("text-caption").mark("dashboard-backlog-days")
+                ui.label(f"稼働 {days_text(backlog.days)} 日で終える場合").classes("text-caption").mark("dashboard-backlog-days")
                 ui.label(f"必要 {backlog.required:.1f} 人 / 今いる人員 {backlog.supply:.1f} 人").mark(
                     "dashboard-backlog-people"
                 )
@@ -737,7 +751,7 @@ class DashboardView:
                 ui.label(gap).classes("text-subtitle2" + (" text-negative" if short > 0 else "")).mark(
                     "dashboard-backlog-gap"
                 )
-                ui.label("稼働日の上書きと休暇は反映していません。今日は、稼働が終わっていても 1 日として数えます。").classes(
+                ui.label("稼働日の上書きと休暇は反映していません。今日は、今から稼働の枠の終わりまでの残り時間で数えます。").classes(
                     "text-caption text-grey"
                 ).mark("dashboard-backlog-note")
             if backlog.by_member:
