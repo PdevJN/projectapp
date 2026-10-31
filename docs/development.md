@@ -81,6 +81,8 @@ uv run pytest --cov=projectapp
 uv run pytest -n auto          # 並列(pytest-xdist)。--cov とも併用できる
 uv run pytest -m smoke         # コア機能の確認だけ(約 450 件・10 秒以内)
 uv run ty check src
+uvx ruff check                  # lint(設定は pyproject.toml の [tool.ruff])
+uvx ruff format src test        # 整形。確認だけなら --check
 ```
 
 ### smoke テスト(`-m smoke`)
