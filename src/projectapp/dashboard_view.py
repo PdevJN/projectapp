@@ -173,6 +173,12 @@ def empty_message(marker: str) -> None:
     ui.label(EMPTY).classes("text-grey").mark(marker)
 
 
+def references_note(data: Dashboard, key: str) -> None:
+    """参照先のプロジェクトのタスクを数えているときの注記。`key`はカードごとのマークの末尾(team・progress)。"""
+    if data.references:
+        ui.label(f"参照先 {data.references} 件を含む").classes("text-caption text-grey").mark(f"dashboard-{key}-references")
+
+
 def weighted_note(data: Dashboard, key: str) -> None:
     """チームを選んでいるときの注記。`key`はカードごとのマークの末尾(load・hours・backlog)。"""
     if data.team_name:
@@ -524,6 +530,7 @@ class DashboardView:
             elif data.team_name:
                 scope = f"チーム「{data.team_name}」・{scope}"
             ui.label(scope).classes("text-caption text-grey").mark("dashboard-team-scope")
+            references_note(data, "team")
             if team.percent is None:
                 empty_message("dashboard-empty-team")
                 return
@@ -563,6 +570,7 @@ class DashboardView:
     def progress_card(self, data: Dashboard) -> None:
         progress = data.progress
         with card("進捗と遅れ", "dashboard-progress"):
+            references_note(data, "progress")
             if progress.percent is None:
                 empty_message("dashboard-empty-progress")
                 return

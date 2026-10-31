@@ -68,7 +68,14 @@ from projectapp.forms import (
     open_unsaved_dialog,
 )
 from projectapp import arrange
-from projectapp.reference import ReferenceResolver, build_references, compute_reference, missing_references, take_snapshot
+from projectapp.reference import (
+    ReferenceResolver,
+    build_references,
+    compute_reference,
+    load_children,
+    missing_references,
+    take_snapshot,
+)
 from projectapp.shortcuts import Screen, defers_to_inputs, help_entries, key_guard_js, label_for, resolve
 from projectapp.dashboard import MAX_CUSTOM_DAYS, CrossSummary, Period, PeriodKind, custom_period_error, period_for, summarize, summarize_cross_loads
 from projectapp.dashboard_view import DashboardView, ViewActions
@@ -987,7 +994,14 @@ class MainView:
         if self.dashboard_member is not None or self.dashboard_team not in (None, *teams_with_members(self.project)):
             self.dashboard_team = None  # 消えたチームは全員に戻す。メンバーを選んでいるときはチームを使わない
         data = summarize(
-            self.project, period, now, self.holidays, self.dashboard_kind, self.dashboard_member, self.dashboard_team
+            self.project,
+            period,
+            now,
+            self.holidays,
+            self.dashboard_kind,
+            self.dashboard_member,
+            self.dashboard_team,
+            load_children(self.project, self.reference_resolver, self.base_holidays),
         )
         if self.dashboard_cross:
             chosen = [p for p in projects if p.name not in self.dashboard_excluded]

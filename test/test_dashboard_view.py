@@ -818,3 +818,23 @@ async def test_the_team_row_and_dropdown_show_for_everyone_and_report_team_chang
     assert teams == ["開発"] and members == []
     select.set_value("田中")
     assert members == ["田中"]
+
+
+async def test_the_team_and_progress_cards_note_how_many_referenced_projects_are_counted(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    data.references = 2
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-team-references")
+    assert text(user, "dashboard-team-references") == "参照先 2 件を含む"
+    assert text(user, "dashboard-progress-references") == "参照先 2 件を含む"
+
+
+async def test_the_cards_do_not_note_references_when_none_are_counted(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-team-percent")
+    await user.should_not_see(marker="dashboard-team-references")
+    await user.should_not_see(marker="dashboard-progress-references")
