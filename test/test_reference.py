@@ -126,7 +126,7 @@ def test_reference_rows_are_left_out_of_the_dashboard_counts() -> None:
 from pathlib import Path
 
 from projectapp.models import ReferenceMode
-from projectapp.reference import ReferenceResolver, build_references, missing_references, take_snapshot
+from projectapp.reference import ReferenceResolver, build_references, load_children, missing_references, take_snapshot
 from projectapp.storage import save_project
 
 
@@ -212,3 +212,52 @@ def test_reference_passes_the_event_closed_days_to_the_computation(tmp_path: Pat
     monkeypatch.setattr("projectapp.reference.compute_reference", spy)
     ReferenceResolver(lambda: tmp_path, lambda: {date(2026, 10, 1): "祝"}).live("基盤", datetime(2026, 10, 14))
     assert seen == [{date(2026, 10, 1): "祝", date(2026, 10, 12): "休業"}]
+
+
+def parent_with_references(*names: str) -> Project:
+    return Project(
+        "親",
+        tasks=[Task(n, id=f"r{i}", kind=TaskKind.REFERENCE, ref_project=n) for i, n in enumerate(names)],
+    )
+
+
+def test_project_returns_the_referenced_project_and_caches_by_content(tmp_path: Path) -> None:
+    save_project(source(), tmp_path)
+    resolver = resolver_for(tmp_path)
+    first, problem = resolver.project("基盤")
+    assert problem == "" and first is not None and first.name == "基盤"
+    assert resolver.project("基盤")[0] is first  # ファイルが同じ間は同じ物を返す
+    changed = source()
+    changed.tasks.append(Task("d", id="d"))
+    save_project(changed, tmp_path)
+    assert resolver.project("基盤")[0] is not first
+
+
+def test_project_gives_a_reason_for_a_missing_or_broken_file(tmp_path: Path) -> None:
+    resolver = resolver_for(tmp_path)
+    assert resolver.project("無い")[0] is None
+    (tmp_path / "壊れ.json").write_text("{", encoding="utf-8")
+    value, problem = resolver.project("壊れ")
+    assert value is None and "壊れ" in problem
+
+
+def test_load_children_reads_each_referenced_project_once_and_skips_unreadable_ones(tmp_path: Path) -> None:
+    save_project(source(), tmp_path)
+    children = load_children(parent_with_references("基盤", "基盤", "無い"), resolver_for(tmp_path), {})
+    assert list(children) == ["基盤"]  # 重複は 1 回、読めないものは外す
+    assert children["基盤"].project.name == "基盤"
+
+
+def test_load_children_gives_the_child_its_own_closed_event_holidays(tmp_path: Path) -> None:
+    inner = source()
+    inner.events = [Event(date(2026, 10, 12), date(2026, 10, 12), "休業", "gray", closed=True)]
+    save_project(inner, tmp_path)
+    children = load_children(parent_with_references("基盤"), resolver_for(tmp_path), {})
+    assert date(2026, 10, 12) in children["基盤"].holidays
+
+
+def test_load_children_skips_a_reference_to_the_project_itself(tmp_path: Path) -> None:
+    save_project(source(), tmp_path)
+    own = parent_with_references("基盤")
+    own.name = "基盤"
+    assert load_children(own, resolver_for(tmp_path), {}) == {}

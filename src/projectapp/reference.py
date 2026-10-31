@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
 
-from projectapp.dashboard import _progress_weight
+from projectapp.dashboard import ChildProject, _progress_weight
 from projectapp.events import effective_holidays
 from projectapp.models import OverloadSpan, Project, ReferenceMode, ReferenceValue, Status, Task, TaskKind
 from projectapp.storage import file_digest, load_project
@@ -66,6 +66,7 @@ class ReferenceResolver:
         self.project_dir = project_dir
         self.holidays = holidays
         self._cache: dict[str, tuple[tuple[str, date], ReferenceValue | None, str]] = {}
+        self._projects: dict[str, tuple[str, Project]] = {}
 
     def live(self, name: str, now: datetime) -> tuple[ReferenceValue | None, str]:
         path = self.project_dir() / f"{name}.json"
@@ -83,6 +84,22 @@ class ReferenceResolver:
             value, problem = None, f"「{name}.json」を読めません({exc or type(exc).__name__})"
         self._cache[name] = (key, value, problem)
         return value, problem
+
+    def project(self, name: str) -> tuple[Project | None, str]:
+        """参照先のプロジェクトそのもの(ダッシュボードの展開用)。内容のハッシュが同じ間は同じ物を返す。"""
+        path = self.project_dir() / f"{name}.json"
+        digest = file_digest(path)
+        if digest is None:
+            return None, f"「{name}.json」が格納先にありません"
+        cached = self._projects.get(name)
+        if cached is not None and cached[0] == digest:
+            return cached[1], ""
+        try:
+            loaded = load_project(path)
+        except Exception as exc:  # noqa: BLE001 他人のファイルの形の崩れで、画面を止めない
+            return None, f"「{name}.json」を読めません({exc or type(exc).__name__})"
+        self._projects[name] = (digest, loaded)
+        return loaded, ""
 
 
 def build_references(project: Project, resolver: ReferenceResolver, now: datetime) -> dict[str, Reference]:
@@ -111,3 +128,18 @@ def missing_references(project: Project, resolver: ReferenceResolver, now: datet
     """見つからない・読めない参照先のファイル名(重複なし・初出の順)。"""
     names = dict.fromkeys(t.ref_project for t in project.all_tasks() if t.kind is TaskKind.REFERENCE)
     return [name for name in names if resolver.live(name, now)[0] is None]
+
+
+def load_children(
+    project: Project, resolver: ReferenceResolver, base_holidays: dict[date, str]
+) -> dict[str, ChildProject]:
+    """参照行が指す参照先を、ダッシュボードに数える形で読む(重複は 1 回、自分自身と読めないものは外す)。"""
+    names = dict.fromkeys(t.ref_project for t in project.all_tasks() if t.kind is TaskKind.REFERENCE)
+    children: dict[str, ChildProject] = {}
+    for name in names:
+        if name == project.name:
+            continue
+        child, _ = resolver.project(name)
+        if child is not None:
+            children[name] = ChildProject(child, effective_holidays(child, base_holidays))
+    return children
