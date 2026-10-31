@@ -103,9 +103,9 @@
 | 97 | 進捗の簡易記録を、ガントチャートから入れられるようにする | 未着手 | 2026-10-31 | — | — | [`requests.md`](requests.md) |
 | 98 | 遅延時のカバーを予測する(遅れを取り戻すのに、追加で要る人員の試算) | 未着手 | 2026-10-31 | — | — | [`requests.md`](requests.md) |
 | 99 | ダッシュボードで、人名を出す行に、アイコンと名前をセットで表示する | 未着手 | 2026-10-31 | — | — | [`requests.md`](requests.md) |
-| 100 | イベントの色の入力を、タスクの`色`と同じ形にする | 実装済み(PR 待ち) | 2026-10-31 | — | — | [`requests.md`](requests.md) |
+| 100 | イベントの色の入力を、タスクの`色`と同じ形にする | 完了(PR #148。`develop`へマージ済み) | 2026-10-31 | — | f21878d(2026-10-31) | [`requests.md`](requests.md) |
 | 101 | カスタムの CSV のインポート・エクスポート(カラムの指定つき) | 未着手 | 2026-10-31 | — | — | [`requests.md`](requests.md) |
-| 102 | テストの一部だけを実行できるように、タグ(smoke テスト)を付ける | 実装済み(PR 待ち) | 2026-10-31 | — | — | [`requests.md`](requests.md) |
+| 102 | テストの一部だけを実行できるように、タグ(smoke テスト)を付ける | 完了(PR #150。`develop`へマージ済み) | 2026-10-31 | — | cee1610(2026-10-31) | [`requests.md`](requests.md) |
 | 82 | イベントごとのチェックボックスで、その期間を全員の稼働日の休みにする | 完了(PR #117。実機確認済み。テスト 4,121 件) | 2026-10-28 | [設計](superpowers/specs/2026-10-28-event-closed-design.md)・[計画](superpowers/plans/2026-10-28-event-closed.md) | PR #117(7a6d9e2。2026-10-29) | `Event.closed`(`version` 15)。祝日と同じ休みに混ぜる(`effective_holidays`)。メンバーの上書きが優先。[`requests.md`](requests.md) |
 | 78 | プロジェクトの設定値とメンバーの設定値のエクスポート・インポート | 完了(PR #120。実機確認済み。テスト 4,166 件) | 2026-10-28 | [設計](superpowers/specs/2026-10-29-settings-export-import-design.md)・[計画](superpowers/plans/2026-10-29-settings-export-import.md) | PR #120(78cc309。2026-10-29) | 専用の設定ファイル(`kind: projectapp-settings`)。`settings_io.py`・`settings_dialog.py`。取り込みは項目ごとに上書き/スキップ、未保存の編集で元に戻す 1 ステップ。要望 77 は、この突き合わせと検証を呼ぶ形で後から足せる。[`requests.md`](requests.md) |
 
