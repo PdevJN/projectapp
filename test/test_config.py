@@ -533,3 +533,69 @@ def test_an_invalid_warning_color_is_read_as_none(
         json.dumps({"warning_color": value}), encoding="utf-8"
     )
     assert load_warning_color(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (100, 100),
+        (70, 70),
+        (30, 30),
+        (10, 30),
+        (150, 100),
+        (66.6, 67),
+        (None, None),
+        ("70", None),
+        (True, None),
+        (float("nan"), None),
+        (float("inf"), None),
+    ],
+)
+def test_parse_main_split_clamps_numbers_and_rejects_others(value, expected) -> None:
+    from projectapp import config
+
+    assert config.parse_main_split(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (70, 70),
+        (72, 70),
+        (73, 75),
+        (10, 50),
+        (99, 90),
+        (None, None),
+        ("70", None),
+        (True, None),
+        (float("nan"), None),
+    ],
+)
+def test_parse_open_ratio_rounds_to_step_and_clamps(value, expected) -> None:
+    from projectapp import config
+
+    assert config.parse_open_ratio(value) == expected
+
+
+def test_main_split_defaults_to_100_and_round_trips(tmp_path: Path) -> None:
+    from projectapp import config
+
+    assert config.load_main_split(tmp_path) == config.DEFAULT_MAIN_SPLIT == 100
+    config.save_main_split(60, tmp_path)
+    assert config.load_main_split(tmp_path) == 60
+
+
+def test_open_ratio_defaults_to_70_and_round_trips(tmp_path: Path) -> None:
+    from projectapp import config
+
+    assert config.load_open_ratio(tmp_path) == config.DEFAULT_OPEN_RATIO == 70
+    config.save_open_ratio(55, tmp_path)
+    assert config.load_open_ratio(tmp_path) == 55
+
+
+def test_broken_saved_split_values_fall_back_to_defaults(tmp_path: Path) -> None:
+    from projectapp import config
+
+    config.update_config({"main_split": "abc", "bottom_open_ratio": [1]}, tmp_path)
+    assert config.load_main_split(tmp_path) == 100
+    assert config.load_open_ratio(tmp_path) == 70

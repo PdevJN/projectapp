@@ -187,6 +187,53 @@ def save_zoom(zoom: int, base_dir: Path = BASE_DIR) -> None:
     update_config({"zoom": zoom}, base_dir)
 
 
+DEFAULT_MAIN_SPLIT = 100  # ガントチャートの割合(%)。100 は下部パネルを畳む
+MIN_MAIN_SPLIT = 30
+DEFAULT_OPEN_RATIO = 70  # 下部パネルを開くときの、ガントチャートの割合(%)
+MIN_OPEN_RATIO, MAX_OPEN_RATIO, OPEN_RATIO_STEP = 50, 90, 5
+
+
+def _finite_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value) if isfinite(value) else None
+
+
+def parse_main_split(value: object) -> int | None:
+    """分割の位置(ガントチャートの割合)の検証。有限の数を丸めて 30〜100 に収める。それ以外は None。"""
+    number = _finite_number(value)
+    if number is None:
+        return None
+    return min(max(round(number), MIN_MAIN_SPLIT), 100)
+
+
+def parse_open_ratio(value: object) -> int | None:
+    """開くときの割合の検証。有限の数を 5 刻みに丸めて 50〜90 に収める。それ以外は None。"""
+    number = _finite_number(value)
+    if number is None:
+        return None
+    stepped = round(number / OPEN_RATIO_STEP) * OPEN_RATIO_STEP
+    return min(max(stepped, MIN_OPEN_RATIO), MAX_OPEN_RATIO)
+
+
+def load_main_split(base_dir: Path = BASE_DIR) -> int:
+    value = parse_main_split(read_config(base_dir).get("main_split"))
+    return DEFAULT_MAIN_SPLIT if value is None else value
+
+
+def save_main_split(value: int, base_dir: Path = BASE_DIR) -> None:
+    update_config({"main_split": value}, base_dir)
+
+
+def load_open_ratio(base_dir: Path = BASE_DIR) -> int:
+    value = parse_open_ratio(read_config(base_dir).get("bottom_open_ratio"))
+    return DEFAULT_OPEN_RATIO if value is None else value
+
+
+def save_open_ratio(value: int, base_dir: Path = BASE_DIR) -> None:
+    update_config({"bottom_open_ratio": value}, base_dir)
+
+
 PROJECT_DIR_MISSING_MESSAGE = "格納先が見つからないため、既定の場所を使っています"
 
 
