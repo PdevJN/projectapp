@@ -776,7 +776,7 @@ async def test_the_backlog_card_notes_what_the_supply_leaves_out(user: User) -> 
     views[0].show(with_backlog(Backlog(6.5, 0, 3, 0.5, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-note")
     assert text(user, "dashboard-backlog-note") == (
-        "稼働日の上書きと休暇は反映していません。今日は、稼働が終わっていても 1 日として数えます。"
+        "稼働日の上書きと休暇は反映していません。今日は、今から稼働の枠の終わりまでの残り時間で数えます。"
     )
 
 
@@ -838,3 +838,42 @@ async def test_the_cards_do_not_note_references_when_none_are_counted(user: User
     await user.should_see(marker="dashboard-team-percent")
     await user.should_not_see(marker="dashboard-team-references")
     await user.should_not_see(marker="dashboard-progress-references")
+
+
+async def test_the_backlog_card_shows_the_days_with_one_decimal(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(Backlog(16.5, 0, 16.5 / 6.5, 1.0, 1.0, [("田中", 16.5)])), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-days")
+    assert text(user, "dashboard-backlog-days") == "稼働 2.5 日で終える場合"
+
+
+def mount_ticking() -> tuple[list[DashboardView], list[int]]:
+    views: list[DashboardView] = []
+    ticks: list[int] = []
+
+    @ui.page("/")
+    def index() -> None:
+        view = DashboardView(lambda: None, lambda kind: None, on_tick=lambda: ticks.append(1))
+        views.append(view)
+        view.build()
+
+    return views, ticks
+
+
+async def test_the_tick_refreshes_only_while_shown_and_not_editing(user: User) -> None:
+    views, ticks = mount_ticking()
+    await user.open("/")
+    view = views[0]
+    view.tick()
+    assert ticks == []  # まだ開いていない
+    view.show(with_backlog(Backlog(6.5, 0, 1, 1.0, 1.0, [])), PeriodKind.WEEK)
+    view.tick()
+    assert ticks == [1]
+    view.set_edit_mode(True)
+    view.tick()
+    assert ticks == [1]  # 編集モード中は更新しない
+    view.set_edit_mode(False)
+    view.hide()
+    view.tick()
+    assert ticks == [1]  # 隠したら止まる
