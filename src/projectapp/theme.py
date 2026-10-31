@@ -82,6 +82,18 @@ def today_color_js(color: str | None) -> str:
     return f"document.body.style.setProperty(\"--today\", {json.dumps(color)})"
 
 
+def parse_warning_color(value: object) -> str | None:
+    """`config.json`の`warning_color`の読み込み。`#RRGGBB`以外は未設定(既定の色)。"""
+    return normalize_hex(value)
+
+
+def warning_color_js(color: str | None) -> str:
+    """警告の色(`--warning`)を`body`に設定する JS。None は外して、既定の色へ戻す。"""
+    if color is None:
+        return 'document.body.style.removeProperty("--warning")'
+    return f"document.body.style.setProperty(\"--warning\", {json.dumps(color)})"
+
+
 def custom_theme_to_dict(theme: CustomTheme) -> dict[str, str | None]:
     return asdict(theme)
 

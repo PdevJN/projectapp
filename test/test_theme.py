@@ -197,3 +197,23 @@ def test_today_color_js_none_removes_the_variable_so_the_default_returns() -> No
     from projectapp.theme import today_color_js
 
     assert today_color_js(None) == 'document.body.style.removeProperty("--today")'
+
+
+def test_parse_warning_color_reads_a_valid_color_and_lowercases() -> None:
+    from projectapp.theme import parse_warning_color
+
+    assert parse_warning_color("#FDD835") == "#fdd835"
+
+
+@pytest.mark.parametrize("value", [None, "", "yellow", "#12345", "#gggggg", 5, [], {}])
+def test_parse_warning_color_reads_anything_else_as_unset(value: object) -> None:
+    from projectapp.theme import parse_warning_color
+
+    assert parse_warning_color(value) is None
+
+
+def test_warning_color_js_sets_and_removes_the_variable() -> None:
+    from projectapp.theme import warning_color_js
+
+    assert warning_color_js("#fdd835") == 'document.body.style.setProperty("--warning", "#fdd835")'
+    assert warning_color_js(None) == 'document.body.style.removeProperty("--warning")'
