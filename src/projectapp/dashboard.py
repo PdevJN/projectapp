@@ -37,6 +37,13 @@ class PeriodKind(StrEnum):
     CUSTOM = "指定"  # 日付で指定した期間(MainView.dashboard_custom)
 
 
+class LateBasis(StrEnum):
+    """遅れの判定の基準(要望 98・103)。`警告を含む`は、予定超過のほかに、警告のタスクも遅れに数える。"""
+
+    DELAY = "遅延のみ"
+    WARNING = "警告を含む"
+
+
 @dataclass(frozen=True)
 class Period:
     start: date
@@ -628,6 +635,7 @@ class Backlog:
     nominal_supply: float | None = None  # 稼働日の上書きで調整する前の稼働できる人員。調整で値が変わるときだけ
     overdue_hours: float = 0.0  # hours のうち、遅れたタスクの残りの工数(要望 98)
     overdue_count: int = 0  # 遅れたタスクの件数
+    late_basis: LateBasis = LateBasis.DELAY  # 遅れの判定の基準
 
     @property
     def shortfall(self) -> float | None:
@@ -811,9 +819,18 @@ def _backlog_by_team(project: Project, split: dict[str, float]) -> list[tuple[st
     return [(name, value) for name, value in hours.items() if value > 0]
 
 
-def _is_late(task: Task, project: Project, holidays: dict[date, str], now: datetime, schedule: Schedule) -> bool:
-    """遅れたタスクか(要望 98)。今は予定超過(ガントチャートの赤みと同じ判定)。警告を含める選択は未実装(警告の状態を作るときに足す)。"""
-    return is_overdue(task, project, holidays, now, schedule)
+def _is_late(
+    task: Task,
+    project: Project,
+    holidays: dict[date, str],
+    now: datetime,
+    schedule: Schedule,
+    basis: LateBasis = LateBasis.DELAY,
+) -> bool:
+    """遅れたタスクか(要望 98)。予定超過(ガントチャートの赤みと同じ判定)。`警告を含む`なら、警告のタスクも数える。"""
+    if is_overdue(task, project, holidays, now, schedule):
+        return True
+    return basis is LateBasis.WARNING and warning_pace(task, project, holidays, now, schedule) is not None
 
 
 @dataclass
@@ -835,6 +852,7 @@ def _backlog_parts(
     now: datetime,
     holidays: dict[date, str],
     member: Scope,
+    basis: LateBasis = LateBasis.DELAY,
 ) -> _BacklogParts:
     schedule = Schedule(project, holidays)
     names = [m.name for m in project.members]
@@ -863,7 +881,7 @@ def _backlog_parts(
         ends.extend(moment for moment in (schedule.end(task), task.deadline) if moment is not None)
         rest = remaining_hours(task, project, holidays, now)
         due = max(0.0, rest - total_effort(task) * (1 - fraction))  # 期間の終わりまでに予定した工数 − 消化分
-        late = _is_late(task, project, holidays, now, schedule)
+        late = _is_late(task, project, holidays, now, schedule, basis)
         counted = False
         for key, _, share in _remaining_shares(task, project, schedule, holidays, rest, names):
             portion = due * share
@@ -886,6 +904,7 @@ def _assemble_backlog(
     member: Scope,
     parts: list[_BacklogParts],
     supply_from: list[tuple[Member, Project]],
+    basis: LateBasis = LateBasis.DELAY,
 ) -> Backlog:
     """部品を足し合わせて Backlog にする。割る側の稼働時間は base のカレンダー(holidays は base の休み)で数える。"""
     scoped = _names(member)
@@ -934,6 +953,7 @@ def _assemble_backlog(
         nominal if abs(nominal - supply) > 1e-9 else None,
         overdue_hours,
         sum(part.overdue_count for part in parts),
+        basis,
     )
 
 
@@ -944,11 +964,14 @@ def summarize_backlog(
     now: datetime,
     holidays: dict[date, str],
     member: Scope = None,
+    basis: LateBasis = LateBasis.DELAY,
 ) -> Backlog:
     """残りの工数(未着手の全量と、実行中・一時停止の消化分を除いた分)の合計と、それを期間内に終えるのに要る人数。全期間以外は、期間の終わりまでに予定した分。
     メンバーで絞るときは、共同タスクのその人の分(割り当て率の比)だけを数える。"""
-    parts = [_backlog_parts(project, period, kind, now, holidays, member)]
-    return _assemble_backlog(project, period, kind, now, holidays, member, parts, [(m, project) for m in project.members])
+    parts = [_backlog_parts(project, period, kind, now, holidays, member, basis)]
+    return _assemble_backlog(
+        project, period, kind, now, holidays, member, parts, [(m, project) for m in project.members], basis
+    )
 
 
 def summarize_cross_backlog(
@@ -959,15 +982,24 @@ def summarize_cross_backlog(
     now: datetime,
     holidays: dict[date, str],
     member: Scope = None,
+    basis: LateBasis = LateBasis.DELAY,
 ) -> Backlog:
     """複数のプロジェクトを重ねた残りの工数と必要人数。同じ名前のメンバーを同一人物とみなす。
     工数は各プロジェクト自身の日程・休みで数え、割る側(稼働時間)は base(開いているプロジェクト)の稼働可能時間・休みで数える。
     稼働できる人員は、名前ごとに 1 回(projects の先頭に近いプロジェクトの相対比率)。"""
-    parts = [_backlog_parts(p, period, kind, now, effective_holidays(p, holidays), member) for p in projects]
+    parts = [_backlog_parts(p, period, kind, now, effective_holidays(p, holidays), member, basis) for p in projects]
     owners = {m.name: (m, p) for p in reversed(projects) for m in p.members}  # 先頭のプロジェクトが勝つ
     names = list(dict.fromkeys(m.name for p in projects for m in p.members))
     return _assemble_backlog(
-        base, period, kind, now, effective_holidays(base, holidays), member, parts, [owners[name] for name in names]
+        base,
+        period,
+        kind,
+        now,
+        effective_holidays(base, holidays),
+        member,
+        parts,
+        [owners[name] for name in names],
+        basis,
     )
 
 
@@ -1005,6 +1037,7 @@ def summarize(
     member: str | None = None,
     team: str | None = None,
     children: Mapping[str, ChildProject] | None = None,
+    late_basis: LateBasis = LateBasis.DELAY,
 ) -> Dashboard:
     """`member`があれば`team`は無視する。存在しない・メンバーのいないチームは絞り込まない。"""
     team_members = team_scope(project, team) if member is None else None
@@ -1018,7 +1051,7 @@ def summarize(
         summarize_team_progress(project, None if kind is PeriodKind.ALL else period, now, holidays, scope, children),
         member,
         [m.name for m in project.members],
-        backlog=summarize_backlog(project, period, kind, now, holidays, scope),
+        backlog=summarize_backlog(project, period, kind, now, holidays, scope, late_basis),
         team_name=team if team_members is not None else None,
         teams=teams_with_members(project),
         references=len(children or {}),

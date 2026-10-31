@@ -9,6 +9,7 @@ from projectapp.dashboard import (
     CrossLoad,
     CrossSummary,
     DayLoad,
+    LateBasis,
     LoadFailure,
     ProjectLoad,
     ProjectPeak,
@@ -64,7 +65,9 @@ def empty() -> Dashboard:
 
 
 def mount(
-    member_changes: list[str | None] | None = None, actions: ViewActions | None = None
+    member_changes: list[str | None] | None = None,
+    actions: ViewActions | None = None,
+    late_basis_changes: list[LateBasis] | None = None,
 ) -> tuple[list[DashboardView], list[int], list[PeriodKind]]:
     views: list[DashboardView] = []
     backs: list[int] = []
@@ -77,6 +80,7 @@ def mount(
             changes.append,
             member_changes.append if member_changes is not None else None,
             actions=actions,
+            on_late_basis_change=late_basis_changes.append if late_basis_changes is not None else None,
         )
         views.append(view)
         view.build()
@@ -1117,13 +1121,47 @@ async def test_the_late_cover_says_when_nothing_is_late(user: User) -> None:
     await user.should_not_see(marker="dashboard-backlog-late")
 
 
-async def test_the_warning_basis_is_not_selectable_yet(user: User) -> None:
+async def test_both_late_bases_are_selectable_and_the_current_one_is_filled(user: User) -> None:
     views, _, _ = mount()
     await user.open("/")
     views[0].show(with_backlog(Backlog(6.5, 0, 3, 1.0, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-late-basis")
     delay = next(iter(user.find(marker="dashboard-backlog-late-delay").elements))
     warning = next(iter(user.find(marker="dashboard-backlog-late-warning").elements))
-    assert delay.props.get("disable") is None
-    assert warning.props.get("disable") is True
-    assert "未実装" in warning.text
+    assert delay.props.get("disable") is None and warning.props.get("disable") is None
+    assert delay.text == "遅延のみ" and warning.text == "警告を含む"
+    assert "outline" not in delay.props and "outline" in warning.props
+
+
+async def test_the_warning_basis_button_is_filled_when_chosen(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    backlog = Backlog(6.5, 0, 3, 1.0, 1.5, [("田中", 6.5)], late_basis=LateBasis.WARNING)
+    views[0].show(with_backlog(backlog), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-late-basis")
+    delay = next(iter(user.find(marker="dashboard-backlog-late-delay").elements))
+    warning = next(iter(user.find(marker="dashboard-backlog-late-warning").elements))
+    assert "outline" in delay.props and "outline" not in warning.props
+
+
+async def test_pressing_the_other_basis_notifies_and_the_current_one_does_nothing(user: User) -> None:
+    changes: list[LateBasis] = []
+    views, _, _ = mount(late_basis_changes=changes)
+    await user.open("/")
+    views[0].show(with_backlog(Backlog(6.5, 0, 3, 1.0, 1.5, [("田中", 6.5)])), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-late-basis")
+    user.find(marker="dashboard-backlog-late-delay").click()
+    assert changes == []
+    user.find(marker="dashboard-backlog-late-warning").click()
+    assert changes == [LateBasis.WARNING]
+
+
+async def test_the_headline_names_warnings_on_the_warning_basis(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    backlog = Backlog(
+        20.0, 0, 2, 4.0, 3.0, [("田中", 20.0)], overdue_hours=10.0, overdue_count=2, late_basis=LateBasis.WARNING
+    )
+    views[0].show(with_backlog(backlog), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-hours")
+    assert text(user, "dashboard-backlog-hours") == "残りの工数 20.0h(うち遅延・警告 2 件・10.0h)"

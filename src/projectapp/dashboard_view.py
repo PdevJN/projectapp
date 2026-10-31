@@ -14,6 +14,7 @@ from projectapp.dashboard import (
     CrossSummary,
     Dashboard,
     DayLoad,
+    LateBasis,
     LoadStats,
     MemberProgress,
     PeriodKind,
@@ -277,8 +278,10 @@ class DashboardView:
         on_team_change: Callable[[str | None], object] | None = None,
         actions: ViewActions | None = None,
         on_tick: Callable[[], object] | None = None,
+        on_late_basis_change: Callable[[LateBasis], object] | None = None,
     ) -> None:
         self.actions = actions
+        self.on_late_basis_change = on_late_basis_change
         self.on_tick = on_tick
         self.edit_mode = False
         self.edit_button: ui.button | None = None
@@ -789,7 +792,8 @@ class DashboardView:
                 ui.label(shortage_text(backlog.shortfall)).classes(
                     "text-h6" + (" text-negative" if round(backlog.shortfall, 1) > 0 else "")
                 ).mark("dashboard-backlog-gap")
-            late = f"うち遅延 {backlog.overdue_count} 件・{backlog.overdue_hours:.1f}h" if backlog.overdue_count else "遅れなし"
+            label = "遅延・警告" if backlog.late_basis is LateBasis.WARNING else "遅延"
+            late = f"うち{label} {backlog.overdue_count} 件・{backlog.overdue_hours:.1f}h" if backlog.overdue_count else "遅れなし"
             ui.label(f"残りの工数 {backlog.hours:.1f}h({late})").classes("text-subtitle2" if known else "text-h6").mark(
                 "dashboard-backlog-hours"
             )
@@ -855,16 +859,21 @@ class DashboardView:
 
     def late_line(self, backlog: Backlog) -> None:
         """遅れがなかった場合の不足(遅れがあり、期間が決まっているときだけ)。遅れの判定の選択も置く。
-        警告を含める選択は、警告の状態が未実装のため押せない。"""
+        選んでいる側は塗りつぶし、押すと on_late_basis_change で基準を切り替える(選択は保存しない)。"""
         required, without = backlog.overdue_required, backlog.shortfall_without_overdue
         if backlog.overdue_count and required is not None and without is not None:
             ui.label(f"遅れがなければ {shortage_text(without)}").classes("text-caption").mark("dashboard-backlog-late")
         with ui.button_group().props("flat dense").mark("dashboard-backlog-late-basis"):
-            ui.button("遅延のみ").props("dense no-caps color=primary size=sm").mark("dashboard-backlog-late-delay")
-            with ui.button("警告を含む(未実装)").props("dense no-caps outline disable size=sm").mark(
-                "dashboard-backlog-late-warning"
-            ):
-                ui.tooltip("未実装です。警告の状態ができたら選べるようになります")
+            for basis, marker in ((LateBasis.DELAY, "delay"), (LateBasis.WARNING, "warning")):
+                props = "dense no-caps color=primary size=sm" + ("" if backlog.late_basis is basis else " outline")
+                ui.button(basis.value, on_click=lambda b=basis, now=backlog.late_basis: self.pick_late_basis(b, now)).props(
+                    props
+                ).mark(f"dashboard-backlog-late-{marker}")
+
+    def pick_late_basis(self, basis: LateBasis, current: LateBasis) -> None:
+        """遅れの判定の基準を選ぶ。今の基準と同じなら何もしない。"""
+        if basis is not current and self.on_late_basis_change is not None:
+            self.on_late_basis_change(basis)
 
     def due_card(self, data: Dashboard) -> None:
         with card("期限とマイルストーン", "dashboard-due"):
