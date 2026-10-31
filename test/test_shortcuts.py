@@ -28,6 +28,12 @@ from projectapp.shortcuts import SHORTCUTS, Screen, help_entries, resolve
         ("/", False, False, "search"),
         ("?", False, True, "help"),
         ("?", False, False, "help"),
+        ("t", False, False, "go_today"),
+        ("b", False, False, "go_base"),
+        ("f", False, False, "go_first_task"),
+        ("g", False, False, "go_date"),
+        ("[", False, False, "go_prev_week"),
+        ("]", False, False, "go_next_week"),
     ],
 )
 def test_main_screen_keys_resolve_to_actions(key, ctrl, shift, action):
@@ -99,7 +105,7 @@ def test_the_key_lists_for_the_browser_guard_come_from_the_table():
     from projectapp.shortcuts import ctrl_keys, plain_keys
 
     assert ctrl_keys() == {"s", "o", "n", ",", "m", "e", "p", "k", "l", "z", "+", "=", ";", "-", "0"}
-    assert plain_keys() == {"escape", "delete", "d", "/", "?"}
+    assert plain_keys() == {"escape", "delete", "d", "/", "?", "t", "b", "g", "f", "[", "]"}
 
 
 HARNESS = """

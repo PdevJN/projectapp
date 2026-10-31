@@ -18,6 +18,7 @@ from projectapp.calendar import DayKind, day_kind, member_notes
 from projectapp.forms import section_name_error, task_name_error
 from projectapp.events import EffectiveHolidays, assign_lanes, cell_colors, color_hex, column_span
 from projectapp.categories import by_id, chip_text
+from projectapp.dateinput import parse_date_input
 from projectapp.config import (
     DEFAULT_NAME_WIDTH_PX,
     MAX_NAME_WIDTH_PX,
@@ -28,6 +29,7 @@ from projectapp.decompose import decompose_block_reason
 from projectapp.filtering import TaskFilter, hidden_by_summary, matches, section_has_match, visible_task_indexes
 from projectapp.gantt_drag import CHART_DRAG_CSS, CHART_DRAG_JS, NAME_RESIZE_CSS, RESIZE_EDGE_PX
 from projectapp.links import Bar, RowSlot, link_points, path_data, row_centers, row_slots, total_height
+from projectapp.shortcuts import label_for
 from projectapp.periodfield import (
     PERIOD_SEPARATOR,
     add_range_picker,
@@ -56,6 +58,7 @@ from projectapp.timeline import (
     bar_span,
     build_columns,
     clip_overloads,
+    date_position,
     current_progress,
     deadline_position,
     effective_start,
@@ -320,6 +323,17 @@ def today_scroll_js(x: float, name_width: int) -> str:
     )
 
 
+WEEK_PX = {Scale.DAY: 7 * 40, Scale.WEEK: 56, Scale.MONTH: 80 * 7 / 30}  # 7 日ぶんの幅(px)。COLUMN_WIDTH_PX から
+
+
+def week_scroll_js(delta_px: float) -> str:
+    """横に delta_px だけスクロールする(端で止まる)。"""
+    return (
+        "requestAnimationFrame(() => { const el = document.querySelector('[data-chart-scroll]');"
+        f" if (el) el.scrollBy({{left: {delta_px:.1f}}}) }})"
+    )
+
+
 # 非表示(display: none)にすると、枠のスクロール位置が失われる。要素の更新(隠す)は run_javascript より先にブラウザへ届き、
 # 隠す直前には位置を読めないので、スクロールのたびに覚える(見えているときだけ。隠れて 0 を返すときは上書きしない)。
 # 出したあとの次のフレームで戻す
@@ -552,6 +566,8 @@ class GanttChart:
         self.scroll_box: ui.element | None = None
         self.today_button: ui.button | None = None
         self.today_tooltip: ui.tooltip | None = None
+        self.move_items: dict[str, tuple[ui.menu_item, ui.label]] = {}  # 移動メニューの、押せる・押せないを切り替える項目
+        self.goto_dialog: ui.dialog | None = None
         self.task_filter = TaskFilter()
         self.quick_add: Position | None = None  # 名前の入力行を出している位置。保存しない
         self.quick_parent: str | None = None  # 入力行で作るタスクを、子にするまとめの id。なければ通常のタスク
@@ -870,6 +886,119 @@ class GanttChart:
         if self.client is not None and x is not None:
             self.client.run_javascript(today_scroll_js(x, self.name_width))
 
+    def date_x(self, day: date, columns: list[Column] | None = None) -> float | None:
+        """ある日のチャート内の横位置(px)。表示範囲の外なら None。"""
+        if columns is None:
+            columns = build_columns(
+                self.project, self.view_scale, self.holidays, self.view_period, self.reference_values()
+            )
+        position = date_position(day, columns, self.view_scale)
+        return None if position is None else position * COLUMN_WIDTH_PX[self.view_scale]
+
+    def first_task_day(self) -> date | None:
+        """開始予定が最も早い通常タスクの開始の日(先行による押し出しを反映)。日程のあるタスクがなければ None。"""
+        starts = [
+            moment
+            for task in self.project.all_tasks()
+            if task.kind is TaskKind.NORMAL and (moment := self.schedule.start(task)) is not None
+        ]
+        return min(starts).date() if starts else None
+
+    def scroll_to_x(self, x: float | None) -> None:
+        if self.client is not None and x is not None:
+            self.client.run_javascript(today_scroll_js(x, self.name_width))
+
+    def go_to_base(self) -> None:
+        self.scroll_to_x(self.date_x(self.project.base_date))
+
+    def go_to_first_task(self) -> None:
+        day = self.first_task_day()
+        if day is not None:
+            self.scroll_to_x(self.date_x(day))
+
+    def shift_weeks(self, weeks: int) -> None:
+        """今の位置から 7 日 × weeks だけ横にずらす(負は前)。"""
+        if self.client is not None:
+            self.client.run_javascript(week_scroll_js(WEEK_PX[self.view_scale] * weeks))
+
+    def go_to_date(self, text: str) -> str | None:
+        """入力(`10/15`・`1015`・`2026-10-15`)の日へ移る。移れないときは、理由を返す(移らない)。"""
+        found = parse_date_input(text, self.now().date(), roll_forward=False)
+        if found is None:
+            return "日付を読めません(例: 2026-10-15・10/15・1015)"
+        x = self.date_x(date.fromisoformat(found))
+        if x is None:
+            return f"{found} は表示期間の外です"
+        self.scroll_to_x(x)
+        return None
+
+    def open_goto_dialog(self) -> None:
+        if self.goto_dialog is not None:
+            self.goto_dialog.open()
+
+    def build_goto_dialog(self) -> None:
+        with ui.dialog() as dialog, ui.card().classes("gap-2"):
+            ui.label("日付を指定して移動").classes("text-subtitle1")
+            field = ui.input(placeholder="2026-10-15・10/15・1015").props("dense outlined autofocus").mark("goto-input")
+            picker = ui.date().mark("goto-picker")
+            error = ui.label("").classes("text-negative text-caption").mark("goto-error")
+
+            def apply() -> None:
+                message = self.go_to_date(field.value or "")
+                error.set_text(message or "")
+                if message is None:
+                    dialog.close()
+
+            def on_pick(e: ValueChangeEventArguments) -> None:
+                if e.value:
+                    field.set_value(str(e.value).replace("/", "-"))
+
+            picker.on_value_change(on_pick)
+            field.on("keydown.enter", apply)
+            with ui.row().classes("w-full justify-end"):
+                ui.button("閉じる", on_click=dialog.close).props("flat")
+                ui.button("移動", on_click=apply).mark("goto-apply")
+        dialog.on("show", lambda _e: (field.set_value(""), error.set_text("")))
+        self.goto_dialog = dialog
+
+    def build_move_menu(self) -> None:
+        """`当日`の右の`移動`メニュー。項目の右に、ショートカットのキー(押せないときは理由)を出す。"""
+        with ui.button("移動", icon="event").props("flat dense").classes("shrink-0").mark("move-button"):
+            with ui.menu().mark("move-menu"):
+                for action, key, label, handler in (
+                    ("go_today", "today", "当日", self.scroll_to_today),
+                    ("go_base", "base", "基準日", self.go_to_base),
+                    ("go_first_task", "first", "最初のタスク", self.go_to_first_task),
+                    ("go_date", "date", "日付を指定…", self.open_goto_dialog),
+                    ("go_prev_week", "prev", "前の週", lambda: self.shift_weeks(-1)),
+                    ("go_next_week", "next", "次の週", lambda: self.shift_weeks(1)),
+                ):
+                    with ui.menu_item(on_click=handler).mark(f"move-{key}") as item:
+                        with ui.item_section():
+                            ui.label(label)
+                        with ui.item_section().props("side"):
+                            hint = ui.label(label_for(action)).classes("text-caption text-grey")
+                    self.move_items[key] = (item, hint)
+        self.build_goto_dialog()
+
+    def sync_move_menu(self, columns: list[Column]) -> None:
+        """移動メニューの項目の、押せる・押せないを合わせる(今日・基準日が範囲の外、日程のあるタスクがない)。"""
+        first = self.first_task_day()
+        states = {
+            "today": self.today_x(columns) is not None,
+            "base": self.date_x(self.project.base_date, columns) is not None,
+            "first": first is not None and self.date_x(first, columns) is not None,
+        }
+        reasons = {"today": "今日は表示期間の外", "base": "基準日は表示期間の外", "first": "移れるタスクがありません"}
+        for key, ok in states.items():
+            entry = self.move_items.get(key)
+            if entry is None:
+                continue
+            item, hint = entry
+            item.set_enabled(ok)
+            action = {"today": "go_today", "base": "go_base", "first": "go_first_task"}[key]
+            hint.set_text(label_for(action) if ok else reasons[key])
+
     def scroll_on_open(self) -> None:
         """別のプロジェクトを開いた直後だけ、先頭に戻してから今日の位置へ移る(範囲の外なら先頭のまま)。"""
         self.reset_scroll()
@@ -1144,6 +1273,7 @@ class GanttChart:
             )
             with self.today_button:
                 self.today_tooltip = ui.tooltip("今日の位置へ移ります")
+            self.build_move_menu()
             with ui.column().classes("gap-0 shrink-0"):  # 欄とエラーを縦に並べる(エラーが空のときは高さを取らない)
                 self.period_input = (
                     ui.input(placeholder="表示期間(空は自動)", on_change=lambda e: self.on_period_changed(e.value))
@@ -1487,6 +1617,7 @@ class GanttChart:
             self.project, self.view_scale, self.holidays, self.view_period, self.reference_values()
         )
         self.sync_today_button(self.today_x(columns))
+        self.sync_move_menu(columns)
         self.overloads = overallocations(self.project, self.holidays)
         self.category_lookup = by_id(self.project.categories)
         self.icon_lookup = {m.name: m.icon for m in self.project.members if m.icon}

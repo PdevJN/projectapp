@@ -1749,6 +1749,25 @@ def key_event(name: str, keydown: bool = True, ctrl: bool = False, shift: bool =
     )
 
 
+async def test_the_date_move_keys_reach_the_chart_and_are_ignored_while_a_dialog_is_open(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    calls: list[str] = []
+    view.gantt.scroll_to_today = lambda: calls.append("today")  # type: ignore[method-assign]
+    view.gantt.go_to_base = lambda: calls.append("base")  # type: ignore[method-assign]
+    view.gantt.go_to_first_task = lambda: calls.append("first")  # type: ignore[method-assign]
+    view.gantt.open_goto_dialog = lambda: calls.append("date")  # type: ignore[method-assign]
+    view.gantt.shift_weeks = lambda weeks: calls.append(f"week{weeks:+d}")  # type: ignore[method-assign]
+    for name in ("t", "b", "f", "g", "[", "]"):
+        view.on_key(key_event(name))
+    assert calls == ["today", "base", "first", "date", "week-1", "week+1"]
+    calls.clear()
+    view.open_dashboard()  # ダッシュボードの表示中は効かない
+    view.on_key(key_event("t"))
+    assert calls == []
+
+
 async def test_the_preview_replaces_the_header_and_toolbar(user: User, tmp_path: Path) -> None:
     view = await open_preview(user, tmp_path, FakeExporter())
     assert view.preview is not None
