@@ -753,6 +753,10 @@ class DashboardView:
                 ui.label(f"必要 {backlog.required:.1f} 人 / 今いる人員 {backlog.supply:.1f} 人").mark(
                     "dashboard-backlog-people"
                 )
+                if backlog.nominal_supply is not None:
+                    ui.label(
+                        f"相対比率の合計 {backlog.nominal_supply:.1f} 人 → 稼働を反映して {backlog.supply:.1f} 人"
+                    ).classes("text-caption text-grey").mark("dashboard-backlog-supply-note")
                 scale = max(backlog.required, backlog.supply) or 1.0
                 bar(backlog.required / scale, PLANNED_COLOR)
                 bar(backlog.supply / scale, ACTUAL_COLOR)
@@ -761,7 +765,7 @@ class DashboardView:
                 ui.label(gap).classes("text-subtitle2" + (" text-negative" if short > 0 else "")).mark(
                     "dashboard-backlog-gap"
                 )
-                ui.label("稼働日の上書きと休暇は反映していません。今日は、今から稼働の枠の終わりまでの残り時間で数えます。").classes(
+                ui.label("今いる人員は、メンバーの稼働日の上書き(休み・短時間・追加の稼働日)を反映しています。今日は、今から稼働の枠の終わりまでの残り時間で数えます。").classes(
                     "text-caption text-grey"
                 ).mark("dashboard-backlog-note")
             if backlog.by_member:

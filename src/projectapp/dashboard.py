@@ -603,6 +603,7 @@ class Backlog:
     by_member: list[tuple[str, float]]  # (担当者, 残りの工数)。共同タスクは割り当て率の比で按分
     by_status: dict[Status, float] = field(default_factory=dict)  # 状態ごとの残りの工数(0 は除く)
     by_team: list[tuple[str, float]] = field(default_factory=list)  # (チーム, 残りの工数)。全員のときだけ。メンバーの分を所属の割合で配る
+    nominal_supply: float | None = None  # 稼働日の上書きで調整する前の今いる人員。調整で値が変わるときだけ
 
     @property
     def shortfall(self) -> float | None:
@@ -615,29 +616,46 @@ def _next_workday(day: date, holidays: dict[date, str]) -> date:
     return next((d for d in (day + timedelta(days=i) for i in range(14)) if is_workday(d, holidays)), day)
 
 
-def _backlog_hours(
+def _backlog_window(
     project: Project, period: Period, kind: PeriodKind, now: datetime, holidays: dict[date, str], ends: list[datetime]
-) -> float | None:
-    """必要人数の分母にする稼働時間(通常カレンダー)。今日は、今から稼働の枠の終わりまでの残り(始業前は枠の全体、
-    終業後は 0)。今日より前の日は数えない。期間がすでに終わっていれば 0。"""
+) -> tuple[date, date] | None:
+    """必要人数の分母にする日の範囲(今日より前は数えない)。決まらないとき(全期間で数えたタスクに終わりがない)は None。
+    開始が終了より後なら、期間がすでに終わっている。"""
     today = now.date()
     if kind is PeriodKind.ALL:  # 全期間は、数えたタスクの最も遅い終わりまで
         if not ends:
             return None
         start = max(today, project.base_date)
         end = max(max(ends).date(), _next_workday(start, holidays))  # 全部が遅れていても、最初の稼働日で終える場合を示す
-    else:
-        start, end = max(today, period.start), period.end
+        return start, end
+    return max(today, period.start), period.end
+
+
+def _window_hours(
+    project: Project,
+    holidays: dict[date, str],
+    window: tuple[date, date],
+    now: datetime,
+    work_days: Mapping[date, WorkDay] | None = None,
+) -> float:
+    """範囲の稼働時間。今日は、今から稼働の枠の終わりまでの残り(始業前は枠の全体、終業後は 0)。
+    work_days があれば、その人の上書きを反映する。"""
+    start, end = window
     if start > end:
-        return 0.0  # 期間がすでに終わっている
+        return 0.0
+    today = now.date()
     rest_of_today = datetime.combine(today + timedelta(days=1), time.min)
-    total = sum(
-        _overlap_hours(project, holidays, day, now, rest_of_today) if day == today else day_hours(day, project.daily_hours, holidays)
+    return sum(
+        _overlap_hours(project, holidays, day, now, rest_of_today, work_days)
+        if day == today
+        else day_hours(day, project.daily_hours, holidays, work_days)
         for day in Period(start, end).days()
     )
-    if total <= 0 and is_workday(_next_workday(end + timedelta(days=1), holidays), holidays):
-        return project.daily_hours  # 残りが休みだけ(今日の稼働が終わっている場合を含む)のときは、次の稼働日の 1 日で終える場合を示す
-    return total
+
+
+def _next_workday_after(window: tuple[date, date], holidays: dict[date, str]) -> bool:
+    """範囲の稼働時間が 0 のとき、次の稼働日の 1 日で終える場合を示せるか。"""
+    return is_workday(_next_workday(window[1] + timedelta(days=1), holidays), holidays)
 
 
 class _WorkHours:
@@ -656,9 +674,16 @@ class _WorkHours:
         return self.cumulative[(high - self.first).days + 1] - self.cumulative[(low - self.first).days]
 
 
-def _overlap_hours(project: Project, holidays: dict[date, str], day: date, start: datetime, end: datetime) -> float:
-    """その日の稼働の枠のうち、[start, end) と重なる時間[h]。"""
-    window = day_window(day, project.daily_hours, project.work_start, holidays)
+def _overlap_hours(
+    project: Project,
+    holidays: dict[date, str],
+    day: date,
+    start: datetime,
+    end: datetime,
+    work_days: Mapping[date, WorkDay] | None = None,
+) -> float:
+    """その日の稼働の枠のうち、[start, end) と重なる時間[h]。work_days があれば、その人の上書きを反映する。"""
+    window = day_window(day, project.daily_hours, project.work_start, holidays, work_days)
     if window is None:
         return 0.0
     return max(0.0, (min(end, window[1]) - max(start, window[0])).total_seconds() / 3600)
@@ -860,14 +885,23 @@ def _assemble_backlog(
     by_status = {status: sum(part.by_status[status] for part in parts) for status in OPEN_STATUSES}
     hours = sum(split[name] * _factor(member, name) for name in shown)
     ends = [moment for part in parts for moment in part.ends]
-    capacity = _backlog_hours(base, period, kind, now, holidays, ends)
+    window = _backlog_window(base, period, kind, now, holidays, ends)
+    standard = 0.0 if window is None else _window_hours(base, holidays, window, now)
+    fallback = window is not None and window[0] <= window[1] and standard <= 0 and _next_workday_after(window, holidays)
+    capacity = None if window is None else base.daily_hours if fallback else standard
     days = None if capacity is None else capacity / base.daily_hours
     required = hours / capacity if capacity else None
-    supply = sum(
-        effective_ratio(m, owner.parameters, None, owner.ratio_limits) * _factor(member, m.name)
-        for m, owner in supply_from
-        if scoped is None or m.name in scoped
-    )
+    supply = nominal = 0.0
+    for m, owner in supply_from:
+        if scoped is not None and m.name not in scoped:
+            continue
+        weight = effective_ratio(m, owner.parameters, None, owner.ratio_limits) * _factor(member, m.name)
+        nominal += weight
+        # 上書きのあるメンバーは、標準の稼働時間に対するその人の稼働時間の比で数える(標準が 0 のときは数えない)
+        scale = 1.0
+        if m.work_days and window is not None and standard > 0:
+            scale = _window_hours(base, holidays, window, now, work_day_map(m.work_days)) / standard
+        supply += weight * scale
     rows = [(name, split[name] * _factor(member, name)) for name in shown if split[name] > 0]
     by_team = _backlog_by_team(base, split) if scoped is None else []
     return Backlog(
@@ -879,6 +913,7 @@ def _assemble_backlog(
         rows,
         {k: v for k, v in by_status.items() if v > 0},
         by_team,
+        nominal if abs(nominal - supply) > 1e-9 else None,
     )
 
 
