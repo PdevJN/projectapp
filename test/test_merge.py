@@ -1000,3 +1000,14 @@ def test_extra_efforts_merge_as_one_item_and_conflict_when_both_add() -> None:
         [first],
         [second],
     )
+
+
+def test_format_value_shows_extra_efforts_readably() -> None:
+    from projectapp.merge import format_value
+    from projectapp.models import ExtraEffort
+
+    efforts = [
+        ExtraEffort(date(2026, 11, 2), 5.0, "調査が増えた"),
+        ExtraEffort(date(2026, 11, 3), 1.5),
+    ]
+    assert format_value(efforts) == "2026-11-02 +5h 調査が増えた, 2026-11-03 +1.5h"
