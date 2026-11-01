@@ -264,6 +264,22 @@ class AssignmentTable:
     rows: list[AssignmentRow]
 
 
+@dataclass(frozen=True)
+class AssignmentLayout:
+    """割り当て表の列幅(px)。ガントチャートの名前欄と日付の列にそろえる。"""
+
+    name_px: int  # 担当者の列(チャートの名前欄の幅)
+    column_px: int  # 日付の列 1 つ(チャートの`COLUMN_WIDTH_PX`)
+
+    def grid_columns(self, count: int) -> str:
+        if count <= 0:  # 列がなくても不正な CSS にしない
+            return f"{self.name_px}px"
+        return f"{self.name_px}px repeat({count}, {self.column_px}px)"
+
+    def total_width(self, count: int) -> int:
+        return self.name_px + self.column_px * max(count, 0)
+
+
 def assignment_table(
     tasks: list[Task],
     project: Project,

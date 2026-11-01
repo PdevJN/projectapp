@@ -4,6 +4,7 @@ import pytest
 
 from projectapp.bottom_info import (
     LEGEND,
+    AssignmentLayout,
     assignment_table,
     period_summary,
     task_detail,
@@ -288,3 +289,15 @@ def test_a_row_carries_the_member_icon() -> None:
     assert row.icon == "data:image/png;base64,AAAA"
     project.members[0].icon = ""
     assert assignment_table([task], project, {}, schedule, columns).rows[0].icon == ""
+
+
+def test_layout_grid_columns_use_px_widths() -> None:
+    layout = AssignmentLayout(name_px=200, column_px=40)
+    assert layout.grid_columns(3) == "200px repeat(3, 40px)"
+    assert layout.total_width(3) == 320
+
+
+def test_layout_with_no_columns_is_just_the_name_column() -> None:
+    layout = AssignmentLayout(name_px=200, column_px=56)
+    assert layout.grid_columns(0) == "200px"
+    assert layout.total_width(0) == 200
