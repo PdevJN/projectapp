@@ -702,11 +702,9 @@ class GanttChart:
         self.syncing_period = False  # 欄を書き換えるあいだは、入力の変更として扱わない
         self.toolbar: ui.row | None = None
         self.scroll_box: ui.element | None = None
-        self.today_button: ui.button | None = None
-        self.today_tooltip: ui.tooltip | None = None
         self.move_items: dict[
             str, tuple[ui.menu_item, ui.label]
-        ] = {}  # 移動メニューの、押せる・押せないを切り替える項目
+        ] = {}  # ヘッダーの移動メニューの、押せる・押せないを切り替える項目(ヘッダーが登録する)
         self.goto_dialog: ui.dialog | None = None
         self.task_filter = TaskFilter()
         self.quick_add: Position | None = (
@@ -1304,33 +1302,6 @@ class GanttChart:
         dialog.on("show", lambda _e: (field.set_value(""), error.set_text("")))
         self.goto_dialog = dialog
 
-    def build_move_menu(self) -> None:
-        """`当日`の右の`移動`メニュー。項目の右に、ショートカットのキー(押せないときは理由)を出す。"""
-        with (
-            ui.button("移動", icon="event")
-            .props("flat dense")
-            .classes("shrink-0")
-            .mark("move-button")
-        ):
-            with ui.menu().mark("move-menu"):
-                for action, key, label, handler in (
-                    ("go_today", "today", "当日", self.scroll_to_today),
-                    ("go_base", "base", "基準日", self.go_to_base),
-                    ("go_first_task", "first", "最初のタスク", self.go_to_first_task),
-                    ("go_date", "date", "日付を指定…", self.open_goto_dialog),
-                    ("go_prev_week", "prev", "前の週", lambda: self.shift_weeks(-1)),
-                    ("go_next_week", "next", "次の週", lambda: self.shift_weeks(1)),
-                ):
-                    with ui.menu_item(on_click=handler).mark(f"move-{key}") as item:
-                        with ui.item_section():
-                            ui.label(label)
-                        with ui.item_section().props("side"):
-                            hint = ui.label(label_for(action)).classes(
-                                "text-caption text-grey"
-                            )
-                    self.move_items[key] = (item, hint)
-        self.build_goto_dialog()
-
     def sync_move_menu(self, columns: list[Column]) -> None:
         """移動メニューの項目の、押せる・押せないを合わせる(今日・基準日が範囲の外、日程のあるタスクがない)。"""
         first = self.first_task_day()
@@ -1359,15 +1330,6 @@ class GanttChart:
         """別のプロジェクトを開いた直後だけ、先頭に戻してから今日の位置へ移る(範囲の外なら先頭のまま)。"""
         self.reset_scroll()
         self.scroll_to_today()
-
-    def sync_today_button(self, x: float | None) -> None:
-        """`当日`ボタンの押せる・押せないと、ホバーの文言を、今日が表示範囲の中かに合わせる。"""
-        if self.today_button is None or self.today_tooltip is None:
-            return
-        self.today_button.set_enabled(x is not None)
-        self.today_tooltip.set_text(
-            "今日の位置へ移ります" if x is not None else "今日は表示期間の外です"
-        )
 
     def scroll_to_top(self) -> None:
         if self.client is not None:
@@ -1660,15 +1622,7 @@ class GanttChart:
                 value=self.scale,
                 on_change=lambda e: self.set_scale(Scale(e.value)),
             ).classes("shrink-0").mark("scale-toggle")
-            self.today_button = (
-                ui.button("当日", icon="today", on_click=self.scroll_to_today)
-                .props("flat dense")
-                .classes("shrink-0")
-                .mark("today-button")
-            )
-            with self.today_button:
-                self.today_tooltip = ui.tooltip("今日の位置へ移ります")
-            self.build_move_menu()
+            self.build_goto_dialog()
             with ui.column().classes(
                 "gap-0 shrink-0"
             ):  # 欄とエラーを縦に並べる(エラーが空のときは高さを取らない)
@@ -2221,7 +2175,6 @@ class GanttChart:
             self.view_period,
             self.reference_values(),
         )
-        self.sync_today_button(self.today_x(columns))
         self.sync_move_menu(columns)
         self.overloads = overallocations(self.project, self.holidays)
         self.category_lookup = by_id(self.project.categories)
