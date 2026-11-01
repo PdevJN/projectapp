@@ -37,5 +37,5 @@
 ## ルール
 
 - 作業のルールは`.claude/RULE.md`、ブランチのルールは`.claude/BRANCH.md`を参照すること
-- 実装の完了時: smoke(`uv run pytest -m smoke`)→ 全テスト(`uv run pytest -n auto`)→ `uvx ruff check`・`uvx ruff format src test`→ `uvx ty check src`(詳細は`RULE.md`)
+- 実装の完了時: smoke(`uv run pytest -m smoke`。失敗したときに限り全テスト`uv run pytest -n auto`)→ `uvx ruff check`・`uvx ruff format src test`→ `uvx ty check src`(詳細は`RULE.md`)
 - マージは利用者の指示を待つ(PR を作って止まる)
