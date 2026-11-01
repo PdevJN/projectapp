@@ -2034,13 +2034,14 @@ def key_event(
     shift: bool = False,
     alt: bool = False,
     repeat: bool = False,
+    meta: bool = False,
 ) -> KeyEventArguments:
     return KeyEventArguments(
         sender=None,  # type: ignore[arg-type]
         client=None,  # type: ignore[arg-type]
         action=KeyboardAction(keydown=keydown, keyup=not keydown, repeat=repeat),
         key=KeyboardKey(name=name, code=name, location=0),
-        modifiers=KeyboardModifiers(alt=alt, ctrl=ctrl, meta=False, shift=shift),
+        modifiers=KeyboardModifiers(alt=alt, ctrl=ctrl, meta=meta, shift=shift),
     )
 
 
@@ -9052,4 +9053,20 @@ async def test_the_assignment_key_is_ignored_on_the_dashboard(
     view = await open_dashboard_view(user, tmp_path)
     view.open_dashboard()
     view.on_key(key_event("Alt", ctrl=True, alt=True))
+    assert view.gantt.bottom.view == "info"
+
+
+async def test_cmd_and_option_reach_the_assignment_view_through_the_modified_key_listener(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    view.on_plain_key(
+        key_event("Alt", meta=True, alt=True)
+    )  # 修飾つきは、こちらでは受けない
+    assert view.gantt.bottom.view == "info"
+    view.on_modified_key(key_event("Alt", meta=True, alt=True))  # macOS の Cmd+Option
+    assert view.gantt.bottom.view == "assignment"
+    view.on_modified_key(
+        key_event("Meta", meta=True, alt=True)
+    )  # Option を先に押した順
     assert view.gantt.bottom.view == "info"
