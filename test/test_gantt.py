@@ -1442,13 +1442,14 @@ async def test_the_toolbar_never_wraps_and_the_filters_shrink(user: User) -> Non
 async def test_the_chart_scroll_box_has_room_for_the_horizontal_scrollbar(
     user: User,
 ) -> None:
-    mount_chart(filter_project())
+    charts, _ = mount_chart(filter_project())
     await user.open("/")
     style = user.find(marker="chart-scroll").elements.pop()._style
     assert (
         style["overflow"] == "auto"
     )  # 縦横とも枠の中でスクロールする(見出しの固定の基準になる)
-    assert style["max-height"] == CHART_MAX_HEIGHT
+    assert style["height"] == "100%"  # 高さは縦の分割の上の領域に従う
+    assert charts[0].split_box._style["height"] == CHART_MAX_HEIGHT
     assert (
         style["padding-bottom"] == f"{SCROLLBAR_ROOM_PX}px"
     )  # 横のスクロールバーが最下行に重ならない
