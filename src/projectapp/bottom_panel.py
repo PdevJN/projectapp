@@ -258,13 +258,15 @@ class BottomPanel:
             ui.element("div")
             .classes("w-full")
             .props("data-assignment-scroll")
-            .style("overflow-x: auto")
+            .style(  # パネルの左右の余白(p-2)を打ち消し、表の左端をチャートと同じ位置にする
+                "overflow-x: auto; margin: 0 -0.5rem; width: calc(100% + 1rem)"
+            )
             .mark("bottom-assignment")
         ):
             if table is None or not table.rows:
-                ui.label("割り当てのある担当者はいません").classes("text-grey").mark(
-                    "bottom-assignment-empty"
-                )
+                ui.label("割り当てのある担当者はいません").classes(
+                    "text-grey q-px-sm"
+                ).mark("bottom-assignment-empty")
                 return
             count = len(table.labels)
             with (

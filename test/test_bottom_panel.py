@@ -342,3 +342,16 @@ async def test_drawing_the_table_runs_the_align_js(user: User, monkeypatch) -> N
     panels[0].toggle_view()
     await user.should_see(marker="bottom-assignment")
     assert bottom_panel.ASSIGNMENT_ALIGN_JS in calls
+
+
+async def test_the_table_cancels_the_panel_padding_so_dates_line_up_with_the_chart(
+    user: User,
+) -> None:
+    panels = mount_assignment(PanelContent(None, SUMMARY, TODAY, TABLE))
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    scroll = user.find(marker="bottom-assignment").elements.pop()
+    # パネルの左右の余白(p-2 = 0.5rem)を打ち消し、表の左端をチャートと同じ位置にする
+    assert scroll._style["margin"] == "0 -0.5rem"
+    assert scroll._style["width"] == "calc(100% + 1rem)"
