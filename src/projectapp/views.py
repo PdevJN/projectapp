@@ -3011,6 +3011,7 @@ class MainView:
                     MenuItem(
                         "新規プロジェクト作成", "note_add", self.request_new, "file-new"
                     ),
+                    None,
                     Submenu(
                         "インポート",
                         "file_download",
@@ -3079,7 +3080,7 @@ class MainView:
                             ),
                         ],
                     ),
-                    None,  # 水平線(開く・作る・入出力 / 保存 / データの更新)
+                    None,  # 水平線(開く・作る / 入出力 / 保存 / データの更新)
                     MenuItem(
                         "上書き保存", "save", self.save_project_clicked, "save-project"
                     ),

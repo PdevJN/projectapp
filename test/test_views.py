@@ -4221,6 +4221,7 @@ async def test_the_file_menu_separates_open_save_and_update(
     assert kinds == [
         "item",
         "item",
+        "sep",
         "item",
         "item",
         "sep",
@@ -4765,12 +4766,13 @@ async def test_the_file_menu_separators_are_marked_and_the_holiday_update_is_las
     menu = user.find(marker="menu-file-items").elements.pop()
     children = menu.default_slot.children
     assert (
-        "menu-file-separator" in children[4]._markers
-        and "menu-file-separator" in children[7]._markers
+        "menu-file-separator" in children[2]._markers
+        and "menu-file-separator" in children[5]._markers
+        and "menu-file-separator" in children[8]._markers
     )
     assert (
-        "file-change-dir" in children[8]._markers
-        and "refresh-holidays" in children[9]._markers
+        "file-change-dir" in children[9]._markers
+        and "refresh-holidays" in children[10]._markers
     )
 
 
