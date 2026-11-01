@@ -15,6 +15,8 @@ from projectapp.dashboard import (
     CrossSummary,
     Dashboard,
     DayLoad,
+    CatchUp,
+    CatchUpMode,
     LateBasis,
     LoadStats,
     MemberProgress,
@@ -336,9 +338,11 @@ class DashboardView:
         actions: ViewActions | None = None,
         on_tick: Callable[[], object] | None = None,
         on_late_basis_change: Callable[[LateBasis], object] | None = None,
+        on_catch_up_change: Callable[[CatchUp], object] | None = None,
     ) -> None:
         self.actions = actions
         self.on_late_basis_change = on_late_basis_change
+        self.on_catch_up_change = on_catch_up_change
         self.on_tick = on_tick
         self.edit_mode = False
         self.edit_button: ui.button | None = None
@@ -1145,6 +1149,46 @@ class DashboardView:
                         self.pick_late_basis(b, now)
                     ),
                 ).props(props).mark(f"dashboard-backlog-late-{marker}")
+        self.catch_up_controls(backlog.catch_up)
+
+    def catch_up_controls(self, rule: CatchUp) -> None:
+        """遅れを取り戻す期限の選択(`期間の終わり`・`タスクごと`)。`タスクごと`のときは、予定超過を取り戻す稼働日数の欄も出す(選択は保存しない)。"""
+        with ui.row().classes("items-center gap-2").mark("dashboard-backlog-catch-up"):
+            with ui.button_group().props("flat dense"):
+                for mode, marker in (
+                    (CatchUpMode.PERIOD, "period"),
+                    (CatchUpMode.TASK, "task"),
+                ):
+                    props = "dense no-caps color=primary size=sm" + (
+                        "" if rule.mode is mode else " outline"
+                    )
+                    ui.button(
+                        mode.value,
+                        on_click=lambda m=mode, now=rule: self.pick_catch_up(
+                            CatchUp(m, now.days), now
+                        ),
+                    ).props(props).mark(f"dashboard-backlog-catch-up-{marker}")
+            if rule.mode is CatchUpMode.TASK:
+                ui.label("予定超過は").classes("text-caption")
+                field = (
+                    ui.number(value=rule.days, min=1, max=60, step=1, format="%d")
+                    .props("dense outlined style=width:5rem")
+                    .mark("dashboard-backlog-catch-up-days")
+                )
+                for event in ("blur", "keydown.enter"):
+                    field.on(
+                        event,
+                        lambda _=None, f=field, now=rule: self.pick_catch_up(
+                            CatchUp(now.mode, int(f.value or now.days)), now
+                        ),
+                    )
+                ui.label("稼働日で取り戻す").classes("text-caption")
+
+    def pick_catch_up(self, rule: CatchUp, current: CatchUp) -> None:
+        """取り戻す期限を選ぶ。今と同じなら何もしない。日数は 1〜60 に収める。"""
+        rule = CatchUp(rule.mode, min(60, max(1, rule.days)))
+        if rule != current and self.on_catch_up_change is not None:
+            self.on_catch_up_change(rule)
 
     def pick_late_basis(self, basis: LateBasis, current: LateBasis) -> None:
         """遅れの判定の基準を選ぶ。今の基準と同じなら何もしない。"""

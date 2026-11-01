@@ -76,6 +76,8 @@ from projectapp.plantuml import PLANTUML_FILE_TYPES
 from projectapp.puml_import import PLANTUML_OPEN_FILE_TYPES
 from projectapp.dashboard import (
     MAX_CUSTOM_DAYS,
+    CatchUp,
+    CatchUpMode,
     LateBasis,
     Period,
     PeriodKind,
@@ -3669,6 +3671,26 @@ async def test_the_late_basis_is_not_part_of_the_dashboard_view(
     view.change_dashboard_late_basis(LateBasis.WARNING)
     assert not view.dashboard_dirty()  # 基準を変えても「変更あり」にならない
     assert not view.is_dirty()  # プロジェクトも変更扱いにならない
+
+
+async def test_the_catch_up_rule_is_kept_per_session_and_not_part_of_the_view(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-backlog-hours")
+    assert view.dashboard_catch_up == CatchUp()
+    view.change_dashboard_catch_up(CatchUp(CatchUpMode.TASK, 3))
+    assert view.dashboard_catch_up == CatchUp(CatchUpMode.TASK, 3)
+    view.select_dashboard_view(STANDARD_NAME)
+    assert (
+        view.dashboard_catch_up.mode is CatchUpMode.TASK
+    )  # ビューを切り替えても変えない
+    assert not view.dashboard_dirty()
+    assert not view.is_dirty()
+    view.close_dashboard()
+    view.open_dashboard()
+    assert view.dashboard_catch_up == CatchUp()  # 開き直すと期間の終わり
 
 
 async def test_excluding_a_project_removes_it_from_the_total(
