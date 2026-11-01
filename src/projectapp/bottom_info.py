@@ -31,6 +31,7 @@ STATUS_ICON = {
     Status.DONE: "check_circle",
 }
 DetailLine = tuple[str, str]
+NAME_WIDTH_VAR = "--assign-name-w"  # gantt_drag.py の JS と同じ名前
 DASH = "—"
 KIND_LABELS = {
     TaskKind.NORMAL: "通常",
@@ -262,6 +263,27 @@ class AssignmentRow:
 class AssignmentTable:
     labels: list[str]
     rows: list[AssignmentRow]
+
+
+@dataclass(frozen=True)
+class AssignmentLayout:
+    """割り当て表の列幅(px)。ガントチャートの名前欄と日付の列にそろえる。"""
+
+    name_px: int  # 担当者の列(チャートの名前欄の幅)
+    column_px: int  # 日付の列 1 つ(チャートの`COLUMN_WIDTH_PX`)
+
+    @property
+    def name_css(self) -> str:
+        """担当者の列の幅。名前欄のドラッグ中は、JS が CSS 変数で動かす(なければ、いまの名前欄の幅)。"""
+        return f"var({NAME_WIDTH_VAR}, {self.name_px}px)"
+
+    def grid_columns(self, count: int) -> str:
+        if count <= 0:  # 列がなくても不正な CSS にしない
+            return self.name_css
+        return f"{self.name_css} repeat({count}, {self.column_px}px)"
+
+    def width_css(self, count: int) -> str:
+        return f"calc({self.name_css} + {self.column_px * max(count, 0)}px)"
 
 
 def assignment_table(

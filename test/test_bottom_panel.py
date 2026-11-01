@@ -1,17 +1,22 @@
 import asyncio
+import shutil
+import subprocess
 from datetime import datetime
 
+import pytest
 from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.bottom_info import (
     AssignmentCell,
+    AssignmentLayout,
     AssignmentRow,
     AssignmentTable,
     PeriodSummary,
     TaskDetail,
     TodayRow,
 )
+from projectapp import bottom_panel
 from projectapp.bottom_panel import BottomPanel, PanelContent
 from projectapp.models import Status
 
@@ -263,3 +268,118 @@ async def test_each_assignment_row_has_an_avatar_left_of_the_name(user: User) ->
     await user.should_see(marker="bottom-assignment")
     avatars = user.find(marker="bottom-assignment-avatar").elements
     assert len(avatars) == 2
+
+
+async def test_the_grid_uses_the_chart_widths(user: User) -> None:
+    panels = mount_assignment(
+        PanelContent(None, SUMMARY, TODAY, TABLE, AssignmentLayout(200, 56))
+    )
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    grid = user.find(marker="bottom-assignment-grid").elements.pop()
+    assert (
+        grid._style["grid-template-columns"]
+        == "var(--assign-name-w, 200px) repeat(3, 56px)"
+    )
+    assert "data-assignment-grid" in grid._props
+    scroll = user.find(marker="bottom-assignment").elements.pop()
+    assert "data-assignment-scroll" in scroll._props
+
+
+async def test_the_name_cell_is_sticky_with_the_chart_name_width(user: User) -> None:
+    panels = mount_assignment(
+        PanelContent(None, SUMMARY, TODAY, TABLE, AssignmentLayout(200, 40))
+    )
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    cell = user.find(marker="bottom-assignment-name").elements.pop()
+    assert "gantt-sticky" in cell.classes
+    assert cell._style["position"] == "sticky" and cell._style["left"] == "0px"
+    assert cell._style["width"] == "var(--assign-name-w, 200px)"
+    assert cell._props["title"] == "田中"
+
+
+async def test_without_a_layout_it_falls_back_to_a_default(user: User) -> None:
+    panels = mount_assignment(PanelContent(None, SUMMARY, TODAY, TABLE))
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    grid = user.find(marker="bottom-assignment-grid").elements.pop()
+    assert (
+        grid._style["grid-template-columns"]
+        == "var(--assign-name-w, 160px) repeat(3, 40px)"
+    )
+
+
+def test_the_sync_js_connects_the_chart_and_the_table_without_looping() -> None:
+    js = bottom_panel.ASSIGNMENT_SYNC_JS
+    assert "data-chart-scroll" in js and "data-assignment-scroll" in js
+    assert "Math.abs" in js  # 値が同じなら合わせ直さない(ループ防止)
+    assert "true)" in js  # scroll は親に伝わらないので、キャプチャで拾う
+
+
+def test_the_align_js_copies_the_chart_position_and_tolerates_missing_elements() -> (
+    None
+):
+    js = bottom_panel.ASSIGNMENT_ALIGN_JS
+    assert "data-chart-scroll" in js and "data-assignment-scroll" in js
+    assert "if (" in js  # 相手がいないときは何もしない
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node がない")
+@pytest.mark.parametrize("name", ["ASSIGNMENT_SYNC_JS", "ASSIGNMENT_ALIGN_JS"])
+def test_the_js_is_syntactically_valid(name: str, tmp_path) -> None:
+    path = tmp_path / "x.js"
+    path.write_text(getattr(bottom_panel, name), encoding="utf-8")
+    result = subprocess.run(
+        ["node", "--check", str(path)], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+
+
+async def test_drawing_the_table_runs_the_align_js(user: User, monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(
+        bottom_panel.ui, "run_javascript", lambda js, **kw: calls.append(js)
+    )
+    panels = mount_assignment(PanelContent(None, SUMMARY, TODAY, TABLE))
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    assert bottom_panel.ASSIGNMENT_ALIGN_JS in calls
+
+
+async def test_the_table_cancels_the_panel_padding_so_dates_line_up_with_the_chart(
+    user: User,
+) -> None:
+    panels = mount_assignment(PanelContent(None, SUMMARY, TODAY, TABLE))
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    scroll = user.find(marker="bottom-assignment").elements.pop()
+    # パネルの左右の余白(p-2 = 0.5rem)を打ち消し、表の左端をチャートと同じ位置にする
+    assert scroll._style["margin"] == "0 -0.5rem"
+    assert scroll._style["width"] == "calc(100% + 1rem)"
+
+
+async def test_the_name_title_keeps_special_characters_as_they_are(user: User) -> None:
+    name = 'A&B "x" \\y'
+    table = AssignmentTable(
+        ["10/5"], [AssignmentRow(name, [AssignmentCell(1.0, False, False)])]
+    )
+    panels = mount_assignment(PanelContent(None, SUMMARY, TODAY, table))
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    cell = user.find(marker="bottom-assignment-name").elements.pop()
+    assert (
+        cell._props["title"] == name
+    )  # 属性値としてそのまま渡る(二重にエスケープしない)
+
+
+def test_the_sync_js_ignores_the_echo_of_its_own_adjustment() -> None:
+    js = bottom_panel.ASSIGNMENT_SYNC_JS
+    # 合わせた側の scroll イベントを 1 回だけ無視し、慣性スクロール中に古い値で引き戻さない
+    assert "__syncTo" in js

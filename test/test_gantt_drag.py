@@ -353,6 +353,7 @@ const fs = require("fs");
 const code = fs.readFileSync(process.argv[2], "utf8");
 const listeners = {};
 const emitted = [];
+const tableGrids = [];  // 下部パネルの割り当て表(あれば)
 const timers = [];
 global.window = {};
 const area = {  // chart-content。範囲と掴み場所の幅は、data-* 属性で渡される
@@ -363,7 +364,7 @@ const area = {  // chart-content。範囲と掴み場所の幅は、data-* 属�
 global.getComputedStyle = (el) => ({ getPropertyValue: (name) => el.vars[name] });
 global.document = {
   addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
-  querySelectorAll: () => [],
+  querySelectorAll: (selector) => (selector === "[data-assignment-grid]" ? tableGrids : []),
   querySelector: (selector) => (selector === "[data-chart-content]" ? area : null),
   body: { style: {} },
 };
@@ -459,6 +460,7 @@ const other = { draggable: true, style: { width: "var(--name-w)" } };  // 同じ
 area.querySelectorAll = (selector) => (selector === ".gantt-name-resizable" ? [cell, other] : []);
 const edge = (x) => ({ target: cell, button: 0, pointerId: 1, isPrimary: true, clientX: x, buttons: 1, preventDefault() {} });
 const variable = () => area.vars["--name-w"];
+const setWidth_ = (value) => { area.vars["--name-w"] = value; cell.style.width = "var(--name-w)"; other.style.width = "var(--name-w)"; };
 const widths = () => [cell.style.width, other.style.width];
 const escape = () => ({ key: "Escape", stopped: false, stopImmediatePropagation() { this.stopped = true; } });
 
@@ -543,6 +545,29 @@ const dragEvent = { target: cell, prevented: false, preventDefault() { this.prev
 fire("dragstart", dragEvent);
 scenarios.dragstart = dragEvent.prevented;
 fire("pointerup", edge(197)); click(); flush();
+
+// 下部パネルの割り当て表: ドラッグ中も担当者列の幅が追従し、離したあとは描き直しまで戻さず、キャンセル・Esc では消す
+const grid = { vars: {}, style: { setProperty(n, v) { grid.vars[n] = v; }, removeProperty(n) { delete grid.vars[n]; } } };
+tableGrids.push(grid);
+const gridVar = () => grid.vars["--assign-name-w"];
+const savedWidth = variable();  // このシナリオが動かした幅は、終わりに戻す(後ろのシナリオの前提を変えない)
+fire("pointerdown", edge(197)); fire("pointermove", edge(207));
+const gridDuring = gridVar(), cellDuring = cell.style.width;
+fire("pointerup", edge(207));
+const gridCommitted = gridVar();
+emitted.splice(0); click(); flush();
+fire("pointerdown", edge(197)); fire("pointermove", edge(257));
+const gridCancelDuring = gridVar();
+fire("pointercancel", edge(257)); fire("pointerup", edge(257));
+const gridAfterCancel = gridVar();
+emitted.splice(0); click(); flush();
+fire("pointerdown", edge(197)); fire("pointermove", edge(257));
+fire("keydown", escape());
+const gridAfterEscape = gridVar();
+fire("pointerup", edge(257)); emitted.splice(0); click(); flush();
+scenarios.tableFollows = { gridDuring, cellDuring, gridCommitted, gridCancelDuring, gridAfterCancel, gridAfterEscape };
+tableGrids.length = 0;
+setWidth_(savedWidth);
 
 // 画面を 150% に拡大(body の CSS zoom)しているとき: 画面上の移動量(clientX)を、CSS の px へ戻して計算する。
 // WebKit は、zoom 中も getBoundingClientRect と offsetWidth を拡大前の値で返す(clientX と elementFromPoint は画面上の座標)
@@ -808,3 +833,18 @@ def test_a_nested_section_key_survives_the_roundtrip_to_the_server() -> None:
         ((1,), 3),
         True,
     )
+
+
+def test_js_resize_drags_the_assignment_table_name_column_too(
+    js_scenarios: dict,
+) -> None:
+    follows = js_scenarios["tableFollows"]
+    assert (
+        follows["gridDuring"] == follows["cellDuring"]
+    )  # ドラッグ中、表の担当者列も同じ幅
+    assert (
+        follows["gridCommitted"] == follows["gridDuring"]
+    )  # 離したあとも、描き直しまで幅を戻さない
+    assert follows.get("gridCancelDuring") is not None
+    assert follows.get("gridAfterCancel") is None  # キャンセルで、変数を消して元に戻す
+    assert follows.get("gridAfterEscape") is None  # Esc でも同じ

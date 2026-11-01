@@ -12,6 +12,7 @@ from projectapp.bottom_info import (
     STATUS_CLASS,
     STATUS_ICON,
     AssignmentCell,
+    AssignmentLayout,
     AssignmentTable,
     PeriodSummary,
     TaskDetail,
@@ -20,7 +21,39 @@ from projectapp.bottom_info import (
 from projectapp.models import Status
 
 TABS = {"today": "今日の予定", "legend": "凡例"}
-CELL_STYLE = "min-width: 3.4em; text-align: center; padding: 1px 2px; font-size: 12px"
+CELL_STYLE = "text-align: center; padding: 1px 2px; font-size: 12px; overflow: hidden"
+DEFAULT_LAYOUT = AssignmentLayout(160, 40)
+
+# ガントチャートと割り当て表の横スクロールを連動させる(ページに一度だけ仕掛ける)。scroll は親に伝わらないので、キャプチャで拾う。
+# 相手の位置が(ほぼ)同じなら合わせ直さない。これで、合わせた側の scroll イベントが、こちらをもう一度動かすことがない
+ASSIGNMENT_SYNC_JS = """
+(() => {
+  if (window.__assignmentSync) return;
+  window.__assignmentSync = true;
+  document.addEventListener('scroll', (e) => {
+    const t = e.target;
+    if (!t || !t.matches) return;
+    // こちらが合わされた結果の scroll イベントは 1 回だけ無視する(慣性スクロール中に、古い値で相手を引き戻さない)
+    if (t.__syncTo !== undefined && Math.abs(t.scrollLeft - t.__syncTo) <= 0.5) { t.__syncTo = undefined; return; }
+    t.__syncTo = undefined;
+    let other = null;
+    if (t.matches('[data-chart-scroll]')) other = document.querySelector('[data-assignment-scroll]');
+    else if (t.matches('[data-assignment-scroll]')) other = document.querySelector('[data-chart-scroll]');
+    if (other && Math.abs(other.scrollLeft - t.scrollLeft) > 0.5) {
+      const before = other.scrollLeft;
+      other.scrollLeft = t.scrollLeft;
+      if (other.scrollLeft !== before) other.__syncTo = other.scrollLeft;  // 動いたときだけ、そのイベントを待つ
+    }
+  }, true);
+})();
+"""
+# 表を描き直したあと、チャートの横位置へ合わせる(描き直しで先頭に戻らないように)
+ASSIGNMENT_ALIGN_JS = (
+    "requestAnimationFrame(() => {"
+    " const chart = document.querySelector('[data-chart-scroll]');"
+    " const table = document.querySelector('[data-assignment-scroll]');"
+    " if (chart && table) table.scrollLeft = chart.scrollLeft; })"
+)
 LOAD_COLOR = "rgba(76, 139, 245, {alpha:.2f})"
 OVER_STRIPE = "repeating-linear-gradient(45deg, rgba(220, 53, 69, 0.6) 0 4px, transparent 4px 8px)"
 
@@ -31,6 +64,7 @@ class PanelContent:
     summary: PeriodSummary
     today: list[TodayRow]
     assignment: AssignmentTable | None = None  # `割り当て`ビューのときだけ作る
+    layout: AssignmentLayout | None = None  # 同上。ガントチャートに合わせた列幅
 
 
 class BottomPanel:
@@ -221,33 +255,60 @@ class BottomPanel:
                             ui.label(entry.note).classes("text-caption text-grey")
 
     def show_assignment(self, table: AssignmentTable | None) -> None:
-        """担当者×列の割り当て率。濃さが負荷、縞が 100% 超、灰色が休み。独立して横にスクロールする。"""
+        """担当者×列の割り当て率。列の幅はガントチャートと同じ px。担当者の列は左に固定する。"""
+        layout = (self.content.layout if self.content else None) or DEFAULT_LAYOUT
+        ui.run_javascript(
+            ASSIGNMENT_ALIGN_JS
+        )  # 描き直しで先頭に戻らないよう、チャートの位置へ合わせる
         with (
             ui.element("div")
             .classes("w-full")
-            .style("overflow-x: auto")
+            .props("data-assignment-scroll")
+            .style(  # パネルの左右の余白(p-2)を打ち消し、表の左端をチャートと同じ位置にする
+                "overflow-x: auto; margin: 0 -0.5rem; width: calc(100% + 1rem)"
+            )
             .mark("bottom-assignment")
         ):
             if table is None or not table.rows:
-                ui.label("割り当てのある担当者はいません").classes("text-grey").mark(
-                    "bottom-assignment-empty"
-                )
+                ui.label("割り当てのある担当者はいません").classes(
+                    "text-grey q-px-sm"
+                ).mark("bottom-assignment-empty")
                 return
-            with ui.element("div").style(
-                "display: grid; width: max-content;"
-                f" grid-template-columns: 8em repeat({len(table.labels)}, 3.4em)"
+            count = len(table.labels)
+            with (
+                ui.element("div")
+                .style(
+                    f"display: grid; width: {layout.width_css(count)};"
+                    f" grid-template-columns: {layout.grid_columns(count)}"
+                )
+                .props(
+                    "data-assignment-grid"
+                )  # 名前欄のドラッグ中、JS が担当者列の幅を動かす
+                .mark("bottom-assignment-grid")
             ):
-                ui.label("")
+                ui.element("div").classes("gantt-sticky").style(
+                    "position: sticky; left: 0px; z-index: 2"
+                )  # 左上の空き
                 for label in table.labels:
                     ui.label(label).classes("text-caption text-grey").style(CELL_STYLE)
                 for row in table.rows:
-                    with (
+                    name_cell = (
                         ui.row()
-                        .classes("items-center gap-1 no-wrap")
-                        .style("padding: 1px 4px")
-                    ):
+                        .classes("items-center gap-1 no-wrap gantt-sticky")
+                        .style(
+                            "position: sticky; left: 0px; z-index: 2; overflow: hidden;"
+                            f" width: {layout.name_css}; padding: 1px 4px"
+                        )
+                        .mark("bottom-assignment-name")
+                    )
+                    name_cell._props["title"] = (
+                        row.name
+                    )  # 属性値としてそのまま渡る(エスケープ不要)
+                    with name_cell:
                         avatar(row.name, row.icon, 18).mark("bottom-assignment-avatar")
-                        ui.label(row.name).classes("text-bold")
+                        ui.label(row.name).classes("text-bold ellipsis").style(
+                            "min-width: 0"
+                        )
                     for cell in row.cells:
                         self.show_assignment_cell(cell)
 

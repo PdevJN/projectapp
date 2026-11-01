@@ -13,12 +13,13 @@ from projectapp import arrange
 from projectapp.avatar import avatar
 from projectapp.browser import open_url as default_open_url
 from projectapp.bottom_info import (
+    AssignmentLayout,
     assignment_table,
     period_summary,
     task_detail,
     today_plan,
 )
-from projectapp.bottom_panel import BottomPanel, PanelContent
+from projectapp.bottom_panel import ASSIGNMENT_SYNC_JS, BottomPanel, PanelContent
 from projectapp.bulk_select import BulkSelection
 from projectapp.arrange import Position, section_key
 from projectapp.calendar import DayKind, day_kind, member_notes
@@ -859,6 +860,8 @@ class GanttChart:
             return
         self.name_width = width
         self.actions.set_name_width(width)
+        if self.bottom.view == "assignment":
+            self.refresh_bottom()  # 表の担当者列も、名前欄の新しい幅に合わせる
 
     def drag_props(self, kind: str, key: str, **extra: object) -> str:
         """ドロップ先の `data-*` 属性。絞り込み中は空(ドロップできない)。"""
@@ -1102,7 +1105,9 @@ class GanttChart:
                 len(selected) - 1,
             )
         assignment = None
+        layout = None
         if self.bottom.view == "assignment":
+            layout = AssignmentLayout(self.name_width, COLUMN_WIDTH_PX[self.view_scale])
             columns = build_columns(
                 self.project,
                 self.view_scale,
@@ -1120,6 +1125,7 @@ class GanttChart:
             ),
             today_plan(tasks, self.schedule, now),
             assignment,
+            layout,
         )
 
     def refresh_bottom(self) -> None:
@@ -1639,6 +1645,7 @@ class GanttChart:
         ui.add_css(SHIFT_TOOLTIP_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.add_head_html(f"<script>{SHIFT_TRACK_JS}</script>")
+        ui.add_head_html(f"<script>{ASSIGNMENT_SYNC_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_move_section", lambda e: self.handle_move_section(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))
