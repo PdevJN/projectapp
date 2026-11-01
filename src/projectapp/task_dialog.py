@@ -5,6 +5,7 @@ import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from math import isfinite
+from typing import Any
 from datetime import date, datetime, time
 
 from nicegui import ui
@@ -35,6 +36,7 @@ from projectapp.forms import (
     apply_quick_progress,
     bind_picker,
     build_actuals,
+    build_extra_efforts,
     build_task,
     build_urls,
     compose_actual,
@@ -65,6 +67,7 @@ from projectapp.models import (
     ActualMode,
     Assignee,
     Category,
+    ExtraEffort,
     Member,
     Parameter,
     Team,
@@ -1121,6 +1124,73 @@ def open_extra_effort_dialog(
     dialog.open()
 
 
+def open_extra_effort_history_dialog(
+    efforts: list[ExtraEffort],
+    base_hours: float,
+    on_apply: Callable[[list[ExtraEffort]], object],
+) -> None:
+    """編集ダイアログの`追加工数の履歴…`。追加工数の日付・時間・理由を直し、行を消す(進捗度は直さない)。OK で on_apply に渡す。"""
+    rows: list[dict[str, Any]] = []
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[32rem]"):
+        ui.label("追加工数の履歴").classes("text-h6")
+        ui.label(f"もとの見積もり {base_hours:g}h").classes(
+            "text-caption text-grey"
+        ).mark("extra-history-base")
+        box = ui.column().classes("w-full gap-1")
+        error = ui.label("").classes("text-negative").mark("extra-history-error")
+
+        def add_row(effort: ExtraEffort) -> None:
+            number = len(rows)
+            with box:
+                with (
+                    ui.row()
+                    .classes("w-full items-center no-wrap")
+                    .mark(f"extra-history-row-{number}") as line
+                ):
+                    day = ui.input("日付", value=effort.day.isoformat()).classes("w-32")
+                    day.mark(f"extra-history-day-{number}")
+                    hours = ui.number("時間(h)", value=effort.hours, min=0, step=0.5)
+                    hours.classes("w-24").mark(f"extra-history-hours-{number}")
+                    reason = ui.input("理由", value=effort.reason).classes("grow")
+                    reason.mark(f"extra-history-reason-{number}")
+                    remove = ui.button(icon="delete").props("flat dense")
+                    remove.mark(f"extra-history-delete-{number}")
+            item = {"line": line, "day": day, "hours": hours, "reason": reason}
+            rows.append(item)
+
+            def delete() -> None:
+                line.delete()
+                rows.remove(item)
+
+            remove.on_click(delete)
+
+        for effort in efforts:
+            add_row(effort)
+
+        def apply() -> None:
+            try:
+                built = build_extra_efforts(
+                    [
+                        (
+                            str(row["day"].value),
+                            row["hours"].value,
+                            str(row["reason"].value or ""),
+                        )
+                        for row in rows
+                    ]
+                )
+            except ValueError as exc:
+                error.set_text(str(exc))
+                return
+            dialog.close()
+            on_apply(built)
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat")
+            ui.button("OK", on_click=apply).mark("extra-history-ok")
+    dialog.open()
+
+
 def _title_table(hover: list[str]) -> str:
     """選択肢の番号 → マウスオーバーの全文(省略していないものは空)。NiceGUI の select は、選択肢の value に番号を渡す。
     属性の中に入れるので、JSON の引用符は &quot; にする(Vue が属性の値を戻す)。"""
@@ -1314,6 +1384,24 @@ def open_task_dialog(
             conversion = (
                 ui.label("").classes("text-caption text-grey").mark("task-conversion")
             )
+            extra_state: dict[str, list[ExtraEffort]] = {
+                "items": list(initial.extra_efforts)
+            }
+            with (
+                ui.column().classes("w-full gap-1").mark("task-extra-box") as extra_box
+            ):
+                extra_note = (
+                    ui.label("")
+                    .classes("text-caption text-grey")
+                    .mark("task-extra-note")
+                )
+                ui.button(
+                    "追加工数の履歴…",
+                    icon="history",
+                    on_click=lambda: open_extra_effort_history_dialog(
+                        extra_state["items"], effort.value or 0.0, apply_extra
+                    ),
+                ).props("flat dense no-caps").mark("task-extra-history")
         with section_boxes["assignees"]:
             parameter_select: ui.select | None = None
             if parameters:
@@ -1458,9 +1546,30 @@ def open_task_dialog(
                 f"換算率 {rate * 100:g}%({detail}{tagged}{notes})→ {effort.value:g}h は約 {days:.1f}日分"
             )
 
+        def refresh_extra() -> None:
+            """補足と表示を更新する。追加のあるときだけ、もとの見積もりと合計を出す。通常タスクで工数のあるときだけ見せる。"""
+            items = extra_state["items"]
+            base_hours = effort.value or 0.0
+            added = sum(e.hours for e in items)
+            extra_note.set_text(
+                f"もとの見積もり {base_hours:g}h。追加 +{added:g}h で合計 {base_hours + added:g}h"
+                if items
+                else ""
+            )
+            normal = not is_summary and kind.value not in (
+                TaskKind.CHECKPOINT,
+                TaskKind.REFERENCE,
+            )
+            extra_box.set_visibility(normal and base_hours > 0)
+
+        def apply_extra(items: list[ExtraEffort]) -> None:
+            extra_state["items"] = items
+            refresh_extra()
+
         def on_effort_change(value: float | None) -> None:
             fields.set_effort(value)
             refresh_conversion()
+            refresh_extra()
 
         effort.on_value_change(on_effort_change)
 
@@ -1609,6 +1718,7 @@ def open_task_dialog(
 
         def refresh_visibility(_event: object = None) -> None:
             """欄と節の出し入れを 1 か所で決める(値は消さない)。種別によって出す欄が変わり、欄が 1 つも出ない節は隠す。"""
+            refresh_extra()
             if is_summary:  # まとめは、名前・カテゴリ・優先度・リンクだけ
                 for widget in (
                     fields.first_row,
@@ -1737,6 +1847,7 @@ def open_task_dialog(
                 *actual_fields.state(),
                 *progress_field.state(),
                 url_fields.state(),
+                tuple(extra_state["items"]),
             )
 
         opened = current()
@@ -1813,6 +1924,7 @@ def open_task_dialog(
                     if parameter_select is not None
                     else None,
                     ref_project=ref_project.value or "",
+                    extra_efforts=extra_state["items"],
                 )
             except ValueError as exc:
                 error.set_text(str(exc))

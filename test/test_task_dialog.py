@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Callable
+from dataclasses import replace
 
 import pytest
 from datetime import date, datetime, time
@@ -14,6 +15,7 @@ from projectapp.models import (
     ActualMode,
     Assignee,
     Category,
+    ExtraEffort,
     Level,
     Member,
     Membership,
@@ -3410,3 +3412,70 @@ async def test_the_quick_dialog_only_edits_the_progress_for_several_intervals(
         user.find(marker="quick-progress").elements.pop().set_value(70)
     user.find(marker="quick-save").click()
     assert saved[0].progress == 70 and saved[0].actuals == [first, second]
+
+
+# --- 要望 105: 追加工数 ---------------------------------------------------------
+
+EXTRA_TASK = Task(
+    "設計",
+    effort_hours=10.0,
+    extra_efforts=[ExtraEffort(date(2026, 10, 7), 5.0, "見落とし")],
+)
+
+
+async def test_the_edit_dialog_shows_the_extra_effort_note(user: User) -> None:
+    mount_dialog(EXTRA_TASK, [])
+    await open_dialog(user)
+    await user.should_see(marker="task-extra-box")
+    note = user.find(marker="task-extra-note").elements.pop().text
+    assert note == "もとの見積もり 10h。追加 +5h で合計 15h"
+
+
+async def test_the_extra_effort_box_needs_a_normal_task_with_an_effort(
+    user: User,
+) -> None:
+    mount_dialog(Task("工数なし"), [])
+    await open_dialog(user)
+    await user.should_not_see(marker="task-extra-box")
+
+
+async def test_the_history_dialog_edits_the_hours_and_keeps_the_progress(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    mount_dialog(replace(EXTRA_TASK, progress=40, status=Status.RUNNING), saved)
+    await open_dialog(user)
+    user.find(marker="task-extra-history").click()
+    await user.should_see(marker="extra-history-row-0")
+    with user.client:
+        user.find(marker="extra-history-hours-0").elements.pop().set_value(2)
+    user.find(marker="extra-history-ok").click()
+    user.find(marker="task-save").click()
+    assert saved[0].extra_efforts[0].hours == 2.0
+    assert saved[0].progress == 40  # 履歴を直しても進捗度は変えない
+
+
+async def test_the_history_dialog_can_delete_a_row(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(EXTRA_TASK, saved)
+    await open_dialog(user)
+    user.find(marker="task-extra-history").click()
+    await user.should_see(marker="extra-history-row-0")
+    user.find(marker="extra-history-delete-0").click()
+    user.find(marker="extra-history-ok").click()
+    user.find(marker="task-save").click()
+    assert saved[0].extra_efforts == []
+
+
+async def test_the_history_dialog_rejects_zero_hours_and_stays_open(
+    user: User,
+) -> None:
+    mount_dialog(EXTRA_TASK, [])
+    await open_dialog(user)
+    user.find(marker="task-extra-history").click()
+    await user.should_see(marker="extra-history-row-0")
+    with user.client:
+        user.find(marker="extra-history-hours-0").elements.pop().set_value(0)
+    user.find(marker="extra-history-ok").click()
+    assert "追加工数" in user.find(marker="extra-history-error").elements.pop().text
+    await user.should_see(marker="extra-history-ok")  # 閉じない
