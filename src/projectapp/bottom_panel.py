@@ -278,9 +278,12 @@ class BottomPanel:
             with (
                 ui.element("div")
                 .style(
-                    f"display: grid; width: {layout.total_width(count)}px;"
+                    f"display: grid; width: {layout.width_css(count)};"
                     f" grid-template-columns: {layout.grid_columns(count)}"
                 )
+                .props(
+                    "data-assignment-grid"
+                )  # 名前欄のドラッグ中、JS が担当者列の幅を動かす
                 .mark("bottom-assignment-grid")
             ):
                 ui.element("div").classes("gantt-sticky").style(
@@ -294,7 +297,7 @@ class BottomPanel:
                         .classes("items-center gap-1 no-wrap gantt-sticky")
                         .style(
                             "position: sticky; left: 0px; z-index: 2; overflow: hidden;"
-                            f" width: {layout.name_px}px; padding: 1px 4px"
+                            f" width: {layout.name_css}; padding: 1px 4px"
                         )
                         .mark("bottom-assignment-name")
                     )

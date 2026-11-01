@@ -278,7 +278,11 @@ async def test_the_grid_uses_the_chart_widths(user: User) -> None:
     panels[0].toggle_view()
     await user.should_see(marker="bottom-assignment")
     grid = user.find(marker="bottom-assignment-grid").elements.pop()
-    assert grid._style["grid-template-columns"] == "200px repeat(3, 56px)"
+    assert (
+        grid._style["grid-template-columns"]
+        == "var(--assign-name-w, 200px) repeat(3, 56px)"
+    )
+    assert "data-assignment-grid" in grid._props
     scroll = user.find(marker="bottom-assignment").elements.pop()
     assert "data-assignment-scroll" in scroll._props
 
@@ -293,7 +297,7 @@ async def test_the_name_cell_is_sticky_with_the_chart_name_width(user: User) -> 
     cell = user.find(marker="bottom-assignment-name").elements.pop()
     assert "gantt-sticky" in cell.classes
     assert cell._style["position"] == "sticky" and cell._style["left"] == "0px"
-    assert cell._style["width"] == "200px"
+    assert cell._style["width"] == "var(--assign-name-w, 200px)"
     assert cell._props["title"] == "田中"
 
 
@@ -303,7 +307,10 @@ async def test_without_a_layout_it_falls_back_to_a_default(user: User) -> None:
     panels[0].toggle_view()
     await user.should_see(marker="bottom-assignment")
     grid = user.find(marker="bottom-assignment-grid").elements.pop()
-    assert grid._style["grid-template-columns"] == "160px repeat(3, 40px)"
+    assert (
+        grid._style["grid-template-columns"]
+        == "var(--assign-name-w, 160px) repeat(3, 40px)"
+    )
 
 
 def test_the_sync_js_connects_the_chart_and_the_table_without_looping() -> None:

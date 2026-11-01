@@ -241,11 +241,18 @@ CHART_DRAG_JS = """
   };
   const setWidth = (area, value) => area.style.setProperty("--name-w", `${value}px`);
   const restoreCells = (state) => state.cells.forEach(([el, original]) => { el.style.width = original; });
+  // 下部パネルの割り当て表(あれば)の担当者列も、同じ幅で追従させる。表は小さいので、変数を直接動かしてよい。
+  // 離したときは、表が描き直されるまで残す(戻すと一瞬縮む)。取り消しでは消して、元の幅に戻す
+  const setTableWidth = (value) => document.querySelectorAll("[data-assignment-grid]")
+    .forEach((grid) => grid.style.setProperty("--assign-name-w", `${value}px`));
+  const clearTableWidth = () => document.querySelectorAll("[data-assignment-grid]")
+    .forEach((grid) => grid.style.removeProperty("--assign-name-w"));
   const endResize = (commit) => {  // 掴んだ状態を捨てる。commit なら、変数を新しい幅にする(1 回だけ)
     if (!resize) return null;
     const done = resize;
     resize = null;
     if (commit) setWidth(done.area, done.width);
+    else clearTableWidth();
     restoreCells(done);  // 直接の幅をやめ、変数(元の `var(--name-w)`)に任せる
     done.cell.draggable = done.draggable;
     document.body.style.cursor = "";
@@ -282,6 +289,7 @@ CHART_DRAG_JS = """
     const max = Number(resize.area.dataset.nameMax);
     resize.width = Math.round(Math.min(Math.max(resize.start + (event.clientX - resize.x0) / resize.scale, min), max));
     resize.cells.forEach(([el]) => { el.style.width = `${resize.width}px`; });
+    setTableWidth(resize.width);
   });
 
   document.addEventListener("pointerup", () => {
@@ -307,6 +315,7 @@ CHART_DRAG_JS = """
     if (resize.cancelled) return;
     resize.cancelled = true;  // 離すまで掴んだままにし、離したあとの click だけ打ち消す
     restoreCells(resize);
+    clearTableWidth();
   }, true);
 
   document.addEventListener("dblclick", (event) => {  // 右端のダブルクリックで、既定の幅へ戻す

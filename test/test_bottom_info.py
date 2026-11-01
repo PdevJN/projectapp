@@ -293,11 +293,13 @@ def test_a_row_carries_the_member_icon() -> None:
 
 def test_layout_grid_columns_use_px_widths() -> None:
     layout = AssignmentLayout(name_px=200, column_px=40)
-    assert layout.grid_columns(3) == "200px repeat(3, 40px)"
-    assert layout.total_width(3) == 320
+    # 担当者列の幅は CSS 変数(ドラッグ中に直接動かす)。変数がなければ、チャートの名前欄の幅
+    assert layout.grid_columns(3) == "var(--assign-name-w, 200px) repeat(3, 40px)"
+    assert layout.width_css(3) == "calc(var(--assign-name-w, 200px) + 120px)"
+    assert layout.name_css == "var(--assign-name-w, 200px)"
 
 
 def test_layout_with_no_columns_is_just_the_name_column() -> None:
     layout = AssignmentLayout(name_px=200, column_px=56)
-    assert layout.grid_columns(0) == "200px"
-    assert layout.total_width(0) == 200
+    assert layout.grid_columns(0) == "var(--assign-name-w, 200px)"
+    assert layout.width_css(0) == "calc(var(--assign-name-w, 200px) + 0px)"
