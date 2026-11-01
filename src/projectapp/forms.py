@@ -480,9 +480,10 @@ ExtraEffortRow = tuple[str, float | None, str]  # (日付の文字列, 時間, �
 
 
 def can_add_extra_effort(task: Task) -> bool:
-    """追加工数を足せるか。工数のある、終了していない通常タスクだけ。"""
+    """追加工数を足せるか。工数のある、終了していない通常タスクで、履歴が上限未満のものだけ。"""
     return (
-        task.kind is TaskKind.NORMAL
+        len(task.extra_efforts) < MAX_EXTRA_EFFORTS
+        and task.kind is TaskKind.NORMAL
         and isfinite(task.effort_hours)
         and task.effort_hours > 0
         and task.status is not Status.DONE
@@ -525,10 +526,10 @@ def extra_effort_progress(task: Task, hours: float) -> int | None:
 
 def add_extra_effort(task: Task, hours: float | None, reason: str, day: date) -> Task:
     """追加工数を 1 件足したコピーを返す。進捗度があれば、消化時間を保って直す。足せないタスク・不正な入力は ValueError。"""
-    if not can_add_extra_effort(task):
-        raise ValueError("このタスクには追加工数を足せません")
     if len(task.extra_efforts) >= MAX_EXTRA_EFFORTS:
         raise ValueError(f"追加工数は{MAX_EXTRA_EFFORTS}件までです")
+    if not can_add_extra_effort(task):
+        raise ValueError("このタスクには追加工数を足せません")
     checked, clean = _check_extra_hours(hours), _check_extra_reason(reason)
     return replace(
         task,

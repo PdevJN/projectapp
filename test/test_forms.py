@@ -3185,3 +3185,9 @@ def test_build_task_drops_the_extra_efforts_when_the_effort_is_cleared() -> None
         "設計", effort_hours=8.0, extra_efforts=[ExtraEffort(date(2026, 10, 7), 2.0)]
     )
     assert make(base, effort_hours=0.0).extra_efforts == []
+
+
+def test_extra_effort_cannot_be_added_once_the_history_is_full() -> None:
+    full = running(extra_efforts=[ExtraEffort(TODAY, 0.5)] * 200)
+    assert not can_add_extra_effort(full)
+    assert can_add_extra_effort(running(extra_efforts=[ExtraEffort(TODAY, 0.5)] * 199))
