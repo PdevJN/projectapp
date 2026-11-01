@@ -2028,14 +2028,19 @@ async def open_preview(
 
 
 def key_event(
-    name: str, keydown: bool = True, ctrl: bool = False, shift: bool = False
+    name: str,
+    keydown: bool = True,
+    ctrl: bool = False,
+    shift: bool = False,
+    alt: bool = False,
+    repeat: bool = False,
 ) -> KeyEventArguments:
     return KeyEventArguments(
         sender=None,  # type: ignore[arg-type]
         client=None,  # type: ignore[arg-type]
-        action=KeyboardAction(keydown=keydown, keyup=not keydown, repeat=False),
+        action=KeyboardAction(keydown=keydown, keyup=not keydown, repeat=repeat),
         key=KeyboardKey(name=name, code=name, location=0),
-        modifiers=KeyboardModifiers(alt=False, ctrl=ctrl, meta=False, shift=shift),
+        modifiers=KeyboardModifiers(alt=alt, ctrl=ctrl, meta=False, shift=shift),
     )
 
 
@@ -9018,3 +9023,33 @@ async def test_a_legacy_file_without_events_does_not_ask(
         views[0].request_open("古い")
     assert views[0].current_name() == "古い"
     await user.should_not_see(marker="color-convert")
+
+
+async def test_ctrl_and_alt_together_toggle_the_assignment_view(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    view.on_key(key_event("Alt", ctrl=True, alt=True))
+    assert view.gantt.bottom.view == "assignment"
+    view.on_key(
+        key_event("Alt", ctrl=True, alt=True, repeat=True)
+    )  # 押しっぱなしは無視
+    assert view.gantt.bottom.view == "assignment"
+    view.on_key(key_event("Control", ctrl=True, alt=True))  # Alt を先に押した順でも効く
+    assert view.gantt.bottom.view == "info"
+
+
+async def test_ctrl_or_alt_alone_does_not_toggle(user: User, tmp_path: Path) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    view.on_key(key_event("Control", ctrl=True))
+    view.on_key(key_event("Alt", alt=True))
+    assert view.gantt.bottom.view == "info"
+
+
+async def test_the_assignment_key_is_ignored_on_the_dashboard(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    view.open_dashboard()
+    view.on_key(key_event("Alt", ctrl=True, alt=True))
+    assert view.gantt.bottom.view == "info"
