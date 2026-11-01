@@ -434,3 +434,25 @@ async def test_assignment_numbers_have_a_tooltip_but_empty_cells_do_not(
     await user.should_see(marker="bottom-assignment")
     chips = user.find(marker="bottom-assignment-chip").elements
     assert sorted(c.text for c in chips) == ["実装", "設計"]
+
+
+async def test_tooltip_chips_take_the_tooltip_text_color_in_both_themes(
+    user: User,
+) -> None:
+    """Quasar のチップは既定で、ライトは黒・ダークは白の文字になり、濃い灰色の地では読めない。地の白を引き継ぐ。"""
+    summary = PeriodSummary(
+        2, {s: 0 for s in Status}, 0.0, 2, None, 0, 0, (("a", "設計"), ("b", "調査"))
+    )
+
+    @ui.page("/")
+    def index() -> None:
+        panel = BottomPanel()
+        panel.build()
+        panel.update(PanelContent(None, summary, []))
+
+    await user.open("/")
+    chips = user.find(marker="bottom-no-effort-chip").elements
+    assert chips and all(c._style["color"] == "inherit" for c in chips)
+    tooltip = next(iter(user.find(marker="bottom-no-effort").elements)).default_slot
+    classes = {c for e in tooltip.children for c in e.classes}
+    assert "bg-grey-9" in classes and "text-white" in classes

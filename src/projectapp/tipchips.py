@@ -12,26 +12,24 @@ def name_chips_tooltip(
     chip_marker: str,
     *,
     more_marker: str | None = None,
-    light: bool = False,
     color: str | None = None,
     limit: int | None = MAX_TIP_CHIPS,
 ) -> None:
     """直前の`with`の要素に、タスク名のチップを並べたツールチップを付ける。
 
-    `light`は白地(暗い文字)、既定は濃い灰色の地。`color`は枠と文字の色(CSS の値)。
+    地は、テーマによらず濃い灰色で、チップの枠と文字は白(`color`があればその色)。Quasar のチップは既定で
+    テーマごとの文字色を持ち(ライトは黒、ダークは白)、地と合わず読めなくなるので、継承させる。
     `limit`を超えた分は`+n件`にまとめる(`None`なら全部)。名前がなければ何も付けない。
     """
     if not names:
         return
     shown = names if limit is None else names[:limit]
-    tooltip = ui.tooltip().style("max-width: 28rem")
-    tooltip.classes("bg-white text-dark shadow-4" if light else "bg-grey-9 text-white")
+    tooltip = ui.tooltip().classes("bg-grey-9 text-white").style("max-width: 28rem")
     with tooltip, ui.row().classes("gap-1"):
         for name in shown:
             chip = ui.chip(name, color=None).props("dense square outline")
             chip.classes("ellipsis").mark(chip_marker)
-            if color is not None:
-                chip.style(f"color: {color}")  # 枠と文字が currentColor になる
+            chip.style(f"color: {color or 'inherit'}")  # 枠と文字が currentColor になる
         if limit is not None and len(names) > limit:
             label = ui.label(f"+{len(names) - limit}件")
             if more_marker is not None:

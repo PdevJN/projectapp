@@ -188,7 +188,6 @@ class BottomPanel:
             name_chips_tooltip(
                 [name for _, name in s.no_effort_tasks],
                 "bottom-no-effort-chip",
-                light=True,
                 limit=None,
             )
 
