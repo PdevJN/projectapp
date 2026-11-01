@@ -1,6 +1,6 @@
 # 下部パネルの割り当て表示の設計(要望 116)
 
-> **状態**: 設計中(利用者のレビュー待ち)。architectural。
+> **状態**: 実装済み(`feature/assignment-view`。実機確認待ち。計画 [`plans/2026-11-01-assignment-view.md`](../plans/2026-11-01-assignment-view.md))。architectural。
 
 ## 目的
 

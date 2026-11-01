@@ -1282,7 +1282,7 @@ PlantUML は日単位で担当者の割り当てを集計するので、同じ�
 
 ## 要望 116: 下部パネルに、担当者ごとの割り当て状況をガントチャート風に表示する(2026-11-01 に受領)
 
-> **状態**: 設計中。[設計書](superpowers/specs/2026-11-01-assignment-view-design.md)。
+> **状態**: 実装済み(実機確認待ち。`feature/assignment-view`。[計画](superpowers/plans/2026-11-01-assignment-view.md))。[設計書](superpowers/specs/2026-11-01-assignment-view-design.md)。
 
 ### 要望
 メインの下部パネルに、`Ctrl/Cmd + Alt/Option`で、タスクの割り当て状況を、日ごとのガントチャート風に表示したい。上のガントチャートの`日次`/`週次`/`月次`の選択に合わせる。
