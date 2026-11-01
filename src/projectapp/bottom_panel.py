@@ -1,6 +1,5 @@
 """ガントチャートの下部パネルの描画(要望 95)。内容は`PanelContent`で受け取り、計算はしない。"""
 
-import html
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -34,10 +33,17 @@ ASSIGNMENT_SYNC_JS = """
   document.addEventListener('scroll', (e) => {
     const t = e.target;
     if (!t || !t.matches) return;
+    // こちらが合わされた結果の scroll イベントは 1 回だけ無視する(慣性スクロール中に、古い値で相手を引き戻さない)
+    if (t.__syncTo !== undefined && Math.abs(t.scrollLeft - t.__syncTo) <= 0.5) { t.__syncTo = undefined; return; }
+    t.__syncTo = undefined;
     let other = null;
     if (t.matches('[data-chart-scroll]')) other = document.querySelector('[data-assignment-scroll]');
     else if (t.matches('[data-assignment-scroll]')) other = document.querySelector('[data-chart-scroll]');
-    if (other && Math.abs(other.scrollLeft - t.scrollLeft) > 0.5) other.scrollLeft = t.scrollLeft;
+    if (other && Math.abs(other.scrollLeft - t.scrollLeft) > 0.5) {
+      const before = other.scrollLeft;
+      other.scrollLeft = t.scrollLeft;
+      if (other.scrollLeft !== before) other.__syncTo = other.scrollLeft;  // 動いたときだけ、そのイベントを待つ
+    }
   }, true);
 })();
 """
@@ -283,16 +289,19 @@ class BottomPanel:
                 for label in table.labels:
                     ui.label(label).classes("text-caption text-grey").style(CELL_STYLE)
                 for row in table.rows:
-                    with (
+                    name_cell = (
                         ui.row()
                         .classes("items-center gap-1 no-wrap gantt-sticky")
-                        .props(f'title="{html.escape(row.name)}"')
                         .style(
                             "position: sticky; left: 0px; z-index: 2; overflow: hidden;"
                             f" width: {layout.name_px}px; padding: 1px 4px"
                         )
                         .mark("bottom-assignment-name")
-                    ):
+                    )
+                    name_cell._props["title"] = (
+                        row.name
+                    )  # 属性値としてそのまま渡る(エスケープ不要)
+                    with name_cell:
                         avatar(row.name, row.icon, 18).mark("bottom-assignment-avatar")
                         ui.label(row.name).classes("text-bold ellipsis").style(
                             "min-width: 0"

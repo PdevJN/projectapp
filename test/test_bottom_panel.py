@@ -355,3 +355,24 @@ async def test_the_table_cancels_the_panel_padding_so_dates_line_up_with_the_cha
     # パネルの左右の余白(p-2 = 0.5rem)を打ち消し、表の左端をチャートと同じ位置にする
     assert scroll._style["margin"] == "0 -0.5rem"
     assert scroll._style["width"] == "calc(100% + 1rem)"
+
+
+async def test_the_name_title_keeps_special_characters_as_they_are(user: User) -> None:
+    name = 'A&B "x" \\y'
+    table = AssignmentTable(
+        ["10/5"], [AssignmentRow(name, [AssignmentCell(1.0, False, False)])]
+    )
+    panels = mount_assignment(PanelContent(None, SUMMARY, TODAY, table))
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    cell = user.find(marker="bottom-assignment-name").elements.pop()
+    assert (
+        cell._props["title"] == name
+    )  # 属性値としてそのまま渡る(二重にエスケープしない)
+
+
+def test_the_sync_js_ignores_the_echo_of_its_own_adjustment() -> None:
+    js = bottom_panel.ASSIGNMENT_SYNC_JS
+    # 合わせた側の scroll イベントを 1 回だけ無視し、慣性スクロール中に古い値で引き戻さない
+    assert "__syncTo" in js
