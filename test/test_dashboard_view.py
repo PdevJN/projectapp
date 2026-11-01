@@ -27,11 +27,11 @@ from projectapp.dashboard import (
     WorkloadRow,
 )
 from projectapp.dashboard_views import DEFAULT_ORDER, CardId, ViewState
+from projectapp.tipchips import MAX_TIP_CHIPS
 from projectapp.dashboard_view import (
     HEATMAP_CSS,
     ViewActions,
     HEATMAP_HINT_DAYS,
-    MAX_TIP_CHIPS,
     DashboardView,
     heatmap_html,
     percent_width,
@@ -1632,3 +1632,23 @@ async def test_the_need_bar_has_a_warning_segment_and_legend_only_for_warnings(
     await user.should_not_see(marker="dashboard-backlog-bar-warning")
     await user.should_not_see(marker="dashboard-backlog-legend-warning")
     assert text(user, "dashboard-backlog-late").startswith("遅れがなければ")
+
+
+async def test_the_member_warning_count_has_a_tooltip_of_task_chips(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = warned_sample()
+    data.progress.by_member[0] = MemberProgress(
+        "田中",
+        40.0,
+        data.progress.by_member[0].counts,
+        warnings=2,
+        limit=3,
+        warned_tasks=("設計", "実装"),
+    )
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-member-warning-田中")
+    chips = user.find(marker="dashboard-member-warning-chip-田中").elements
+    assert sorted(c.text for c in chips) == ["実装", "設計"]

@@ -136,6 +136,7 @@ class MemberProgress:
     counts: dict[Status, int]
     warnings: int = 0  # 警告のタスクの数(共同タスクは担当者それぞれの行に数える)
     limit: int | None = None  # そのメンバーの警告の件数の閾値(メンバー別の行だけ)
+    warned_tasks: tuple[str, ...] = ()  # 警告のタスクの名前(`warnings`の内訳)
 
     @property
     def over_limit(self) -> bool:
@@ -347,6 +348,7 @@ def _member_row(
         counts,
         sum(1 for t in tasks if id(t) in warned),
         limit,
+        tuple(t.name for t in tasks if id(t) in warned),
     )
 
 

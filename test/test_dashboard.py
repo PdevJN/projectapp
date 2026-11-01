@@ -1670,3 +1670,16 @@ def test_due_rows_mark_the_warning_tasks_and_not_the_overdue_ones() -> None:
         not by_key[("超過", "完了予定")].warning
         and by_key[("超過", "完了予定")].overdue
     )
+
+
+def test_member_rows_list_the_warning_task_names() -> None:
+    project = project_of(
+        warned_task("a", "田中"),
+        warned_task("b", "田中", "鈴木", effort=39),
+        warned_task("c", "田中", progress=82),
+        members=[Member("田中", 1.0), Member("鈴木", 1.0)],
+    )
+    rows = {row.name: row for row in summarize_progress(project, {}, NOW).by_member}
+    assert rows["田中"].warned_tasks == ("a", "b")
+    assert rows["鈴木"].warned_tasks == ("b",)
+    assert all(len(r.warned_tasks) == r.warnings for r in rows.values())
