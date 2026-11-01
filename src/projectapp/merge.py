@@ -341,6 +341,7 @@ TASK_LABELS = {
     "children": "子",
     "parameters": "パラメータ",
     "weekly_crew": "週ごとの担当",
+    "extra_efforts": "追加工数",
     "parent": "所属",
     "ref_project": "参照先",
     "ref_snapshot": "スナップショット",

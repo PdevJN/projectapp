@@ -15,6 +15,7 @@ from projectapp.models import (
     Assignee,
     Category,
     Event,
+    ExtraEffort,
     Level,
     Member,
     Membership,
@@ -1578,7 +1579,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 19
+    assert raw["version"] == FORMAT_VERSION == 20
 
 
 @pytest.mark.smoke
@@ -1663,7 +1664,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 19
+    assert raw["version"] == FORMAT_VERSION == 20
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -2369,7 +2370,7 @@ def test_task_parameters_round_trip_and_the_version_is_10(tmp_path: Path) -> Non
     )
     path = save_project(project, tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 19
+    assert raw["version"] == FORMAT_VERSION == 20
     assert raw["tasks"][0]["parameters"] == ["Python", "Java"]
     assert load_project(path).tasks[0].parameters == ["Python", "Java"]
 
@@ -2426,8 +2427,8 @@ def _weekly_project() -> Project:
     return Project("p", members=[Member("田中"), Member("鈴木")], tasks=[task])
 
 
-def test_format_version_is_nineteen() -> None:
-    assert FORMAT_VERSION == 19
+def test_format_version_is_twenty() -> None:
+    assert FORMAT_VERSION == 20
 
 
 def test_weekly_crew_roundtrips_and_assignees_is_the_union(tmp_path: Path) -> None:
@@ -2624,7 +2625,7 @@ def test_work_day_note_round_trips_and_is_stripped() -> None:
     )
     text = dumps_project(Project("p", members=[member]))
     raw = json.loads(text)
-    assert raw["version"] == 19
+    assert raw["version"] == 20
     assert raw["members"][0]["work_days"][0]["note"] == "夏季休暇"
     assert parse_project(text, "p").members[0].work_days[0].note == "夏季休暇"
     raw["members"][0]["work_days"][0]["note"] = "  通院  "
@@ -2709,7 +2710,7 @@ def test_ratio_unclamped_round_trips() -> None:
     ]
     text = dumps_project(Project("p", members=members))
     raw = json.loads(text)
-    assert raw["version"] == 19
+    assert raw["version"] == 20
     assert [m["ratio_unclamped"] for m in raw["members"]] == [True, False]
     assert [m.ratio_unclamped for m in parse_project(text, "p").members] == [
         True,
@@ -2929,3 +2930,81 @@ def test_an_event_color_code_is_lowercased_on_load(tmp_path: Path) -> None:
     raw["events"][0]["color"] = "#AABBCC"
     path.write_text(json.dumps(raw), encoding="utf-8")
     assert load_project(path).events[0].color == "#aabbcc"
+
+
+GOOD_EXTRA = {"day": "2026-10-07", "hours": 1.0, "reason": ""}
+
+
+def test_extra_efforts_round_trip_and_default_to_empty() -> None:
+    task = Task(
+        "a",
+        id="t1",
+        effort_hours=10.0,
+        extra_efforts=[
+            ExtraEffort(date(2026, 10, 7), 5.0, "見つかった作業"),
+            ExtraEffort(date(2026, 10, 8), 0.5),
+        ],
+    )
+    project = Project("p", tasks=[task, Task("b", id="t2")])
+    text = dumps_project(project)
+    saved = json.loads(text)["tasks"]
+    assert saved[0]["extra_efforts"] == [
+        {"day": "2026-10-07", "hours": 5.0, "reason": "見つかった作業"},
+        {"day": "2026-10-08", "hours": 0.5, "reason": ""},
+    ]
+    assert saved[1]["extra_efforts"] == []
+    loaded = parse_project(text, "p").tasks
+    assert loaded[0].extra_efforts == task.extra_efforts
+    assert loaded[0].total_effort == 15.5
+    assert loaded[1].extra_efforts == []
+
+
+@pytest.mark.parametrize("version", [1, 10, 19])
+def test_an_older_file_reads_no_extra_efforts(version: int) -> None:
+    task = Task(
+        "a",
+        id="t1",
+        effort_hours=4.0,
+        extra_efforts=[ExtraEffort(date(2026, 10, 7), 1.0)],
+    )
+    raw = json.loads(dumps_project(Project("p", tasks=[task])))
+    raw["version"] = version
+    assert parse_project(json.dumps(raw), "p").tasks[0].extra_efforts == []
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "x",
+        {},
+        [1],
+        [{**GOOD_EXTRA, "hours": 0}],
+        [{**GOOD_EXTRA, "hours": -1}],
+        [{**GOOD_EXTRA, "hours": True}],
+        [{**GOOD_EXTRA, "hours": "1"}],
+        [{**GOOD_EXTRA, "hours": float("inf")}],
+        [{**GOOD_EXTRA, "hours": 1.234}],
+        [{**GOOD_EXTRA, "day": "2026-13-01"}],
+        [{**GOOD_EXTRA, "day": None}],
+        [{**GOOD_EXTRA, "reason": 5}],
+        [{**GOOD_EXTRA, "reason": "x" * 101}],
+        [{**GOOD_EXTRA, "reason": "a\u0007"}],
+        [GOOD_EXTRA] * 201,
+    ],
+)
+def test_invalid_extra_efforts_are_rejected(bad: object) -> None:
+    raw = json.loads(
+        dumps_project(Project("p", tasks=[Task("a", id="t1", effort_hours=4.0)]))
+    )
+    raw["tasks"][0]["extra_efforts"] = bad
+    with pytest.raises(ValueError, match="追加工数"):
+        parse_project(json.dumps(raw), "p")
+
+
+def test_extra_efforts_are_cleared_for_a_checkpoint() -> None:
+    node = Task(
+        "節目", id="c1", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 8, 17)
+    )
+    raw = json.loads(dumps_project(Project("p", tasks=[node])))
+    raw["tasks"][0]["extra_efforts"] = [GOOD_EXTRA]
+    assert parse_project(json.dumps(raw), "p").tasks[0].extra_efforts == []

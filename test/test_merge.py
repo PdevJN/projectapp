@@ -9,6 +9,7 @@ from projectapp.models import (
     Assignee,
     Category,
     Event,
+    ExtraEffort,
     Level,
     Member,
     Membership,
@@ -980,3 +981,22 @@ def test_renaming_same_named_30_character_teams_keeps_the_name_within_the_limit(
     names = [t.name for t in result.project.teams]
     assert len(set(names)) == 2 and all(len(n) <= 30 for n in names)
     parse_project(dumps_project(result.project), "p")  # 読み直せる
+
+
+def test_extra_efforts_merge_as_one_item_and_conflict_when_both_add() -> None:
+    first = ExtraEffort(date(2026, 10, 7), 2.0, "a")
+    second = ExtraEffort(date(2026, 10, 8), 3.0, "b")
+    base = proj(tasks=[task("a", "t1", effort_hours=4.0)])
+    ours = proj(tasks=[task("a", "t1", effort_hours=4.0, extra_efforts=[first])])
+    theirs = proj(tasks=[task("a", "t1", effort_hours=2.0)])
+    merged = merge_projects(base, ours, theirs)
+    assert merged.conflicts == []
+    assert merged.project.tasks[0].extra_efforts == [first]
+    assert merged.project.tasks[0].effort_hours == 2.0
+    other = proj(tasks=[task("a", "t1", effort_hours=4.0, extra_efforts=[second])])
+    (conflict,) = merge_projects(base, ours, other).conflicts
+    assert (conflict.field, conflict.ours, conflict.theirs) == (
+        "追加工数",
+        [first],
+        [second],
+    )

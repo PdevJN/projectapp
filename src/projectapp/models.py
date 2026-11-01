@@ -8,7 +8,7 @@ import secrets
 import unicodedata
 from enum import StrEnum
 
-FORMAT_VERSION = 19  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕。16: メンバーの丸め対象外〔members[].ratio_unclamped〕。17: チーム〔teams・members[].teams〕。18: イベントの色に #rrggbb を許す)。19: メンバーの警告の件数の閾値 warning_limit
+FORMAT_VERSION = 20  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕。16: メンバーの丸め対象外〔members[].ratio_unclamped〕。17: チーム〔teams・members[].teams〕。18: イベントの色に #rrggbb を許す)。19: メンバーの警告の件数の閾値 warning_limit、20: タスクの追加工数 extra_efforts
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -224,6 +224,20 @@ class Assignee:
     allocation: float = 1.0  # 担当者の時間のうち、このタスクに使う割合(1.0 = 100%)
 
 
+MAX_EXTRA_EFFORTS = 200  # 1 タスクの追加工数の履歴の上限
+MAX_EXTRA_REASON = 100  # 追加工数の理由の文字数の上限
+EXTRA_EFFORT_DECIMALS = 2  # 追加工数の時間の小数点以下の桁数
+
+
+@dataclass(frozen=True)
+class ExtraEffort:
+    """後から足した追加工数の 1 件(要望 105)。もとの見積もり(Task.effort_hours)は書き換えず、履歴として持つ。"""
+
+    day: date
+    hours: float
+    reason: str = ""
+
+
 def union_assignees(weeks: Sequence[Sequence[Assignee]]) -> list[Assignee]:
     """全週の担当者の和集合(初出の順)。割り当て率は各人の最大値。元の週は書き換えない。"""
     merged: dict[str, Assignee] = {}
@@ -320,6 +334,14 @@ class Task:
     weekly_crew: list[list[Assignee]] = field(
         default_factory=list
     )  # 週ごとの担当(添字が週。開始の日から 7 日ごと)。空は週ごとに分けない。分けるときの assignees は全週の和集合
+    extra_efforts: list[ExtraEffort] = field(
+        default_factory=list
+    )  # 後から足した追加工数の履歴(通常タスクだけ。工数があるとき)
+
+    @property
+    def total_effort(self) -> float:
+        """もとの見積もりと追加工数の合計[h]。計算(完了予定・残りの工数・按分)は、工数をここから取る。"""
+        return round(self.effort_hours + sum(e.hours for e in self.extra_efforts), 6)
 
     @property
     def assignee_names(self) -> list[str]:
