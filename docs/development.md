@@ -31,6 +31,9 @@
 | `bulk_select.py` | 一括操作の選択(要望 35)。`BulkSelection`(`toggle`・`extend`・`effective`・`prune`・`clear`)と `with_children`(まとめを選ぶと子も入る)。タスクの id で持つ。純粋関数(NiceGUI に依存しない) |
 | `bulk_edit.py` | 一括編集・一括削除(要望 35)。`apply_bulk` はプロジェクトを変えず、変更後のタスクを `BulkResult` で返す(ダイアログの見込みもこのドライラン)。担当 4 モード・カテゴリ・完了予定(日付/ずらし。ずらしの基準は `timeline.own_end`)・工数。`store` で差し込み、`delete_summary`・`delete_tasks` で削除。純粋関数 |
 | `bulk_dialog.py` | 一括編集のダイアログ。節ごとに「変更する」をオンにしたものだけを `BulkChanges` にし、入力のたびにドライランの見込みを出す |
+| `bottom_info.py` | ガントチャートの下部パネルの内容(要望 95)。`task_detail`(選んだタスクの詳細)・`period_summary`(見えているタスクの集計)・`today_plan`(今日の予定)・`LEGEND`(凡例)。判定は`timeline`・`pace`・`dashboard`の既存の関数を使う。純粋関数 |
+| `bottom_panel.py` | 下部パネルの描画(`BottomPanel`・`PanelContent`)。選択があれば詳細、なければ集計とタブ(今日の予定・凡例)。計算はしない |
+| `global_settings_dialog.py` | 全体の設定のダイアログ(`open_global_settings_dialog`)。下部パネルを開くときの割合のスライダー。`適用`で保存、閉じるときに`on_cancel`で戻す |
 | `pace.py` | 警告の判定(要望 103)。`Pace`・`pace`(残りの工数 ÷ 完了予定までの稼働量の比。稼働量は、担当者の稼働日の上書き・祝日・イベントの休み・週ごとの担当を反映)・`warning_pace`(比が`WARNING_RATIO`〔110%〕以上なら警告)。予定超過のタスクは赤に任せる。純粋関数 |
 | `remaining.py` | 残りの工数の計算(要望 98・103)。`total_effort`・`overlap_hours`・`open_hours`・`remaining_hours`。ダッシュボードと警告の判定が共有する。純粋関数 |
 | `periodfield.py` | 期間の欄(`2026-10-01 〜 2026-10-31`)の読み書き(`validate_period`・`format_period`・`split_period`・`normalize_period`・`check_column_count`)と、範囲カレンダー(`add_range_picker`)。プレビュー・メイン・ダッシュボードが共用する |

@@ -12,6 +12,8 @@ from nicegui.events import ValueChangeEventArguments
 from projectapp import arrange
 from projectapp.avatar import avatar
 from projectapp.browser import open_url as default_open_url
+from projectapp.bottom_info import period_summary, task_detail, today_plan
+from projectapp.bottom_panel import BottomPanel, PanelContent
 from projectapp.bulk_select import BulkSelection
 from projectapp.arrange import Position, section_key
 from projectapp.calendar import DayKind, day_kind, member_notes
@@ -26,8 +28,11 @@ from projectapp.events import (
 from projectapp.categories import by_id, chip_text
 from projectapp.dateinput import parse_date_input
 from projectapp.config import (
+    DEFAULT_MAIN_SPLIT,
     DEFAULT_NAME_WIDTH_PX,
+    DEFAULT_OPEN_RATIO,
     MAX_NAME_WIDTH_PX,
+    MIN_MAIN_SPLIT,
     MIN_NAME_WIDTH_PX,
     parse_name_width,
 )
@@ -361,6 +366,9 @@ SCROLLBAR_ROOM_PX = (
 # (1 行のメニュー・ツールバー・ページの余白)の分を引いた値(固定の見積もり。実機で合わせる)
 CHART_TOP_OFFSET_PX = 170
 CHART_MAX_HEIGHT = f"calc(100vh - {CHART_TOP_OFFSET_PX}px)"
+# 縦の分割(上=チャート、下=下部パネル)の全体の高さ。畳んだときの見た目は、これまでの枠の上限と同じ
+CHART_SPLIT_HEIGHT = CHART_MAX_HEIGHT
+SPLIT_LOCK_CSS = ".split-locked .q-splitter__separator, .split-locked .q-splitter__after { display: none; }"
 # 固定する要素の重なり。見出し > タスク名の列 > 棒・縞・格子線。見出しの中では左端の空白が帯より手前
 STICKY_Z_SPACER, STICKY_Z_NAME, STICKY_Z_HEADER = 1, 2, 3
 # 固定した要素の下を棒や縞が通るので、不透明な背景が要る(ページの背景色に合わせる)
@@ -631,6 +639,9 @@ class GanttActions:
     refresh_reference: Callable[[SectionPath, int], object] = lambda path, ti: (
         None
     )  # スナップショットの更新
+    set_main_split: Callable[[int], object] = lambda value: (
+        None
+    )  # 分割の位置を変えたとき(保存は呼び出し側)
 
 
 class GanttChart:
@@ -643,8 +654,20 @@ class GanttChart:
         name_width: int = DEFAULT_NAME_WIDTH_PX,
         open_url: Callable[[str], object] = default_open_url,
         references: Callable[[], dict[str, Reference]] = lambda: {},
+        main_split: int = DEFAULT_MAIN_SPLIT,
+        open_ratio: int = DEFAULT_OPEN_RATIO,
     ) -> None:
         self.project = project
+        self.main_split = main_split  # 畳んでいないときの、ガントチャートの割合(%)
+        self.open_ratio = open_ratio  # 畳まれているとき、選択で開く割合(%)
+        self.splitter: ui.splitter | None = None
+        self.toggle_button: ui.button | None = None
+        self.split_box: ui.element | None = None
+        self.bottom = BottomPanel(on_select=self.select_tasks)
+        self.split_before_preview: int | None = None
+        self.syncing_split = (
+            False  # プレビューの出入りで値を入れ替えるあいだは、保存しない
+        )
         self.references_of = references
         self.refs: dict[str, Reference] = {}  # 参照行の id → 参照。描画のたびに取り直す
         self.open_url = open_url
@@ -924,6 +947,8 @@ class GanttChart:
             self.bulk.extend(self.visible_task_ids(), task_id, self.tasks_by_id)
         else:
             self.bulk.toggle(task_id, self.tasks_by_id)
+        if self.bulk.ids:
+            self.open_bottom()
         self.sync_bulk()
 
     def has_selection(self) -> bool:
@@ -931,6 +956,17 @@ class GanttChart:
 
     def clear_selection(self) -> None:
         self.bulk.clear()
+        self.sync_bulk()
+
+    def select_tasks(self, task_ids: list[str]) -> None:
+        """下部パネルから。まだ選んでいないタスクを、Cmd/Ctrl クリックと同じに選びに加える。"""
+        if self.options.read_only:
+            return
+        for task_id in task_ids:
+            if task_id not in self.bulk.ids:
+                self.bulk.toggle(task_id, self.tasks_by_id)
+        if self.bulk.ids:
+            self.open_bottom()
         self.sync_bulk()
 
     def selected_ids(self) -> list[str]:
@@ -968,6 +1004,94 @@ class GanttChart:
                 " document.querySelectorAll('[data-task-id]').forEach((el) =>"
                 " el.classList.toggle('task-selected', ids.has(el.dataset.taskId))); })()"
             )
+        self.refresh_bottom()
+
+    @property
+    def bottom_open(self) -> bool:
+        return self.splitter is not None and round(self.splitter.value) < 100
+
+    def split_changed(self, event: ValueChangeEventArguments) -> None:
+        """境界を動かしたとき。プレビュー中は、一時的に 100% にしているだけなので、保存しない。"""
+        self.sync_toggle()
+        if self.options.read_only or self.syncing_split:
+            return
+        self.main_split = round(event.value)
+        self.actions.set_main_split(self.main_split)
+
+    def sync_toggle(self) -> None:
+        """開閉ボタンの向きを、分割の状態に合わせる(畳んでいれば開く向き)。"""
+        if self.toggle_button is not None and self.splitter is not None:
+            icon = "expand_more" if self.bottom_open else "expand_less"
+            self.toggle_button.props(f"icon={icon}")
+
+    def toggle_bottom(self) -> None:
+        """選択がなくても、いつでも下部パネルを開閉する。"""
+        if self.splitter is None or self.options.read_only:
+            return
+        if self.bottom_open:
+            self.splitter.set_value(100)
+        else:
+            self.open_bottom()
+
+    def open_bottom(self) -> None:
+        """畳まれているときだけ、開くときの比率で開く。開いているときは動かさない。"""
+        if (
+            self.splitter is not None
+            and not self.options.read_only
+            and not self.bottom_open
+        ):
+            self.splitter.set_value(self.open_ratio)
+
+    def sync_split_mode(self) -> None:
+        """プレビューでは分割を畳んで境界を隠し、戻ると元の位置へ戻す。"""
+        if self.splitter is None or self.split_box is None:
+            return
+        if self.options.read_only:
+            if self.split_before_preview is None:
+                self.split_before_preview = round(self.splitter.value)
+            self.splitter.set_value(100)
+            self.splitter.props("disable")
+            self.split_box.classes("split-locked")
+        elif self.split_before_preview is not None:
+            self.split_box.classes(remove="split-locked")
+            self.splitter.props(remove="disable")
+            restore, self.split_before_preview = self.split_before_preview, None
+            self.syncing_split = True
+            try:
+                self.splitter.set_value(restore)
+            finally:
+                self.syncing_split = False
+
+    def bottom_content(self) -> PanelContent:
+        now = self.now()
+        tasks = [
+            self.tasks_by_id[i]
+            for i in self.visible_task_ids()
+            if i in self.tasks_by_id
+        ]
+        selected = [i for i in self.selected_ids() if i in self.tasks_by_id]
+        detail = None
+        if selected:
+            anchor = self.bulk.anchor if self.bulk.anchor in selected else selected[-1]
+            detail = task_detail(
+                self.tasks_by_id[anchor],
+                self.project,
+                self.holidays,
+                now,
+                self.schedule,
+                len(selected) - 1,
+            )
+        return PanelContent(
+            detail,
+            period_summary(
+                tasks, self.project, self.holidays, now, self.schedule, self.period
+            ),
+            today_plan(tasks, self.schedule, now),
+        )
+
+    def refresh_bottom(self) -> None:
+        if self.splitter is not None and not self.options.read_only:
+            self.bottom.update(self.bottom_content())
 
     def sync_task_rows(self) -> None:
         """行の表示を `slots()`(セクション・まとめの折りたたみ・絞り込みをすべて見たもの)に合わせる。"""
@@ -1318,11 +1442,15 @@ class GanttChart:
         if visible:
             self.toolbar.set_visibility(not self.options.read_only)
             self.scroll_box.set_visibility(True)
+            if self.split_box is not None:
+                self.split_box.set_visibility(True)
             if self.client is not None:
                 self.client.run_javascript(SHOW_CHART_JS)
         else:
             self.toolbar.set_visibility(False)
             self.scroll_box.set_visibility(False)
+            if self.split_box is not None:
+                self.split_box.set_visibility(False)
 
     def set_options(self, options: ViewOptions) -> None:
         """表示の設定を変えて、描き直す。描画のスケールが変わるときは、横のスクロールを先頭へ戻す。"""
@@ -1334,6 +1462,7 @@ class GanttChart:
         )
         if self.toolbar is not None:
             self.toolbar.set_visibility(not options.read_only)
+        self.sync_split_mode()
         self.render.refresh()
         if self.view_scale != before:
             self.scroll_to_left()  # 列の幅が変わるので、横の位置は意味を持たない(縦は保つ)
@@ -1567,15 +1696,50 @@ class GanttChart:
                     "flat dense size=sm"
                 ).mark("bulk-clear")
             self.bulk_bar.mark("bulk-bar").set_visibility(False)
-        scroll_style = (
-            f"overflow: auto; max-height: {CHART_MAX_HEIGHT};"
-            f" padding-bottom: {SCROLLBAR_ROOM_PX}px"
-        )
-        scroll = ui.element("div").classes("w-full").style(scroll_style)
-        self.scroll_box = scroll
-        scroll.on("scroll", js_handler=TRACK_SCROLL_JS)
-        with scroll.props("data-chart-scroll").mark("chart-scroll"):
-            self.render()
+        ui.add_css(SPLIT_LOCK_CSS)
+        box = ui.element("div").classes("w-full").style(f"height: {CHART_SPLIT_HEIGHT}")
+        self.split_box = box
+        with box:
+            self.splitter = (
+                ui.splitter(
+                    horizontal=True,
+                    value=self.main_split,
+                    limits=(MIN_MAIN_SPLIT, 100),
+                    on_change=self.split_changed,
+                )
+                .classes("w-full h-full")
+                .mark("bottom-split")
+            )
+            with (
+                self.splitter.separator
+            ):  # 境界の中央の開閉ボタン(ドラッグの開始は止める)
+                self.toggle_button = (
+                    ui.button(icon="expand_less", on_click=self.toggle_bottom)
+                    .props("flat dense round size=xs")
+                    .classes("bg-white text-grey-8 shadow-2")
+                    .style(
+                        "position: absolute; top: 50%; left: 50%;"
+                        " transform: translate(-50%, -50%); z-index: 5"
+                    )
+                    .on("mousedown.stop", lambda: None)
+                    .mark("bottom-toggle")
+                )
+                with self.toggle_button:
+                    ui.tooltip("下部パネルを開閉")
+            self.sync_toggle()
+            with self.splitter.before:
+                scroll_style = (
+                    f"overflow: auto; height: 100%;"
+                    f" padding-bottom: {SCROLLBAR_ROOM_PX}px"
+                )
+                scroll = ui.element("div").classes("w-full").style(scroll_style)
+                self.scroll_box = scroll
+                scroll.on("scroll", js_handler=TRACK_SCROLL_JS)
+                with scroll.props("data-chart-scroll").mark("chart-scroll"):
+                    self.render()
+            with self.splitter.after:
+                self.bottom.build()
+        self.refresh_bottom()
 
     def build_menu(self) -> None:
         """タスクの行の右クリックで開く共有メニュー。開いた行は `menu_target` に持つ。"""
