@@ -7,10 +7,14 @@ import projectapp.models as models
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.models import Event, Membership, WorkDay
+from projectapp.models import Event, ExtraEffort, Membership, WorkDay
 from projectapp.categories import COLOR_HEX, COLOR_LABELS, COLORS, CategoryEdit
 from projectapp.forms import (
+    add_extra_effort,
     apply_quick_progress,
+    build_extra_efforts,
+    can_add_extra_effort,
+    extra_effort_progress,
     MEMBER_ICON_COLUMN_REM,
     MEMBER_NAME_COLUMN_REM,
     MEMBER_RATIO_COLUMN_REM,
@@ -3069,3 +3073,115 @@ def test_quick_progress_leaves_several_intervals_alone() -> None:
         and saved.progress == 60
         and saved.status is models.Status.RUNNING
     )
+
+
+# --- 要望 105: 追加工数 ---------------------------------------------------------
+
+TODAY = date(2026, 10, 7)
+
+
+def running(progress: int | None = 50, **kw: object) -> Task:
+    return Task(
+        "a",
+        effort_hours=10.0,
+        status=Status.RUNNING,
+        progress=progress,
+        **kw,  # type: ignore[arg-type]
+    )
+
+
+def test_adding_keeps_the_consumed_hours_by_lowering_the_progress() -> None:
+    saved = add_extra_effort(running(50), 5.0, "見つかった", TODAY)
+    assert saved.extra_efforts == [ExtraEffort(TODAY, 5.0, "見つかった")]
+    assert saved.effort_hours == 10.0  # もとの見積もりは変えない
+    assert saved.total_effort == 15.0
+    assert saved.progress == 33  # 消化 5h は 15h の 33%
+
+
+@pytest.mark.parametrize(("progress", "expected"), [(None, None), (0, 0), (100, 67)])
+def test_the_progress_after_adding_stays_in_range(
+    progress: int | None, expected: int | None
+) -> None:
+    assert extra_effort_progress(running(progress), 5.0) == expected
+
+
+def test_a_second_addition_keeps_the_hours_consumed_so_far() -> None:
+    once = add_extra_effort(running(50), 5.0, "", TODAY)
+    twice = add_extra_effort(once, 15.0, "", TODAY)
+    assert twice.total_effort == 30.0
+    assert (
+        twice.progress == 16
+    )  # 丸めた 33% を引き継ぐので 16.5 → 16(実際の消化 5h なら約 17%)
+
+
+@pytest.mark.parametrize("hours", [None, 0, -1, float("inf"), float("nan"), 1.234])
+def test_invalid_extra_hours_are_rejected(hours: float | None) -> None:
+    with pytest.raises(ValueError, match="追加工数"):
+        add_extra_effort(running(), hours, "", TODAY)
+
+
+def test_the_extra_reason_is_trimmed_and_checked() -> None:
+    trimmed = add_extra_effort(running(), 1.0, "  理由  ", TODAY)
+    assert trimmed.extra_efforts[0].reason == "理由"
+    with pytest.raises(ValueError, match="理由"):
+        add_extra_effort(running(), 1.0, "x" * 101, TODAY)
+    with pytest.raises(ValueError, match="理由"):
+        add_extra_effort(running(), 1.0, "a\u0007", TODAY)
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        Task("工数なし", effort_hours=0.0),
+        Task("終了", effort_hours=4.0, status=Status.DONE),
+        Task("節目", kind=TaskKind.CHECKPOINT),
+        Task("まとめ", kind=TaskKind.SUMMARY),
+        Task("参照", kind=TaskKind.REFERENCE),
+    ],
+)
+def test_extra_effort_cannot_be_added_to_these_tasks(task: Task) -> None:
+    assert not can_add_extra_effort(task)
+    with pytest.raises(ValueError, match="足せません"):
+        add_extra_effort(task, 1.0, "", TODAY)
+
+
+def test_the_extra_effort_history_is_limited() -> None:
+    full = running(extra_efforts=[ExtraEffort(TODAY, 0.5)] * 200)
+    with pytest.raises(ValueError, match="200"):
+        add_extra_effort(full, 1.0, "", TODAY)
+
+
+def test_build_extra_efforts_checks_each_row() -> None:
+    rows = [("2026-10-07", 1.5, "a"), ("2026-10-08", 0.25, "")]
+    assert build_extra_efforts(rows) == [
+        ExtraEffort(date(2026, 10, 7), 1.5, "a"),
+        ExtraEffort(date(2026, 10, 8), 0.25, ""),
+    ]
+    for bad in (
+        [("2026-13-01", 1.0, "")],
+        [("", 1.0, "")],
+        [("2026-10-07", None, "")],
+        [("2026-10-07", 0, "")],
+        [("2026-10-07", 1.234, "")],
+        [("2026-10-07", 1.0, "x" * 101)],
+    ):
+        with pytest.raises(ValueError, match="追加工数"):
+            build_extra_efforts(bad)
+
+
+def test_build_task_keeps_or_replaces_the_extra_efforts() -> None:
+    base = Task(
+        "設計",
+        effort_hours=8.0,
+        extra_efforts=[ExtraEffort(date(2026, 10, 7), 2.0, "a")],
+    )
+    assert make(base).extra_efforts == base.extra_efforts  # 渡さなければ変えない
+    other = [ExtraEffort(date(2026, 10, 8), 1.0)]
+    assert make(base, extra_efforts=other).extra_efforts == other
+
+
+def test_build_task_drops_the_extra_efforts_when_the_effort_is_cleared() -> None:
+    base = Task(
+        "設計", effort_hours=8.0, extra_efforts=[ExtraEffort(date(2026, 10, 7), 2.0)]
+    )
+    assert make(base, effort_hours=0.0).extra_efforts == []

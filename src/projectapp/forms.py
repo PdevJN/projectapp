@@ -28,6 +28,11 @@ from projectapp.categories import (
 from projectapp.gitops import FileChange
 from projectapp.merge import DELETED, OURS, THEIRS, Choices, Conflict, format_value
 from projectapp.models import (
+    EXTRA_EFFORT_DECIMALS,
+    MAX_EXTRA_EFFORTS,
+    MAX_EXTRA_REASON,
+    ExtraEffort,
+    has_control_char,
     CHECKPOINT_STATUSES,
     ID_KEY,
     MAX_ALLOCATION,
@@ -225,6 +230,7 @@ def _build_reference(
         planned_end_manual=False,
         deadline=deadline_at,
         effort_hours=0.0,
+        extra_efforts=[],
         priority=Priority.MEDIUM,
         status=Status.NOT_STARTED,
         color=color,
@@ -273,6 +279,7 @@ def _build_checkpoint(
         planned_end_manual=False,
         deadline=deadline_at,
         effort_hours=0.0,
+        extra_efforts=[],
         priority=priority,
         status=status,
         color=color,
@@ -371,6 +378,7 @@ def build_task(
     assignees: list[tuple[str, float | None]] | None = None,
     parameters: list[str] | None = None,
     ref_project: str = "",
+    extra_efforts: list[ExtraEffort] | None = None,
 ) -> Task:
     """入力値からTaskを作る。編集時はフォームにない項目(週ごとの担当を含む)を引き継ぐ。`progress` はタスクの進捗度。"""
     clean = name.strip()
@@ -463,7 +471,87 @@ def build_task(
         parameters=list(
             dict.fromkeys(base.parameters if parameters is None else parameters)
         ),
+        extra_efforts=[]
+        if hours <= 0
+        else (base.extra_efforts if extra_efforts is None else extra_efforts),
     )
+
+
+ExtraEffortRow = tuple[str, float | None, str]  # (日付の文字列, 時間, 理由)
+
+
+def can_add_extra_effort(task: Task) -> bool:
+    """追加工数を足せるか。工数のある、終了していない通常タスクだけ。"""
+    return (
+        task.kind is TaskKind.NORMAL
+        and isfinite(task.effort_hours)
+        and task.effort_hours > 0
+        and task.status is not Status.DONE
+    )
+
+
+def _check_extra_hours(hours: float | None) -> float:
+    if hours is None:
+        raise ValueError("追加工数の時間を入力してください")
+    if not isfinite(hours) or hours <= 0:
+        raise ValueError("追加工数の時間は0より大きい数値で入力してください")
+    if exceeds_decimals(hours):
+        raise ValueError(
+            f"追加工数の時間は小数点以下{EXTRA_EFFORT_DECIMALS}桁までで入力してください"
+        )
+    return float(hours)
+
+
+def _check_extra_reason(reason: str) -> str:
+    clean = reason.strip()
+    if has_control_char(clean):
+        raise ValueError("追加工数の理由に使えない文字が含まれています")
+    if len(clean) > MAX_EXTRA_REASON:
+        raise ValueError(
+            f"追加工数の理由は{MAX_EXTRA_REASON}文字以内で入力してください"
+        )
+    return clean
+
+
+def extra_effort_progress(task: Task, hours: float) -> int | None:
+    """追加工数を足したあとの進捗度。消化時間を保つ(旧進捗度 × 旧合計 ÷ 新合計を丸める)。進捗度が未設定なら None。"""
+    if task.progress is None:
+        return None
+    before = task.total_effort
+    after = before + hours
+    if not after > 0:
+        return task.progress
+    return min(MAX_PROGRESS, max(MIN_PROGRESS, round(task.progress * before / after)))
+
+
+def add_extra_effort(task: Task, hours: float | None, reason: str, day: date) -> Task:
+    """追加工数を 1 件足したコピーを返す。進捗度があれば、消化時間を保って直す。足せないタスク・不正な入力は ValueError。"""
+    if not can_add_extra_effort(task):
+        raise ValueError("このタスクには追加工数を足せません")
+    if len(task.extra_efforts) >= MAX_EXTRA_EFFORTS:
+        raise ValueError(f"追加工数は{MAX_EXTRA_EFFORTS}件までです")
+    checked, clean = _check_extra_hours(hours), _check_extra_reason(reason)
+    return replace(
+        task,
+        progress=extra_effort_progress(task, checked),
+        extra_efforts=[*task.extra_efforts, ExtraEffort(day, checked, clean)],
+    )
+
+
+def build_extra_efforts(rows: list[ExtraEffortRow]) -> list[ExtraEffort]:
+    """履歴の編集の入力を検証して、追加工数のリストにする(進捗度は直さない)。不正な入力は ValueError。"""
+    if len(rows) > MAX_EXTRA_EFFORTS:
+        raise ValueError(f"追加工数は{MAX_EXTRA_EFFORTS}件までです")
+    efforts: list[ExtraEffort] = []
+    for day_text, hours, reason in rows:
+        try:
+            day = date.fromisoformat(day_text.strip())
+        except ValueError:
+            raise ValueError("追加工数の日付は YYYY-MM-DD で入力してください") from None
+        efforts.append(
+            ExtraEffort(day, _check_extra_hours(hours), _check_extra_reason(reason))
+        )
+    return efforts
 
 
 def apply_quick_progress(
