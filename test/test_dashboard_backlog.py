@@ -5,6 +5,8 @@ import pytest
 from projectapp.dashboard import (
     UNASSIGNED,
     Backlog,
+    CatchUp,
+    CatchUpMode,
     LateBasis,
     Period,
     PeriodKind,
@@ -1045,3 +1047,129 @@ def test_the_required_people_split_between_overdue_and_warning() -> None:
     assert backlog.shortfall_without_overdue == pytest.approx(
         backlog.shortfall - backlog.late_required
     )  # type: ignore[operator]
+
+
+# --- 要望 104: 遅れの取り戻しを、タスクごとの期限で数える ---------------------------
+
+
+def task_rule(days: int = 5) -> CatchUp:
+    return CatchUp(CatchUpMode.TASK, days)
+
+
+def test_the_period_mode_is_the_default_and_divides_the_late_part_by_the_card_period() -> (
+    None
+):
+    backlog = summarize_backlog(
+        project_of(todo("遅れた", 6.5)), WEEK, PeriodKind.WEEK, NOW, {}
+    )
+    assert backlog.catch_up == CatchUp()
+    assert backlog.overdue_required == pytest.approx(6.5 / 16.5)
+
+
+def test_an_overdue_task_is_caught_up_within_the_given_workdays_from_today() -> None:
+    project = project_of(todo("遅れた", 6.5))
+    two = summarize_backlog(
+        project, WEEK, PeriodKind.WEEK, NOW, {}, catch_up=task_rule(2)
+    )
+    one = summarize_backlog(
+        project, WEEK, PeriodKind.WEEK, NOW, {}, catch_up=task_rule(1)
+    )
+    assert two.overdue_required == pytest.approx(6.5 / (3.5 + 6.5))  # 今日の残り + 木曜
+    assert one.overdue_required == pytest.approx(6.5 / 3.5)
+    assert two.required == pytest.approx(6.5 / 10)  # 遅れだけなので、必要人数も同じ
+    assert two.overdue_hours == 6.5  # 工数の表示は変わらない
+
+
+def test_the_workdays_skip_holidays_and_weekends() -> None:
+    project = project_of(todo("遅れた", 6.5))
+    backlog = summarize_backlog(
+        project,
+        WEEK,
+        PeriodKind.WEEK,
+        NOW,
+        {date(2026, 10, 8): "休み"},
+        catch_up=task_rule(2),
+    )
+    assert backlog.overdue_required == pytest.approx(
+        6.5 / (3.5 + 6.5)
+    )  # 木曜を飛ばして金曜
+
+
+def test_a_warning_task_is_caught_up_by_its_own_end() -> None:
+    project = project_of(warned_todo())  # 水曜 15:30 に終わる予定。残り 9.75h
+    period = summarize_backlog(
+        project, WEEK, PeriodKind.WEEK, NOW, {}, basis=LateBasis.WARNING
+    )
+    task = summarize_backlog(
+        project,
+        WEEK,
+        PeriodKind.WEEK,
+        NOW,
+        {},
+        basis=LateBasis.WARNING,
+        catch_up=task_rule(),
+    )
+    assert period.warning_required == pytest.approx(9.75 / 16.5)
+    assert task.warning_required == pytest.approx(9.75 / 3.5)
+
+
+def test_the_task_mode_adds_the_late_part_to_the_rest_counted_by_the_card_period() -> (
+    None
+):
+    ahead_task = Task(
+        "先の作業", planned_start=datetime(2026, 10, 9, 9), effort_hours=8
+    )
+    project = project_of(todo("遅れた", 6.5), ahead_task)
+    backlog = summarize_backlog(
+        project, WEEK, PeriodKind.WEEK, NOW, {}, catch_up=task_rule(2)
+    )
+    ahead = backlog.hours - backlog.late_hours
+    assert backlog.required == pytest.approx(ahead / 16.5 + 6.5 / 10)
+    assert backlog.shortfall_without_overdue == pytest.approx(
+        ahead / 16.5 - backlog.supply
+    )
+
+
+def test_a_late_task_without_a_schedule_falls_back_to_the_card_period() -> None:
+    project = project_of(
+        Task("日程なし", effort_hours=6.5, deadline=datetime(2026, 10, 7, 9))
+    )  # 締切だけで予定超過。完了予定は決まらない
+    backlog = summarize_backlog(
+        project,
+        WEEK,
+        PeriodKind.WEEK,
+        NOW,
+        {},
+        basis=LateBasis.WARNING,
+        catch_up=task_rule(2),
+    )
+    assert backlog.overdue_hours == 6.5
+    assert backlog.overdue_required == pytest.approx(6.5 / (3.5 + 6.5))
+
+
+def test_the_task_mode_is_unknown_when_the_card_period_is_unknown() -> None:
+    backlog = summarize_backlog(
+        project_of(), WEEK, PeriodKind.ALL, NOW, {}, catch_up=task_rule()
+    )
+    assert backlog.required is None
+    assert backlog.overdue_required is None
+
+
+def test_a_closed_window_today_counts_one_full_day() -> None:
+    project = project_of(todo("遅れた", 6.5))
+    backlog = summarize_backlog(
+        project, WEEK, PeriodKind.WEEK, EVENING, {}, catch_up=task_rule(1)
+    )
+    assert backlog.overdue_required == pytest.approx(
+        1.0
+    )  # 今日の残りが 0 なので 1 日分
+
+
+def test_summarize_and_cross_pass_the_rule_to_the_backlog() -> None:
+    project = project_of(todo("遅れた", 6.5))
+    data = summarize(project, WEEK, NOW, {}, PeriodKind.WEEK, catch_up=task_rule(1))
+    assert data.backlog.overdue_required == pytest.approx(6.5 / 3.5)
+    cross = summarize_cross_backlog(
+        [project], project, WEEK, PeriodKind.WEEK, NOW, {}, catch_up=task_rule(1)
+    )
+    assert cross.overdue_required == pytest.approx(6.5 / 3.5)

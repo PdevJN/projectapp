@@ -112,6 +112,7 @@ from projectapp.shortcuts import (
 from projectapp.dashboard import (
     MAX_CUSTOM_DAYS,
     CrossSummary,
+    CatchUp,
     LateBasis,
     Period,
     PeriodKind,
@@ -414,6 +415,7 @@ class MainView:
         self.dashboard_late_basis = (
             LateBasis.DELAY
         )  # 残りの工数の遅れの判定。保存しない・ビューに入れない
+        self.dashboard_catch_up = CatchUp()  # 遅れを取り戻す期限(要望 104)。同上
         self.dashboard_excluded: set[str] = (
             set()
         )  # 重ねるのから外したプロジェクトの名前。保存しない
@@ -556,6 +558,7 @@ class MainView:
             on_team_change=self.change_dashboard_team,
             on_tick=lambda: self.refresh_dashboard(sync_field=False),
             on_late_basis_change=self.change_dashboard_late_basis,
+            on_catch_up_change=self.change_dashboard_catch_up,
             actions=ViewActions(
                 select=self.select_dashboard_view,
                 save=self.save_dashboard_view,
@@ -1355,6 +1358,7 @@ class MainView:
             return
         self.dashboard_kind = PeriodKind.WEEK
         self.dashboard_late_basis = LateBasis.DELAY  # 開き直すと遅延のみ
+        self.dashboard_catch_up = CatchUp()
         self.dashboard_custom = None
         self.dashboard_custom_error = ""
         self.set_header_visible(False)
@@ -1406,6 +1410,7 @@ class MainView:
             self.dashboard_team,
             load_children(self.project, self.reference_resolver, self.base_holidays),
             self.dashboard_late_basis,
+            self.dashboard_catch_up,
         )
         if self.dashboard_cross:
             chosen = [p for p in projects if p.name not in self.dashboard_excluded]
@@ -1424,6 +1429,7 @@ class MainView:
                 self.base_holidays,
                 scope,
                 self.dashboard_late_basis,
+                self.dashboard_catch_up,
             )
             titles = [p.name for p in projects]
             data.cross = CrossSummary(
@@ -1459,6 +1465,13 @@ class MainView:
         if self.dashboard_kind is None or basis is self.dashboard_late_basis:
             return
         self.dashboard_late_basis = basis
+        self.refresh_dashboard()
+
+    def change_dashboard_catch_up(self, rule: CatchUp) -> None:
+        """遅れを取り戻す期限を切り替える。表示だけで、保存しない(ビューにも入れない)。"""
+        if self.dashboard_kind is None or rule == self.dashboard_catch_up:
+            return
+        self.dashboard_catch_up = rule
         self.refresh_dashboard()
 
     def change_dashboard_project(self, name: str, included: bool) -> None:
