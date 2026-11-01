@@ -9,6 +9,7 @@ from projectapp.bottom_info import (
     DASH,
     LEGEND,
     STATUS_CLASS,
+    STATUS_ICON,
     PeriodSummary,
     TaskDetail,
     TodayRow,
@@ -144,9 +145,16 @@ class BottomPanel:
             for row in rows:
                 progress = "" if row.progress is None else f" {row.progress}%"
                 end = "" if row.end is None else f" 〜{row.end:%m/%d %H:%M}"
-                ui.label(f"{row.name}({row.assignees}){progress}{end}").classes(
-                    STATUS_CLASS[row.status]
-                ).style("color: var(--scolor)").mark("bottom-today-row")
+                with (
+                    ui.row()
+                    .classes(f"items-center gap-1 no-wrap {STATUS_CLASS[row.status]}")
+                    .style("color: var(--scolor)")
+                    .mark("bottom-today-row")
+                ):
+                    ui.icon(STATUS_ICON[row.status], size="1.2em").classes(
+                        STATUS_CLASS[row.status]
+                    ).mark("bottom-today-icon")
+                    ui.label(f"{row.name}({row.assignees}){progress}{end}")
 
     def show_legend(self) -> None:
         """凡例。グループごとに 1 行で、横に並べる(表)。"""

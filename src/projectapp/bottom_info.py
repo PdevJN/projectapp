@@ -15,6 +15,13 @@ STATUS_CLASS = {
     Status.PAUSED: "status-paused",
     Status.DONE: "status-done",
 }
+# 状態ごとのアイコン(Material Icons の名前)。形でも見分けられる
+STATUS_ICON = {
+    Status.NOT_STARTED: "radio_button_unchecked",
+    Status.RUNNING: "play_circle",
+    Status.PAUSED: "pause_circle",
+    Status.DONE: "check_circle",
+}
 DetailLine = tuple[str, str]
 DASH = "—"
 KIND_LABELS = {

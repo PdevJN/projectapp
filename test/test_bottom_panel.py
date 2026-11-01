@@ -144,3 +144,25 @@ async def test_the_legend_is_a_table_with_one_row_per_group(user: User) -> None:
     await user.should_see(marker="bottom-legend")
     rows = user.find(marker="bottom-legend-group").elements
     assert len(rows) == 3  # 状態・優先度・印
+
+
+async def test_each_today_row_has_a_status_icon_left_of_the_label(user: User) -> None:
+    from projectapp.bottom_info import STATUS_ICON, TodayRow
+
+    @ui.page("/")
+    def index() -> None:
+        panel = BottomPanel()
+        panel.build()
+        today = [
+            TodayRow("実装", "田中", 30, datetime(2026, 10, 8, 12), Status.RUNNING),
+            TodayRow("調査", "鈴木", None, None, Status.PAUSED),
+        ]
+        panel.update(PanelContent(None, SUMMARY, today))
+
+    await user.open("/")
+    icons = user.find(marker="bottom-today-icon").elements
+    assert sorted(i.props["name"] for i in icons) == sorted(
+        [STATUS_ICON[Status.RUNNING], STATUS_ICON[Status.PAUSED]]
+    )
+    assert len(set(STATUS_ICON.values())) == len(Status)
+    assert all("status-" in " ".join(i.classes) for i in icons)
