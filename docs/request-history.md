@@ -116,8 +116,8 @@
 | 110 | ruff(リンタ)の導入 | 完了(PR #174。`develop`へマージ済み) | 2026-11-01 | — | PR #174(b920b0f。2026-11-01) | `uvx ruff`(依存には入れない)。設定は`pyproject.toml`。指摘 45 件を解消し、`ruff format`を適用。実装完了時の手順を`RULE.md`に追記。[`requests.md`](requests.md) |
 | 111 | メインパネルを`ui.splitter`で縦に分け、ガントチャートの縦幅を変えられるようにする(要望 95 の土台) | 完了 | 2026-11-01 | [設計](superpowers/specs/2026-11-01-bottom-panel-design.md)・[計画](superpowers/plans/2026-11-01-bottom-panel.md) | PR #177〔253036b〕で`develop`へマージ | [`requests.md`](requests.md) |
 | 112 | `当日`と`移動`を、上部のメニューの`移動`に集約する | 完了(PR #186。実機確認済み) | 2026-11-01 | — | PR #186(2061e6d。2026-11-01) | [`requests.md`](requests.md) |
-| 113 | `エクスポート`メニューを`ファイル`メニューに集約する | 未着手 | 2026-11-01 | — | — | [`requests.md`](requests.md) |
-| 114 | チャートプレビューをメニューから切り離し、ヘッダーのダッシュボードのアイコンの左隣に置く(要望 112・113 の完了後) | 未着手 | 2026-11-01 | — | — | [`requests.md`](requests.md) |
+| 113 | `エクスポート`メニューを`ファイル`メニューに集約する | 完了(PR #188。実機確認済み) | 2026-11-01 | — | PR #188(d9a516e。2026-11-01) | [`requests.md`](requests.md) |
+| 114 | チャートプレビューをメニューから切り離し、ヘッダーのダッシュボードのアイコンの左隣に置く(要望 112・113 の完了後) | 完了(PR #189。実機確認済み) | 2026-11-01 | — | PR #189(59ace64。2026-11-01) | [`requests.md`](requests.md) |
 | 115 | 全体の設定に、`今日の線の色`・`警告の色`・`倍率`を統合する(要望 111・95 の`全体の設定`ダイアログができてから) | 未着手 | 2026-11-01 | — | — | [`requests.md`](requests.md) |
 | 116 | 下部パネルに、担当者ごとの割り当て状況をガントチャート風に表示する(`Ctrl/Cmd + Alt/Option`で切り替え) | 完了(PR #179。実機確認済み) | 2026-11-01 | [設計](superpowers/specs/2026-11-01-assignment-view-design.md)・[計画](superpowers/plans/2026-11-01-assignment-view.md) | PR #179(3f747e4。2026-11-01) | [`requests.md`](requests.md) |
 | 117 | 割り当て表とガントチャートの横スクロールを連動させる(要望 116 の第 2 段階) | 完了(PR #181。実機確認済み) | 2026-11-01 | [設計](superpowers/specs/2026-11-01-assignment-scroll-sync-design.md)・[計画](superpowers/plans/2026-11-01-assignment-scroll-sync.md) | PR #181(12f9be4。2026-11-01) | [`requests.md`](requests.md) |
