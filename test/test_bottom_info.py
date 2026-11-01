@@ -1,7 +1,10 @@
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
+
+import pytest
 
 from projectapp.bottom_info import (
     LEGEND,
+    assignment_table,
     period_summary,
     task_detail,
     today_plan,
@@ -14,8 +17,9 @@ from projectapp.models import (
     Status,
     Task,
     TaskKind,
+    WorkDay,
 )
-from projectapp.timeline import Schedule
+from projectapp.timeline import Column, Schedule
 
 NOW = datetime(2026, 10, 7, 12)  # 水曜の昼
 MON = datetime(2026, 10, 5, 9)
@@ -206,3 +210,70 @@ def test_legend_classes_match_the_chart_constants() -> None:
     classes = {e.css_class for e in LEGEND}
     assert set(STATUS_CLASSES.values()) <= classes
     assert set(PRIORITY_CLASSES.values()) <= classes
+
+
+def day_columns(first: date, count: int) -> list[Column]:
+    return [
+        Column(first + timedelta(n), first + timedelta(n + 1), f"{n}")
+        for n in range(count)
+    ]
+
+
+def crew(name: str, *people: str, **kw) -> Task:
+    return planned(name, assignees=[Assignee(p, 1.0) for p in people], **kw)
+
+
+def test_daily_cells_show_each_day_load() -> None:
+    task = crew("設計", "田中")  # 13h = 月・火の 2 日
+    project, schedule = env(task)
+    columns = day_columns(date(2026, 10, 5), 3)
+    table = assignment_table([task], project, {}, schedule, columns)
+    assert [r.name for r in table.rows] == ["田中"]
+    assert [c.load for c in table.rows[0].cells] == [1.0, 1.0, 0.0]
+    assert not any(c.over or c.closed for c in table.rows[0].cells)
+
+
+def test_overlapping_tasks_mark_the_day_as_over() -> None:
+    a, b = crew("A", "田中"), crew("B", "田中")
+    project, schedule = env(a, b)
+    columns = day_columns(date(2026, 10, 5), 1)
+    cell = assignment_table([a, b], project, {}, schedule, columns).rows[0].cells[0]
+    assert cell.load == 2.0 and cell.over
+
+
+def test_a_week_shows_the_workday_average_and_marks_over_if_any_day_is_over() -> None:
+    a, b = crew("A", "田中"), crew("B", "田中")
+    project, schedule = env(a, b)
+    week = [Column(date(2026, 10, 5), date(2026, 10, 12), "10/5")]
+    cell = assignment_table([a, b], project, {}, schedule, week).rows[0].cells[0]
+    assert cell.load == pytest.approx((2 + 2 + 0 + 0 + 0) / 5)
+    assert cell.over  # 月・火が 100% 超
+
+
+def test_a_week_average_under_one_is_not_over() -> None:
+    task = crew("A", "田中")
+    project, schedule = env(task)
+    week = [Column(date(2026, 10, 5), date(2026, 10, 12), "10/5")]
+    cell = assignment_table([task], project, {}, schedule, week).rows[0].cells[0]
+    assert cell.load == pytest.approx(0.4) and not cell.over
+
+
+def test_a_weekend_column_is_closed_unless_the_member_works_that_day() -> None:
+    task = crew("A", "田中")
+    project, schedule = env(task)
+    saturday = [Column(date(2026, 10, 10), date(2026, 10, 11), "土")]
+    closed = assignment_table([task], project, {}, schedule, saturday).rows[0].cells[0]
+    assert closed.closed and closed.load == 0.0
+    project.members[0].work_days = [WorkDay(date(2026, 10, 10), time(9), time(15))]
+    opened = assignment_table([task], project, {}, schedule, saturday).rows[0].cells[0]
+    assert not opened.closed
+
+
+def test_only_members_with_counted_work_get_a_row() -> None:
+    mine, none = crew("A", "田中"), planned("B")
+    project, schedule = env(mine, none)
+    columns = day_columns(date(2026, 10, 5), 2)
+    table = assignment_table([mine, none], project, {}, schedule, columns)
+    assert [r.name for r in table.rows] == ["田中"]
+    empty = assignment_table([none], project, {}, schedule, columns)
+    assert empty.rows == [] and empty.labels == ["0", "1"]

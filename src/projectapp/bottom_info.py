@@ -3,10 +3,18 @@
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 
-from projectapp.dashboard import _progress_weight
+from projectapp.dashboard import Span, _day_peak, _progress_weight
 from projectapp.models import Project, Status, Task, TaskKind
 from projectapp.pace import warning_pace
-from projectapp.timeline import Schedule, overdue_reasons
+from projectapp.timeline import (
+    OVERLOAD_EPSILON,
+    Column,
+    Schedule,
+    counted_pieces,
+    is_workday,
+    overdue_reasons,
+)
+from projectapp.workdays import work_day_map
 
 # 状態ごとの色のクラス(gantt.py の棒の色と同じ。--scolor を定める)
 STATUS_CLASS = {
@@ -234,3 +242,65 @@ LEGEND = [
     LegendEntry("印", "◆", "", "締切(大きい◆はチェックポイント)"),
     LegendEntry("印", "赤い縦線", "", "今日"),
 ]
+
+
+@dataclass(frozen=True)
+class AssignmentCell:
+    load: float  # 日次はその日の負荷。週次・月次は、期間の稼働日の平均(1.0 = 100%)
+    over: bool  # 期間のどこかに 100% 超の日がある
+    closed: bool  # 期間に稼働日が 1 日もない
+
+
+@dataclass(frozen=True)
+class AssignmentRow:
+    name: str
+    cells: list[AssignmentCell]
+
+
+@dataclass(frozen=True)
+class AssignmentTable:
+    labels: list[str]
+    rows: list[AssignmentRow]
+
+
+def assignment_table(
+    tasks: list[Task],
+    project: Project,
+    holidays: dict[date, str],
+    schedule: Schedule,
+    columns: list[Column],
+) -> AssignmentTable:
+    """担当者×列の割り当て率。tasks(絞り込み後)で数える区間のある担当者だけを、メンバーの並びで行にする。"""
+    spans: dict[str, list[Span]] = {}
+    for task in tasks:
+        for left, right, crew in counted_pieces(task, project, holidays, schedule):
+            for assignee in crew:
+                spans.setdefault(assignee.name, []).append(
+                    (left, right, assignee.allocation)
+                )
+    rows: list[AssignmentRow] = []
+    for member in project.members:
+        items = spans.get(member.name)
+        if not items:
+            continue
+        overrides = work_day_map(member.work_days)
+        cells: list[AssignmentCell] = []
+        for column in columns:
+            days = [
+                column.start + timedelta(days=n)
+                for n in range((column.end - column.start).days)
+            ]
+            open_days = [d for d in days if is_workday(d, holidays, overrides)]
+            if not open_days:
+                cells.append(AssignmentCell(0.0, False, True))
+                continue
+            peaks = [_day_peak(items, d) for d in open_days]
+            cells.append(
+                AssignmentCell(
+                    sum(peaks) / len(peaks),
+                    any(p > 1.0 + OVERLOAD_EPSILON for p in peaks),
+                    False,
+                )
+            )
+        rows.append(AssignmentRow(member.name, cells))
+    return AssignmentTable([c.label for c in columns], rows)
