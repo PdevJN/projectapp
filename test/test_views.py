@@ -13,6 +13,7 @@ from nicegui import events, ui
 from nicegui.testing import User
 
 from projectapp.csv_export import TSV_FILE_TYPES
+from projectapp.shortcuts import label_for
 from projectapp.csv_import import CSV_OPEN_FILE_TYPES
 from projectapp.config import (
     load_dashboard_view_last,
@@ -2022,7 +2023,7 @@ async def open_preview(
     view.save_task((), None, planned_task())
     if extra is not None:
         view.save_task((), None, extra)
-    user.find(marker="export-preview").click()
+    user.find(marker="open-preview").click()
     await user.should_see(marker="task-top-0")
     return view
 
@@ -2415,7 +2416,7 @@ async def test_the_preview_starts_from_the_main_period_when_one_is_set(
     view.project.base_date = date(2026, 10, 5)
     view.save_task((), None, planned_task())
     view.gantt.set_period((date(2026, 10, 6), date(2026, 10, 9)))
-    user.find(marker="export-preview").click()
+    user.find(marker="open-preview").click()
     await user.should_see(marker="task-top-0")
     assert view.preview is not None
     assert (view.preview.start, view.preview.end) == (
@@ -2755,7 +2756,7 @@ async def test_the_default_exporter_is_unavailable_in_tests(
     views: list[MainView] = []
     mount_capturing(tmp_path, views)  # exporter を渡さない = NativeImageExporter
     await user.open("/")
-    user.find(marker="export-preview").click()
+    user.find(marker="open-preview").click()
     assert not user.find(marker="preview-save").elements.pop().enabled
 
 
@@ -2885,7 +2886,7 @@ async def test_an_empty_project_opens_the_preview_with_a_one_day_period(
     await user.open("/")
     view = views[0]
     view.project.base_date = date(2026, 10, 5)
-    user.find(marker="export-preview").click()
+    user.find(marker="open-preview").click()
     assert view.preview is not None
     assert (
         view.preview.start == view.preview.end == date(2026, 10, 5)
@@ -2986,7 +2987,7 @@ async def test_the_preview_shows_a_collapsed_section_and_returns_to_it(
     view.gantt.set_project(view.project)
     view.gantt.toggle_section((0,))
     await user.should_not_see(marker="task-0-0")
-    user.find(marker="export-preview").click()
+    user.find(marker="open-preview").click()
     await user.should_see(marker="task-0-0")
     await user.should_not_see(marker="section-toggle-0")
     view.exit_preview()
@@ -4002,7 +4003,7 @@ async def test_the_dashboard_and_the_preview_do_not_open_together(
     user: User, tmp_path: Path
 ) -> None:
     view = await open_dashboard_view(user, tmp_path)
-    user.find(marker="export-preview").click()
+    user.find(marker="open-preview").click()
     view.open_dashboard()
     assert view.dashboard_kind is None
     view.exit_preview()
@@ -4174,7 +4175,6 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     ]
     assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
     assert menu_icons(user, "file-export-items") == [
-        "visibility",
         "ios_share",
         "download",
         "save_alt",
@@ -4190,7 +4190,6 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         "warning_amber",
     ]
     assert menu_items(user, "file-export-items") == [
-        ("チャートプレビュー", "export-preview"),
         ("担当者へ書き出し", "export-handoff"),
         ("TSV として書き出す", "export-tsv"),
         ("設定を書き出す", "export-settings"),
@@ -4429,14 +4428,15 @@ async def test_the_menus_start_at_the_left_of_the_header_and_the_title_is_in_the
         "menu-git",
         "menu-help",
         "project-select",
+        "open-preview",
         "open-dashboard",
         "open-folder",
         "menu-theme",
     ]
     ids = [user.find(marker=marker).elements.pop().id for marker in order]
-    assert ids == sorted(
-        ids
-    )  # 左から、メニュー 4 つ。右側に、コンボ・ダッシュボード・テーマ
+    assert (
+        ids == sorted(ids)
+    )  # 左から、メニュー 5 つ。右側に、コンボ・チャートプレビュー・ダッシュボード・テーマ
     header_children = view.header_box.default_slot.children
     assert isinstance(
         header_children[0], ui.button
@@ -4449,6 +4449,23 @@ async def test_the_menus_start_at_the_left_of_the_header_and_the_title_is_in_the
     assert view.header_box not in ancestors(title)
 
 
+async def test_the_preview_button_shows_the_key_and_opens_the_preview(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_header_view(user, tmp_path)
+    button = user.find(marker="open-preview").elements.pop()
+    assert button._props["icon"] == "visibility"
+    tooltip = next(
+        e
+        for e in user.find(kind=ui.tooltip).elements
+        if e._props.get("target") == f"#{button.html_id}"
+    )
+    assert tooltip.text == f"チャートプレビュー({label_for('preview')})"
+    await user.should_not_see(marker="export-preview")
+    user.find(marker="open-preview").click()
+    assert await wait_until(lambda: view.preview is not None)
+
+
 async def test_the_title_hides_and_returns_with_the_header(
     user: User, tmp_path: Path
 ) -> None:
@@ -4457,7 +4474,7 @@ async def test_the_title_hides_and_returns_with_the_header(
     assert not view.header_box.visible and not view.title_box.visible
     user.find(marker="dashboard-back").click()
     assert view.header_box.visible and view.title_box.visible
-    user.find(marker="export-preview").click()
+    user.find(marker="open-preview").click()
     assert not view.header_box.visible and not view.title_box.visible
     view.exit_preview()
     assert view.header_box.visible and view.title_box.visible

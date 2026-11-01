@@ -3049,12 +3049,6 @@ class MainView:
                         "file-export",
                         [
                             MenuItem(
-                                "チャートプレビュー",
-                                "visibility",
-                                self.enter_preview,
-                                "export-preview",
-                            ),
-                            MenuItem(
                                 "担当者へ書き出し",
                                 "ios_share",
                                 self.open_handoff,
@@ -3179,6 +3173,11 @@ class MainView:
                 .props("dense outlined dark popup-content-class=app-select-popup")
                 .classes("app-project-select")
                 .mark("project-select")
+            )
+            ui.button(icon="visibility", color=None, on_click=self.enter_preview).props(
+                "flat round dense"
+            ).tooltip(f"チャートプレビュー({label_for('preview')})").mark(
+                "open-preview"
             )
             ui.button(icon="dashboard", color=None, on_click=self.open_dashboard).props(
                 "flat round dense"
