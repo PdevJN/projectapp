@@ -2987,7 +2987,7 @@ class MainView:
             ui.timer(0.1, self.first_fetch, once=True)
 
     def header(self) -> None:
-        """ヘッダー(画面の上端に固定する 1 行。左からメニュー 4 つ、右側にコンボ・ダッシュボード・テーマ。プロジェクト名は、ヘッダーの外): タイトル・メニュー 4 つ・(右側)プロジェクトの切り替え・ダッシュボード・テーマ。"""
+        """ヘッダー(画面の上端に固定する 1 行。左からメニュー 6 つ、右側にコンボ・ダッシュボード・テーマ。プロジェクト名は、ヘッダーの外): タイトル・メニュー 6 つ・(右側)プロジェクトの切り替え・ダッシュボード・テーマ。"""
         with ui.header(elevated=False, wrap=False).classes(
             "row items-center no-wrap gap-1 app-header"
         ) as box:
@@ -3073,6 +3073,7 @@ class MainView:
                     ),
                 ],
             )
+            self.move_menu()
             self.header_menu(
                 "エクスポート",
                 "menu-export",
@@ -3178,6 +3179,48 @@ class MainView:
             )
             self.theme_menu()
             self.update_git_menu()
+
+    def move_menu(self) -> None:
+        """ヘッダーの`移動`メニュー(ガントチャートの横位置を動かす)。右端はキー。押せないときは理由に替わる。"""
+        with (
+            ui.button("移動", color=None)
+            .props("unelevated rounded no-caps")
+            .classes("app-menu-btn")
+            .mark("menu-move")
+        ):
+            with ui.menu().props("content-class=app-menu").mark("menu-move-items"):
+                for action, key, label, icon, handler in (
+                    ("go_today", "today", "当日", "today", self.go_today),
+                    ("go_base", "base", "基準日", "flag", self.go_base),
+                    (
+                        "go_first_task",
+                        "first",
+                        "最初のタスク",
+                        "first_page",
+                        self.go_first_task,
+                    ),
+                    ("go_date", "date", "日付を指定…", "event", self.go_date),
+                    (
+                        "go_prev_week",
+                        "prev",
+                        "前の週",
+                        "chevron_left",
+                        self.go_prev_week,
+                    ),
+                    (
+                        "go_next_week",
+                        "next",
+                        "次の週",
+                        "chevron_right",
+                        self.go_next_week,
+                    ),
+                ):
+                    entry = self.menu_entry(label, icon, handler, f"move-{key}")
+                    hint = ui.label(label_for(action)).classes("text-caption text-grey")
+                    side = ui.item_section().props("side")
+                    hint.move(side)
+                    side.move(entry)
+                    self.gantt.move_items[key] = (entry, hint)
 
     def header_menu(
         self, label: str, marker: str, items: list[MenuItem | None]

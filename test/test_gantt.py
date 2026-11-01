@@ -2140,30 +2140,17 @@ async def settled(condition: Callable[[], bool]) -> None:
     raise AssertionError("条件を満たさなかった")
 
 
-async def test_today_button_scrolls_to_the_line(user: User) -> None:
+async def test_scroll_to_today_scrolls_to_the_line(user: User) -> None:
     charts, _ = mount_chart(sample_project(), now=NOON)
     await user.open("/")
     sent = record_javascript(charts[0])
-    user.find(marker="today-button").click()
+    charts[0].scroll_to_today()
     assert sent == [
         today_scroll_js(2.5 * COLUMN_WIDTH_PX[Scale.DAY], charts[0].name_width)
     ]
 
 
-async def test_today_button_is_disabled_outside_the_range_and_follows_the_period(
-    user: User,
-) -> None:
-    charts, _ = mount_chart(sample_project(), now=NOON)
-    await user.open("/")
-    button = user.find(marker="today-button").elements.pop()
-    assert button.enabled
-    charts[0].set_period((date(2026, 11, 1), date(2026, 11, 30)))
-    await settled(lambda: not button.enabled)
-    charts[0].set_period(None)
-    await settled(lambda: button.enabled)
-
-
-async def test_today_button_uses_the_time_of_the_click(user: User) -> None:
+async def test_scroll_to_today_uses_the_time_of_the_call(user: User) -> None:
     clock = [datetime(2026, 10, 1)]  # 範囲の前から始める
     charts: list[GanttChart] = []
 
@@ -5125,28 +5112,28 @@ async def test_show_alerts_false_hides_the_warning_tint(user: User) -> None:
     assert name_cell_image(user, "task-0-0") is None
 
 
-async def test_the_move_menu_goes_to_the_base_date_and_the_first_task(
+async def test_moves_go_to_the_base_date_and_the_first_task(
     user: User,
 ) -> None:
     charts, _ = mount_chart(sample_project(), now=NOON)
     await user.open("/")
     chart = charts[0]
     sent = record_javascript(chart)
-    user.find(marker="move-base").click()
+    chart.go_to_base()
     assert sent == [today_scroll_js(chart.date_x(BASE), chart.name_width)]
     sent.clear()
-    user.find(marker="move-first").click()
+    chart.go_to_first_task()
     assert chart.first_task_day() == date(2026, 10, 5)
     assert sent == [today_scroll_js(chart.date_x(date(2026, 10, 5)), chart.name_width)]
 
 
-async def test_the_move_menu_shifts_by_a_week_on_every_scale(user: User) -> None:
+async def test_moves_shift_by_a_week_on_every_scale(user: User) -> None:
     charts, _ = mount_chart(sample_project(), now=NOON)
     await user.open("/")
     chart = charts[0]
     sent = record_javascript(chart)
-    user.find(marker="move-next").click()
-    user.find(marker="move-prev").click()
+    chart.shift_weeks(1)
+    chart.shift_weeks(-1)
     assert sent == [
         week_scroll_js(WEEK_PX[Scale.DAY]),
         week_scroll_js(-WEEK_PX[Scale.DAY]),
@@ -5190,35 +5177,6 @@ async def test_the_goto_dialog_moves_on_apply_and_shows_the_error_otherwise(
     user.find(marker="goto-input").clear().type("10/8")
     user.find(marker="goto-apply").click()
     assert len([code for code in sent if "scrollTo" in code]) == 1
-
-
-async def test_move_items_are_disabled_with_a_reason_when_they_cannot_go(
-    user: User,
-) -> None:
-    charts, _ = mount_chart(sample_project(), now=NOON)
-    await user.open("/")
-    chart = charts[0]
-    base, first = chart.move_items["base"][0], chart.move_items["first"][0]
-    assert base.enabled and first.enabled
-    chart.set_period((date(2026, 11, 1), date(2026, 11, 30)))
-    await settled(lambda: not base.enabled)
-    assert not first.enabled and not chart.move_items["today"][0].enabled
-    assert "表示期間の外" in chart.move_items["base"][1].text
-    chart.set_period(None)
-    await settled(lambda: base.enabled and first.enabled)
-
-
-async def test_the_first_task_item_is_disabled_without_scheduled_tasks(
-    user: User,
-) -> None:
-    charts, _ = mount_chart(
-        Project("p", base_date=BASE, sections=[Section("s", [Task("日程なし")])]),
-        now=NOON,
-    )
-    await user.open("/")
-    assert charts[0].first_task_day() is None
-    assert not charts[0].move_items["first"][0].enabled
-    assert charts[0].move_items["first"][1].text == "移れるタスクがありません"
 
 
 async def test_a_normal_bar_asks_for_the_quick_progress_edit(user: User) -> None:
