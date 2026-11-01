@@ -4,7 +4,14 @@ from datetime import datetime
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.bottom_info import PeriodSummary, TaskDetail, TodayRow
+from projectapp.bottom_info import (
+    AssignmentCell,
+    AssignmentRow,
+    AssignmentTable,
+    PeriodSummary,
+    TaskDetail,
+    TodayRow,
+)
 from projectapp.bottom_panel import BottomPanel, PanelContent
 from projectapp.models import Status
 
@@ -167,8 +174,6 @@ async def test_each_today_row_has_a_status_icon_left_of_the_label(user: User) ->
     assert len(set(STATUS_ICON.values())) == len(Status)
     assert all("status-" in " ".join(i.classes) for i in icons)
 
-
-from projectapp.bottom_info import AssignmentCell, AssignmentRow, AssignmentTable
 
 TABLE = AssignmentTable(
     ["10/5", "10/6", "10/7"],
