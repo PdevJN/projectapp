@@ -12,7 +12,12 @@ from nicegui.events import ValueChangeEventArguments
 from projectapp import arrange
 from projectapp.avatar import avatar
 from projectapp.browser import open_url as default_open_url
-from projectapp.bottom_info import period_summary, task_detail, today_plan
+from projectapp.bottom_info import (
+    assignment_table,
+    period_summary,
+    task_detail,
+    today_plan,
+)
 from projectapp.bottom_panel import BottomPanel, PanelContent
 from projectapp.bulk_select import BulkSelection
 from projectapp.arrange import Position, section_key
@@ -663,7 +668,9 @@ class GanttChart:
         self.splitter: ui.splitter | None = None
         self.toggle_button: ui.button | None = None
         self.split_box: ui.element | None = None
-        self.bottom = BottomPanel(on_select=self.select_tasks)
+        self.bottom = BottomPanel(
+            on_select=self.select_tasks, on_toggle_view=self.toggle_assignment
+        )
         self.split_before_preview: int | None = None
         self.syncing_split = (
             False  # プレビューの出入りで値を入れ替えるあいだは、保存しない
@@ -1033,6 +1040,19 @@ class GanttChart:
         else:
             self.open_bottom()
 
+    def toggle_assignment(self) -> None:
+        """`割り当て`ビューと元の内容を入れ替える。畳んでいれば開いて`割り当て`にする。プレビューでは何もしない。"""
+        if self.splitter is None or self.options.read_only:
+            return
+        if not self.bottom_open:
+            self.bottom.view = "assignment"
+            self.open_bottom()
+        else:
+            self.bottom.view = (
+                "info" if self.bottom.view == "assignment" else "assignment"
+            )
+        self.refresh_bottom()
+
     def open_bottom(self) -> None:
         """畳まれているときだけ、開くときの比率で開く。開いているときは動かさない。"""
         if (
@@ -1081,12 +1101,25 @@ class GanttChart:
                 self.schedule,
                 len(selected) - 1,
             )
+        assignment = None
+        if self.bottom.view == "assignment":
+            columns = build_columns(
+                self.project,
+                self.view_scale,
+                self.holidays,
+                self.view_period,
+                self.reference_values(),
+            )
+            assignment = assignment_table(
+                tasks, self.project, self.holidays, self.schedule, columns
+            )
         return PanelContent(
             detail,
             period_summary(
                 tasks, self.project, self.holidays, now, self.schedule, self.period
             ),
             today_plan(tasks, self.schedule, now),
+            assignment,
         )
 
     def refresh_bottom(self) -> None:
