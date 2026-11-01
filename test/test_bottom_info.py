@@ -303,3 +303,26 @@ def test_layout_with_no_columns_is_just_the_name_column() -> None:
     layout = AssignmentLayout(name_px=200, column_px=56)
     assert layout.grid_columns(0) == "var(--assign-name-w, 200px)"
     assert layout.width_css(0) == "calc(var(--assign-name-w, 200px) + 0px)"
+
+
+def test_summary_lists_the_task_names_for_each_status() -> None:
+    a = planned("甲", status=Status.RUNNING)
+    b = planned("乙", status=Status.RUNNING)
+    c = planned("丙", status=Status.DONE)
+    project, schedule = env(a, b, c)
+    s = period_summary([a, b, c], project, {}, NOW, schedule, None)
+    assert s.status_tasks[Status.RUNNING] == ("甲", "乙")
+    assert s.status_tasks[Status.DONE] == ("丙",)
+    assert s.status_tasks[Status.PAUSED] == ()
+
+
+def test_assignment_cells_list_the_tasks_overlapping_the_column() -> None:
+    a, b = crew("A", "田中"), crew("B", "田中")  # どちらも月・火
+    project, schedule = env(a, b)
+    columns = day_columns(date(2026, 10, 5), 3)
+    cells = assignment_table([a, b], project, {}, schedule, columns).rows[0].cells
+    assert cells[0].tasks == ("A", "B")
+    assert cells[2].tasks == ()  # 水曜はどのタスクもかからない
+    week = [Column(date(2026, 10, 5), date(2026, 10, 12), "10/5")]
+    cell = assignment_table([a, b], project, {}, schedule, week).rows[0].cells[0]
+    assert cell.tasks == ("A", "B")  # 週の列でも 1 回ずつ

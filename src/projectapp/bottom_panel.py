@@ -19,6 +19,7 @@ from projectapp.bottom_info import (
     TodayRow,
 )
 from projectapp.models import Status
+from projectapp.tipchips import name_chips_tooltip
 
 TABS = {"today": "今日の予定", "legend": "凡例"}
 CELL_STYLE = "text-align: center; padding: 1px 2px; font-size: 12px; overflow: hidden"
@@ -156,11 +157,17 @@ class BottomPanel:
                     self.show_no_effort(s)
             with ui.row().classes("items-center gap-2"):
                 for status in Status:
-                    ui.label(f"{status.value} {s.counts[status]}").classes(
-                        STATUS_CLASS[status]
-                    ).style("color: var(--scolor); font-weight: 500").mark(
-                        "bottom-status-count"
-                    )
+                    with (
+                        ui.label(f"{status.value} {s.counts[status]}")
+                        .classes(STATUS_CLASS[status])
+                        .style("color: var(--scolor); font-weight: 500")
+                        .mark("bottom-status-count")
+                    ):
+                        name_chips_tooltip(
+                            s.status_tasks.get(status, ()),
+                            "bottom-status-chip",
+                            more_marker="bottom-status-more",
+                        )
             with ui.row().classes("items-center gap-2"):
                 ui.label(f"遅れ {s.overdue} 件").classes(
                     "text-negative" if s.overdue else ""
@@ -178,12 +185,12 @@ class BottomPanel:
             .on("click", self.select_no_effort)
         )
         with label:
-            with ui.tooltip().classes("bg-white text-dark shadow-4"):
-                with ui.row().classes("gap-1 max-w-md"):
-                    for _, name in s.no_effort_tasks:
-                        ui.chip(name).props("dense outline").mark(
-                            "bottom-no-effort-chip"
-                        )
+            name_chips_tooltip(
+                [name for _, name in s.no_effort_tasks],
+                "bottom-no-effort-chip",
+                light=True,
+                limit=None,
+            )
 
     def select_no_effort(self) -> None:
         if self.on_select is None or self.content is None:
@@ -323,4 +330,14 @@ class BottomPanel:
                 background = f"{OVER_STRIPE}, {background}"
                 markers += " bottom-assignment-over"
         text = "" if cell.closed or cell.load <= 0 else f"{cell.load * 100:.0f}"
-        ui.label(text).style(f"{CELL_STYLE}; background: {background}").mark(markers)
+        with (
+            ui.label(text)
+            .style(f"{CELL_STYLE}; background: {background}")
+            .mark(markers)
+        ):
+            if text:  # 数字のあるセルだけ
+                name_chips_tooltip(
+                    cell.tasks,
+                    "bottom-assignment-chip",
+                    more_marker="bottom-assignment-more",
+                )
