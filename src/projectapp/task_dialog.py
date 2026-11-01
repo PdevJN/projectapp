@@ -31,6 +31,7 @@ from projectapp.forms import (
     STANDARD_WORK_HOURS,
     ActualRow,
     UrlRow,
+    add_extra_effort,
     apply_quick_progress,
     bind_picker,
     build_actuals,
@@ -39,6 +40,7 @@ from projectapp.forms import (
     compose_actual,
     compose_datetime,
     default_times,
+    extra_effort_progress,
     disposable,
     parse_datetime,
     needs_end_time,
@@ -1070,6 +1072,52 @@ def open_quick_progress_dialog(
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")
             ui.button("保存", on_click=save).mark("quick-save")
+    dialog.open()
+
+
+def open_extra_effort_dialog(
+    task: Task, day: date, on_save: Callable[[Task], object]
+) -> None:
+    """右クリックの`追加工数を足す…`で開く、時間と理由だけの小さなダイアログ。進捗度があれば、消化時間を保って直す(変化を見せる)。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
+        ui.label(task.name).classes("text-h6 ellipsis").mark("extra-title")
+        ui.label(f"今の工数 {task.total_effort:g}h").classes(
+            "text-caption text-grey"
+        ).mark("extra-current")
+        hours = (
+            ui.number("追加する時間(h)", value=None, min=0, step=0.5)
+            .classes("w-full")
+            .mark("extra-hours")
+        )
+        reason = ui.input("理由(任意)").classes("w-full").mark("extra-reason")
+        note = ui.label("").classes("text-caption text-grey").mark("extra-note")
+        error = ui.label("").classes("text-negative").mark("extra-error")
+
+        def refresh(_event: object = None) -> None:
+            value = hours.value
+            if not value or not isfinite(value) or value <= 0:
+                note.set_text("")
+                return
+            text = f"合計 {task.total_effort:g}h → {task.total_effort + value:g}h"
+            after = extra_effort_progress(task, value)
+            if after is not None and after != task.progress:
+                text += f"・進捗度 {task.progress}% → {after}%"
+            note.set_text(text)
+
+        hours.on_value_change(refresh)
+
+        def save() -> None:
+            try:
+                saved = add_extra_effort(task, hours.value, reason.value or "", day)
+            except ValueError as exc:
+                error.set_text(str(exc))
+                return
+            dialog.close()
+            on_save(saved)
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat")
+            ui.button("追加", on_click=save).mark("extra-save")
     dialog.open()
 
 

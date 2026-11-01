@@ -2087,6 +2087,47 @@ async def test_the_quick_progress_dialog_saves_one_undo_step(
     assert view.tasks_in(path)[index].progress == task.progress  # 元に戻す 1 ステップ
 
 
+async def test_the_extra_effort_dialog_saves_one_undo_step_and_lowers_the_progress(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    task = view.project.all_tasks()[0]
+    path = () if task in view.project.tasks else (0,)
+    index = view.tasks_in(path).index(task)
+    view.save_task(
+        path,
+        index,
+        replace(task, effort_hours=10.0, progress=50, status=Status.RUNNING),
+    )
+    view.now = lambda: datetime(2026, 10, 7, 12)
+    with user.client:
+        view.add_extra_effort(path, index)
+    await user.should_see(marker="extra-hours")
+    with user.client:
+        user.find(marker="extra-hours").elements.pop().set_value(5)
+        user.find(marker="extra-reason").elements.pop().set_value("見つかった")
+    assert "50% → 33%" in text_of(user, "extra-note")
+    user.find(marker="extra-save").click()
+    saved = view.tasks_in(path)[index]
+    assert saved.extra_efforts[0].hours == 5.0
+    assert saved.extra_efforts[0].day == date(2026, 10, 7)
+    assert (saved.effort_hours, saved.total_effort, saved.progress) == (10.0, 15.0, 33)
+    with user.client:
+        view.undo()
+    undone = view.tasks_in(path)[index]
+    assert (undone.extra_efforts, undone.progress) == ([], 50)  # 元に戻す 1 ステップ
+
+
+async def test_the_extra_effort_dialog_does_not_open_for_a_finished_task(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path, with_task=False)
+    view.project.tasks = [Task("終了", effort_hours=4.0, status=Status.DONE)]
+    with user.client:
+        view.add_extra_effort((), 0)
+    await user.should_not_see(marker="extra-hours")
+
+
 async def test_the_quick_progress_dialog_does_not_open_for_a_checkpoint(
     user: User, tmp_path: Path
 ) -> None:

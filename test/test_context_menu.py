@@ -15,7 +15,10 @@ def menu_project() -> Project:
         sections=[
             Section(
                 "開発",
-                [Task("通常", id="a"), Task("実行中", id="b", status=Status.RUNNING)],
+                [
+                    Task("通常", id="a", effort_hours=4.0),
+                    Task("実行中", id="b", status=Status.RUNNING),
+                ],
             )
         ],
         tasks=[Task("直下", id="t")],
@@ -27,6 +30,7 @@ def menu_project() -> Project:
     [
         ("context-edit", "edit_task"),
         ("context-decompose", "decompose_task"),
+        ("context-extra-effort", "add_extra_effort"),
         ("context-copy", "copy_task"),
         ("context-rename", "rename_task"),
         ("context-delete", "delete_task"),
@@ -112,3 +116,15 @@ async def test_the_toolbar_shows_no_browser_menu_on_right_click(user: User) -> N
         ev for ev in toolbar._event_listeners.values() if ev.type == "contextmenu"
     ]
     assert listeners and "preventDefault" in (listeners[0].js_handler or "")
+
+
+async def test_extra_effort_is_enabled_only_for_a_task_that_can_take_it(
+    user: User,
+) -> None:
+    charts, _ = mount_chart(menu_project())
+    await user.open("/")
+    item = user.find(marker="context-extra-effort").elements.pop()
+    charts[0].open_menu((0,), 1)  # 実行中だが工数がない
+    assert item.props.get("disable") is True
+    charts[0].open_menu((0,), 0)  # 工数 4h の通常タスク
+    assert not item.props.get("disable")
