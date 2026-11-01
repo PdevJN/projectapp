@@ -6,6 +6,7 @@ from nicegui.testing import User
 
 from projectapp.bottom_info import (
     AssignmentCell,
+    AssignmentLayout,
     AssignmentRow,
     AssignmentTable,
     PeriodSummary,
@@ -263,3 +264,39 @@ async def test_each_assignment_row_has_an_avatar_left_of_the_name(user: User) ->
     await user.should_see(marker="bottom-assignment")
     avatars = user.find(marker="bottom-assignment-avatar").elements
     assert len(avatars) == 2
+
+
+async def test_the_grid_uses_the_chart_widths(user: User) -> None:
+    panels = mount_assignment(
+        PanelContent(None, SUMMARY, TODAY, TABLE, AssignmentLayout(200, 56))
+    )
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    grid = user.find(marker="bottom-assignment-grid").elements.pop()
+    assert grid._style["grid-template-columns"] == "200px repeat(3, 56px)"
+    scroll = user.find(marker="bottom-assignment").elements.pop()
+    assert "data-assignment-scroll" in scroll._props
+
+
+async def test_the_name_cell_is_sticky_with_the_chart_name_width(user: User) -> None:
+    panels = mount_assignment(
+        PanelContent(None, SUMMARY, TODAY, TABLE, AssignmentLayout(200, 40))
+    )
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    cell = user.find(marker="bottom-assignment-name").elements.pop()
+    assert "gantt-sticky" in cell.classes
+    assert cell._style["position"] == "sticky" and cell._style["left"] == "0px"
+    assert cell._style["width"] == "200px"
+    assert cell._props["title"] == "田中"
+
+
+async def test_without_a_layout_it_falls_back_to_a_default(user: User) -> None:
+    panels = mount_assignment(PanelContent(None, SUMMARY, TODAY, TABLE))
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    grid = user.find(marker="bottom-assignment-grid").elements.pop()
+    assert grid._style["grid-template-columns"] == "160px repeat(3, 40px)"

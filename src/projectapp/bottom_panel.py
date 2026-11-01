@@ -1,5 +1,6 @@
 """ガントチャートの下部パネルの描画(要望 95)。内容は`PanelContent`で受け取り、計算はしない。"""
 
+import html
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -12,6 +13,7 @@ from projectapp.bottom_info import (
     STATUS_CLASS,
     STATUS_ICON,
     AssignmentCell,
+    AssignmentLayout,
     AssignmentTable,
     PeriodSummary,
     TaskDetail,
@@ -20,7 +22,8 @@ from projectapp.bottom_info import (
 from projectapp.models import Status
 
 TABS = {"today": "今日の予定", "legend": "凡例"}
-CELL_STYLE = "min-width: 3.4em; text-align: center; padding: 1px 2px; font-size: 12px"
+CELL_STYLE = "text-align: center; padding: 1px 2px; font-size: 12px; overflow: hidden"
+DEFAULT_LAYOUT = AssignmentLayout(160, 40)
 LOAD_COLOR = "rgba(76, 139, 245, {alpha:.2f})"
 OVER_STRIPE = "repeating-linear-gradient(45deg, rgba(220, 53, 69, 0.6) 0 4px, transparent 4px 8px)"
 
@@ -31,6 +34,7 @@ class PanelContent:
     summary: PeriodSummary
     today: list[TodayRow]
     assignment: AssignmentTable | None = None  # `割り当て`ビューのときだけ作る
+    layout: AssignmentLayout | None = None  # 同上。ガントチャートに合わせた列幅
 
 
 class BottomPanel:
@@ -221,10 +225,12 @@ class BottomPanel:
                             ui.label(entry.note).classes("text-caption text-grey")
 
     def show_assignment(self, table: AssignmentTable | None) -> None:
-        """担当者×列の割り当て率。濃さが負荷、縞が 100% 超、灰色が休み。独立して横にスクロールする。"""
+        """担当者×列の割り当て率。列の幅はガントチャートと同じ px。担当者の列は左に固定する。"""
+        layout = (self.content.layout if self.content else None) or DEFAULT_LAYOUT
         with (
             ui.element("div")
             .classes("w-full")
+            .props("data-assignment-scroll")
             .style("overflow-x: auto")
             .mark("bottom-assignment")
         ):
@@ -233,21 +239,35 @@ class BottomPanel:
                     "bottom-assignment-empty"
                 )
                 return
-            with ui.element("div").style(
-                "display: grid; width: max-content;"
-                f" grid-template-columns: 8em repeat({len(table.labels)}, 3.4em)"
+            count = len(table.labels)
+            with (
+                ui.element("div")
+                .style(
+                    f"display: grid; width: {layout.total_width(count)}px;"
+                    f" grid-template-columns: {layout.grid_columns(count)}"
+                )
+                .mark("bottom-assignment-grid")
             ):
-                ui.label("")
+                ui.element("div").classes("gantt-sticky").style(
+                    "position: sticky; left: 0px; z-index: 2"
+                )  # 左上の空き
                 for label in table.labels:
                     ui.label(label).classes("text-caption text-grey").style(CELL_STYLE)
                 for row in table.rows:
                     with (
                         ui.row()
-                        .classes("items-center gap-1 no-wrap")
-                        .style("padding: 1px 4px")
+                        .classes("items-center gap-1 no-wrap gantt-sticky")
+                        .props(f'title="{html.escape(row.name)}"')
+                        .style(
+                            "position: sticky; left: 0px; z-index: 2; overflow: hidden;"
+                            f" width: {layout.name_px}px; padding: 1px 4px"
+                        )
+                        .mark("bottom-assignment-name")
                     ):
                         avatar(row.name, row.icon, 18).mark("bottom-assignment-avatar")
-                        ui.label(row.name).classes("text-bold")
+                        ui.label(row.name).classes("text-bold ellipsis").style(
+                            "min-width: 0"
+                        )
                     for cell in row.cells:
                         self.show_assignment_cell(cell)
 
