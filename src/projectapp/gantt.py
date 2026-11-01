@@ -662,7 +662,7 @@ class GanttChart:
         self.open_ratio = open_ratio  # 畳まれているとき、選択で開く割合(%)
         self.splitter: ui.splitter | None = None
         self.split_box: ui.element | None = None
-        self.bottom = BottomPanel()
+        self.bottom = BottomPanel(on_select=self.select_tasks)
         self.split_before_preview: int | None = None
         self.syncing_split = (
             False  # プレビューの出入りで値を入れ替えるあいだは、保存しない
@@ -955,6 +955,17 @@ class GanttChart:
 
     def clear_selection(self) -> None:
         self.bulk.clear()
+        self.sync_bulk()
+
+    def select_tasks(self, task_ids: list[str]) -> None:
+        """下部パネルから。まだ選んでいないタスクを、Cmd/Ctrl クリックと同じに選びに加える。"""
+        if self.options.read_only:
+            return
+        for task_id in task_ids:
+            if task_id not in self.bulk.ids:
+                self.bulk.toggle(task_id, self.tasks_by_id)
+        if self.bulk.ids:
+            self.open_bottom()
         self.sync_bulk()
 
     def selected_ids(self) -> list[str]:

@@ -8,6 +8,13 @@ from projectapp.models import Project, Status, Task, TaskKind
 from projectapp.pace import warning_pace
 from projectapp.timeline import Schedule, overdue_reasons
 
+# 状態ごとの色のクラス(gantt.py の棒の色と同じ。--scolor を定める)
+STATUS_CLASS = {
+    Status.NOT_STARTED: "status-not-started",
+    Status.RUNNING: "status-running",
+    Status.PAUSED: "status-paused",
+    Status.DONE: "status-done",
+}
 DetailLine = tuple[str, str]
 DASH = "—"
 KIND_LABELS = {
@@ -36,6 +43,7 @@ class PeriodSummary:
     percent: float | None  # 工数で重みづけした進捗率。数えるタスクがなければ None
     overdue: int
     warned: int
+    no_effort_tasks: tuple[tuple[str, str], ...] = ()  # 工数未設定の(id, 名前)
 
 
 @dataclass(frozen=True)
@@ -44,6 +52,7 @@ class TodayRow:
     assignees: str
     progress: int | None
     end: datetime | None
+    status: Status = Status.NOT_STARTED  # 文字の色分け用
 
 
 @dataclass(frozen=True)
@@ -141,6 +150,7 @@ def period_summary(
     counts = {status: 0 for status in Status}
     weighted = hours = total_weight = 0.0
     no_effort = overdue = warned = total = 0
+    no_effort_tasks: list[tuple[str, str]] = []
     for task in tasks:
         if task.kind is not TaskKind.NORMAL:
             continue
@@ -152,6 +162,7 @@ def period_summary(
             hours += task.effort_hours
         else:
             no_effort += 1
+            no_effort_tasks.append((task.id, task.name))
         weight_and_percent = _progress_weight(task)
         if weight_and_percent is not None:
             weight, percent = weight_and_percent
@@ -162,7 +173,16 @@ def period_summary(
         elif warning_pace(task, project, holidays, now, schedule) is not None:
             warned += 1
     percent = weighted / total_weight if total_weight > 0 else None
-    return PeriodSummary(total, counts, hours, no_effort, percent, overdue, warned)
+    return PeriodSummary(
+        total,
+        counts,
+        hours,
+        no_effort,
+        percent,
+        overdue,
+        warned,
+        tuple(no_effort_tasks),
+    )
 
 
 def today_plan(tasks: list[Task], schedule: Schedule, now: datetime) -> list[TodayRow]:
@@ -187,6 +207,7 @@ def today_plan(tasks: list[Task], schedule: Schedule, now: datetime) -> list[Tod
                     "・".join(task.assignee_names) or DASH,
                     task.progress,
                     end,
+                    task.status,
                 )
             )
     return rows

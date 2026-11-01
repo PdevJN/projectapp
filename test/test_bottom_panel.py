@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 
 from nicegui import ui
@@ -82,3 +83,64 @@ async def test_an_empty_summary_shows_dashes(user: User) -> None:
     panels[0].update(PanelContent(None, empty, []))
     await user.should_see(marker="bottom-summary")
     await user.should_see("—")
+
+
+async def test_status_counts_and_today_rows_carry_the_status_color(user: User) -> None:
+    from projectapp.bottom_info import TodayRow
+
+    panels: list[BottomPanel] = []
+
+    @ui.page("/")
+    def index() -> None:
+        panel = BottomPanel()
+        panel.build()
+        today = [
+            TodayRow("実装", "田中", 30, datetime(2026, 10, 8, 12), Status.RUNNING)
+        ]
+        panel.update(PanelContent(None, SUMMARY, today))
+        panels.append(panel)
+
+    await user.open("/")
+    row = user.find(marker="bottom-today-row").elements.pop()
+    assert "status-running" in row.classes
+    counts = user.find(marker="bottom-status-count").elements
+    assert len(counts) == len(Status)
+    assert any("status-running" in e.classes for e in counts)
+
+
+async def test_no_effort_count_lists_chips_and_a_click_selects_them(
+    user: User,
+) -> None:
+    picked: list[list[str]] = []
+    summary = PeriodSummary(
+        3,
+        {s: 0 for s in Status},
+        26.0,
+        2,
+        40.0,
+        0,
+        0,
+        (("a", "設計"), ("b", "調査")),
+    )
+
+    @ui.page("/")
+    def index() -> None:
+        panel = BottomPanel(on_select=picked.append)
+        panel.build()
+        panel.update(PanelContent(None, summary, []))
+
+    await user.open("/")
+    chips = user.find(marker="bottom-no-effort-chip").elements
+    assert sorted(c.text for c in chips) == ["設計", "調査"]  # 順序は保証されない
+    user.find(marker="bottom-no-effort").click()
+    await asyncio.sleep(0.2)  # クリックの処理は非同期に届く
+    assert picked == [["a", "b"]]
+
+
+async def test_the_legend_is_a_table_with_one_row_per_group(user: User) -> None:
+    mount()
+    await user.open("/")
+    user.find(marker="bottom-tab-legend").click()
+    await user.should_see(marker="bottom-legend")
+    rows = user.find(marker="bottom-legend-group").elements
+    assert len(rows) == 3  # 状態・優先度・印

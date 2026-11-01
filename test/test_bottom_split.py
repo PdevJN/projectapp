@@ -127,3 +127,21 @@ async def test_an_almost_folded_split_counts_as_folded_and_a_selection_opens_it(
     charts[0].clicked_task("a", {"ctrl": True})
     assert charts[0].splitter.value == 70
     assert saved[0] == 100  # 99.6 は切り捨てず丸める
+
+
+async def test_selecting_tasks_from_the_panel_adds_them_and_opens_it(
+    user: User,
+) -> None:
+    charts, _ = mount()
+    await user.open("/")
+    charts[0].select_tasks(["a", "b"])
+    assert set(charts[0].selected_ids()) == {"a", "b"}
+    assert charts[0].bottom_open
+    charts[0].select_tasks(["a", "b"])  # すでに選んでいれば外れない
+    assert set(charts[0].selected_ids()) == {"a", "b"}
+
+
+async def test_the_summary_lists_tasks_without_effort(user: User) -> None:
+    charts, _ = mount()
+    await user.open("/")
+    assert charts[0].bottom.content.summary.no_effort_tasks == (("b", "b"),)
