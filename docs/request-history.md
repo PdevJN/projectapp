@@ -114,7 +114,7 @@
 | 108 | `残りの工数と必要人数`で、警告の分を遅れと分けて見せる(棒の区間と凡例を分ける) | 完了(PR #165。`develop`へマージ済み) | 2026-10-31 | — | — | [`requests.md`](requests.md) |
 | 109 | 遅延・超過・警告の用語を整理する(予定超過・期限超過・遅れ・進捗不足) | 完了(PR #171。`develop`へマージ済み。実機確認済み) | 2026-11-01 | — | PR #171(2026-11-01) | チャットで設計を承認(bounded)。[`requests.md`](requests.md) |
 | 110 | ruff(リンタ)の導入 | 完了(PR #174。`develop`へマージ済み) | 2026-11-01 | — | PR #174(b920b0f。2026-11-01) | `uvx ruff`(依存には入れない)。設定は`pyproject.toml`。指摘 45 件を解消し、`ruff format`を適用。実装完了時の手順を`RULE.md`に追記。[`requests.md`](requests.md) |
-| 111 | メインパネルを`ui.splitter`で縦に分け、ガントチャートの縦幅を変えられるようにする(要望 95 の土台) | 完了 | 2026-11-01 | [設計](superpowers/specs/2026-11-01-bottom-panel-design.md)・[計画](superpowers/plans/2026-11-01-bottom-panel.md) | 要望 95 と同じ PR(`feature/bottom-panel`) | [`requests.md`](requests.md) |
+| 111 | メインパネルを`ui.splitter`で縦に分け、ガントチャートの縦幅を変えられるようにする(要望 95 の土台) | 完了 | 2026-11-01 | [設計](superpowers/specs/2026-11-01-bottom-panel-design.md)・[計画](superpowers/plans/2026-11-01-bottom-panel.md) | PR #177〔253036b〕で`develop`へマージ | [`requests.md`](requests.md) |
 | 112 | `当日`と`移動`を、上部のメニューの`移動`に集約する | 未着手 | 2026-11-01 | — | — | [`requests.md`](requests.md) |
 | 113 | `エクスポート`メニューを`ファイル`メニューに集約する | 未着手 | 2026-11-01 | — | — | [`requests.md`](requests.md) |
 | 114 | チャートプレビューをメニューから切り離し、ヘッダーのダッシュボードのアイコンの左隣に置く(要望 112・113 の完了後) | 未着手 | 2026-11-01 | — | — | [`requests.md`](requests.md) |

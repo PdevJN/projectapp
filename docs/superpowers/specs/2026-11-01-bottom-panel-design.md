@@ -1,6 +1,6 @@
 # ガントチャートの下部パネルと縦の分割の設計(要望 111・95)
 
-> **状態**: 実装済み(`feature/bottom-panel`。実機確認待ち。計画 [`plans/2026-11-01-bottom-panel.md`](../plans/2026-11-01-bottom-panel.md))。要望 111(縦の分割)と要望 95(下部の情報)を同時に実装する。architectural。
+> **状態**: 実装済み(実機確認済み。2026-11-01。PR #177〔253036b〕で`develop`へマージ。計画 [`plans/2026-11-01-bottom-panel.md`](../plans/2026-11-01-bottom-panel.md))。要望 111(縦の分割)と要望 95(下部の情報)を同時に実装する。architectural。
 
 ## 目的
 
