@@ -10,6 +10,8 @@ from projectapp.bottom_info import (
     LEGEND,
     STATUS_CLASS,
     STATUS_ICON,
+    AssignmentCell,
+    AssignmentTable,
     PeriodSummary,
     TaskDetail,
     TodayRow,
@@ -17,6 +19,9 @@ from projectapp.bottom_info import (
 from projectapp.models import Status
 
 TABS = {"today": "今日の予定", "legend": "凡例"}
+CELL_STYLE = "min-width: 3.4em; text-align: center; padding: 1px 2px; font-size: 12px"
+LOAD_COLOR = "rgba(76, 139, 245, {alpha:.2f})"
+OVER_STRIPE = "repeating-linear-gradient(45deg, rgba(220, 53, 69, 0.6) 0 4px, transparent 4px 8px)"
 
 
 @dataclass
@@ -24,22 +29,51 @@ class PanelContent:
     detail: TaskDetail | None
     summary: PeriodSummary
     today: list[TodayRow]
+    assignment: AssignmentTable | None = None  # `割り当て`ビューのときだけ作る
 
 
 class BottomPanel:
-    def __init__(self, on_select: Callable[[list[str]], None] | None = None) -> None:
+    def __init__(
+        self,
+        on_select: Callable[[list[str]], None] | None = None,
+        on_toggle_view: Callable[[], None] | None = None,
+    ) -> None:
+        self.on_toggle_view = on_toggle_view  # 割り当てビューの切り替え(開く処理も含む)
+        self.view = "info"  # "info" | "assignment"。保存しない
         self.on_select = on_select  # 工数未設定のタスクを選ぶ(Cmd/Ctrl クリックと同じ)
         self.content: PanelContent | None = None
         self.tab = "today"  # 保存しない。開くたびに今日の予定
 
     def build(self) -> None:
         with (
-            ui.column()
-            .classes("w-full h-full gap-1 p-2")
-            .style("overflow: auto")
-            .mark("bottom-panel")
+            ui.element("div")
+            .classes("w-full h-full")
+            .style("position: relative; overflow: hidden")
         ):
-            self.body()
+            ui.button(icon="calendar_view_week", on_click=self.press_toggle).props(
+                "flat dense round size=sm"
+            ).classes("text-grey-8").style(
+                "position: absolute; top: 2px; right: 8px; z-index: 5"
+            ).mark("bottom-view-toggle").tooltip(
+                "割り当て表示の切り替え(Ctrl/Cmd+Alt/Option)"
+            )
+            with (
+                ui.column()
+                .classes("w-full h-full gap-1 p-2")
+                .style("overflow: auto")
+                .mark("bottom-panel")
+            ):
+                self.body()
+
+    def press_toggle(self) -> None:
+        if self.on_toggle_view is not None:
+            self.on_toggle_view()
+        else:
+            self.toggle_view()
+
+    def toggle_view(self) -> None:
+        self.view = "info" if self.view == "assignment" else "assignment"
+        self.body.refresh()
 
     def update(self, content: PanelContent) -> None:
         self.content = content
@@ -48,6 +82,9 @@ class BottomPanel:
     @ui.refreshable_method
     def body(self) -> None:
         if self.content is None:
+            return
+        if self.view == "assignment":
+            self.show_assignment(self.content.assignment)
             return
         if self.content.detail is not None:
             self.show_detail(self.content.detail)
@@ -181,3 +218,41 @@ class BottomPanel:
                                     else "background: var(--pbg)"
                                 )
                             ui.label(entry.note).classes("text-caption text-grey")
+
+    def show_assignment(self, table: AssignmentTable | None) -> None:
+        """担当者×列の割り当て率。濃さが負荷、縞が 100% 超、灰色が休み。独立して横にスクロールする。"""
+        with (
+            ui.element("div")
+            .classes("w-full")
+            .style("overflow-x: auto")
+            .mark("bottom-assignment")
+        ):
+            if table is None or not table.rows:
+                ui.label("割り当てのある担当者はいません").classes("text-grey").mark(
+                    "bottom-assignment-empty"
+                )
+                return
+            with ui.element("div").style(
+                "display: grid; width: max-content;"
+                f" grid-template-columns: 8em repeat({len(table.labels)}, 3.4em)"
+            ):
+                ui.label("")
+                for label in table.labels:
+                    ui.label(label).classes("text-caption text-grey").style(CELL_STYLE)
+                for row in table.rows:
+                    ui.label(row.name).classes("text-bold").style("padding: 1px 4px")
+                    for cell in row.cells:
+                        self.show_assignment_cell(cell)
+
+    def show_assignment_cell(self, cell: AssignmentCell) -> None:
+        markers = "bottom-assignment-cell"
+        if cell.closed:
+            background = "rgba(128, 128, 128, 0.18)"
+            markers += " bottom-assignment-closed"
+        else:
+            background = LOAD_COLOR.format(alpha=min(cell.load, 1.0) * 0.7)
+            if cell.over:
+                background = f"{OVER_STRIPE}, {background}"
+                markers += " bottom-assignment-over"
+        text = "" if cell.closed or cell.load <= 0 else f"{cell.load * 100:.0f}"
+        ui.label(text).style(f"{CELL_STYLE}; background: {background}").mark(markers)
