@@ -4126,7 +4126,7 @@ async def test_the_header_has_the_menus_the_dashboard_icon_and_the_theme_menu(
     for marker in (
         "menu-file",
         "menu-project",
-        "menu-export",
+        "menu-move",
         "menu-help",
         "open-dashboard",
         "menu-theme",
@@ -4139,14 +4139,18 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     await open_header_view(user, tmp_path)
     assert menu_items(user, "menu-file-items") == [
         ("開く", "file-open"),
-        ("PlantUML を取り込む", "file-import-plantuml"),
-        ("CSV を取り込む", "file-import-csv"),
-        ("設定を取り込む", "file-import-settings"),
         ("新規プロジェクト作成", "file-new"),
+        ("インポート", "file-import"),
+        ("エクスポート", "file-export"),
         ("上書き保存", "save-project"),
         ("名前をつけて保存", "file-save-as"),
         ("格納先を変更", "file-change-dir"),
         ("祝日を更新", "refresh-holidays"),
+    ]
+    assert menu_items(user, "file-import-items") == [
+        ("PlantUML を取り込む", "file-import-plantuml"),
+        ("CSV を取り込む", "file-import-csv"),
+        ("設定を取り込む", "file-import-settings"),
     ]
     assert menu_items(user, "menu-project-items") == [
         ("設定", "open-settings"),
@@ -4155,17 +4159,21 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     ]
     assert menu_icons(user, "menu-file-items") == [
         "folder_open",
-        "upload_file",
-        "table_view",
-        "settings_backup_restore",
         "note_add",
+        "file_download",
+        "file_upload",
         "save",
         "save_as",
         "drive_file_move",
         "event_repeat",
     ]
+    assert menu_icons(user, "file-import-items") == [
+        "upload_file",
+        "table_view",
+        "settings_backup_restore",
+    ]
     assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
-    assert menu_icons(user, "menu-export-items") == [
+    assert menu_icons(user, "file-export-items") == [
         "visibility",
         "ios_share",
         "download",
@@ -4181,7 +4189,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         "event",
         "warning_amber",
     ]
-    assert menu_items(user, "menu-export-items") == [
+    assert menu_items(user, "file-export-items") == [
         ("チャートプレビュー", "export-preview"),
         ("担当者へ書き出し", "export-handoff"),
         ("TSV として書き出す", "export-tsv"),
@@ -4215,7 +4223,6 @@ async def test_the_file_menu_separates_open_save_and_update(
         "item",
         "item",
         "item",
-        "item",
         "sep",
         "item",
         "item",
@@ -4223,6 +4230,13 @@ async def test_the_file_menu_separates_open_save_and_update(
         "item",
         "item",
     ]
+
+
+async def test_the_file_submenus_open_to_the_right(user: User, tmp_path: Path) -> None:
+    await open_header_view(user, tmp_path)
+    for marker in ("file-import-items", "file-export-items"):
+        sub = user.find(marker=marker).elements.pop()
+        assert "anchor" in sub._props and "top end" in sub._props["anchor"]
 
 
 async def test_the_project_menu_dashboard_item_opens_the_dashboard(
@@ -4352,7 +4366,7 @@ async def test_the_header_is_a_themed_band_with_small_fonts(
     for marker in (
         "menu-file",
         "menu-project",
-        "menu-export",
+        "menu-move",
         "menu-git",
         "menu-help",
     ):  # メニューは楕円型のボタン
@@ -4371,7 +4385,7 @@ async def test_the_header_is_a_themed_band_with_small_fonts(
     for marker in (
         "menu-file",
         "menu-project",
-        "menu-export",
+        "menu-move",
         "menu-git",
         "menu-help",
         "open-dashboard",
@@ -4379,7 +4393,7 @@ async def test_the_header_is_a_themed_band_with_small_fonts(
         "menu-theme",
     ):
         assert not user.find(marker=marker).elements.pop()._props.get("color"), marker
-    for marker in ("menu-file", "menu-project", "menu-export", "menu-git", "menu-help"):
+    for marker in ("menu-file", "menu-project", "menu-move", "menu-git", "menu-help"):
         assert (
             "icon-right" not in user.find(marker=marker).elements.pop()._props
         )  # ▼ は出さない
@@ -4410,7 +4424,7 @@ async def test_the_menus_start_at_the_left_of_the_header_and_the_title_is_in_the
     order = [
         "menu-file",
         "menu-project",
-        "menu-export",
+        "menu-move",
         "menu-git",
         "menu-help",
         "project-select",
@@ -4751,12 +4765,12 @@ async def test_the_file_menu_separators_are_marked_and_the_holiday_update_is_las
     menu = user.find(marker="menu-file-items").elements.pop()
     children = menu.default_slot.children
     assert (
-        "menu-file-separator" in children[5]._markers
-        and "menu-file-separator" in children[8]._markers
+        "menu-file-separator" in children[4]._markers
+        and "menu-file-separator" in children[7]._markers
     )
     assert (
-        "file-change-dir" in children[9]._markers
-        and "refresh-holidays" in children[10]._markers
+        "file-change-dir" in children[8]._markers
+        and "refresh-holidays" in children[9]._markers
     )
 
 

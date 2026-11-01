@@ -328,6 +328,16 @@ class MenuItem:
     key: str = ""
 
 
+@dataclass(frozen=True)
+class Submenu:
+    """ヘッダーのメニューの中のサブメニュー(右に開く。押すと親のメニューも閉じる)。"""
+
+    text: str
+    icon: str
+    marker: str
+    items: list[MenuItem]
+
+
 NEW_PROJECT_NAME = "新規プロジェクト"
 # ヘッダーは、画面の上端・左右いっぱいの四角い帯(ui.header)。テーマカラーの背景 + 白文字(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
 # メニューのボタンは折り返さない(縮むのはプロジェクト選択のコンボだけ。中のファイル名は 10px)。プロジェクト名は、ヘッダーの外(メイン側の左上)に、12px の太字(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
@@ -2987,7 +2997,7 @@ class MainView:
             ui.timer(0.1, self.first_fetch, once=True)
 
     def header(self) -> None:
-        """ヘッダー(画面の上端に固定する 1 行。左からメニュー 6 つ、右側にコンボ・ダッシュボード・テーマ。プロジェクト名は、ヘッダーの外): タイトル・メニュー 6 つ・(右側)プロジェクトの切り替え・ダッシュボード・テーマ。"""
+        """ヘッダー(画面の上端に固定する 1 行。左からメニュー 5 つ、右側にコンボ・ダッシュボード・テーマ。プロジェクト名は、ヘッダーの外): タイトル・メニュー 5 つ・(右側)プロジェクトの切り替え・ダッシュボード・テーマ。"""
         with ui.header(elevated=False, wrap=False).classes(
             "row items-center no-wrap gap-1 app-header"
         ) as box:
@@ -2999,39 +3009,77 @@ class MainView:
                 [
                     MenuItem("開く", "folder_open", self.show_file_list, "file-open"),
                     MenuItem(
-                        "PlantUML を取り込む",
-                        "upload_file",
-                        self.request_import_plantuml,
-                        "file-import-plantuml",
-                    ),
-                    *(  # ファイル選択はネイティブのみなので、Web では項目を出さない
-                        [
-                            MenuItem(
-                                "CSV を取り込む",
-                                "table_view",
-                                self.request_import_csv,
-                                "file-import-csv",
-                            )
-                        ]
-                        if self.exporter.available
-                        else []
-                    ),
-                    *(
-                        [
-                            MenuItem(
-                                "設定を取り込む",
-                                "settings_backup_restore",
-                                self.request_import_settings,
-                                "file-import-settings",
-                            )
-                        ]
-                        if self.exporter.available
-                        else []
-                    ),
-                    MenuItem(
                         "新規プロジェクト作成", "note_add", self.request_new, "file-new"
                     ),
-                    None,  # 水平線(開く・作る / 保存 / データの更新)
+                    Submenu(
+                        "インポート",
+                        "file_download",
+                        "file-import",
+                        [
+                            MenuItem(
+                                "PlantUML を取り込む",
+                                "upload_file",
+                                self.request_import_plantuml,
+                                "file-import-plantuml",
+                            ),
+                            *(  # ファイル選択はネイティブのみなので、Web では項目を出さない
+                                [
+                                    MenuItem(
+                                        "CSV を取り込む",
+                                        "table_view",
+                                        self.request_import_csv,
+                                        "file-import-csv",
+                                    ),
+                                    MenuItem(
+                                        "設定を取り込む",
+                                        "settings_backup_restore",
+                                        self.request_import_settings,
+                                        "file-import-settings",
+                                    ),
+                                ]
+                                if self.exporter.available
+                                else []
+                            ),
+                        ],
+                    ),
+                    Submenu(
+                        "エクスポート",
+                        "file_upload",
+                        "file-export",
+                        [
+                            MenuItem(
+                                "チャートプレビュー",
+                                "visibility",
+                                self.enter_preview,
+                                "export-preview",
+                            ),
+                            MenuItem(
+                                "担当者へ書き出し",
+                                "ios_share",
+                                self.open_handoff,
+                                "export-handoff",
+                            ),
+                            MenuItem(
+                                "TSV として書き出す",
+                                "download",
+                                self.export_tsv,
+                                "export-tsv",
+                            ),
+                            *(
+                                [
+                                    MenuItem(
+                                        "設定を書き出す",
+                                        "save_alt",
+                                        self.export_settings,
+                                        "export-settings",
+                                    )
+                                ]
+                                if self.exporter.available
+                                else []
+                            ),
+                        ],
+                    ),
+                    None,  # 水平線(開く・作る・入出力 / 保存 / データの更新)
                     MenuItem(
                         "上書き保存", "save", self.save_project_clicked, "save-project"
                     ),
@@ -3074,39 +3122,6 @@ class MainView:
                 ],
             )
             self.move_menu()
-            self.header_menu(
-                "エクスポート",
-                "menu-export",
-                [
-                    MenuItem(
-                        "チャートプレビュー",
-                        "visibility",
-                        self.enter_preview,
-                        "export-preview",
-                    ),
-                    MenuItem(
-                        "担当者へ書き出し",
-                        "ios_share",
-                        self.open_handoff,
-                        "export-handoff",
-                    ),
-                    MenuItem(
-                        "TSV として書き出す", "download", self.export_tsv, "export-tsv"
-                    ),
-                    *(
-                        [
-                            MenuItem(
-                                "設定を書き出す",
-                                "save_alt",
-                                self.export_settings,
-                                "export-settings",
-                            )
-                        ]
-                        if self.exporter.available
-                        else []
-                    ),
-                ],
-            )
             self.header_menu(
                 "Git",
                 "menu-git",
@@ -3223,7 +3238,7 @@ class MainView:
                     self.gantt.move_items[key] = (entry, hint)
 
     def header_menu(
-        self, label: str, marker: str, items: list[MenuItem | None]
+        self, label: str, marker: str, items: list[MenuItem | Submenu | None]
     ) -> None:
         """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(None は水平線)。"""
         with (
@@ -3232,14 +3247,37 @@ class MainView:
             .classes("app-menu-btn")
             .mark(marker)
         ):
-            with ui.menu().props("content-class=app-menu").mark(f"{marker}-items"):
+            with (
+                ui.menu().props("content-class=app-menu").mark(f"{marker}-items")
+            ) as root:
                 for item in items:
                     if item is None:
                         ui.separator().mark(f"{marker}-separator")
                         continue
+                    if isinstance(item, Submenu):
+                        self.submenu_entry(item, root)
+                        continue
                     self.menu_entries[item.marker] = self.menu_entry(
                         item.text, item.icon, item.handler, item.marker, item.key
                     )
+
+    def submenu_entry(self, sub: Submenu, root: ui.menu) -> None:
+        """サブメニューの 1 項目(右端に ›)。中の項目を押すと、入れ子のメニューと親の`root`を閉じる。"""
+        with ui.menu_item(sub.text, auto_close=False).mark(sub.marker) as entry:
+            with ui.item_section().props("avatar") as avatar:
+                ui.icon(sub.icon)
+            avatar.move(entry, target_index=0)
+            with ui.item_section().props("side"):
+                ui.icon("chevron_right")
+            with (
+                ui.menu()
+                .props('anchor="top end" self="top start" content-class=app-menu')
+                .mark(f"{sub.marker}-items")
+            ):
+                for item in sub.items:
+                    self.menu_entries[item.marker] = self.menu_entry(
+                        item.text, item.icon, item.handler, item.marker, item.key
+                    ).on_click(root.close)
 
     @staticmethod
     def menu_entry(

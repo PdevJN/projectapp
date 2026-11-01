@@ -100,7 +100,7 @@ def dialog_is_open(user: User) -> bool:
         return False
 
 
-async def test_the_git_menu_sits_between_export_and_help(
+async def test_the_git_menu_sits_between_move_and_help(
     user: User, tmp_path: Path
 ) -> None:
     await open_with(user, tmp_path, Fakes())
@@ -108,7 +108,6 @@ async def test_the_git_menu_sits_between_export_and_help(
         "menu-file",
         "menu-project",
         "menu-move",
-        "menu-export",
         "menu-git",
         "menu-help",
     ]
