@@ -9,7 +9,7 @@ from typing import Any
 from pathlib import Path
 
 import httpx
-from nicegui import run, ui
+from nicegui import app, run, ui
 from nicegui.events import KeyEventArguments
 
 from projectapp.calendar import load_cache
@@ -36,6 +36,8 @@ from projectapp.config import (
     THEMES,
     check_project_dir,
     load_custom_theme,
+    load_main_split,
+    load_open_ratio,
     load_today_color,
     load_warning_color,
     load_dashboard_view_last,
@@ -47,6 +49,8 @@ from projectapp.config import (
     load_zoom,
     resolve_project_dir,
     save_custom_theme,
+    save_main_split,
+    save_open_ratio,
     save_today_color,
     save_warning_color,
     save_dashboard_view_last,
@@ -275,6 +279,9 @@ from projectapp.theme import (
     warning_color_js,
 )
 from projectapp.theme_dialog import open_theme_dialog as show_theme_dialog
+from projectapp.global_settings_dialog import (
+    open_global_settings_dialog as show_global_settings_dialog,
+)
 from projectapp.theme_dialog import open_today_color_dialog as show_today_color_dialog
 from projectapp.theme_dialog import (
     open_warning_color_dialog as show_warning_color_dialog,
@@ -466,6 +473,10 @@ class MainView:
             base_dir
         )  # 今日の線の色。None は既定(テーマに従う)
         self.warning_color = load_warning_color(base_dir)  # 警告の色。None は既定(黄)
+        self.main_split = load_main_split(base_dir)  # 分割の位置(ガントチャートの割合)
+        self.open_ratio = load_open_ratio(base_dir)  # 下部パネルを開くときの割合
+        self.pending_split: int | None = None
+        self.split_timer: ui.timer | None = None
         self.dark = ui.dark_mode()
         self.dark.value = self.dark_value(self.theme, self.custom_theme)
         cached = load_cache(base_dir)
@@ -509,8 +520,11 @@ class MainView:
                 edit_progress=self.edit_progress,
                 open_reference=self.open_reference,
                 refresh_reference=self.refresh_reference,
+                set_main_split=self.set_main_split,
             ),
             name_width=load_name_width(base_dir),
+            main_split=self.main_split,
+            open_ratio=self.open_ratio,
             references=lambda: build_references(
                 self.project, self.reference_resolver, datetime.now()
             ),
@@ -597,6 +611,63 @@ class MainView:
         self.custom_theme = theme
         self.apply_theme("custom")
         self.theme_menu.refresh()
+        return True
+
+    def set_main_split(self, value: int) -> None:
+        """分割の位置が変わった。ドラッグ中に書き続けないよう、止まってから保存する。"""
+        self.pending_split = value
+        if self.split_timer is not None:
+            self.split_timer.cancel()
+        with self.header_box:  # どこから呼ばれても、画面の寿命と同じ要素に付ける
+            self.split_timer = ui.timer(0.6, self.flush_main_split, once=True)
+
+    def flush_main_split(self) -> None:
+        """保存待ちの分割の位置を書く(アプリの終了時にも呼ぶ)。保存できなくても画面はそのまま。"""
+        value, self.pending_split = self.pending_split, None
+        if value is None:
+            return
+        try:
+            save_main_split(value, self.base_dir)
+        except OSError:
+            ui.notify("分割の位置を保存できませんでした", type="warning")
+
+    def open_global_settings(self) -> None:
+        """全体の設定のダイアログ。動かすとすぐ反映し、キャンセルで元の割合・分割の位置に戻す。"""
+        before_ratio = self.open_ratio
+        splitter = self.gantt.splitter
+        before_split = int(splitter.value) if splitter is not None else 100
+
+        def preview(value: int) -> None:
+            self.gantt.open_ratio = value
+            if self.gantt.bottom_open and self.gantt.splitter is not None:
+                self.gantt.syncing_split = True  # 試しの値は保存しない
+                try:
+                    self.gantt.splitter.set_value(value)
+                finally:
+                    self.gantt.syncing_split = False
+
+        def cancel() -> None:
+            self.gantt.open_ratio = before_ratio
+            if self.gantt.splitter is not None:
+                self.gantt.syncing_split = True
+                try:
+                    self.gantt.splitter.set_value(before_split)
+                finally:
+                    self.gantt.syncing_split = False
+
+        show_global_settings_dialog(
+            self.open_ratio, preview, self.apply_open_ratio, cancel
+        )
+
+    def apply_open_ratio(self, value: int) -> bool:
+        """開くときの割合を保存する。失敗したら通知して False(ダイアログは閉じない)。"""
+        try:
+            save_open_ratio(value, self.base_dir)
+        except OSError:
+            ui.notify("全体の設定を保存できませんでした", type="warning")
+            return False
+        self.open_ratio = value
+        self.gantt.open_ratio = value
         return True
 
     def open_today_color_dialog(self) -> None:
@@ -2863,6 +2934,7 @@ class MainView:
         await self.refresh_holidays(quiet=True)
 
     def build(self) -> None:
+        app.on_shutdown(self.flush_main_split)
         ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
         ui.add_css(HEADER_CSS)
         ui.add_css(BODY_CSS)
@@ -3086,6 +3158,11 @@ class MainView:
             ).props("flat round dense").tooltip(
                 "プロジェクトの格納フォルダを開く"
             ).mark("open-folder")
+            ui.button(
+                icon="settings", color=None, on_click=self.open_global_settings
+            ).props("flat round dense").tooltip("全体の設定").mark(
+                "open-global-settings"
+            )
             self.theme_menu()
             self.update_git_menu()
 
