@@ -76,4 +76,4 @@
 | 2026-10-31 | ダッシュボードにプロジェクト参照行の進捗を載せる | [設計](specs/2026-10-31-dashboard-references-design.md) | [計画](plans/2026-10-31-dashboard-references.md) | 要望 90 | PR #135(2026-10-31。実機確認済み) | — |
 | 2026-10-31 | 警告の状態 | [設計](specs/2026-10-31-warning-status-design.md) | [段階 1](plans/2026-10-31-warning-stage1.md)・[段階 2](plans/2026-10-31-warning-stage2.md)・[段階 3](plans/2026-10-31-warning-stage3.md) | 要望 103 | PR #161・#162・#163(2026-10-31) | — |
 | 2026-11-01 | ガントチャートの下部パネルと縦の分割 | [設計](specs/2026-11-01-bottom-panel-design.md) | [計画](plans/2026-11-01-bottom-panel.md) | 要望 111・95 | PR #177〔253036b〕 | — |
-| 2026-11-01 | 下部パネルの割り当て表示 | [設計](specs/2026-11-01-assignment-view-design.md) | — | 要望 116 | 設計中 | — |
+| 2026-11-01 | 下部パネルの割り当て表示 | [設計](specs/2026-11-01-assignment-view-design.md) | [計画](plans/2026-11-01-assignment-view.md) | 要望 116 | 設計中 | — |
