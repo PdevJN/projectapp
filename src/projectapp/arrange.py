@@ -129,6 +129,8 @@ def _plain_copy(original: Task, task_id: str, name: str) -> Task:
         original,
         name=name,
         id=task_id,
+        effort_hours=original.total_effort,  # 追加工数は工数に畳み込み、履歴は元のタスクに残す
+        extra_efforts=[],
         predecessors=[],
         actuals=[],
         assignees=[replace(a) for a in original.assignees],
