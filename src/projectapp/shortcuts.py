@@ -33,6 +33,8 @@ class Shortcut:
             return "ESC"
         if self.key == "delete":
             return "Delete"
+        if self.key == "alt":
+            return "Ctrl/Cmd+Alt/Option"
         prefix = ("Ctrl/Cmd+" if self.ctrl else "") + ("Shift+" if self.shift else "")
         return (
             prefix + self.key.upper()
@@ -70,6 +72,13 @@ SHORTCUTS: tuple[Shortcut, ...] = (
     Shortcut("[", "go_prev_week", "ガントチャートを前の週へ移す"),
     Shortcut("]", "go_next_week", "ガントチャートを次の週へ移す"),
     Shortcut("?", "help", "ショートカットヘルプ"),
+    Shortcut(
+        "alt",
+        "assignment_view",
+        "割り当て表示の切り替え",
+        ctrl=True,
+        aliases=("control", "meta"),  # Alt を先に押した順でも拾う(単独は views で弾く)
+    ),
     Shortcut(
         "+",
         "zoom_in",
@@ -123,7 +132,9 @@ def label_for(action: str) -> str:
 
 def ctrl_keys() -> set[str]:
     """Ctrl/Cmd と組み合わせるキー(ブラウザ既定の動きを止める対象)。"""
-    return {k for s in SHORTCUTS if s.ctrl for k in (s.key, *s.aliases)}
+    return {
+        k for s in SHORTCUTS if s.ctrl and s.key != "alt" for k in (s.key, *s.aliases)
+    }  # 修飾キーだけの割り当て(alt)は、止める動作がない
 
 
 def defers_to_inputs(key: str, ctrl: bool) -> bool:

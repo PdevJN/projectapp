@@ -310,3 +310,31 @@ def test_delete_and_backspace_call_the_bulk_delete_only_on_the_main_screen_witho
         "Delete",
         "選択中のタスクを削除(macOS の delete キーも可)",
     ) in help_entries()
+
+
+@pytest.mark.parametrize("key", ["Alt", "alt", "Control", "Meta"])
+def test_ctrl_and_alt_together_resolve_to_the_assignment_view(key: str) -> None:
+    assert (
+        resolve(key, ctrl=True, shift=False, modal=False, screen=Screen.MAIN)
+        == "assignment_view"
+    )
+
+
+def test_alt_alone_does_not_resolve() -> None:
+    assert (
+        resolve("Alt", ctrl=False, shift=False, modal=False, screen=Screen.MAIN) is None
+    )
+
+
+def test_the_assignment_view_shortcut_is_ignored_in_dialogs_and_other_screens() -> None:
+    assert (
+        resolve("Alt", ctrl=True, shift=False, modal=True, screen=Screen.MAIN) is None
+    )
+    assert (
+        resolve("Alt", ctrl=True, shift=False, modal=False, screen=Screen.DASHBOARD)
+        is None
+    )
+
+
+def test_the_help_lists_the_assignment_view_key() -> None:
+    assert ("Ctrl/Cmd+Alt/Option", "割り当て表示の切り替え") in help_entries()

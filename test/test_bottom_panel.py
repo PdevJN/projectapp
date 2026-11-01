@@ -4,7 +4,14 @@ from datetime import datetime
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.bottom_info import PeriodSummary, TaskDetail, TodayRow
+from projectapp.bottom_info import (
+    AssignmentCell,
+    AssignmentRow,
+    AssignmentTable,
+    PeriodSummary,
+    TaskDetail,
+    TodayRow,
+)
 from projectapp.bottom_panel import BottomPanel, PanelContent
 from projectapp.models import Status
 
@@ -166,3 +173,93 @@ async def test_each_today_row_has_a_status_icon_left_of_the_label(user: User) ->
     )
     assert len(set(STATUS_ICON.values())) == len(Status)
     assert all("status-" in " ".join(i.classes) for i in icons)
+
+
+TABLE = AssignmentTable(
+    ["10/5", "10/6", "10/7"],
+    [
+        AssignmentRow(
+            "田中",
+            [
+                AssignmentCell(1.0, False, False),
+                AssignmentCell(2.0, True, False),
+                AssignmentCell(0.0, False, True),
+            ],
+        )
+    ],
+)
+
+
+def mount_assignment(content: PanelContent, toggled: list[int] | None = None):
+    panels: list[BottomPanel] = []
+
+    @ui.page("/")
+    def index() -> None:
+        panel = BottomPanel(
+            on_toggle_view=(lambda: toggled.append(1)) if toggled is not None else None
+        )
+        panel.build()
+        panel.update(content)
+        panels.append(panel)
+
+    return panels
+
+
+async def test_the_assignment_view_shows_a_row_per_member_and_cell_markers(
+    user: User,
+) -> None:
+    panels = mount_assignment(PanelContent(None, SUMMARY, TODAY, TABLE))
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    await user.should_not_see(marker="bottom-summary")
+    assert len(user.find(marker="bottom-assignment-cell").elements) == 3
+    assert len(user.find(marker="bottom-assignment-over").elements) == 1
+    assert len(user.find(marker="bottom-assignment-closed").elements) == 1
+
+
+async def test_the_assignment_view_ignores_a_selection_until_it_is_toggled_back(
+    user: User,
+) -> None:
+    panels = mount_assignment(PanelContent(None, SUMMARY, TODAY, TABLE))
+    await user.open("/")
+    panels[0].toggle_view()
+    panels[0].update(PanelContent(DETAIL, SUMMARY, TODAY, TABLE))  # 選択した
+    await user.should_see(marker="bottom-assignment")
+    await user.should_not_see(marker="bottom-detail")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-detail")
+
+
+async def test_an_empty_table_says_so_instead_of_failing(user: User) -> None:
+    panels = mount_assignment(
+        PanelContent(None, SUMMARY, TODAY, AssignmentTable([], []))
+    )
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment-empty")
+
+
+async def test_the_toggle_button_calls_the_callback(user: User) -> None:
+    toggled: list[int] = []
+    mount_assignment(PanelContent(None, SUMMARY, TODAY), toggled)
+    await user.open("/")
+    user.find(marker="bottom-view-toggle").click()
+    await asyncio.sleep(0.2)
+    assert toggled == [1]
+
+
+async def test_each_assignment_row_has_an_avatar_left_of_the_name(user: User) -> None:
+    table = AssignmentTable(
+        ["10/5"],
+        [
+            AssignmentRow("田中", [AssignmentCell(1.0, False, False)]),
+            AssignmentRow("鈴木", [AssignmentCell(0.5, False, False)], ""),
+        ],
+    )
+    panels = mount_assignment(PanelContent(None, SUMMARY, TODAY, table))
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    avatars = user.find(marker="bottom-assignment-avatar").elements
+    assert len(avatars) == 2

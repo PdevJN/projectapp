@@ -1241,6 +1241,7 @@ class MainView:
         "go_date": "go_date",
         "go_prev_week": "go_prev_week",
         "go_next_week": "go_next_week",
+        "assignment_view": "toggle_assignment_view",
     }
 
     def on_plain_key(self, event: KeyEventArguments) -> None:
@@ -1282,6 +1283,10 @@ class MainView:
             modal=self.dialog_open(),
             screen=self.screen(),
         )
+        if action == "assignment_view" and (
+            not event.modifiers.alt or event.action.repeat
+        ):
+            return  # Ctrl/Alt の片方だけ・押しっぱなしの連続入力では切り替えない
         if action == "escape":
             self.escape_pressed()
         elif action == "search":
@@ -1292,6 +1297,9 @@ class MainView:
             self.change_zoom(ZOOM_DIRECTIONS[action])
         elif action is not None:
             getattr(self, self.SHORTCUT_METHODS[action])()
+
+    def toggle_assignment_view(self) -> None:
+        self.gantt.toggle_assignment()
 
     def go_today(self) -> None:
         self.gantt.scroll_to_today()
