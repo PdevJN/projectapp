@@ -661,6 +661,7 @@ class GanttChart:
         self.main_split = main_split  # 畳んでいないときの、ガントチャートの割合(%)
         self.open_ratio = open_ratio  # 畳まれているとき、選択で開く割合(%)
         self.splitter: ui.splitter | None = None
+        self.toggle_button: ui.button | None = None
         self.split_box: ui.element | None = None
         self.bottom = BottomPanel(on_select=self.select_tasks)
         self.split_before_preview: int | None = None
@@ -1011,10 +1012,26 @@ class GanttChart:
 
     def split_changed(self, event: ValueChangeEventArguments) -> None:
         """境界を動かしたとき。プレビュー中は、一時的に 100% にしているだけなので、保存しない。"""
+        self.sync_toggle()
         if self.options.read_only or self.syncing_split:
             return
         self.main_split = round(event.value)
         self.actions.set_main_split(self.main_split)
+
+    def sync_toggle(self) -> None:
+        """開閉ボタンの向きを、分割の状態に合わせる(畳んでいれば開く向き)。"""
+        if self.toggle_button is not None and self.splitter is not None:
+            icon = "expand_more" if self.bottom_open else "expand_less"
+            self.toggle_button.props(f"icon={icon}")
+
+    def toggle_bottom(self) -> None:
+        """選択がなくても、いつでも下部パネルを開閉する。"""
+        if self.splitter is None or self.options.read_only:
+            return
+        if self.bottom_open:
+            self.splitter.set_value(100)
+        else:
+            self.open_bottom()
 
     def open_bottom(self) -> None:
         """畳まれているときだけ、開くときの比率で開く。開いているときは動かさない。"""
@@ -1693,6 +1710,23 @@ class GanttChart:
                 .classes("w-full h-full")
                 .mark("bottom-split")
             )
+            with (
+                self.splitter.separator
+            ):  # 境界の中央の開閉ボタン(ドラッグの開始は止める)
+                self.toggle_button = (
+                    ui.button(icon="expand_less", on_click=self.toggle_bottom)
+                    .props("flat dense round size=xs")
+                    .classes("bg-white text-grey-8 shadow-2")
+                    .style(
+                        "position: absolute; top: 50%; left: 50%;"
+                        " transform: translate(-50%, -50%); z-index: 5"
+                    )
+                    .on("mousedown.stop", lambda: None)
+                    .mark("bottom-toggle")
+                )
+                with self.toggle_button:
+                    ui.tooltip("下部パネルを開閉")
+            self.sync_toggle()
             with self.splitter.before:
                 scroll_style = (
                     f"overflow: auto; height: 100%;"

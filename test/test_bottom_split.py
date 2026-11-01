@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date, datetime
 
 from nicegui import ui
@@ -145,3 +146,28 @@ async def test_the_summary_lists_tasks_without_effort(user: User) -> None:
     charts, _ = mount()
     await user.open("/")
     assert charts[0].bottom.content.summary.no_effort_tasks == (("b", "b"),)
+
+
+async def test_the_toggle_button_opens_and_folds_the_panel_anytime(
+    user: User,
+) -> None:
+    charts, saved = mount()
+    await user.open("/")
+    assert charts[0].splitter.value == 100  # 初回は畳んでいる
+    user.find(marker="bottom-toggle").click()
+    await asyncio.sleep(0.2)
+    assert charts[0].splitter.value == 70  # 選択がなくても開く
+    assert charts[0].toggle_button.props["icon"] == "expand_more"
+    user.find(marker="bottom-toggle").click()
+    await asyncio.sleep(0.2)
+    assert charts[0].splitter.value == 100
+    assert charts[0].toggle_button.props["icon"] == "expand_less"
+    assert saved[-1] == 100
+
+
+async def test_the_toggle_button_starts_as_fold_when_restored_open(
+    user: User,
+) -> None:
+    charts, _ = mount(main_split=60)
+    await user.open("/")
+    assert charts[0].toggle_button.props["icon"] == "expand_more"
