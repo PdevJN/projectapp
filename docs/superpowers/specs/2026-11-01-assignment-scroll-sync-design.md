@@ -1,6 +1,6 @@
 # 割り当て表とガントチャートの横スクロール連動の設計(要望 117)
 
-> **状態**: 設計中(利用者のレビュー待ち)。要望 116(割り当て表示)の第 2 段階。[元の設計](2026-11-01-assignment-view-design.md)
+> **状態**: 実装済み(`feature/assignment-scroll-sync`。実機確認待ち。計画 [`plans/2026-11-01-assignment-scroll-sync.md`](../plans/2026-11-01-assignment-scroll-sync.md))。要望 116(割り当て表示)の第 2 段階。[元の設計](2026-11-01-assignment-view-design.md)
 
 ## 目的
 

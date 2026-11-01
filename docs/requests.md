@@ -1296,7 +1296,7 @@ PlantUML は日単位で担当者の割り当てを集計するので、同じ�
 
 ## 要望 117: 割り当て表とガントチャートの横スクロールを連動させる(2026-11-01 に受領)
 
-> **状態**: 設計中。[設計書](superpowers/specs/2026-11-01-assignment-scroll-sync-design.md)。要望 116(割り当て表示)の第 2 段階。
+> **状態**: 実装済み(実機確認待ち。`feature/assignment-scroll-sync`。[計画](superpowers/plans/2026-11-01-assignment-scroll-sync.md))。[設計書](superpowers/specs/2026-11-01-assignment-scroll-sync-design.md)。要望 116(割り当て表示)の第 2 段階。
 
 ### 要望
 下部パネルの`割り当て`表を、ガントチャートの横スクロールと連動させ、同じ日の列が縦に揃うようにする。
