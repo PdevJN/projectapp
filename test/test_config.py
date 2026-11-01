@@ -599,3 +599,12 @@ def test_broken_saved_split_values_fall_back_to_defaults(tmp_path: Path) -> None
     config.update_config({"main_split": "abc", "bottom_open_ratio": [1]}, tmp_path)
     assert config.load_main_split(tmp_path) == 100
     assert config.load_open_ratio(tmp_path) == 70
+
+
+def test_huge_integers_clamp_instead_of_raising() -> None:
+    from projectapp import config
+
+    assert config.parse_main_split(10**400) == 100
+    assert config.parse_main_split(-(10**400)) == 30
+    assert config.parse_open_ratio(10**400) == 90
+    assert config.parse_open_ratio(-(10**400)) == 50

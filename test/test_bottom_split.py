@@ -115,3 +115,15 @@ async def test_the_preview_hides_the_panel_and_does_not_report_the_split(
     assert charts[0].splitter.value == 100 and saved == []
     charts[0].set_options(ViewOptions())
     assert charts[0].splitter.value == 60 and saved == []
+
+
+async def test_an_almost_folded_split_counts_as_folded_and_a_selection_opens_it(
+    user: User,
+) -> None:
+    charts, saved = mount()
+    await user.open("/")
+    charts[0].splitter.set_value(99.6)  # Quasar は小数を送る
+    assert not charts[0].bottom_open
+    charts[0].clicked_task("a", {"ctrl": True})
+    assert charts[0].splitter.value == 70
+    assert saved[0] == 100  # 99.6 は切り捨てず丸める

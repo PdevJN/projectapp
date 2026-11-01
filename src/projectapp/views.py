@@ -635,7 +635,7 @@ class MainView:
         """全体の設定のダイアログ。動かすとすぐ反映し、キャンセルで元の割合・分割の位置に戻す。"""
         before_ratio = self.open_ratio
         splitter = self.gantt.splitter
-        before_split = int(splitter.value) if splitter is not None else 100
+        before_split = round(splitter.value) if splitter is not None else 100
 
         def preview(value: int) -> None:
             self.gantt.open_ratio = value
@@ -668,6 +668,11 @@ class MainView:
             return False
         self.open_ratio = value
         self.gantt.open_ratio = value
+        if (
+            self.gantt.bottom_open
+        ):  # 開いている位置も、次回の起動で復元されるよう保存する
+            self.gantt.main_split = value
+            self.set_main_split(value)
         return True
 
     def open_today_color_dialog(self) -> None:

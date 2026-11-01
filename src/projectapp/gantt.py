@@ -996,13 +996,13 @@ class GanttChart:
 
     @property
     def bottom_open(self) -> bool:
-        return self.splitter is not None and self.splitter.value < 100
+        return self.splitter is not None and round(self.splitter.value) < 100
 
     def split_changed(self, event: ValueChangeEventArguments) -> None:
         """境界を動かしたとき。プレビュー中は、一時的に 100% にしているだけなので、保存しない。"""
         if self.options.read_only or self.syncing_split:
             return
-        self.main_split = int(event.value)
+        self.main_split = round(event.value)
         self.actions.set_main_split(self.main_split)
 
     def open_bottom(self) -> None:
@@ -1020,7 +1020,7 @@ class GanttChart:
             return
         if self.options.read_only:
             if self.split_before_preview is None:
-                self.split_before_preview = int(self.splitter.value)
+                self.split_before_preview = round(self.splitter.value)
             self.splitter.set_value(100)
             self.splitter.props("disable")
             self.split_box.classes("split-locked")

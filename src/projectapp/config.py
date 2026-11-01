@@ -196,6 +196,8 @@ MIN_OPEN_RATIO, MAX_OPEN_RATIO, OPEN_RATIO_STEP = 50, 90, 5
 def _finite_number(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
+    if isinstance(value, int):  # 巨大な整数は float にできないので、先に範囲へ寄せる
+        value = max(min(value, 10**6), -(10**6))
     return float(value) if isfinite(value) else None
 
 

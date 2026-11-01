@@ -96,3 +96,15 @@ async def test_flush_with_nothing_pending_writes_nothing(
     view = await open_view(user, tmp_path)
     view.flush_main_split()
     assert "main_split" not in config.read_config(tmp_path)
+
+
+async def test_applying_with_an_open_panel_also_saves_the_new_split(
+    user: User, tmp_path: Path
+) -> None:
+    config.save_main_split(70, tmp_path)
+    view = await open_view(user, tmp_path)
+    user.find(marker="open-global-settings").click()
+    user.find(marker="global-settings-ratio").elements.pop().set_value(85)
+    user.find(marker="global-settings-apply").click()
+    view.flush_main_split()
+    assert config.load_main_split(tmp_path) == 85  # 次回起動でも今の位置で復元される
