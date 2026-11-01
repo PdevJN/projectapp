@@ -60,7 +60,7 @@ def split_effort(total: float, count: int) -> list[float]:
 
 def default_parts(task: Task, count: int) -> list[Part]:
     """ダイアログの初期値。名前は`<元の名前> n`(上限に収める)、工数は均等割り。"""
-    efforts = split_effort(task.effort_hours, count)
+    efforts = split_effort(task.total_effort, count)
     width = len(str(count)) + 1
     base = task.name[: MAX_TASK_NAME_LENGTH - width]
     return [Part(f"{base} {n}", efforts[n - 1]) for n in range(1, count + 1)]
@@ -79,7 +79,7 @@ def parameter_block_reason(task: Task, settled: bool) -> str | None:
 
 def default_parts_by_parameter(task: Task) -> list[Part]:
     """パラメータごとの行。名前はパラメータ名(上限に収める)、工数は均等割り。"""
-    efforts = split_effort(task.effort_hours, len(task.parameters))
+    efforts = split_effort(task.total_effort, len(task.parameters))
     return [
         Part(name[:MAX_TASK_NAME_LENGTH], effort)
         for name, effort in zip(task.parameters, efforts)
@@ -122,7 +122,7 @@ def settle(
             for a in task.actuals
             if a.end is not None and a.end > a.start
         )
-        consumed = min(worked, task.effort_hours)
+        consumed = min(worked, task.total_effort)
     else:
         rate = assignees_rate(
             task.assignees,
@@ -146,7 +146,7 @@ def default_parts_settled(task: Task, settled: Settled, count: int) -> list[Part
     """実績ありの分解のダイアログの初期値。1 行目は消し込み(工数=消化分)、残りは「工数 − 消化分」の均等割り。"""
     width = len(str(count)) + 1
     base = task.name[: MAX_TASK_NAME_LENGTH - width]
-    remaining = split_effort(max(task.effort_hours - settled.consumed, 0.0), count - 1)
+    remaining = split_effort(max(task.total_effort - settled.consumed, 0.0), count - 1)
     return [Part(f"{base} 1", settled.consumed)] + [
         Part(f"{base} {n}", e) for n, e in enumerate(remaining, start=2)
     ]
@@ -179,7 +179,7 @@ def decompose_block_reason(
     # 実績・進捗度のあるタスク: 残りの見積もりを割り、実績は 1 つ目の子へ消し込む
     if task.status is Status.DONE:
         return "終了したタスクは分解できません"
-    if task.effort_hours <= 0:
+    if task.total_effort <= 0:
         return "実績のあるタスクは、工数を入れてから分解してください"
     if not task.assignees:
         return "実績のあるタスクは、担当者を入れてから分解してください"
@@ -187,7 +187,7 @@ def decompose_block_reason(
         return "実行中のタスクは、先に実行を終えてから分解してください"
     settled = settle(project, task, holidays or {}, today or datetime.now())
     assert settled is not None
-    if task.effort_hours - settled.consumed < 10**-EFFORT_DECIMALS:
+    if task.total_effort - settled.consumed < 10**-EFFORT_DECIMALS:
         return "残りの工数がないため分解できません"
     return None
 
@@ -324,6 +324,7 @@ def decompose(
         planned_end_manual=False,
         deadline=None,
         effort_hours=0.0,
+        extra_efforts=[],
         assignees=[],
         weekly_crew=[],
         predecessors=[],

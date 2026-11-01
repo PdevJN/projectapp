@@ -119,7 +119,7 @@ def open_decompose_dialog(
 
         def set_effort(n: int, value: float | None) -> None:
             rows[n] = Part(rows[n].name, value or 0.0)
-            total.set_text(total_text(rows, task.effort_hours))
+            total.set_text(total_text(rows, task.total_effort))
 
         def redraw() -> None:
             box.clear()
@@ -152,7 +152,7 @@ def open_decompose_dialog(
             add.set_enabled(
                 len(rows) < MAX_PARTS and mode is not ParamMode.PER_PARAMETER
             )
-            total.set_text(total_text(rows, task.effort_hours))
+            total.set_text(total_text(rows, task.total_effort))
 
         def add_row() -> None:
             rows.append(

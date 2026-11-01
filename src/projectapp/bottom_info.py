@@ -179,8 +179,8 @@ def period_summary(
         total += 1
         counts[task.status] += 1
         status_tasks[task.status].append(task.name)
-        if task.effort_hours > 0:
-            hours += task.effort_hours
+        if task.total_effort > 0:
+            hours += task.total_effort
         else:
             no_effort += 1
             no_effort_tasks.append((task.id, task.name))

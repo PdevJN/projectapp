@@ -261,7 +261,7 @@ def _progress_weight(task: Task) -> tuple[float, float] | None:
     """進捗率の重みと、その進み具合(0〜100)。節目は工数がないので None。"""
     if task.kind is TaskKind.CHECKPOINT:
         return None
-    return _weight(task.effort_hours), 100 if task.status is Status.DONE else (
+    return _weight(task.total_effort), 100 if task.status is Status.DONE else (
         current_progress(task) or 0
     )
 

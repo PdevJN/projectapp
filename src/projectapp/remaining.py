@@ -9,9 +9,8 @@ from projectapp.timeline import combine_rate, conversion_rate, day_window
 
 
 def total_effort(task: Task) -> float:
-    """タスクの工数の合計[h]。残りの工数・警告の判定・ダッシュボードの按分は、工数をここから取る。
-    後から追加工数を足せるようにする(要望 105)ときは、ここに追加分を足す。"""
-    return task.effort_hours
+    """タスクの工数の合計[h](もとの見積もり + 追加工数)。残りの工数・警告の判定・ダッシュボードの按分は、工数をここから取る。"""
+    return task.total_effort
 
 
 def overlap_hours(
