@@ -24,6 +24,11 @@ from projectapp.events import normalize_color, validate_events
 from projectapp.icons import is_valid_icon
 from projectapp.linkgraph import validate_links
 from projectapp.models import (
+    EXTRA_EFFORT_DECIMALS,
+    MAX_EXTRA_EFFORTS,
+    MAX_EXTRA_REASON,
+    ExtraEffort,
+    has_control_char,
     OverloadSpan,
     ReferenceMode,
     ReferenceValue,
@@ -335,6 +340,9 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         ref_snapshot=_reference_value(raw.get("ref_snapshot"))
         if ctx.version >= 11
         else None,
+        extra_efforts=_extra_efforts(raw.get("extra_efforts"))
+        if ctx.version >= 20
+        else [],
     )
     if kind is TaskKind.CHECKPOINT:
         result = _checkpoint(task)
@@ -637,6 +645,46 @@ def _kind(value: Any) -> TaskKind:
         raise ValueError(f"タスクの種別が正しくありません: {value!r}") from None
 
 
+def _extra_efforts(value: Any) -> list[ExtraEffort]:
+    """タスクの追加工数の履歴(version 20)。キーがない・null は空。形式の誤り・時間が 0 以下か非有限か桁が多い・日付の誤り・
+    理由が長すぎる(制御文字)・件数が多すぎるときは ValueError(開けませんでした)。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("追加工数がリストではありません")
+    if len(value) > MAX_EXTRA_EFFORTS:
+        raise ValueError(f"追加工数は{MAX_EXTRA_EFFORTS}件までです")
+    efforts: list[ExtraEffort] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            raise ValueError("追加工数の形式が正しくありません")
+        hours = raw.get("hours")
+        if (
+            isinstance(hours, bool)
+            or not isinstance(hours, int | float)
+            or not isfinite(hours)
+            or hours <= 0
+            or round(hours, EXTRA_EFFORT_DECIMALS) != hours
+        ):
+            raise ValueError(f"追加工数の時間が正しくありません: {hours!r}")
+        day = raw.get("day")
+        try:
+            moment = date.fromisoformat(day) if isinstance(day, str) else None
+        except ValueError:
+            moment = None
+        if moment is None:
+            raise ValueError(f"追加工数の日付が正しくありません: {day!r}")
+        reason = raw.get("reason", "")
+        if (
+            not isinstance(reason, str)
+            or len(reason) > MAX_EXTRA_REASON
+            or has_control_char(reason)
+        ):
+            raise ValueError("追加工数の理由が正しくありません")
+        efforts.append(ExtraEffort(moment, float(hours), reason))
+    return efforts
+
+
 def _children(value: Any) -> list[str]:
     """まとめの子の id のリスト。キーがない・null は空。リストでない・文字列以外は ValueError。"""
     if value is None:
@@ -655,6 +703,7 @@ def _summary(task: Task) -> Task:
         planned_end_manual=False,
         deadline=None,
         effort_hours=0.0,
+        extra_efforts=[],
         assignees=[],
         actuals=[],
         progress=None,
@@ -677,6 +726,7 @@ def _checkpoint(task: Task) -> Task:
         planned_end=None,
         planned_end_manual=False,
         effort_hours=0.0,
+        extra_efforts=[],
         assignees=[],
         actuals=[],
         progress=None,
@@ -815,6 +865,7 @@ def _reference(task: Task) -> Task:
         planned_end=None,
         planned_end_manual=False,
         effort_hours=0.0,
+        extra_efforts=[],
         assignees=[],
         weekly_crew=[],
         actuals=[],

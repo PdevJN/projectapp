@@ -75,6 +75,7 @@ from projectapp.bulk_edit import (
 )  # MainView.apply_bulk と紛れないように
 from projectapp.forms import (
     MEMBER_TABLE_CSS,
+    can_add_extra_effort,
     open_commit_dialog,
     open_conflict_dialog,
     open_merge_conflict_dialog,
@@ -262,6 +263,7 @@ from projectapp.storage import (
 )
 from projectapp.summary import parent_map
 from projectapp.task_dialog import (
+    open_extra_effort_dialog,
     open_quick_progress_dialog,
     open_task_dialog,
     open_week_crew_dialog,
@@ -530,6 +532,7 @@ class MainView:
                 toggle_weeks=self.toggle_weeks,
                 edit_week_crew=self.edit_week_crew,
                 edit_progress=self.edit_progress,
+                add_extra_effort=self.add_extra_effort,
                 open_reference=self.open_reference,
                 refresh_reference=self.refresh_reference,
                 set_main_split=self.set_main_split,
@@ -2542,6 +2545,19 @@ class MainView:
 
         open_quick_progress_dialog(
             task, self.project.actual_mode is ActualMode.INTERVALS, apply
+        )
+
+    def add_extra_effort(self, path: SectionPath, index: int) -> None:
+        """右クリックの`追加工数を足す…`。足せる通常タスクだけ、時間と理由の小さなダイアログを開く(保存は元に戻す 1 ステップ)。"""
+        if not arrange.has_task(self.project, (path, index)):
+            return
+        task = self.tasks_in(path)[index]
+        if not can_add_extra_effort(task):
+            return
+        open_extra_effort_dialog(
+            task,
+            self.now().date(),
+            lambda saved: self.save_task(path, index, saved),
         )
 
     def add_named_task(self, path: SectionPath, index: int, name: str) -> None:

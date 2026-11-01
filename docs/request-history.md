@@ -108,7 +108,7 @@
 | 102 | テストの一部だけを実行できるように、タグ(smoke テスト)を付ける | 完了(PR #150。`develop`へマージ済み) | 2026-10-31 | — | cee1610(2026-10-31) | [`requests.md`](requests.md) |
 | 103 | 遅延のほかに、`警告`の意味を持つ状態を足す(進捗率と残りの工数の開きをパーセンテージで判断) | 完了(PR #161・#162・#163。`develop`へマージ済み) | 2026-10-31 | [設計書](superpowers/specs/2026-10-31-warning-status-design.md) | [計画 1](superpowers/plans/2026-10-31-warning-stage1.md)・[2](superpowers/plans/2026-10-31-warning-stage2.md)・[3](superpowers/plans/2026-10-31-warning-stage3.md) | [`requests.md`](requests.md) |
 | 104 | 遅れの取り戻しの試算を、タスクごとの期限で行う | 完了(PR #191。実機確認済み) | 2026-10-31 | — | PR #191(2f846af。2026-11-02) | [`requests.md`](requests.md) |
-| 105 | 後から追加工数を足せるようにする(要望 103 の設計で、足せる形にしておく) | 未着手 | 2026-10-31 | — | — | [`requests.md`](requests.md) |
+| 105 | 後から追加工数を足せるようにする(要望 103 の設計で、足せる形にしておく) | 実装済み(実機確認待ち) | 2026-10-31 | [設計](superpowers/specs/2026-11-02-extra-effort-design.md)・[計画](superpowers/plans/2026-11-02-extra-effort.md) | — | [`requests.md`](requests.md) |
 | 106 | 状態の色などを、設定で変えられるようにする(要望 103 で既定の色を見直したあと) | 未着手 | 2026-10-31 | — | — | [`requests.md`](requests.md) |
 | 107 | 状態色の既定を見直す(未着手を白抜き、一時停止を濃いグレー) | 未着手 | 2026-10-31 | — | — | [`requests.md`](requests.md) |
 | 108 | `残りの工数と必要人数`で、警告の分を遅れと分けて見せる(棒の区間と凡例を分ける) | 完了(PR #165。`develop`へマージ済み) | 2026-10-31 | — | — | [`requests.md`](requests.md) |

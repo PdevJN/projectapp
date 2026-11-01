@@ -16,6 +16,7 @@ from projectapp.models import (
     Assignee,
     Category,
     Event,
+    ExtraEffort,
     Level,
     Member,
     MAX_TEAM_NAME_LENGTH,
@@ -75,6 +76,9 @@ def format_value(value: object) -> str:
         return value.strftime("%Y-%m-%d %H:%M")
     if isinstance(value, (date, time)):
         return value.isoformat()
+    if isinstance(value, ExtraEffort):
+        text = f"{value.day.isoformat()} +{value.hours:g}h"
+        return f"{text} {value.reason}" if value.reason else text
     if isinstance(value, (list, tuple)):
         return ", ".join(format_value(v) for v in value) or "(なし)"
     if isinstance(value, dict):
@@ -341,6 +345,7 @@ TASK_LABELS = {
     "children": "子",
     "parameters": "パラメータ",
     "weekly_crew": "週ごとの担当",
+    "extra_efforts": "追加工数",
     "parent": "所属",
     "ref_project": "参照先",
     "ref_snapshot": "スナップショット",

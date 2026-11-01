@@ -63,7 +63,7 @@ def _percent_of(
             return None, 1.0
         return (100 if value.finished else value.progress), 1.0
     return (100 if child.status is Status.DONE else child.progress), _weight(
-        child.effort_hours
+        child.total_effort
     )
 
 

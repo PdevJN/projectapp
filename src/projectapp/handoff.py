@@ -66,7 +66,7 @@ def _schedule(
     start = effective_start(task, project, holidays)
     anchor = start.date() if start is not None else project.base_date
     no_span = (
-        task.effort_hours <= 0 and task.planned_end is None and task.deadline is None
+        task.total_effort <= 0 and task.planned_end is None and task.deadline is None
     )
     if start is None or no_span:
         return "one_time", anchor.isoformat()
@@ -84,7 +84,7 @@ def _estimate_hours(
 ) -> float:
     """担当者自身の時間での見積もり = 工数 × そのメンバーの割り当て率 ÷ 担当者全員の換算率の合計。
     担当が 1 人なら 工数 ÷ 相対比率 と同じ。週ごとのタスクは、工数を消化する区間のうち、そのメンバーが稼働した時間 × 割り当て率の合計。"""
-    if not isfinite(task.effort_hours) or task.effort_hours <= 0:
+    if not isfinite(task.total_effort) or task.total_effort <= 0:
         return 0.0
     if (
         task.weekly_crew
@@ -92,7 +92,7 @@ def _estimate_hours(
     ):
         slices = consumed_slices(
             start,
-            task.effort_hours,
+            task.total_effort,
             project.daily_hours,
             project.work_start,
             holidays,
@@ -108,7 +108,7 @@ def _estimate_hours(
             return round(own, 2)
     mine = next((a for a in task.assignees if a.name == member_name), None)
     allocation = mine.allocation if mine is not None else 1.0
-    return round(task.effort_hours * allocation / conversion_rate(task, project), 2)
+    return round(task.total_effort * allocation / conversion_rate(task, project), 2)
 
 
 def _category(category: Category) -> dict[str, Any]:

@@ -134,7 +134,8 @@ def _effort(task: Task, change: EffortChange, result: BulkResult) -> Task:
     if hours < 0:
         result.skip(SKIP_NEGATIVE)
         return task
-    return replace(task, effort_hours=hours)
+    kept = task.extra_efforts if hours > 0 else []  # 工数 0 の履歴は残さない
+    return replace(task, effort_hours=hours, extra_efforts=kept)
 
 
 def _end(

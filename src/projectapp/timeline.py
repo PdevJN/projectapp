@@ -729,7 +729,7 @@ def _own_end(
 ) -> datetime | None:
     """開始を `start` としたときの完了予定。手指定・工数なしの planned_end は、押し出された分ずらす。"""
     if task.planned_end is not None and (
-        task.effort_hours <= 0 or task.planned_end_manual
+        task.total_effort <= 0 or task.planned_end_manual
     ):
         if task.planned_start is None or start is None or start <= task.planned_start:
             return task.planned_end
@@ -739,7 +739,7 @@ def _own_end(
             return task.planned_end
     return computed_end(
         start,
-        task.effort_hours,
+        task.total_effort,
         project.daily_hours,
         project.work_start,
         holidays,

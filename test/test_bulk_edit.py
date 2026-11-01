@@ -20,7 +20,7 @@ from projectapp.bulk_edit import (
     store,
 )
 from projectapp.models import Actual, Assignee, Member
-from projectapp.models import Category, Project, Section, Task, TaskKind
+from projectapp.models import Category, ExtraEffort, Project, Section, Task, TaskKind
 
 START = datetime(2026, 10, 5, 9)
 
@@ -67,6 +67,39 @@ def test_effort_set_converts_and_rounds_to_two_decimals() -> None:
         project, ["n"], BulkChanges(effort=EffortChange(EffortMode.SET, 2.456)), {}
     )
     assert result.tasks["n"].effort_hours == 2.46
+
+
+def test_setting_the_effort_to_zero_drops_the_extra_efforts() -> None:
+    task = Task(
+        "n",
+        id="n",
+        effort_hours=4.0,
+        extra_efforts=[ExtraEffort(date(2026, 10, 7), 2.0)],
+    )
+    for change in (
+        EffortChange(EffortMode.SET, 0.0),
+        EffortChange(EffortMode.ADJUST, -4.0),
+    ):
+        result = apply_bulk(project_of(task), ["n"], BulkChanges(effort=change), {})
+        assert result.tasks["n"].effort_hours == 0.0
+        assert result.tasks["n"].extra_efforts == []  # 工数 0 の履歴は残さない
+
+
+def test_changing_the_effort_keeps_the_extra_efforts() -> None:
+    task = Task(
+        "n",
+        id="n",
+        effort_hours=4.0,
+        extra_efforts=[ExtraEffort(date(2026, 10, 7), 2.0)],
+    )
+    result = apply_bulk(
+        project_of(task),
+        ["n"],
+        BulkChanges(effort=EffortChange(EffortMode.SET, 8.0)),
+        {},
+    )
+    assert result.tasks["n"].effort_hours == 8.0
+    assert result.tasks["n"].total_effort == 10.0
 
 
 def test_effort_adjust_skips_tasks_without_effort_and_those_that_would_go_negative() -> (

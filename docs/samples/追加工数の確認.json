@@ -1,0 +1,213 @@
+{
+  "version": 20,
+  "name": "追加工数の確認",
+  "base_date": "2026-11-02",
+  "daily_hours": 6.5,
+  "work_start": "09:00:00",
+  "members": [
+    {
+      "name": "田中",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "2ee1a0ec",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    },
+    {
+      "name": "鈴木",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "9ebdc2c3",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    }
+  ],
+  "sections": [
+    {
+      "name": "確認",
+      "tasks": [
+        {
+          "name": "① 実行中 10h・50%(右クリックで足す)",
+          "id": "ce8c5893",
+          "planned_start": "2026-11-02T09:00:00",
+          "effort_hours": 10,
+          "priority": "中",
+          "status": "実行中",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "2ee1a0ec",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": 50,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "extra_efforts": []
+        },
+        {
+          "name": "② 追加 6.5h 済み(完了予定が 1 日延びる)",
+          "id": "37bd9736",
+          "planned_start": "2026-11-02T09:00:00",
+          "effort_hours": 13,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "9ebdc2c3",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "extra_efforts": [
+            {
+              "day": "2026-11-02",
+              "hours": 6.5,
+              "reason": "仕様の見落とし"
+            }
+          ]
+        },
+        {
+          "name": "③ 完了予定を手指定(追加しても動かない)",
+          "id": "e106c7a9",
+          "planned_start": "2026-11-02T09:00:00",
+          "effort_hours": 13,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "2ee1a0ec",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": "2026-11-09T17:00:00",
+          "planned_end_manual": true,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "extra_efforts": [
+            {
+              "day": "2026-11-02",
+              "hours": 6.5,
+              "reason": "仕様の見落とし"
+            }
+          ]
+        },
+        {
+          "name": "④ 終了(メニューが押せない)",
+          "id": "f900feb7",
+          "planned_start": "2026-11-02T09:00:00",
+          "effort_hours": 4,
+          "priority": "中",
+          "status": "終了",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "9ebdc2c3",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "extra_efforts": []
+        },
+        {
+          "name": "⑤ 工数なし(メニューが押せない)",
+          "id": "1f9d3104",
+          "planned_start": "2026-11-02T09:00:00",
+          "effort_hours": 0.0,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "2ee1a0ec",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "extra_efforts": []
+        }
+      ],
+      "sections": [],
+      "id": "d55e3184"
+    }
+  ],
+  "tasks": [],
+  "actual_mode": "simple",
+  "url_templates": [],
+  "parameters": [],
+  "categories": [],
+  "events": [],
+  "teams": [],
+  "reference_mode": "live",
+  "plantuml_overload_notice": true,
+  "ratio_limit_upper": null,
+  "ratio_limit_lower": null
+}

@@ -23,7 +23,11 @@ from projectapp.bottom_panel import ASSIGNMENT_SYNC_JS, BottomPanel, PanelConten
 from projectapp.bulk_select import BulkSelection
 from projectapp.arrange import Position, section_key
 from projectapp.calendar import DayKind, day_kind, member_notes
-from projectapp.forms import section_name_error, task_name_error
+from projectapp.forms import (
+    can_add_extra_effort,
+    section_name_error,
+    task_name_error,
+)
 from projectapp.events import (
     EffectiveHolidays,
     assign_lanes,
@@ -602,6 +606,9 @@ class GanttActions:
     )  # サブセクションの追加(親のセクションのパス)
     # 右クリックのメニューの操作(セクションのパス, タスク番号)
     decompose_task: Callable[[SectionPath, int], object] = lambda path, ti: None
+    add_extra_effort: Callable[[SectionPath, int], object] = lambda path, ti: (
+        None
+    )  # 追加工数を足す
     # 選択中の一括操作(見えている選択済みのタスク id。描画順)
     bulk_edit: Callable[[list[str]], object] = lambda ids: None
     bulk_delete: Callable[[list[str]], object] = lambda ids: None
@@ -732,6 +739,7 @@ class GanttChart:
         )
         self.menu_target: tuple[SectionPath, int] | None = None  # メニューを開いた行
         self.decompose_item: ui.menu_item | None = None
+        self.extra_effort_item: ui.menu_item | None = None
         self.bulk = BulkSelection()  # 一括操作の選択。保存しない・元に戻す対象にしない
         self.bulk_bar: ui.row | None = None
         self.bulk_count: ui.label | None = None
@@ -1790,6 +1798,10 @@ class GanttChart:
             self.decompose_item = ui.menu_item(
                 "分解…", on_click=act(lambda p, t: self.actions.decompose_task(p, t))
             ).mark("context-decompose")
+            self.extra_effort_item = ui.menu_item(
+                "追加工数を足す…",
+                on_click=act(lambda p, t: self.actions.add_extra_effort(p, t)),
+            ).mark("context-extra-effort")
             with ui.menu_item(
                 on_click=act(lambda p, t: self.actions.toggle_weeks(p, t))
             ).mark("context-weeks") as item:
@@ -1920,6 +1932,12 @@ class GanttChart:
         self.decompose_item.props(
             add="disable" if blocked else "", remove="" if blocked else "disable"
         )
+        if self.extra_effort_item is not None:
+            target = tasks[ti] if ti < len(tasks) else None
+            can = target is not None and can_add_extra_effort(target)
+            self.extra_effort_item.props(
+                add="" if can else "disable", remove="disable" if can else ""
+            )
         if self.refresh_item is not None:
             task = tasks[ti] if ti < len(tasks) else None
             is_reference = task is not None and task.kind is TaskKind.REFERENCE

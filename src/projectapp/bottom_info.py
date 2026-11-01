@@ -92,6 +92,18 @@ def _crew(task: Task) -> str:
     return "・".join(f"{a.name} {round(a.allocation * 100)}%" for a in task.assignees)
 
 
+def _effort_text(task: Task) -> str:
+    """詳細の工数。追加工数があるときは、もとの見積もりと追加の内訳も出す。"""
+    if task.total_effort <= 0:
+        return DASH
+    if not task.extra_efforts:
+        return f"{task.total_effort:.1f}h"
+    extra = task.total_effort - task.effort_hours
+    return (
+        f"{task.total_effort:.1f}h(もと {task.effort_hours:.1f}h + 追加 {extra:.1f}h)"
+    )
+
+
 def task_detail(
     task: Task,
     project: Project,
@@ -123,7 +135,7 @@ def task_detail(
             + ("(手指定)" if task.planned_end_manual else ""),
         ),
         ("締切", _stamp(task.deadline)),
-        ("工数", f"{task.effort_hours:.1f}h" if task.effort_hours > 0 else DASH),
+        ("工数", _effort_text(task)),
         ("進捗度", f"{task.progress}%" if task.progress is not None else DASH),
         ("実績", f"{len(task.actuals)} 区間" if task.actuals else DASH),
         ("リンク", f"{len(task.urls)} 件" if task.urls else DASH),
@@ -179,8 +191,8 @@ def period_summary(
         total += 1
         counts[task.status] += 1
         status_tasks[task.status].append(task.name)
-        if task.effort_hours > 0:
-            hours += task.effort_hours
+        if task.total_effort > 0:
+            hours += task.total_effort
         else:
             no_effort += 1
             no_effort_tasks.append((task.id, task.name))

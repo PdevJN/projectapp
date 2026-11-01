@@ -139,6 +139,9 @@ class Recorder:
             decompose_task=lambda path, ti: self.events.append(
                 ("decompose_task", (path, ti))
             ),
+            add_extra_effort=lambda path, ti: self.events.append(
+                ("add_extra_effort", (path, ti))
+            ),
             bulk_edit=lambda ids: self.events.append(("bulk_edit", (ids,))),
             bulk_delete=lambda ids: self.events.append(("bulk_delete", (ids,))),
             copy_task=lambda path, ti: self.events.append(("copy_task", (path, ti))),

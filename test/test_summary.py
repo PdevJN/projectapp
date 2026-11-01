@@ -110,7 +110,7 @@ def project_with_summary() -> Project:
 
 
 def test_version_is_12() -> None:
-    assert FORMAT_VERSION == 19
+    assert FORMAT_VERSION == 20
 
 
 def test_a_summary_roundtrips_with_its_children(tmp_path: Path) -> None:

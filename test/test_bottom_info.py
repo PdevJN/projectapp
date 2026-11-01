@@ -12,6 +12,7 @@ from projectapp.bottom_info import (
 )
 from projectapp.models import (
     Assignee,
+    ExtraEffort,
     Member,
     Project,
     Section,
@@ -63,6 +64,13 @@ def test_detail_lists_status_crew_dates_effort_and_progress() -> None:
     assert lines["工数"] == "13.0h" and lines["進捗度"] == "40%"
     assert lines["締切"] == "10/09 18:00"
     assert "開始予定" in lines and "完了予定" in lines
+
+
+def test_detail_shows_the_extra_effort_breakdown() -> None:
+    task = planned("設計", extra_efforts=[ExtraEffort(date(2026, 10, 7), 5.0)])
+    project, schedule = env(task)
+    lines = dict(task_detail(task, project, {}, NOW, schedule).lines)
+    assert lines["工数"] == "18.0h(もと 13.0h + 追加 5.0h)"
 
 
 def test_detail_explains_overdue_and_warning() -> None:

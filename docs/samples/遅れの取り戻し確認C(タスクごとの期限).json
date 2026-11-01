@@ -9,7 +9,7 @@
       "name": "田中",
       "ratio": 1.0,
       "levels": {},
-      "id": "0847fb6d",
+      "id": "e2276c74",
       "icon": "",
       "work_days": [],
       "ratio_unclamped": false,
@@ -20,30 +20,12 @@
       "name": "鈴木",
       "ratio": 1.0,
       "levels": {},
-      "id": "3d1babec",
+      "id": "85c50a2d",
       "icon": "",
       "work_days": [],
       "ratio_unclamped": false,
       "teams": [],
       "warning_limit": null
-    },
-    {
-      "name": "0847fb6d",
-      "ratio": 1.0,
-      "levels": {},
-      "id": "1abcce75",
-      "icon": "",
-      "work_days": [],
-      "teams": []
-    },
-    {
-      "name": "3d1babec",
-      "ratio": 1.0,
-      "levels": {},
-      "id": "c7086a9b",
-      "icon": "",
-      "work_days": [],
-      "teams": []
     }
   ],
   "sections": [
@@ -52,7 +34,7 @@
       "tasks": [
         {
           "name": "予定超過: 10/29 に終わるはずだった(13h)",
-          "id": "47ee38fb",
+          "id": "f3242613",
           "planned_start": "2026-10-28T09:00:00",
           "effort_hours": 13,
           "priority": "中",
@@ -60,7 +42,7 @@
           "color": "#4c8bf5",
           "assignees": [
             {
-              "member": "1abcce75",
+              "member": "e2276c74",
               "allocation": 1.0
             }
           ],
@@ -81,7 +63,7 @@
         },
         {
           "name": "予定超過: 実行中で 20%(19.5h)",
-          "id": "2f9365f3",
+          "id": "f60a55cf",
           "planned_start": "2026-10-27T09:00:00",
           "effort_hours": 19.5,
           "priority": "中",
@@ -89,7 +71,7 @@
           "color": "#4c8bf5",
           "assignees": [
             {
-              "member": "c7086a9b",
+              "member": "85c50a2d",
               "allocation": 1.0
             }
           ],
@@ -110,7 +92,7 @@
         },
         {
           "name": "警告: 11/4 に終わる予定で 25%(26h)",
-          "id": "2e4f825b",
+          "id": "53d763b8",
           "planned_start": "2026-10-30T09:00:00",
           "effort_hours": 26,
           "priority": "中",
@@ -118,7 +100,7 @@
           "color": "#4c8bf5",
           "assignees": [
             {
-              "member": "1abcce75",
+              "member": "e2276c74",
               "allocation": 1.0
             }
           ],
@@ -139,7 +121,7 @@
         },
         {
           "name": "警告: 11/12 に終わる予定で未着手(65h)",
-          "id": "a37e2ba3",
+          "id": "60bc481d",
           "planned_start": "2026-10-30T09:00:00",
           "effort_hours": 65,
           "priority": "中",
@@ -147,7 +129,7 @@
           "color": "#4c8bf5",
           "assignees": [
             {
-              "member": "c7086a9b",
+              "member": "85c50a2d",
               "allocation": 1.0
             }
           ],
@@ -168,7 +150,7 @@
         },
         {
           "name": "通常: 順調な作業(13h)",
-          "id": "740919e1",
+          "id": "a973fb39",
           "planned_start": "2026-11-05T09:00:00",
           "effort_hours": 13,
           "priority": "中",
@@ -176,7 +158,7 @@
           "color": "#4c8bf5",
           "assignees": [
             {
-              "member": "1abcce75",
+              "member": "e2276c74",
               "allocation": 1.0
             }
           ],
@@ -197,7 +179,7 @@
         }
       ],
       "sections": [],
-      "id": "7c5cf295"
+      "id": "def90d02"
     }
   ],
   "tasks": [],

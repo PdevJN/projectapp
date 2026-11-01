@@ -695,3 +695,19 @@ def test_a_child_can_still_be_reordered_inside_its_own_summary() -> None:
     project = Project("p", tasks=[summary, Task("c1", id="c1"), Task("c2", id="c2")])
     assert arrange.move_task(project, ((), 2), ((), 1))
     assert [t.name for t in project.tasks] == ["S", "c2", "c1"]
+
+
+def test_copy_folds_the_extra_efforts_into_the_effort() -> None:
+    from projectapp.models import ExtraEffort
+
+    project = sample()
+    original = project.sections[0].tasks[1]
+    original.effort_hours = 10.0
+    original.progress = 33
+    original.extra_efforts = [ExtraEffort(date(2026, 10, 5), 5.0, "見つかった")]
+    copy = arrange.copy_task(project, ((0,), 1), ((1,), 0))
+    assert copy.effort_hours == 15.0
+    assert copy.extra_efforts == []
+    assert copy.progress == 33
+    assert original.effort_hours == 10.0
+    assert len(original.extra_efforts) == 1
