@@ -24,6 +24,30 @@ from projectapp.models import Status
 TABS = {"today": "今日の予定", "legend": "凡例"}
 CELL_STYLE = "text-align: center; padding: 1px 2px; font-size: 12px; overflow: hidden"
 DEFAULT_LAYOUT = AssignmentLayout(160, 40)
+
+# ガントチャートと割り当て表の横スクロールを連動させる(ページに一度だけ仕掛ける)。scroll は親に伝わらないので、キャプチャで拾う。
+# 相手の位置が(ほぼ)同じなら合わせ直さない。これで、合わせた側の scroll イベントが、こちらをもう一度動かすことがない
+ASSIGNMENT_SYNC_JS = """
+(() => {
+  if (window.__assignmentSync) return;
+  window.__assignmentSync = true;
+  document.addEventListener('scroll', (e) => {
+    const t = e.target;
+    if (!t || !t.matches) return;
+    let other = null;
+    if (t.matches('[data-chart-scroll]')) other = document.querySelector('[data-assignment-scroll]');
+    else if (t.matches('[data-assignment-scroll]')) other = document.querySelector('[data-chart-scroll]');
+    if (other && Math.abs(other.scrollLeft - t.scrollLeft) > 0.5) other.scrollLeft = t.scrollLeft;
+  }, true);
+})();
+"""
+# 表を描き直したあと、チャートの横位置へ合わせる(描き直しで先頭に戻らないように)
+ASSIGNMENT_ALIGN_JS = (
+    "requestAnimationFrame(() => {"
+    " const chart = document.querySelector('[data-chart-scroll]');"
+    " const table = document.querySelector('[data-assignment-scroll]');"
+    " if (chart && table) table.scrollLeft = chart.scrollLeft; })"
+)
 LOAD_COLOR = "rgba(76, 139, 245, {alpha:.2f})"
 OVER_STRIPE = "repeating-linear-gradient(45deg, rgba(220, 53, 69, 0.6) 0 4px, transparent 4px 8px)"
 
@@ -227,6 +251,9 @@ class BottomPanel:
     def show_assignment(self, table: AssignmentTable | None) -> None:
         """担当者×列の割り当て率。列の幅はガントチャートと同じ px。担当者の列は左に固定する。"""
         layout = (self.content.layout if self.content else None) or DEFAULT_LAYOUT
+        ui.run_javascript(
+            ASSIGNMENT_ALIGN_JS
+        )  # 描き直しで先頭に戻らないよう、チャートの位置へ合わせる
         with (
             ui.element("div")
             .classes("w-full")

@@ -18,7 +18,7 @@ from projectapp.bottom_info import (
     task_detail,
     today_plan,
 )
-from projectapp.bottom_panel import BottomPanel, PanelContent
+from projectapp.bottom_panel import ASSIGNMENT_SYNC_JS, BottomPanel, PanelContent
 from projectapp.bulk_select import BulkSelection
 from projectapp.arrange import Position, section_key
 from projectapp.calendar import DayKind, day_kind, member_notes
@@ -1639,6 +1639,7 @@ class GanttChart:
         ui.add_css(SHIFT_TOOLTIP_CSS)
         ui.add_head_html(f"<script>{CHART_DRAG_JS}</script>")
         ui.add_head_html(f"<script>{SHIFT_TRACK_JS}</script>")
+        ui.add_head_html(f"<script>{ASSIGNMENT_SYNC_JS}</script>")
         ui.on("chart_move", lambda e: self.handle_move(e.args))
         ui.on("chart_move_section", lambda e: self.handle_move_section(e.args))
         ui.on("chart_shift", lambda e: self.handle_shift(e.args))

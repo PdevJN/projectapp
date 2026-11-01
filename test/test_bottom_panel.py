@@ -1,6 +1,9 @@
 import asyncio
+import shutil
+import subprocess
 from datetime import datetime
 
+import pytest
 from nicegui import ui
 from nicegui.testing import User
 
@@ -13,6 +16,7 @@ from projectapp.bottom_info import (
     TaskDetail,
     TodayRow,
 )
+from projectapp import bottom_panel
 from projectapp.bottom_panel import BottomPanel, PanelContent
 from projectapp.models import Status
 
@@ -300,3 +304,41 @@ async def test_without_a_layout_it_falls_back_to_a_default(user: User) -> None:
     await user.should_see(marker="bottom-assignment")
     grid = user.find(marker="bottom-assignment-grid").elements.pop()
     assert grid._style["grid-template-columns"] == "160px repeat(3, 40px)"
+
+
+def test_the_sync_js_connects_the_chart_and_the_table_without_looping() -> None:
+    js = bottom_panel.ASSIGNMENT_SYNC_JS
+    assert "data-chart-scroll" in js and "data-assignment-scroll" in js
+    assert "Math.abs" in js  # 値が同じなら合わせ直さない(ループ防止)
+    assert "true)" in js  # scroll は親に伝わらないので、キャプチャで拾う
+
+
+def test_the_align_js_copies_the_chart_position_and_tolerates_missing_elements() -> (
+    None
+):
+    js = bottom_panel.ASSIGNMENT_ALIGN_JS
+    assert "data-chart-scroll" in js and "data-assignment-scroll" in js
+    assert "if (" in js  # 相手がいないときは何もしない
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node がない")
+@pytest.mark.parametrize("name", ["ASSIGNMENT_SYNC_JS", "ASSIGNMENT_ALIGN_JS"])
+def test_the_js_is_syntactically_valid(name: str, tmp_path) -> None:
+    path = tmp_path / "x.js"
+    path.write_text(getattr(bottom_panel, name), encoding="utf-8")
+    result = subprocess.run(
+        ["node", "--check", str(path)], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+
+
+async def test_drawing_the_table_runs_the_align_js(user: User, monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(
+        bottom_panel.ui, "run_javascript", lambda js, **kw: calls.append(js)
+    )
+    panels = mount_assignment(PanelContent(None, SUMMARY, TODAY, TABLE))
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    assert bottom_panel.ASSIGNMENT_ALIGN_JS in calls
