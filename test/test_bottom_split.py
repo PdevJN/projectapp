@@ -4,8 +4,8 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.gantt import GanttChart, ViewOptions
-from projectapp.models import Project, Section, Task
-from test_gantt import Recorder, mount_chart
+from projectapp.models import Project, Task
+from test_gantt import Recorder
 
 BASE = date(2026, 10, 5)
 
