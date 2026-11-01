@@ -10,6 +10,8 @@ from projectapp.dashboard import (
     CrossLoad,
     CrossSummary,
     DayLoad,
+    CatchUp,
+    CatchUpMode,
     LateBasis,
     LoadFailure,
     ProjectLoad,
@@ -27,11 +29,11 @@ from projectapp.dashboard import (
     WorkloadRow,
 )
 from projectapp.dashboard_views import DEFAULT_ORDER, CardId, ViewState
+from projectapp.tipchips import MAX_TIP_CHIPS
 from projectapp.dashboard_view import (
     HEATMAP_CSS,
     ViewActions,
     HEATMAP_HINT_DAYS,
-    MAX_TIP_CHIPS,
     DashboardView,
     heatmap_html,
     percent_width,
@@ -120,6 +122,7 @@ def mount(
     member_changes: list[str | None] | None = None,
     actions: ViewActions | None = None,
     late_basis_changes: list[LateBasis] | None = None,
+    catch_up_changes: list[CatchUp] | None = None,
 ) -> tuple[list[DashboardView], list[int], list[PeriodKind]]:
     views: list[DashboardView] = []
     backs: list[int] = []
@@ -134,6 +137,9 @@ def mount(
             actions=actions,
             on_late_basis_change=late_basis_changes.append
             if late_basis_changes is not None
+            else None,
+            on_catch_up_change=catch_up_changes.append
+            if catch_up_changes is not None
             else None,
         )
         views.append(view)
@@ -1574,6 +1580,40 @@ async def test_pressing_the_other_basis_notifies_and_the_current_one_does_nothin
     assert changes == [LateBasis.WARNING]
 
 
+async def test_the_catch_up_choice_notifies_and_the_days_field_shows_only_for_task(
+    user: User,
+) -> None:
+    changes: list[CatchUp] = []
+    views, _, _ = mount(catch_up_changes=changes)
+    await user.open("/")
+    views[0].show(
+        with_backlog(Backlog(6.5, 0, 3, 1.0, 1.5, [("田中", 6.5)])), PeriodKind.WEEK
+    )
+    await user.should_see(marker="dashboard-backlog-catch-up")
+    await user.should_not_see(marker="dashboard-backlog-catch-up-days")
+    user.find(marker="dashboard-backlog-catch-up-period").click()
+    assert changes == []
+    user.find(marker="dashboard-backlog-catch-up-task").click()
+    assert changes == [CatchUp(CatchUpMode.TASK, 5)]
+    task = Backlog(
+        6.5, 0, 3, 1.0, 1.5, [("田中", 6.5)], catch_up=CatchUp(CatchUpMode.TASK, 3)
+    )
+    views[0].show(with_backlog(task), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-catch-up-days")
+
+
+def test_picking_a_catch_up_clamps_the_days_and_ignores_the_same_rule() -> None:
+    seen: list[CatchUp] = []
+    view = DashboardView(
+        lambda: None, lambda kind: None, on_catch_up_change=seen.append
+    )
+    current = CatchUp(CatchUpMode.TASK, 5)
+    view.pick_catch_up(CatchUp(CatchUpMode.TASK, 5), current)
+    view.pick_catch_up(CatchUp(CatchUpMode.TASK, 999), current)
+    view.pick_catch_up(CatchUp(CatchUpMode.TASK, 0), current)
+    assert seen == [CatchUp(CatchUpMode.TASK, 60), CatchUp(CatchUpMode.TASK, 1)]
+
+
 async def test_the_headline_lists_overdue_and_warning_separately(user: User) -> None:
     views, _, _ = mount()
     await user.open("/")
@@ -1632,3 +1672,23 @@ async def test_the_need_bar_has_a_warning_segment_and_legend_only_for_warnings(
     await user.should_not_see(marker="dashboard-backlog-bar-warning")
     await user.should_not_see(marker="dashboard-backlog-legend-warning")
     assert text(user, "dashboard-backlog-late").startswith("遅れがなければ")
+
+
+async def test_the_member_warning_count_has_a_tooltip_of_task_chips(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = warned_sample()
+    data.progress.by_member[0] = MemberProgress(
+        "田中",
+        40.0,
+        data.progress.by_member[0].counts,
+        warnings=2,
+        limit=3,
+        warned_tasks=("設計", "実装"),
+    )
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-member-warning-田中")
+    chips = user.find(marker="dashboard-member-warning-chip-田中").elements
+    assert sorted(c.text for c in chips) == ["実装", "設計"]

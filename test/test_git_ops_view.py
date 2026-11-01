@@ -100,11 +100,17 @@ def dialog_is_open(user: User) -> bool:
         return False
 
 
-async def test_the_git_menu_sits_between_export_and_help(
+async def test_the_git_menu_sits_between_move_and_help(
     user: User, tmp_path: Path
 ) -> None:
     await open_with(user, tmp_path, Fakes())
-    order = ["menu-file", "menu-project", "menu-export", "menu-git", "menu-help"]
+    order = [
+        "menu-file",
+        "menu-project",
+        "menu-move",
+        "menu-git",
+        "menu-help",
+    ]
     ids = [user.find(marker=marker).elements.pop().id for marker in order]
     assert ids == sorted(ids)
 

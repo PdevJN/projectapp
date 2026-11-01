@@ -60,6 +60,9 @@ class PeriodSummary:
     overdue: int
     warned: int
     no_effort_tasks: tuple[tuple[str, str], ...] = ()  # 工数未設定の(id, 名前)
+    status_tasks: dict[Status, tuple[str, ...]] = field(
+        default_factory=dict
+    )  # 状態ごとのタスク名(集計に数えたもの)
 
 
 @dataclass(frozen=True)
@@ -167,6 +170,7 @@ def period_summary(
     weighted = hours = total_weight = 0.0
     no_effort = overdue = warned = total = 0
     no_effort_tasks: list[tuple[str, str]] = []
+    status_tasks: dict[Status, list[str]] = {status: [] for status in Status}
     for task in tasks:
         if task.kind is not TaskKind.NORMAL:
             continue
@@ -174,6 +178,7 @@ def period_summary(
             continue
         total += 1
         counts[task.status] += 1
+        status_tasks[task.status].append(task.name)
         if task.effort_hours > 0:
             hours += task.effort_hours
         else:
@@ -198,6 +203,7 @@ def period_summary(
         overdue,
         warned,
         tuple(no_effort_tasks),
+        {status: tuple(names) for status, names in status_tasks.items()},
     )
 
 
@@ -250,6 +256,7 @@ class AssignmentCell:
     load: float  # 日次はその日の負荷。週次・月次は、期間の稼働日の平均(1.0 = 100%)
     over: bool  # 期間のどこかに 100% 超の日がある
     closed: bool  # 期間に稼働日が 1 日もない
+    tasks: tuple[str, ...] = ()  # 期間にかかる、その担当者のタスク名(重複なし)
 
 
 @dataclass(frozen=True)
@@ -295,12 +302,14 @@ def assignment_table(
 ) -> AssignmentTable:
     """担当者×列の割り当て率。tasks(絞り込み後)で数える区間のある担当者だけを、メンバーの並びで行にする。"""
     spans: dict[str, list[Span]] = {}
+    pieces: dict[str, list[tuple[datetime, datetime, str]]] = {}
     for task in tasks:
         for left, right, crew in counted_pieces(task, project, holidays, schedule):
             for assignee in crew:
                 spans.setdefault(assignee.name, []).append(
                     (left, right, assignee.allocation)
                 )
+                pieces.setdefault(assignee.name, []).append((left, right, task.name))
     rows: list[AssignmentRow] = []
     for member in project.members:
         items = spans.get(member.name)
@@ -318,11 +327,19 @@ def assignment_table(
                 cells.append(AssignmentCell(0.0, False, True))
                 continue
             peaks = [_day_peak(items, d) for d in open_days]
+            begin = datetime.combine(column.start, time.min)
+            finish = datetime.combine(column.end, time.min)
+            names = dict.fromkeys(  # 並びは入力順のまま、同じ名前は 1 つにする
+                name
+                for left, right, name in pieces[member.name]
+                if left < finish and right > begin
+            )
             cells.append(
                 AssignmentCell(
                     sum(peaks) / len(peaks),
                     any(p > 1.0 + OVERLOAD_EPSILON for p in peaks),
                     False,
+                    tuple(names),
                 )
             )
         rows.append(AssignmentRow(member.name, cells, member.icon))

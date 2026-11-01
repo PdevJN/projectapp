@@ -1,0 +1,214 @@
+{
+  "version": 19,
+  "name": "遅れの取り戻し確認C(タスクごとの期限)",
+  "base_date": "2026-11-02",
+  "daily_hours": 6.5,
+  "work_start": "09:00:00",
+  "members": [
+    {
+      "name": "田中",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "0847fb6d",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    },
+    {
+      "name": "鈴木",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "3d1babec",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    },
+    {
+      "name": "0847fb6d",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "1abcce75",
+      "icon": "",
+      "work_days": [],
+      "teams": []
+    },
+    {
+      "name": "3d1babec",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "c7086a9b",
+      "icon": "",
+      "work_days": [],
+      "teams": []
+    }
+  ],
+  "sections": [
+    {
+      "name": "確認",
+      "tasks": [
+        {
+          "name": "予定超過: 10/29 に終わるはずだった(13h)",
+          "id": "47ee38fb",
+          "planned_start": "2026-10-28T09:00:00",
+          "effort_hours": 13,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "1abcce75",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "予定超過: 実行中で 20%(19.5h)",
+          "id": "2f9365f3",
+          "planned_start": "2026-10-27T09:00:00",
+          "effort_hours": 19.5,
+          "priority": "中",
+          "status": "実行中",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "c7086a9b",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": 20,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "警告: 11/4 に終わる予定で 25%(26h)",
+          "id": "2e4f825b",
+          "planned_start": "2026-10-30T09:00:00",
+          "effort_hours": 26,
+          "priority": "中",
+          "status": "実行中",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "1abcce75",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": 25,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "警告: 11/12 に終わる予定で未着手(65h)",
+          "id": "a37e2ba3",
+          "planned_start": "2026-10-30T09:00:00",
+          "effort_hours": 65,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "c7086a9b",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        },
+        {
+          "name": "通常: 順調な作業(13h)",
+          "id": "740919e1",
+          "planned_start": "2026-11-05T09:00:00",
+          "effort_hours": 13,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "1abcce75",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": []
+        }
+      ],
+      "sections": [],
+      "id": "7c5cf295"
+    }
+  ],
+  "tasks": [],
+  "actual_mode": "simple",
+  "url_templates": [],
+  "parameters": [],
+  "categories": [],
+  "events": [],
+  "teams": [],
+  "reference_mode": "live",
+  "plantuml_overload_notice": true,
+  "ratio_limit_upper": null,
+  "ratio_limit_lower": null
+}

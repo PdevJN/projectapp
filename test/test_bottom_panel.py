@@ -383,3 +383,76 @@ def test_the_sync_js_ignores_the_echo_of_its_own_adjustment() -> None:
     js = bottom_panel.ASSIGNMENT_SYNC_JS
     # 合わせた側の scroll イベントを 1 回だけ無視し、慣性スクロール中に古い値で引き戻さない
     assert "__syncTo" in js
+
+
+async def test_each_status_count_has_a_tooltip_of_task_chips(user: User) -> None:
+    summary = PeriodSummary(
+        3,
+        {s: 0 for s in Status} | {Status.RUNNING: 2},
+        26.0,
+        0,
+        40.0,
+        0,
+        0,
+        (),
+        {s: () for s in Status} | {Status.RUNNING: ("設計", "調査")},
+    )
+
+    @ui.page("/")
+    def index() -> None:
+        panel = BottomPanel()
+        panel.build()
+        panel.update(PanelContent(None, summary, []))
+
+    await user.open("/")
+    chips = user.find(marker="bottom-status-chip").elements
+    assert sorted(c.text for c in chips) == [
+        "設計",
+        "調査",
+    ]  # 件数 0 の状態には付かない
+
+
+async def test_assignment_numbers_have_a_tooltip_but_empty_cells_do_not(
+    user: User,
+) -> None:
+    table = AssignmentTable(
+        ["10/5", "10/6", "10/7"],
+        [
+            AssignmentRow(
+                "田中",
+                [
+                    AssignmentCell(1.0, False, False, ("設計", "実装")),
+                    AssignmentCell(0.0, False, False),
+                    AssignmentCell(0.0, False, True),
+                ],
+            )
+        ],
+    )
+    panels = mount_assignment(PanelContent(None, SUMMARY, TODAY, table))
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    chips = user.find(marker="bottom-assignment-chip").elements
+    assert sorted(c.text for c in chips) == ["実装", "設計"]
+
+
+async def test_tooltip_chips_take_the_tooltip_text_color_in_both_themes(
+    user: User,
+) -> None:
+    """Quasar のチップは既定で、ライトは黒・ダークは白の文字になり、濃い灰色の地では読めない。地の白を引き継ぐ。"""
+    summary = PeriodSummary(
+        2, {s: 0 for s in Status}, 0.0, 2, None, 0, 0, (("a", "設計"), ("b", "調査"))
+    )
+
+    @ui.page("/")
+    def index() -> None:
+        panel = BottomPanel()
+        panel.build()
+        panel.update(PanelContent(None, summary, []))
+
+    await user.open("/")
+    chips = user.find(marker="bottom-no-effort-chip").elements
+    assert chips and all(c._style["color"] == "inherit" for c in chips)
+    tooltip = next(iter(user.find(marker="bottom-no-effort").elements)).default_slot
+    classes = {c for e in tooltip.children for c in e.classes}
+    assert "bg-grey-9" in classes and "text-white" in classes

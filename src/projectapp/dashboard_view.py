@@ -15,6 +15,8 @@ from projectapp.dashboard import (
     CrossSummary,
     Dashboard,
     DayLoad,
+    CatchUp,
+    CatchUpMode,
     LateBasis,
     LoadStats,
     MemberProgress,
@@ -39,6 +41,7 @@ from projectapp.models import Status
 from projectapp.periodfield import add_range_picker, normalize_period
 from projectapp.scope import read_scope, scope_options, scope_value
 from projectapp.timeline import OVERLOAD_EPSILON
+from projectapp.tipchips import name_chips_tooltip
 
 TRACK_STYLE = (
     "height: 10px; width: 100%; border-radius: 5px; overflow: hidden;"
@@ -69,9 +72,6 @@ CARD_TITLES = {
 }
 REFRESH_SECONDS = 300  # 表示中に集計し直す間隔(今日の残り時間が変わるため)
 ALL_MEMBERS = ""  # プルダウンの`全員`の値
-MAX_TIP_CHIPS = (
-    10  # 凡例のツールチップに並べるチップの上限。超えた分は「+n件」にまとめる
-)
 PIE_DIAMETER = "9rem"
 PIE_HOLE_PERCENT = 60  # 中央に進捗率を出すための穴(円の半径に対する割合)
 PIE_VARS = {
@@ -338,9 +338,11 @@ class DashboardView:
         actions: ViewActions | None = None,
         on_tick: Callable[[], object] | None = None,
         on_late_basis_change: Callable[[LateBasis], object] | None = None,
+        on_catch_up_change: Callable[[CatchUp], object] | None = None,
     ) -> None:
         self.actions = actions
         self.on_late_basis_change = on_late_basis_change
+        self.on_catch_up_change = on_catch_up_change
         self.on_tick = on_tick
         self.edit_mode = False
         self.edit_button: ui.button | None = None
@@ -764,19 +766,12 @@ class DashboardView:
 
     def status_tip(self, team: TeamProgress, status: Status) -> None:
         """凡例の行のツールチップ。その状態のタスク名をチップで並べる。"""
-        names = team.tasks[status]
-        with ui.tooltip().classes("bg-grey-9 text-white").style("max-width: 28rem"):
-            with ui.row().classes("gap-1"):
-                for name in names[:MAX_TIP_CHIPS]:
-                    ui.chip(name, color=None).props("dense square outline").classes(
-                        "ellipsis"
-                    ).style(
-                        f"color: var({PIE_VARS[status]})"  # 枠と文字が currentColor になり、凡例の色と揃う
-                    ).mark(f"dashboard-team-chip-{status.name}")
-                if len(names) > MAX_TIP_CHIPS:
-                    ui.label(f"+{len(names) - MAX_TIP_CHIPS}件").mark(
-                        f"dashboard-team-more-{status.name}"
-                    )
+        name_chips_tooltip(
+            team.tasks[status],
+            f"dashboard-team-chip-{status.name}",
+            more_marker=f"dashboard-team-more-{status.name}",
+            color=f"var({PIE_VARS[status]})",  # 枠と文字が凡例の色と揃う
+        )
 
     def progress_card(self, data: Dashboard) -> None:
         progress = data.progress
@@ -850,9 +845,18 @@ class DashboardView:
                         f"警告が閾値({row.limit} 件)に達しています"
                     )
             if row.warnings:
-                ui.label(f"警告 {row.warnings} 件").classes(
-                    "text-caption" + (" text-weight-bold" if row.over_limit else "")
-                ).mark(f"{marker}-warning-{row.name}")
+                with (
+                    ui.label(f"警告 {row.warnings} 件")
+                    .classes(
+                        "text-caption" + (" text-weight-bold" if row.over_limit else "")
+                    )
+                    .mark(f"{marker}-warning-{row.name}")
+                ):
+                    name_chips_tooltip(
+                        row.warned_tasks,
+                        f"{marker}-warning-chip-{row.name}",
+                        more_marker=f"{marker}-warning-more-{row.name}",
+                    )
             if row.percent is None:
                 ui.label("タスクなし").classes("text-caption text-grey").mark(
                     f"{marker}-progress-{row.name}"
@@ -1145,6 +1149,46 @@ class DashboardView:
                         self.pick_late_basis(b, now)
                     ),
                 ).props(props).mark(f"dashboard-backlog-late-{marker}")
+        self.catch_up_controls(backlog.catch_up)
+
+    def catch_up_controls(self, rule: CatchUp) -> None:
+        """遅れを取り戻す期限の選択(`期間の終わり`・`タスクごと`)。`タスクごと`のときは、予定超過を取り戻す稼働日数の欄も出す(選択は保存しない)。"""
+        with ui.row().classes("items-center gap-2").mark("dashboard-backlog-catch-up"):
+            with ui.button_group().props("flat dense"):
+                for mode, marker in (
+                    (CatchUpMode.PERIOD, "period"),
+                    (CatchUpMode.TASK, "task"),
+                ):
+                    props = "dense no-caps color=primary size=sm" + (
+                        "" if rule.mode is mode else " outline"
+                    )
+                    ui.button(
+                        mode.value,
+                        on_click=lambda m=mode, now=rule: self.pick_catch_up(
+                            CatchUp(m, now.days), now
+                        ),
+                    ).props(props).mark(f"dashboard-backlog-catch-up-{marker}")
+            if rule.mode is CatchUpMode.TASK:
+                ui.label("予定超過は").classes("text-caption")
+                field = (
+                    ui.number(value=rule.days, min=1, max=60, step=1, format="%d")
+                    .props("dense outlined style=width:5rem")
+                    .mark("dashboard-backlog-catch-up-days")
+                )
+                for event in ("blur", "keydown.enter"):
+                    field.on(
+                        event,
+                        lambda _=None, f=field, now=rule: self.pick_catch_up(
+                            CatchUp(now.mode, int(f.value or now.days)), now
+                        ),
+                    )
+                ui.label("稼働日で取り戻す").classes("text-caption")
+
+    def pick_catch_up(self, rule: CatchUp, current: CatchUp) -> None:
+        """取り戻す期限を選ぶ。今と同じなら何もしない。日数は 1〜60 に収める。"""
+        rule = CatchUp(rule.mode, min(60, max(1, rule.days)))
+        if rule != current and self.on_catch_up_change is not None:
+            self.on_catch_up_change(rule)
 
     def pick_late_basis(self, basis: LateBasis, current: LateBasis) -> None:
         """遅れの判定の基準を選ぶ。今の基準と同じなら何もしない。"""

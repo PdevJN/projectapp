@@ -44,6 +44,21 @@ class LateBasis(StrEnum):
     WARNING = "警告を含む"
 
 
+class CatchUpMode(StrEnum):
+    """遅れを取り戻す期限の基準(要望 104)。"""
+
+    PERIOD = "期間の終わり"
+    TASK = "タスクごと"
+
+
+@dataclass(frozen=True)
+class CatchUp:
+    """遅れの取り戻しの期限。`タスクごと`では、警告のタスクは自身の完了予定・締切まで、予定超過のタスクは今日から days 稼働日まで。"""
+
+    mode: CatchUpMode = CatchUpMode.PERIOD
+    days: int = 5
+
+
 @dataclass(frozen=True)
 class Period:
     start: date
@@ -136,6 +151,7 @@ class MemberProgress:
     counts: dict[Status, int]
     warnings: int = 0  # 警告のタスクの数(共同タスクは担当者それぞれの行に数える)
     limit: int | None = None  # そのメンバーの警告の件数の閾値(メンバー別の行だけ)
+    warned_tasks: tuple[str, ...] = ()  # 警告のタスクの名前(`warnings`の内訳)
 
     @property
     def over_limit(self) -> bool:
@@ -347,6 +363,7 @@ def _member_row(
         counts,
         sum(1 for t in tasks if id(t) in warned),
         limit,
+        tuple(t.name for t in tasks if id(t) in warned),
     )
 
 
@@ -854,6 +871,9 @@ class Backlog:
         0.0  # hours のうち、警告のタスクの残りの工数(`警告を含む`のときだけ。要望 108)
     )
     warning_count: int = 0  # 警告のタスクの件数(`警告を含む`のときだけ)
+    catch_up: CatchUp = field(default_factory=CatchUp)  # 取り戻す期限の基準
+    overdue_people: float | None = None  # `タスクごと`のときの、予定超過の分の人数
+    warning_people: float | None = None  # `タスクごと`のときの、警告の分の人数
 
     @property
     def late_hours(self) -> float:
@@ -876,17 +896,23 @@ class Backlog:
 
     @property
     def overdue_required(self) -> float | None:
-        """予定超過の分だけで要る人数(必要人数と同じ期間で割る)。必要人数が出せないときは None。"""
+        """予定超過の分だけで要る人数(必要人数と同じ期間で割る。`タスクごと`なら各タスクの期限で割る)。出せないときは None。"""
+        if self.overdue_people is not None:
+            return self.overdue_people
         return self._required_for(self.overdue_hours)
 
     @property
     def warning_required(self) -> float | None:
-        """警告の分だけで要る人数。必要人数が出せないときは None。"""
+        """警告の分だけで要る人数。出せないときは None。"""
+        if self.warning_people is not None:
+            return self.warning_people
         return self._required_for(self.warning_hours)
 
     @property
     def late_required(self) -> float | None:
         """予定超過と警告を合わせた分で要る人数。"""
+        if self.overdue_people is not None or self.warning_people is not None:
+            return (self.overdue_people or 0.0) + (self.warning_people or 0.0)
         return self._required_for(self.late_hours)
 
     @property
@@ -1137,6 +1163,17 @@ def _late_kind(
     return None
 
 
+@dataclass(frozen=True)
+class _LateTask:
+    """遅れた 1 タスクの、残りの全量(期間で按分しない)の担当者ごとの内訳と、取り戻す期限(要望 104)。"""
+
+    kind: str  # overdue / warning
+    due: (
+        date | None
+    )  # 警告は完了予定・締切の早いほう。予定超過と、日程のないものは None
+    split: dict[str, float]
+
+
 @dataclass
 class _BacklogParts:
     """1 プロジェクトぶんの残りの工数の集計の途中経過(重ねるときは、これを足し合わせる)。"""
@@ -1155,6 +1192,7 @@ class _BacklogParts:
         default_factory=dict
     )  # split のうち、警告のタスクの分
     warning_count: int = 0  # 警告のタスクの件数
+    late_tasks: list[_LateTask] = field(default_factory=list)  # 遅れのタスクごとの内訳
 
 
 def _backlog_parts(
@@ -1177,6 +1215,7 @@ def _backlog_parts(
     overdue_count = 0
     warning_split = {name: 0.0 for name in (*names, UNASSIGNED)}
     warning_count = 0
+    late_tasks: list[_LateTask] = []
     targets = [
         task
         for task in _tasks(project, member)
@@ -1218,6 +1257,24 @@ def _backlog_parts(
             0.0, rest - total_effort(task) * (1 - fraction)
         )  # 期間の終わりまでに予定した工数 − 消化分
         late = _late_kind(task, project, holidays, now, schedule, basis)
+        if late is not None:
+            ends_of_task = [
+                moment.date()
+                for moment in (schedule.end(task), task.deadline)
+                if moment is not None
+            ]
+            late_tasks.append(
+                _LateTask(
+                    late,
+                    min(ends_of_task) if late == "warning" and ends_of_task else None,
+                    {
+                        key: rest * share
+                        for key, _, share in _remaining_shares(
+                            task, project, schedule, holidays, rest, names
+                        )
+                    },
+                )
+            )
         counted = False
         for key, _, share in _remaining_shares(
             task, project, schedule, holidays, rest, names
@@ -1244,7 +1301,51 @@ def _backlog_parts(
         overdue_count,
         warning_split,
         warning_count,
+        late_tasks,
     )
+
+
+def _nth_workday(start: date, count: int, holidays: dict[date, str]) -> date:
+    """start を 1 日目として、count 番目の稼働日(通常カレンダー)。1 年見て足りなければ最後に見た日。"""
+    found, day = 0, start
+    for offset in range(366):
+        day = start + timedelta(days=offset)
+        found += is_workday(day, holidays)
+        if found >= max(1, count):
+            break
+    return day
+
+
+def _catch_up_people(
+    parts: list[_BacklogParts],
+    shown: list[str],
+    member: Scope,
+    base: Project,
+    holidays: dict[date, str],
+    now: datetime,
+    rule: CatchUp,
+    default_capacity: float,
+) -> tuple[float, float]:
+    """`タスクごと`の、(予定超過の分の人数, 警告の分の人数)。各タスクの残りの全量を、今日からそのタスクの期限までの
+    稼働時間で割って足す。今日の残りが 0 などで稼働時間が 0 なら 1 日分、期限が決まらないタスクはカードの期間で割る。"""
+    today = max(now.date(), base.base_date)
+    people = {"overdue": 0.0, "warning": 0.0}
+    for part in parts:
+        for task in part.late_tasks:
+            hours = sum(task.split.get(n, 0.0) * _factor(member, n) for n in shown)
+            if hours <= 0:
+                continue
+            due = task.due
+            if task.kind == "overdue":
+                due = _nth_workday(today, rule.days, holidays)
+            capacity = (
+                default_capacity
+                if due is None
+                else _window_hours(base, holidays, (today, due), now)
+                or base.daily_hours
+            )
+            people[task.kind] += hours / capacity
+    return people["overdue"], people["warning"]
 
 
 def _assemble_backlog(
@@ -1257,6 +1358,7 @@ def _assemble_backlog(
     parts: list[_BacklogParts],
     supply_from: list[tuple[Member, Project]],
     basis: LateBasis = LateBasis.DELAY,
+    catch_up: CatchUp = CatchUp(),
 ) -> Backlog:
     """部品を足し合わせて Backlog にする。割る側の稼働時間は base のカレンダー(holidays は base の休み)で数える。"""
     scoped = _names(member)
@@ -1301,6 +1403,16 @@ def _assemble_backlog(
     capacity = None if window is None else base.daily_hours if fallback else standard
     days = None if capacity is None else capacity / base.daily_hours
     required = hours / capacity if capacity else None
+    overdue_people = warning_people = None
+    if catch_up.mode is CatchUpMode.TASK and required is not None and capacity:
+        overdue_people, warning_people = _catch_up_people(
+            parts, shown, member, base, holidays, now, catch_up, capacity
+        )
+        required = (
+            (hours - overdue_hours - warning_hours) / capacity
+            + overdue_people
+            + warning_people
+        )
     supply = nominal = 0.0
     for m, owner in supply_from:
         if scoped is not None and m.name not in scoped:
@@ -1336,6 +1448,9 @@ def _assemble_backlog(
         basis,
         warning_hours,
         sum(part.warning_count for part in parts),
+        catch_up,
+        overdue_people,
+        warning_people,
     )
 
 
@@ -1347,6 +1462,7 @@ def summarize_backlog(
     holidays: dict[date, str],
     member: Scope = None,
     basis: LateBasis = LateBasis.DELAY,
+    catch_up: CatchUp = CatchUp(),
 ) -> Backlog:
     """残りの工数(未着手の全量と、実行中・一時停止の消化分を除いた分)の合計と、それを期間内に終えるのに要る人数。全期間以外は、期間の終わりまでに予定した分。
     メンバーで絞るときは、共同タスクのその人の分(割り当て率の比)だけを数える。"""
@@ -1361,6 +1477,7 @@ def summarize_backlog(
         parts,
         [(m, project) for m in project.members],
         basis,
+        catch_up,
     )
 
 
@@ -1373,6 +1490,7 @@ def summarize_cross_backlog(
     holidays: dict[date, str],
     member: Scope = None,
     basis: LateBasis = LateBasis.DELAY,
+    catch_up: CatchUp = CatchUp(),
 ) -> Backlog:
     """複数のプロジェクトを重ねた残りの工数と必要人数。同じ名前のメンバーを同一人物とみなす。
     工数は各プロジェクト自身の日程・休みで数え、割る側(稼働時間)は base(開いているプロジェクト)の稼働可能時間・休みで数える。
@@ -1397,6 +1515,7 @@ def summarize_cross_backlog(
         parts,
         [owners[name] for name in names],
         basis,
+        catch_up,
     )
 
 
@@ -1443,6 +1562,7 @@ def summarize(
     team: str | None = None,
     children: Mapping[str, ChildProject] | None = None,
     late_basis: LateBasis = LateBasis.DELAY,
+    catch_up: CatchUp = CatchUp(),
 ) -> Dashboard:
     """`member`があれば`team`は無視する。存在しない・メンバーのいないチームは絞り込まない。"""
     team_members = team_scope(project, team) if member is None else None
@@ -1464,7 +1584,7 @@ def summarize(
         member,
         [m.name for m in project.members],
         backlog=summarize_backlog(
-            project, period, kind, now, holidays, scope, late_basis
+            project, period, kind, now, holidays, scope, late_basis, catch_up
         ),
         team_name=team if team_members is not None else None,
         teams=teams_with_members(project),
