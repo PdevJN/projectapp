@@ -13,6 +13,7 @@ from projectapp import arrange
 from projectapp.avatar import avatar
 from projectapp.browser import open_url as default_open_url
 from projectapp.bottom_info import (
+    AssignmentLayout,
     assignment_table,
     period_summary,
     task_detail,
@@ -859,6 +860,8 @@ class GanttChart:
             return
         self.name_width = width
         self.actions.set_name_width(width)
+        if self.bottom.view == "assignment":
+            self.refresh_bottom()  # 表の担当者列も、名前欄の新しい幅に合わせる
 
     def drag_props(self, kind: str, key: str, **extra: object) -> str:
         """ドロップ先の `data-*` 属性。絞り込み中は空(ドロップできない)。"""
@@ -1102,7 +1105,9 @@ class GanttChart:
                 len(selected) - 1,
             )
         assignment = None
+        layout = None
         if self.bottom.view == "assignment":
+            layout = AssignmentLayout(self.name_width, COLUMN_WIDTH_PX[self.view_scale])
             columns = build_columns(
                 self.project,
                 self.view_scale,
@@ -1120,6 +1125,7 @@ class GanttChart:
             ),
             today_plan(tasks, self.schedule, now),
             assignment,
+            layout,
         )
 
     def refresh_bottom(self) -> None:

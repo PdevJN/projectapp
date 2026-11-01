@@ -4,6 +4,7 @@ from datetime import date, datetime
 from nicegui import ui
 from nicegui.testing import User
 
+from projectapp.bottom_info import AssignmentLayout
 from projectapp.gantt import GanttChart, ViewOptions
 from projectapp.models import Assignee, Member, Project, Task
 from projectapp.timeline import Scale
@@ -34,6 +35,7 @@ def mount() -> list[GanttChart]:
     charts: list[GanttChart] = []
     recorder = Recorder()
     recorder.actions.set_main_split = lambda value: None
+    recorder.actions.set_name_width = lambda value: None
 
     @ui.page("/")
     def index() -> None:
@@ -94,3 +96,28 @@ async def test_toggling_does_nothing_in_the_preview(user: User) -> None:
     charts[0].set_options(ViewOptions(read_only=True))
     charts[0].toggle_assignment()
     assert charts[0].bottom.view == "info"
+
+
+async def test_the_layout_follows_the_scale_and_the_name_width(user: User) -> None:
+    charts = mount()
+    await user.open("/")
+    charts[0].toggle_assignment()
+    assert charts[0].bottom.content.layout == AssignmentLayout(200, 40)
+    charts[0].set_scale(Scale.WEEK)
+    await asyncio.sleep(0.2)
+    assert charts[0].bottom.content.layout == AssignmentLayout(200, 56)
+
+
+async def test_dragging_the_name_width_updates_the_table(user: User) -> None:
+    charts = mount()
+    await user.open("/")
+    charts[0].toggle_assignment()
+    charts[0].handle_name_width({"width": 300})
+    assert charts[0].bottom.content.layout.name_px == 300
+
+
+async def test_the_name_width_change_is_harmless_in_the_info_view(user: User) -> None:
+    charts = mount()
+    await user.open("/")
+    charts[0].handle_name_width({"width": 300})
+    assert charts[0].bottom.content.layout is None
