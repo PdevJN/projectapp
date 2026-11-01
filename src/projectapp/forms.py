@@ -32,7 +32,6 @@ from projectapp.models import (
     MAX_EXTRA_EFFORTS,
     MAX_EXTRA_REASON,
     ExtraEffort,
-    has_control_char,
     CHECKPOINT_STATUSES,
     ID_KEY,
     MAX_ALLOCATION,
