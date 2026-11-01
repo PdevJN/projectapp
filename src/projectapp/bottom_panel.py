@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from nicegui import ui
 
+from projectapp.avatar import avatar
 from projectapp.bottom_info import (
     DASH,
     LEGEND,
@@ -240,7 +241,13 @@ class BottomPanel:
                 for label in table.labels:
                     ui.label(label).classes("text-caption text-grey").style(CELL_STYLE)
                 for row in table.rows:
-                    ui.label(row.name).classes("text-bold").style("padding: 1px 4px")
+                    with (
+                        ui.row()
+                        .classes("items-center gap-1 no-wrap")
+                        .style("padding: 1px 4px")
+                    ):
+                        avatar(row.name, row.icon, 18).mark("bottom-assignment-avatar")
+                        ui.label(row.name).classes("text-bold")
                     for cell in row.cells:
                         self.show_assignment_cell(cell)
 

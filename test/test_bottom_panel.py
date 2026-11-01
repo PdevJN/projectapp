@@ -247,3 +247,19 @@ async def test_the_toggle_button_calls_the_callback(user: User) -> None:
     user.find(marker="bottom-view-toggle").click()
     await asyncio.sleep(0.2)
     assert toggled == [1]
+
+
+async def test_each_assignment_row_has_an_avatar_left_of_the_name(user: User) -> None:
+    table = AssignmentTable(
+        ["10/5"],
+        [
+            AssignmentRow("田中", [AssignmentCell(1.0, False, False)]),
+            AssignmentRow("鈴木", [AssignmentCell(0.5, False, False)], ""),
+        ],
+    )
+    panels = mount_assignment(PanelContent(None, SUMMARY, TODAY, table))
+    await user.open("/")
+    panels[0].toggle_view()
+    await user.should_see(marker="bottom-assignment")
+    avatars = user.find(marker="bottom-assignment-avatar").elements
+    assert len(avatars) == 2

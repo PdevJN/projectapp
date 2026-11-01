@@ -277,3 +277,14 @@ def test_only_members_with_counted_work_get_a_row() -> None:
     assert [r.name for r in table.rows] == ["田中"]
     empty = assignment_table([none], project, {}, schedule, columns)
     assert empty.rows == [] and empty.labels == ["0", "1"]
+
+
+def test_a_row_carries_the_member_icon() -> None:
+    task = crew("A", "田中")
+    project, schedule = env(task)
+    project.members[0].icon = "data:image/png;base64,AAAA"
+    columns = day_columns(date(2026, 10, 5), 1)
+    row = assignment_table([task], project, {}, schedule, columns).rows[0]
+    assert row.icon == "data:image/png;base64,AAAA"
+    project.members[0].icon = ""
+    assert assignment_table([task], project, {}, schedule, columns).rows[0].icon == ""

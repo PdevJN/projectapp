@@ -255,6 +255,7 @@ class AssignmentCell:
 class AssignmentRow:
     name: str
     cells: list[AssignmentCell]
+    icon: str = ""  # メンバーのアイコン(なければ空)
 
 
 @dataclass(frozen=True)
@@ -302,5 +303,5 @@ def assignment_table(
                     False,
                 )
             )
-        rows.append(AssignmentRow(member.name, cells))
+        rows.append(AssignmentRow(member.name, cells, member.icon))
     return AssignmentTable([c.label for c in columns], rows)
