@@ -239,6 +239,8 @@ class BottomPanel:
             for row in rows:
                 progress = "" if row.progress is None else f" {row.progress}%"
                 end = "" if row.end is None else f" 〜{row.end:%m/%d %H:%M}"
+                if row.early_start is not None:
+                    end += f" ・前倒し(開始予定 {row.early_start:%m/%d})"
                 classes = f"items-center gap-1 no-wrap {STATUS_CLASS[row.status]}"
                 if row.timing:
                     classes += " bottom-today-timing"
