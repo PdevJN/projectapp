@@ -81,6 +81,7 @@ def no_real_git(monkeypatch: pytest.MonkeyPatch) -> None:
         "projectapp.views.read_git_state",
         lambda project_dir: GitState(GitKind.NOT_REPO),
     )
+    monkeypatch.setattr("projectapp.views.MainView.git_poll_seconds", 3600.0)
 
 
 @pytest.fixture(autouse=True)
