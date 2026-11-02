@@ -358,7 +358,8 @@ body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, v
 .app-title { font-size: 12px; font-weight: 700; white-space: nowrap; }
 .app-header .app-menu-btn { background: var(--app-header-chip, rgba(255, 255, 255, 0.18)); padding: 0 14px; }
 .app-header .app-menu-btn:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }
-.app-menu .q-item { font-size: 12px; min-height: 32px; }
+.app-menu .q-item { font-size: 12px; min-height: 26px; padding: 2px 12px; }
+.app-menu .q-separator { margin: 2px 0; }
 .app-git-chip { flex: none; font-size: 10px; line-height: 1; padding: 4px 8px; border-radius: 9999px; background: var(--app-header-chip, rgba(255, 255, 255, 0.18)); white-space: nowrap; cursor: pointer; }
 .app-git-chip:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }
 .app-git-chip.app-git-dirty { background: #ffd54f; color: #3e2723; }
