@@ -180,6 +180,31 @@ async def test_each_today_row_has_a_status_icon_left_of_the_label(user: User) ->
     assert all("status-" in " ".join(i.classes) for i in icons)
 
 
+async def test_a_timing_today_row_is_highlighted_apart_from_other_running(
+    user: User,
+) -> None:
+    from projectapp.bottom_info import TodayRow
+
+    @ui.page("/")
+    def index() -> None:
+        panel = BottomPanel()
+        panel.build()
+        end = datetime(2026, 10, 8, 12)
+        today = [
+            TodayRow("計測", "田中", None, end, Status.RUNNING, timing=True),
+            TodayRow("停止", "鈴木", None, end, Status.RUNNING),
+        ]
+        panel.update(PanelContent(None, SUMMARY, today))
+
+    await user.open("/")
+    rows = user.find(marker="bottom-today-row").elements
+    timing = [r for r in rows if "bottom-today-timing" in r.classes]
+    assert len(timing) == 1 and len(rows) == 2
+    icons = user.find(marker="bottom-today-icon").elements
+    names = sorted(i.props["name"] for i in icons)
+    assert names == sorted(["play_circle", "radio_button_checked"])
+
+
 TABLE = AssignmentTable(
     ["10/5", "10/6", "10/7"],
     [
