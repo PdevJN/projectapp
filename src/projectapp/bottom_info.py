@@ -72,6 +72,7 @@ class TodayRow:
     progress: int | None
     end: datetime | None
     status: Status = Status.NOT_STARTED  # 文字の色分け用
+    timing: bool = False  # 実行中で、終了のない実績区間がある(計測中)
 
 
 @dataclass(frozen=True)
@@ -242,6 +243,8 @@ def today_plan(tasks: list[Task], schedule: Schedule, now: datetime) -> list[Tod
                     task.progress,
                     end,
                     task.status,
+                    task.status is Status.RUNNING
+                    and any(a.end is None for a in task.actuals),
                 )
             )
     return rows

@@ -190,6 +190,25 @@ def test_today_plan_lists_open_normal_tasks_covering_today() -> None:
     assert rows[0].assignees == "田中" and rows[0].progress == 30
 
 
+def test_today_plan_marks_running_tasks_with_an_open_actual_as_timing() -> None:
+    from projectapp.models import Actual
+
+    open_ = Actual(datetime(2026, 10, 8, 9))
+    closed = Actual(datetime(2026, 10, 8, 9), datetime(2026, 10, 8, 10))
+    kw = {"planned_end": datetime(2026, 10, 8, 12), "planned_end_manual": True}
+    timing = planned("計測中", status=Status.RUNNING, actuals=[open_], **kw)
+    stopped = planned("停止", status=Status.RUNNING, actuals=[closed], **kw)
+    paused = planned("一時停止", status=Status.PAUSED, actuals=[open_], **kw)
+    tasks = [timing, stopped, paused]
+    project, schedule = env(*tasks)
+    rows = today_plan(tasks, schedule, NOW)
+    assert {r.name: r.timing for r in rows} == {
+        "計測中": True,
+        "停止": False,
+        "一時停止": False,
+    }
+
+
 def test_today_plan_treats_midnight_end_as_the_previous_day() -> None:
     task = planned(
         "昨日まで", planned_end=datetime(2026, 10, 7, 0), planned_end_manual=True

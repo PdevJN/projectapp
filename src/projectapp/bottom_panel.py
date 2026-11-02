@@ -22,6 +22,21 @@ from projectapp.models import Status
 from projectapp.tipchips import name_chips_tooltip
 
 TABS = {"today": "今日の予定", "legend": "凡例"}
+TIMING_ICON = "radio_button_checked"
+# 計測中の行: 左の太い線・薄い背景・太字・点滅するアイコン(色は状態色 --scolor)
+TIMING_CSS = """
+.bottom-today-timing {
+  border-left: 3px solid var(--scolor);
+  background: color-mix(in srgb, var(--scolor) 12%, transparent);
+  font-weight: bold;
+  padding-left: 4px;
+}
+.bottom-today-timing .bottom-timing-icon { animation: bottom-timing-blink 1.2s ease-in-out infinite; }
+@keyframes bottom-timing-blink { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) {
+  .bottom-today-timing .bottom-timing-icon { animation: none; }
+}
+"""
 CELL_STYLE = "text-align: center; padding: 1px 2px; font-size: 12px; overflow: hidden"
 DEFAULT_LAYOUT = AssignmentLayout(160, 40)
 
@@ -81,6 +96,7 @@ class BottomPanel:
         self.tab = "today"  # 保存しない。開くたびに今日の予定
 
     def build(self) -> None:
+        ui.add_css(TIMING_CSS)
         with (
             ui.element("div")
             .classes("w-full h-full")
@@ -223,15 +239,22 @@ class BottomPanel:
             for row in rows:
                 progress = "" if row.progress is None else f" {row.progress}%"
                 end = "" if row.end is None else f" 〜{row.end:%m/%d %H:%M}"
+                classes = f"items-center gap-1 no-wrap {STATUS_CLASS[row.status]}"
+                if row.timing:
+                    classes += " bottom-today-timing"
                 with (
                     ui.row()
-                    .classes(f"items-center gap-1 no-wrap {STATUS_CLASS[row.status]}")
+                    .classes(classes)
                     .style("color: var(--scolor)")
                     .mark("bottom-today-row")
                 ):
-                    ui.icon(STATUS_ICON[row.status], size="1.2em").classes(
-                        STATUS_CLASS[row.status]
-                    ).mark("bottom-today-icon")
+                    icon = ui.icon(
+                        TIMING_ICON if row.timing else STATUS_ICON[row.status],
+                        size="1.2em",
+                    ).classes(STATUS_CLASS[row.status])
+                    if row.timing:
+                        icon.classes("bottom-timing-icon")
+                    icon.mark("bottom-today-icon")
                     ui.label(f"{row.name}({row.assignees}){progress}{end}")
 
     def show_legend(self) -> None:
