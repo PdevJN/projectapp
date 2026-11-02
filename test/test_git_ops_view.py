@@ -11,7 +11,7 @@ from nicegui.testing import User
 from projectapp.calendar import save_cache
 from projectapp.gitops import ChangeStatus, FileChange, GitResult
 from projectapp.gitstate import GitKind, GitState
-from projectapp.views import MainView
+from projectapp.views import GIT_POLL_SECONDS, MainView
 
 CHANGES = [
     FileChange("乙.json", ChangeStatus.MODIFIED),
@@ -376,3 +376,66 @@ async def test_the_refresh_item_reads_again(user: User, tmp_path: Path) -> None:
     reads = fakes.reads
     user.find(marker="git-refresh").click()
     assert await wait_until(lambda: fakes.reads > reads)
+
+
+def git_menu_visible(view: MainView) -> bool:
+    assert view.git_menu_button is not None
+    return view.git_menu_button.visible
+
+
+@pytest.mark.parametrize(
+    ("state", "visible"),
+    [
+        (GitState(GitKind.NOT_REPO), False),
+        (GitState(GitKind.NO_GIT), False),
+        (SYNCED, True),
+    ],
+)
+async def test_the_git_menu_is_shown_only_in_a_work_tree(
+    user: User, tmp_path: Path, state: GitState, visible: bool
+) -> None:
+    view = await open_with(user, tmp_path, Fakes(state))
+    assert git_menu_visible(view) is visible
+
+
+async def test_polling_reads_again_until_a_work_tree_appears(
+    user: User, tmp_path: Path
+) -> None:
+    fakes = Fakes(GitState(GitKind.NOT_REPO))
+    view = await open_with(user, tmp_path, fakes)
+    assert not git_menu_visible(view)
+    fakes.state = SYNCED  # 外で git init した
+    view.poll_git()
+    assert await wait_until(lambda: git_menu_visible(view))
+
+
+async def test_polling_does_not_read_in_a_work_tree_or_while_busy(
+    user: User, tmp_path: Path
+) -> None:
+    fakes = Fakes(SYNCED)
+    view = await open_with(user, tmp_path, fakes)
+    reads = fakes.reads
+    view.poll_git()
+    await asyncio.sleep(0.3)
+    assert fakes.reads == reads
+    view.git_state = GitState(GitKind.NOT_REPO)
+    view.git_busy = True
+    view.poll_git()
+    await asyncio.sleep(0.3)
+    assert fakes.reads == reads
+
+
+def test_the_poll_interval_is_ten_seconds() -> None:
+    assert GIT_POLL_SECONDS == 10.0
+
+
+async def test_polling_does_not_pile_up_while_a_read_is_pending(
+    user: User, tmp_path: Path
+) -> None:
+    fakes = Fakes(GitState(GitKind.NOT_REPO))
+    view = await open_with(user, tmp_path, fakes)
+    view.git_pending = 1
+    reads = fakes.reads
+    view.poll_git()
+    await asyncio.sleep(0.3)
+    assert fakes.reads == reads

@@ -380,6 +380,9 @@ def zoom_js(percent: int) -> str:
 ZOOM_DIRECTIONS = {"zoom_in": 1, "zoom_out": -1, "zoom_reset": 0}
 
 
+GIT_POLL_SECONDS = 10.0  # 作業ツリーでないあいだ、git の状態を読み直す間隔(秒)
+
+
 class MainView:
     """メインパネル。現在のプロジェクトと画面部品を保持する。"""
 
@@ -462,6 +465,9 @@ class MainView:
         self.git_state: GitState = GitState(
             GitKind.NOT_REPO
         )  # 最後に読んだ結果。読むまでは出さない
+        self.git_pending = (
+            0  # 予約したが、まだ終わっていない読み込みの数。定期の読み直しを重ねない
+        )
         self.git_generation = 0  # 読み込みのたびに進める。古い結果を捨てる印
         self.read_changes: Callable[[Path], list[FileChange] | GitResult] = (
             list_changes  # テストで差し替える
@@ -475,6 +481,7 @@ class MainView:
         self.menu_entries: dict[
             str, ui.menu_item
         ] = {}  # メニューの項目(マーカー → 項目)
+        self.git_menu_button: ui.button | None = None  # 作業ツリーでないときは隠す
         self.git_menu_tips: dict[str, ui.tooltip] = {}  # 押せない理由を出すツールチップ
         self.mark_clean()
         self.history = History()  # 元に戻す・やり直しの履歴。保存しても残し、別のプロジェクトに切り替えると捨てる
@@ -3146,7 +3153,7 @@ class MainView:
                 ],
             )
             self.move_menu()
-            self.header_menu(
+            self.git_menu_button = self.header_menu(
                 "Git",
                 "menu-git",
                 [
@@ -3223,6 +3230,7 @@ class MainView:
             )
             self.theme_menu()
             self.update_git_menu()
+            ui.timer(self.git_poll_seconds, self.poll_git)
 
     def move_menu(self) -> None:
         """ヘッダーの`移動`メニュー(ガントチャートの横位置を動かす)。右端はキー。押せないときは理由に替わる。"""
@@ -3268,10 +3276,10 @@ class MainView:
 
     def header_menu(
         self, label: str, marker: str, items: list[MenuItem | Submenu | None]
-    ) -> None:
-        """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(None は水平線)。"""
+    ) -> ui.button:
+        """ヘッダーのメニュー。項目のマーカーは、押す操作を指す(None は水平線)。メニューのボタンを返す。"""
         with (
-            ui.button(label, color=None)
+            button := ui.button(label, color=None)
             .props("unelevated rounded no-caps")
             .classes("app-menu-btn")
             .mark(marker)
@@ -3289,6 +3297,7 @@ class MainView:
                     self.menu_entries[item.marker] = self.menu_entry(
                         item.text, item.icon, item.handler, item.marker, item.key
                     )
+        return button
 
     def submenu_entry(self, sub: Submenu, root: ui.menu) -> None:
         """サブメニューの 1 項目(右端に ›)。中の項目を押すと、入れ子のメニューと親の`root`を閉じる。"""
@@ -3362,7 +3371,9 @@ class MainView:
         return None
 
     def update_git_menu(self) -> None:
-        """Git メニューの項目を、押せるかどうかと、押せない理由のツールチップに合わせる。"""
+        """Git メニューを、作業ツリーのときだけ出す。項目は、押せるかどうかと、押せない理由のツールチップに合わせる。"""
+        if self.git_menu_button is not None:
+            self.git_menu_button.set_visibility(self.git_state.kind is GitKind.OK)
         for action, marker in self.GIT_MENU:
             entry = self.menu_entries[marker]
             reason = self.git_reason(action)
@@ -3591,14 +3602,29 @@ class MainView:
 
     def request_git_refresh(self) -> None:
         """git の状態の読み直しを予約する(ダイアログが閉じても残るよう、タイマーは画面の直下に置く)。"""
+        self.git_pending += 1
         with self.client:
             ui.timer(0, self.refresh_git, once=True)
+
+    git_poll_seconds = GIT_POLL_SECONDS  # テストで差し替える(定期の読み直しを止める)
+
+    def poll_git(self) -> None:
+        """作業ツリーでないあいだだけ、一定間隔で読み直す(外で`git init`したら、メニューとチップが現れる)。"""
+        if (
+            self.git_state.kind is not GitKind.OK
+            and not self.git_busy
+            and not self.git_pending
+        ):
+            self.request_git_refresh()
 
     async def refresh_git(self) -> None:
         """git の状態を読んでチップを更新する。画面は止めない。あとから始めた読み込みがあれば、この結果は捨てる。"""
         self.git_generation += 1
         generation = self.git_generation
-        state = await run.io_bound(self.read_git, self.project_dir)
+        try:
+            state = await run.io_bound(self.read_git, self.project_dir)
+        finally:
+            self.git_pending = max(0, self.git_pending - 1)
         if state is None or generation != self.git_generation:  # None はアプリの終了中
             return
         self.git_state = state
