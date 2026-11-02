@@ -1,0 +1,301 @@
+{
+  "version": 20,
+  "name": "今日の予定の確認",
+  "base_date": "2026-11-02",
+  "daily_hours": 6.5,
+  "work_start": "09:00:00",
+  "members": [
+    {
+      "name": "田中",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "2ee1a0ec",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    }
+  ],
+  "sections": [],
+  "tasks": [
+    {
+      "name": "A 通常(今日にかかる・未着手)",
+      "id": "t0000001",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 8,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "2ee1a0ec",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": "2026-11-04T18:00:00",
+      "planned_end_manual": true,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": []
+    },
+    {
+      "name": "B 計測中(実行中・終了のない区間)",
+      "id": "t0000002",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 8,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "2ee1a0ec",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": "2026-11-04T18:00:00",
+      "planned_end_manual": true,
+      "actuals": [
+        {
+          "start": "2026-11-02T09:00:00",
+          "end": null,
+          "progress": null
+        }
+      ],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": []
+    },
+    {
+      "name": "C 実行中だが計測は止まっている",
+      "id": "t0000003",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 8,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "2ee1a0ec",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": "2026-11-04T18:00:00",
+      "planned_end_manual": true,
+      "actuals": [
+        {
+          "start": "2026-11-02T09:00:00",
+          "end": "2026-11-02T10:00:00",
+          "progress": null
+        }
+      ],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": []
+    },
+    {
+      "name": "D 前倒し・計測中(開始予定 11/05)",
+      "id": "t0000004",
+      "planned_start": "2026-11-05T09:00:00",
+      "effort_hours": 8,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "2ee1a0ec",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": "2026-11-07T18:00:00",
+      "planned_end_manual": true,
+      "actuals": [
+        {
+          "start": "2026-11-02T10:00:00",
+          "end": null,
+          "progress": null
+        }
+      ],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": []
+    },
+    {
+      "name": "E 前倒し・実行中で停止(開始予定 11/05)",
+      "id": "t0000005",
+      "planned_start": "2026-11-05T09:00:00",
+      "effort_hours": 8,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "2ee1a0ec",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": "2026-11-07T18:00:00",
+      "planned_end_manual": true,
+      "actuals": [
+        {
+          "start": "2026-11-02T09:00:00",
+          "end": "2026-11-02T09:30:00",
+          "progress": null
+        }
+      ],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": []
+    },
+    {
+      "name": "F 前倒し・一時停止(開始予定 11/06)",
+      "id": "t0000006",
+      "planned_start": "2026-11-06T09:00:00",
+      "effort_hours": 8,
+      "priority": "中",
+      "status": "一時停止",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "2ee1a0ec",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": "2026-11-07T18:00:00",
+      "planned_end_manual": true,
+      "actuals": [
+        {
+          "start": "2026-11-02T09:00:00",
+          "end": "2026-11-02T09:30:00",
+          "progress": null
+        }
+      ],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": []
+    },
+    {
+      "name": "G 先の未着手(出ない)",
+      "id": "t0000007",
+      "planned_start": "2026-11-05T09:00:00",
+      "effort_hours": 8,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "2ee1a0ec",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": "2026-11-07T18:00:00",
+      "planned_end_manual": true,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": []
+    },
+    {
+      "name": "H 先の終了(出ない)",
+      "id": "t0000008",
+      "planned_start": "2026-11-05T09:00:00",
+      "effort_hours": 8,
+      "priority": "中",
+      "status": "終了",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "2ee1a0ec",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": "2026-11-07T18:00:00",
+      "planned_end_manual": true,
+      "actuals": [
+        {
+          "start": "2026-11-02T09:00:00",
+          "end": "2026-11-02T12:00:00",
+          "progress": null
+        }
+      ],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": []
+    }
+  ],
+  "actual_mode": "simple",
+  "url_templates": [],
+  "parameters": [],
+  "categories": [],
+  "events": [],
+  "teams": [],
+  "reference_mode": "live",
+  "plantuml_overload_notice": true,
+  "ratio_limit_upper": null,
+  "ratio_limit_lower": null
+}
