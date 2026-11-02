@@ -380,7 +380,7 @@ def zoom_js(percent: int) -> str:
 ZOOM_DIRECTIONS = {"zoom_in": 1, "zoom_out": -1, "zoom_reset": 0}
 
 
-GIT_POLL_SECONDS = 10.0  # 作業ツリーでないあいだ、git の状態を読み直す間隔(秒)
+GIT_POLL_SECONDS = 10.0  # git の状態を読み直す間隔(秒)
 
 
 class MainView:
@@ -3609,12 +3609,8 @@ class MainView:
     git_poll_seconds = GIT_POLL_SECONDS  # テストで差し替える(定期の読み直しを止める)
 
     def poll_git(self) -> None:
-        """作業ツリーでないあいだだけ、一定間隔で読み直す(外で`git init`したら、メニューとチップが現れる)。"""
-        if (
-            self.git_state.kind is not GitKind.OK
-            and not self.git_busy
-            and not self.git_pending
-        ):
+        """一定間隔で読み直す(外で`git init`したら現れ、`.git`を消したら消える)。実行中・読み込み中は見送る。"""
+        if not self.git_busy and not self.git_pending:
             self.request_git_refresh()
 
     async def refresh_git(self) -> None:

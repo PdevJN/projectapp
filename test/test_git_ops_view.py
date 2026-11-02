@@ -409,16 +409,21 @@ async def test_polling_reads_again_until_a_work_tree_appears(
     assert await wait_until(lambda: git_menu_visible(view))
 
 
-async def test_polling_does_not_read_in_a_work_tree_or_while_busy(
+async def test_polling_hides_the_menu_when_the_work_tree_disappears(
     user: User, tmp_path: Path
 ) -> None:
     fakes = Fakes(SYNCED)
     view = await open_with(user, tmp_path, fakes)
-    reads = fakes.reads
+    assert git_menu_visible(view)
+    fakes.state = GitState(GitKind.NOT_REPO)  # 外で .git を消した
     view.poll_git()
-    await asyncio.sleep(0.3)
-    assert fakes.reads == reads
-    view.git_state = GitState(GitKind.NOT_REPO)
+    assert await wait_until(lambda: not git_menu_visible(view))
+
+
+async def test_polling_does_not_read_while_busy(user: User, tmp_path: Path) -> None:
+    fakes = Fakes(SYNCED)
+    view = await open_with(user, tmp_path, fakes)
+    reads = fakes.reads
     view.git_busy = True
     view.poll_git()
     await asyncio.sleep(0.3)
