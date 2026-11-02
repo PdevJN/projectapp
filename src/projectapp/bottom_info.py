@@ -1,6 +1,6 @@
 """ガントチャートの下部パネルの内容(要望 95)。NiceGUI に依存しない純粋関数。判定は既存の関数に任せる。"""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 
 from projectapp.dashboard import Span, _day_peak, _progress_weight
@@ -73,6 +73,7 @@ class TodayRow:
     end: datetime | None
     status: Status = Status.NOT_STARTED  # 文字の色分け用
     timing: bool = False  # 実行中で、終了のない実績区間がある(計測中)
+    early_start: datetime | None = None  # 開始予定より前に始めた(予定の開始日時)
 
 
 @dataclass(frozen=True)
@@ -221,9 +222,11 @@ def period_summary(
 
 
 def today_plan(tasks: list[Task], schedule: Schedule, now: datetime) -> list[TodayRow]:
-    """今日が日程にかかる、未終了の通常タスク。完了予定が 0 時ちょうどなら前日までとする。"""
+    """今日が日程にかかる未終了の通常タスク。完了予定が 0 時ちょうどなら前日まで。
+    続けて、開始予定が先なのに始めた(実行中・一時停止の)タスクを、前倒しとして並べる。"""
     today = now.date()
     rows: list[TodayRow] = []
+    early: list[TodayRow] = []
     for task in tasks:
         if task.kind is not TaskKind.NORMAL or task.status is Status.DONE:
             continue
@@ -235,19 +238,22 @@ def today_plan(tasks: list[Task], schedule: Schedule, now: datetime) -> list[Tod
             if end.time() == time(0)
             else end.date()
         )
+        timing = task.status is Status.RUNNING and any(
+            a.end is None for a in task.actuals
+        )
+        row = TodayRow(
+            task.name,
+            "・".join(task.assignee_names) or DASH,
+            task.progress,
+            end,
+            task.status,
+            timing,
+        )
         if start.date() <= today <= last:
-            rows.append(
-                TodayRow(
-                    task.name,
-                    "・".join(task.assignee_names) or DASH,
-                    task.progress,
-                    end,
-                    task.status,
-                    task.status is Status.RUNNING
-                    and any(a.end is None for a in task.actuals),
-                )
-            )
-    return rows
+            rows.append(row)
+        elif start.date() > today and task.status in (Status.RUNNING, Status.PAUSED):
+            early.append(replace(row, early_start=start))
+    return rows + early
 
 
 LEGEND = [

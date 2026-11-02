@@ -205,6 +205,33 @@ async def test_a_timing_today_row_is_highlighted_apart_from_other_running(
     assert names == sorted(["play_circle", "radio_button_checked"])
 
 
+async def test_an_early_started_today_row_shows_the_planned_start(user: User) -> None:
+    from projectapp.bottom_info import TodayRow
+
+    @ui.page("/")
+    def index() -> None:
+        panel = BottomPanel()
+        panel.build()
+        end = datetime(2026, 10, 14, 18)
+        today = [
+            TodayRow(
+                "前倒し",
+                "田中",
+                None,
+                end,
+                Status.RUNNING,
+                False,
+                datetime(2026, 10, 12, 9),
+            ),
+            TodayRow("通常", "鈴木", None, end, Status.RUNNING),
+        ]
+        panel.update(PanelContent(None, SUMMARY, today))
+
+    await user.open("/")
+    await user.should_see("前倒し(開始予定 10/12)")
+    await user.should_not_see("通常(鈴木) 〜10/14 18:00 ・前倒し")
+
+
 TABLE = AssignmentTable(
     ["10/5", "10/6", "10/7"],
     [

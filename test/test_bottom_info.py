@@ -209,6 +209,24 @@ def test_today_plan_marks_running_tasks_with_an_open_actual_as_timing() -> None:
     }
 
 
+def test_today_plan_appends_running_or_paused_tasks_that_started_early() -> None:
+    later = datetime(2026, 10, 12, 9)
+    kw = {"planned_start": later, "planned_end": datetime(2026, 10, 14, 18)}
+    kw["planned_end_manual"] = True
+    today = planned(
+        "通常", planned_end=datetime(2026, 10, 8, 12), planned_end_manual=True
+    )
+    running = planned("実行中", status=Status.RUNNING, **kw)
+    paused = planned("停止", status=Status.PAUSED, **kw)
+    waiting = planned("未着手", **kw)
+    done = planned("終了", status=Status.DONE, **kw)
+    tasks = [running, waiting, today, paused, done]
+    project, schedule = env(*tasks)
+    rows = today_plan(tasks, schedule, NOW)
+    assert [r.name for r in rows] == ["通常", "実行中", "停止"]
+    assert [r.early_start for r in rows] == [None, later, later]
+
+
 def test_today_plan_treats_midnight_end_as_the_previous_day() -> None:
     task = planned(
         "昨日まで", planned_end=datetime(2026, 10, 7, 0), planned_end_manual=True
