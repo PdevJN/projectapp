@@ -358,7 +358,13 @@ body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, v
 .app-title { font-size: 12px; font-weight: 700; white-space: nowrap; }
 .app-header .app-menu-btn { background: var(--app-header-chip, rgba(255, 255, 255, 0.18)); padding: 0 14px; }
 .app-header .app-menu-btn:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }
-.app-menu .q-item { font-size: 12px; min-height: 32px; }
+.app-menu .q-item { font-size: 12px; min-height: 26px; padding: 2px 12px; }
+.app-menu .q-separator { margin: 2px 0; }
+.app-menu .q-item { white-space: nowrap; }
+.app-menu .q-item__section--avatar { min-width: 0; padding-right: 8px; }
+.app-menu .q-item__section--avatar .q-icon { font-size: 18px; }
+.app-menu .q-item__section--side .q-icon { font-size: 18px; }
+.app-menu .q-item__section--main ~ .q-item__section--side { padding-left: 12px; }
 .app-git-chip { flex: none; font-size: 10px; line-height: 1; padding: 4px 8px; border-radius: 9999px; background: var(--app-header-chip, rgba(255, 255, 255, 0.18)); white-space: nowrap; cursor: pointer; }
 .app-git-chip:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }
 .app-git-chip.app-git-dirty { background: #ffd54f; color: #3e2723; }
@@ -3240,7 +3246,7 @@ class MainView:
             .classes("app-menu-btn")
             .mark("menu-move")
         ):
-            with ui.menu().props("content-class=app-menu").mark("menu-move-items"):
+            with ui.menu().classes("app-menu").mark("menu-move-items"):
                 for action, key, label, icon, handler in (
                     ("go_today", "today", "当日", "today", self.go_today),
                     ("go_base", "base", "基準日", "flag", self.go_base),
@@ -3284,9 +3290,7 @@ class MainView:
             .classes("app-menu-btn")
             .mark(marker)
         ):
-            with (
-                ui.menu().props("content-class=app-menu").mark(f"{marker}-items")
-            ) as root:
+            with ui.menu().classes("app-menu").mark(f"{marker}-items") as root:
                 for item in items:
                     if item is None:
                         ui.separator().mark(f"{marker}-separator")
@@ -3309,7 +3313,8 @@ class MainView:
                 ui.icon("chevron_right")
             with (
                 ui.menu()
-                .props('anchor="top end" self="top start" content-class=app-menu')
+                .props('anchor="top end" self="top start"')
+                .classes("app-menu")
                 .mark(f"{sub.marker}-items")
             ):
                 for item in sub.items:
@@ -3670,7 +3675,7 @@ class MainView:
             .tooltip("テーマ")
             .mark("menu-theme")
         ):
-            with ui.menu().props("content-class=app-menu").mark("menu-theme-items"):
+            with ui.menu().classes("app-menu").mark("menu-theme-items"):
                 for theme in THEMES:
                     item = self.menu_entry(
                         THEME_LABELS[theme],

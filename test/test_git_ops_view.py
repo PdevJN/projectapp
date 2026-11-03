@@ -444,3 +444,19 @@ async def test_polling_does_not_pile_up_while_a_read_is_pending(
     view.poll_git()
     await asyncio.sleep(0.3)
     assert fakes.reads == reads
+
+
+async def test_header_menus_carry_the_app_menu_class(
+    user: User, tmp_path: Path
+) -> None:
+    """`content-class`の props は属性になるだけでクラスが付かない。CSS の対象にするには`classes`で付ける。"""
+    await open_with(user, tmp_path, Fakes())
+    for marker in (
+        "menu-file-items",
+        "menu-git-items",
+        "menu-move-items",
+        "menu-theme-items",
+        "file-import-items",
+    ):
+        menu = user.find(marker=marker).elements.pop()
+        assert "app-menu" in menu.classes, marker
