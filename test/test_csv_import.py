@@ -11,7 +11,13 @@ from projectapp.csv_import import (
     read_table,
     summary,
 )
-from projectapp.csv_import import sniff_table
+from projectapp.csv_import import (
+    cell_ok,
+    parse_datetime,
+    parse_effort,
+    parse_status,
+    sniff_table,
+)
 from projectapp.csv_profile import CsvColumn, CsvField, CsvProfile
 from projectapp.models import Status, Task
 from projectapp.timeline import effective_end
@@ -421,3 +427,174 @@ def test_sniff_table_honours_explicit_choices() -> None:
 def test_sniff_table_rejects_undecodable_data() -> None:
     with pytest.raises(CsvImportError):
         sniff_table(b"\xff\xfe\x00\x81")
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        ("8", 8.0),
+        ("8.5", 8.5),
+        ("8h", 8.0),
+        ("8.5時間", 8.5),
+        (" 12 ", 12.0),
+        ("0", None),
+        ("-1", None),
+        ("abc", None),
+        ("10001", None),
+        ("", None),
+    ],
+)
+def test_parse_effort(text: str, want: float | None) -> None:
+    assert parse_effort(text) == want
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        ("未着手", Status.NOT_STARTED),
+        ("実行中", Status.RUNNING),
+        ("一時停止", Status.PAUSED),
+        ("終了", Status.DONE),
+        ("Done", Status.DONE),
+        ("in progress", Status.RUNNING),
+        ("on hold", Status.PAUSED),
+        ("Not Started", Status.NOT_STARTED),
+        ("???", None),
+    ],
+)
+def test_parse_status(text: str, want: Status | None) -> None:
+    assert parse_status(text) == want
+
+
+def test_parse_datetime_accepts_date_and_time() -> None:
+    assert parse_datetime("2026-10-05 09:30") == datetime(2026, 10, 5, 9, 30)
+    assert parse_datetime("2026/10/5T9:05") == datetime(2026, 10, 5, 9, 5)
+    assert parse_datetime("2026-10-05") == datetime(2026, 10, 5)
+    assert parse_datetime("きのう") is None
+
+
+def test_cell_ok_flags_unreadable_values_only() -> None:
+    assert cell_ok(CsvField.START, "") and cell_ok(CsvField.START, "2026-10-05")
+    assert not cell_ok(CsvField.START, "あした")
+    assert not cell_ok(CsvField.EFFORT, "x") and not cell_ok(CsvField.STATUS, "x")
+    assert cell_ok(CsvField.TITLE, "なんでも")
+
+
+FULL = custom(
+    (CsvField.TITLE, "件名"),
+    (CsvField.OWNER, "担当"),
+    (CsvField.START, "開始"),
+    (CsvField.END, "期限"),
+    (CsvField.EFFORT, "工数"),
+    (CsvField.STATUS, "状態"),
+    (CsvField.ACTUAL_START, "実績開始"),
+    (CsvField.ACTUAL_END, "実績終了"),
+    (CsvField.CATEGORY, "区分"),
+    delimiter=",",
+    owner_separator=";",
+)
+FULL_HEADER = "件名,担当,開始,期限,工数,状態,実績開始,実績終了,区分"
+
+
+def run(*lines: str) -> CsvImport:
+    return parse_csv(
+        "\n".join([FULL_HEADER, *lines]), "x", {}, profile=FULL, delimiter=","
+    )
+
+
+def test_multiple_owners_are_split_by_the_profile_separator() -> None:
+    result = run("A,田中; 鈴木 ;,,,,,,,")
+    task = result.project.all_tasks()[0]
+    assert task.assignee_names == ["田中", "鈴木"]
+    assert all(a.allocation == 1.0 for a in task.assignees)
+    assert [m.name for m in result.project.members] == ["田中", "鈴木"]
+
+
+def test_an_empty_separator_keeps_the_whole_value_as_one_name() -> None:
+    p = custom(
+        (CsvField.TITLE, "件名"),
+        (CsvField.OWNER, "担当"),
+        delimiter=",",
+        owner_separator="",
+    )
+    result = parse_csv("件名,担当\nA,田中;鈴木\n", "x", {}, profile=p, delimiter=",")
+    assert result.project.all_tasks()[0].assignee_names == ["田中;鈴木"]
+
+
+def test_effort_wins_over_the_period_and_keeps_the_deadline() -> None:
+    result = run("A,田中,2026-10-05,2026-10-09,3,,,,")
+    task = result.project.all_tasks()[0]
+    assert task.effort_hours == 3.0 and task.planned_end_manual
+    assert task.planned_end is not None
+    assert task.planned_end.date() == date(2026, 10, 9)
+
+
+def test_status_wins_over_progress_and_done_sets_full_progress() -> None:
+    p = custom(
+        (CsvField.TITLE, "件名"),
+        (CsvField.PROGRESS, "率"),
+        (CsvField.STATUS, "状態"),
+        delimiter=",",
+    )
+    result = parse_csv(
+        "件名,率,状態\nA,10%,終了\nB,,未着手\nC,50,実行中\n",
+        "x",
+        {},
+        profile=p,
+        delimiter=",",
+    )
+    a, b, c = result.project.all_tasks()
+    assert (a.status, a.progress) == (Status.DONE, 100)
+    assert (b.status, b.progress) == (Status.NOT_STARTED, None)
+    assert (c.status, c.progress) == (Status.RUNNING, 50)
+
+
+def test_actuals_make_one_interval_and_date_only_uses_work_hours() -> None:
+    result = run(
+        "A,田中,,,,,2026-10-05,2026-10-06,",
+        "B,田中,,,,,2026-10-05 10:00,2026-10-05 12:30,",
+    )
+    a, b = result.project.all_tasks()
+    assert len(a.actuals) == 1
+    assert a.actuals[0].start == datetime(2026, 10, 5, 9, 0)
+    assert a.actuals[0].end is not None
+    assert a.actuals[0].end.date() == date(2026, 10, 6)
+    assert b.actuals[0].start == datetime(2026, 10, 5, 10, 0)
+    assert b.actuals[0].end == datetime(2026, 10, 5, 12, 30)
+
+
+def test_bad_actuals_are_skipped_and_counted() -> None:
+    result = run(
+        "A,田中,,,,,,2026-10-06,",
+        "B,田中,,,,,2026-10-06,2026-10-05,",
+        "C,田中,,,x,ぶ,,,",
+    )
+    assert all(not t.actuals for t in result.project.all_tasks())
+    assert (
+        result.invalid_values == 4
+    )  # 終了だけ・終了が開始より前・読めない工数・読めない状態
+
+
+def test_an_open_actual_marks_the_task_running() -> None:
+    result = run("A,田中,,,,,2026-10-05 10:00,,")
+    task = result.project.all_tasks()[0]
+    assert task.status is Status.RUNNING and task.actuals[0].end is None
+
+
+def test_categories_are_created_once_by_name() -> None:
+    result = run(
+        "A,田中,,,,,,,開発",
+        "B,田中,,,,,,,開発",
+        "C,田中,,,,,,,運用",
+        "D,田中,,,,,,,",
+    )
+    cats = result.project.categories
+    assert [c.name for c in cats] == ["開発", "運用"]
+    a, b, c, d = result.project.all_tasks()
+    assert a.category_id == b.category_id == cats[0].id
+    assert c.category_id == cats[1].id and d.category_id is None
+
+
+def test_summary_mentions_unreadable_values() -> None:
+    result = run("C,田中,,,x,,,,")
+    assert "読めない値 1 件" in summary(result)

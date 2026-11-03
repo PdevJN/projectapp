@@ -5,7 +5,7 @@ import io
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from projectapp import clock
@@ -18,10 +18,13 @@ from projectapp.csv_profile import (
     resolve_columns,
 )
 from projectapp.models import (
+    MAX_CATEGORY_NAME_LENGTH,
     MAX_SECTION_DEPTH,
     MAX_YEAR,
     MIN_YEAR,
+    Actual,
     Assignee,
+    Category,
     Member,
     Project,
     Section,
@@ -71,6 +74,7 @@ class CsvImport:
     dropped_values: (
         int  # セクションにした行で、日付・オーナー・完了率を取り込まなかった行の数
     )
+    invalid_values: int = 0  # 読めない工数・状態・実績と、入れなかった実績の数
 
 
 def _plain(text: str) -> str:
@@ -107,6 +111,77 @@ def parse_percent(text: str) -> int | None:
     return int(found.group(1))
 
 
+MAX_EFFORT_HOURS = 10000
+_EFFORT = re.compile(r"(\d+(?:\.\d+)?)\s*(?:h|時間)?", re.IGNORECASE)
+_DATETIME = re.compile(r"(.+?)(?:[T\s]+(\d{1,2}):(\d{2}))?")
+STATUS_WORDS = {
+    "未着手": Status.NOT_STARTED,
+    "notstarted": Status.NOT_STARTED,
+    "todo": Status.NOT_STARTED,
+    "実行中": Status.RUNNING,
+    "inprogress": Status.RUNNING,
+    "running": Status.RUNNING,
+    "一時停止": Status.PAUSED,
+    "onhold": Status.PAUSED,
+    "paused": Status.PAUSED,
+    "終了": Status.DONE,
+    "完了": Status.DONE,
+    "done": Status.DONE,
+    "complete": Status.DONE,
+    "completed": Status.DONE,
+}
+
+
+def parse_effort(text: str) -> float | None:
+    """`8`・`8.5`・`8h`・`8.5時間` を時間で読む。0 以下・1 万時間超・読めない値は None。"""
+    found = _EFFORT.fullmatch(_plain(text))
+    if found is None:
+        return None
+    value = float(found.group(1))
+    return value if 0 < value <= MAX_EFFORT_HOURS else None
+
+
+def parse_status(text: str) -> Status | None:
+    return STATUS_WORDS.get(header_key(text))
+
+
+def date_only(text: str) -> bool:
+    return not re.search(r"\d{1,2}:\d{2}", _plain(text))
+
+
+def parse_datetime(text: str) -> datetime | None:
+    """`2026-10-05`・`2026-10-05 09:30`・`2026/10/5T9:05` を読む。日付だけは 0 時。読めなければ None。"""
+    found = _DATETIME.fullmatch(_plain(text))
+    if found is None:
+        return None
+    day = parse_date(found.group(1))
+    if day is None:
+        return None
+    if found.group(2) is None:
+        return datetime.combine(day, time(0))
+    hour, minute = int(found.group(2)), int(found.group(3))
+    if hour >= 24 or minute >= 60:
+        return None
+    return datetime.combine(day, time(hour, minute))
+
+
+def cell_ok(field_: CsvField, text: str) -> bool:
+    """プレビューで読めない値を示すための検査。空は読める。"""
+    if not text.strip():
+        return True
+    if field_ in (CsvField.START, CsvField.END):
+        return parse_date(text) is not None
+    if field_ is CsvField.PROGRESS:
+        return parse_percent(text) is not None
+    if field_ is CsvField.EFFORT:
+        return parse_effort(text) is not None
+    if field_ is CsvField.STATUS:
+        return parse_status(text) is not None
+    if field_ in (CsvField.ACTUAL_START, CsvField.ACTUAL_END):
+        return parse_datetime(text) is not None
+    return True
+
+
 def _status(progress: int) -> Status:
     if progress == 0:
         return Status.NOT_STARTED
@@ -121,10 +196,25 @@ class _Row:
     start: str
     end: str
     progress: str
+    effort: str = ""
+    status: str = ""
+    actual_start: str = ""
+    actual_end: str = ""
+    category: str = ""
 
     @property
     def blank_fields(self) -> bool:
-        return not (self.owner or self.start or self.end or self.progress)
+        return not (
+            self.owner
+            or self.start
+            or self.end
+            or self.progress
+            or self.effort
+            or self.status
+            or self.actual_start
+            or self.actual_end
+            or self.category
+        )
 
     @property
     def section_depth(self) -> int | None:
@@ -185,13 +275,27 @@ def _rows(
             cell(CsvField.START),
             cell(CsvField.END),
             cell(CsvField.PROGRESS),
+            cell(CsvField.EFFORT),
+            cell(CsvField.STATUS),
+            cell(CsvField.ACTUAL_START),
+            cell(CsvField.ACTUAL_END),
+            cell(CsvField.CATEGORY),
         )
         rows.append(row if tidy_task_name(row.title) else None)
     return rows
 
 
 class _Builder:
-    def __init__(self, name: str, holidays: dict[date, str], today: date) -> None:
+    def __init__(
+        self,
+        name: str,
+        holidays: dict[date, str],
+        today: date,
+        profile: CsvProfile = SMARTSHEET,
+    ) -> None:
+        self.profile = profile
+        self.categories: dict[str, Category] = {}
+        self.invalid_values = 0
         self.project = Project(name)
         self.holidays = holidays
         self.today = today
@@ -238,12 +342,87 @@ class _Builder:
                 self.invalid_progress += 1
             else:
                 task.status, task.progress = _status(value), value or None
-        owner = tidy_task_name(row.owner)
-        if owner:
-            task.assignees = [Assignee(owner, 1.0)]
+        for owner in self.owners(row.owner):
+            task.assignees.append(Assignee(owner, 1.0))
             self.member(owner)
         self.schedule(task, row)
+        self.apply_effort(task, row)
+        self.apply_status(task, row)
+        self.apply_actuals(task, row)
+        self.apply_category(task, row)
         (self.stack[-1].tasks if self.stack else self.project.tasks).append(task)
+
+    def owners(self, text: str) -> list[str]:
+        sep = self.profile.owner_separator
+        found: list[str] = []
+        for name in (tidy_task_name(n) for n in (text.split(sep) if sep else [text])):
+            if name and name not in found:
+                found.append(name)
+        return found
+
+    def apply_effort(self, task: Task, row: _Row) -> None:
+        if not row.effort:
+            return
+        hours = parse_effort(row.effort)
+        if hours is None:
+            self.invalid_values += 1
+            return
+        task.effort_hours = hours
+        end = parse_date(row.end) if row.end else None
+        if end is not None:  # 期限は守る: 完了予定を手で指定する
+            task.planned_end_manual = True
+            task.planned_end = datetime.combine(
+                end, self.project.work_start
+            ) + timedelta(hours=self.project.daily_hours)
+
+    def apply_status(self, task: Task, row: _Row) -> None:
+        if not row.status:
+            return
+        status = parse_status(row.status)
+        if status is None:
+            self.invalid_values += 1
+            return
+        task.status = status
+        if status is Status.DONE:
+            task.progress = 100
+        elif status is Status.NOT_STARTED:
+            task.progress = None
+
+    def apply_actuals(self, task: Task, row: _Row) -> None:
+        if not (row.actual_start or row.actual_end):
+            return
+        start = parse_datetime(row.actual_start) if row.actual_start else None
+        end = parse_datetime(row.actual_end) if row.actual_end else None
+        bad = (
+            bool(row.actual_start and start is None)
+            or bool(row.actual_end and end is None)
+            or (end is not None and start is None)
+            or (start is not None and end is not None and end < start)
+        )
+        if bad or start is None:
+            self.invalid_values += 1
+            return
+        project = self.project
+        if date_only(row.actual_start):
+            start = datetime.combine(start.date(), project.work_start)
+        if end is not None and date_only(row.actual_end):
+            end = datetime.combine(end.date(), project.work_start) + timedelta(
+                hours=project.daily_hours
+            )
+            end = max(end, start)
+        task.actuals = [Actual(start, end)]
+        if end is None and task.status in (Status.NOT_STARTED, Status.DONE):
+            task.status = Status.RUNNING  # 進行中の区間があるのに未着手・終了は食い違う
+
+    def apply_category(self, task: Task, row: _Row) -> None:
+        name = tidy_task_name(row.category)[:MAX_CATEGORY_NAME_LENGTH]
+        if not name:
+            return
+        if name not in self.categories:
+            category = Category(name, id=self.fresh())
+            self.categories[name] = category
+            self.project.categories.append(category)
+        task.category_id = self.categories[name].id
 
     def member(self, name: str) -> None:
         if name not in self.members:
@@ -300,7 +479,7 @@ def parse_csv(
 ) -> CsvImport:
     """CSV・TSV のテキストから、新規プロジェクトを作る。取り込めなければ `CsvImportError`。
     `holidays` は稼働日数の数え方に使う。`today` は、日付がまったくないときの基準日(省略は今日)。"""
-    builder = _Builder(name, holidays, today or clock.today())
+    builder = _Builder(name, holidays, today or clock.today(), profile)
     skipped = 0
     for row in _rows(text, profile, delimiter, header_row):
         if row is None:
@@ -323,6 +502,7 @@ def parse_csv(
         builder.unresolved,
         builder.invalid_progress,
         builder.dropped,
+        builder.invalid_values,
     )
 
 
@@ -342,6 +522,7 @@ def summary(result: CsvImport) -> str:
         f"セクションの行の値を取り込まなかった行 {result.dropped_values} 行"
         if result.dropped_values
         else "",
+        f"読めない値 {result.invalid_values} 件" if result.invalid_values else "",
     ]
     detail = "、".join(note for note in notes if note)
     return f"取り込みました({head})" + (f"。{detail}" if detail else "")
