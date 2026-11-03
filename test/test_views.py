@@ -9285,3 +9285,26 @@ async def test_assigning_an_unassigned_task_from_the_dashboard_is_one_undo_step(
     with user.client:
         view.undo()
     assert view.project.tasks[0].assignees == []
+
+
+async def test_assigning_after_the_project_changed_under_the_dialog_does_nothing(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path, with_task=False)
+    view.project.members = [Member("田中", 1.0)]
+    view.project.tasks = [Task("設計", effort_hours=4.0)]
+    view.mark_clean()
+    view.committed = deepcopy(view.project)
+    task_id = view.project.tasks[0].id
+    with user.client:
+        view.open_dashboard()
+        view.assign_from_dashboard(task_id)
+    await user.should_see(marker="assign-member-田中")
+    view.project = deepcopy(
+        view.project
+    )  # 差し替わっても、同じ id のタスクを引き直して入る
+    view.project.tasks[0].assignees = [Assignee("田中")]  # 別の経路で担当が入った
+    before = len(view.history.undo_stack)
+    user.find(marker="assign-member-田中").click()
+    assert len(view.project.tasks[0].assignees) == 1  # 二重に入らない
+    assert len(view.history.undo_stack) == before  # 履歴にも積まれない

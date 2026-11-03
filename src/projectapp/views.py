@@ -1566,17 +1566,25 @@ class MainView:
         self.refresh_dashboard()
 
     def assign_from_dashboard(self, task_id: str) -> None:
-        """ダッシュボードの`担当なし`のタスクに、選んだメンバーを割り当率 100% で入れる(要望 39)。Undo の履歴に積む。"""
+        """ダッシュボードの`担当なし`のタスクに、選んだメンバーを割り当て率 100% で入れる(要望 39)。Undo の履歴に積む。"""
         task = self.project.task_map().get(task_id)
         if task is None or task.assignees:
             return
 
         def apply(name: str) -> None:
-            if task.assignees:
+            # ダイアログを開いている間に、Undo・再読み込みなどで差し替わることがあるので引き直す
+            current = self.project.task_map().get(task_id)
+            if (
+                current is None
+                or current.assignees
+                or name not in {m.name for m in self.project.members}
+            ):
+                ui.notify("タスクが変わったため、割り当てませんでした", type="warning")
+                self.refresh_dashboard(sync_field=False)
                 return
-            task.assignees = [Assignee(name)]
+            current.assignees = [Assignee(name)]
             self.after_edit()
-            self.warn_overallocation(task)
+            self.warn_overallocation(current)
             self.refresh_dashboard(sync_field=False)
 
         open_assign_dialog(task.name, self.project.members, apply)

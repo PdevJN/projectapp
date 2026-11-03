@@ -828,6 +828,7 @@ class DashboardView:
     def unassigned_row(self, progress: Progress) -> None:
         """`担当なし n 件`の行。ふだんはマウスオーバーでタスク名を見せるだけ。`割り当てを編集`をオンにすると、押して担当を選べる(要望 39)。"""
         if not progress.unassigned:
+            self.assign_mode = False  # 対象がなくなったら、次に増えたときはオフから
             return
         with ui.row().classes("w-full items-center gap-2"):
             with ui.row().classes("items-center no-wrap gap-1"):
