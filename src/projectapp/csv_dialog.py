@@ -424,11 +424,18 @@ def open_csv_export_dialog(
                 "use": True,
                 "header": c.header,
                 "template": c.template,
+                "tmpl_on": bool(c.template),
             }
             for c in profile.columns
         ]
         rest = [
-            {"field": f, "use": False, "header": FIELD_LABELS[f], "template": ""}
+            {
+                "field": f,
+                "use": False,
+                "header": FIELD_LABELS[f],
+                "template": "",
+                "tmpl_on": False,
+            }
             for f in EXPORT_FIELDS
             if f not in profile.all_fields
         ]
@@ -517,11 +524,18 @@ def open_csv_export_dialog(
                     ).props("dense outlined").classes("grow").mark(
                         f"csv-ex-header-{field.value}"
                     )
+                    ui.checkbox(
+                        "書式",
+                        value=row["tmpl_on"],
+                        on_change=lambda e, r=row: toggle_template(r, e.value),
+                    ).mark(f"csv-ex-tmpl-on-{field.value}")
                     ui.input(
                         value=row["template"],
-                        placeholder="書式(例 {開始日}〜{期限})",
+                        placeholder="例 {開始日}/{期限}: {タスク名}",
                         on_change=lambda e, r=row: edit_template(r, e.value),
-                    ).props("dense outlined").classes("min-w-[12rem]").mark(
+                    ).props("dense outlined").classes(
+                        "min-w-[14rem]"
+                    ).bind_enabled_from(row, "tmpl_on").mark(
                         f"csv-ex-template-{field.value}"
                     )
                     ui.button(
@@ -546,7 +560,7 @@ def open_csv_export_dialog(
     def problem() -> str | None:
         chosen = [r for r in rows if r["use"]]
         for r in chosen:
-            if r["template"]:
+            if r["tmpl_on"] and r["template"]:
                 found = template_problem(str(r["template"]))
                 if found:
                     return f"{FIELD_LABELS[r['field']]}の{found}"
@@ -564,7 +578,7 @@ def open_csv_export_dialog(
         for r in rows:
             if not r["use"]:
                 continue
-            template = str(r["template"])
+            template = str(r["template"]) if r["tmpl_on"] else ""
             if template and template_problem(template) is None:
                 anchor = template_fields(template)[0]  # 書式の最初の項目が列の項目
             else:
@@ -585,8 +599,30 @@ def open_csv_export_dialog(
         row["header"] = value or ""
         refresh_state()
 
+    def absorb(row: dict) -> None:
+        """書式に入れた項目は、ほかの列から外す(書式を 1 つ入れるだけで済ませる)。"""
+        template = str(row["template"])
+        if not (row["tmpl_on"] and template and template_problem(template) is None):
+            return
+        covered = set(template_fields(template))
+        changed = False
+        for other in rows:
+            if other is not row and other["use"] and other["field"] in covered:
+                other["use"] = False
+                changed = True
+        if changed:
+            columns_table.refresh()
+
     def edit_template(row: dict, value: str) -> None:
         row["template"] = (value or "").strip()
+        absorb(row)
+        refresh_state()
+
+    def toggle_template(row: dict, value: bool) -> None:
+        row["tmpl_on"] = bool(value)
+        if value:
+            row["use"] = True
+        absorb(row)
         refresh_state()
 
     def drop(target: int) -> None:

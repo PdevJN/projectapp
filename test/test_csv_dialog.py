@@ -226,27 +226,26 @@ async def test_a_template_in_the_export_dialog_makes_a_combined_column(
     user: User,
 ) -> None:
     exported, _ = await open_export(user)
-    for field in ("start", "end", "duration"):  # 書式に入れる項目は、別の列から外す
-        user.find(marker=f"csv-ex-use-{field}").elements.pop().set_value(False)
+    user.find(marker="csv-ex-tmpl-on-start").elements.pop().set_value(True)
     user.find(marker="csv-ex-template-start").elements.pop().set_value(
         "{開始日}〜{期限}"
     )
-    user.find(marker="csv-ex-use-start").elements.pop().set_value(True)
     user.find(marker="csv-ex-keep-sep").elements.pop().set_value(True)
     user.find(marker="csv-export-confirm").click()
     column = next(c for c in exported[0].columns if c.template)
     assert column.template == "{開始日}〜{期限}" and column.field is CsvField.START
     assert exported[0].keep_separators is True
+    fields = [f for c in exported[0].columns for f in c.fields]
+    assert fields.count(CsvField.END) == 1  # 期限の列は自動で外れる
 
 
-async def test_a_field_in_a_template_and_in_its_own_column_is_refused(
-    user: User,
-) -> None:
-    await open_export(user)
+async def test_the_template_is_ignored_while_its_checkbox_is_off(user: User) -> None:
+    exported, _ = await open_export(user)
     user.find(marker="csv-ex-template-start").elements.pop().set_value(
         "{開始日}〜{期限}"
     )
-    assert not user.find(marker="csv-export-confirm").elements.pop().enabled
+    user.find(marker="csv-export-confirm").click()
+    assert not any(c.template for c in exported[0].columns)
 
 
 async def test_a_template_in_the_import_dialog_splits_one_column(user: User) -> None:
@@ -269,3 +268,21 @@ async def test_an_invalid_template_is_not_applied(user: User) -> None:
     user.find(marker="csv-template-start").elements.pop().set_value("{開始日}{期限}")
     user.find(marker="csv-import-confirm").click()
     assert not any(c.template for c in chosen[0][0].profile.columns)
+
+
+async def test_one_template_takes_its_fields_out_of_the_other_columns(
+    user: User,
+) -> None:
+    exported, _ = await open_export(user)
+    user.find(marker="csv-ex-tmpl-on-title").elements.pop().set_value(True)
+    user.find(marker="csv-ex-template-title").elements.pop().set_value(
+        "{開始日}/{期限}: {タスク名}"
+    )
+    user.find(marker="csv-export-confirm").click()
+    columns = exported[0].columns
+    covered = [f for c in columns for f in c.fields]
+    assert len(covered) == len(set(covered))
+    assert [c.template for c in columns if c.template] == [
+        "{開始日}/{期限}: {タスク名}"
+    ]
+    assert CsvField.START not in [c.field for c in columns if not c.template]
