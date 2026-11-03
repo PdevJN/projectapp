@@ -1,0 +1,98 @@
+from nicegui import ui
+from nicegui.testing import User
+
+from projectapp.csv_dialog import ImportChoice, open_csv_import_dialog
+from projectapp.csv_profile import SMARTSHEET, CsvColumn, CsvField, CsvProfile
+
+DATA = "件名,担当,開始\n設計,田中,2026-10-05\n実装,鈴木,あした\n".encode()
+
+
+async def open_dialog(user: User, data: bytes = DATA, profiles=(), last=None):
+    chosen: list[tuple[ImportChoice, str]] = []
+    saved: list[CsvProfile] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "開く",
+            on_click=lambda: open_csv_import_dialog(
+                data,
+                list(profiles),
+                last,
+                lambda choice, text: chosen.append((choice, text)),
+                lambda p: saved.append(p) or None,
+            ),
+        ).mark("open")
+
+    await user.open("/")
+    user.find(marker="open").click()
+    await user.should_see(marker="csv-import-dialog")
+    return chosen, saved
+
+
+async def test_the_guess_fills_the_mapping_and_import_returns_it(user: User) -> None:
+    chosen, _ = await open_dialog(user)
+    user.find(marker="csv-import-confirm").click()
+    choice, text = chosen[0]
+    assert {c.field: c.header for c in choice.profile.columns} == {
+        CsvField.TITLE: "件名",
+        CsvField.OWNER: "担当",
+        CsvField.START: "開始",
+    }
+    assert choice.delimiter == "," and text.startswith("件名")
+
+
+async def test_import_is_disabled_without_a_title_column(user: User) -> None:
+    await open_dialog(user)
+    user.find(marker="csv-map-title").elements.pop().set_value(-1)
+    assert not user.find(marker="csv-import-confirm").elements.pop().enabled
+
+
+async def test_choosing_the_same_column_twice_clears_the_earlier_field(
+    user: User,
+) -> None:
+    await open_dialog(user)
+    owner = user.find(marker="csv-map-owner").elements.pop()
+    title = user.find(marker="csv-map-title").elements.pop()
+    owner.set_value(title.value)  # 担当にも「件名」の列を選ぶ
+    assert title.value == -1
+
+
+async def test_the_preview_marks_unreadable_cells(user: User) -> None:
+    await open_dialog(user)
+    preview = user.find(marker="csv-preview").elements.pop()
+    reds = [e for e in preview.descendants() if "text-negative" in e.classes]
+    assert [e.text for e in reds] == ["あした"]
+
+
+async def test_a_matching_saved_profile_is_preselected(user: User) -> None:
+    p = CsvProfile(
+        "自作", (CsvColumn(CsvField.TITLE, "件名"), CsvColumn(CsvField.OWNER, "担当"))
+    )
+    await open_dialog(user, profiles=[p])
+    assert user.find(marker="csv-profile").elements.pop().value == "自作"
+
+
+async def test_smartsheet_files_select_the_builtin_profile(user: User) -> None:
+    sheet = (
+        "WBS 番号\tタスクのタイトル\tタスクオーナー\t開始日\t期限\t期間\tタスク完了率\n"
+        "1\tA\t\t\t\t\t\n"
+    ).encode()
+    await open_dialog(user, data=sheet)
+    assert user.find(marker="csv-profile").elements.pop().value == SMARTSHEET.name
+
+
+async def test_cancel_returns_nothing(user: User) -> None:
+    chosen, _ = await open_dialog(user)
+    user.find(marker="csv-cancel").click()
+    assert chosen == []
+
+
+async def test_saving_a_profile_passes_the_current_mapping(user: User) -> None:
+    _, saved = await open_dialog(user)
+    user.find(marker="csv-save-profile").click()
+    await user.should_see(marker="csv-save-name")
+    user.find(marker="csv-save-name").elements.pop().set_value("会社の形式")
+    user.find(marker="csv-save-ok").click()
+    assert [p.name for p in saved] == ["会社の形式"]
+    assert [c.header for c in saved[0].columns] == ["件名", "担当", "開始"]

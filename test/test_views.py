@@ -8167,6 +8167,8 @@ async def test_import_csv_opens_an_unsaved_project(user: User, tmp_path: Path) -
     exporter = FakeExporter(open_path=write_csv(tmp_path))
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-csv").click()
+    await user.should_see(marker="csv-import-confirm")
+    user.find(marker="csv-import-confirm").click()
     assert await wait_until(lambda: view.project.name == "in")
     assert view.path is None and view.is_dirty()  # 保存前の新規。ファイルは作らない
     assert [s.name for s in view.project.sections] == ["1#計画"]
@@ -8176,7 +8178,11 @@ async def test_import_csv_opens_an_unsaved_project(user: User, tmp_path: Path) -
     await user.should_see(
         "取り込みました(タスク 1 件、セクション 1 件、メンバー 1 人を作成)"
     )
-    assert not [f for f in tmp_path.glob("*.json") if f.name != "holidays.json"]
+    assert not [
+        f
+        for f in tmp_path.glob("*.json")
+        if f.name not in ("holidays.json", "config.json")
+    ]
 
 
 async def test_cancelling_the_csv_dialog_changes_nothing(
@@ -8192,10 +8198,11 @@ async def test_cancelling_the_csv_dialog_changes_nothing(
 async def test_import_csv_refuses_a_file_without_the_title_column(
     user: User, tmp_path: Path
 ) -> None:
-    exporter = FakeExporter(open_path=write_csv(tmp_path, "名前\n田中"))
+    exporter = FakeExporter(open_path=write_csv(tmp_path, "メモ\n田中"))
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-csv").click()
-    await user.should_see("取り込めませんでした")
+    await user.should_see(marker="csv-import-dialog")
+    assert not user.find(marker="csv-import-confirm").elements.pop().enabled
     assert view.project.name == "新規プロジェクト" and not view.is_dirty()
 
 
@@ -8219,6 +8226,8 @@ async def test_import_csv_asks_before_dropping_unsaved_edits(
     await user.should_see(marker="unsaved-discard")
     assert exporter.asked_open == []
     user.find(marker="unsaved-discard").click()
+    await user.should_see(marker="csv-import-confirm")
+    user.find(marker="csv-import-confirm").click()
     assert await wait_until(lambda: view.project.name == "in")
 
 
@@ -8230,6 +8239,8 @@ async def test_export_tsv_writes_the_file_without_touching_the_project(
     exporter = FakeExporter(path=target, open_path=write_csv(tmp_path))
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-csv").click()
+    await user.should_see(marker="csv-import-confirm")
+    user.find(marker="csv-import-confirm").click()
     assert await wait_until(lambda: view.project.name == "in")
     dirty = view.is_dirty()
     user.find(marker="export-tsv").click()
