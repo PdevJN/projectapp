@@ -134,3 +134,12 @@ def test_profiles_from_config_drops_only_the_broken_ones() -> None:
     raw = [good, {"name": "壊", "columns": "x"}, 5, dup, {"name": "無題"}]
     assert [p.name for p in profiles_from_config(raw)] == ["良"]
     assert profiles_from_config("x") == [] and profiles_from_config(None) == []
+
+
+def test_progress_percent_defaults_on_and_round_trips() -> None:
+    assert SMARTSHEET.progress_percent is True
+    p = profile((CsvField.TITLE, "件名"), progress_percent=False)
+    assert profile_from_config(profile_to_config(p)) == p
+    old = profile_to_config(profile((CsvField.TITLE, "件名")))
+    del old["progress_percent"]
+    assert profile_from_config(old).progress_percent is True  # type: ignore[union-attr]

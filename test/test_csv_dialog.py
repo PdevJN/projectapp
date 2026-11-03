@@ -213,3 +213,10 @@ async def test_export_option_labels_are_not_truncated(user: User) -> None:
         assert "min-w-[12rem]" in select.classes, marker
     checkbox = user.find(marker="csv-ex-use-owner").elements.pop()
     assert "w-40" not in checkbox.classes and "min-w-[12rem]" in checkbox.classes
+
+
+async def test_the_percent_sign_can_be_turned_off_for_the_export(user: User) -> None:
+    exported, _ = await open_export(user)
+    user.find(marker="csv-ex-percent").elements.pop().set_value(False)
+    user.find(marker="csv-export-confirm").click()
+    assert exported[0].progress_percent is False

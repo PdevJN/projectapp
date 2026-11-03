@@ -148,6 +148,9 @@ class CsvProfile:
     owner_separator: str = (
         ";"  # 複数の担当の区切り。空は 1 人だけ(取り込みは分けず、書き出しは筆頭のみ)
     )
+    progress_percent: bool = (
+        True  # 進捗率の書き出しに % を付ける(取り込みはどちらも読む)
+    )
     blank_rows: int = 0  # 見出しの次に入れる空行の数(Smartsheet のテンプレートだけ)
 
     @property
@@ -263,6 +266,7 @@ def profile_to_config(profile: CsvProfile) -> dict:
         "encoding": profile.encoding,
         "date_format": profile.date_format,
         "owner_separator": profile.owner_separator,
+        "progress_percent": profile.progress_percent,
     }
 
 
@@ -282,6 +286,7 @@ def profile_from_config(raw: object) -> CsvProfile | None:
             str(raw.get("encoding", "utf-8")),
             str(raw.get("date_format", "ymd-dash")),
             str(raw.get("owner_separator", ";")),
+            progress_percent=raw.get("progress_percent", True) is not False,
         )
     except (KeyError, TypeError, ValueError):
         return None

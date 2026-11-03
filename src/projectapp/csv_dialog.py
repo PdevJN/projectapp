@@ -37,6 +37,7 @@ DATE_OPTIONS = {
     "ymd-dash": "2026-10-05",
     "ymd-slash": "2026/10/05",
 }
+PERCENT_OPTIONS = {True: "% あり(50%)", False: "% なし(50)"}
 OWNER_SEPARATOR_OPTIONS = {
     ";": ";",
     ",": ",",
@@ -380,6 +381,15 @@ def open_csv_export_dialog(
                 .classes("min-w-[12rem]")
                 .mark("csv-ex-owner-sep")
             )
+            percent_select = (
+                ui.select(
+                    PERCENT_OPTIONS,
+                    label="進捗率の書式",
+                    value=start.progress_percent,
+                )
+                .classes("min-w-[12rem]")
+                .mark("csv-ex-percent")
+            )
         note = ui.label("").classes("text-negative")
 
         drag: dict[str, int | None] = {"source": None}
@@ -475,6 +485,7 @@ def open_csv_export_dialog(
             str(encoding_select.value),
             str(date_select.value),
             str(owner_select.value or ""),
+            progress_percent=bool(percent_select.value),
         )
         same = (
             columns == SMARTSHEET.columns
@@ -482,6 +493,7 @@ def open_csv_export_dialog(
             and profile.encoding == SMARTSHEET.encoding
             and profile.date_format == SMARTSHEET.date_format
             and profile.owner_separator == SMARTSHEET.owner_separator
+            and profile.progress_percent == SMARTSHEET.progress_percent
         )
         return replace(profile, blank_rows=SMARTSHEET.blank_rows if same else 0)
 
@@ -492,6 +504,7 @@ def open_csv_export_dialog(
         encoding_select.set_value(profile.encoding)
         date_select.set_value(profile.date_format)
         owner_select.set_value(profile.owner_separator)
+        percent_select.set_value(profile.progress_percent)
         columns_table.refresh()
         refresh_state()
 

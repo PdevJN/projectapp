@@ -414,3 +414,14 @@ def test_deadline_and_ratio_are_written() -> None:
     )
     lines = build_table(p, {}, profile).text.splitlines()
     assert lines == ["件名,担当,割合,締切", "設計,田中;鈴木,50%;100%,2026-10-09"]
+
+
+def test_progress_is_written_with_or_without_the_percent_sign() -> None:
+    p = Project("x")
+    p.tasks.append(Task("設計", progress=50))
+    cols = ((CsvField.TITLE, "件名"), (CsvField.PROGRESS, "進捗率"))
+    with_sign = build_table(p, {}, prof(*cols, delimiter=",")).text.splitlines()
+    without = build_table(
+        p, {}, prof(*cols, delimiter=",", progress_percent=False)
+    ).text.splitlines()
+    assert with_sign[1] == "設計,50%" and without[1] == "設計,50"

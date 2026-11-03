@@ -98,6 +98,8 @@ def build_table(
     def write(values: dict[CsvField, str]) -> None:
         writer.writerow([values.get(field, "") for field in columns])
 
+    sign = "%" if profile.progress_percent else ""
+
     def reference_row(task: Task) -> None:
         value = (references or {}).get(task.id)
         counts["references"] += 1
@@ -111,7 +113,10 @@ def build_table(
             counts["unresolved"] += 1
             percent = ""
         else:
-            percent = f"{value.progress if value.progress is not None else (100 if value.finished else 0)}%"
+            percent = (
+                f"{value.progress if value.progress is not None else (100 if value.finished else 0)}"
+                + sign
+            )
         write(
             {
                 CsvField.TITLE: REFERENCE_PREFIX + task.name,
@@ -167,7 +172,7 @@ def build_table(
                 CsvField.END: format_date(last, style) if last else "",
                 # 日付がない行は 0(テンプレートと同じ)
                 CsvField.DURATION: str((last - first).days if first and last else 0),
-                CsvField.PROGRESS: f"{progress}%",
+                CsvField.PROGRESS: f"{progress}{sign}",
                 CsvField.EFFORT: f"{task.total_effort:g}" if task.total_effort else "",
                 CsvField.STATUS: task.status.value,
                 CsvField.ACTUAL_START: format_datetime(task.actuals[0].start, style)
