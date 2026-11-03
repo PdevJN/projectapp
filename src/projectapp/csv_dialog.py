@@ -498,6 +498,7 @@ def open_csv_export_dialog(
         note = ui.label("").classes("text-negative")
 
         drag: dict[str, int | None] = {"source": None}
+        quick = {"template": "", "header": "まとめ"}
 
         @ui.refreshable
         def columns_table() -> None:
@@ -545,7 +546,31 @@ def open_csv_export_dialog(
                         icon="arrow_downward", on_click=lambda i=index: move(i, 1)
                     ).props("flat round dense").mark(f"csv-ex-down-{field.value}")
 
-        columns_table()
+        with ui.row().classes("items-end w-full no-wrap"):
+            quick_input = (
+                ui.input(
+                    label="書式(任意。複数の項目を 1 列にまとめる)",
+                    placeholder="例 {開始日}/{期限}: {タスク名}",
+                    on_change=lambda e: edit_quick("template", e.value),
+                )
+                .classes("grow")
+                .mark("csv-ex-quick")
+            )
+            (
+                ui.input(
+                    label="その列の見出し",
+                    value=quick["header"],
+                    on_change=lambda e: edit_quick("header", e.value),
+                )
+                .classes("w-40")
+                .mark("csv-ex-quick-header")
+            )
+        with (
+            ui.expansion("列の詳細設定(使う・見出し・並び・行ごとの書式)", value=False)
+            .classes("w-full")
+            .mark("csv-ex-details")
+        ):
+            columns_table()
         with ui.row().classes("justify-end w-full"):
             ui.button("キャンセル", on_click=dialog.close).props("flat").mark(
                 "csv-ex-cancel"
@@ -564,6 +589,12 @@ def open_csv_export_dialog(
                 found = template_problem(str(r["template"]))
                 if found:
                     return f"{FIELD_LABELS[r['field']]}の{found}"
+        if quick["template"].strip():
+            found = template_problem(quick["template"].strip())
+            if found:
+                return found
+            if not 1 <= len(quick["header"].strip()) <= MAX_HEADER:
+                return f"見出しは 1〜{MAX_HEADER} 文字にしてください"
         fields = [f for c in current_columns() for f in c.fields]
         if CsvField.TITLE not in fields:
             return "タスク名の列を含めてください"
@@ -575,6 +606,13 @@ def open_csv_export_dialog(
 
     def current_columns() -> tuple[CsvColumn, ...]:
         columns = []
+        template = quick_template()
+        if template:
+            columns.append(
+                CsvColumn(
+                    template_fields(template)[0], quick["header"].strip(), template
+                )
+            )
         for r in rows:
             if not r["use"]:
                 continue
@@ -597,6 +635,24 @@ def open_csv_export_dialog(
 
     def edit_header(row: dict, value: str) -> None:
         row["header"] = value or ""
+        refresh_state()
+
+    def quick_template() -> str:
+        text = quick["template"].strip()
+        return text if text and template_problem(text) is None else ""
+
+    def edit_quick(key: str, value: str) -> None:
+        quick[key] = value or ""
+        template = quick_template()
+        if key == "template" and template:  # 書式に入れた項目は、ほかの列から外す
+            covered = set(template_fields(template))
+            changed = False
+            for other in rows:
+                if other["use"] and other["field"] in covered:
+                    other["use"] = False
+                    changed = True
+            if changed:
+                columns_table.refresh()
         refresh_state()
 
     def absorb(row: dict) -> None:
@@ -672,6 +728,8 @@ def open_csv_export_dialog(
         owner_select.set_value(profile.owner_separator)
         percent_select.set_value(profile.progress_percent)
         keep_select.set_value(profile.keep_separators)
+        quick["template"] = ""
+        quick_input.set_value("")
         columns_table.refresh()
         refresh_state()
 

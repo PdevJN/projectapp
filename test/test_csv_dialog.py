@@ -286,3 +286,31 @@ async def test_one_template_takes_its_fields_out_of_the_other_columns(
         "{開始日}/{期限}: {タスク名}"
     ]
     assert CsvField.START not in [c.field for c in columns if not c.template]
+
+
+async def test_a_quick_template_on_top_adds_a_combined_column_first(user: User) -> None:
+    exported, _ = await open_export(user)
+    user.find(marker="csv-ex-quick").elements.pop().set_value(
+        "{開始日}/{期限}: {タスク名}"
+    )
+    user.find(marker="csv-ex-quick-header").elements.pop().set_value("予定")
+    user.find(marker="csv-export-confirm").click()
+    columns = exported[0].columns
+    assert columns[0].template == "{開始日}/{期限}: {タスク名}"
+    assert columns[0].header == "予定" and columns[0].field is CsvField.START
+    covered = [f for c in columns for f in c.fields]
+    assert len(covered) == len(set(covered))
+
+
+async def test_an_invalid_quick_template_disables_the_export(user: User) -> None:
+    await open_export(user)
+    user.find(marker="csv-ex-quick").elements.pop().set_value("{開始日}{期限}")
+    assert not user.find(marker="csv-export-confirm").elements.pop().enabled
+
+
+async def test_the_column_list_is_inside_a_collapsed_expansion(user: User) -> None:
+    await open_export(user)
+    details = user.find(marker="csv-ex-details").elements.pop()
+    assert details.value is False
+    row = user.find(marker="csv-ex-use-title").elements.pop()
+    assert any(a is details for a in row.ancestors())
