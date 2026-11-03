@@ -360,6 +360,7 @@ body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, v
 .app-header .app-menu-btn:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }
 .app-menu .q-item { font-size: 12px; min-height: 26px; padding: 2px 12px; }
 .app-menu .q-separator { margin: 2px 0; }
+.app-menu .q-item { white-space: nowrap; }
 .app-menu .q-item__section--avatar { min-width: 0; padding-right: 8px; }
 .app-menu .q-item__section--avatar .q-icon { font-size: 18px; }
 .app-menu .q-item__section--main ~ .q-item__section--side { padding-left: 12px; }
