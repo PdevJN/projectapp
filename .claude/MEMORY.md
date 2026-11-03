@@ -4,6 +4,9 @@
 
 ## 現在の状況
 
+**2026-11-03(要望 101: カスタム CSV のインポート・エクスポート。`feature/csv-profiles`、PR 作成待ち。architectural。Native で実装し、最終レビューは sonnet)**:
+- `csv_profile.py`(`CsvProfile`・`SMARTSHEET`・推測・検証)、`csv_dialog.py`(取り込み・書き出しのダイアログ)、`csv_import.py`の`parse_csv`(プロファイル・区切り・ヘッダー行)、`csv_export.py`の`build_table`。自作プロファイルは`~/.projectapp/config.json`の`csv_profiles`(20 件まで。`version`は変えない)。メニュー名は`CSV・TSV として書き出す…`(marker `export-tsv` は維持)。仕様は`.claude/spec/import-export.md`。
+
 **2026-11-03(Git メニューの表示・ヘッダーのメニューの余白・デバッグ用の日時のずらしの 3 件。要望番号なし。bounded。`develop`は PR #200〔65d1e88〕)**:
 - Git メニューの表示(PR #197。f6b0948): 作業ツリーでない・`git`がないときは`Git`メニューを隠す(チップと同じ条件。`update_git_menu`が`git_menu_button`の表示を切り替える)。`poll_git`が 10 秒ごと(`GIT_POLL_SECONDS`)に状態を読み直し、外で`git init`したら現れ、`.git`を消したら消える。実行中(`git_busy`)・読み込み中(`git_pending`)は見送る。`fetch`はしない。テストでは`conftest`が`MainView.git_poll_seconds`を 3600 にして止める(User 画面テストはタイマーがすぐ動く)。`header-git.md`の「定期実行はしない」を改めた。
 - ヘッダーのメニューの余白(PR #198。76dc6d5): 項目 26px・上下 2px・左右 12px・文字 12px・折り返さない・アイコン 18px。**`ui.menu().props("content-class=app-menu")`は属性になるだけでクラスが付かず、`.app-menu`の CSS が一度も効いていなかった**(元の 32px も)。`.classes("app-menu")`に直した。ネイティブウィンドウで JS により高さを測って確認(`新規プロジェクト作成`・`エクスポート`が 58px だったのは、メニューが狭く文字が 2 行に折り返されていたため)。回帰テストは`test_header_menus_carry_the_app_menu_class`。
