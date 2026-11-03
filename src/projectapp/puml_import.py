@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from projectapp import clock
 from projectapp.models import (
     MAX_SECTION_DEPTH,
     MAX_YEAR,
@@ -547,7 +548,7 @@ def parse_plantuml(text: str, name: str, today: date | None = None) -> PlantUmlI
         raise PlantUmlImportError("@startgantt から @endgantt までが見つかりません")
     if not scanner.tasks:
         raise PlantUmlImportError("取り込めるタスクがありません")
-    builder = _Builder(scanner, name, today or date.today())
+    builder = _Builder(scanner, name, today or clock.today())
     project = builder.build()
     try:  # 保存・読込と同じ検証を通す
         project = parse_project(dumps_project(project), project.name)

@@ -38,6 +38,7 @@ from projectapp.settings_io import (
     write_settings,
 )
 from projectapp.categories import CategoryEdit
+from projectapp.gitstate import GitKind, GitState
 from projectapp.models import (
     Assignee,
     Actual,
@@ -4362,9 +4363,16 @@ async def test_the_theme_menu_marks_the_selected_theme_and_switches_it(
 
 
 async def test_the_header_is_a_themed_band_with_small_fonts(
-    user: User, tmp_path: Path
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(
+        "projectapp.views.read_git_state", lambda project_dir: GitState(GitKind.OK)
+    )  # Git メニューは作業ツリーのときだけ出る
     view = await open_header_view(user, tmp_path)
+    for _ in range(60):  # 状態の読み込みを待つ(読めるまでは Git メニューを隠している)
+        if view.git_state.kind is GitKind.OK:
+            break
+        await asyncio.sleep(0.05)
     assert "app-header" in view.header_box.classes
     assert isinstance(
         view.header_box, ui.header
@@ -4461,9 +4469,7 @@ async def test_the_header_is_a_themed_band_with_small_fonts(
             "icon-right" not in user.find(marker=marker).elements.pop()._props
         )  # ▼ は出さない
     menu = user.find(marker="menu-file-items").elements.pop()
-    assert "app-menu" in str(
-        menu._props.get("content-class")
-    )  # 開いたメニューも同じ大きさ
+    assert "app-menu" in menu.classes  # 開いたメニューも同じ大きさ
 
 
 async def test_the_floating_buttons_are_gone(user: User, tmp_path: Path) -> None:
@@ -4481,9 +4487,16 @@ def ancestors(element: ui.element) -> list[ui.element]:
 
 
 async def test_the_menus_start_at_the_left_of_the_header_and_the_title_is_in_the_main_area(
-    user: User, tmp_path: Path
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(
+        "projectapp.views.read_git_state", lambda project_dir: GitState(GitKind.OK)
+    )  # Git メニューは作業ツリーのときだけ出る
     view = await open_header_view(user, tmp_path)
+    for _ in range(60):  # 状態の読み込みを待つ(読めるまでは Git メニューを隠している)
+        if view.git_state.kind is GitKind.OK:
+            break
+        await asyncio.sleep(0.05)
     order = [
         "menu-file",
         "menu-project",

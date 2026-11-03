@@ -6,6 +6,7 @@ from math import isfinite
 
 from nicegui import ui
 
+from projectapp import clock
 from projectapp.bulk_edit import (
     BulkChanges,
     CategoryChange,
@@ -195,13 +196,13 @@ def open_bulk_dialog(
         end_date.on("blur", lambda _e: _normalize_date())
 
         def _normalize_date() -> None:
-            found = parse_date_input(end_date.value or "", date.today(), True)
+            found = parse_date_input(end_date.value or "", clock.today(), True)
             if found is not None and found != end_date.value:
                 end_date.set_value(found)
 
         def end_change() -> EndChange | str:
             if EndMode(end_mode.value) is EndMode.DATE:
-                found = parse_date_input(end_date.value or "", date.today(), True)
+                found = parse_date_input(end_date.value or "", clock.today(), True)
                 if found is None:
                     return "日付を YYYY-MM-DD で入力してください"
                 return EndChange(EndMode.DATE, day=date.fromisoformat(found))
