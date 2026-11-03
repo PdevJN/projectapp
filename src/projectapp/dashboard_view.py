@@ -22,6 +22,7 @@ from projectapp.dashboard import (
     LoadStats,
     MemberProgress,
     PeriodKind,
+    Progress,
     TeamProgress,
 )
 from projectapp.dashboard_drag import DASHBOARD_DRAG_CSS, DASHBOARD_DRAG_JS
@@ -340,8 +341,13 @@ class DashboardView:
         on_tick: Callable[[], object] | None = None,
         on_late_basis_change: Callable[[LateBasis], object] | None = None,
         on_catch_up_change: Callable[[CatchUp], object] | None = None,
+        on_assign: Callable[[str], object] | None = None,
     ) -> None:
         self.actions = actions
+        self.on_assign = on_assign
+        self.assign_mode = (
+            False  # 担当なしの割り当てを編集できるか(保存せず、閉じるとオフ)
+        )
         self.on_late_basis_change = on_late_basis_change
         self.on_catch_up_change = on_catch_up_change
         self.on_tick = on_tick
@@ -679,6 +685,7 @@ class DashboardView:
 
     def hide(self) -> None:
         self.edit_mode = False  # 編集モードは持ち越さない(次に開くときは、ふだんの表示)
+        self.assign_mode = False
         if self.edit_button is not None:
             self.edit_button.set_text("カードを編集")
             self.edit_button.props("icon=edit")
@@ -796,6 +803,7 @@ class DashboardView:
                     ui.label(f"警告 {progress.warnings}").mark(
                         "dashboard-count-warning"
                     )
+            self.unassigned_row(progress)
             if progress.by_member:
                 ui.label("メンバー別").classes("text-subtitle2")
                 for row in progress.by_member:
@@ -816,6 +824,47 @@ class DashboardView:
                     self.assignee_chips(
                         row.assignee_names, f"dashboard-overdue-assignee-{index}"
                     )
+
+    def unassigned_row(self, progress: Progress) -> None:
+        """`担当なし n 件`の行。ふだんはマウスオーバーでタスク名を見せるだけ。`割り当てを編集`をオンにすると、押して担当を選べる(要望 39)。"""
+        if not progress.unassigned:
+            return
+        with ui.row().classes("w-full items-center gap-2"):
+            with ui.row().classes("items-center no-wrap gap-1"):
+                ui.icon("person_off", size="sm").classes("text-warning")
+                label = ui.label(f"担当なし {len(progress.unassigned)}件").mark(
+                    "dashboard-unassigned-count"
+                )
+                if not self.assign_mode:
+                    with label:
+                        name_chips_tooltip(
+                            [t.name for t in progress.unassigned],
+                            "dashboard-unassigned-chip",
+                            more_marker="dashboard-unassigned-more",
+                        )
+            ui.checkbox(
+                "割り当てを編集",
+                value=self.assign_mode,
+                on_change=lambda e: self.set_assign_mode(bool(e.value)),
+            ).props("dense").mark("dashboard-unassigned-edit")
+        if self.assign_mode:
+            with ui.row().classes("w-full gap-1"):
+                for index, task in enumerate(progress.unassigned):
+                    chip = ui.chip(
+                        task.name,
+                        color=None,
+                        on_click=lambda t=task.id: self.assign(t),
+                    ).props("dense square outline clickable")
+                    chip.classes("ellipsis").mark(f"dashboard-unassigned-pick-{index}")
+
+    def set_assign_mode(self, on: bool) -> None:
+        if on != self.assign_mode:
+            self.assign_mode = on
+            self.cards.refresh()
+
+    def assign(self, task_id: str) -> None:
+        if self.assign_mode and self.on_assign is not None:
+            self.on_assign(task_id)
 
     def member_icon(self, name: str, marker: str | None = None) -> None:
         """メンバーのアイコン(なければ頭文字の丸)。メンバーでない行(`未割り当て`)には出さない。"""

@@ -26,6 +26,7 @@ from projectapp.dashboard import (
     PeriodKind,
     Progress,
     TeamProgress,
+    UnassignedTask,
     WorkloadRow,
 )
 from projectapp.dashboard_views import DEFAULT_ORDER, CardId, ViewState
@@ -1692,3 +1693,60 @@ async def test_the_member_warning_count_has_a_tooltip_of_task_chips(
     await user.should_see(marker="dashboard-member-warning-田中")
     chips = user.find(marker="dashboard-member-warning-chip-田中").elements
     assert sorted(c.text for c in chips) == ["実装", "設計"]
+
+
+def unassigned_sample() -> Dashboard:
+    data = sample()
+    data.progress.unassigned = [
+        UnassignedTask("a", "設計"),
+        UnassignedTask("b", "試験"),
+    ]
+    return data
+
+
+def mount_assign(picked: list[str]) -> list[DashboardView]:
+    views: list[DashboardView] = []
+
+    @ui.page("/")
+    def index() -> None:
+        view = DashboardView(lambda: None, lambda kind: None, on_assign=picked.append)
+        views.append(view)
+        view.build()
+
+    return views
+
+
+async def test_unassigned_row_is_hidden_without_unassigned_tasks(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-progress-percent")
+    await user.should_not_see(marker="dashboard-unassigned-count")
+
+
+async def test_unassigned_chips_do_nothing_until_editing_is_enabled(
+    user: User,
+) -> None:
+    picked: list[str] = []
+    views = mount_assign(picked)
+    await user.open("/")
+    views[0].show(unassigned_sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-unassigned-count")
+    assert text(user, "dashboard-unassigned-count") == "担当なし 2件"
+    await user.should_not_see(marker="dashboard-unassigned-pick-0")
+    views[0].assign("a")  # オフのときは通知しない
+    assert picked == []
+
+
+async def test_enabling_the_checkbox_makes_the_chips_pick_a_task(user: User) -> None:
+    picked: list[str] = []
+    views = mount_assign(picked)
+    await user.open("/")
+    views[0].show(unassigned_sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-unassigned-edit")
+    user.find(marker="dashboard-unassigned-edit").click()
+    await user.should_see(marker="dashboard-unassigned-pick-1")
+    user.find(marker="dashboard-unassigned-pick-1").click()
+    assert picked == ["b"]
+    views[0].hide()
+    assert views[0].assign_mode is False  # 閉じるとオフに戻る

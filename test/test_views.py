@@ -9260,3 +9260,28 @@ async def test_cmd_and_option_reach_the_assignment_view_through_the_modified_key
         key_event("Meta", meta=True, alt=True)
     )  # Option を先に押した順
     assert view.gantt.bottom.view == "info"
+
+
+async def test_assigning_an_unassigned_task_from_the_dashboard_is_one_undo_step(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path, with_task=False)
+    view.project.members = [Member("田中", 1.0), Member("鈴木", 1.0)]
+    view.project.tasks = [Task("設計", effort_hours=4.0)]
+    view.mark_clean()
+    view.committed = deepcopy(view.project)
+    with user.client:
+        view.open_dashboard()
+    await user.should_see(marker="dashboard-unassigned-edit")
+    user.find(marker="dashboard-unassigned-edit").click()
+    await user.should_see(marker="dashboard-unassigned-pick-0")
+    user.find(marker="dashboard-unassigned-pick-0").click()
+    await user.should_see(marker="assign-member-鈴木")
+    user.find(marker="assign-member-鈴木").click()
+    assert [(a.name, a.allocation) for a in view.project.tasks[0].assignees] == [
+        ("鈴木", 1.0)
+    ]
+    await user.should_not_see(marker="dashboard-unassigned-count")  # 集計し直す
+    with user.client:
+        view.undo()
+    assert view.project.tasks[0].assignees == []
