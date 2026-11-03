@@ -392,3 +392,25 @@ def test_a_roundtrip_through_a_custom_profile_keeps_the_content() -> None:
     ]
     assert back.name == "設計" and back.assignee_names == ["田中", "鈴木"]
     assert back.effort_hours == 3.0 and back.status is Status.RUNNING
+
+
+def test_deadline_and_ratio_are_written() -> None:
+    p = Project("x")
+    p.tasks.append(
+        Task(
+            "設計",
+            assignees=[Assignee("田中", 0.5), Assignee("鈴木", 1.0)],
+            deadline=datetime(2026, 10, 9, 18, 0),
+        )
+    )
+    profile = prof(
+        (CsvField.TITLE, "件名"),
+        (CsvField.OWNER, "担当"),
+        (CsvField.RATIO, "割合"),
+        (CsvField.DEADLINE, "締切"),
+        delimiter=",",
+        owner_separator=";",
+        date_format="ymd-dash",
+    )
+    lines = build_table(p, {}, profile).text.splitlines()
+    assert lines == ["件名,担当,割合,締切", "設計,田中;鈴木,50%;100%,2026-10-09"]

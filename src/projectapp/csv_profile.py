@@ -19,8 +19,10 @@ class CsvField(StrEnum):
     WBS = "wbs"
     TITLE = "title"
     OWNER = "owner"
+    RATIO = "ratio"
     START = "start"
     END = "end"
+    DEADLINE = "deadline"
     DURATION = "duration"
     PROGRESS = "progress"
     EFFORT = "effort"
@@ -34,10 +36,12 @@ FIELD_LABELS = {
     CsvField.WBS: "WBS 番号",
     CsvField.TITLE: "タスク名",
     CsvField.OWNER: "担当",
+    CsvField.RATIO: "担当の割合",
     CsvField.START: "開始日",
     CsvField.END: "期限",
+    CsvField.DEADLINE: "締切",
     CsvField.DURATION: "期間",
-    CsvField.PROGRESS: "完了率",
+    CsvField.PROGRESS: "進捗率",
     CsvField.EFFORT: "工数",
     CsvField.STATUS: "状態",
     CsvField.ACTUAL_START: "開始実績",
@@ -81,12 +85,20 @@ ALIASES: dict[CsvField, tuple[str, ...]] = {  # 見出しの別名(header_key �
         "終了日",
         "終了",
         "完了日",
-        "納期",
         "due",
         "duedate",
         "end",
         "enddate",
         "finish",
+    ),
+    CsvField.DEADLINE: ("締切", "締切日", "納期", "deadline"),
+    CsvField.RATIO: (
+        "担当の割合",
+        "担当割合",
+        "割合",
+        "割当率",
+        "割り当て率",
+        "allocation",
     ),
     CsvField.DURATION: ("期間", "duration", "days"),
     CsvField.PROGRESS: (

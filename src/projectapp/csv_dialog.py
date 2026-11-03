@@ -11,6 +11,7 @@ from projectapp.csv_profile import (
     EXPORT_FIELDS,
     MAX_HEADER,
     IMPORT_FIELDS,
+    header_key,
     SMARTSHEET,
     CsvColumn,
     CsvField,
@@ -135,9 +136,14 @@ def open_csv_import_dialog(
         @ui.refreshable
         def mapping_panel() -> None:
             selects.clear()
-            options = {UNASSIGNED: "割り当てなし"} | {
-                i: f"{i + 1}: {cell}" for i, cell in enumerate(sniff.header)
-            }
+            seen: set[str] = set()
+            options = {UNASSIGNED: "割り当てなし"}
+            for i, cell in enumerate(sniff.header):
+                key = header_key(cell)
+                if key and key in seen:
+                    continue  # 同じ見出しの 2 列目は、取り込みが 1 列目を読むので選ばせない
+                seen.add(key)
+                options[i] = f"{i + 1}: {cell}"
             with ui.grid(columns=2).classes("w-full"):
                 for field in IMPORT_FIELDS:
                     label = FIELD_LABELS[field] + (
@@ -354,11 +360,22 @@ def open_csv_export_dialog(
             ).mark("csv-ex-owner-sep")
         note = ui.label("").classes("text-negative")
 
+        drag: dict[str, int | None] = {"source": None}
+
         @ui.refreshable
         def columns_table() -> None:
             for index, row in enumerate(rows):
                 field = row["field"]
-                with ui.row().classes("items-center no-wrap w-full"):
+                with (
+                    ui.row()
+                    .classes("items-center no-wrap w-full")
+                    .props("draggable=true")
+                    .mark(f"csv-ex-row-{field.value}") as line
+                ):
+                    line.on("dragstart", lambda _, i=index: drag.update(source=i))
+                    line.on("dragover.prevent", lambda _: None)
+                    line.on("drop.prevent", lambda _, i=index: drop(i))
+                    ui.icon("drag_indicator").classes("cursor-move text-grey")
                     ui.checkbox(
                         FIELD_LABELS[field],
                         value=row["use"],
@@ -409,6 +426,15 @@ def open_csv_export_dialog(
     def edit_header(row: dict, value: str) -> None:
         row["header"] = value or ""
         refresh_state()
+
+    def drop(target: int) -> None:
+        """ドラッグした行を、落とした行の位置へ移す。"""
+        source = drag["source"]
+        drag["source"] = None
+        if source is None or source == target or not 0 <= source < len(rows):
+            return
+        rows.insert(target, rows.pop(source))
+        columns_table.refresh()
 
     def move(index: int, step: int) -> None:
         target = index + step

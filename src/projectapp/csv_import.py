@@ -141,6 +141,12 @@ def parse_effort(text: str) -> float | None:
     return value if 0 < value <= MAX_EFFORT_HOURS else None
 
 
+def parse_ratio(text: str) -> float | None:
+    """担当の割合 `50`・`50%` を 0.01〜1.0 で読む。0・100 超・読めない値は None。"""
+    value = parse_percent(text)
+    return value / 100 if value else None
+
+
 def parse_status(text: str) -> Status | None:
     return STATUS_WORDS.get(header_key(text))
 
@@ -169,8 +175,10 @@ def cell_ok(field_: CsvField, text: str) -> bool:
     """プレビューで読めない値を示すための検査。空は読める。"""
     if not text.strip():
         return True
-    if field_ in (CsvField.START, CsvField.END):
+    if field_ in (CsvField.START, CsvField.END, CsvField.DEADLINE):
         return parse_date(text) is not None
+    if field_ is CsvField.RATIO:
+        return all(parse_ratio(part) is not None for part in text.split(";"))
     if field_ is CsvField.PROGRESS:
         return parse_percent(text) is not None
     if field_ is CsvField.EFFORT:
@@ -201,6 +209,8 @@ class _Row:
     actual_start: str = ""
     actual_end: str = ""
     category: str = ""
+    ratio: str = ""
+    deadline: str = ""
 
     @property
     def blank_fields(self) -> bool:
@@ -214,6 +224,8 @@ class _Row:
             or self.actual_start
             or self.actual_end
             or self.category
+            or self.ratio
+            or self.deadline
         )
 
     @property
@@ -280,6 +292,8 @@ def _rows(
             cell(CsvField.ACTUAL_START),
             cell(CsvField.ACTUAL_END),
             cell(CsvField.CATEGORY),
+            cell(CsvField.RATIO),
+            cell(CsvField.DEADLINE),
         )
         rows.append(row if tidy_task_name(row.title) else None)
     return rows
@@ -342,9 +356,11 @@ class _Builder:
                 self.invalid_progress += 1
             else:
                 task.status, task.progress = _status(value), value or None
-        for owner in self.owners(row.owner):
-            task.assignees.append(Assignee(owner, 1.0))
+        ratios = self.ratios(row.ratio)
+        for owner, index in self.owners(row.owner):
+            task.assignees.append(Assignee(owner, ratios.get(index, 1.0)))
             self.member(owner)
+        self.apply_deadline(task, row)
         self.schedule(task, row)
         self.apply_effort(task, row)
         self.apply_status(task, row)
@@ -352,13 +368,41 @@ class _Builder:
         self.apply_category(task, row)
         (self.stack[-1].tasks if self.stack else self.project.tasks).append(task)
 
-    def owners(self, text: str) -> list[str]:
+    def owners(self, text: str) -> list[tuple[str, int]]:
+        """(名前, 元の並びの位置)。割合は位置で対応づける。"""
         sep = self.profile.owner_separator
-        found: list[str] = []
-        for name in (tidy_task_name(n) for n in (text.split(sep) if sep else [text])):
-            if name and name not in found:
-                found.append(name)
+        found: list[tuple[str, int]] = []
+        for index, raw in enumerate(text.split(sep) if sep else [text]):
+            name = tidy_task_name(raw)
+            if name and all(name != n for n, _ in found):
+                found.append((name, index))
         return found
+
+    def ratios(self, text: str) -> dict[int, float]:
+        """位置ごとの割合。読めない値は数えて、100% のままにする。"""
+        sep = self.profile.owner_separator
+        found: dict[int, float] = {}
+        for index, raw in enumerate(text.split(sep) if sep else [text]):
+            if not raw.strip():
+                continue
+            value = parse_ratio(raw)
+            if value is None:
+                self.invalid_values += 1
+            else:
+                found[index] = value
+        return found
+
+    def apply_deadline(self, task: Task, row: _Row) -> None:
+        if not row.deadline:
+            return
+        day = parse_date(row.deadline)
+        if day is None:
+            self.invalid_values += 1
+            return
+        project = self.project
+        task.deadline = datetime.combine(day, project.work_start) + timedelta(
+            hours=project.daily_hours
+        )
 
     def apply_effort(self, task: Task, row: _Row) -> None:
         if not row.effort:
@@ -410,6 +454,9 @@ class _Builder:
                 hours=project.daily_hours
             )
             end = max(end, start)
+        if end is not None and end < start:  # 補った時刻で前後が逆になる
+            self.invalid_values += 1
+            return
         task.actuals = [Actual(start, end)]
         if end is None and task.status in (Status.NOT_STARTED, Status.DONE):
             task.status = Status.RUNNING  # 進行中の区間があるのに未着手・終了は食い違う

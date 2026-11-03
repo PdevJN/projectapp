@@ -148,11 +148,21 @@ def build_table(
         else:
             owner = names[0] if names else ""
             counts["multiple"] += len(names) > 1
+        shares = [f"{max(1, round(a.allocation * 100))}%" for a in task.assignees]
+        ratio = (
+            profile.owner_separator.join(shares)
+            if profile.owner_separator
+            else (shares[0] if shares else "")
+        )
         write(
             {
                 CsvField.WBS: wbs,
                 CsvField.TITLE: title,
                 CsvField.OWNER: owner,
+                CsvField.RATIO: ratio,
+                CsvField.DEADLINE: format_date(task.deadline.date(), style)
+                if task.deadline
+                else "",
                 CsvField.START: format_date(first, style) if first else "",
                 CsvField.END: format_date(last, style) if last else "",
                 # 日付がない行は 0(テンプレートと同じ)

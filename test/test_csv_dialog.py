@@ -177,3 +177,24 @@ async def test_export_dialog_saves_the_current_settings(user: User) -> None:
     user.find(marker="csv-ex-save-name").elements.pop().set_value("カンマ版")
     user.find(marker="csv-ex-save-ok").click()
     assert [p.name for p in saved] == ["カンマ版"] and saved[0].delimiter == ","
+
+
+async def test_the_second_of_two_equal_headings_cannot_be_chosen(user: User) -> None:
+    await open_dialog(user, data="名前,名前,担当\nA,B,田中\n".encode())
+    options = user.find(marker="csv-map-title").elements.pop().options
+    assert 0 in options and 1 not in options and 2 in options
+
+
+async def test_dragging_a_row_onto_another_moves_it_there(user: User) -> None:
+    exported, _ = await open_export(user)
+    user.find(marker="csv-ex-row-owner").trigger("dragstart")
+    user.find(marker="csv-ex-row-wbs").trigger("drop.prevent")
+    user.find(marker="csv-export-confirm").click()
+    fields = [c.field.value for c in exported[0].columns]
+    assert fields[:3] == ["owner", "wbs", "title"]
+
+
+async def test_the_progress_field_is_named_shinchoku(user: User) -> None:
+    from projectapp.csv_profile import FIELD_LABELS
+
+    assert FIELD_LABELS[CsvField.PROGRESS] == "進捗率"

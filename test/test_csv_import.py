@@ -598,3 +598,63 @@ def test_categories_are_created_once_by_name() -> None:
 def test_summary_mentions_unreadable_values() -> None:
     result = run("C,田中,,,x,,,,")
     assert "読めない値 1 件" in summary(result)
+
+
+def ratio_profile() -> CsvProfile:
+    return custom(
+        (CsvField.TITLE, "件名"),
+        (CsvField.OWNER, "担当"),
+        (CsvField.RATIO, "割合"),
+        (CsvField.DEADLINE, "締切"),
+        (CsvField.STATUS, "状態"),
+        delimiter=",",
+    )
+
+
+def test_the_deadline_is_read_as_the_end_of_that_working_day() -> None:
+    p = ratio_profile()
+    result = parse_csv(
+        "件名,担当,割合,締切,状態\n設計,田中,,2026-10-09,\n",
+        "x",
+        {},
+        profile=p,
+        delimiter=",",
+    )
+    task = result.project.all_tasks()[0]
+    assert task.deadline is not None and task.deadline.date() == date(2026, 10, 9)
+
+
+def test_ratios_follow_the_owner_order_and_default_to_100() -> None:
+    p = ratio_profile()
+    text = "件名,担当,割合,締切,状態\n設計,田中;鈴木;佐藤,50;25%,,\n"
+    result = parse_csv(text, "x", {}, profile=p, delimiter=",")
+    task = result.project.all_tasks()[0]
+    assert [(a.name, a.allocation) for a in task.assignees] == [
+        ("田中", 0.5),
+        ("鈴木", 0.25),
+        ("佐藤", 1.0),
+    ]
+    assert result.invalid_values == 0
+
+
+def test_unreadable_ratio_deadline_and_status_are_counted_and_left_empty() -> None:
+    p = ratio_profile()
+    text = "件名,担当,割合,締切,状態\n設計,田中,0,あした,ぶ\n実装,鈴木,150,,\n"
+    result = parse_csv(text, "x", {}, profile=p, delimiter=",")
+    a, b = result.project.all_tasks()
+    assert a.assignees[0].allocation == 1.0 and a.deadline is None
+    assert b.assignees[0].allocation == 1.0
+    assert result.invalid_values == 4
+
+
+def test_cell_ok_marks_unreadable_deadline_and_ratio() -> None:
+    assert cell_ok(CsvField.DEADLINE, "2026-10-09") and not cell_ok(
+        CsvField.DEADLINE, "あした"
+    )
+    assert cell_ok(CsvField.RATIO, "50;100%") and not cell_ok(CsvField.RATIO, "50;x")
+
+
+def test_a_date_only_actual_start_with_an_early_end_time_is_skipped_not_fatal() -> None:
+    result = run("A,田中,,,,,2026-10-05,2026-10-05 08:00,")
+    assert not result.project.all_tasks()[0].actuals
+    assert result.invalid_values == 1
