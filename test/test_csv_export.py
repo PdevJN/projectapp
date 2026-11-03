@@ -1,6 +1,8 @@
 from datetime import date, datetime
 from pathlib import Path
 
+import pytest
+
 from projectapp.csv_export import (
     TSV_FILE_TYPES,
     build_tsv,
@@ -9,9 +11,19 @@ from projectapp.csv_export import (
     split_name,
     write_tsv,
 )
+from projectapp.csv_export import (
+    build_table,
+    default_filename,
+    encode_table,
+    format_datetime,
+    write_table,
+)
 from projectapp.csv_import import parse_csv
+from projectapp.csv_profile import SMARTSHEET, CsvColumn, CsvField, CsvProfile
 from projectapp.models import (
+    Actual,
     Assignee,
+    Category,
     Member,
     Project,
     ReferenceValue,
@@ -242,3 +254,141 @@ def test_a_reference_that_cannot_be_read_is_written_with_blank_dates_and_progres
 
 def test_references_default_to_unresolved_when_no_values_are_given() -> None:
     assert build_tsv(reference_project(), {}).unresolved == 1
+
+
+def prof(*pairs: tuple[CsvField, str], **kw: object) -> CsvProfile:
+    return CsvProfile("自作", tuple(CsvColumn(f, h) for f, h in pairs), **kw)  # type: ignore[arg-type]
+
+
+def test_build_tsv_equals_build_table_with_smartsheet() -> None:
+    p = Project("x")
+    p.tasks.append(Task("1.1#設計", assignees=[Assignee("田中", 1.0)], progress=50))
+    assert build_tsv(p, {}).text == build_table(p, {}, SMARTSHEET).text
+
+
+def test_date_styles() -> None:
+    d = date(2026, 10, 5)
+    assert format_date(d) == "26年 10月 5日"
+    assert format_date(d, "ymd-dash") == "2026-10-05"
+    assert format_date(d, "ymd-slash") == "2026/10/05"
+    assert (
+        format_datetime(datetime(2026, 10, 5, 9, 5), "ymd-dash") == "2026-10-05 09:05"
+    )
+
+
+def test_columns_follow_the_profile_order_headers_and_delimiter() -> None:
+    p = Project("x")
+    p.tasks.append(
+        Task(
+            "設計",
+            assignees=[Assignee("田中", 1.0), Assignee("鈴木", 1.0)],
+            effort_hours=8,
+            status=Status.RUNNING,
+        )
+    )
+    profile = prof(
+        (CsvField.STATUS, "状態"),
+        (CsvField.TITLE, "件名"),
+        (CsvField.OWNER, "担当"),
+        (CsvField.EFFORT, "工数"),
+        delimiter=";",
+        owner_separator="/",
+    )
+    lines = build_table(p, {}, profile).text.splitlines()
+    assert lines == ["状態;件名;担当;工数", "実行中;設計;田中/鈴木;8"]
+
+
+def test_an_empty_separator_writes_only_the_first_owner_and_counts_it() -> None:
+    p = Project("x")
+    p.tasks.append(
+        Task("設計", assignees=[Assignee("田中", 1.0), Assignee("鈴木", 1.0)])
+    )
+    profile = prof(
+        (CsvField.TITLE, "件名"), (CsvField.OWNER, "担当"), owner_separator=""
+    )
+    result = build_table(p, {}, profile)
+    assert result.multiple_owners == 1
+    assert result.text.splitlines()[1] == "設計,田中"
+
+
+def test_values_with_the_delimiter_or_quotes_are_quoted() -> None:
+    p = Project("x")
+    p.tasks.append(Task('A,"B"'))
+    text = build_table(p, {}, prof((CsvField.TITLE, "件名"))).text
+    assert text.splitlines()[1] == '"A,""B"""'
+
+
+def test_actuals_category_and_effort_are_written() -> None:
+    p = Project("x")
+    cat = Category("開発")
+    p.categories.append(cat)
+    p.tasks.append(
+        Task(
+            "A",
+            effort_hours=2.5,
+            category_id=cat.id,
+            actuals=[
+                Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 6, 17, 30))
+            ],
+        )
+    )
+    profile = prof(
+        (CsvField.TITLE, "件名"),
+        (CsvField.ACTUAL_START, "開始実績"),
+        (CsvField.ACTUAL_END, "終了実績"),
+        (CsvField.CATEGORY, "区分"),
+        (CsvField.EFFORT, "工数"),
+    )
+    line = build_table(p, {}, profile).text.splitlines()[1]
+    assert line == "A,2026-10-05 09:00,2026-10-06 17:30,開発,2.5"
+
+
+def test_sections_write_only_the_title_and_wbs() -> None:
+    p = Project("x")
+    p.sections.append(Section("1#計画", tasks=[Task("1.1#設計")]))
+    profile = prof((CsvField.WBS, "WBS"), (CsvField.TITLE, "件名"))
+    lines = build_table(p, {}, profile).text.splitlines()
+    assert lines[1:] == ["1,計画", "1.1,設計"]
+
+
+def test_encode_table_variants() -> None:
+    assert encode_table("あ", "utf-8") == "あ".encode()
+    assert encode_table("あ", "utf-8-sig") == b"\xef\xbb\xbf" + "あ".encode()
+    assert encode_table("あ", "cp932") == "あ".encode("cp932")
+
+
+def test_encode_table_refuses_characters_shift_jis_cannot_hold() -> None:
+    with pytest.raises(ValueError, match="Shift_JIS にできない文字"):
+        encode_table("🙂とA", "cp932")
+
+
+def test_write_table_adds_an_extension_by_delimiter(tmp_path: Path) -> None:
+    assert write_table(tmp_path / "a", b"x", "\t").name == "a.tsv"
+    assert write_table(tmp_path / "b", b"x", ",").name == "b.csv"
+    assert default_filename("\t") == "out.tsv" and default_filename(";") == "out.csv"
+
+
+def test_a_roundtrip_through_a_custom_profile_keeps_the_content() -> None:
+    p = Project("x")
+    p.tasks.append(
+        Task(
+            "設計",
+            assignees=[Assignee("田中", 1.0), Assignee("鈴木", 1.0)],
+            effort_hours=3,
+            status=Status.RUNNING,
+        )
+    )
+    profile = prof(
+        (CsvField.TITLE, "件名"),
+        (CsvField.OWNER, "担当"),
+        (CsvField.EFFORT, "工数"),
+        (CsvField.STATUS, "状態"),
+        delimiter=",",
+        owner_separator=";",
+    )
+    text = build_table(p, {}, profile).text
+    back = parse_csv(text, "y", {}, profile=profile, delimiter=",").project.all_tasks()[
+        0
+    ]
+    assert back.name == "設計" and back.assignee_names == ["田中", "鈴木"]
+    assert back.effort_hours == 3.0 and back.status is Status.RUNNING
