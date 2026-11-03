@@ -128,6 +128,7 @@ from projectapp.dashboard import (
     summarize_cross_backlog,
     summarize_cross_loads,
 )
+from projectapp.assign_dialog import open_assign_dialog
 from projectapp.dashboard_view import DashboardView, ViewActions
 from projectapp.dashboard_views import (
     DEFAULT_ORDER,
@@ -593,6 +594,7 @@ class MainView:
             on_tick=lambda: self.refresh_dashboard(sync_field=False),
             on_late_basis_change=self.change_dashboard_late_basis,
             on_catch_up_change=self.change_dashboard_catch_up,
+            on_assign=self.assign_from_dashboard,
             actions=ViewActions(
                 select=self.select_dashboard_view,
                 save=self.save_dashboard_view,
@@ -1562,6 +1564,30 @@ class MainView:
             return
         self.dashboard_cross = on
         self.refresh_dashboard()
+
+    def assign_from_dashboard(self, task_id: str) -> None:
+        """ダッシュボードの`担当なし`のタスクに、選んだメンバーを割り当て率 100% で入れる(要望 39)。Undo の履歴に積む。"""
+        task = self.project.task_map().get(task_id)
+        if task is None or task.assignees:
+            return
+
+        def apply(name: str) -> None:
+            # ダイアログを開いている間に、Undo・再読み込みなどで差し替わることがあるので引き直す
+            current = self.project.task_map().get(task_id)
+            if (
+                current is None
+                or current.assignees
+                or name not in {m.name for m in self.project.members}
+            ):
+                ui.notify("タスクが変わったため、割り当てませんでした", type="warning")
+                self.refresh_dashboard(sync_field=False)
+                return
+            current.assignees = [Assignee(name)]
+            self.after_edit()
+            self.warn_overallocation(current)
+            self.refresh_dashboard(sync_field=False)
+
+        open_assign_dialog(task.name, self.project.members, apply)
 
     def change_dashboard_late_basis(self, basis: LateBasis) -> None:
         """残りの工数の遅れの判定の基準を切り替える。表示だけで、保存しない(ビューにも入れない)。"""

@@ -159,6 +159,14 @@ class MemberProgress:
         return self.limit is not None and self.warnings >= self.limit
 
 
+@dataclass(frozen=True)
+class UnassignedTask:
+    """担当者のいない、終わっていない通常タスク(ダッシュボードから割り当てる対象。要望 39)。"""
+
+    id: str
+    name: str
+
+
 @dataclass
 class Progress:
     percent: float | None  # 工数で重みづけした進捗率(0〜100)。タスクがなければ None
@@ -171,6 +179,9 @@ class Progress:
         default_factory=list
     )  # チームごと(メンバーのいるチームだけ)。絞り込み中は空
     warnings: int = 0  # 警告のタスクの数(絞り込みに従う。共同タスクも 1 件)
+    unassigned: list[UnassignedTask] = field(
+        default_factory=list
+    )  # 担当なしのタスク。メンバーがいて絞り込みなしのときだけ
 
 
 Scope = (
@@ -420,6 +431,20 @@ def summarize_team_rows(
     return rows
 
 
+def unassigned_tasks(project: Project, member: Scope = None) -> list[UnassignedTask]:
+    """担当のいない、終わっていない通常タスク。メンバーがいないとき・絞り込み中・参照先のタスクは対象外。"""
+    if not project.members or member is not None:
+        return []
+    return [
+        UnassignedTask(task.id, task.name)
+        for task in _tasks(project)
+        if task.kind is TaskKind.NORMAL
+        and task.status is not Status.DONE
+        and not task.assignees
+        and not task.weekly_crew
+    ]
+
+
 def summarize_progress(
     project: Project,
     holidays: dict[date, str],
@@ -470,6 +495,7 @@ def summarize_progress(
         by_member,
         by_team,
         sum(1 for e in entries if id(e.task) in warned),
+        unassigned_tasks(project, member),
     )
 
 

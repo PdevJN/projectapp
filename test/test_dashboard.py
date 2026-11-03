@@ -1683,3 +1683,39 @@ def test_member_rows_list_the_warning_task_names() -> None:
     assert rows["田中"].warned_tasks == ("a", "b")
     assert rows["鈴木"].warned_tasks == ("b",)
     assert all(len(r.warned_tasks) == r.warnings for r in rows.values())
+
+
+def unassigned_names(project: Project, **kwargs: object) -> list[str]:
+    return [t.name for t in summarize_progress(project, {}, NOW, **kwargs).unassigned]  # type: ignore[arg-type]
+
+
+def test_unassigned_lists_open_normal_tasks_without_a_crew() -> None:
+    free = Task("担当なし", datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 12))
+    crewed = Task(
+        "担当あり",
+        datetime(2026, 10, 7, 9),
+        datetime(2026, 10, 7, 12),
+        assignees=[Assignee("田中")],
+    )
+    done = Task("終了", datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 12))
+    done.status = Status.DONE
+    summary = Task("まとめ", datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 12))
+    summary.kind = TaskKind.SUMMARY
+    checkpoint = Task("節目", datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 12))
+    checkpoint.kind = TaskKind.CHECKPOINT
+    project = project_of(free, crewed, done, summary, checkpoint)
+    rows = summarize_progress(project, {}, NOW).unassigned
+    assert [(r.id, r.name) for r in rows] == [(free.id, "担当なし")]
+
+
+def test_unassigned_is_empty_without_members_or_when_filtered() -> None:
+    free = Task("担当なし", datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 12))
+    assert unassigned_names(project_of(free, members=[])) == []
+    assert unassigned_names(project_of(free), member="田中") == []
+
+
+def test_unassigned_ignores_referenced_projects() -> None:
+    free = Task("担当なし", datetime(2026, 10, 7, 9), datetime(2026, 10, 7, 12))
+    child = ChildProject(project_of(free), {})
+    own = project_of(members=[Member("田中", 1.0)])
+    assert summarize_progress(own, {}, NOW, None, {"子": child}).unassigned == []
