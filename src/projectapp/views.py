@@ -363,6 +363,7 @@ body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, v
 .app-menu .q-item { white-space: nowrap; }
 .app-menu .q-item__section--avatar { min-width: 0; padding-right: 8px; }
 .app-menu .q-item__section--avatar .q-icon { font-size: 18px; }
+.app-menu .q-item__section--side .q-icon { font-size: 18px; }
 .app-menu .q-item__section--main ~ .q-item__section--side { padding-left: 12px; }
 .app-git-chip { flex: none; font-size: 10px; line-height: 1; padding: 4px 8px; border-radius: 9999px; background: var(--app-header-chip, rgba(255, 255, 255, 0.18)); white-space: nowrap; cursor: pointer; }
 .app-git-chip:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }
