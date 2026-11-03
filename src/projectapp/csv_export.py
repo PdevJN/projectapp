@@ -34,7 +34,7 @@ class TableExport:
     skipped: int  # 書き出さなかったタスク(まとめ・チェックポイント)の数
     multiple_owners: int  # 担当者が複数で、筆頭だけを書いたタスクの数
     references: int = 0  # 書いたプロジェクト参照の行の数
-    unresolved: int = 0  # うち、参照先の値がなく、日付と完了率を空にした行の数
+    unresolved: int = 0  # うち、参照先の値がなく、日付と進捗率を空にした行の数
 
 
 TsvExport = TableExport  # 従来の名前
@@ -76,7 +76,7 @@ def build_table(
     references: Mapping[str, ReferenceValue] | None = None,
 ) -> TableExport:
     """通常タスクとプロジェクト参照とセクションを、`Project.all_tasks` と同じ順(セクションなしが先、続いてセクションを深さ優先)で書く。
-    列・区切り・日付の書式・担当の区切りは`profile`が決める。references は参照行(タスクの id)ごとの参照先の値。なければ日付と完了率を空にする。"""
+    列・区切り・日付の書式・担当の区切りは`profile`が決める。references は参照行(タスクの id)ごとの参照先の値。なければ日付と進捗率を空にする。"""
     schedule = Schedule(project, holidays)
     style = profile.date_format
     category_names = {c.id: c.name for c in project.categories}

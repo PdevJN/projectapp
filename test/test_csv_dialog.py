@@ -198,3 +198,18 @@ async def test_the_progress_field_is_named_shinchoku(user: User) -> None:
     from projectapp.csv_profile import FIELD_LABELS
 
     assert FIELD_LABELS[CsvField.PROGRESS] == "進捗率"
+
+
+async def test_export_option_labels_are_not_truncated(user: User) -> None:
+    await open_export(user)
+    for marker in (
+        "csv-ex-profile",
+        "csv-ex-delimiter",
+        "csv-ex-encoding",
+        "csv-ex-date",
+        "csv-ex-owner-sep",
+    ):
+        select = user.find(marker=marker).elements.pop()
+        assert "min-w-[12rem]" in select.classes, marker
+    checkbox = user.find(marker="csv-ex-use-owner").elements.pop()
+    assert "w-40" not in checkbox.classes and "min-w-[12rem]" in checkbox.classes

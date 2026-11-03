@@ -1154,7 +1154,7 @@ class MainView:
             f"担当者が複数の {result.multiple_owners} 件は筆頭だけを書きました"
             if result.multiple_owners
             else "",
-            f"参照先が読めない {result.unresolved} 件は、日付と完了率を空にしました"
+            f"参照先が読めない {result.unresolved} 件は、日付と進捗率を空にしました"
             if result.unresolved
             else "",
         ]

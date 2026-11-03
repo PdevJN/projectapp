@@ -70,15 +70,15 @@ class CsvImport:
     unresolved: (
         int  # 日付が読めない・期限が開始日より前で、日程を入れなかったタスクの数
     )
-    invalid_progress: int  # 読めず、入れなかった完了率の数
+    invalid_progress: int  # 読めず、入れなかった進捗率の数
     dropped_values: (
-        int  # セクションにした行で、日付・オーナー・完了率を取り込まなかった行の数
+        int  # セクションにした行で、日付・オーナー・進捗率を取り込まなかった行の数
     )
     invalid_values: int = 0  # 読めない工数・状態・実績と、入れなかった実績の数
 
 
 def _plain(text: str) -> str:
-    """全角を半角にして、前後の空白を除く(日付・完了率・WBS 番号の判定用)。"""
+    """全角を半角にして、前後の空白を除く(日付・進捗率・WBS 番号の判定用)。"""
     return unicodedata.normalize("NFKC", text).strip()
 
 
@@ -563,7 +563,7 @@ def summary(result: CsvImport) -> str:
     notes = [
         f"読み飛ばした行 {result.skipped_rows} 行" if result.skipped_rows else "",
         f"日程が求まらないタスク {result.unresolved} 件" if result.unresolved else "",
-        f"読めない完了率 {result.invalid_progress} 件"
+        f"読めない進捗率 {result.invalid_progress} 件"
         if result.invalid_progress
         else "",
         f"セクションの行の値を取り込まなかった行 {result.dropped_values} 行"

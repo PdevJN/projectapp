@@ -331,7 +331,7 @@ def test_summary_lists_the_counts_and_the_notes() -> None:
     text = summary(noisy)
     assert "読み飛ばした行 1 行" in text and "日程が求まらないタスク 1 件" in text
     assert (
-        "読めない完了率 1 件" in text
+        "読めない進捗率 1 件" in text
         and "セクションの行の値を取り込まなかった行 1 行" in text
     )
 

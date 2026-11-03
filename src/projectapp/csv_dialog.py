@@ -115,23 +115,33 @@ def open_csv_import_dialog(
         dialog.mark("csv-import-dialog")
         ui.label("CSV・TSV の取り込み").classes("text-h6")
         with ui.row().classes("items-end w-full"):
-            profile_select = ui.select(
-                names(), label="プロファイル", value=state["name"]
-            ).mark("csv-profile")
-            delimiter_select = ui.select(
-                DELIMITER_OPTIONS, label="区切り", value=sniff.delimiter
-            ).mark("csv-delimiter")
-            encoding_select = ui.select(
-                ENCODING_OPTIONS, label="文字コード", value=sniff.encoding
-            ).mark("csv-encoding")
+            profile_select = (
+                ui.select(names(), label="プロファイル", value=state["name"])
+                .classes("min-w-[12rem]")
+                .mark("csv-profile")
+            )
+            delimiter_select = (
+                ui.select(DELIMITER_OPTIONS, label="区切り", value=sniff.delimiter)
+                .classes("min-w-[12rem]")
+                .mark("csv-delimiter")
+            )
+            encoding_select = (
+                ui.select(ENCODING_OPTIONS, label="文字コード", value=sniff.encoding)
+                .classes("min-w-[12rem]")
+                .mark("csv-encoding")
+            )
             header_input = ui.number(
                 "見出しの行", value=sniff.header_row + 1, min=1, precision=0
             ).mark("csv-header-row")
-            owner_sep = ui.select(
-                OWNER_SEPARATOR_OPTIONS,
-                label="担当の区切り",
-                value=first.owner_separator,
-            ).mark("csv-owner-sep")
+            owner_sep = (
+                ui.select(
+                    OWNER_SEPARATOR_OPTIONS,
+                    label="担当の区切り",
+                    value=first.owner_separator,
+                )
+                .classes("min-w-[12rem]")
+                .mark("csv-owner-sep")
+            )
 
         @ui.refreshable
         def mapping_panel() -> None:
@@ -337,27 +347,39 @@ def open_csv_export_dialog(
     start = profile_named(last) if last in names() else SMARTSHEET
     rows = rows_of(start)
 
-    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[40rem] max-w-full"):
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[48rem] max-w-full"):
         dialog.mark("csv-export-dialog")
         ui.label("CSV・TSV の書き出し").classes("text-h6")
         with ui.row().classes("items-end w-full"):
-            profile_select = ui.select(
-                names(), label="プロファイル", value=start.name
-            ).mark("csv-ex-profile")
-            delimiter_select = ui.select(
-                DELIMITER_OPTIONS, label="区切り", value=start.delimiter
-            ).mark("csv-ex-delimiter")
-            encoding_select = ui.select(
-                ENCODING_OPTIONS, label="文字コード", value=start.encoding
-            ).mark("csv-ex-encoding")
-            date_select = ui.select(
-                DATE_OPTIONS, label="日付の書式", value=start.date_format
-            ).mark("csv-ex-date")
-            owner_select = ui.select(
-                OWNER_SEPARATOR_OPTIONS,
-                label="担当の区切り",
-                value=start.owner_separator,
-            ).mark("csv-ex-owner-sep")
+            profile_select = (
+                ui.select(names(), label="プロファイル", value=start.name)
+                .classes("min-w-[12rem]")
+                .mark("csv-ex-profile")
+            )
+            delimiter_select = (
+                ui.select(DELIMITER_OPTIONS, label="区切り", value=start.delimiter)
+                .classes("min-w-[12rem]")
+                .mark("csv-ex-delimiter")
+            )
+            encoding_select = (
+                ui.select(ENCODING_OPTIONS, label="文字コード", value=start.encoding)
+                .classes("min-w-[12rem]")
+                .mark("csv-ex-encoding")
+            )
+            date_select = (
+                ui.select(DATE_OPTIONS, label="日付の書式", value=start.date_format)
+                .classes("min-w-[12rem]")
+                .mark("csv-ex-date")
+            )
+            owner_select = (
+                ui.select(
+                    OWNER_SEPARATOR_OPTIONS,
+                    label="担当の区切り",
+                    value=start.owner_separator,
+                )
+                .classes("min-w-[12rem]")
+                .mark("csv-ex-owner-sep")
+            )
         note = ui.label("").classes("text-negative")
 
         drag: dict[str, int | None] = {"source": None}
@@ -380,7 +402,7 @@ def open_csv_export_dialog(
                         FIELD_LABELS[field],
                         value=row["use"],
                         on_change=lambda e, r=row: use(r, e.value),
-                    ).classes("w-40").mark(f"csv-ex-use-{field.value}")
+                    ).classes("min-w-[12rem]").mark(f"csv-ex-use-{field.value}")
                     ui.input(
                         value=row["header"],
                         on_change=lambda e, r=row: edit_header(r, e.value),
