@@ -10,6 +10,7 @@ from nicegui import Client, context, ui
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp import arrange
+from projectapp import clock
 from projectapp.avatar import avatar
 from projectapp.browser import open_url as default_open_url
 from projectapp.bottom_info import (
@@ -663,7 +664,7 @@ class GanttChart:
         project: Project,
         holidays: dict[date, str],
         actions: GanttActions,
-        now: Callable[[], datetime] = datetime.now,
+        now: Callable[[], datetime] = clock.now,
         name_width: int = DEFAULT_NAME_WIDTH_PX,
         open_url: Callable[[str], object] = default_open_url,
         references: Callable[[], dict[str, Reference]] = lambda: {},

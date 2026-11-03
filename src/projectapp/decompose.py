@@ -6,6 +6,7 @@ from datetime import date, datetime
 from enum import Enum
 from math import isfinite
 
+from projectapp import clock
 from projectapp.arrange import section_at, tasks_at
 from projectapp.models import (
     MAX_SECTION_DEPTH,
@@ -185,7 +186,7 @@ def decompose_block_reason(
         return "実績のあるタスクは、担当者を入れてから分解してください"
     if any(a.end is None for a in task.actuals):
         return "実行中のタスクは、先に実行を終えてから分解してください"
-    settled = settle(project, task, holidays or {}, today or datetime.now())
+    settled = settle(project, task, holidays or {}, today or clock.now())
     assert settled is not None
     if task.total_effort - settled.consumed < 10**-EFFORT_DECIMALS:
         return "残りの工数がないため分解できません"
@@ -264,7 +265,7 @@ def decompose(
     """
     tasks = tasks_at(project, path)
     task = tasks[index]
-    now = today or datetime.now()
+    now = today or clock.now()
     _validate(project, task, parts, holidays or {}, now)
     settled = settle(project, task, holidays or {}, now)
     if params is ParamMode.PER_PARAMETER:
