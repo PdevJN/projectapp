@@ -9,10 +9,12 @@ from pathlib import Path
 
 import httpx
 import pytest
+from nicegui.slot import Slot
 from nicegui import events, ui
 from nicegui.testing import User
 
 from projectapp.csv_export import TSV_FILE_TYPES
+from projectapp.csv_profile import SMARTSHEET
 from projectapp.shortcuts import label_for
 from projectapp.csv_import import CSV_OPEN_FILE_TYPES
 from projectapp.config import (
@@ -8279,6 +8281,30 @@ async def test_export_dialog_writes_a_custom_csv_in_shift_jis(
     assert "設計" in target.read_bytes().decode("cp932")
     assert b"," in target.read_bytes() and b"\t" not in target.read_bytes()
     assert exporter.asked == ["out.csv"]
+
+
+async def test_export_runs_inside_its_own_client_so_notify_works_after_the_dialog(
+    user: User, tmp_path: Path
+) -> None:
+    """確定は背景タスクで動き、保存先を選ぶあとの通知は画面を決められず落ちた(実機)。書き出しの間は、この画面の slot に入っている。"""
+    target = tmp_path / "out" / "plan.tsv"
+    target.parent.mkdir()
+    seen: list[object] = []
+
+    class SpyExporter(FakeExporter):
+        async def ask_path(self, filename, file_types=()):  # type: ignore[override]
+            seen.append(Slot.get_stack()[-1].parent.client)
+            return await super().ask_path(filename, file_types)
+
+    exporter = SpyExporter(path=target, open_path=write_csv(tmp_path))
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-csv").click()
+    await user.should_see(marker="csv-import-confirm")
+    user.find(marker="csv-import-confirm").click()
+    assert await wait_until(lambda: view.project.name == "in")
+    await view.run_csv_export(SMARTSHEET)
+    assert seen == [view.client]
+    assert target.exists()
 
 
 async def test_export_refuses_characters_shift_jis_cannot_hold(

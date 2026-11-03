@@ -1126,7 +1126,11 @@ class MainView:
             )
 
     async def run_csv_export(self, profile: CsvProfile) -> None:
-        """ダイアログで決めたプロファイルで書き出す。"""
+        """ダイアログで決めたプロファイルで書き出す。確定は背景タスクで動き、slot がないので、この画面に入って通知する。"""
+        with self.client:
+            await self.write_csv_export(profile)
+
+    async def write_csv_export(self, profile: CsvProfile) -> None:
         result = build_table(
             self.project, self.holidays, profile, self.csv_references()
         )
