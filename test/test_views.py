@@ -4255,7 +4255,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     ]
     assert menu_items(user, "file-export-items") == [
         ("担当者へ書き出し", "export-handoff"),
-        ("TSV として書き出す", "export-tsv"),
+        ("CSV・TSV として書き出す…", "export-tsv"),
         ("設定を書き出す", "export-settings"),
     ]
     assert menu_items(user, "menu-help-items") == [
@@ -8244,6 +8244,8 @@ async def test_export_tsv_writes_the_file_without_touching_the_project(
     assert await wait_until(lambda: view.project.name == "in")
     dirty = view.is_dirty()
     user.find(marker="export-tsv").click()
+    await user.should_see(marker="csv-export-confirm")
+    user.find(marker="csv-export-confirm").click()
     assert await wait_until(target.exists)
     lines = target.read_text(encoding="utf-8").splitlines()
     assert lines[1:] == [
@@ -8255,6 +8257,48 @@ async def test_export_tsv_writes_the_file_without_touching_the_project(
     assert exporter.asked == ["out.tsv"] and exporter.asked_types == [TSV_FILE_TYPES]
     assert view.is_dirty() == dirty
     await user.should_see("書き出しました(タスク 1 件、参照 0 件、セクション 1 件)")
+
+
+async def test_export_dialog_writes_a_custom_csv_in_shift_jis(
+    user: User, tmp_path: Path
+) -> None:
+    target = tmp_path / "out" / "plan.csv"
+    target.parent.mkdir()
+    exporter = FakeExporter(path=target, open_path=write_csv(tmp_path))
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-csv").click()
+    await user.should_see(marker="csv-import-confirm")
+    user.find(marker="csv-import-confirm").click()
+    assert await wait_until(lambda: view.project.name == "in")
+    user.find(marker="export-tsv").click()
+    await user.should_see(marker="csv-export-confirm")
+    user.find(marker="csv-ex-delimiter").elements.pop().set_value(",")
+    user.find(marker="csv-ex-encoding").elements.pop().set_value("cp932")
+    user.find(marker="csv-export-confirm").click()
+    assert await wait_until(target.exists)
+    assert "設計" in target.read_bytes().decode("cp932")
+    assert b"," in target.read_bytes() and b"\t" not in target.read_bytes()
+    assert exporter.asked == ["out.csv"]
+
+
+async def test_export_refuses_characters_shift_jis_cannot_hold(
+    user: User, tmp_path: Path
+) -> None:
+    target = tmp_path / "out" / "plan.csv"
+    target.parent.mkdir()
+    source = write_csv(tmp_path, CSV_SAMPLE.replace("設計", "設計😀"))
+    exporter = FakeExporter(path=target, open_path=source)
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-csv").click()
+    await user.should_see(marker="csv-import-confirm")
+    user.find(marker="csv-import-confirm").click()
+    assert await wait_until(lambda: view.project.name == "in")
+    user.find(marker="export-tsv").click()
+    await user.should_see(marker="csv-export-confirm")
+    user.find(marker="csv-ex-encoding").elements.pop().set_value("cp932")
+    user.find(marker="csv-export-confirm").click()
+    await user.should_see("書き出せませんでした")
+    assert not target.exists()
 
 
 async def test_export_tsv_needs_something_to_write_and_the_native_window(

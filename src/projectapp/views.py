@@ -173,16 +173,26 @@ from projectapp.plantuml import (
     write_text,
 )
 from projectapp.plantuml import default_filename as plantuml_filename
-from projectapp.csv_dialog import ImportChoice, open_csv_import_dialog
-from projectapp.csv_export import DEFAULT_FILENAME as TSV_DEFAULT_FILENAME
-from projectapp.csv_export import TSV_FILE_TYPES, build_tsv, write_tsv
+from projectapp.csv_dialog import (
+    ImportChoice,
+    open_csv_export_dialog,
+    open_csv_import_dialog,
+)
+from projectapp.csv_export import default_filename as table_filename
+from projectapp.csv_export import (
+    CSV_SAVE_FILE_TYPES,
+    TSV_FILE_TYPES,
+    build_table,
+    encode_table,
+    write_table,
+)
 from projectapp.csv_import import (
     CSV_OPEN_FILE_TYPES,
     CsvImportError,
     parse_csv,
     sniff_table,
 )
-from projectapp.csv_profile import MAX_PROFILES, CsvProfile
+from projectapp.csv_profile import MAX_PROFILES, SMARTSHEET, CsvProfile
 from projectapp.csv_import import summary as csv_import_summary
 from projectapp.settings_io import DEFAULT_FILENAME as SETTINGS_DEFAULT_FILENAME
 from projectapp.settings_dialog import open_import_dialog
@@ -1082,20 +1092,24 @@ class MainView:
             return
         ui.notify(f"書き出しました({written.name})")
 
-    async def export_tsv(self) -> None:
-        """通常タスクとセクションを TSV に書き出す。プロジェクトは変えない(保存も、変更扱いもしない)。"""
-        if not self.exporter.available:
-            ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
-            return
+    def csv_references(self) -> dict:
         now = clock.now()
-        values = {
+        return {
             tid: ref.value
             for tid, ref in build_references(
                 self.project, self.reference_resolver, now
             ).items()
             if ref.value is not None
         }
-        result = build_tsv(self.project, self.holidays, values)
+
+    async def export_tsv(self) -> None:
+        """書き出しの形のダイアログを開く。プロジェクトは変えない(保存も、変更扱いもしない)。"""
+        if not self.exporter.available:
+            ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
+            return
+        result = build_table(
+            self.project, self.holidays, SMARTSHEET, self.csv_references()
+        )
         if (
             result.task_count == 0
             and result.section_count == 0
@@ -1103,11 +1117,33 @@ class MainView:
         ):
             ui.notify("書き出せるタスクがありません", type="warning")
             return
-        path = await self.exporter.ask_path(TSV_DEFAULT_FILENAME, TSV_FILE_TYPES)
+        with self.client:
+            open_csv_export_dialog(
+                load_csv_profiles(self.base_dir),
+                load_csv_profile_last(self.base_dir),
+                self.run_csv_export,
+                self.save_csv_profile,
+            )
+
+    async def run_csv_export(self, profile: CsvProfile) -> None:
+        """ダイアログで決めたプロファイルで書き出す。"""
+        result = build_table(
+            self.project, self.holidays, profile, self.csv_references()
+        )
+        try:
+            data = encode_table(result.text, profile.encoding)
+        except ValueError as exc:
+            ui.notify(f"書き出せませんでした: {exc}", type="negative")
+            return
+        filetypes = TSV_FILE_TYPES if profile.delimiter == "\t" else CSV_SAVE_FILE_TYPES
+        path = await self.exporter.ask_path(
+            table_filename(profile.delimiter), filetypes
+        )
         if path is None:
             return
         try:
-            write_tsv(path, result.text)
+            write_table(path, data, profile.delimiter)
+            save_csv_profile_last(profile.name if profile.name else None, self.base_dir)
         except OSError as exc:
             ui.notify(f"保存できませんでした: {exc}", type="negative")
             return
@@ -3144,7 +3180,7 @@ class MainView:
                                 "export-handoff",
                             ),
                             MenuItem(
-                                "TSV として書き出す",
+                                "CSV・TSV として書き出す…",
                                 "download",
                                 self.export_tsv,
                                 "export-tsv",

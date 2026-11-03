@@ -1,7 +1,11 @@
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.csv_dialog import ImportChoice, open_csv_import_dialog
+from projectapp.csv_dialog import (
+    ImportChoice,
+    open_csv_export_dialog,
+    open_csv_import_dialog,
+)
 from projectapp.csv_profile import SMARTSHEET, CsvColumn, CsvField, CsvProfile
 
 DATA = "件名,担当,開始\n設計,田中,2026-10-05\n実装,鈴木,あした\n".encode()
@@ -96,3 +100,80 @@ async def test_saving_a_profile_passes_the_current_mapping(user: User) -> None:
     user.find(marker="csv-save-ok").click()
     assert [p.name for p in saved] == ["会社の形式"]
     assert [c.header for c in saved[0].columns] == ["件名", "担当", "開始"]
+
+
+async def open_export(user: User, profiles=(), last=None):
+    exported: list[CsvProfile] = []
+    saved: list[CsvProfile] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "開く",
+            on_click=lambda: open_csv_export_dialog(
+                list(profiles),
+                last,
+                exported.append,
+                lambda p: saved.append(p) or None,
+            ),
+        ).mark("open")
+
+    await user.open("/")
+    user.find(marker="open").click()
+    await user.should_see(marker="csv-export-dialog")
+    return exported, saved
+
+
+async def test_export_dialog_starts_with_smartsheet_and_exports_it(user: User) -> None:
+    exported, _ = await open_export(user)
+    user.find(marker="csv-export-confirm").click()
+    p = exported[0]
+    assert p.name == "Smartsheet" and p.delimiter == "\t" and p.blank_rows == 2
+    assert [c.header for c in p.columns][:2] == ["WBS 番号", "タスクのタイトル"]
+
+
+async def test_unchecking_and_moving_columns_changes_the_profile(user: User) -> None:
+    exported, _ = await open_export(user)
+    user.find(marker="csv-ex-use-duration").elements.pop().set_value(False)
+    user.find(marker="csv-ex-down-wbs").click()
+    user.find(marker="csv-export-confirm").click()
+    p = exported[0]
+    fields = [c.field.value for c in p.columns]
+    assert "duration" not in fields and fields[:2] == ["title", "wbs"]
+    assert p.blank_rows == 0  # 組み込みの形から外れたら、テンプレートの空行は入れない
+
+
+async def test_export_is_disabled_without_the_title_column(user: User) -> None:
+    await open_export(user)
+    user.find(marker="csv-ex-use-title").elements.pop().set_value(False)
+    assert not user.find(marker="csv-export-confirm").elements.pop().enabled
+
+
+async def test_choosing_a_saved_profile_loads_its_settings(user: User) -> None:
+    p = CsvProfile(
+        "自作",
+        (CsvColumn(CsvField.TITLE, "件名"), CsvColumn(CsvField.EFFORT, "工数")),
+        delimiter=";",
+        encoding="cp932",
+        date_format="ymd-slash",
+        owner_separator="/",
+    )
+    exported, _ = await open_export(user, profiles=[p], last="自作")
+    user.find(marker="csv-export-confirm").click()
+    q = exported[0]
+    assert (q.name, q.delimiter, q.encoding) == ("自作", ";", "cp932")
+    assert (q.date_format, q.owner_separator) == ("ymd-slash", "/")
+    assert [(c.field, c.header) for c in q.columns] == [
+        (CsvField.TITLE, "件名"),
+        (CsvField.EFFORT, "工数"),
+    ]
+
+
+async def test_export_dialog_saves_the_current_settings(user: User) -> None:
+    _, saved = await open_export(user)
+    user.find(marker="csv-ex-delimiter").elements.pop().set_value(",")
+    user.find(marker="csv-ex-save").click()
+    await user.should_see(marker="csv-ex-save-name")
+    user.find(marker="csv-ex-save-name").elements.pop().set_value("カンマ版")
+    user.find(marker="csv-ex-save-ok").click()
+    assert [p.name for p in saved] == ["カンマ版"] and saved[0].delimiter == ","

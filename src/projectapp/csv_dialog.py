@@ -1,12 +1,15 @@
 """CSV・TSV の取り込みと書き出しのダイアログ(列の対応・プロファイルの保存)。"""
 
+import inspect
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from nicegui import ui
+from nicegui import background_tasks, ui
 
 from projectapp.csv_import import CsvImportError, cell_ok, sniff_table
 from projectapp.csv_profile import (
+    EXPORT_FIELDS,
+    MAX_HEADER,
     IMPORT_FIELDS,
     SMARTSHEET,
     CsvColumn,
@@ -292,5 +295,180 @@ def open_csv_import_dialog(
     profile_select.on_value_change(lambda e: on_profile(e.value))
     for control in (delimiter_select, encoding_select, header_input):
         control.on_value_change(lambda _: resniff())
+    refresh_state()
+    dialog.open()
+
+
+def open_csv_export_dialog(
+    profiles: list[CsvProfile],
+    last: str | None,
+    on_export: Callable[[CsvProfile], object],
+    on_save: Callable[[CsvProfile], str | None],
+) -> None:
+    """書き出しの列・区切り・文字コード・日付の書式・担当の区切りを決めるダイアログ。`書き出す`で`on_export(プロファイル)`を呼んで閉じる。"""
+    saved = list(profiles)
+
+    def known() -> list[CsvProfile]:
+        return [SMARTSHEET, *saved]
+
+    def names() -> list[str]:
+        return [p.name for p in known()]
+
+    def profile_named(name: str) -> CsvProfile:
+        return next((p for p in known() if p.name == name), SMARTSHEET)
+
+    def rows_of(profile: CsvProfile) -> list[dict]:
+        used = [
+            {"field": c.field, "use": True, "header": c.header} for c in profile.columns
+        ]
+        rest = [
+            {"field": f, "use": False, "header": FIELD_LABELS[f]}
+            for f in EXPORT_FIELDS
+            if f not in profile.headers
+        ]
+        return used + rest
+
+    start = profile_named(last) if last in names() else SMARTSHEET
+    rows = rows_of(start)
+
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[40rem] max-w-full"):
+        dialog.mark("csv-export-dialog")
+        ui.label("CSV・TSV の書き出し").classes("text-h6")
+        with ui.row().classes("items-end w-full"):
+            profile_select = ui.select(
+                names(), label="プロファイル", value=start.name
+            ).mark("csv-ex-profile")
+            delimiter_select = ui.select(
+                DELIMITER_OPTIONS, label="区切り", value=start.delimiter
+            ).mark("csv-ex-delimiter")
+            encoding_select = ui.select(
+                ENCODING_OPTIONS, label="文字コード", value=start.encoding
+            ).mark("csv-ex-encoding")
+            date_select = ui.select(
+                DATE_OPTIONS, label="日付の書式", value=start.date_format
+            ).mark("csv-ex-date")
+            owner_select = ui.select(
+                OWNER_SEPARATOR_OPTIONS,
+                label="担当の区切り",
+                value=start.owner_separator,
+            ).mark("csv-ex-owner-sep")
+        note = ui.label("").classes("text-negative")
+
+        @ui.refreshable
+        def columns_table() -> None:
+            for index, row in enumerate(rows):
+                field = row["field"]
+                with ui.row().classes("items-center no-wrap w-full"):
+                    ui.checkbox(
+                        FIELD_LABELS[field],
+                        value=row["use"],
+                        on_change=lambda e, r=row: use(r, e.value),
+                    ).classes("w-40").mark(f"csv-ex-use-{field.value}")
+                    ui.input(
+                        value=row["header"],
+                        on_change=lambda e, r=row: edit_header(r, e.value),
+                    ).props("dense outlined").classes("grow").mark(
+                        f"csv-ex-header-{field.value}"
+                    )
+                    ui.button(
+                        icon="arrow_upward", on_click=lambda i=index: move(i, -1)
+                    ).props("flat round dense").mark(f"csv-ex-up-{field.value}")
+                    ui.button(
+                        icon="arrow_downward", on_click=lambda i=index: move(i, 1)
+                    ).props("flat round dense").mark(f"csv-ex-down-{field.value}")
+
+        columns_table()
+        with ui.row().classes("justify-end w-full"):
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark(
+                "csv-ex-cancel"
+            )
+            ui.button("プロファイルとして保存…", on_click=lambda: ask_save()).props(
+                "flat"
+            ).mark("csv-ex-save")
+            confirm = ui.button("書き出す", on_click=lambda: do_export()).mark(
+                "csv-export-confirm"
+            )
+
+    def problem() -> str | None:
+        chosen = [r for r in rows if r["use"]]
+        if not any(r["field"] is CsvField.TITLE for r in chosen):
+            return "タスク名の列を含めてください"
+        if any(not 1 <= len(str(r["header"]).strip()) <= MAX_HEADER for r in chosen):
+            return f"見出しは 1〜{MAX_HEADER} 文字にしてください"
+        return None
+
+    def refresh_state() -> None:
+        message = problem()
+        note.set_text(message or "")
+        confirm.set_enabled(message is None)
+
+    def use(row: dict, value: bool) -> None:
+        row["use"] = bool(value)
+        refresh_state()
+
+    def edit_header(row: dict, value: str) -> None:
+        row["header"] = value or ""
+        refresh_state()
+
+    def move(index: int, step: int) -> None:
+        target = index + step
+        if 0 <= target < len(rows):
+            rows[index], rows[target] = rows[target], rows[index]
+            columns_table.refresh()
+
+    def current_profile(name: str | None = None) -> CsvProfile:
+        columns = tuple(
+            CsvColumn(r["field"], str(r["header"]).strip()) for r in rows if r["use"]
+        )
+        profile = CsvProfile(
+            name or str(profile_select.value),
+            columns,
+            str(delimiter_select.value),
+            str(encoding_select.value),
+            str(date_select.value),
+            str(owner_select.value or ""),
+        )
+        same = (
+            columns == SMARTSHEET.columns
+            and profile.delimiter == SMARTSHEET.delimiter
+            and profile.encoding == SMARTSHEET.encoding
+            and profile.date_format == SMARTSHEET.date_format
+            and profile.owner_separator == SMARTSHEET.owner_separator
+        )
+        return replace(profile, blank_rows=SMARTSHEET.blank_rows if same else 0)
+
+    def on_profile(name: str) -> None:
+        profile = profile_named(name)
+        rows[:] = rows_of(profile)
+        delimiter_select.set_value(profile.delimiter)
+        encoding_select.set_value(profile.encoding)
+        date_select.set_value(profile.date_format)
+        owner_select.set_value(profile.owner_separator)
+        columns_table.refresh()
+        refresh_state()
+
+    def ask_save() -> None:
+        def save(name: str) -> None:
+            profile = current_profile(name.strip())
+            message = validate_profile(profile) or on_save(profile)
+            if message:
+                ui.notify(message, type="negative")
+                return
+            saved[:] = [p for p in saved if p.name != profile.name] + [profile]
+            profile_select.set_options(names(), value=profile.name)
+
+        current = str(profile_select.value)
+        ask_profile_name("" if current == SMARTSHEET.name else current, save, "csv-ex")
+
+    def do_export() -> None:
+        if problem() is not None:
+            return
+        profile = current_profile()
+        dialog.close()
+        result = on_export(profile)
+        if inspect.isawaitable(result):
+            background_tasks.create(result)
+
+    profile_select.on_value_change(lambda e: on_profile(e.value))
     refresh_state()
     dialog.open()
