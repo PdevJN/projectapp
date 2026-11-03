@@ -222,32 +222,6 @@ async def test_the_percent_sign_can_be_turned_off_for_the_export(user: User) -> 
     assert exported[0].progress_percent is False
 
 
-async def test_a_template_in_the_export_dialog_makes_a_combined_column(
-    user: User,
-) -> None:
-    exported, _ = await open_export(user)
-    user.find(marker="csv-ex-tmpl-on-start").elements.pop().set_value(True)
-    user.find(marker="csv-ex-template-start").elements.pop().set_value(
-        "{開始日}〜{期限}"
-    )
-    user.find(marker="csv-ex-keep-sep").elements.pop().set_value(True)
-    user.find(marker="csv-export-confirm").click()
-    column = next(c for c in exported[0].columns if c.template)
-    assert column.template == "{開始日}〜{期限}" and column.field is CsvField.START
-    assert exported[0].keep_separators is True
-    fields = [f for c in exported[0].columns for f in c.fields]
-    assert fields.count(CsvField.END) == 1  # 期限の列は自動で外れる
-
-
-async def test_the_template_is_ignored_while_its_checkbox_is_off(user: User) -> None:
-    exported, _ = await open_export(user)
-    user.find(marker="csv-ex-template-start").elements.pop().set_value(
-        "{開始日}〜{期限}"
-    )
-    user.find(marker="csv-export-confirm").click()
-    assert not any(c.template for c in exported[0].columns)
-
-
 async def test_a_template_in_the_import_dialog_splits_one_column(user: User) -> None:
     data = "件名,期間\n設計,2026-10-05〜2026-10-09\n".encode()
     chosen, _ = await open_dialog(user, data=data)
@@ -270,26 +244,9 @@ async def test_an_invalid_template_is_not_applied(user: User) -> None:
     assert not any(c.template for c in chosen[0][0].profile.columns)
 
 
-async def test_one_template_takes_its_fields_out_of_the_other_columns(
-    user: User,
-) -> None:
-    exported, _ = await open_export(user)
-    user.find(marker="csv-ex-tmpl-on-title").elements.pop().set_value(True)
-    user.find(marker="csv-ex-template-title").elements.pop().set_value(
-        "{開始日}/{期限}: {タスク名}"
-    )
-    user.find(marker="csv-export-confirm").click()
-    columns = exported[0].columns
-    covered = [f for c in columns for f in c.fields]
-    assert len(covered) == len(set(covered))
-    assert [c.template for c in columns if c.template] == [
-        "{開始日}/{期限}: {タスク名}"
-    ]
-    assert CsvField.START not in [c.field for c in columns if not c.template]
-
-
 async def test_a_quick_template_on_top_adds_a_combined_column_first(user: User) -> None:
     exported, _ = await open_export(user)
+    user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
     user.find(marker="csv-ex-quick").elements.pop().set_value(
         "{開始日}/{期限}: {タスク名}"
     )
@@ -304,6 +261,7 @@ async def test_a_quick_template_on_top_adds_a_combined_column_first(user: User) 
 
 async def test_an_invalid_quick_template_disables_the_export(user: User) -> None:
     await open_export(user)
+    user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
     user.find(marker="csv-ex-quick").elements.pop().set_value("{開始日}{期限}")
     assert not user.find(marker="csv-export-confirm").elements.pop().enabled
 
@@ -314,3 +272,28 @@ async def test_the_column_list_is_inside_a_collapsed_expansion(user: User) -> No
     assert details.value is False
     row = user.find(marker="csv-ex-use-title").elements.pop()
     assert any(a is details for a in row.ancestors())
+
+
+async def test_the_quick_template_is_ignored_while_its_checkbox_is_off(
+    user: User,
+) -> None:
+    exported, _ = await open_export(user)
+    user.find(marker="csv-ex-quick").elements.pop().set_value("{開始日}〜{期限}")
+    user.find(marker="csv-export-confirm").click()
+    assert not any(c.template for c in exported[0].columns)
+
+
+async def test_a_saved_template_column_comes_back_in_the_quick_fields(
+    user: User,
+) -> None:
+    p = CsvProfile(
+        "結合",
+        (
+            CsvColumn(CsvField.TITLE, "件名"),
+            CsvColumn(CsvField.START, "期間", "{開始日}〜{期限}"),
+        ),
+    )
+    exported, _ = await open_export(user, profiles=[p], last="結合")
+    assert user.find(marker="csv-ex-quick").elements.pop().value == "{開始日}〜{期限}"
+    user.find(marker="csv-export-confirm").click()
+    assert [c.template for c in exported[0].columns] == ["{開始日}〜{期限}", ""]

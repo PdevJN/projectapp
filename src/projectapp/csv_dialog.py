@@ -419,30 +419,30 @@ def open_csv_export_dialog(
 
     def rows_of(profile: CsvProfile) -> list[dict]:
         used = [
-            {
-                "field": c.field,
-                "use": True,
-                "header": c.header,
-                "template": c.template,
-                "tmpl_on": bool(c.template),
-            }
+            {"field": c.field, "use": True, "header": c.header}
             for c in profile.columns
+            if not c.template
         ]
         rest = [
-            {
-                "field": f,
-                "use": False,
-                "header": FIELD_LABELS[f],
-                "template": "",
-                "tmpl_on": False,
-            }
+            {"field": f, "use": False, "header": FIELD_LABELS[f]}
             for f in EXPORT_FIELDS
-            if f not in profile.all_fields
+            if f not in {c.field for c in profile.columns if not c.template}
         ]
         return used + rest
 
     start = profile_named(last) if last in names() else SMARTSHEET
     rows = rows_of(start)
+
+    def quick_of(profile: CsvProfile) -> dict:
+        """保存済みの書式つきの列(最初の 1 つ)を、上部の書式の入力に出す。"""
+        column = next((c for c in profile.columns if c.template), None)
+        return {
+            "on": column is not None,
+            "template": column.template if column else "",
+            "header": column.header if column else "まとめ",
+        }
+
+    quick = quick_of(start)
 
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-[48rem] max-w-full"):
         dialog.mark("csv-export-dialog")
@@ -498,7 +498,6 @@ def open_csv_export_dialog(
         note = ui.label("").classes("text-negative")
 
         drag: dict[str, int | None] = {"source": None}
-        quick = {"template": "", "header": "まとめ"}
 
         @ui.refreshable
         def columns_table() -> None:
@@ -525,20 +524,6 @@ def open_csv_export_dialog(
                     ).props("dense outlined").classes("grow").mark(
                         f"csv-ex-header-{field.value}"
                     )
-                    ui.checkbox(
-                        "書式",
-                        value=row["tmpl_on"],
-                        on_change=lambda e, r=row: toggle_template(r, e.value),
-                    ).mark(f"csv-ex-tmpl-on-{field.value}")
-                    ui.input(
-                        value=row["template"],
-                        placeholder="例 {開始日}/{期限}: {タスク名}",
-                        on_change=lambda e, r=row: edit_template(r, e.value),
-                    ).props("dense outlined").classes(
-                        "min-w-[14rem]"
-                    ).bind_enabled_from(row, "tmpl_on").mark(
-                        f"csv-ex-template-{field.value}"
-                    )
                     ui.button(
                         icon="arrow_upward", on_click=lambda i=index: move(i, -1)
                     ).props("flat round dense").mark(f"csv-ex-up-{field.value}")
@@ -547,26 +532,34 @@ def open_csv_export_dialog(
                     ).props("flat round dense").mark(f"csv-ex-down-{field.value}")
 
         with ui.row().classes("items-end w-full no-wrap"):
+            quick_check = ui.checkbox(
+                "書式を使う",
+                value=quick["on"],
+                on_change=lambda e: edit_quick("on", e.value),
+            ).mark("csv-ex-quick-on")
             quick_input = (
                 ui.input(
-                    label="書式(任意。複数の項目を 1 列にまとめる)",
+                    label="書式(複数の項目を 1 列にまとめる)",
+                    value=quick["template"],
                     placeholder="例 {開始日}/{期限}: {タスク名}",
                     on_change=lambda e: edit_quick("template", e.value),
                 )
                 .classes("grow")
+                .bind_enabled_from(quick, "on")
                 .mark("csv-ex-quick")
             )
-            (
+            quick_header = (
                 ui.input(
                     label="その列の見出し",
                     value=quick["header"],
                     on_change=lambda e: edit_quick("header", e.value),
                 )
                 .classes("w-40")
+                .bind_enabled_from(quick, "on")
                 .mark("csv-ex-quick-header")
             )
         with (
-            ui.expansion("列の詳細設定(使う・見出し・並び・行ごとの書式)", value=False)
+            ui.expansion("列の詳細設定(使う・見出し・並び)", value=False)
             .classes("w-full")
             .mark("csv-ex-details")
         ):
@@ -584,12 +577,7 @@ def open_csv_export_dialog(
 
     def problem() -> str | None:
         chosen = [r for r in rows if r["use"]]
-        for r in chosen:
-            if r["tmpl_on"] and r["template"]:
-                found = template_problem(str(r["template"]))
-                if found:
-                    return f"{FIELD_LABELS[r['field']]}の{found}"
-        if quick["template"].strip():
+        if quick["on"] and quick["template"].strip():
             found = template_problem(quick["template"].strip())
             if found:
                 return found
@@ -616,12 +604,7 @@ def open_csv_export_dialog(
         for r in rows:
             if not r["use"]:
                 continue
-            template = str(r["template"]) if r["tmpl_on"] else ""
-            if template and template_problem(template) is None:
-                anchor = template_fields(template)[0]  # 書式の最初の項目が列の項目
-            else:
-                anchor, template = r["field"], ""
-            columns.append(CsvColumn(anchor, str(r["header"]).strip(), template))
+            columns.append(CsvColumn(r["field"], str(r["header"]).strip()))
         return tuple(columns)
 
     def refresh_state() -> None:
@@ -639,12 +622,16 @@ def open_csv_export_dialog(
 
     def quick_template() -> str:
         text = quick["template"].strip()
-        return text if text and template_problem(text) is None else ""
+        if quick["on"] and text and template_problem(text) is None:
+            return text
+        return ""
 
     def edit_quick(key: str, value: str) -> None:
-        quick[key] = value or ""
+        quick[key] = value if key == "on" else (value or "")
         template = quick_template()
-        if key == "template" and template:  # 書式に入れた項目は、ほかの列から外す
+        if (
+            key in ("template", "on") and template
+        ):  # 書式に入れた項目は、ほかの列から外す
             covered = set(template_fields(template))
             changed = False
             for other in rows:
@@ -653,32 +640,6 @@ def open_csv_export_dialog(
                     changed = True
             if changed:
                 columns_table.refresh()
-        refresh_state()
-
-    def absorb(row: dict) -> None:
-        """書式に入れた項目は、ほかの列から外す(書式を 1 つ入れるだけで済ませる)。"""
-        template = str(row["template"])
-        if not (row["tmpl_on"] and template and template_problem(template) is None):
-            return
-        covered = set(template_fields(template))
-        changed = False
-        for other in rows:
-            if other is not row and other["use"] and other["field"] in covered:
-                other["use"] = False
-                changed = True
-        if changed:
-            columns_table.refresh()
-
-    def edit_template(row: dict, value: str) -> None:
-        row["template"] = (value or "").strip()
-        absorb(row)
-        refresh_state()
-
-    def toggle_template(row: dict, value: bool) -> None:
-        row["tmpl_on"] = bool(value)
-        if value:
-            row["use"] = True
-        absorb(row)
         refresh_state()
 
     def drop(target: int) -> None:
@@ -728,8 +689,10 @@ def open_csv_export_dialog(
         owner_select.set_value(profile.owner_separator)
         percent_select.set_value(profile.progress_percent)
         keep_select.set_value(profile.keep_separators)
-        quick["template"] = ""
-        quick_input.set_value("")
+        quick.update(quick_of(profile))
+        quick_check.set_value(quick["on"])
+        quick_input.set_value(quick["template"])
+        quick_header.set_value(quick["header"])
         columns_table.refresh()
         refresh_state()
 
