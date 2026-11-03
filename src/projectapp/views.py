@@ -3246,7 +3246,7 @@ class MainView:
             .classes("app-menu-btn")
             .mark("menu-move")
         ):
-            with ui.menu().props("content-class=app-menu").mark("menu-move-items"):
+            with ui.menu().classes("app-menu").mark("menu-move-items"):
                 for action, key, label, icon, handler in (
                     ("go_today", "today", "当日", "today", self.go_today),
                     ("go_base", "base", "基準日", "flag", self.go_base),
@@ -3290,9 +3290,7 @@ class MainView:
             .classes("app-menu-btn")
             .mark(marker)
         ):
-            with (
-                ui.menu().props("content-class=app-menu").mark(f"{marker}-items")
-            ) as root:
+            with ui.menu().classes("app-menu").mark(f"{marker}-items") as root:
                 for item in items:
                     if item is None:
                         ui.separator().mark(f"{marker}-separator")
@@ -3315,7 +3313,8 @@ class MainView:
                 ui.icon("chevron_right")
             with (
                 ui.menu()
-                .props('anchor="top end" self="top start" content-class=app-menu')
+                .props('anchor="top end" self="top start"')
+                .classes("app-menu")
                 .mark(f"{sub.marker}-items")
             ):
                 for item in sub.items:
@@ -3676,7 +3675,7 @@ class MainView:
             .tooltip("テーマ")
             .mark("menu-theme")
         ):
-            with ui.menu().props("content-class=app-menu").mark("menu-theme-items"):
+            with ui.menu().classes("app-menu").mark("menu-theme-items"):
                 for theme in THEMES:
                     item = self.menu_entry(
                         THEME_LABELS[theme],
