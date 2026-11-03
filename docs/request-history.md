@@ -104,7 +104,7 @@
 | 98 | 遅延時のカバーを予測する(遅れを取り戻すのに、追加で要る人員の試算) | 完了(PR #157。`develop`へマージ済み) | 2026-10-31 | — | PR #157(4cf6b5e。2026-10-31) | 設計書・計画はなし(チャットで承認)。遅れ = 予定超過、期限はカードの期間に連動(タスクごとは要望 104)。見出しを不足の人数にし、必要の棒を遅れの積み上げ、残りの工数を状態別の積み上げ棒に。警告を含める選択は要望 103 の段階 3 で有効にした。[`requests.md`](requests.md) |
 | 99 | ダッシュボードで、人名を出す行に、アイコンと名前をセットで表示する | 完了(PR #172。`develop`へマージ済み) | 2026-10-31 | — | PR #172(2026-11-01) | [`requests.md`](requests.md) |
 | 100 | イベントの色の入力を、タスクの`色`と同じ形にする | 完了(PR #148。`develop`へマージ済み) | 2026-10-31 | — | f21878d(2026-10-31) | [`requests.md`](requests.md) |
-| 101 | カスタムの CSV のインポート・エクスポート(カラムの指定つき) | 未着手 | 2026-10-31 | — | — | [`requests.md`](requests.md) |
+| 101 | カスタムの CSV のインポート・エクスポート(カラムの指定つき) | 完了(PR #201。`develop`へマージ済み。2026-11-03) | 2026-10-31 | [設計](superpowers/specs/2026-11-03-csv-profiles-design.md)・[計画](superpowers/plans/2026-11-03-csv-profiles.md) | PR #201(e6ac03e。2026-11-03) | [`requests.md`](requests.md) |
 | 102 | テストの一部だけを実行できるように、タグ(smoke テスト)を付ける | 完了(PR #150。`develop`へマージ済み) | 2026-10-31 | — | cee1610(2026-10-31) | [`requests.md`](requests.md) |
 | 103 | 遅延のほかに、`警告`の意味を持つ状態を足す(進捗率と残りの工数の開きをパーセンテージで判断) | 完了(PR #161・#162・#163。`develop`へマージ済み) | 2026-10-31 | [設計書](superpowers/specs/2026-10-31-warning-status-design.md) | [計画 1](superpowers/plans/2026-10-31-warning-stage1.md)・[2](superpowers/plans/2026-10-31-warning-stage2.md)・[3](superpowers/plans/2026-10-31-warning-stage3.md) | [`requests.md`](requests.md) |
 | 104 | 遅れの取り戻しの試算を、タスクごとの期限で行う | 完了(PR #191。実機確認済み) | 2026-10-31 | — | PR #191(2f846af。2026-11-02) | [`requests.md`](requests.md) |
@@ -122,6 +122,7 @@
 | 116 | 下部パネルに、担当者ごとの割り当て状況をガントチャート風に表示する(`Ctrl/Cmd + Alt/Option`で切り替え) | 完了(PR #179。実機確認済み) | 2026-11-01 | [設計](superpowers/specs/2026-11-01-assignment-view-design.md)・[計画](superpowers/plans/2026-11-01-assignment-view.md) | PR #179(3f747e4。2026-11-01) | [`requests.md`](requests.md) |
 | 117 | 割り当て表とガントチャートの横スクロールを連動させる(要望 116 の第 2 段階) | 完了(PR #181。実機確認済み) | 2026-11-01 | [設計](superpowers/specs/2026-11-01-assignment-scroll-sync-design.md)・[計画](superpowers/plans/2026-11-01-assignment-scroll-sync.md) | PR #181(12f9be4。2026-11-01) | [`requests.md`](requests.md) |
 | 118 | 件数・数字のマウスオーバーでタスク名を見せる(下部パネルの状態別件数・割り当て表・ダッシュボードの警告) | 完了(PR #184。実機確認済み) | 2026-11-01 | — | PR #184(980dcd5。2026-11-01) | [`requests.md`](requests.md) |
+| 119 | CSV の書式を、項目を選んでドロップして組み立てられるようにする | 未着手 | 2026-11-03 | — | — | [`requests.md`](requests.md) |
 | 82 | イベントごとのチェックボックスで、その期間を全員の稼働日の休みにする | 完了(PR #117。実機確認済み。テスト 4,121 件) | 2026-10-28 | [設計](superpowers/specs/2026-10-28-event-closed-design.md)・[計画](superpowers/plans/2026-10-28-event-closed.md) | PR #117(7a6d9e2。2026-10-29) | `Event.closed`(`version` 15)。祝日と同じ休みに混ぜる(`effective_holidays`)。メンバーの上書きが優先。[`requests.md`](requests.md) |
 | 78 | プロジェクトの設定値とメンバーの設定値のエクスポート・インポート | 完了(PR #120。実機確認済み。テスト 4,166 件) | 2026-10-28 | [設計](superpowers/specs/2026-10-29-settings-export-import-design.md)・[計画](superpowers/plans/2026-10-29-settings-export-import.md) | PR #120(78cc309。2026-10-29) | 専用の設定ファイル(`kind: projectapp-settings`)。`settings_io.py`・`settings_dialog.py`。取り込みは項目ごとに上書き/スキップ、未保存の編集で元に戻す 1 ステップ。要望 77 は、この突き合わせと検証を呼ぶ形で後から足せる。[`requests.md`](requests.md) |
 
