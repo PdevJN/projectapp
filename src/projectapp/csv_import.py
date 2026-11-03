@@ -9,6 +9,14 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from projectapp import clock
+from projectapp.csv_profile import (
+    ALIASES,
+    SMARTSHEET,
+    CsvField,
+    CsvProfile,
+    header_key,
+    resolve_columns,
+)
 from projectapp.models import (
     MAX_SECTION_DEPTH,
     MAX_YEAR,
@@ -130,42 +138,53 @@ class _Row:
         )
 
 
-def _rows(text: str) -> list[_Row | None]:
+def detect_delimiter(line: str) -> str:
+    """ヘッダー行で最も多い区切り(タブ・カンマ・セミコロン)。同数ならタブ、次にカンマ。"""
+    counts = {d: line.count(d) for d in ("\t", ",", ";")}
+    return max(counts, key=lambda d: (counts[d], d == "\t", d == ","))
+
+
+def _find_header(lines: list[str], profile: CsvProfile) -> int | None:
+    """プロファイルのタスク名の見出しを含む最初の行(従来どおり、行全体の部分一致)。"""
+    wanted = header_key(profile.headers.get(CsvField.TITLE, ""))
+    if not wanted:
+        return None
+    return next((i for i, line in enumerate(lines) if wanted in header_key(line)), None)
+
+
+def _rows(
+    text: str, profile: CsvProfile, delimiter: str | None, header_row: int | None
+) -> list[_Row | None]:
     """ヘッダー行を探し、そのあとの行を読む。空行は読み飛ばし、タイトルのない行は None で返す。"""
     lines = text.splitlines()
-    header_at = next(
-        (i for i, line in enumerate(lines) if TITLE_COLUMN in _column_key(line)), None
-    )
-    if header_at is None:
-        raise CsvImportError(f"「{TITLE_COLUMN}」の列が見つかりません")
-    delimiter = (
-        "\t" if lines[header_at].count("\t") >= lines[header_at].count(",") else ","
-    )
-    table = csv.reader(io.StringIO("\n".join(lines[header_at:])), delimiter=delimiter)
+    header_at = header_row if header_row is not None else _find_header(lines, profile)
+    title_header = profile.headers.get(CsvField.TITLE, "タスク名")
+    if header_at is None or not 0 <= header_at < len(lines):
+        raise CsvImportError(f"「{title_header}」の列が見つかりません")
+    sep = delimiter or detect_delimiter(lines[header_at])
+    table = csv.reader(io.StringIO("\n".join(lines[header_at:])), delimiter=sep)
     header = next(table)
-    columns = {
-        COLUMN_NAMES[key]: index
-        for index, cell in enumerate(header)
-        if (key := _column_key(cell)) in COLUMN_NAMES
-    }
+    columns = resolve_columns(profile, header)
+    if CsvField.TITLE not in columns:
+        raise CsvImportError(f"「{title_header}」の列が見つかりません")
     rows: list[_Row | None] = []
     for cells in table:
         if not any(cell.strip() for cell in cells):
             continue
 
-        def cell(name: str) -> str:
-            index = columns.get(name)
+        def cell(field_: CsvField) -> str:
+            index = columns.get(field_)
             return (
                 cells[index].strip() if index is not None and index < len(cells) else ""
             )
 
         row = _Row(
-            _plain(cell("wbs")),
-            cell("title"),
-            cell("owner"),
-            cell("start"),
-            cell("end"),
-            cell("progress"),
+            _plain(cell(CsvField.WBS)),
+            cell(CsvField.TITLE),
+            cell(CsvField.OWNER),
+            cell(CsvField.START),
+            cell(CsvField.END),
+            cell(CsvField.PROGRESS),
         )
         rows.append(row if tidy_task_name(row.title) else None)
     return rows
@@ -271,13 +290,19 @@ class _Builder:
 
 
 def parse_csv(
-    text: str, name: str, holidays: dict[date, str], today: date | None = None
+    text: str,
+    name: str,
+    holidays: dict[date, str],
+    today: date | None = None,
+    profile: CsvProfile = SMARTSHEET,
+    delimiter: str | None = None,
+    header_row: int | None = None,
 ) -> CsvImport:
     """CSV・TSV のテキストから、新規プロジェクトを作る。取り込めなければ `CsvImportError`。
     `holidays` は稼働日数の数え方に使う。`today` は、日付がまったくないときの基準日(省略は今日)。"""
     builder = _Builder(name, holidays, today or clock.today())
     skipped = 0
-    for row in _rows(text):
+    for row in _rows(text, profile, delimiter, header_row):
         if row is None:
             skipped += 1
         else:
@@ -322,17 +347,63 @@ def summary(result: CsvImport) -> str:
     return f"取り込みました({head})" + (f"。{detail}" if detail else "")
 
 
+def decode_table(data: bytes, encoding: str | None = None) -> tuple[str, str]:
+    """(テキスト, 文字コード)。`encoding`が None なら UTF-8(BOM 可)を先に試し、読めなければ Shift_JIS。"""
+    for name in (encoding,) if encoding else ("utf-8-sig", "cp932"):
+        try:
+            return data.decode(name), name
+        except UnicodeDecodeError:
+            continue
+    raise CsvImportError(
+        "文字コードを判定できません(UTF-8 か Shift_JIS にしてください)"
+    )
+
+
 def read_table(path: Path) -> str:
     """テキストを読む。UTF-8(BOM は除く)を先に試し、読めなければ Shift_JIS。読めなければ `CsvImportError`。"""
     try:
         data = path.read_bytes()
     except OSError as exc:
         raise CsvImportError(f"ファイルを読めません: {exc}") from exc
-    for encoding in ("utf-8-sig", "cp932"):
-        try:
-            return data.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    raise CsvImportError(
-        "文字コードを判定できません(UTF-8 か Shift_JIS にしてください)"
-    )
+    return decode_table(data)[0]
+
+
+PREVIEW_ROWS = 5
+
+
+@dataclass(frozen=True)
+class TableSniff:
+    text: str
+    encoding: str
+    delimiter: str
+    header_row: int
+    header: list[str]
+    rows: list[list[str]]  # ヘッダーの次からの、空でない先頭 5 行
+
+
+def sniff_table(
+    data: bytes,
+    encoding: str | None = None,
+    delimiter: str | None = None,
+    header_row: int | None = None,
+) -> TableSniff:
+    """文字コード・区切り・ヘッダー行を判定し、見出しと先頭の数行を返す(取り込みのダイアログ用)。"""
+    text, used = decode_table(data, encoding)
+    lines = text.splitlines()
+    if header_row is None:
+        titles = ALIASES[CsvField.TITLE]
+        header_row = next(
+            (
+                i
+                for i, line in enumerate(lines)
+                if any(header_key(c) in titles for c in re.split(r"[\t,;]", line))
+            ),
+            next((i for i, line in enumerate(lines) if line.strip()), 0),
+        )
+    if not lines or not 0 <= header_row < len(lines):
+        raise CsvImportError("取り込める行がありません")
+    sep = delimiter or detect_delimiter(lines[header_row])
+    table = csv.reader(io.StringIO("\n".join(lines[header_row:])), delimiter=sep)
+    header = [c.strip() for c in next(table, [])]
+    rows = [r for r in table if any(c.strip() for c in r)][:PREVIEW_ROWS]
+    return TableSniff(text, used, sep, header_row, header, rows)

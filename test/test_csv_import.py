@@ -11,6 +11,8 @@ from projectapp.csv_import import (
     read_table,
     summary,
 )
+from projectapp.csv_import import sniff_table
+from projectapp.csv_profile import CsvColumn, CsvField, CsvProfile
 from projectapp.models import Status, Task
 from projectapp.timeline import effective_end
 
@@ -350,3 +352,72 @@ def test_every_file_dialog_filter_is_accepted_by_pywebview() -> None:
     ):
         for file_type in types:
             parse_file_type(file_type)
+
+
+def custom(*pairs: tuple[CsvField, str], **kw: object) -> CsvProfile:
+    return CsvProfile("自作", tuple(CsvColumn(f, h) for f, h in pairs), **kw)  # type: ignore[arg-type]
+
+
+def test_a_custom_profile_reads_its_own_headers_and_delimiter() -> None:
+    text = "件名;担当;開始\n設計;田中;2026-10-05\n"
+    p = custom(
+        (CsvField.TITLE, "件名"),
+        (CsvField.OWNER, "担当"),
+        (CsvField.START, "開始"),
+        delimiter=";",
+    )
+    result = parse_csv(text, "x", {}, profile=p, delimiter=";")
+    task = result.project.all_tasks()[0]
+    assert task.name == "設計" and task.assignee_names == ["田中"]
+    assert task.planned_start is not None
+    assert task.planned_start.date() == date(2026, 10, 5)
+
+
+def test_without_a_wbs_column_rows_with_only_a_title_become_sections() -> None:
+    text = "件名,担当\n設計フェーズ,\nやること,田中\n"
+    p = custom((CsvField.TITLE, "件名"), (CsvField.OWNER, "担当"))
+    result = parse_csv(text, "x", {}, profile=p, delimiter=",")
+    assert [s.name for s in result.project.sections] == ["設計フェーズ"]
+    assert [t.name for t in result.project.sections[0].tasks] == ["やること"]
+
+
+def test_header_row_can_be_chosen() -> None:
+    text = "メモ\n\n件名,担当\n設計,田中\n"
+    p = custom((CsvField.TITLE, "件名"), (CsvField.OWNER, "担当"))
+    result = parse_csv(text, "x", {}, profile=p, delimiter=",", header_row=2)
+    assert [t.name for t in result.project.all_tasks()] == ["設計"]
+
+
+def test_only_a_header_row_has_nothing_to_import() -> None:
+    p = custom((CsvField.TITLE, "件名"))
+    with pytest.raises(CsvImportError):
+        parse_csv("件名\n", "x", {}, profile=p, delimiter=",")
+
+
+def test_duplicate_headers_use_the_first_column() -> None:
+    p = custom((CsvField.TITLE, "名前"), (CsvField.OWNER, "担当"))
+    result = parse_csv("名前,名前,担当\nA,B,田中\n", "x", {}, profile=p, delimiter=",")
+    assert [t.name for t in result.project.all_tasks()] == ["A"]
+
+
+def test_sniff_table_detects_encoding_delimiter_and_header() -> None:
+    data = "メモ\n件名;担当\n設計;田中\n実装;鈴木\n".encode("cp932")
+    s = sniff_table(data)
+    assert (s.encoding, s.delimiter, s.header_row) == ("cp932", ";", 1)
+    assert s.header == ["件名", "担当"]
+    assert s.rows == [["設計", "田中"], ["実装", "鈴木"]]
+
+
+def test_sniff_table_falls_back_to_the_first_nonblank_line() -> None:
+    s = sniff_table(b"\n\nA,B\n1,2\n")
+    assert s.header_row == 2 and s.header == ["A", "B"]
+
+
+def test_sniff_table_honours_explicit_choices() -> None:
+    data = b"a;b,c\n1;2,3\n"
+    assert sniff_table(data, delimiter=",").header == ["a;b", "c"]
+
+
+def test_sniff_table_rejects_undecodable_data() -> None:
+    with pytest.raises(CsvImportError):
+        sniff_table(b"\xff\xfe\x00\x81")
