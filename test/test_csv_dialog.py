@@ -244,21 +244,6 @@ async def test_an_invalid_template_is_not_applied(user: User) -> None:
     assert not any(c.template for c in chosen[0][0].profile.columns)
 
 
-async def test_a_quick_template_on_top_adds_a_combined_column_first(user: User) -> None:
-    exported, _ = await open_export(user)
-    user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
-    user.find(marker="csv-ex-quick").elements.pop().set_value(
-        "{開始日}/{期限}: {タスク名}"
-    )
-    user.find(marker="csv-ex-quick-header").elements.pop().set_value("予定")
-    user.find(marker="csv-export-confirm").click()
-    columns = exported[0].columns
-    assert columns[0].template == "{開始日}/{期限}: {タスク名}"
-    assert columns[0].header == "予定" and columns[0].field is CsvField.START
-    covered = [f for c in columns for f in c.fields]
-    assert len(covered) == len(set(covered))
-
-
 async def test_an_invalid_quick_template_disables_the_export(user: User) -> None:
     await open_export(user)
     user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
@@ -283,17 +268,70 @@ async def test_the_quick_template_is_ignored_while_its_checkbox_is_off(
     assert not any(c.template for c in exported[0].columns)
 
 
-async def test_a_saved_template_column_comes_back_in_the_quick_fields(
+async def test_the_available_items_are_listed_as_a_reference(user: User) -> None:
+    await open_export(user)
+    hint = user.find(marker="csv-ex-quick-hint").elements.pop()
+    assert "{開始日}" in hint.text and "{担当の割合}" in hint.text
+
+
+async def test_the_drag_image_is_an_opaque_copy_of_the_row(user: User) -> None:
+    await open_export(user)
+    row = user.find(marker="csv-ex-row-title").elements.pop()
+    listener = next(x for x in row._event_listeners.values() if x.type == "dragstart")
+    script = listener.js_handler or ""
+    assert "setDragImage" in script and "backgroundColor" in script
+
+
+async def test_a_free_format_replaces_the_column_list(user: User) -> None:
+    exported, _ = await open_export(user)
+    user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
+    user.find(marker="csv-ex-quick").elements.pop().set_value(
+        "{開始日}/{期限}: {タスク名}"
+    )
+    user.find(marker="csv-ex-quick-header").elements.pop().set_value("予定")
+    user.find(marker="csv-export-confirm").click()
+    columns = exported[0].columns
+    assert len(columns) == 1  # 通常の項目の列は出さない
+    assert columns[0].template == "{開始日}/{期限}: {タスク名}"
+    assert columns[0].header == "予定" and columns[0].field is CsvField.START
+
+
+async def test_the_column_list_is_disabled_while_the_free_format_is_on(
     user: User,
 ) -> None:
+    await open_export(user)
+    markers = ("csv-ex-use-title", "csv-ex-header-title", "csv-ex-up-title")
+    assert all(user.find(marker=m).elements.pop().enabled for m in markers)
+    user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
+    assert not any(user.find(marker=m).elements.pop().enabled for m in markers)
+    user.find(marker="csv-ex-quick-on").elements.pop().set_value(False)
+    assert all(user.find(marker=m).elements.pop().enabled for m in markers)
+
+
+async def test_an_empty_free_format_cannot_be_exported(user: User) -> None:
+    await open_export(user)
+    user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
+    assert not user.find(marker="csv-export-confirm").elements.pop().enabled
+
+
+async def test_the_free_format_may_have_no_header(user: User) -> None:
+    exported, _ = await open_export(user)
+    user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
+    user.find(marker="csv-ex-quick").elements.pop().set_value("【{タスク名}】")
+    user.find(marker="csv-ex-quick-header").elements.pop().set_value("")
+    assert user.find(marker="csv-export-confirm").elements.pop().enabled
+    user.find(marker="csv-export-confirm").click()
+    assert exported[0].columns[0].header == ""
+
+
+async def test_a_saved_free_format_comes_back_in_the_quick_fields(user: User) -> None:
     p = CsvProfile(
         "結合",
-        (
-            CsvColumn(CsvField.TITLE, "件名"),
-            CsvColumn(CsvField.START, "期間", "{開始日}〜{期限}"),
-        ),
+        (CsvColumn(CsvField.START, "予定", "{開始日}〜{タスク名}"),),
     )
     exported, _ = await open_export(user, profiles=[p], last="結合")
-    assert user.find(marker="csv-ex-quick").elements.pop().value == "{開始日}〜{期限}"
+    assert (
+        user.find(marker="csv-ex-quick").elements.pop().value == "{開始日}〜{タスク名}"
+    )
     user.find(marker="csv-export-confirm").click()
-    assert [c.template for c in exported[0].columns] == ["{開始日}〜{期限}", ""]
+    assert [c.template for c in exported[0].columns] == ["{開始日}〜{タスク名}"]
