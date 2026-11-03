@@ -3,11 +3,12 @@
 import html
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
+from projectapp import clock
 from projectapp.avatar import avatar, avatar_html
 from projectapp.dashboard import (
     UNASSIGNED,
@@ -588,7 +589,7 @@ class DashboardView:
         if self.custom_field is None:
             return
         text = self.custom_field.value or ""
-        fixed = normalize_period(text, date.today()) if text.strip() else None
+        fixed = normalize_period(text, clock.today()) if text.strip() else None
         if fixed is not None and fixed != text:
             self.custom_field.set_value(fixed)
 

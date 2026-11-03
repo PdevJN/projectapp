@@ -11,6 +11,7 @@ from datetime import date, datetime, time
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
+from projectapp import clock
 from projectapp.browser import open_url as default_open_url
 from projectapp.categories import UNDECIDED, category_full_label, category_label
 from projectapp.dateinput import (
@@ -248,7 +249,7 @@ ESCAPE_KEYDOWN_JS = "(e) => { if (e.code === 'Escape' && !e.isComposing) { e.sto
 
 def today() -> date:
     """今日。テストで差し替える。"""
-    return date.today()
+    return clock.today()
 
 
 def date_normalizer(roll_forward: bool) -> Callable[[str], str | None]:
@@ -1227,7 +1228,7 @@ def open_task_dialog(
     sections: list[str] | None = None,
     on_sections_change: Callable[[list[str]], object] | None = None,
     on_decompose: Callable[[Callable[[], object]], object] | None = None,
-    now: Callable[[], datetime] = datetime.now,
+    now: Callable[[], datetime] = clock.now,
     reference_choices: list[str] | None = None,
     teams: list[Team] | None = None,
 ) -> ui.dialog:

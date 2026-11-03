@@ -11,6 +11,7 @@ from typing import Any
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
+from projectapp import clock
 from projectapp.dateinput import parse_date_input, parse_time_input
 from projectapp.avatar import avatar
 from projectapp.events import color_hex, normalize_color, sort_events, validate_events
@@ -1036,7 +1037,7 @@ def work_day_editor(
                         bool(skip.value),
                         rows,
                         get_holidays(),
-                        date.today(),
+                        clock.today(),
                     )
                 except ValueError as exc:
                     error.set_text(str(exc))
@@ -1047,7 +1048,7 @@ def work_day_editor(
                 rows.extend(plan.rows)
                 rows.sort(
                     key=lambda r: (
-                        parse_date_input(r.day, date.today(), roll_forward=False)
+                        parse_date_input(r.day, clock.today(), roll_forward=False)
                         or "9999"
                     )
                 )
@@ -1239,7 +1240,7 @@ def build_members(
         if row.icon and not is_valid_icon(row.icon):
             raise ValueError(f"アイコンが正しくありません: {name}")
         try:
-            work_days = build_work_day_list(row.work_days, today or date.today())
+            work_days = build_work_day_list(row.work_days, today or clock.today())
         except ValueError as exc:
             raise ValueError(f"{name}: {exc}") from None
         team_error = membership_error(row.teams, team_ids)
@@ -2217,7 +2218,7 @@ def open_settings_dialog(
         def build_events() -> list[Event] | None:
             if events is None:
                 return None
-            return build_event_list(event_rows, used_ids, date.today())
+            return build_event_list(event_rows, used_ids, clock.today())
 
         def commit(
             result: tuple[float, time],
@@ -2287,7 +2288,7 @@ def open_settings_dialog(
                 cedit = build_categories()
                 elist = build_events()
                 base = (
-                    build_base_date(base_input.value or "", date.today())
+                    build_base_date(base_input.value or "", clock.today())
                     if base_input
                     else None
                 )

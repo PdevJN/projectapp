@@ -12,6 +12,7 @@ import httpx
 from nicegui import app, run, ui
 from nicegui.events import KeyEventArguments
 
+from projectapp import clock
 from projectapp.calendar import load_cache
 from projectapp.events import (
     EffectiveHolidays,
@@ -365,6 +366,7 @@ body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, v
 .app-menu .q-item__section--avatar .q-icon { font-size: 18px; }
 .app-menu .q-item__section--side .q-icon { font-size: 18px; }
 .app-menu .q-item__section--main ~ .q-item__section--side { padding-left: 12px; }
+.app-debug-chip { flex: none; font-size: 10px; line-height: 1; padding: 4px 8px; border-radius: 9999px; background: #ce93d8; color: #311b92; white-space: nowrap; font-weight: 700; }
 .app-git-chip { flex: none; font-size: 10px; line-height: 1; padding: 4px 8px; border-radius: 9999px; background: var(--app-header-chip, rgba(255, 255, 255, 0.18)); white-space: nowrap; cursor: pointer; }
 .app-git-chip:hover { background: var(--app-header-chip-hover, rgba(255, 255, 255, 0.3)); }
 .app-git-chip.app-git-dirty { background: #ffd54f; color: #3e2723; }
@@ -410,7 +412,7 @@ class MainView:
         self.preview_notice: str | None = (
             None  # スケールを粗くして開いたときのお知らせ。設定を変えたら消す
         )
-        self.now: Callable[[], datetime] = datetime.now  # テストで差し替える
+        self.now: Callable[[], datetime] = clock.now  # テストで差し替える
         self.dashboard_kind: PeriodKind | None = (
             None  # 開いているときの期間。保存しない
         )
@@ -554,7 +556,7 @@ class MainView:
             main_split=self.main_split,
             open_ratio=self.open_ratio,
             references=lambda: build_references(
-                self.project, self.reference_resolver, datetime.now()
+                self.project, self.reference_resolver, clock.now()
             ),
         )
         self.preview_bar = PreviewBar(
@@ -874,9 +876,7 @@ class MainView:
         self.gantt.set_project(self.project)
         self.gantt.reset_filter()
         self.gantt.scroll_on_open()  # 別のプロジェクトは、先頭に戻してから今日の位置へ(編集後の再描画では動かさない)
-        for name in missing_references(
-            project, self.reference_resolver, datetime.now()
-        ):
+        for name in missing_references(project, self.reference_resolver, clock.now()):
             ui.notify(f"参照先のプロジェクトが見つかりません: {name}", type="warning")
         if stale := self.stale_references():
             open_stale_snapshot_dialog(
@@ -988,7 +988,7 @@ class MainView:
             before = replace(
                 result.project, ratio_limit_upper=old.upper, ratio_limit_lower=old.lower
             )
-            reviews = limit_reviews(before, new, self.holidays, datetime.now())
+            reviews = limit_reviews(before, new, self.holidays, clock.now())
         if not reviews:
             self.commit_settings_import(result)
             return
@@ -1040,7 +1040,7 @@ class MainView:
         if not self.exporter.available:
             ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
             return
-        now = datetime.now()
+        now = clock.now()
         values = {
             tid: ref.value
             for tid, ref in build_references(
@@ -1766,7 +1766,7 @@ class MainView:
 
     def reference_values(self) -> dict[str, ReferenceValue]:
         """参照行(タスクの id)ごとの参照値。読めない参照先は含めない。"""
-        refs = build_references(self.project, self.reference_resolver, datetime.now())
+        refs = build_references(self.project, self.reference_resolver, clock.now())
         return {tid: ref.value for tid, ref in refs.items() if ref.value is not None}
 
     def enter_preview(self) -> None:
@@ -1919,7 +1919,7 @@ class MainView:
                 ui.notify(f"画像を作れませんでした: {exc}", type="negative")
                 return
             path = await self.exporter.ask_path(
-                default_filename(self.project.name, date.today()), PNG_FILE_TYPES
+                default_filename(self.project.name, clock.today()), PNG_FILE_TYPES
             )
             if path is None:
                 return
@@ -1948,7 +1948,7 @@ class MainView:
             (settings.start, settings.end),
             settings.scale,
             self.gantt.task_filter,
-            datetime.now(),
+            clock.now(),
             show_chips=settings.show_chips,
             show_alerts=settings.show_alerts,
             show_events=settings.show_events,
@@ -1964,7 +1964,7 @@ class MainView:
         self.preview_bar.set_save_enabled(False)
         try:
             path = await self.exporter.ask_path(
-                plantuml_filename(self.project.name, date.today()), PLANTUML_FILE_TYPES
+                plantuml_filename(self.project.name, clock.today()), PLANTUML_FILE_TYPES
             )
             if path is None:
                 return
@@ -2127,7 +2127,7 @@ class MainView:
         """相対比率の下限・上限を変える。実績か進捗のあるタスクの完了予定が変わるときは、見直しを選ばせる。"""
         if limits == self.project.ratio_limits:
             return
-        reviews = limit_reviews(self.project, limits, self.holidays, datetime.now())
+        reviews = limit_reviews(self.project, limits, self.holidays, clock.now())
 
         def commit(review: bool) -> None:
             if review:
@@ -2201,7 +2201,7 @@ class MainView:
 
     def refresh_all_snapshots(self) -> None:
         """全参照行のスナップショットを方式に合わせて取り直す(スナップショットは取得、常に最新は捨てる)。"""
-        now = datetime.now()
+        now = clock.now()
         snapshot = self.project.reference_mode is ReferenceMode.SNAPSHOT
         for task in self.project.all_tasks():
             if task.kind is TaskKind.REFERENCE:
@@ -2221,7 +2221,7 @@ class MainView:
             or self.project.reference_mode is not ReferenceMode.SNAPSHOT
         ):
             return False
-        taken = take_snapshot(self.reference_resolver, task.ref_project, datetime.now())
+        taken = take_snapshot(self.reference_resolver, task.ref_project, clock.now())
         if taken is None:
             ui.notify(
                 f"「{task.ref_project}」を読めないため、更新できません", type="warning"
@@ -2242,9 +2242,9 @@ class MainView:
         if name not in self.files:
             ui.notify(f"参照先のプロジェクトが見つかりません: {name}", type="warning")
             return
-        ref = build_references(
-            self.project, self.reference_resolver, datetime.now()
-        ).get(task_id)
+        ref = build_references(self.project, self.reference_resolver, clock.now()).get(
+            task_id
+        )
         if ref is not None and ref.stale:
 
             def update_then_open() -> None:
@@ -2470,7 +2470,7 @@ class MainView:
                 on_done()
 
         task = self.tasks_in(path)[index]
-        settled = settle(self.project, task, self.holidays, datetime.now())
+        settled = settle(self.project, task, self.holidays, clock.now())
         open_decompose_dialog(task, can_make_section(path), apply, settled)
 
     def copy_task_below(self, path: SectionPath, index: int) -> None:
@@ -2885,7 +2885,7 @@ class MainView:
 
     def stale_references(self) -> list[str]:
         """スナップショットが今の参照先と違う参照行の、参照先の名前(重複なし)。常に最新のときは空。"""
-        refs = build_references(self.project, self.reference_resolver, datetime.now())
+        refs = build_references(self.project, self.reference_resolver, clock.now())
         tasks = self.project.task_map()
         return list(
             dict.fromkeys(
@@ -2895,7 +2895,7 @@ class MainView:
 
     def refresh_stale_snapshots(self, then: Callable[[], object] | None = None) -> None:
         """古いスナップショットをすべて今の参照先の値に取り直す。`then` があれば、その中で再描画する(なければ描き直す)。"""
-        now = datetime.now()
+        now = clock.now()
         refs = build_references(self.project, self.reference_resolver, now)
         for task in self.project.all_tasks():
             if (
@@ -3205,6 +3205,9 @@ class MainView:
                 ],
             )
             ui.space()
+            self.debug_clock_chip()
+            if (sim := clock.simulation()) is not None and not sim.frozen:
+                ui.timer(60, self.debug_clock_chip.refresh)  # 時刻が進むので更新
             self.git_chip()
             self.file_select = (
                 ui.select(
@@ -3631,6 +3634,17 @@ class MainView:
         self.git_state = state
         self.git_chip.refresh()
         self.update_git_menu()
+
+    @ui.refreshable_method
+    def debug_clock_chip(self) -> None:
+        """デバッグ用に日時をずらしているときだけ出すチップ(`PROJECTAPP_TODAY`。`clock.py`)。進める設定では 1 分ごとに更新する。"""
+        sim = clock.simulation()
+        if sim is None:
+            return
+        text = f"DEBUG {clock.now():%Y-%m-%d %H:%M}" + (" 固定" if sim.frozen else "")
+        ui.label(text).classes("app-debug-chip").tooltip(
+            f"{clock.ENV_TODAY} で日時をずらしています。実際の日時: {datetime.now():%Y-%m-%d %H:%M}"
+        ).mark("debug-clock")
 
     @ui.refreshable_method
     def git_chip(self) -> None:

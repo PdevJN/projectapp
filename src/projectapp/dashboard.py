@@ -8,6 +8,7 @@ from enum import StrEnum
 from math import isfinite
 from typing import NamedTuple
 
+from projectapp import clock
 from projectapp.events import effective_holidays
 from projectapp.models import Assignee, Member, Project, Status, Task, TaskKind, WorkDay
 from projectapp.pace import warning_pace
@@ -325,7 +326,7 @@ def summarize_team_progress(
     counts = {status: 0 for status in Status}
     names: dict[Status, list[str]] = {status: [] for status in Status}
     weighted = total = 0.0
-    moment = now or datetime.now()
+    moment = now or clock.now()
     for entry in _entries(project, holidays or {}, member, children):
         task = entry.task
         weight_and_percent = _progress_weight(task)

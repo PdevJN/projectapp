@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from projectapp import clock
 from projectapp.models import (
     MAX_SECTION_DEPTH,
     MAX_YEAR,
@@ -274,7 +275,7 @@ def parse_csv(
 ) -> CsvImport:
     """CSV・TSV のテキストから、新規プロジェクトを作る。取り込めなければ `CsvImportError`。
     `holidays` は稼働日数の数え方に使う。`today` は、日付がまったくないときの基準日(省略は今日)。"""
-    builder = _Builder(name, holidays, today or date.today())
+    builder = _Builder(name, holidays, today or clock.today())
     skipped = 0
     for row in _rows(text):
         if row is None:
