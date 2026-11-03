@@ -16,6 +16,7 @@ from projectapp.csv_profile import (
     CsvProfile,
     header_key,
     resolve_columns,
+    split_template,
 )
 from projectapp.models import (
     MAX_CATEGORY_NAME_LENGTH,
@@ -248,19 +249,22 @@ def detect_delimiter(line: str) -> str:
 
 def _find_header(lines: list[str], profile: CsvProfile) -> int | None:
     """プロファイルのタスク名の見出しを含む最初の行(従来どおり、行全体の部分一致)。"""
-    wanted = header_key(profile.headers.get(CsvField.TITLE, ""))
+    wanted = header_key(profile.header_of(CsvField.TITLE))
     if not wanted:
         return None
     return next((i for i, line in enumerate(lines) if wanted in header_key(line)), None)
 
 
 def _rows(
-    text: str, profile: CsvProfile, delimiter: str | None, header_row: int | None
+    text: str,
+    profile: CsvProfile,
+    delimiter: str | None,
+    header_row: int | None,
 ) -> list[_Row | None]:
     """ヘッダー行を探し、そのあとの行を読む。空行は読み飛ばし、タイトルのない行は None で返す。"""
     lines = text.splitlines()
     header_at = header_row if header_row is not None else _find_header(lines, profile)
-    title_header = profile.headers.get(CsvField.TITLE, "タスク名")
+    title_header = profile.header_of(CsvField.TITLE) or "タスク名"
     if header_at is None or not 0 <= header_at < len(lines):
         raise CsvImportError(f"「{title_header}」の列が見つかりません")
     sep = delimiter or detect_delimiter(lines[header_at])
@@ -274,7 +278,18 @@ def _rows(
         if not any(cell.strip() for cell in cells):
             continue
 
+        parts: dict[CsvField, str] = {}
+        for column in profile.columns:
+            if not column.template or column.field not in columns:
+                continue
+            index = columns[column.field]
+            text = cells[index].strip() if index < len(cells) else ""
+            split = (split_template(column.template, text) if text else None) or {}
+            parts.update({f: split.get(f, "") for f in column.fields})
+
         def cell(field_: CsvField) -> str:
+            if field_ in parts:
+                return parts[field_]
             index = columns.get(field_)
             return (
                 cells[index].strip() if index is not None and index < len(cells) else ""

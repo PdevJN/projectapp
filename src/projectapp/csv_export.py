@@ -11,7 +11,12 @@ from pathlib import Path
 
 from projectapp.csv_import import WBS_NUMBER, WBS_SEPARATOR
 from projectapp.models import Project, ReferenceValue, Section, Status, Task, TaskKind
-from projectapp.csv_profile import SMARTSHEET, CsvField, CsvProfile
+from projectapp.csv_profile import (
+    SMARTSHEET,
+    CsvField,
+    CsvProfile,
+    render_template,
+)
 from projectapp.plantuml import write_text
 from projectapp.timeline import Schedule, effective_end, effective_start
 
@@ -82,7 +87,7 @@ def build_table(
     category_names = {c.id: c.name for c in project.categories}
     out = io.StringIO()
     writer = csv.writer(out, delimiter=profile.delimiter, lineterminator="\n")
-    columns = [c.field for c in profile.columns]
+    columns = list(profile.columns)
     writer.writerow([c.header for c in profile.columns])
     for _ in range(profile.blank_rows):
         writer.writerow([""] * len(columns))
@@ -96,7 +101,14 @@ def build_table(
     }
 
     def write(values: dict[CsvField, str]) -> None:
-        writer.writerow([values.get(field, "") for field in columns])
+        writer.writerow(
+            [
+                render_template(c.template, values, profile.keep_separators)
+                if c.template
+                else values.get(c.field, "")
+                for c in columns
+            ]
+        )
 
     sign = "%" if profile.progress_percent else ""
 

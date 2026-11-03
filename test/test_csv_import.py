@@ -658,3 +658,30 @@ def test_a_date_only_actual_start_with_an_early_end_time_is_skipped_not_fatal() 
     result = run("A,田中,,,,,2026-10-05,2026-10-05 08:00,")
     assert not result.project.all_tasks()[0].actuals
     assert result.invalid_values == 1
+
+
+def template_profile() -> CsvProfile:
+    return CsvProfile(
+        "結合",
+        (
+            CsvColumn(CsvField.WBS, "名前", "{WBS 番号} {タスク名}"),
+            CsvColumn(CsvField.START, "期間", "{開始日}〜{期限}"),
+        ),
+        delimiter=",",
+    )
+
+
+def test_a_template_column_is_split_into_its_fields() -> None:
+    text = "名前,期間\n1.1 設計,2026-10-05〜2026-10-09\n実装,2026-10-12\n"
+    result = parse_csv(text, "x", {}, profile=template_profile(), delimiter=",")
+    a, b = result.project.all_tasks()
+    assert a.name == "1.1#設計"
+    assert a.planned_start is not None and a.planned_start.date() == date(2026, 10, 5)
+    assert b.name == "実装"
+    assert b.planned_start is not None and b.planned_start.date() == date(2026, 10, 12)
+
+
+def test_cells_that_do_not_fit_the_template_are_counted() -> None:
+    text = "名前,期間\n設計,2026-10-05〜x\n"
+    result = parse_csv(text, "x", {}, profile=template_profile(), delimiter=",")
+    assert result.unresolved + result.invalid_values >= 1  # 読めない日付として数える

@@ -425,3 +425,16 @@ def test_progress_is_written_with_or_without_the_percent_sign() -> None:
         p, {}, prof(*cols, delimiter=",", progress_percent=False)
     ).text.splitlines()
     assert with_sign[1] == "設計,50%" and without[1] == "設計,50"
+
+
+def test_template_columns_are_written_with_or_without_empty_separators() -> None:
+    p = Project("x")
+    p.tasks.append(Task("1.1#設計"))
+    cols = (
+        CsvColumn(CsvField.WBS, "名前", "{WBS 番号} {タスク名}"),
+        CsvColumn(CsvField.OWNER, "担当", "{担当}/{担当の割合}"),
+    )
+    base = CsvProfile("結合", cols, delimiter=",")
+    assert build_table(p, {}, base).text.splitlines() == ["名前,担当", "1.1 設計,"]
+    kept = CsvProfile("結合", cols, delimiter=",", keep_separators=True)
+    assert build_table(p, {}, kept).text.splitlines() == ["名前,担当", "1.1 設計,/"]

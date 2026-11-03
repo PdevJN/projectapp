@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from nicegui import background_tasks, ui
+from nicegui.events import ValueChangeEventArguments
 
 from projectapp.csv_import import CsvImportError, cell_ok, sniff_table
 from projectapp.csv_profile import (
@@ -20,6 +21,9 @@ from projectapp.csv_profile import (
     FIELD_LABELS,
     guess_columns,
     resolve_columns,
+    split_template,
+    template_fields,
+    template_problem,
     validate_profile,
 )
 from projectapp.forms import disposable
@@ -37,6 +41,7 @@ DATE_OPTIONS = {
     "ymd-dash": "2026-10-05",
     "ymd-slash": "2026/10/05",
 }
+KEEP_OPTIONS = {False: "区切りも消す", True: "区切りは残す"}
 PERCENT_OPTIONS = {True: "% あり(50%)", False: "% なし(50)"}
 OWNER_SEPARATOR_OPTIONS = {
     ";": ";",
@@ -82,6 +87,7 @@ def open_csv_import_dialog(
     saved = list(profiles)
     mapping: dict[CsvField, int] = {}
     selects: dict[CsvField, ui.select] = {}
+    templates: dict[CsvField, str] = {}  # 書式の最初の項目 → 書式
     state = {"name": GUESS_NAME, "date": "ymd-dash", "updating": False}
 
     def known() -> list[CsvProfile]:
@@ -110,6 +116,7 @@ def open_csv_import_dialog(
 
     first = profile_named(str(state["name"]))
     mapping.update(resolve_columns(first, sniff.header))
+    templates.update({c.field: c.template for c in first.columns if c.template})
     state["date"] = first.date_format
 
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-[46rem] max-w-full"):
@@ -160,12 +167,35 @@ def open_csv_import_dialog(
                     label = FIELD_LABELS[field] + (
                         "(必須)" if field is CsvField.TITLE else ""
                     )
-                    selects[field] = ui.select(
-                        options,
-                        label=label,
-                        value=mapping.get(field, UNASSIGNED),
-                        on_change=lambda e, f=field: choose(f, e.value),
-                    ).mark(f"csv-map-{field.value}")
+                    with ui.row().classes("items-end no-wrap"):
+                        selects[field] = (
+                            ui.select(
+                                options,
+                                label=label,
+                                value=mapping.get(field, UNASSIGNED),
+                                on_change=lambda e, f=field: choose(f, e.value),
+                            )
+                            .classes("min-w-[10rem]")
+                            .mark(f"csv-map-{field.value}")
+                        )
+                        ui.input(
+                            label="書式(任意)",
+                            value=templates.get(field, ""),
+                            placeholder="{開始日}〜{期限}",
+                            on_change=lambda e, f=field: set_template(f, e),
+                        ).props("dense").classes("w-40").mark(
+                            f"csv-template-{field.value}"
+                        )
+
+        def template_part(field: CsvField, text: str) -> str:
+            """書式にまとめた列は、その項目の部分だけを返す。"""
+            for anchor, template in templates.items():
+                if field in template_fields(template):
+                    split = (
+                        split_template(template, text.strip()) if text.strip() else {}
+                    )
+                    return (split or {}).get(field, "")
+            return text
 
         @ui.refreshable
         def preview() -> None:
@@ -184,6 +214,7 @@ def open_csv_import_dialog(
                         for f in fields:
                             index = mapping[f]
                             text = row[index] if index < len(row) else ""
+                            text = template_part(f, text)
                             ui.label(text).classes(
                                 "w-32 truncate"
                                 + ("" if cell_ok(f, text) else " text-negative")
@@ -206,9 +237,48 @@ def open_csv_import_dialog(
         confirm.set_enabled(CsvField.TITLE in mapping)
         preview.refresh()
 
+    def drop_templates_with(field: CsvField) -> None:
+        for anchor in [a for a, t in templates.items() if field in template_fields(t)]:
+            for other in template_fields(templates.pop(anchor)):
+                if other != field and other != anchor:
+                    mapping.pop(other, None)
+                    if other in selects:
+                        state["updating"] = True
+                        selects[other].set_value(UNASSIGNED)
+                        state["updating"] = False
+
+    def set_template(field: CsvField, event: ValueChangeEventArguments) -> None:
+        """書式を入れると、その列を書式の項目すべてに割り当てる。空にすると、書式で足した割り当てを外す。"""
+        sender = event.sender
+        text = str(event.value or "").strip()
+        for anchor in [a for a, t in templates.items() if a == field]:
+            drop_templates_with(anchor)
+        if not text:
+            sender.props(remove="error")
+            refresh_state()
+            return
+        problem = template_problem(text)
+        if problem is None and field not in mapping:
+            problem = "先に列を選んでください"
+        if problem:
+            sender.props(f'error error-message="{problem}"')
+            return
+        sender.props(remove="error")
+        index = mapping[field]
+        for other in template_fields(text):
+            drop_templates_with(other)
+            mapping[other] = index
+            if other in selects and other != field:
+                state["updating"] = True
+                selects[other].set_value(index)
+                state["updating"] = False
+        templates[template_fields(text)[0]] = text
+        refresh_state()
+
     def choose(field: CsvField, value: int) -> None:
         if state["updating"]:
             return
+        drop_templates_with(field)
         if value == UNASSIGNED:
             mapping.pop(field, None)
         else:
@@ -227,17 +297,29 @@ def open_csv_import_dialog(
 
     def load_profile(profile: CsvProfile) -> None:
         mapping.clear()
+        templates.clear()
         mapping.update(resolve_columns(profile, sniff.header))
+        templates.update({c.field: c.template for c in profile.columns if c.template})
         state["date"] = profile.date_format
         owner_sep.set_value(profile.owner_separator)
         mapping_panel.refresh()
         refresh_state()
 
     def current_profile(name: str | None = None) -> CsvProfile:
+        absorbed = {
+            other
+            for anchor, t in templates.items()
+            for other in template_fields(t)
+            if other != anchor
+        }
         columns = tuple(
-            CsvColumn(f, sniff.header[mapping[f]].strip() or FIELD_LABELS[f])
+            CsvColumn(
+                f,
+                sniff.header[mapping[f]].strip() or FIELD_LABELS[f],
+                templates.get(f, ""),
+            )
             for f in IMPORT_FIELDS
-            if f in mapping
+            if f in mapping and f not in absorbed
         )
         return CsvProfile(
             name or str(profile_select.value or GUESS_NAME),
@@ -265,6 +347,7 @@ def open_csv_import_dialog(
             f: sniff.header[i] for f, i in mapping.items() if i < len(sniff.header)
         }
         sniff = fresh
+        templates.clear()
         mapping.clear()
         for f, text in texts.items():
             if text in sniff.header:
@@ -336,12 +419,18 @@ def open_csv_export_dialog(
 
     def rows_of(profile: CsvProfile) -> list[dict]:
         used = [
-            {"field": c.field, "use": True, "header": c.header} for c in profile.columns
+            {
+                "field": c.field,
+                "use": True,
+                "header": c.header,
+                "template": c.template,
+            }
+            for c in profile.columns
         ]
         rest = [
-            {"field": f, "use": False, "header": FIELD_LABELS[f]}
+            {"field": f, "use": False, "header": FIELD_LABELS[f], "template": ""}
             for f in EXPORT_FIELDS
-            if f not in profile.headers
+            if f not in profile.all_fields
         ]
         return used + rest
 
@@ -390,6 +479,15 @@ def open_csv_export_dialog(
                 .classes("min-w-[12rem]")
                 .mark("csv-ex-percent")
             )
+            keep_select = (
+                ui.select(
+                    KEEP_OPTIONS,
+                    label="書式で空の項目の区切り",
+                    value=start.keep_separators,
+                )
+                .classes("min-w-[12rem]")
+                .mark("csv-ex-keep-sep")
+            )
         note = ui.label("").classes("text-negative")
 
         drag: dict[str, int | None] = {"source": None}
@@ -419,6 +517,13 @@ def open_csv_export_dialog(
                     ).props("dense outlined").classes("grow").mark(
                         f"csv-ex-header-{field.value}"
                     )
+                    ui.input(
+                        value=row["template"],
+                        placeholder="書式(例 {開始日}〜{期限})",
+                        on_change=lambda e, r=row: edit_template(r, e.value),
+                    ).props("dense outlined").classes("min-w-[12rem]").mark(
+                        f"csv-ex-template-{field.value}"
+                    )
                     ui.button(
                         icon="arrow_upward", on_click=lambda i=index: move(i, -1)
                     ).props("flat round dense").mark(f"csv-ex-up-{field.value}")
@@ -440,11 +545,32 @@ def open_csv_export_dialog(
 
     def problem() -> str | None:
         chosen = [r for r in rows if r["use"]]
-        if not any(r["field"] is CsvField.TITLE for r in chosen):
+        for r in chosen:
+            if r["template"]:
+                found = template_problem(str(r["template"]))
+                if found:
+                    return f"{FIELD_LABELS[r['field']]}の{found}"
+        fields = [f for c in current_columns() for f in c.fields]
+        if CsvField.TITLE not in fields:
             return "タスク名の列を含めてください"
+        if len(fields) != len(set(fields)):
+            return "同じ項目が二つの列に入っています(書式の項目と、ほかの列を確かめてください)"
         if any(not 1 <= len(str(r["header"]).strip()) <= MAX_HEADER for r in chosen):
             return f"見出しは 1〜{MAX_HEADER} 文字にしてください"
         return None
+
+    def current_columns() -> tuple[CsvColumn, ...]:
+        columns = []
+        for r in rows:
+            if not r["use"]:
+                continue
+            template = str(r["template"])
+            if template and template_problem(template) is None:
+                anchor = template_fields(template)[0]  # 書式の最初の項目が列の項目
+            else:
+                anchor, template = r["field"], ""
+            columns.append(CsvColumn(anchor, str(r["header"]).strip(), template))
+        return tuple(columns)
 
     def refresh_state() -> None:
         message = problem()
@@ -457,6 +583,10 @@ def open_csv_export_dialog(
 
     def edit_header(row: dict, value: str) -> None:
         row["header"] = value or ""
+        refresh_state()
+
+    def edit_template(row: dict, value: str) -> None:
+        row["template"] = (value or "").strip()
         refresh_state()
 
     def drop(target: int) -> None:
@@ -475,9 +605,7 @@ def open_csv_export_dialog(
             columns_table.refresh()
 
     def current_profile(name: str | None = None) -> CsvProfile:
-        columns = tuple(
-            CsvColumn(r["field"], str(r["header"]).strip()) for r in rows if r["use"]
-        )
+        columns = current_columns()
         profile = CsvProfile(
             name or str(profile_select.value),
             columns,
@@ -486,6 +614,7 @@ def open_csv_export_dialog(
             str(date_select.value),
             str(owner_select.value or ""),
             progress_percent=bool(percent_select.value),
+            keep_separators=bool(keep_select.value),
         )
         same = (
             columns == SMARTSHEET.columns
@@ -494,6 +623,7 @@ def open_csv_export_dialog(
             and profile.date_format == SMARTSHEET.date_format
             and profile.owner_separator == SMARTSHEET.owner_separator
             and profile.progress_percent == SMARTSHEET.progress_percent
+            and profile.keep_separators == SMARTSHEET.keep_separators
         )
         return replace(profile, blank_rows=SMARTSHEET.blank_rows if same else 0)
 
@@ -505,6 +635,7 @@ def open_csv_export_dialog(
         date_select.set_value(profile.date_format)
         owner_select.set_value(profile.owner_separator)
         percent_select.set_value(profile.progress_percent)
+        keep_select.set_value(profile.keep_separators)
         columns_table.refresh()
         refresh_state()
 

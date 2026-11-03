@@ -143,3 +143,105 @@ def test_progress_percent_defaults_on_and_round_trips() -> None:
     old = profile_to_config(profile((CsvField.TITLE, "件名")))
     del old["progress_percent"]
     assert profile_from_config(old).progress_percent is True  # type: ignore[union-attr]
+
+
+from projectapp.csv_profile import (  # noqa: E402
+    render_template,
+    split_template,
+    template_problem,
+)
+
+SD = {CsvField.START: "2026-10-05", CsvField.END: "2026-10-09"}
+
+
+def test_render_template_fills_the_values() -> None:
+    assert render_template("{開始日}〜{期限}", SD, False) == "2026-10-05〜2026-10-09"
+
+
+@pytest.mark.parametrize(
+    ("values", "expected_drop", "expected_keep"),
+    [
+        ({CsvField.START: "A"}, "A", "A〜"),
+        ({CsvField.END: "B"}, "B", "〜B"),
+        ({}, "", "〜"),
+    ],
+)
+def test_empty_fields_drop_their_separator_unless_kept(
+    values: dict, expected_drop: str, expected_keep: str
+) -> None:
+    assert render_template("{開始日}〜{期限}", values, False) == expected_drop
+    assert render_template("{開始日}〜{期限}", values, True) == expected_keep
+
+
+def test_literals_around_the_fields_stay_when_something_is_present() -> None:
+    t = "【{担当}・{担当の割合}】"
+    assert render_template(t, {CsvField.OWNER: "田中"}, False) == "【田中】"
+    assert render_template(t, {}, False) == ""
+
+
+def test_split_template_reverses_render_template() -> None:
+    assert split_template("{開始日}〜{期限}", "2026-10-05〜2026-10-09") == {
+        CsvField.START: "2026-10-05",
+        CsvField.END: "2026-10-09",
+    }
+    assert split_template("{開始日}〜{期限}", "2026-10-05") == {
+        CsvField.START: "2026-10-05",
+        CsvField.END: "",
+    }
+    assert split_template("{WBS 番号} {タスク名}", "1.1 設計 案") == {
+        CsvField.WBS: "1.1",
+        CsvField.TITLE: "設計 案",
+    }
+    assert split_template("{開始日}〜{期限}", "")[CsvField.START] == ""
+
+
+@pytest.mark.parametrize(
+    ("template", "word"),
+    [
+        ("{開始日}{期限}", "区切り"),
+        ("{開始日}〜{開始日}", "重複"),
+        ("{未知}", "書式"),
+        ("開始", "項目"),
+        ("{開始日", "書式"),
+    ],
+)
+def test_template_problem(template: str, word: str) -> None:
+    assert word in (template_problem(template) or "")
+
+
+def test_a_template_column_covers_its_fields_and_round_trips() -> None:
+    p = CsvProfile(
+        "結合",
+        (
+            CsvColumn(CsvField.TITLE, "件名"),
+            CsvColumn(CsvField.START, "期間", "{開始日}〜{期限}"),
+        ),
+        keep_separators=True,
+    )
+    assert validate_profile(p) is None
+    assert p.all_fields == [CsvField.TITLE, CsvField.START, CsvField.END]
+    assert resolve_columns(p, ["件名", "期間"]) == {
+        CsvField.TITLE: 0,
+        CsvField.START: 1,
+        CsvField.END: 1,
+    }
+    assert profile_from_config(profile_to_config(p)) == p
+
+
+def test_a_field_cannot_be_both_in_a_template_and_its_own_column() -> None:
+    p = CsvProfile(
+        "重複",
+        (
+            CsvColumn(CsvField.TITLE, "件名"),
+            CsvColumn(CsvField.START, "期間", "{開始日}〜{期限}"),
+            CsvColumn(CsvField.END, "期限"),
+        ),
+    )
+    assert "重複" in (validate_profile(p) or "")
+
+
+def test_the_template_title_may_be_inside_a_template() -> None:
+    p = CsvProfile(
+        "WBS付き", (CsvColumn(CsvField.WBS, "名前", "{WBS 番号} {タスク名}"),)
+    )
+    assert validate_profile(p) is None

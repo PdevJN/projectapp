@@ -220,3 +220,52 @@ async def test_the_percent_sign_can_be_turned_off_for_the_export(user: User) -> 
     user.find(marker="csv-ex-percent").elements.pop().set_value(False)
     user.find(marker="csv-export-confirm").click()
     assert exported[0].progress_percent is False
+
+
+async def test_a_template_in_the_export_dialog_makes_a_combined_column(
+    user: User,
+) -> None:
+    exported, _ = await open_export(user)
+    for field in ("start", "end", "duration"):  # 書式に入れる項目は、別の列から外す
+        user.find(marker=f"csv-ex-use-{field}").elements.pop().set_value(False)
+    user.find(marker="csv-ex-template-start").elements.pop().set_value(
+        "{開始日}〜{期限}"
+    )
+    user.find(marker="csv-ex-use-start").elements.pop().set_value(True)
+    user.find(marker="csv-ex-keep-sep").elements.pop().set_value(True)
+    user.find(marker="csv-export-confirm").click()
+    column = next(c for c in exported[0].columns if c.template)
+    assert column.template == "{開始日}〜{期限}" and column.field is CsvField.START
+    assert exported[0].keep_separators is True
+
+
+async def test_a_field_in_a_template_and_in_its_own_column_is_refused(
+    user: User,
+) -> None:
+    await open_export(user)
+    user.find(marker="csv-ex-template-start").elements.pop().set_value(
+        "{開始日}〜{期限}"
+    )
+    assert not user.find(marker="csv-export-confirm").elements.pop().enabled
+
+
+async def test_a_template_in_the_import_dialog_splits_one_column(user: User) -> None:
+    data = "件名,期間\n設計,2026-10-05〜2026-10-09\n".encode()
+    chosen, _ = await open_dialog(user, data=data)
+    user.find(marker="csv-map-start").elements.pop().set_value(1)
+    user.find(marker="csv-template-start").elements.pop().set_value("{開始日}〜{期限}")
+    assert user.find(marker="csv-map-end").elements.pop().value == 1
+    user.find(marker="csv-import-confirm").click()
+    profile = chosen[0][0].profile
+    column = next(c for c in profile.columns if c.template)
+    assert column.field is CsvField.START and column.header == "期間"
+    assert CsvField.END not in {c.field for c in profile.columns}
+
+
+async def test_an_invalid_template_is_not_applied(user: User) -> None:
+    data = "件名,期間\n設計,2026-10-05〜2026-10-09\n".encode()
+    chosen, _ = await open_dialog(user, data=data)
+    user.find(marker="csv-map-start").elements.pop().set_value(1)
+    user.find(marker="csv-template-start").elements.pop().set_value("{開始日}{期限}")
+    user.find(marker="csv-import-confirm").click()
+    assert not any(c.template for c in chosen[0][0].profile.columns)

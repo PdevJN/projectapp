@@ -1,5 +1,6 @@
 """CSV・TSV の列の対応(プロファイル)。項目・別名・推測・検証・config の変換。NiceGUI には依存しない。"""
 
+import itertools
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -132,10 +133,122 @@ ALIASES: dict[CsvField, tuple[str, ...]] = {  # 見出しの別名(header_key �
 }
 
 
+MAX_TEMPLATE = 60
+MAX_TEMPLATE_FIELDS = 4
+LABEL_FIELDS = {label: f for f, label in FIELD_LABELS.items()}
+_TEMPLATE_PART = re.compile(r"(\{[^{}]*\})")
+
+
+def parse_template(template: str) -> tuple[str | CsvField, ...] | None:
+    """`{開始日}〜{期限}` を、文字と項目の並びにする。波括弧の対応が崩れる・知らない項目名なら None。"""
+    tokens: list[str | CsvField] = []
+    for part in _TEMPLATE_PART.split(template):
+        if part.startswith("{") and part.endswith("}"):
+            found = LABEL_FIELDS.get(part[1:-1].strip())
+            if found is None:
+                return None
+            tokens.append(found)
+        elif "{" in part or "}" in part:
+            return None
+        elif part:
+            tokens.append(part)
+    return tuple(tokens)
+
+
+def template_fields(template: str) -> tuple[CsvField, ...]:
+    return tuple(t for t in parse_template(template) or () if isinstance(t, CsvField))
+
+
+def template_problem(template: str) -> str | None:
+    """書式の問題の文言(なければ None)。項目は 1〜4 個、同じ項目は 1 回、項目と項目の間には区切りの文字が要る。"""
+    tokens = parse_template(template)
+    if tokens is None or len(template) > MAX_TEMPLATE:
+        return f"書式は`{{開始日}}〜{{期限}}`の形で、{MAX_TEMPLATE} 文字までです"
+    fields = [t for t in tokens if isinstance(t, CsvField)]
+    if not 1 <= len(fields) <= MAX_TEMPLATE_FIELDS:
+        return f"書式の項目は 1〜{MAX_TEMPLATE_FIELDS} 個にしてください"
+    if len(fields) != len(set(fields)):
+        return "書式に同じ項目が重複しています"
+    if any(
+        isinstance(a, CsvField) and isinstance(b, CsvField)
+        for a, b in zip(tokens, tokens[1:])
+    ):
+        return "書式の項目と項目の間には、区切りの文字が要ります"
+    return None
+
+
+def render_template(
+    template: str, values: dict[CsvField, str], keep_separators: bool
+) -> str:
+    """書式に値をはめる。空の項目は、`keep_separators`でなければ区切りごと消す。"""
+    tokens = parse_template(template) or ()
+    if keep_separators:
+        return "".join(
+            values.get(t, "") if isinstance(t, CsvField) else t for t in tokens
+        )
+    lead = ""
+    tail = ""
+    pairs: list[tuple[str, CsvField]] = []  # (項目の前の文字, 項目)
+    before = ""
+    for token in tokens:
+        if isinstance(token, CsvField):
+            pairs.append((before, token))
+            before = ""
+        else:
+            before += token
+    tail = before
+    if pairs and tokens and not isinstance(tokens[0], CsvField):
+        lead, pairs[0] = pairs[0][0], ("", pairs[0][1])
+    present = [(pre, f) for pre, f in pairs if values.get(f, "")]
+    if not present:
+        return ""
+    body = "".join(
+        (pre if index else "") + values[f] for index, (pre, f) in enumerate(present)
+    )
+    return lead + body + tail
+
+
+def split_template(template: str, text: str) -> dict[CsvField, str] | None:
+    """`render_template`の逆。項目の一部が空で区切りが省かれた形も読む。合わなければ None。"""
+    tokens = parse_template(template) or ()
+    fields = [t for t in tokens if isinstance(t, CsvField)]
+    subsets = sorted(
+        (
+            subset
+            for size in range(1, len(fields) + 1)
+            for subset in itertools.combinations(fields, size)
+        ),
+        key=lambda s: (
+            -len(s),
+            CsvField.TITLE not in s,
+        ),  # 大きい組み、同じならタスク名を含む組を先に
+    )
+    for subset in subsets:
+        values = {f: "\x00" for f in subset}
+        sample = render_template(template, values, False)
+        pattern = ""
+        for part in re.split("(\x00)", sample):
+            pattern += "(.*?)" if part == "\x00" else re.escape(part)
+        found = re.fullmatch(pattern, text, re.DOTALL)
+        if found:
+            result = {f: "" for f in fields}
+            for f, value in zip(subset, found.groups()):
+                result[f] = value.strip()
+            return result
+    return None
+
+
 @dataclass(frozen=True)
 class CsvColumn:
-    field: CsvField
+    field: CsvField  # 書式があるときは、書式の最初の項目
     header: str
+    template: str = (
+        ""  # 空でなければ、この列に複数の項目をまとめる(例 `{開始日}〜{期限}`)
+    )
+
+    @property
+    def fields(self) -> tuple[CsvField, ...]:
+        return template_fields(self.template) or (self.field,)
 
 
 @dataclass(frozen=True)
@@ -153,9 +266,22 @@ class CsvProfile:
     )
     blank_rows: int = 0  # 見出しの次に入れる空行の数(Smartsheet のテンプレートだけ)
 
+    keep_separators: bool = False  # 書式で、空の項目の区切りも残す
+
     @property
     def headers(self) -> dict[CsvField, str]:
         return {c.field: c.header for c in self.columns}
+
+    @property
+    def all_fields(self) -> list[CsvField]:
+        """書式にまとめた項目も含む、すべての項目。"""
+        return [f for c in self.columns for f in c.fields]
+
+    def header_of(self, field: CsvField) -> str:
+        for column in self.columns:
+            if field in column.fields:
+                return column.header
+        return ""
 
 
 SMARTSHEET = CsvProfile(
@@ -203,9 +329,13 @@ def resolve_columns(profile: CsvProfile, header: list[str]) -> dict[CsvField, in
     for column in profile.columns:
         if column.field is CsvField.DURATION:
             continue
-        for name in (header_key(column.header), *ALIASES[column.field]):
+        names = (header_key(column.header),) + (
+            () if column.template else ALIASES[column.field]
+        )  # 書式の列は、別名では探さない
+        for name in names:
             if name and name in keys:
-                result[column.field] = keys.index(name)
+                for field_ in column.fields:  # 書式にまとめた項目は、同じ列を指す
+                    result[field_] = keys.index(name)
                 break
     return result
 
@@ -245,7 +375,14 @@ def validate_profile(profile: CsvProfile) -> str | None:
         return "日付の書式を選んでください"
     if len(profile.owner_separator) > MAX_SEPARATOR:
         return f"担当の区切りは {MAX_SEPARATOR} 文字までです"
-    fields = [c.field for c in profile.columns]
+    for column in profile.columns:
+        if column.template:
+            problem = template_problem(column.template)
+            if problem:
+                return problem
+            if column.field is not template_fields(column.template)[0]:
+                return "書式の最初の項目が、列の項目と合っていません"
+    fields = profile.all_fields
     if len(fields) != len(set(fields)):
         return "同じ項目が重複しています"
     if CsvField.TITLE not in fields:
@@ -260,13 +397,15 @@ def profile_to_config(profile: CsvProfile) -> dict:
     return {
         "name": profile.name,
         "columns": [
-            {"field": c.field.value, "header": c.header} for c in profile.columns
+            {"field": c.field.value, "header": c.header, "template": c.template}
+            for c in profile.columns
         ],
         "delimiter": profile.delimiter,
         "encoding": profile.encoding,
         "date_format": profile.date_format,
         "owner_separator": profile.owner_separator,
         "progress_percent": profile.progress_percent,
+        "keep_separators": profile.keep_separators,
     }
 
 
@@ -276,7 +415,11 @@ def profile_from_config(raw: object) -> CsvProfile | None:
         return None
     try:
         columns = tuple(
-            CsvColumn(CsvField(c["field"]), str(c["header"]).strip())
+            CsvColumn(
+                CsvField(c["field"]),
+                str(c["header"]).strip(),
+                str(c.get("template", "")).strip(),
+            )
             for c in raw["columns"]
         )
         profile = CsvProfile(
@@ -287,6 +430,7 @@ def profile_from_config(raw: object) -> CsvProfile | None:
             str(raw.get("date_format", "ymd-dash")),
             str(raw.get("owner_separator", ";")),
             progress_percent=raw.get("progress_percent", True) is not False,
+            keep_separators=raw.get("keep_separators", False) is True,
         )
     except (KeyError, TypeError, ValueError):
         return None
