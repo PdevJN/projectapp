@@ -41,6 +41,8 @@ from projectapp.config import (
     load_open_ratio,
     load_today_color,
     load_warning_color,
+    load_csv_profile_last,
+    load_csv_profiles,
     load_dashboard_view_last,
     load_dashboard_views,
     load_project_dir,
@@ -48,6 +50,8 @@ from projectapp.config import (
     load_task_sections,
     load_theme,
     load_zoom,
+    save_csv_profile_last,
+    save_csv_profiles,
     resolve_project_dir,
     save_custom_theme,
     save_main_split,
@@ -169,14 +173,26 @@ from projectapp.plantuml import (
     write_text,
 )
 from projectapp.plantuml import default_filename as plantuml_filename
-from projectapp.csv_export import DEFAULT_FILENAME as TSV_DEFAULT_FILENAME
-from projectapp.csv_export import TSV_FILE_TYPES, build_tsv, write_tsv
+from projectapp.csv_dialog import (
+    ImportChoice,
+    open_csv_export_dialog,
+    open_csv_import_dialog,
+)
+from projectapp.csv_export import default_filename as table_filename
+from projectapp.csv_export import (
+    CSV_SAVE_FILE_TYPES,
+    TSV_FILE_TYPES,
+    build_table,
+    encode_table,
+    write_table,
+)
 from projectapp.csv_import import (
     CSV_OPEN_FILE_TYPES,
     CsvImportError,
     parse_csv,
-    read_table,
+    sniff_table,
 )
+from projectapp.csv_profile import MAX_PROFILES, SMARTSHEET, CsvProfile
 from projectapp.csv_import import summary as csv_import_summary
 from projectapp.settings_io import DEFAULT_FILENAME as SETTINGS_DEFAULT_FILENAME
 from projectapp.settings_dialog import open_import_dialog
@@ -928,15 +944,56 @@ class MainView:
             ui.timer(0, self.import_csv, once=True)
 
     async def import_csv(self) -> None:
-        """選んだ CSV・TSV から、保存前の新規プロジェクトを作る。失敗したら、通知だけして何も変えない。"""
+        """選んだ CSV・TSV を読み、列の対応のダイアログを開く。確定すると、保存前の新規プロジェクトを作る。"""
         path = await self.exporter.ask_open_path(CSV_OPEN_FILE_TYPES)
         if path is None:
             return
         try:
-            result = parse_csv(read_table(path), path.stem, self.holidays)
+            data = path.read_bytes()
+            sniff_table(data)  # 読めるかだけ先に確かめる
+        except (OSError, CsvImportError) as exc:
+            ui.notify(f"取り込めませんでした: {exc}", type="negative")
+            return
+        with self.client:
+            open_csv_import_dialog(
+                data,
+                load_csv_profiles(self.base_dir),
+                load_csv_profile_last(self.base_dir),
+                lambda choice, text: self.apply_csv_import(choice, text, path.stem),
+                self.save_csv_profile,
+            )
+
+    def save_csv_profile(self, profile: CsvProfile) -> str | None:
+        """プロファイルを保存する(同名は上書き)。失敗の文言か None。"""
+        profiles = [
+            p for p in load_csv_profiles(self.base_dir) if p.name != profile.name
+        ]
+        if len(profiles) >= MAX_PROFILES:
+            return f"プロファイルは {MAX_PROFILES} 件までです"
+        try:
+            save_csv_profiles([*profiles, profile], self.base_dir)
+        except OSError as exc:
+            return f"保存できませんでした: {exc}"
+        return None
+
+    def apply_csv_import(self, choice: ImportChoice, text: str, stem: str) -> None:
+        """ダイアログで決めた対応で取り込み、保存前の新規プロジェクトにする。失敗したら、通知だけして何も変えない。"""
+        try:
+            result = parse_csv(
+                text,
+                stem,
+                self.holidays,
+                profile=choice.profile,
+                delimiter=choice.delimiter,
+                header_row=choice.header_row,
+            )
         except CsvImportError as exc:
             ui.notify(f"取り込めませんでした: {exc}", type="negative")
             return
+        try:
+            save_csv_profile_last(choice.profile.name, self.base_dir)
+        except OSError:
+            pass  # 覚えられなくても、取り込みは続ける
         self.show_project(result.project, None)
         self.snapshot = asdict(
             Project(NEW_PROJECT_NAME)
@@ -1035,20 +1092,24 @@ class MainView:
             return
         ui.notify(f"書き出しました({written.name})")
 
-    async def export_tsv(self) -> None:
-        """通常タスクとセクションを TSV に書き出す。プロジェクトは変えない(保存も、変更扱いもしない)。"""
-        if not self.exporter.available:
-            ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
-            return
+    def csv_references(self) -> dict:
         now = clock.now()
-        values = {
+        return {
             tid: ref.value
             for tid, ref in build_references(
                 self.project, self.reference_resolver, now
             ).items()
             if ref.value is not None
         }
-        result = build_tsv(self.project, self.holidays, values)
+
+    async def export_tsv(self) -> None:
+        """書き出しの形のダイアログを開く。プロジェクトは変えない(保存も、変更扱いもしない)。"""
+        if not self.exporter.available:
+            ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
+            return
+        result = build_table(
+            self.project, self.holidays, SMARTSHEET, self.csv_references()
+        )
         if (
             result.task_count == 0
             and result.section_count == 0
@@ -1056,11 +1117,37 @@ class MainView:
         ):
             ui.notify("書き出せるタスクがありません", type="warning")
             return
-        path = await self.exporter.ask_path(TSV_DEFAULT_FILENAME, TSV_FILE_TYPES)
+        with self.client:
+            open_csv_export_dialog(
+                load_csv_profiles(self.base_dir),
+                load_csv_profile_last(self.base_dir),
+                self.run_csv_export,
+                self.save_csv_profile,
+            )
+
+    async def run_csv_export(self, profile: CsvProfile) -> None:
+        """ダイアログで決めたプロファイルで書き出す。確定は背景タスクで動き、slot がないので、この画面に入って通知する。"""
+        with self.client:
+            await self.write_csv_export(profile)
+
+    async def write_csv_export(self, profile: CsvProfile) -> None:
+        result = build_table(
+            self.project, self.holidays, profile, self.csv_references()
+        )
+        try:
+            data = encode_table(result.text, profile.encoding)
+        except ValueError as exc:
+            ui.notify(f"書き出せませんでした: {exc}", type="negative")
+            return
+        filetypes = TSV_FILE_TYPES if profile.delimiter == "\t" else CSV_SAVE_FILE_TYPES
+        path = await self.exporter.ask_path(
+            table_filename(profile.delimiter), filetypes
+        )
         if path is None:
             return
         try:
-            write_tsv(path, result.text)
+            write_table(path, data, profile.delimiter)
+            save_csv_profile_last(profile.name if profile.name else None, self.base_dir)
         except OSError as exc:
             ui.notify(f"保存できませんでした: {exc}", type="negative")
             return
@@ -1071,7 +1158,7 @@ class MainView:
             f"担当者が複数の {result.multiple_owners} 件は筆頭だけを書きました"
             if result.multiple_owners
             else "",
-            f"参照先が読めない {result.unresolved} 件は、日付と完了率を空にしました"
+            f"参照先が読めない {result.unresolved} 件は、日付と進捗率を空にしました"
             if result.unresolved
             else "",
         ]
@@ -3097,7 +3184,7 @@ class MainView:
                                 "export-handoff",
                             ),
                             MenuItem(
-                                "TSV として書き出す",
+                                "CSV・TSV として書き出す…",
                                 "download",
                                 self.export_tsv,
                                 "export-tsv",

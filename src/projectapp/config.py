@@ -6,6 +6,7 @@ import secrets
 from math import isfinite
 from pathlib import Path
 
+from projectapp.csv_profile import CsvProfile, profile_to_config, profiles_from_config
 from projectapp.dashboard_views import ViewSpec, views_from_config, views_to_config
 from projectapp.storage import BASE_DIR
 from projectapp.theme import (
@@ -271,3 +272,28 @@ def resolve_project_dir(base_dir: Path = BASE_DIR) -> tuple[Path, str | None]:
     if check_project_dir(saved) is not None:
         return base_dir, PROJECT_DIR_MISSING_MESSAGE
     return saved, None
+
+
+def load_csv_profiles(base_dir: Path = BASE_DIR) -> list[CsvProfile]:
+    """保存した CSV のプロファイル(`Smartsheet`を含まない)。読めないときは空。"""
+    try:
+        return profiles_from_config(read_config(base_dir).get("csv_profiles"))
+    except (OSError, ValueError):
+        return []
+
+
+def save_csv_profiles(profiles: list[CsvProfile], base_dir: Path = BASE_DIR) -> None:
+    update_config({"csv_profiles": [profile_to_config(p) for p in profiles]}, base_dir)
+
+
+def load_csv_profile_last(base_dir: Path = BASE_DIR) -> str | None:
+    """直近に使ったプロファイル名。読めない・文字列でないときは None。"""
+    try:
+        value = read_config(base_dir).get("csv_profile_last")
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, str) and value else None
+
+
+def save_csv_profile_last(name: str | None, base_dir: Path = BASE_DIR) -> None:
+    update_config({"csv_profile_last": name or ""}, base_dir)

@@ -608,3 +608,22 @@ def test_huge_integers_clamp_instead_of_raising() -> None:
     assert config.parse_main_split(-(10**400)) == 30
     assert config.parse_open_ratio(10**400) == 90
     assert config.parse_open_ratio(-(10**400)) == 50
+
+
+def test_csv_profiles_round_trip_and_survive_a_broken_file(tmp_path) -> None:
+    from projectapp.config import (
+        load_csv_profile_last,
+        load_csv_profiles,
+        save_csv_profile_last,
+        save_csv_profiles,
+    )
+    from projectapp.csv_profile import CsvColumn, CsvField, CsvProfile
+
+    p = CsvProfile("自作", (CsvColumn(CsvField.TITLE, "件名"),))
+    assert load_csv_profiles(tmp_path) == []
+    save_csv_profiles([p], tmp_path)
+    assert load_csv_profiles(tmp_path) == [p]
+    save_csv_profile_last("自作", tmp_path)
+    assert load_csv_profile_last(tmp_path) == "自作"
+    (tmp_path / "config.json").write_text("{broken", encoding="utf-8")
+    assert load_csv_profiles(tmp_path) == [] and load_csv_profile_last(tmp_path) is None

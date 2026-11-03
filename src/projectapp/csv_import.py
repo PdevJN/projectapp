@@ -5,15 +5,27 @@ import io
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from projectapp import clock
+from projectapp.csv_profile import (
+    ALIASES,
+    SMARTSHEET,
+    CsvField,
+    CsvProfile,
+    header_key,
+    resolve_columns,
+    split_template,
+)
 from projectapp.models import (
+    MAX_CATEGORY_NAME_LENGTH,
     MAX_SECTION_DEPTH,
     MAX_YEAR,
     MIN_YEAR,
+    Actual,
     Assignee,
+    Category,
     Member,
     Project,
     Section,
@@ -59,14 +71,15 @@ class CsvImport:
     unresolved: (
         int  # 日付が読めない・期限が開始日より前で、日程を入れなかったタスクの数
     )
-    invalid_progress: int  # 読めず、入れなかった完了率の数
+    invalid_progress: int  # 読めず、入れなかった進捗率の数
     dropped_values: (
-        int  # セクションにした行で、日付・オーナー・完了率を取り込まなかった行の数
+        int  # セクションにした行で、日付・オーナー・進捗率を取り込まなかった行の数
     )
+    invalid_values: int = 0  # 読めない工数・状態・実績と、入れなかった実績の数
 
 
 def _plain(text: str) -> str:
-    """全角を半角にして、前後の空白を除く(日付・完了率・WBS 番号の判定用)。"""
+    """全角を半角にして、前後の空白を除く(日付・進捗率・WBS 番号の判定用)。"""
     return unicodedata.normalize("NFKC", text).strip()
 
 
@@ -99,6 +112,85 @@ def parse_percent(text: str) -> int | None:
     return int(found.group(1))
 
 
+MAX_EFFORT_HOURS = 10000
+_EFFORT = re.compile(r"(\d+(?:\.\d+)?)\s*(?:h|時間)?", re.IGNORECASE)
+_DATETIME = re.compile(r"(.+?)(?:[T\s]+(\d{1,2}):(\d{2}))?")
+STATUS_WORDS = {
+    "未着手": Status.NOT_STARTED,
+    "notstarted": Status.NOT_STARTED,
+    "todo": Status.NOT_STARTED,
+    "実行中": Status.RUNNING,
+    "inprogress": Status.RUNNING,
+    "running": Status.RUNNING,
+    "一時停止": Status.PAUSED,
+    "onhold": Status.PAUSED,
+    "paused": Status.PAUSED,
+    "終了": Status.DONE,
+    "完了": Status.DONE,
+    "done": Status.DONE,
+    "complete": Status.DONE,
+    "completed": Status.DONE,
+}
+
+
+def parse_effort(text: str) -> float | None:
+    """`8`・`8.5`・`8h`・`8.5時間` を時間で読む。0 以下・1 万時間超・読めない値は None。"""
+    found = _EFFORT.fullmatch(_plain(text))
+    if found is None:
+        return None
+    value = float(found.group(1))
+    return value if 0 < value <= MAX_EFFORT_HOURS else None
+
+
+def parse_ratio(text: str) -> float | None:
+    """担当の割合 `50`・`50%` を 0.01〜1.0 で読む。0・100 超・読めない値は None。"""
+    value = parse_percent(text)
+    return value / 100 if value else None
+
+
+def parse_status(text: str) -> Status | None:
+    return STATUS_WORDS.get(header_key(text))
+
+
+def date_only(text: str) -> bool:
+    return not re.search(r"\d{1,2}:\d{2}", _plain(text))
+
+
+def parse_datetime(text: str) -> datetime | None:
+    """`2026-10-05`・`2026-10-05 09:30`・`2026/10/5T9:05` を読む。日付だけは 0 時。読めなければ None。"""
+    found = _DATETIME.fullmatch(_plain(text))
+    if found is None:
+        return None
+    day = parse_date(found.group(1))
+    if day is None:
+        return None
+    if found.group(2) is None:
+        return datetime.combine(day, time(0))
+    hour, minute = int(found.group(2)), int(found.group(3))
+    if hour >= 24 or minute >= 60:
+        return None
+    return datetime.combine(day, time(hour, minute))
+
+
+def cell_ok(field_: CsvField, text: str) -> bool:
+    """プレビューで読めない値を示すための検査。空は読める。"""
+    if not text.strip():
+        return True
+    if field_ in (CsvField.START, CsvField.END, CsvField.DEADLINE):
+        return parse_date(text) is not None
+    if field_ is CsvField.RATIO:
+        return all(parse_ratio(part) is not None for part in text.split(";"))
+    if field_ is CsvField.PROGRESS:
+        return parse_percent(text) is not None
+    if field_ is CsvField.EFFORT:
+        return parse_effort(text) is not None
+    if field_ is CsvField.STATUS:
+        return parse_status(text) is not None
+    if field_ in (CsvField.ACTUAL_START, CsvField.ACTUAL_END):
+        return parse_datetime(text) is not None
+    return True
+
+
 def _status(progress: int) -> Status:
     if progress == 0:
         return Status.NOT_STARTED
@@ -113,10 +205,29 @@ class _Row:
     start: str
     end: str
     progress: str
+    effort: str = ""
+    status: str = ""
+    actual_start: str = ""
+    actual_end: str = ""
+    category: str = ""
+    ratio: str = ""
+    deadline: str = ""
 
     @property
     def blank_fields(self) -> bool:
-        return not (self.owner or self.start or self.end or self.progress)
+        return not (
+            self.owner
+            or self.start
+            or self.end
+            or self.progress
+            or self.effort
+            or self.status
+            or self.actual_start
+            or self.actual_end
+            or self.category
+            or self.ratio
+            or self.deadline
+        )
 
     @property
     def section_depth(self) -> int | None:
@@ -130,49 +241,90 @@ class _Row:
         )
 
 
-def _rows(text: str) -> list[_Row | None]:
+def detect_delimiter(line: str) -> str:
+    """ヘッダー行で最も多い区切り(タブ・カンマ・セミコロン)。同数ならタブ、次にカンマ。"""
+    counts = {d: line.count(d) for d in ("\t", ",", ";")}
+    return max(counts, key=lambda d: (counts[d], d == "\t", d == ","))
+
+
+def _find_header(lines: list[str], profile: CsvProfile) -> int | None:
+    """プロファイルのタスク名の見出しを含む最初の行(従来どおり、行全体の部分一致)。"""
+    wanted = header_key(profile.header_of(CsvField.TITLE))
+    if not wanted:
+        return None
+    return next((i for i, line in enumerate(lines) if wanted in header_key(line)), None)
+
+
+def _rows(
+    text: str,
+    profile: CsvProfile,
+    delimiter: str | None,
+    header_row: int | None,
+) -> list[_Row | None]:
     """ヘッダー行を探し、そのあとの行を読む。空行は読み飛ばし、タイトルのない行は None で返す。"""
     lines = text.splitlines()
-    header_at = next(
-        (i for i, line in enumerate(lines) if TITLE_COLUMN in _column_key(line)), None
-    )
-    if header_at is None:
-        raise CsvImportError(f"「{TITLE_COLUMN}」の列が見つかりません")
-    delimiter = (
-        "\t" if lines[header_at].count("\t") >= lines[header_at].count(",") else ","
-    )
-    table = csv.reader(io.StringIO("\n".join(lines[header_at:])), delimiter=delimiter)
+    header_at = header_row if header_row is not None else _find_header(lines, profile)
+    title_header = profile.header_of(CsvField.TITLE) or "タスク名"
+    if header_at is None or not 0 <= header_at < len(lines):
+        raise CsvImportError(f"「{title_header}」の列が見つかりません")
+    sep = delimiter or detect_delimiter(lines[header_at])
+    table = csv.reader(io.StringIO("\n".join(lines[header_at:])), delimiter=sep)
     header = next(table)
-    columns = {
-        COLUMN_NAMES[key]: index
-        for index, cell in enumerate(header)
-        if (key := _column_key(cell)) in COLUMN_NAMES
-    }
+    columns = resolve_columns(profile, header)
+    if CsvField.TITLE not in columns:
+        raise CsvImportError(f"「{title_header}」の列が見つかりません")
     rows: list[_Row | None] = []
     for cells in table:
         if not any(cell.strip() for cell in cells):
             continue
 
-        def cell(name: str) -> str:
-            index = columns.get(name)
+        parts: dict[CsvField, str] = {}
+        for column in profile.columns:
+            if not column.template or column.field not in columns:
+                continue
+            index = columns[column.field]
+            text = cells[index].strip() if index < len(cells) else ""
+            split = (split_template(column.template, text) if text else None) or {}
+            parts.update({f: split.get(f, "") for f in column.fields})
+
+        def cell(field_: CsvField) -> str:
+            if field_ in parts:
+                return parts[field_]
+            index = columns.get(field_)
             return (
                 cells[index].strip() if index is not None and index < len(cells) else ""
             )
 
         row = _Row(
-            _plain(cell("wbs")),
-            cell("title"),
-            cell("owner"),
-            cell("start"),
-            cell("end"),
-            cell("progress"),
+            _plain(cell(CsvField.WBS)),
+            cell(CsvField.TITLE),
+            cell(CsvField.OWNER),
+            cell(CsvField.START),
+            cell(CsvField.END),
+            cell(CsvField.PROGRESS),
+            cell(CsvField.EFFORT),
+            cell(CsvField.STATUS),
+            cell(CsvField.ACTUAL_START),
+            cell(CsvField.ACTUAL_END),
+            cell(CsvField.CATEGORY),
+            cell(CsvField.RATIO),
+            cell(CsvField.DEADLINE),
         )
         rows.append(row if tidy_task_name(row.title) else None)
     return rows
 
 
 class _Builder:
-    def __init__(self, name: str, holidays: dict[date, str], today: date) -> None:
+    def __init__(
+        self,
+        name: str,
+        holidays: dict[date, str],
+        today: date,
+        profile: CsvProfile = SMARTSHEET,
+    ) -> None:
+        self.profile = profile
+        self.categories: dict[str, Category] = {}
+        self.invalid_values = 0
         self.project = Project(name)
         self.holidays = holidays
         self.today = today
@@ -219,12 +371,120 @@ class _Builder:
                 self.invalid_progress += 1
             else:
                 task.status, task.progress = _status(value), value or None
-        owner = tidy_task_name(row.owner)
-        if owner:
-            task.assignees = [Assignee(owner, 1.0)]
+        ratios = self.ratios(row.ratio)
+        for owner, index in self.owners(row.owner):
+            task.assignees.append(Assignee(owner, ratios.get(index, 1.0)))
             self.member(owner)
+        self.apply_deadline(task, row)
         self.schedule(task, row)
+        self.apply_effort(task, row)
+        self.apply_status(task, row)
+        self.apply_actuals(task, row)
+        self.apply_category(task, row)
         (self.stack[-1].tasks if self.stack else self.project.tasks).append(task)
+
+    def owners(self, text: str) -> list[tuple[str, int]]:
+        """(名前, 元の並びの位置)。割合は位置で対応づける。"""
+        sep = self.profile.owner_separator
+        found: list[tuple[str, int]] = []
+        for index, raw in enumerate(text.split(sep) if sep else [text]):
+            name = tidy_task_name(raw)
+            if name and all(name != n for n, _ in found):
+                found.append((name, index))
+        return found
+
+    def ratios(self, text: str) -> dict[int, float]:
+        """位置ごとの割合。読めない値は数えて、100% のままにする。"""
+        sep = self.profile.owner_separator
+        found: dict[int, float] = {}
+        for index, raw in enumerate(text.split(sep) if sep else [text]):
+            if not raw.strip():
+                continue
+            value = parse_ratio(raw)
+            if value is None:
+                self.invalid_values += 1
+            else:
+                found[index] = value
+        return found
+
+    def apply_deadline(self, task: Task, row: _Row) -> None:
+        if not row.deadline:
+            return
+        day = parse_date(row.deadline)
+        if day is None:
+            self.invalid_values += 1
+            return
+        project = self.project
+        task.deadline = datetime.combine(day, project.work_start) + timedelta(
+            hours=project.daily_hours
+        )
+
+    def apply_effort(self, task: Task, row: _Row) -> None:
+        if not row.effort:
+            return
+        hours = parse_effort(row.effort)
+        if hours is None:
+            self.invalid_values += 1
+            return
+        task.effort_hours = hours
+        end = parse_date(row.end) if row.end else None
+        if end is not None:  # 期限は守る: 完了予定を手で指定する
+            task.planned_end_manual = True
+            task.planned_end = datetime.combine(
+                end, self.project.work_start
+            ) + timedelta(hours=self.project.daily_hours)
+
+    def apply_status(self, task: Task, row: _Row) -> None:
+        if not row.status:
+            return
+        status = parse_status(row.status)
+        if status is None:
+            self.invalid_values += 1
+            return
+        task.status = status
+        if status is Status.DONE:
+            task.progress = 100
+        elif status is Status.NOT_STARTED:
+            task.progress = None
+
+    def apply_actuals(self, task: Task, row: _Row) -> None:
+        if not (row.actual_start or row.actual_end):
+            return
+        start = parse_datetime(row.actual_start) if row.actual_start else None
+        end = parse_datetime(row.actual_end) if row.actual_end else None
+        bad = (
+            bool(row.actual_start and start is None)
+            or bool(row.actual_end and end is None)
+            or (end is not None and start is None)
+            or (start is not None and end is not None and end < start)
+        )
+        if bad or start is None:
+            self.invalid_values += 1
+            return
+        project = self.project
+        if date_only(row.actual_start):
+            start = datetime.combine(start.date(), project.work_start)
+        if end is not None and date_only(row.actual_end):
+            end = datetime.combine(end.date(), project.work_start) + timedelta(
+                hours=project.daily_hours
+            )
+            end = max(end, start)
+        if end is not None and end < start:  # 補った時刻で前後が逆になる
+            self.invalid_values += 1
+            return
+        task.actuals = [Actual(start, end)]
+        if end is None and task.status in (Status.NOT_STARTED, Status.DONE):
+            task.status = Status.RUNNING  # 進行中の区間があるのに未着手・終了は食い違う
+
+    def apply_category(self, task: Task, row: _Row) -> None:
+        name = tidy_task_name(row.category)[:MAX_CATEGORY_NAME_LENGTH]
+        if not name:
+            return
+        if name not in self.categories:
+            category = Category(name, id=self.fresh())
+            self.categories[name] = category
+            self.project.categories.append(category)
+        task.category_id = self.categories[name].id
 
     def member(self, name: str) -> None:
         if name not in self.members:
@@ -271,13 +531,19 @@ class _Builder:
 
 
 def parse_csv(
-    text: str, name: str, holidays: dict[date, str], today: date | None = None
+    text: str,
+    name: str,
+    holidays: dict[date, str],
+    today: date | None = None,
+    profile: CsvProfile = SMARTSHEET,
+    delimiter: str | None = None,
+    header_row: int | None = None,
 ) -> CsvImport:
     """CSV・TSV のテキストから、新規プロジェクトを作る。取り込めなければ `CsvImportError`。
     `holidays` は稼働日数の数え方に使う。`today` は、日付がまったくないときの基準日(省略は今日)。"""
-    builder = _Builder(name, holidays, today or clock.today())
+    builder = _Builder(name, holidays, today or clock.today(), profile)
     skipped = 0
-    for row in _rows(text):
+    for row in _rows(text, profile, delimiter, header_row):
         if row is None:
             skipped += 1
         else:
@@ -298,6 +564,7 @@ def parse_csv(
         builder.unresolved,
         builder.invalid_progress,
         builder.dropped,
+        builder.invalid_values,
     )
 
 
@@ -311,15 +578,28 @@ def summary(result: CsvImport) -> str:
     notes = [
         f"読み飛ばした行 {result.skipped_rows} 行" if result.skipped_rows else "",
         f"日程が求まらないタスク {result.unresolved} 件" if result.unresolved else "",
-        f"読めない完了率 {result.invalid_progress} 件"
+        f"読めない進捗率 {result.invalid_progress} 件"
         if result.invalid_progress
         else "",
         f"セクションの行の値を取り込まなかった行 {result.dropped_values} 行"
         if result.dropped_values
         else "",
+        f"読めない値 {result.invalid_values} 件" if result.invalid_values else "",
     ]
     detail = "、".join(note for note in notes if note)
     return f"取り込みました({head})" + (f"。{detail}" if detail else "")
+
+
+def decode_table(data: bytes, encoding: str | None = None) -> tuple[str, str]:
+    """(テキスト, 文字コード)。`encoding`が None なら UTF-8(BOM 可)を先に試し、読めなければ Shift_JIS。"""
+    for name in (encoding,) if encoding else ("utf-8-sig", "cp932"):
+        try:
+            return data.decode(name), name
+        except UnicodeDecodeError:
+            continue
+    raise CsvImportError(
+        "文字コードを判定できません(UTF-8 か Shift_JIS にしてください)"
+    )
 
 
 def read_table(path: Path) -> str:
@@ -328,11 +608,45 @@ def read_table(path: Path) -> str:
         data = path.read_bytes()
     except OSError as exc:
         raise CsvImportError(f"ファイルを読めません: {exc}") from exc
-    for encoding in ("utf-8-sig", "cp932"):
-        try:
-            return data.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    raise CsvImportError(
-        "文字コードを判定できません(UTF-8 か Shift_JIS にしてください)"
-    )
+    return decode_table(data)[0]
+
+
+PREVIEW_ROWS = 5
+
+
+@dataclass(frozen=True)
+class TableSniff:
+    text: str
+    encoding: str
+    delimiter: str
+    header_row: int
+    header: list[str]
+    rows: list[list[str]]  # ヘッダーの次からの、空でない先頭 5 行
+
+
+def sniff_table(
+    data: bytes,
+    encoding: str | None = None,
+    delimiter: str | None = None,
+    header_row: int | None = None,
+) -> TableSniff:
+    """文字コード・区切り・ヘッダー行を判定し、見出しと先頭の数行を返す(取り込みのダイアログ用)。"""
+    text, used = decode_table(data, encoding)
+    lines = text.splitlines()
+    if header_row is None:
+        titles = ALIASES[CsvField.TITLE]
+        header_row = next(
+            (
+                i
+                for i, line in enumerate(lines)
+                if any(header_key(c) in titles for c in re.split(r"[\t,;]", line))
+            ),
+            next((i for i, line in enumerate(lines) if line.strip()), 0),
+        )
+    if not lines or not 0 <= header_row < len(lines):
+        raise CsvImportError("取り込める行がありません")
+    sep = delimiter or detect_delimiter(lines[header_row])
+    table = csv.reader(io.StringIO("\n".join(lines[header_row:])), delimiter=sep)
+    header = [c.strip() for c in next(table, [])]
+    rows = [r for r in table if any(c.strip() for c in r)][:PREVIEW_ROWS]
+    return TableSniff(text, used, sep, header_row, header, rows)

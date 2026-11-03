@@ -9,10 +9,12 @@ from pathlib import Path
 
 import httpx
 import pytest
+from nicegui.slot import Slot
 from nicegui import events, ui
 from nicegui.testing import User
 
 from projectapp.csv_export import TSV_FILE_TYPES
+from projectapp.csv_profile import SMARTSHEET
 from projectapp.shortcuts import label_for
 from projectapp.csv_import import CSV_OPEN_FILE_TYPES
 from projectapp.config import (
@@ -4255,7 +4257,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     ]
     assert menu_items(user, "file-export-items") == [
         ("担当者へ書き出し", "export-handoff"),
-        ("TSV として書き出す", "export-tsv"),
+        ("CSV・TSV として書き出す…", "export-tsv"),
         ("設定を書き出す", "export-settings"),
     ]
     assert menu_items(user, "menu-help-items") == [
@@ -8167,6 +8169,8 @@ async def test_import_csv_opens_an_unsaved_project(user: User, tmp_path: Path) -
     exporter = FakeExporter(open_path=write_csv(tmp_path))
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-csv").click()
+    await user.should_see(marker="csv-import-confirm")
+    user.find(marker="csv-import-confirm").click()
     assert await wait_until(lambda: view.project.name == "in")
     assert view.path is None and view.is_dirty()  # 保存前の新規。ファイルは作らない
     assert [s.name for s in view.project.sections] == ["1#計画"]
@@ -8176,7 +8180,11 @@ async def test_import_csv_opens_an_unsaved_project(user: User, tmp_path: Path) -
     await user.should_see(
         "取り込みました(タスク 1 件、セクション 1 件、メンバー 1 人を作成)"
     )
-    assert not [f for f in tmp_path.glob("*.json") if f.name != "holidays.json"]
+    assert not [
+        f
+        for f in tmp_path.glob("*.json")
+        if f.name not in ("holidays.json", "config.json")
+    ]
 
 
 async def test_cancelling_the_csv_dialog_changes_nothing(
@@ -8192,10 +8200,11 @@ async def test_cancelling_the_csv_dialog_changes_nothing(
 async def test_import_csv_refuses_a_file_without_the_title_column(
     user: User, tmp_path: Path
 ) -> None:
-    exporter = FakeExporter(open_path=write_csv(tmp_path, "名前\n田中"))
+    exporter = FakeExporter(open_path=write_csv(tmp_path, "メモ\n田中"))
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-csv").click()
-    await user.should_see("取り込めませんでした")
+    await user.should_see(marker="csv-import-dialog")
+    assert not user.find(marker="csv-import-confirm").elements.pop().enabled
     assert view.project.name == "新規プロジェクト" and not view.is_dirty()
 
 
@@ -8219,6 +8228,8 @@ async def test_import_csv_asks_before_dropping_unsaved_edits(
     await user.should_see(marker="unsaved-discard")
     assert exporter.asked_open == []
     user.find(marker="unsaved-discard").click()
+    await user.should_see(marker="csv-import-confirm")
+    user.find(marker="csv-import-confirm").click()
     assert await wait_until(lambda: view.project.name == "in")
 
 
@@ -8230,9 +8241,13 @@ async def test_export_tsv_writes_the_file_without_touching_the_project(
     exporter = FakeExporter(path=target, open_path=write_csv(tmp_path))
     view = await open_for_import(user, tmp_path, exporter)
     user.find(marker="file-import-csv").click()
+    await user.should_see(marker="csv-import-confirm")
+    user.find(marker="csv-import-confirm").click()
     assert await wait_until(lambda: view.project.name == "in")
     dirty = view.is_dirty()
     user.find(marker="export-tsv").click()
+    await user.should_see(marker="csv-export-confirm")
+    user.find(marker="csv-export-confirm").click()
     assert await wait_until(target.exists)
     lines = target.read_text(encoding="utf-8").splitlines()
     assert lines[1:] == [
@@ -8244,6 +8259,72 @@ async def test_export_tsv_writes_the_file_without_touching_the_project(
     assert exporter.asked == ["out.tsv"] and exporter.asked_types == [TSV_FILE_TYPES]
     assert view.is_dirty() == dirty
     await user.should_see("書き出しました(タスク 1 件、参照 0 件、セクション 1 件)")
+
+
+async def test_export_dialog_writes_a_custom_csv_in_shift_jis(
+    user: User, tmp_path: Path
+) -> None:
+    target = tmp_path / "out" / "plan.csv"
+    target.parent.mkdir()
+    exporter = FakeExporter(path=target, open_path=write_csv(tmp_path))
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-csv").click()
+    await user.should_see(marker="csv-import-confirm")
+    user.find(marker="csv-import-confirm").click()
+    assert await wait_until(lambda: view.project.name == "in")
+    user.find(marker="export-tsv").click()
+    await user.should_see(marker="csv-export-confirm")
+    user.find(marker="csv-ex-delimiter").elements.pop().set_value(",")
+    user.find(marker="csv-ex-encoding").elements.pop().set_value("cp932")
+    user.find(marker="csv-export-confirm").click()
+    assert await wait_until(target.exists)
+    assert "設計" in target.read_bytes().decode("cp932")
+    assert b"," in target.read_bytes() and b"\t" not in target.read_bytes()
+    assert exporter.asked == ["out.csv"]
+
+
+async def test_export_runs_inside_its_own_client_so_notify_works_after_the_dialog(
+    user: User, tmp_path: Path
+) -> None:
+    """確定は背景タスクで動き、保存先を選ぶあとの通知は画面を決められず落ちた(実機)。書き出しの間は、この画面の slot に入っている。"""
+    target = tmp_path / "out" / "plan.tsv"
+    target.parent.mkdir()
+    seen: list[object] = []
+
+    class SpyExporter(FakeExporter):
+        async def ask_path(self, filename, file_types=()):  # type: ignore[override]
+            seen.append(Slot.get_stack()[-1].parent.client)
+            return await super().ask_path(filename, file_types)
+
+    exporter = SpyExporter(path=target, open_path=write_csv(tmp_path))
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-csv").click()
+    await user.should_see(marker="csv-import-confirm")
+    user.find(marker="csv-import-confirm").click()
+    assert await wait_until(lambda: view.project.name == "in")
+    await view.run_csv_export(SMARTSHEET)
+    assert seen == [view.client]
+    assert target.exists()
+
+
+async def test_export_refuses_characters_shift_jis_cannot_hold(
+    user: User, tmp_path: Path
+) -> None:
+    target = tmp_path / "out" / "plan.csv"
+    target.parent.mkdir()
+    source = write_csv(tmp_path, CSV_SAMPLE.replace("設計", "設計😀"))
+    exporter = FakeExporter(path=target, open_path=source)
+    view = await open_for_import(user, tmp_path, exporter)
+    user.find(marker="file-import-csv").click()
+    await user.should_see(marker="csv-import-confirm")
+    user.find(marker="csv-import-confirm").click()
+    assert await wait_until(lambda: view.project.name == "in")
+    user.find(marker="export-tsv").click()
+    await user.should_see(marker="csv-export-confirm")
+    user.find(marker="csv-ex-encoding").elements.pop().set_value("cp932")
+    user.find(marker="csv-export-confirm").click()
+    await user.should_see("書き出せませんでした")
+    assert not target.exists()
 
 
 async def test_export_tsv_needs_something_to_write_and_the_native_window(
