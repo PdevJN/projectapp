@@ -1,0 +1,136 @@
+import pytest
+
+from projectapp.csv_profile import (
+    SMARTSHEET,
+    CsvColumn,
+    CsvField,
+    CsvProfile,
+    best_profile,
+    guess_columns,
+    header_key,
+    profile_from_config,
+    profile_to_config,
+    profiles_from_config,
+    resolve_columns,
+    validate_profile,
+)
+
+
+def profile(
+    *pairs: tuple[CsvField, str], name: str = "自作", **kw: object
+) -> CsvProfile:
+    return CsvProfile(name, tuple(CsvColumn(f, h) for f, h in pairs), **kw)  # type: ignore[arg-type]
+
+
+def test_header_key_ignores_width_case_and_spaces() -> None:
+    assert header_key(" Ｔask  Name ") == "taskname"
+
+
+def test_smartsheet_has_the_template_columns_in_order() -> None:
+    assert [c.header for c in SMARTSHEET.columns] == [
+        "WBS 番号",
+        "タスクのタイトル",
+        "タスクオーナー",
+        "開始日",
+        "期限",
+        "期間",
+        "タスク完了率",
+    ]
+    assert SMARTSHEET.delimiter == "\t" and SMARTSHEET.blank_rows == 2
+    assert SMARTSHEET.owner_separator == "" and SMARTSHEET.date_format == "ja"
+
+
+def test_guess_columns_uses_aliases_and_keeps_the_original_header() -> None:
+    cols = guess_columns(
+        [
+            "No",
+            "Task Name",
+            "Assignee",
+            "Start Date",
+            "Due",
+            "% Complete",
+            "Hours",
+            "メモ",
+        ]
+    )
+    assert {c.field: c.header for c in cols} == {
+        CsvField.WBS: "No",
+        CsvField.TITLE: "Task Name",
+        CsvField.OWNER: "Assignee",
+        CsvField.START: "Start Date",
+        CsvField.END: "Due",
+        CsvField.PROGRESS: "% Complete",
+        CsvField.EFFORT: "Hours",
+    }
+
+
+def test_guess_columns_uses_a_field_once_even_with_duplicate_headers() -> None:
+    cols = guess_columns(["名前", "名前", "担当"])
+    assert [c.field for c in cols].count(CsvField.TITLE) == 1
+
+
+def test_resolve_columns_prefers_the_profile_header_then_aliases() -> None:
+    p = profile((CsvField.TITLE, "件名"), (CsvField.OWNER, "担当"))
+    assert resolve_columns(p, ["x", "件名", "担当者"]) == {
+        CsvField.TITLE: 1,
+        CsvField.OWNER: 2,
+    }
+
+
+def test_resolve_columns_takes_the_first_of_duplicate_headers() -> None:
+    p = profile((CsvField.TITLE, "名前"))
+    assert resolve_columns(p, ["名前", "名前"]) == {CsvField.TITLE: 0}
+
+
+def test_smartsheet_accepts_the_other_owner_spelling() -> None:
+    header = ["WBS 番号", "タスクのタイトル", "タスクのオーナー"]
+    assert resolve_columns(SMARTSHEET, header)[CsvField.OWNER] == 2
+
+
+def test_best_profile_needs_half_of_the_columns_to_match() -> None:
+    a = profile((CsvField.TITLE, "件名"), (CsvField.OWNER, "担当"), name="A")
+    b = profile((CsvField.TITLE, "Subject"), (CsvField.OWNER, "Who"), name="B")
+    assert best_profile(["件名", "担当", "開始"], [a, b]) is a
+    assert best_profile(["x", "y"], [a, b]) is None
+
+
+@pytest.mark.parametrize(
+    ("bad", "word"),
+    [
+        (profile((CsvField.OWNER, "担当")), "タスク名"),
+        (profile((CsvField.TITLE, "a"), (CsvField.TITLE, "b")), "重複"),
+        (profile((CsvField.TITLE, "")), "見出し"),
+        (profile((CsvField.TITLE, "a"), name=""), "名前"),
+        (profile((CsvField.TITLE, "a"), name="Smartsheet"), "予約"),
+        (profile((CsvField.TITLE, "a"), delimiter="|"), "区切り"),
+        (profile((CsvField.TITLE, "a"), encoding="latin-1"), "文字コード"),
+        (profile((CsvField.TITLE, "a"), owner_separator="abcd"), "担当の区切り"),
+    ],
+)
+def test_validate_profile_rejects(bad: CsvProfile, word: str) -> None:
+    assert word in (validate_profile(bad) or "")
+
+
+def test_validate_profile_accepts_a_good_one() -> None:
+    good = profile((CsvField.TITLE, "件名"), delimiter=";", encoding="cp932")
+    assert validate_profile(good) is None
+
+
+def test_config_round_trip() -> None:
+    p = profile(
+        (CsvField.TITLE, "件名"),
+        (CsvField.EFFORT, "工数"),
+        delimiter=";",
+        encoding="utf-8-sig",
+        date_format="ymd-slash",
+        owner_separator="/",
+    )
+    assert profile_from_config(profile_to_config(p)) == p
+
+
+def test_profiles_from_config_drops_only_the_broken_ones() -> None:
+    good = profile_to_config(profile((CsvField.TITLE, "件名"), name="良"))
+    dup = profile_to_config(profile((CsvField.TITLE, "別"), name="良"))
+    raw = [good, {"name": "壊", "columns": "x"}, 5, dup, {"name": "無題"}]
+    assert [p.name for p in profiles_from_config(raw)] == ["良"]
+    assert profiles_from_config("x") == [] and profiles_from_config(None) == []
