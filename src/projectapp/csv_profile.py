@@ -133,8 +133,8 @@ ALIASES: dict[CsvField, tuple[str, ...]] = {  # 見出しの別名(header_key �
 }
 
 
-MAX_TEMPLATE = 60
-MAX_TEMPLATE_FIELDS = 4
+MAX_TEMPLATE = 120
+MAX_TEMPLATE_FIELDS = 7
 LABEL_FIELDS = {label: f for f, label in FIELD_LABELS.items()}
 _TEMPLATE_PART = re.compile(r"(\{[^{}]*\})")
 
@@ -160,7 +160,7 @@ def template_fields(template: str) -> tuple[CsvField, ...]:
 
 
 def template_problem(template: str) -> str | None:
-    """書式の問題の文言(なければ None)。項目は 1〜4 個、同じ項目は 1 回、項目と項目の間には区切りの文字が要る。"""
+    """書式の問題の文言(なければ None)。項目は 1〜7 個、同じ項目は 1 回、項目と項目の間には区切りの文字が要る。"""
     tokens = parse_template(template)
     if tokens is None or len(template) > MAX_TEMPLATE:
         return f"書式は`{{開始日}}〜{{期限}}`の形で、{MAX_TEMPLATE} 文字までです"
@@ -388,7 +388,8 @@ def validate_profile(profile: CsvProfile) -> str | None:
     if CsvField.TITLE not in fields:
         return "タスク名の列が必要です"
     for column in profile.columns:
-        if not 1 <= len(column.header.strip()) <= MAX_HEADER:
+        least = 0 if column.template else 1  # 書式の列は、見出しなしでもよい
+        if not least <= len(column.header.strip()) <= MAX_HEADER:
             return f"見出しは 1〜{MAX_HEADER} 文字にしてください"
     return None
 

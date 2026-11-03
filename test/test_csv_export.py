@@ -438,3 +438,29 @@ def test_template_columns_are_written_with_or_without_empty_separators() -> None
     assert build_table(p, {}, base).text.splitlines() == ["名前,担当", "1.1 設計,"]
     kept = CsvProfile("結合", cols, delimiter=",", keep_separators=True)
     assert build_table(p, {}, kept).text.splitlines() == ["名前,担当", "1.1 設計,/"]
+
+
+def test_a_template_column_without_a_header_writes_an_empty_header_cell() -> None:
+    p = Project("x")
+    p.tasks.append(Task("設計", assignees=[Assignee("田中", 1.0)]))
+    profile = CsvProfile(
+        "見出しなし",
+        (
+            CsvColumn(CsvField.TITLE, "件名"),
+            CsvColumn(CsvField.OWNER, "", "【{担当}】"),
+        ),
+        delimiter=",",
+    )
+    assert build_table(p, {}, profile).text.splitlines() == ["件名,", "設計,【田中】"]
+
+
+def test_a_single_empty_cell_is_written_as_an_empty_line_not_quotes() -> None:
+    p = Project("x")
+    p.tasks.append(Task("設計"))
+    profile = CsvProfile(
+        "一列",
+        (CsvColumn(CsvField.TITLE, "", "{タスク名}"),),
+        delimiter=",",
+    )
+    lines = build_table(p, {}, profile).text.split("\n")
+    assert lines[0] == "" and lines[1] == "設計"  # 見出しが空でも、"" とは書かない

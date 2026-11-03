@@ -146,6 +146,7 @@ def test_progress_percent_defaults_on_and_round_trips() -> None:
 
 
 from projectapp.csv_profile import (  # noqa: E402
+    FIELD_LABELS,
     render_template,
     split_template,
     template_problem,
@@ -245,3 +246,33 @@ def test_the_template_title_may_be_inside_a_template() -> None:
         "WBS付き", (CsvColumn(CsvField.WBS, "名前", "{WBS 番号} {タスク名}"),)
     )
     assert validate_profile(p) is None
+
+
+def test_a_template_column_may_have_no_header_but_a_plain_column_may_not() -> None:
+    ok = CsvProfile(
+        "見出しなし",
+        (
+            CsvColumn(CsvField.TITLE, "件名"),
+            CsvColumn(CsvField.START, "", "{開始日}〜{期限}"),
+        ),
+    )
+    assert validate_profile(ok) is None
+    assert profile_from_config(profile_to_config(ok)) == ok
+    bad = CsvProfile("見出しなし", (CsvColumn(CsvField.TITLE, ""),))
+    assert "見出し" in (validate_profile(bad) or "")
+
+
+def test_a_template_may_hold_up_to_seven_fields() -> None:
+    seven = "/".join(f"{{{FIELD_LABELS[f]}}}" for f in list(CsvField)[:7])
+    eight = "/".join(f"{{{FIELD_LABELS[f]}}}" for f in list(CsvField)[:8])
+    assert template_problem(seven) is None
+    assert "1〜7" in (template_problem(eight) or "")
+
+
+def test_seven_fields_render_and_split_back() -> None:
+    fields = list(CsvField)[:7]
+    template = "/".join(f"{{{FIELD_LABELS[f]}}}" for f in fields)
+    values = {f: f"v{i}" for i, f in enumerate(fields)}
+    text = render_template(template, values, False)
+    assert split_template(template, text) == values
+    assert split_template(template, "v0/v1") is not None  # 後ろが空の形も読む

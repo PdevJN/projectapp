@@ -86,7 +86,16 @@ def build_table(
     style = profile.date_format
     category_names = {c.id: c.name for c in project.categories}
     out = io.StringIO()
-    writer = csv.writer(out, delimiter=profile.delimiter, lineterminator="\n")
+    csv_writer = csv.writer(out, delimiter=profile.delimiter, lineterminator="\n")
+
+    class _Writer:
+        def writerow(self, row: list[str]) -> None:
+            if row == [""]:  # 1 列だけで空のとき、csv は`""`と書くので、空の行にする
+                out.write("\n")
+            else:
+                csv_writer.writerow(row)
+
+    writer = _Writer()
     columns = list(profile.columns)
     writer.writerow([c.header for c in profile.columns])
     for _ in range(profile.blank_rows):
