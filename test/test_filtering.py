@@ -214,3 +214,26 @@ def test_a_summary_name_match_does_not_apply_without_by_id_or_query() -> None:
     _s, c1, _c2, _other, by_id = _summary_tree()
     assert not matches(c1, TaskFilter(query="設計"))
     assert not matches(c1, TaskFilter(assignee="田中"), by_id)
+
+
+def test_query_also_matches_the_referenced_project_name_of_a_reference_row() -> None:
+    from projectapp.models import TaskKind
+
+    ref = Task("基盤チーム", kind=TaskKind.REFERENCE, ref_project="インフラ刷新")
+    assert matches(ref, TaskFilter(query="インフラ"))
+    assert matches(ref, TaskFilter(query="基盤"))
+    assert not matches(ref, TaskFilter(query="DB"))
+
+
+def test_the_referenced_project_name_is_matched_only_for_reference_rows() -> None:
+    normal = Task("通常", ref_project="インフラ刷新")
+    assert not matches(normal, TaskFilter(query="インフラ"))
+
+
+def test_a_reference_row_under_a_summary_is_found_by_the_referenced_name() -> None:
+    from projectapp.models import TaskKind
+
+    ref = Task("基盤チーム", kind=TaskKind.REFERENCE, ref_project="インフラ刷新")
+    s = Task("まとめ", kind=TaskKind.SUMMARY, children=[ref.id])
+    by_id = {ref.id: ref, s.id: s}
+    assert matches(s, TaskFilter(query="インフラ"), by_id)
