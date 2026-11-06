@@ -2083,19 +2083,22 @@ async def test_a_long_section_name_is_shortened_inside_the_name_column(
 
 
 def test_the_chart_box_height_leaves_room_for_the_header() -> None:
-    assert (
-        CHART_MAX_HEIGHT
-        == f"calc(100vh / var(--app-zoom, 1) - {CHART_TOP_OFFSET_PX}px)"
-    )
+    assert CHART_MAX_HEIGHT == f"calc(var(--app-vh, 100vh) - {CHART_TOP_OFFSET_PX}px)"
 
 
-def test_the_zoom_script_also_sets_the_variable_the_chart_height_divides_by() -> None:
+def test_the_zoom_script_also_sets_the_viewport_variables_the_chart_height_uses() -> (
+    None
+):
     from projectapp.views import zoom_js
 
     script = zoom_js(125)
     assert "document.body.style.zoom = 1.25" in script
     assert "setProperty('--app-zoom', '1.25')" in script
     assert "'1.0'" in zoom_js(100)
+    # 画面の高さ・幅 ÷ 倍率。vh は WebKit では倍率で割られ済みなので使わない。リサイズでも入れ直す
+    assert "setProperty('--app-vh', (innerHeight / z) + 'px')" in script
+    assert "setProperty('--app-vw', (innerWidth / z) + 'px')" in script
+    assert "addEventListener('resize'" in script
 
 
 def test_refreshing_the_scrollbars_keeps_the_scroll_position() -> None:

@@ -9313,13 +9313,12 @@ async def test_assigning_after_the_project_changed_under_the_dialog_does_nothing
 def test_zoom_fit_css_divides_the_viewport_based_sizes_by_the_zoom() -> None:
     from projectapp.views import ZOOM_FIT_CSS
 
-    # zoom は中の長さを倍にする。vh と、Quasar が入れる画面の高さの最小値は倍にならないので、倍率で割る
-    assert ".q-layout { min-height: calc(100vh / var(--app-zoom, 1))" in ZOOM_FIT_CSS
-    assert (
-        ".q-page { min-height: calc(100vh / var(--app-zoom, 1) - 48px)" in ZOOM_FIT_CSS
-    )
+    # zoom は中の長さを倍にする。vh は WebKit では倍率で割られ済みで、Quasar が入れる画面の高さの最小値は
+    # 倍にならないので、vh ではなく画面の高さ ÷ 倍率(--app-vh)を使う
+    assert ".q-layout { min-height: var(--app-vh, 100vh)" in ZOOM_FIT_CSS
+    assert ".q-page { min-height: calc(var(--app-vh, 100vh) - 48px)" in ZOOM_FIT_CSS
     assert (
         ".q-dialog__inner--minimized > div"
-        " { max-height: calc((100vh - 48px) / var(--app-zoom, 1))" in ZOOM_FIT_CSS
+        " { max-height: calc(var(--app-vh, 100vh) - 48px)" in ZOOM_FIT_CSS
     )
     assert ZOOM_FIT_CSS.count("!important") == 3  # Quasar のインラインの値に勝つ

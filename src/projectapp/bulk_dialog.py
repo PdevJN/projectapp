@@ -63,8 +63,8 @@ def open_bulk_dialog(
         ui.card()
         .classes("w-[36rem] p-0 gap-0 no-wrap")
         .style(
-            "max-height: calc(88vh / var(--app-zoom, 1));"
-            " max-width: calc(96vw / var(--app-zoom, 1)); overflow: hidden"
+            "max-height: calc(var(--app-vh, 100vh) * 0.88);"
+            " max-width: calc(var(--app-vw, 100vw) * 0.96); overflow: hidden"
         )
         .mark("bulk-dialog"),
     ):
