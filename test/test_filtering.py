@@ -182,3 +182,35 @@ def test_no_team_means_nobody_is_excluded_by_team() -> None:
     assert matches(
         Task("設計"), TaskFilter(team_members=frozenset({"田中"}))
     )  # team が None なら見ない
+
+
+def _summary_tree():  # type: ignore[no-untyped-def]
+    from projectapp.models import TaskKind
+
+    c1, c2 = Task("実装"), Task("テスト")
+    s = Task("設計フェーズ", kind=TaskKind.SUMMARY, children=[c1.id, c2.id])
+    other = Task("別の作業")
+    by_id = {t.id: t for t in (c1, c2, s, other)}
+    return s, c1, c2, other, by_id
+
+
+def test_a_summary_whose_name_matches_shows_all_its_children() -> None:
+    s, c1, c2, other, by_id = _summary_tree()
+    task_filter = TaskFilter(query="設計")
+    for t in (s, c1, c2):
+        assert matches(t, task_filter, by_id)
+    assert not matches(other, task_filter, by_id)
+
+
+def test_a_matching_child_shows_its_summary_but_not_its_siblings() -> None:
+    s, c1, c2, _other, by_id = _summary_tree()
+    task_filter = TaskFilter(query="実装")
+    assert matches(s, task_filter, by_id)
+    assert matches(c1, task_filter, by_id)
+    assert not matches(c2, task_filter, by_id)
+
+
+def test_a_summary_name_match_does_not_apply_without_by_id_or_query() -> None:
+    _s, c1, _c2, _other, by_id = _summary_tree()
+    assert not matches(c1, TaskFilter(query="設計"))
+    assert not matches(c1, TaskFilter(assignee="田中"), by_id)
