@@ -182,3 +182,56 @@ def test_no_team_means_nobody_is_excluded_by_team() -> None:
     assert matches(
         Task("設計"), TaskFilter(team_members=frozenset({"田中"}))
     )  # team が None なら見ない
+
+
+def _summary_tree():  # type: ignore[no-untyped-def]
+    from projectapp.models import TaskKind
+
+    c1, c2 = Task("実装"), Task("テスト")
+    g = Task("孫の作業")
+    inner = Task("内側のまとめ", kind=TaskKind.SUMMARY, children=[g.id])
+    s = Task("設計フェーズ", kind=TaskKind.SUMMARY, children=[c1.id, c2.id, inner.id])
+    other = Task("別の作業")
+    by_id = {t.id: t for t in (c1, c2, g, inner, s, other)}
+    return s, c1, c2, inner, g, other, by_id
+
+
+def test_a_summary_whose_name_matches_shows_all_its_descendants() -> None:
+    s, c1, c2, inner, g, other, by_id = _summary_tree()
+    task_filter = TaskFilter(query="設計")
+    for t in (s, c1, c2, inner, g):
+        assert matches(t, task_filter, by_id)
+    assert not matches(other, task_filter, by_id)
+
+
+def test_a_matching_child_shows_its_summary_but_not_its_siblings() -> None:
+    s, c1, c2, _inner, _g, _other, by_id = _summary_tree()
+    task_filter = TaskFilter(query="実装")
+    assert matches(s, task_filter, by_id)
+    assert matches(c1, task_filter, by_id)
+    assert not matches(c2, task_filter, by_id)
+
+
+def test_a_grandchild_match_shows_every_summary_above_it() -> None:
+    s, _c1, _c2, inner, g, _other, by_id = _summary_tree()
+    task_filter = TaskFilter(query="孫")
+    assert matches(g, task_filter, by_id)
+    assert matches(inner, task_filter, by_id)
+    assert matches(s, task_filter, by_id)
+
+
+def test_a_summary_name_match_does_not_apply_without_by_id_or_query() -> None:
+    s, c1, *_ = _summary_tree()
+    assert not matches(c1, TaskFilter(query="設計"))
+    by_id = _summary_tree()[-1]
+    assert not matches(c1, TaskFilter(assignee="田中"), by_id)
+
+
+def test_summary_cycles_do_not_hang() -> None:
+    from projectapp.models import TaskKind
+
+    a = Task("甲", kind=TaskKind.SUMMARY)
+    b = Task("乙", kind=TaskKind.SUMMARY)
+    a.children, b.children = [b.id], [a.id]
+    by_id = {a.id: a, b.id: b}
+    assert not matches(a, TaskFilter(query="丙"), by_id)

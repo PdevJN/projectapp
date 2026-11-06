@@ -28,14 +28,9 @@ class TaskFilter:
         )
 
 
-def matches(
-    task: Task, task_filter: TaskFilter, by_id: Mapping[str, Task] | None = None
-) -> bool:
-    """検索と担当者の両方に合うとき True。条件が空なら常に True。
-    `by_id`(id → タスク)を渡すと、まとめは子のどれかが合っても合う。"""
-    if task.id in task_filter.exclude:
-        return False
-    own = (
+def _own_match(task: Task, task_filter: TaskFilter) -> bool:
+    """タスク自身が、担当者・チーム・検索語のすべてに合うか(絞り込み用の除外は見ない)。"""
+    return (
         (task_filter.assignee is None or task_filter.assignee in task.assignee_names)
         and (
             task_filter.team is None
@@ -43,6 +38,43 @@ def matches(
         )
         and (task_filter.query.strip().casefold() in task.name.casefold())
     )
+
+
+def _under_matched_summary(
+    task: Task,
+    task_filter: TaskFilter,
+    by_id: Mapping[str, Task],
+    seen: frozenset[str] = frozenset(),
+) -> bool:
+    """祖先のまとめのどれかが、名前の検索に自分で合うか(合うまとめは、子孫をすべて出す)。"""
+    if task.id in seen:
+        return False
+    seen = seen | {task.id}
+    return any(
+        parent.kind is TaskKind.SUMMARY
+        and task.id in parent.children
+        and parent.id not in task_filter.exclude
+        and (
+            _own_match(parent, task_filter)
+            or _under_matched_summary(parent, task_filter, by_id, seen)
+        )
+        for parent in by_id.values()
+    )
+
+
+def matches(
+    task: Task,
+    task_filter: TaskFilter,
+    by_id: Mapping[str, Task] | None = None,
+    _seen: frozenset[str] = frozenset(),
+) -> bool:
+    """検索と担当者の両方に合うとき True。条件が空なら常に True。
+    `by_id`(id → タスク)を渡すと、まとめの扱いが加わる。
+    - 子孫のどれかが合えば、まとめも合う(孫以下も見る)。
+    - 検索語がまとめの名前に合えば、その子孫もすべて合う(まとめ名で探すと、まとめの中身が見える)。"""
+    if task.id in task_filter.exclude or task.id in _seen:
+        return False
+    own = _own_match(task, task_filter)
     if (
         own
         and task_filter.exclude
@@ -55,11 +87,19 @@ def matches(
         )
     if own:
         return True
-    if by_id is not None and task.kind is TaskKind.SUMMARY:
-        return any(
-            matches(by_id[cid], task_filter) for cid in task.children if cid in by_id
-        )
-    return False
+    if by_id is None:
+        return False
+    if task.kind is TaskKind.SUMMARY:
+        seen = _seen | {task.id}
+        if any(
+            matches(by_id[cid], task_filter, by_id, seen)
+            for cid in task.children
+            if cid in by_id
+        ):
+            return True
+    return bool(task_filter.query.strip()) and _under_matched_summary(
+        task, task_filter, by_id
+    )
 
 
 def visible_task_indexes(
