@@ -101,7 +101,7 @@ from projectapp.config import (
 )
 from projectapp.theme import DEFAULTS, CustomTheme
 from projectapp.reference import ReferenceResolver, take_snapshot
-from projectapp.views import HEADER_CSS, THEME_ICONS, MainView
+from projectapp.views import HEADER_CSS, THEME_ICONS, MainView, zoom_js
 
 
 def holiday_csv() -> bytes:
@@ -5048,7 +5048,7 @@ async def test_the_zoom_starts_at_100_percent_and_applies_it(
 ) -> None:
     view, calls = await open_zoom_view(user, tmp_path)
     assert view.zoom == 100
-    assert zoom_calls(calls) == ["document.body.style.zoom = 1.0"]
+    assert zoom_calls(calls) == [zoom_js(100)]
 
 
 async def test_the_saved_zoom_is_restored_on_startup(
@@ -5057,7 +5057,7 @@ async def test_the_saved_zoom_is_restored_on_startup(
     save_zoom(130, tmp_path)
     view, calls = await open_zoom_view(user, tmp_path)
     assert view.zoom == 130
-    assert zoom_calls(calls) == ["document.body.style.zoom = 1.3"]
+    assert zoom_calls(calls) == [zoom_js(130)]
 
 
 async def test_ctrl_plus_and_minus_zoom_in_and_out_and_save_it(
@@ -5069,7 +5069,7 @@ async def test_ctrl_plus_and_minus_zoom_in_and_out_and_save_it(
     assert view.zoom == 120
     view.on_key(key_event("-", ctrl=True))
     assert view.zoom == 110
-    assert zoom_calls(calls)[-1] == "document.body.style.zoom = 1.1"
+    assert zoom_calls(calls)[-1] == zoom_js(110)
     assert load_zoom(tmp_path) == 110
     view.on_key(key_event("0", ctrl=True))
     assert (view.zoom, load_zoom(tmp_path)) == (100, 100)
@@ -5135,10 +5135,10 @@ async def test_the_image_is_captured_at_100_percent_and_the_zoom_comes_back(
     exporter.calls = view_calls
     view.enter_preview()
     await view.save_image()
-    assert (
-        exporter.zoom_at_capture == "document.body.style.zoom = 1.0"
+    assert exporter.zoom_at_capture == zoom_js(
+        100
     )  # 倍率をかけたままだと、画像の大きさがずれる
-    assert zoom_calls(view_calls)[-1] == "document.body.style.zoom = 1.5"
+    assert zoom_calls(view_calls)[-1] == zoom_js(150)
     assert view.zoom == 150
 
 
@@ -9308,3 +9308,17 @@ async def test_assigning_after_the_project_changed_under_the_dialog_does_nothing
     user.find(marker="assign-member-田中").click()
     assert len(view.project.tasks[0].assignees) == 1  # 二重に入らない
     assert len(view.history.undo_stack) == before  # 履歴にも積まれない
+
+
+def test_zoom_fit_css_divides_the_viewport_based_sizes_by_the_zoom() -> None:
+    from projectapp.views import ZOOM_FIT_CSS
+
+    # zoom は中の長さを倍にする。vh は WebKit では倍率で割られ済みで、Quasar が入れる画面の高さの最小値は
+    # 倍にならないので、vh ではなく画面の高さ ÷ 倍率(--app-vh)を使う
+    assert ".q-layout { min-height: var(--app-vh, 100vh)" in ZOOM_FIT_CSS
+    assert ".q-page { min-height: calc(var(--app-vh, 100vh) - 48px)" in ZOOM_FIT_CSS
+    assert (
+        ".q-dialog__inner--minimized > div"
+        " { max-height: calc(var(--app-vh, 100vh) - 48px)" in ZOOM_FIT_CSS
+    )
+    assert ZOOM_FIT_CSS.count("!important") == 3  # Quasar のインラインの値に勝つ

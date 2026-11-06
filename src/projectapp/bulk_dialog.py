@@ -62,7 +62,10 @@ def open_bulk_dialog(
         disposable(ui.dialog()) as dialog,
         ui.card()
         .classes("w-[36rem] p-0 gap-0 no-wrap")
-        .style("max-height: 88vh; max-width: 96vw; overflow: hidden")
+        .style(
+            "max-height: calc(var(--app-vh, 100vh) * 0.88);"
+            " max-width: calc(var(--app-vw, 100vw) * 0.96); overflow: hidden"
+        )
         .mark("bulk-dialog"),
     ):
         with ui.row().classes("w-full items-start no-wrap px-5 pt-4 pb-3"):

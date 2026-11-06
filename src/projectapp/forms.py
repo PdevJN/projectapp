@@ -1701,7 +1701,11 @@ def open_merge_conflict_dialog(
         ).classes("text-caption text-grey")
         radios: list[ui.radio] = []
         shown_label = None
-        with ui.scroll_area().classes("w-full max-h-[60vh]"):
+        with (
+            ui.scroll_area()
+            .classes("w-full")
+            .style("max-height: calc(var(--app-vh, 100vh) * 0.6)")
+        ):
             for index, conflict in enumerate(conflicts):
                 if (conflict.kind, conflict.key) != shown_label:
                     shown_label = (conflict.kind, conflict.key)
@@ -3026,7 +3030,7 @@ def open_members_parameters_dialog(
 
         def fit_width() -> None:
             card.style(
-                replace=f"width: {max(36, members.min_rem() + 3)}rem; max-width: 96vw"
+                replace=f"width: {max(36, members.min_rem() + 3)}rem; max-width: calc(var(--app-vw, 100vw) * 0.96)"
             )
 
         def update_marks() -> None:

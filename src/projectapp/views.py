@@ -362,6 +362,16 @@ class Submenu:
 NEW_PROJECT_NAME = "新規プロジェクト"
 # ヘッダーは、画面の上端・左右いっぱいの四角い帯(ui.header)。テーマカラーの背景 + 白文字(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
 # メニューのボタンは折り返さない(縮むのはプロジェクト選択のコンボだけ。中のファイル名は 10px)。プロジェクト名は、ヘッダーの外(メイン側の左上)に、12px の太字(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
+# 画面の倍率(body の CSS zoom)は、中の長さをすべて倍にする。vh・vw(エンジンで倍率の影響が違う)と、Quasar が
+# 画面の高さのピクセル値でインラインに入れる最小の高さは合わないので、画面の高さ ÷ 倍率(`--app-vh`)と
+# 幅 ÷ 倍率(`--app-vw`。zoom_js が入れ、画面の大きさが変わるたびに入れ直す)を使って合わせる。
+# 合わせないと、倍率が 100% を超えたとき、ダイアログの下(ボタン)が画面の外へ出て、ページ全体に不要な縦スクロールが出る
+ZOOM_FIT_CSS = """
+.q-layout { min-height: var(--app-vh, 100vh) !important; }
+.q-page { min-height: calc(var(--app-vh, 100vh) - 48px) !important; }
+.q-dialog__inner--minimized > div { max-height: calc(var(--app-vh, 100vh) - 48px) !important; }
+"""
+
 HEADER_CSS = """
 .app-header { background: var(--app-header, var(--q-primary)); color: var(--app-header-fg, #fff); font-size: 12px; padding: 4px 12px; flex-wrap: nowrap !important; overflow: hidden; }
 body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, var(--q-primary) 55%, #000)); }
@@ -399,7 +409,20 @@ KEY_GUARD_JS = key_guard_js()
 
 def zoom_js(percent: int) -> str:
     """画面全体の倍率をかける JS(CSS の zoom。行の高さ・バー・矢印・文字・ダイアログがそろって変わる)。"""
-    return f"document.body.style.zoom = {round(percent / 100, 2)}"
+    ratio = round(percent / 100, 2)
+    # `--app-vh`・`--app-vw`は、画面の高さ・幅 ÷ 倍率(gantt.CHART_MAX_HEIGHT などが使う)。
+    # 画面の大きさが変わったときも入れ直す(リスナーは 1 度だけ付ける)
+    return (
+        f"document.body.style.zoom = {ratio};"
+        f" document.body.style.setProperty('--app-zoom', '{ratio}');"
+        " window.appFit = window.appFit || (() => {"
+        " const z = parseFloat(document.body.style.zoom) || 1;"
+        " document.body.style.setProperty('--app-vh', (innerHeight / z) + 'px');"
+        " document.body.style.setProperty('--app-vw', (innerWidth / z) + 'px') });"
+        " if (!window.appFitBound) { window.appFitBound = true;"
+        " window.addEventListener('resize', window.appFit) }"
+        " window.appFit()"
+    )
 
 
 ZOOM_DIRECTIONS = {"zoom_in": 1, "zoom_out": -1, "zoom_reset": 0}
@@ -3115,6 +3138,7 @@ class MainView:
         app.on_shutdown(self.flush_main_split)
         ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
         ui.add_css(HEADER_CSS)
+        ui.add_css(ZOOM_FIT_CSS)
         ui.add_css(BODY_CSS)
         ui.add_css(MEMBER_TABLE_CSS)
         self.help_dialog = self.build_help_dialog()

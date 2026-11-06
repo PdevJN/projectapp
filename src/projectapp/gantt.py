@@ -376,7 +376,11 @@ SCROLLBAR_ROOM_PX = (
 # チャートの枠は縦横ともここでスクロールする。高さの上限は、画面の高さから、上のヘッダー
 # (1 行のメニュー・ツールバー・ページの余白)の分を引いた値(固定の見積もり。実機で合わせる)
 CHART_TOP_OFFSET_PX = 170
-CHART_MAX_HEIGHT = f"calc(100vh - {CHART_TOP_OFFSET_PX}px)"
+# 画面の倍率(body の CSS zoom)は、中の長さをすべて倍にする。vh が倍率の影響を受けるかはエンジンで違う
+# (WebKit は倍率で割った値になり、Chromium は変わらない)ので、vh は使わず、画面の高さ ÷ 倍率を
+# `--app-vh`に入れて使う(views.zoom_js が入れる。入る前は 100vh)。vh を倍率で割ると、WebKit で
+# 二重に割ってしまい、枠が短すぎて下部パネルの中身が見切れる
+CHART_MAX_HEIGHT = f"calc(var(--app-vh, 100vh) - {CHART_TOP_OFFSET_PX}px)"
 # 縦の分割(上=チャート、下=下部パネル)の全体の高さ。畳んだときの見た目は、これまでの枠の上限と同じ
 CHART_SPLIT_HEIGHT = CHART_MAX_HEIGHT
 SPLIT_LOCK_CSS = ".split-locked .q-splitter__separator, .split-locked .q-splitter__after { display: none; }"
