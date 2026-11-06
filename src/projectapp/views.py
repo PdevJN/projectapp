@@ -362,6 +362,15 @@ class Submenu:
 NEW_PROJECT_NAME = "新規プロジェクト"
 # ヘッダーは、画面の上端・左右いっぱいの四角い帯(ui.header)。テーマカラーの背景 + 白文字(ダークは暗めのテーマカラー)。フォントは標準の 14px から -2 で 12px、
 # メニューのボタンは折り返さない(縮むのはプロジェクト選択のコンボだけ。中のファイル名は 10px)。プロジェクト名は、ヘッダーの外(メイン側の左上)に、12px の太字(24px の text-h5 から。太さで区別する)。メニューのボタンは楕円型(半透明の白の背景)。開いたメニューは body 直下に出るので、`app-menu` で同じ大きさにする
+# 画面の倍率(body の CSS zoom)は、中の長さをすべて倍にする。vh・vw と、Quasar が画面の高さのピクセル値で
+# インラインに入れる最小の高さは倍にならないので、倍率(`--app-zoom`。zoom_js が入れる)で割って合わせる。
+# 合わせないと、倍率が 100% を超えたとき、ダイアログの下(ボタン)が画面の外へ出て、ページ全体に不要な縦スクロールが出る
+ZOOM_FIT_CSS = """
+.q-layout { min-height: calc(100vh / var(--app-zoom, 1)) !important; }
+.q-page { min-height: calc(100vh / var(--app-zoom, 1) - 48px) !important; }
+.q-dialog__inner--minimized > div { max-height: calc((100vh - 48px) / var(--app-zoom, 1)) !important; }
+"""
+
 HEADER_CSS = """
 .app-header { background: var(--app-header, var(--q-primary)); color: var(--app-header-fg, #fff); font-size: 12px; padding: 4px 12px; flex-wrap: nowrap !important; overflow: hidden; }
 body.body--dark .app-header { background: var(--app-header, color-mix(in srgb, var(--q-primary) 55%, #000)); }
@@ -3120,6 +3129,7 @@ class MainView:
         app.on_shutdown(self.flush_main_split)
         ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
         ui.add_css(HEADER_CSS)
+        ui.add_css(ZOOM_FIT_CSS)
         ui.add_css(BODY_CSS)
         ui.add_css(MEMBER_TABLE_CSS)
         self.help_dialog = self.build_help_dialog()

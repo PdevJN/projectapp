@@ -9308,3 +9308,18 @@ async def test_assigning_after_the_project_changed_under_the_dialog_does_nothing
     user.find(marker="assign-member-田中").click()
     assert len(view.project.tasks[0].assignees) == 1  # 二重に入らない
     assert len(view.history.undo_stack) == before  # 履歴にも積まれない
+
+
+def test_zoom_fit_css_divides_the_viewport_based_sizes_by_the_zoom() -> None:
+    from projectapp.views import ZOOM_FIT_CSS
+
+    # zoom は中の長さを倍にする。vh と、Quasar が入れる画面の高さの最小値は倍にならないので、倍率で割る
+    assert ".q-layout { min-height: calc(100vh / var(--app-zoom, 1))" in ZOOM_FIT_CSS
+    assert (
+        ".q-page { min-height: calc(100vh / var(--app-zoom, 1) - 48px)" in ZOOM_FIT_CSS
+    )
+    assert (
+        ".q-dialog__inner--minimized > div"
+        " { max-height: calc((100vh - 48px) / var(--app-zoom, 1))" in ZOOM_FIT_CSS
+    )
+    assert ZOOM_FIT_CSS.count("!important") == 3  # Quasar のインラインの値に勝つ

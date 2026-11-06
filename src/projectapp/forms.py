@@ -1701,7 +1701,11 @@ def open_merge_conflict_dialog(
         ).classes("text-caption text-grey")
         radios: list[ui.radio] = []
         shown_label = None
-        with ui.scroll_area().classes("w-full max-h-[60vh]"):
+        with (
+            ui.scroll_area()
+            .classes("w-full")
+            .style("max-height: calc(60vh / var(--app-zoom, 1))")
+        ):
             for index, conflict in enumerate(conflicts):
                 if (conflict.kind, conflict.key) != shown_label:
                     shown_label = (conflict.kind, conflict.key)
