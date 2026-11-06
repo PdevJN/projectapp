@@ -376,7 +376,10 @@ SCROLLBAR_ROOM_PX = (
 # チャートの枠は縦横ともここでスクロールする。高さの上限は、画面の高さから、上のヘッダー
 # (1 行のメニュー・ツールバー・ページの余白)の分を引いた値(固定の見積もり。実機で合わせる)
 CHART_TOP_OFFSET_PX = 170
-CHART_MAX_HEIGHT = f"calc(100vh - {CHART_TOP_OFFSET_PX}px)"
+# 画面の倍率(body の CSS zoom)は、中の長さをすべて倍にする。vh は倍にならないので、倍率で割って
+# から引く(`--app-zoom`は倍率の数。views.zoom_js が入れる)。割らないと、倍率が 100% を超えたとき、
+# 枠の下端が画面の外へはみ出して、下部パネルの下が見切れる
+CHART_MAX_HEIGHT = f"calc(100vh / var(--app-zoom, 1) - {CHART_TOP_OFFSET_PX}px)"
 # 縦の分割(上=チャート、下=下部パネル)の全体の高さ。畳んだときの見た目は、これまでの枠の上限と同じ
 CHART_SPLIT_HEIGHT = CHART_MAX_HEIGHT
 SPLIT_LOCK_CSS = ".split-locked .q-splitter__separator, .split-locked .q-splitter__after { display: none; }"

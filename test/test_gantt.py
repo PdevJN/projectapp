@@ -2083,7 +2083,19 @@ async def test_a_long_section_name_is_shortened_inside_the_name_column(
 
 
 def test_the_chart_box_height_leaves_room_for_the_header() -> None:
-    assert CHART_MAX_HEIGHT == f"calc(100vh - {CHART_TOP_OFFSET_PX}px)"
+    assert (
+        CHART_MAX_HEIGHT
+        == f"calc(100vh / var(--app-zoom, 1) - {CHART_TOP_OFFSET_PX}px)"
+    )
+
+
+def test_the_zoom_script_also_sets_the_variable_the_chart_height_divides_by() -> None:
+    from projectapp.views import zoom_js
+
+    script = zoom_js(125)
+    assert "document.body.style.zoom = 1.25" in script
+    assert "setProperty('--app-zoom', '1.25')" in script
+    assert "'1.0'" in zoom_js(100)
 
 
 def test_refreshing_the_scrollbars_keeps_the_scroll_position() -> None:

@@ -101,7 +101,7 @@ from projectapp.config import (
 )
 from projectapp.theme import DEFAULTS, CustomTheme
 from projectapp.reference import ReferenceResolver, take_snapshot
-from projectapp.views import HEADER_CSS, THEME_ICONS, MainView
+from projectapp.views import HEADER_CSS, THEME_ICONS, MainView, zoom_js
 
 
 def holiday_csv() -> bytes:
@@ -5048,7 +5048,7 @@ async def test_the_zoom_starts_at_100_percent_and_applies_it(
 ) -> None:
     view, calls = await open_zoom_view(user, tmp_path)
     assert view.zoom == 100
-    assert zoom_calls(calls) == ["document.body.style.zoom = 1.0"]
+    assert zoom_calls(calls) == [zoom_js(100)]
 
 
 async def test_the_saved_zoom_is_restored_on_startup(
@@ -5057,7 +5057,7 @@ async def test_the_saved_zoom_is_restored_on_startup(
     save_zoom(130, tmp_path)
     view, calls = await open_zoom_view(user, tmp_path)
     assert view.zoom == 130
-    assert zoom_calls(calls) == ["document.body.style.zoom = 1.3"]
+    assert zoom_calls(calls) == [zoom_js(130)]
 
 
 async def test_ctrl_plus_and_minus_zoom_in_and_out_and_save_it(
@@ -5069,7 +5069,7 @@ async def test_ctrl_plus_and_minus_zoom_in_and_out_and_save_it(
     assert view.zoom == 120
     view.on_key(key_event("-", ctrl=True))
     assert view.zoom == 110
-    assert zoom_calls(calls)[-1] == "document.body.style.zoom = 1.1"
+    assert zoom_calls(calls)[-1] == zoom_js(110)
     assert load_zoom(tmp_path) == 110
     view.on_key(key_event("0", ctrl=True))
     assert (view.zoom, load_zoom(tmp_path)) == (100, 100)
@@ -5135,10 +5135,10 @@ async def test_the_image_is_captured_at_100_percent_and_the_zoom_comes_back(
     exporter.calls = view_calls
     view.enter_preview()
     await view.save_image()
-    assert (
-        exporter.zoom_at_capture == "document.body.style.zoom = 1.0"
+    assert exporter.zoom_at_capture == zoom_js(
+        100
     )  # 倍率をかけたままだと、画像の大きさがずれる
-    assert zoom_calls(view_calls)[-1] == "document.body.style.zoom = 1.5"
+    assert zoom_calls(view_calls)[-1] == zoom_js(150)
     assert view.zoom == 150
 
 

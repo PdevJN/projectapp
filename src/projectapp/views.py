@@ -399,7 +399,12 @@ KEY_GUARD_JS = key_guard_js()
 
 def zoom_js(percent: int) -> str:
     """画面全体の倍率をかける JS(CSS の zoom。行の高さ・バー・矢印・文字・ダイアログがそろって変わる)。"""
-    return f"document.body.style.zoom = {round(percent / 100, 2)}"
+    ratio = round(percent / 100, 2)
+    # `--app-zoom`は、画面の高さ(vh)から枠の高さを求める式が使う(gantt.CHART_MAX_HEIGHT)
+    return (
+        f"document.body.style.zoom = {ratio};"
+        f" document.body.style.setProperty('--app-zoom', '{ratio}')"
+    )
 
 
 ZOOM_DIRECTIONS = {"zoom_in": 1, "zoom_out": -1, "zoom_reset": 0}
