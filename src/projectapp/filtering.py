@@ -8,7 +8,7 @@ from projectapp.models import Project, Section, Task, TaskKind
 
 @dataclass(frozen=True)
 class TaskFilter:
-    query: str = ""  # タスク名への部分一致(大文字小文字を区別しない)
+    query: str = ""  # タスク名(プロジェクト参照は参照先の名前も)への部分一致(大文字小文字を区別しない)
     assignee: str | None = None  # None なら全員
     exclude: frozenset[str] = (
         frozenset()
@@ -28,6 +28,13 @@ class TaskFilter:
         )
 
 
+def _query_hits(task: Task, query: str) -> bool:
+    """検索語(前後の空白を除き、大文字小文字を区別しない)が、名前か、プロジェクト参照の参照先の名前に合うか。"""
+    if query in task.name.casefold():
+        return True
+    return task.kind is TaskKind.REFERENCE and query in task.ref_project.casefold()
+
+
 def _own_match(task: Task, task_filter: TaskFilter) -> bool:
     """タスク自身が、担当者・チーム・検索語のすべてに合うか(絞り込み用の除外は見ない)。"""
     return (
@@ -36,7 +43,7 @@ def _own_match(task: Task, task_filter: TaskFilter) -> bool:
             task_filter.team is None
             or not task_filter.team_members.isdisjoint(task.assignee_names)
         )
-        and (task_filter.query.strip().casefold() in task.name.casefold())
+        and _query_hits(task, task_filter.query.strip().casefold())
     )
 
 
