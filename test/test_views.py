@@ -3882,6 +3882,18 @@ async def test_escape_closes_the_dashboard(user: User, tmp_path: Path) -> None:
     assert view.dashboard_kind is None and view.header_box.visible
 
 
+async def test_escape_restores_a_maximized_card_before_closing_the_dashboard(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    view.dashboard_view.set_maximized(CardId.LOAD)
+    view.on_key(key_event("Escape"))
+    assert view.dashboard_view.maximized is None and view.dashboard_kind is not None
+    view.on_key(key_event("Escape"))
+    assert view.dashboard_kind is None
+
+
 async def test_changing_the_period_redraws_with_the_new_period(
     user: User, tmp_path: Path
 ) -> None:
