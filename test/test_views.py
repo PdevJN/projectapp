@@ -3785,9 +3785,15 @@ async def test_the_heatmap_follows_the_cross_switch_and_the_excluded_projects(
     view = await open_dashboard_view(user, tmp_path)
     user.find(marker="open-dashboard").click()
     await user.should_see(marker="dashboard-load-田中")
-    await user.should_not_see(marker="dashboard-heatmap")  # 横断オフでは出ない
+    await user.should_see(
+        marker="dashboard-heatmap-table"
+    )  # 横断オフでも開いているプロジェクト分は出る
+    assert (
+        "別 100%"
+        not in user.find(marker="dashboard-heatmap-table").elements.pop().content
+    )
     view.change_dashboard_cross(True)
-    await user.should_see(marker="dashboard-heatmap-table")
+    await asyncio.sleep(0.3)  # 表は最初からあるので、描き直されるのを待つ
     assert (
         "別 100%" in user.find(marker="dashboard-heatmap-table").elements.pop().content
     )
@@ -3799,7 +3805,10 @@ async def test_the_heatmap_follows_the_cross_switch_and_the_excluded_projects(
     )
     view.change_dashboard_cross(False)
     await asyncio.sleep(0.3)
-    await user.should_not_see(marker="dashboard-heatmap")
+    assert (
+        "別 100%"
+        not in user.find(marker="dashboard-heatmap-table").elements.pop().content
+    )
 
 
 async def test_an_unreadable_file_is_shown_and_the_rest_is_still_summed(

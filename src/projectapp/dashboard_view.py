@@ -3,7 +3,7 @@
 import html
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
@@ -91,17 +91,27 @@ PIE_CSS = (
 )
 
 
-CELL_PX = 26  # 見出しの `10/22` が収まる幅
+CELL_PX = 22  # 見出しの日の数字が収まる幅
 HEATMAP_HINT_DAYS = 20  # これより列が多いとき、横にスクロールできることを案内する
 HEATMAP_CSS = (
-    ".heatmap-name { position: sticky; left: 0; background: #fff; padding-right: 8px; white-space: nowrap }\n"
-    ".heat-cell { width: 26px; height: 26px; border: 1px solid rgba(128, 128, 128, 0.25) }\n"
+    ".heatmap-name { position: sticky; left: 0; z-index: 2; background: #fff; padding-right: 8px; white-space: nowrap }\n"
+    ".heat-cell { width: 22px; height: 22px; border: 1px solid rgba(128, 128, 128, 0.25) }\n"
     ".heat-over { outline: 2px solid #b71c1c; outline-offset: -2px }\n"
-    ".heatmap-scroll { overflow-x: auto; max-width: 100% }\n"
-    ".heatmap-scroll::-webkit-scrollbar { height: 12px }\n"
+    ".heat-month { border-left: 2px solid rgba(128, 128, 128, 0.85) !important }\n"
+    ".heat-week { border-left: 1px solid rgba(128, 128, 128, 0.55) !important }\n"
+    ".heat-today { box-shadow: -2px 0 0 #1976d2, 2px 0 0 #1976d2 }\n"
+    ".heat-head { position: sticky; z-index: 3; background: #fff; font-weight: normal; font-size: 10px; text-align: center; box-sizing: border-box }\n"
+    ".heat-head.heat-today-head { background: #1976d2; color: #fff }\n"
+    ".heat-r1 { top: 0; height: 18px; text-align: left; white-space: nowrap; overflow: hidden }\n"
+    ".heat-r2 { top: 18px; height: 30px }\n"
+    ".heat-r3 { top: 48px; height: 20px; color: #b71c1c; font-weight: bold }\n"
+    ".heatmap-scroll { overflow: auto; max-width: 100%; max-height: calc(var(--app-vh, 100vh) * 0.7) }\n"
+    ".heatmap-scroll::-webkit-scrollbar { height: 12px; width: 12px }\n"
     ".heatmap-scroll::-webkit-scrollbar-track { background: rgba(128, 128, 128, 0.15) }\n"
     ".heatmap-scroll::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.55); border-radius: 6px }\n"
-    "body.body--dark .heatmap-name { background: #1d1d1d }\n"
+    "body.body--dark .heatmap-name, body.body--dark .heat-head { background: #1d1d1d }\n"
+    "body.body--dark .heat-head.heat-today-head { background: #1976d2 }\n"
+    "body.body--dark .heat-r3 { color: #ff8a80 }\n"
     "body.body--dark .heat-over { outline-color: #ff8a80 }"
 )
 
@@ -136,29 +146,93 @@ def cell_title(name: str, load: DayLoad) -> str:
     return "&#10;".join(lines)
 
 
-def heatmap_html(cross: CrossSummary, icons: dict[str, str] | None = None) -> str:
-    """人×稼働日の表。名前・プロジェクト名はエスケープする。名前の前にアイコン(なければ頭文字の丸)を付ける。"""
+def scroll_to_today_js(element_id: int) -> str:
+    """今日の列が見えるように、表を横にスクロールする(今日がなければ何もしない)。"""
+    return (
+        f"const box = getElementById({element_id}); "
+        "const scroller = box && box.querySelector('.heatmap-scroll'); "
+        "const mark = scroller && scroller.querySelector('.heat-today'); "
+        "if (mark) scroller.scrollLeft = Math.max(0, mark.offsetLeft - 200);"
+    )
+
+
+def month_label(day: date, first: bool) -> str:
+    return f"{day.year}年{day.month}月" if first or day.month == 1 else f"{day.month}月"
+
+
+def column_classes(days: list[date], today: date | None) -> list[str]:
+    """列ごとの印。月の初め(heat-month)・週の初め(heat-week)・今日(heat-today)。"""
+    marks = []
+    for i, day in enumerate(days):
+        names = []
+        if i > 0:
+            prev = days[i - 1]
+            if (day.year, day.month) != (prev.year, prev.month):
+                names.append("heat-month")
+            elif day.weekday() < prev.weekday() or (day - prev).days >= 7:
+                names.append("heat-week")
+        if day == today:
+            names.append("heat-today")
+        marks.append(" ".join(names))
+    return marks
+
+
+def heatmap_html(
+    cross: CrossSummary,
+    icons: dict[str, str] | None = None,
+    today: date | None = None,
+) -> str:
+    """人×稼働日の表。名前・プロジェクト名はエスケープする。名前の前にアイコン(なければ頭文字の丸)を付ける。
+
+    見出しは月の帯と日の数字の 2 段で、その下に`100% 超の人数`の行を置く(3 段とも縦に固定)。
+    """
     first = next(iter(cross.loads.values()), None)
     days = first.days if first is not None else []
-    head = "".join(
-        f'<th class="text-caption" style="font-weight: normal; font-size: 10px; min-width: {CELL_PX}px">'
-        f"<div>{day.day:%m/%d}</div><div>{WEEKDAYS[day.day.weekday()]}</div></th>"
-        for day in days
+    dates = [d.day for d in days]
+    marks = column_classes(dates, today)
+    bands = []
+    for i, day in enumerate(dates):
+        if i == 0 or (day.year, day.month) != (dates[i - 1].year, dates[i - 1].month):
+            bands.append([i, 0])
+        bands[-1][1] += 1
+    band = "".join(
+        f'<th class="heat-head heat-r1 {marks[i]}" colspan="{n}">{month_label(dates[i], i == 0)}</th>'
+        for i, n in bands
     )
+    head = "".join(
+        f'<th class="heat-head heat-r2 {mark}{" heat-today-head" if "heat-today" in mark else ""}">'
+        f"<div>{day.day}</div><div>{WEEKDAYS[day.weekday()]}</div></th>"
+        for day, mark in zip(dates, marks)
+    )
+    over = []
+    for i in range(len(days)):
+        count = sum(
+            1
+            for entry in cross.loads.values()
+            if i < len(entry.days) and entry.days[i].total > 1.0 + OVERLOAD_EPSILON
+        )
+        over.append(
+            f'<th class="heat-head heat-r3 {marks[i]}" title="{dates[i]:%m/%d} 100%超 {count}人">'
+            f"{count or ''}</th>"
+        )
     rows = []
     for name, entry in cross.loads.items():
         cells = "".join(
-            f'<td class="{cell_class(day.total)}" data-cell="{html.escape(name)}|{day.day.isoformat()}"'
+            f'<td class="{cell_class(day.total)} {mark}" data-cell="{html.escape(name)}|{day.day.isoformat()}"'
             f' title="{cell_title(name, day)}" style="{cell_style(day.total)}"></td>'
-            for day in entry.days
+            for day, mark in zip(entry.days, marks)
         )
         mark = avatar_html(name, (icons or {}).get(name, ""), 20)
         label = f'<th class="heatmap-name text-body2" style="text-align: left">{mark}{html.escape(name)}</th>'
         rows.append(f"<tr>{label}{cells}</tr>")
+    corner = '<th class="heatmap-name heat-head heat-r{n}" style="z-index: 4{extra}">{text}</th>'
     return (
         '<div class="heatmap-scroll">'
-        '<table style="border-collapse: separate; border-spacing: 2px">'
-        f'<tr><th class="heatmap-name"></th>{head}</tr>{"".join(rows)}</table></div>'
+        '<table style="border-collapse: separate; border-spacing: 0">'
+        f"<thead><tr>{corner.format(n=1, extra='', text='')}{band}</tr>"
+        f"<tr>{corner.format(n=2, extra='', text='')}{head}</tr>"
+        f"<tr>{corner.format(n=3, extra='; text-align: left', text='100%超の人数')}{''.join(over)}</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 
 
@@ -950,7 +1024,7 @@ class DashboardView:
                 self.load_row(name, stats, scale)
 
     def heatmap_card(self, data: Dashboard) -> None:
-        cross = data.cross
+        cross = data.heat_summary
         if cross is None or not cross.loads:
             return
         box = card("負荷の日ごとの推移", "dashboard-heatmap")
@@ -967,9 +1041,12 @@ class DashboardView:
                     "text-caption text-grey"
                 ).mark("dashboard-heatmap-hint")
             ui.html(legend_html(), sanitize=False)
-            ui.html(heatmap_html(cross, self.icons), sanitize=False).style(
-                "min-width: 0; max-width: 100%; overflow-x: auto"
-            ).mark("dashboard-heatmap-table")
+            table = (
+                ui.html(heatmap_html(cross, self.icons, clock.today()), sanitize=False)
+                .style("min-width: 0; max-width: 100%; overflow-x: auto")
+                .mark("dashboard-heatmap-table")
+            )
+            ui.run_javascript(scroll_to_today_js(table.id))
 
     def cross_load_card(self, cross: CrossSummary) -> None:
         ui.label(

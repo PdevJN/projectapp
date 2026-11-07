@@ -37,6 +37,7 @@ from projectapp.dashboard_view import (
     HEATMAP_HINT_DAYS,
     DashboardView,
     heatmap_html,
+    scroll_to_today_js,
     percent_width,
 )
 from projectapp.models import Status
@@ -1750,3 +1751,75 @@ async def test_enabling_the_checkbox_makes_the_chips_pick_a_task(user: User) -> 
     assert picked == ["b"]
     views[0].hide()
     assert views[0].assign_mode is False  # 閉じるとオフに戻る
+
+
+def wide_heat_summary() -> CrossSummary:
+    """10/30(金)・11/2(月)・11/3(火)・11/4(水)。11/3 は 2 人とも 100% 超、11/4 は 1 人だけ。"""
+    days = [date(2026, 10, 30), date(2026, 11, 2), date(2026, 11, 3), date(2026, 11, 4)]
+
+    def person(totals: list[float]) -> CrossLoad:
+        return CrossLoad(
+            LoadStats(0.5, 1.2, 1),
+            [],
+            [DayLoad(d, t, []) for d, t in zip(days, totals)],
+        )
+
+    loads = {"田中": person([0.5, 0.5, 1.2, 1.2]), "佐藤": person([0.0, 0.5, 1.5, 0.5])}
+    return CrossSummary(loads, ["A"], set(), [])
+
+
+def test_the_heatmap_head_has_a_month_band_and_day_numbers() -> None:
+    markup = heatmap_html(wide_heat_summary())
+    assert 'colspan="1">2026年10月</th>' in markup
+    assert 'colspan="3">11月</th>' in markup
+    assert "<div>30</div><div>金</div>" in markup
+
+
+def test_the_heatmap_marks_the_start_of_a_month_and_of_a_week() -> None:
+    markup = heatmap_html(wide_heat_summary())
+    assert "heat-month" in cell_of(markup, "田中|2026-11-02")  # 月が替わる
+    assert "heat-week" not in cell_of(markup, "田中|2026-11-02")
+    assert "heat-month" not in cell_of(markup, "田中|2026-11-03")
+    days = heat_summary()  # 10/5(月)〜10/7(水)。最初の列には印を付けない
+    assert "heat-week" not in cell_of(heatmap_html(days), "田中|2026-10-05")
+    week = heatmap_html(
+        wide_heat_summary()
+    )  # 金 → 月は週の替わりだが、月も替わるので月が優先
+    assert "heat-week" not in cell_of(week, "田中|2026-11-02")
+
+
+def test_the_heatmap_marks_a_week_start_inside_a_month() -> None:
+    days = [date(2026, 10, 8), date(2026, 10, 9), date(2026, 10, 12)]
+    loads = {
+        "田中": CrossLoad(LoadStats(0, 0, 0), [], [DayLoad(d, 0.0, []) for d in days])
+    }
+    markup = heatmap_html(CrossSummary(loads, ["A"], set(), []))
+    assert "heat-week" in cell_of(markup, "田中|2026-10-12")
+    assert "heat-week" not in cell_of(markup, "田中|2026-10-09")
+
+
+def test_the_heatmap_marks_todays_column() -> None:
+    markup = heatmap_html(wide_heat_summary(), today=date(2026, 11, 3))
+    assert "heat-today" in cell_of(markup, "田中|2026-11-03")
+    assert "heat-today" not in cell_of(markup, "田中|2026-11-04")
+    assert "heat-today-head" in markup
+    assert "heat-today" not in heatmap_html(wide_heat_summary())
+
+
+def test_the_heatmap_counts_people_over_100_percent_per_day() -> None:
+    markup = heatmap_html(wide_heat_summary())
+    assert "100%超の人数" in markup
+    assert 'title="11/03 100%超 2人">2</th>' in markup
+    assert 'title="11/04 100%超 1人">1</th>' in markup
+    assert 'title="11/02 100%超 0人"></th>' in markup  # 0 人は空欄
+
+
+def test_the_heatmap_head_rows_stay_in_place_while_scrolling() -> None:
+    for rule in (".heat-r1 { top: 0", ".heat-r2 { top: 18px", ".heat-r3 { top: 48px"):
+        assert rule in HEATMAP_CSS
+    assert "max-height" in HEATMAP_CSS
+
+
+def test_scroll_to_today_js_looks_for_the_today_mark() -> None:
+    script = scroll_to_today_js(7)
+    assert "getElementById(7)" in script and ".heat-today" in script

@@ -1540,13 +1540,22 @@ class MainView:
             self.dashboard_late_basis,
             self.dashboard_catch_up,
         )
+        scope = (
+            self.dashboard_member
+            if self.dashboard_member is not None
+            else team_scope(self.project, self.dashboard_team)
+        )
+        if not self.dashboard_cross:
+            data.heat = CrossSummary(
+                summarize_cross_loads(
+                    [self.project], period, self.base_holidays, scope
+                ),
+                [self.project.name],
+                set(),
+                [],
+            )
         if self.dashboard_cross:
             chosen = [p for p in projects if p.name not in self.dashboard_excluded]
-            scope = (
-                self.dashboard_member
-                if self.dashboard_member is not None
-                else team_scope(self.project, self.dashboard_team)
-            )
             loads = summarize_cross_loads(chosen, period, self.base_holidays, scope)
             data.backlog = summarize_cross_backlog(
                 chosen,
@@ -1752,7 +1761,7 @@ class MainView:
             self.dashboard_dirty(),
             self.dashboard_save_block(),
             self.dashboard_cards,
-            hidden_cards(self.dashboard_cards, self.dashboard_cross),
+            hidden_cards(self.dashboard_cards),
         )
 
     def apply_dashboard_view(self, spec: ViewSpec) -> None:
