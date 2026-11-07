@@ -332,19 +332,30 @@ def test_the_heatmap_names_have_an_icon_or_initial(icon: str) -> None:
     assert "<img" in with_icon and ">田</span>" not in with_icon
 
 
-async def test_the_team_card_draws_the_pie_and_lists_status_hours(user: User) -> None:
+async def test_the_team_card_draws_the_bar_and_lists_status_hours(user: User) -> None:
     views, _, _ = mount()
     await user.open("/")
     views[0].show(sample(), PeriodKind.WEEK)
-    await user.should_see(marker="dashboard-team-percent")
-    assert text(user, "dashboard-team-percent") == "42%"
+    await user.should_see(marker="dashboard-team-done")
+    assert text(user, "dashboard-team-done") == "終了 25%(工数ベース)"
     assert text(user, "dashboard-team-legend-RUNNING") == "実行中 2件 3.0h (75%)"
     assert text(user, "dashboard-team-legend-DONE") == "終了 1件 1.0h (25%)"
     await user.should_not_see(
         marker="dashboard-team-legend-PAUSED"
-    )  # 工数のない状態は出さない
-    style = user.find(marker="dashboard-team-pie").elements.pop()._style
-    assert "conic-gradient" in style["background"]
+    )  # 件数のない状態は出さない
+    await user.should_see(marker="dashboard-team-bar-RUNNING")
+    await user.should_not_see(marker="dashboard-team-percent")  # 円と中央の進捗率はない
+
+
+async def test_the_team_card_notes_tasks_counted_as_one_hour(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_not_see(marker="dashboard-team-unset")
+    data.team.unset = 2
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see("工数なし 2 件は 1h として数えています")
 
 
 async def test_the_team_card_is_empty_without_tasks(user: User) -> None:
@@ -352,25 +363,7 @@ async def test_the_team_card_is_empty_without_tasks(user: User) -> None:
     await user.open("/")
     views[0].show(empty(), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-empty-team")
-    await user.should_not_see(marker="dashboard-team-pie")
-
-
-def test_pie_background_covers_the_circle_in_status_order() -> None:
-    from projectapp.dashboard_view import pie_background
-
-    team = TeamProgress(
-        0,
-        {
-            Status.NOT_STARTED: 1.0,
-            Status.RUNNING: 3.0,
-            Status.PAUSED: 0.0,
-            Status.DONE: 0.0,
-        },
-    )
-    background = pie_background(team)
-    assert background.startswith("conic-gradient(")
-    assert "var(--pie-not-started) 0.0% 25.0%" in background
-    assert "var(--pie-running) 25.0% 100.0%" in background
+    await user.should_not_see(marker="dashboard-team-bar-RUNNING")
 
 
 async def test_the_team_card_says_which_tasks_it_counts(user: User) -> None:
@@ -379,20 +372,23 @@ async def test_the_team_card_says_which_tasks_it_counts(user: User) -> None:
     data = sample()
     views[0].show(data, PeriodKind.ALL)
     await user.should_see(marker="dashboard-team-scope")
-    assert text(user, "dashboard-team-scope") == "すべてのタスク"
+    assert text(user, "dashboard-team-scope") == "チーム全体の進捗(すべてのタスク)"
     data.team.period = data.period
     views[0].show(data, PeriodKind.WEEK)
     await user.should_see(
         "10/05〜10/11 にかかるタスク"
     )  # refresh は遅延実行なので、文言が変わるのを待つ
-    assert text(user, "dashboard-team-scope") == "10/05〜10/11 にかかるタスク"
+    assert (
+        text(user, "dashboard-team-scope")
+        == "チーム全体の進捗(10/05〜10/11 にかかるタスク)"
+    )
 
 
 async def test_the_team_legend_tooltip_lists_task_chips(user: User) -> None:
     views, _, _ = mount()
     await user.open("/")
     views[0].show(sample(), PeriodKind.WEEK)
-    await user.should_see(marker="dashboard-team-percent")
+    await user.should_see(marker="dashboard-team-done")
     assert {
         e.text for e in user.find(marker="dashboard-team-chip-RUNNING").elements
     } == {"設計", "実装"}  # elements は集合で順序を持たない
@@ -1280,7 +1276,7 @@ async def test_the_cards_do_not_note_references_when_none_are_counted(
     views, _, _ = mount()
     await user.open("/")
     views[0].show(sample(), PeriodKind.WEEK)
-    await user.should_see(marker="dashboard-team-percent")
+    await user.should_see(marker="dashboard-team-done")
     await user.should_not_see(marker="dashboard-team-references")
     await user.should_not_see(marker="dashboard-progress-references")
 

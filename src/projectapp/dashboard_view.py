@@ -74,8 +74,6 @@ CARD_TITLES = {
 }
 REFRESH_SECONDS = 300  # 表示中に集計し直す間隔(今日の残り時間が変わるため)
 ALL_MEMBERS = ""  # プルダウンの`全員`の値
-PIE_DIAMETER = "9rem"
-PIE_HOLE_PERCENT = 60  # 中央に進捗率を出すための穴(円の半径に対する割合)
 PIE_VARS = {
     status: f"--pie-{status.name.lower().replace('_', '-')}" for status in Status
 }
@@ -311,17 +309,6 @@ def legend(prefix: str, entries: tuple[tuple[str, str, str], ...]) -> None:
                 ui.label(label).mark(f"{prefix}-legend-{key}")
 
 
-def pie_background(team: TeamProgress) -> str:
-    """切片を状態の順に並べた conic-gradient。"""
-    stops: list[str] = []
-    start = 0.0
-    for status, _, fraction in team.slices():
-        end = start + fraction * 100
-        stops.append(f"var({PIE_VARS[status]}) {start:.1f}% {end:.1f}%")
-        start = end
-    return f"conic-gradient({', '.join(stops)})"
-
-
 def warning_icon(marker: str) -> ui.icon:
     """警告の印。警告の色(`--warning`)のアイコン。文字そのものは色づけしない(白地で読めないため)。"""
     return (
@@ -329,10 +316,12 @@ def warning_icon(marker: str) -> ui.icon:
     )
 
 
-def card(title: str, marker: str) -> ui.card:
+def card(title: str, marker: str, title_marker: str | None = None) -> ui.card:
     box = ui.card().classes("w-full gap-2").mark(marker)
     with box:
-        ui.label(title).classes("text-subtitle1 text-weight-bold")
+        label = ui.label(title).classes("text-subtitle1 text-weight-bold")
+        if title_marker is not None:
+            label.mark(title_marker)
     return box
 
 
@@ -861,46 +850,58 @@ class DashboardView:
 
     def team_card(self, data: Dashboard) -> None:
         team = data.team
-        with card("チーム全体の進捗", "dashboard-team"):
-            period = team.period
-            scope = (
-                "すべてのタスク"
-                if period is None
-                else f"{period.start:%m/%d}〜{period.end:%m/%d} にかかるタスク"
-            )
-            if data.member:
-                scope = f"{data.member}・{scope}"
-            elif data.team_name:
-                scope = f"チーム「{data.team_name}」・{scope}"
-            ui.label(scope).classes("text-caption text-grey").mark(
-                "dashboard-team-scope"
-            )
+        period = team.period
+        scope = (
+            "すべてのタスク"
+            if period is None
+            else f"{period.start:%m/%d}〜{period.end:%m/%d} にかかるタスク"
+        )
+        if data.member:
+            scope = f"{data.member}・{scope}"
+        elif data.team_name:
+            scope = f"チーム「{data.team_name}」・{scope}"
+        with card(
+            f"チーム全体の進捗({scope})", "dashboard-team", "dashboard-team-scope"
+        ):
             references_note(data, "team")
-            if team.percent is None:
+            if not any(team.counts.values()):
                 empty_message("dashboard-empty-team")
                 return
-            with ui.row().classes("w-full items-center no-wrap gap-4"):
-                with ui.element("div").style(
-                    f"position: relative; flex: none; width: {PIE_DIAMETER}; height: {PIE_DIAMETER}"
-                ):
-                    hole = f"radial-gradient(circle, transparent {PIE_HOLE_PERCENT}%, #000 {PIE_HOLE_PERCENT + 1}%)"
-                    ui.element("div").style(
-                        f"width: 100%; height: 100%; border-radius: 50%; background: {pie_background(team)};"
-                        f" -webkit-mask: {hole}; mask: {hole}"
-                    ).mark("dashboard-team-pie")
-                    ui.label(f"{team.percent:.0f}%").classes(
-                        "text-h6 absolute-center"
-                    ).mark("dashboard-team-percent")
-                with ui.column().classes("gap-1"):
-                    for status, hours, fraction in team.slices():
-                        with ui.row().classes("items-center no-wrap gap-2"):
-                            ui.element("span").style(
-                                f"width: 10px; height: 10px; border-radius: 2px; background: var({PIE_VARS[status]})"
-                            )
-                            ui.label(
-                                f"{status.value} {team.counts[status]}件 {hours:.1f}h ({fraction * 100:.0f}%)"
-                            ).mark(f"dashboard-team-legend-{status.name}")
-                            self.status_tip(team, status)
+            slices = team.slices()
+            if slices:
+                done = team.hours[Status.DONE] / team.total
+                ui.label(f"終了 {done * 100:.0f}%(工数ベース)").classes("text-h6").mark(
+                    "dashboard-team-done"
+                )
+                stacked_bar(
+                    [
+                        (
+                            fraction,
+                            f"var({PIE_VARS[status]})",
+                            f"dashboard-team-bar-{status.name}",
+                            f"{status.value} {hours:.1f}h",
+                        )
+                        for status, hours, fraction in slices
+                    ]
+                )
+            if team.unset:
+                ui.label(f"工数なし {team.unset} 件は 1h として数えています").classes(
+                    "text-caption text-grey"
+                ).mark("dashboard-team-unset")
+            with ui.column().classes("gap-1"):
+                for status in Status:
+                    if not team.counts[status]:
+                        continue
+                    hours = team.hours[status]
+                    fraction = hours / team.total if team.total else 0.0
+                    with ui.row().classes("items-center no-wrap gap-2"):
+                        ui.element("span").style(
+                            f"width: 10px; height: 10px; border-radius: 2px; background: var({PIE_VARS[status]})"
+                        )
+                        ui.label(
+                            f"{status.value} {team.counts[status]}件 {hours:.1f}h ({fraction * 100:.0f}%)"
+                        ).mark(f"dashboard-team-legend-{status.name}")
+                        self.status_tip(team, status)
 
     def status_tip(self, team: TeamProgress, status: Status) -> None:
         """凡例の行のツールチップ。その状態のタスク名をチップで並べる。"""
