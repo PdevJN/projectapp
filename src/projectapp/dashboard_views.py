@@ -1,11 +1,17 @@
 """ダッシュボードのビュー(名前を付けた、期間・メンバー・横断・カードの組み合わせ)。NiceGUI に依存しない純粋関数。"""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 
-from projectapp.dashboard import Period, PeriodKind, custom_period_error
+from projectapp.dashboard import (
+    Dashboard,
+    LoadStats,
+    Period,
+    PeriodKind,
+    custom_period_error,
+)
 from projectapp.models import has_control_char
 from projectapp.periodfield import validate_period
 
@@ -223,3 +229,28 @@ def views_from_config(raw: object) -> list[ViewSpec]:
         if len(views) >= MAX_VIEWS:
             break
     return views
+
+
+def load_order(
+    loads: Mapping[str, LoadStats], by_load: bool, over_only: bool
+) -> list[str]:
+    """`人ごとの負荷`・`負荷の日ごとの推移`に出す人の並び。`by_load`なら負荷の高い順(超過の日数 → 最大)、そうでなければ名簿順。`over_only`なら割り当て超過のある人だけ。"""
+    names = [
+        n for n, stats in loads.items() if not over_only or stats.overload_days > 0
+    ]
+    if by_load:
+        names.sort(key=lambda n: (-loads[n].overload_days, -loads[n].peak))
+    return names
+
+
+def late_counts(data: Dashboard) -> dict[str, tuple[int, int]]:
+    """人ごとの(遅れの件数, 警告の件数)。`進捗と遅れ`の集計を使う(共同タスクは担当者それぞれに数える)。メンバーを選んでいるときは、その人の分。"""
+    progress = data.progress
+    late: dict[str, int] = {}
+    for row in progress.overdue:
+        for name in row.assignee_names:
+            late[name] = late.get(name, 0) + 1
+    warned = {row.name: row.warnings for row in progress.by_member}
+    if data.member is not None:
+        warned[data.member] = progress.warnings
+    return {name: (late.get(name, 0), warned.get(name, 0)) for name in {*late, *warned}}

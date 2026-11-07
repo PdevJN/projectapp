@@ -31,6 +31,8 @@ from projectapp.dashboard_views import (
     STANDARD_NAME,
     CardId,
     ViewState,
+    late_counts,
+    load_order,
     parse_card_move,
 )
 from projectapp.gantt import (
@@ -52,6 +54,9 @@ TRACK_STYLE = (
 TICK_STYLE = (
     "position: absolute; top: 0; bottom: 0; width: 2px; background: currentColor"
 )
+LOAD_SCALE = 2.0  # `人ごとの負荷`の棒の範囲(0〜200%で固定。1 人の飛び抜けた値で全員の棒が縮まないように)
+OVER_FULL = 3.0  # 日ごとの推移の赤が最も濃くなる負荷(300%)
+REFERENCE_STYLE = "position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dotted rgba(128, 128, 128, 0.9)"
 GRID_STYLE = "display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: 16px; width: 100%"
 LOAD_COLOR = "#1e88e5"  # 負荷・進捗
 OVER_COLOR = "#ef5350"  # 100% を超える日がある負荷(予定超過の赤と同じ系統)
@@ -95,6 +100,13 @@ HEATMAP_CSS = (
     ".heatmap-name { position: sticky; left: 0; z-index: 2; background: #fff; padding-right: 8px; white-space: nowrap }\n"
     ".heat-cell { width: 22px; height: 22px; border: 1px solid rgba(128, 128, 128, 0.25) }\n"
     ".heat-over { outline: 2px solid #b71c1c; outline-offset: -2px }\n"
+    ".heat-person { cursor: pointer }\n"
+    ".heat-person:hover { text-decoration: underline }\n"
+    ".heat-badges { margin-left: 6px; font-size: 10px; font-weight: normal }\n"
+    ".heat-late { color: #b71c1c; margin-right: 4px }\n"
+    ".heat-warn { color: #e65100 }\n"
+    "body.body--dark .heat-late { color: #ff8a80 }\n"
+    "body.body--dark .heat-warn { color: #ffb74d }\n"
     ".heat-month { border-left: 2px solid rgba(128, 128, 128, 0.85) !important }\n"
     ".heat-week { border-left: 1px solid rgba(128, 128, 128, 0.55) !important }\n"
     ".heat-today { box-shadow: -2px 0 0 #1976d2, 2px 0 0 #1976d2 }\n"
@@ -127,7 +139,7 @@ def cell_style(total: float) -> str:
         return "background: transparent"
     if total <= 1.0 + OVERLOAD_EPSILON:
         return f"background: {rgba(LOAD_COLOR, 0.15 + 0.65 * min(total, 1.0))}"
-    return f"background: {rgba(OVER_COLOR, 0.55 + 0.45 * min(total - 1.0, 1.0))}"
+    return f"background: {rgba(OVER_COLOR, 0.45 + 0.55 * min((total - 1.0) / (OVER_FULL - 1.0), 1.0))}"
 
 
 def cell_class(total: float) -> str:
@@ -156,6 +168,19 @@ def scroll_to_today_js(element_id: int) -> str:
     )
 
 
+def late_badges(counts: tuple[int, int] | None) -> str:
+    """名前の横に添える`遅れ n 件`・`警告 n 件`。0 件は出さない。"""
+    if counts is None:
+        return ""
+    late, warned = counts
+    parts = []
+    if late:
+        parts.append(f'<span class="heat-late">遅れ {late}</span>')
+    if warned:
+        parts.append(f'<span class="heat-warn">警告 {warned}</span>')
+    return f'<span class="heat-badges">{"".join(parts)}</span>' if parts else ""
+
+
 def month_label(day: date, first: bool) -> str:
     return f"{day.year}年{day.month}月" if first or day.month == 1 else f"{day.month}月"
 
@@ -181,6 +206,8 @@ def heatmap_html(
     cross: CrossSummary,
     icons: dict[str, str] | None = None,
     today: date | None = None,
+    order: list[str] | None = None,
+    counts: dict[str, tuple[int, int]] | None = None,
 ) -> str:
     """人×稼働日の表。名前・プロジェクト名はエスケープする。名前の前にアイコン(なければ頭文字の丸)を付ける。
 
@@ -216,14 +243,20 @@ def heatmap_html(
             f"{count or ''}</th>"
         )
     rows = []
-    for name, entry in cross.loads.items():
+    for name in order if order is not None else list(cross.loads):
+        entry = cross.loads[name]
         cells = "".join(
             f'<td class="{cell_class(day.total)} {mark}" data-cell="{html.escape(name)}|{day.day.isoformat()}"'
             f' title="{cell_title(name, day)}" style="{cell_style(day.total)}"></td>'
             for day, mark in zip(entry.days, marks)
         )
         mark = avatar_html(name, (icons or {}).get(name, ""), 20)
-        label = f'<th class="heatmap-name text-body2" style="text-align: left">{mark}{html.escape(name)}</th>'
+        label = (
+            '<th class="heatmap-name text-body2" style="text-align: left">'
+            f'{mark}<span class="heat-person" data-name="{html.escape(name)}"'
+            f" onclick=\"emitEvent('dashboard_member', this.dataset.name)\">{html.escape(name)}</span>"
+            f"{late_badges((counts or {}).get(name))}</th>"
+        )
         rows.append(f"<tr>{label}{cells}</tr>")
     corner = '<th class="heatmap-name heat-head heat-r{n}" style="z-index: 4{extra}">{text}</th>'
     return (
@@ -237,7 +270,14 @@ def heatmap_html(
 
 
 def legend_html() -> str:
-    swatches = [(0.0, "0%"), (0.5, "50%"), (1.0, "100%"), (1.5, "超過")]
+    swatches = [
+        (0.0, "0%"),
+        (0.5, "50%"),
+        (1.0, "100%"),
+        (1.2, "120%"),
+        (2.0, "200%"),
+        (3.0, "300%以上"),
+    ]
     items = "".join(
         f'<span style="display: inline-flex; align-items: center; gap: 4px; margin-right: 12px">'
         f'<span class="{cell_class(value)}" style="display: inline-block; width: 14px; height: 14px;'
@@ -253,15 +293,23 @@ def percent_width(fraction: float) -> str:
 
 
 def bar(
-    fraction: float, color: str, tick: float | None = None, marker: str | None = None
+    fraction: float,
+    color: str,
+    tick: float | None = None,
+    marker: str | None = None,
+    reference: float | None = None,
 ) -> None:
-    """横棒。`tick` があれば、その位置に縦の印を出す(最大値など)。`marker` は塗りの部分に付ける。"""
+    """横棒。`tick` があれば、その位置に縦の印を出す(最大値など)。`reference` があれば、その位置に点線の目印(100% など)を出す。`marker` は塗りの部分に付ける。"""
     with ui.element("div").style(TRACK_STYLE):
         fill = ui.element("div").style(
             f"height: 100%; width: {percent_width(fraction)}; background: {color}"
         )
         if marker is not None:
             fill.mark(marker)
+        if reference is not None:
+            ui.element("div").style(
+                f"{REFERENCE_STYLE}; left: {percent_width(reference)}"
+            )
         if tick is not None:
             ui.element("div").style(f"{TICK_STYLE}; left: {percent_width(tick)}")
 
@@ -420,6 +468,8 @@ class DashboardView:
         self.maximized: CardId | None = (
             None  # 画面いっぱいに出しているカード(保存しない)
         )
+        self.sort_by_load = False  # 並び替えと絞り込みは保存しない(閉じると既定に戻る)
+        self.over_only = False
         self.edit_button: ui.button | None = None
         self.view_select: ui.select | None = None
         self.dirty_mark: ui.label | None = None
@@ -464,6 +514,7 @@ class DashboardView:
         ui.add_css(DASHBOARD_DRAG_CSS)
         ui.add_head_html(f"<script>{DASHBOARD_DRAG_JS}</script>")
         ui.on("dashboard_move_card", lambda e: self.handle_move(e.args))
+        ui.on("dashboard_member", lambda e: self.pick_member(e.args))
         ui.timer(REFRESH_SECONDS, self.tick)
         with ui.column().classes("w-full gap-4") as box:
             self.box = box
@@ -794,6 +845,7 @@ class DashboardView:
     def hide(self) -> None:
         self.edit_mode = False  # 編集モードは持ち越さない(次に開くときは、ふだんの表示)
         self.maximized = None
+        self.sort_by_load = self.over_only = False
         self.assign_mode = False
         if self.edit_button is not None:
             self.edit_button.set_text("カードを編集")
@@ -1049,37 +1101,112 @@ class DashboardView:
             ).mark(f"{marker}-progress-{row.name}")
             bar(row.percent / 100, LOAD_COLOR)
 
-    def load_row(self, name: str, stats: LoadStats, scale: float) -> None:
+    def pick_member(self, name: object) -> None:
+        """人の名前の押下。ダッシュボード全体をその人に絞る(同じ人をもう一度押すと全員に戻す)。"""
+        data = self.data
+        if (
+            not isinstance(name, str)
+            or data is None
+            or self.on_member_change is None
+            or name not in data.members
+        ):
+            return
+        self.on_member_change(None if data.member == name else name)
+
+    def order_controls(self, suffix: str) -> None:
+        """並び替え(負荷の高い順)と絞り込み(割り当て超過の人だけ)。2 つのカードで同じ状態を共有する。"""
+        with ui.row().classes("w-full items-center gap-4"):
+            ui.checkbox(
+                "負荷の高い順",
+                value=self.sort_by_load,
+                on_change=lambda e: self.set_order(sort_by_load=bool(e.value)),
+            ).props("dense").mark(f"dashboard-sort-{suffix}")
+            ui.checkbox(
+                "割り当て超過の人だけ",
+                value=self.over_only,
+                on_change=lambda e: self.set_order(over_only=bool(e.value)),
+            ).props("dense").mark(f"dashboard-over-only-{suffix}")
+
+    def set_order(
+        self, sort_by_load: bool | None = None, over_only: bool | None = None
+    ) -> None:
+        if sort_by_load is not None:
+            self.sort_by_load = sort_by_load
+        if over_only is not None:
+            self.over_only = over_only
+        self.cards.refresh()
+
+    def load_row(
+        self,
+        name: str,
+        stats: LoadStats,
+        counts: tuple[int, int] | None = None,
+    ) -> None:
+        """1 人 1 行(名前・棒・数字を横に並べる)。棒は 0〜200% で固定し、100% に点線の目印、最大に縦の印を出す。"""
         over = stats.overload_days > 0
-        with ui.column().classes("w-full gap-1"):
-            with ui.row().classes("items-center no-wrap gap-2"):
-                self.member_icon(name, f"dashboard-load-icon-{name}")
-                ui.label(name)
+        with ui.row().classes("w-full items-center gap-x-3 gap-y-0"):
+            with ui.column().classes("gap-0").style("width: 9rem; flex: none"):
+                with ui.row().classes("items-center no-wrap gap-2"):
+                    self.member_icon(name, f"dashboard-load-icon-{name}")
+                    ui.label(name).classes("cursor-pointer ellipsis").on(
+                        "click", lambda _=None, n=name: self.pick_member(n)
+                    ).mark(f"dashboard-load-name-{name}")
+                late, warned = counts or (0, 0)
+                if late or warned:
+                    with ui.row().classes("items-center no-wrap gap-2"):
+                        if late:
+                            ui.label(f"遅れ {late} 件").classes(
+                                "text-caption text-negative"
+                            ).mark(f"dashboard-load-late-{name}")
+                        if warned:
+                            ui.label(f"警告 {warned} 件").classes("text-caption").style(
+                                "color: var(--warning)"
+                            ).mark(f"dashboard-load-warning-{name}")
+            with ui.element("div").style("flex: 1 1 8rem; min-width: 8rem"):
+                bar(
+                    stats.average / LOAD_SCALE,
+                    OVER_COLOR if over else LOAD_COLOR,
+                    tick=stats.peak / LOAD_SCALE,
+                    reference=1.0 / LOAD_SCALE,
+                )
             ui.label(
                 f"平均 {stats.average * 100:.0f}% / 最大 {stats.peak * 100:.0f}% / 割り当て超過 {stats.overload_days} 日"
-            ).classes("text-caption" + (" text-negative" if over else "")).mark(
-                f"dashboard-load-{name}"
-            )
-            bar(
-                stats.average / scale,
-                OVER_COLOR if over else LOAD_COLOR,
-                tick=stats.peak / scale,
-            )
+            ).classes("text-caption" + (" text-negative" if over else "")).style(
+                "flex: none"
+            ).mark(f"dashboard-load-{name}")
+
+    def load_summary(self, loads: dict[str, LoadStats]) -> None:
+        """カードの見出しの下の 1 行。割り当て超過の人数と、最大の人。"""
+        if not loads:
+            return
+        over = sum(1 for stats in loads.values() if stats.overload_days > 0)
+        top = max(loads, key=lambda n: loads[n].peak)
+        text = f"割り当て超過 {over} 名 / {len(loads)} 名"
+        if loads[top].peak > 1.0 + OVERLOAD_EPSILON:
+            text += f"・最大 {loads[top].peak * 100:.0f}%({top})"
+        ui.label(text).classes(
+            "text-caption" + (" text-negative" if over else " text-grey")
+        ).mark("dashboard-load-summary")
 
     def load_card(self, data: Dashboard) -> None:
         with card("人ごとの負荷", "dashboard-load"):
             if data.cross is None:  # 全プロジェクトを重ねる負荷は按分しない
                 weighted_note(data, "load")
             if data.cross is not None:
-                self.cross_load_card(data.cross)
+                self.cross_load_card(data.cross, late_counts(data))
                 return
             if not data.loads:
                 empty_message("dashboard-empty-load")
                 return
-            scale = max(1.0, *(stats.peak for stats in data.loads.values()))
+            self.load_summary(data.loads)
+            self.order_controls("load")
+            counts = late_counts(data)
+            names = load_order(data.loads, self.sort_by_load, self.over_only)
+            if not names:
+                empty_message("dashboard-load-none")
             with self.rows_box():
-                for name, stats in data.loads.items():
-                    self.load_row(name, stats, scale)
+                for name in names:
+                    self.load_row(name, data.loads[name], counts.get(name))
 
     def heatmap_card(self, data: Dashboard) -> None:
         cross = data.heat_summary
@@ -1098,15 +1225,27 @@ class DashboardView:
                 ui.label("横にスクロールできます").classes(
                     "text-caption text-grey"
                 ).mark("dashboard-heatmap-hint")
+            self.order_controls("heatmap")
             ui.html(legend_html(), sanitize=False)
+            totals = {name: entry.total for name, entry in cross.loads.items()}
+            order = load_order(totals, self.sort_by_load, self.over_only)
+            if not order:
+                empty_message("dashboard-heatmap-none")
             table = (
-                ui.html(heatmap_html(cross, self.icons, clock.today()), sanitize=False)
+                ui.html(
+                    heatmap_html(
+                        cross, self.icons, clock.today(), order, late_counts(data)
+                    ),
+                    sanitize=False,
+                )
                 .style("min-width: 0; max-width: 100%; overflow-x: auto")
                 .mark("dashboard-heatmap-table")
             )
             ui.run_javascript(scroll_to_today_js(table.id))
 
-    def cross_load_card(self, cross: CrossSummary) -> None:
+    def cross_load_card(
+        self, cross: CrossSummary, counts: dict[str, tuple[int, int]]
+    ) -> None:
         ui.label(
             "同じ名前のメンバーを同一人物として、全プロジェクトを重ねています。開いているプロジェクト以外は保存済みの内容です。"
         ).classes("text-caption text-grey").mark("dashboard-cross-note")
@@ -1128,11 +1267,17 @@ class DashboardView:
         if not cross.loads:
             empty_message("dashboard-empty-load")
             return
-        scale = max(1.0, *(entry.total.peak for entry in cross.loads.values()))
+        totals = {name: entry.total for name, entry in cross.loads.items()}
+        self.load_summary(totals)
+        self.order_controls("load")
+        names = load_order(totals, self.sort_by_load, self.over_only)
+        if not names:
+            empty_message("dashboard-load-none")
         with self.rows_box():
-            for name, entry in cross.loads.items():
+            for name in names:
+                entry = cross.loads[name]
                 with ui.column().classes("w-full gap-0"):
-                    self.load_row(name, entry.total, scale)
+                    self.load_row(name, entry.total, counts.get(name))
                     with ui.expansion("プロジェクト別").classes("w-full text-caption"):
                         for index, row in enumerate(entry.by_project):
                             ui.label(

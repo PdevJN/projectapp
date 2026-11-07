@@ -327,7 +327,7 @@ async def test_every_row_with_a_name_has_an_icon_or_initial(user: User) -> None:
 
 def test_the_heatmap_names_have_an_icon_or_initial(icon: str) -> None:
     cross = long_heat_summary(2)
-    assert ">田</span>田中" in heatmap_html(cross)
+    assert '>田</span><span class="heat-person"' in heatmap_html(cross)
     with_icon = heatmap_html(cross, {"田中": icon})
     assert "<img" in with_icon and ">田</span>" not in with_icon
 
@@ -1889,3 +1889,150 @@ def test_the_maximized_card_keeps_its_children_from_shrinking_so_bars_stay_visib
     None
 ):
     assert ".dash-maximized > * { flex-shrink: 0 }" in HEATMAP_CSS
+
+
+def test_the_heatmap_follows_the_given_order_and_marks_late_counts() -> None:
+    cross = wide_heat_summary()
+    markup = heatmap_html(
+        cross, order=["佐藤"], counts={"佐藤": (2, 1), "田中": (5, 5)}
+    )
+    assert 'data-cell="佐藤|' in markup and 'data-cell="田中|' not in markup
+    assert '<span class="heat-late">遅れ 2</span>' in markup
+    assert '<span class="heat-warn">警告 1</span>' in markup
+    names = heatmap_html(cross, order=["佐藤", "田中"])
+    assert names.index("佐藤|") < names.index("田中|")
+    assert "heat-badges" not in names  # 件数がなければ出さない
+
+
+def test_the_heatmap_names_ask_to_filter_the_dashboard_when_clicked() -> None:
+    markup = heatmap_html(wide_heat_summary())
+    assert "emitEvent('dashboard_member', this.dataset.name)" in markup
+    assert 'data-name="田中"' in markup
+    escaped = heatmap_html(heat_summary(name='<b>"田'))
+    assert "<b>" not in escaped
+
+
+async def test_the_load_card_sorts_filters_and_shows_late_counts(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    data.loads["佐藤"] = LoadStats(0.9, 1.0, 0)
+    data.loads["高橋"] = LoadStats(1.0, 2.0, 4)
+    data.members.append("高橋")
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-load-late-田中")
+    assert text(user, "dashboard-load-late-田中") == "遅れ 1 件"
+    await user.should_not_see(marker="dashboard-load-late-佐藤")
+
+    def order() -> list[str]:
+        """画面にある人の名前の行を、作られた順(= 並び順)で返す。"""
+        found = {}
+        for name in ("佐藤", "田中", "高橋"):
+            try:
+                found[name] = (
+                    user.find(marker=f"dashboard-load-name-{name}").elements.pop().id
+                )
+            except AssertionError:  # 絞り込みで外れた人は画面にいない
+                continue
+        return sorted(found, key=found.__getitem__)
+
+    assert sorted(order()) == ["佐藤", "田中", "高橋"]
+    views[0].set_order(sort_by_load=True)
+    await asyncio.sleep(0.2)
+    assert order() == ["高橋", "田中", "佐藤"]
+    views[0].set_order(over_only=True)
+    await asyncio.sleep(0.2)
+    assert order() == ["高橋", "田中"]
+
+
+async def test_the_load_card_says_so_when_nobody_is_over(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    data.loads = {"佐藤": LoadStats(0.0, 0.0, 0)}
+    views[0].show(data, PeriodKind.WEEK)
+    views[0].set_order(over_only=True)
+    await user.should_see(marker="dashboard-load-none")
+
+
+async def test_clicking_a_name_filters_the_dashboard_to_that_person_and_back(
+    user: User,
+) -> None:
+    changes: list[str | None] = []
+    views, _, _ = mount(member_changes=changes)
+    await user.open("/")
+    data = sample()
+    views[0].show(data, PeriodKind.WEEK)
+    views[0].pick_member("田中")
+    data.member = "田中"
+    views[0].pick_member("田中")  # 同じ人をもう一度 → 全員
+    views[0].pick_member("存在しない人")
+    views[0].pick_member(123)
+    assert changes == ["田中", None]
+
+
+def test_sort_and_filter_are_not_kept_when_the_dashboard_is_hidden() -> None:
+    view = DashboardView(lambda: None, lambda kind: None)
+    view.sort_by_load = view.over_only = True
+    view.hide()
+    assert not view.sort_by_load and not view.over_only
+
+
+def test_the_overload_red_gets_darker_as_the_load_grows() -> None:
+    from projectapp.dashboard_view import cell_style
+
+    def alpha(total: float) -> float:
+        return float(cell_style(total).rsplit(",", 1)[1].strip(" )"))
+
+    assert alpha(1.2) < alpha(1.5) < alpha(2.0) < alpha(3.0)
+    assert alpha(3.0) == alpha(4.0) == 1.0  # 300% 以上は同じ濃さ
+
+
+def test_the_heatmap_legend_shows_the_overload_steps() -> None:
+    from projectapp.dashboard_view import legend_html
+
+    legend = legend_html()
+    for label in ("120%", "200%", "300%以上"):
+        assert label in legend
+
+
+async def test_the_load_summary_counts_the_people_over_100_percent(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)  # 田中 120%(2 日)、佐藤 0%
+    await user.should_see(marker="dashboard-load-summary")
+    assert (
+        text(user, "dashboard-load-summary")
+        == "割り当て超過 1 名 / 2 名・最大 120%(田中)"
+    )
+
+
+async def test_the_load_summary_leaves_out_the_max_when_nobody_is_over(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    data.loads = {"佐藤": LoadStats(0.5, 0.9, 0)}
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-load-summary")
+    assert text(user, "dashboard-load-summary") == "割り当て超過 0 名 / 1 名"
+
+
+async def test_the_load_bars_use_a_fixed_range_with_a_100_percent_line(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-load-田中")
+    from projectapp.dashboard_view import LOAD_SCALE
+
+    assert LOAD_SCALE == 2.0
+    styles = [
+        e._style.get("left")
+        for e in user.client.elements.values()
+        if e._style.get("border-left", "").startswith("2px dotted")
+    ]
+    assert "50.0%" in styles  # 100% の線は、範囲の真ん中
