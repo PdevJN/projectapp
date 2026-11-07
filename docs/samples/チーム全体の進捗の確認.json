@@ -67,7 +67,7 @@
       "color": "#4c8bf5",
       "assignees": [
         {
-          "member": "m0000000",
+          "member": "m0000001",
           "allocation": 1.0
         }
       ],
@@ -77,7 +77,7 @@
       "planned_end_manual": false,
       "actuals": [],
       "category_id": null,
-      "kind": 1,
+      "kind": "通常",
       "urls": [],
       "progress": null,
       "children": [],
@@ -125,7 +125,7 @@
       "color": "#4c8bf5",
       "assignees": [
         {
-          "member": "m0000000",
+          "member": "m0000001",
           "allocation": 1.0
         }
       ],
@@ -135,7 +135,7 @@
       "planned_end_manual": false,
       "actuals": [],
       "category_id": null,
-      "kind": 1,
+      "kind": "通常",
       "urls": [],
       "progress": null,
       "children": [],
