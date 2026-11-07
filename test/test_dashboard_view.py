@@ -1976,3 +1976,63 @@ def test_sort_and_filter_are_not_kept_when_the_dashboard_is_hidden() -> None:
     view.sort_by_load = view.over_only = True
     view.hide()
     assert not view.sort_by_load and not view.over_only
+
+
+def test_the_overload_red_gets_darker_as_the_load_grows() -> None:
+    from projectapp.dashboard_view import cell_style
+
+    def alpha(total: float) -> float:
+        return float(cell_style(total).rsplit(",", 1)[1].strip(" )"))
+
+    assert alpha(1.2) < alpha(1.5) < alpha(2.0) < alpha(3.0)
+    assert alpha(3.0) == alpha(4.0) == 1.0  # 300% 以上は同じ濃さ
+
+
+def test_the_heatmap_legend_shows_the_overload_steps() -> None:
+    from projectapp.dashboard_view import legend_html
+
+    legend = legend_html()
+    for label in ("120%", "200%", "300%以上"):
+        assert label in legend
+
+
+async def test_the_load_summary_counts_the_people_over_100_percent(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)  # 田中 120%(2 日)、佐藤 0%
+    await user.should_see(marker="dashboard-load-summary")
+    assert (
+        text(user, "dashboard-load-summary")
+        == "割り当て超過 1 名 / 2 名・最大 120%(田中)"
+    )
+
+
+async def test_the_load_summary_leaves_out_the_max_when_nobody_is_over(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    data.loads = {"佐藤": LoadStats(0.5, 0.9, 0)}
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-load-summary")
+    assert text(user, "dashboard-load-summary") == "割り当て超過 0 名 / 1 名"
+
+
+async def test_the_load_bars_use_a_fixed_range_with_a_100_percent_line(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = sample()
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-load-田中")
+    from projectapp.dashboard_view import LOAD_SCALE
+
+    assert LOAD_SCALE == 2.0
+    styles = [
+        e._style.get("left")
+        for e in user.client.elements.values()
+        if e._style.get("border-left", "").startswith("2px dotted")
+    ]
+    assert "50.0%" in styles  # 100% の線は、範囲の真ん中
