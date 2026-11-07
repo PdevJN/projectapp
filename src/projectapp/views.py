@@ -12,7 +12,7 @@ import httpx
 from nicegui import app, run, ui
 from nicegui.events import KeyEventArguments
 
-from projectapp import clock
+from projectapp import clock, history_log
 from projectapp.calendar import load_cache
 from projectapp.events import (
     EffectiveHolidays,
@@ -803,9 +803,11 @@ class MainView:
         return asdict(self.project) != self.snapshot
 
     def after_edit(self) -> None:
-        """編集のあとの共通の処理。直前の確定した状態と違えば履歴に積み、画面を描き直す(Undo の入口はここだけ)。"""
+        """編集のあとの共通の処理。直前の確定した状態と違えば履歴に積み、画面を描き直す(Undo の入口はここだけ)。
+        変更履歴(要望 128)も、ここで前後の差から作る。元に戻す側の複製には新しいイベントを入れない。"""
         if self.project != self.committed:
             self.history.record(self.committed)
+            history_log.record_edit(self.committed, self.project, clock.now())
             self.committed = deepcopy(self.project)
         self.gantt.set_project(self.project)
 
