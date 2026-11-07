@@ -19,7 +19,7 @@ from projectapp.csv_import import (
     sniff_table,
 )
 from projectapp.csv_profile import CsvColumn, CsvField, CsvProfile
-from projectapp.models import Status, Task
+from projectapp.models import Status, Task, TaskKind
 from projectapp.timeline import effective_end
 
 HEADER = "WBS 番号\tタスクのタイトル\tタスクオーナー\t開始日\t期限\t期間\tタスク完了率"
@@ -685,3 +685,11 @@ def test_cells_that_do_not_fit_the_template_are_counted() -> None:
     text = "名前,期間\n設計,2026-10-05〜x\n"
     result = parse_csv(text, "x", {}, profile=template_profile(), delimiter=",")
     assert result.unresolved + result.invalid_values >= 1  # 読めない日付として数える
+
+
+def test_an_imported_project_starts_its_history_with_creation_events() -> None:
+    project = parse_csv(SAMPLE, "x", {}).project
+    normal = {t.id for t in project.all_tasks() if t.kind is TaskKind.NORMAL}
+    assert normal and {e.task for e in project.history} == normal
+    assert project.history_since is not None
+    assert all(e.changes[0].before is None for e in project.history)
