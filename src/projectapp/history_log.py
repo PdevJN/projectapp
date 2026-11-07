@@ -3,6 +3,8 @@
 NiceGUI に依存しない。データの持ち方を変えるときは、この境界の内側で変える(集計と画面はここの関数だけを通す)。
 """
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 
 from projectapp.models import (
@@ -10,6 +12,7 @@ from projectapp.models import (
     Change,
     HistoryEvent,
     Project,
+    Status,
     Task,
     TaskKind,
     Value,
@@ -79,3 +82,53 @@ def stamp_creation(project: Project, now: datetime) -> None:
     """取り込んだ(保存前の新規の)プロジェクトに、作成イベントと記録の開始を入れる。"""
     project.history.extend(creation_events(project, now))
     project.history_since = now
+
+
+@dataclass(frozen=True)
+class TaskState:
+    """ある時点のタスクの、記録している 3 項目。"""
+
+    status: Status
+    progress: int | None
+    effort: float
+
+
+def events_by_task(project: Project) -> dict[str, list[HistoryEvent]]:
+    """タスクの id ごとのイベント(日時順)。同じ日時は記録した順。"""
+    index: dict[str, list[HistoryEvent]] = {}
+    for event in sorted(project.history, key=lambda e: e.at):
+        index.setdefault(event.task, []).append(event)
+    return index
+
+
+def is_known(project: Project, moment: datetime) -> bool:
+    """`moment`の値を履歴から復元できるか。記録を始めた日時より前、または一度も記録していないときは不明。"""
+    return project.history_since is not None and moment >= project.history_since
+
+
+def state_at(
+    task: Task, events: Sequence[HistoryEvent], moment: datetime
+) -> TaskState | None:
+    """`moment`(その時刻の直前まで)のタスクの値。`events`はこのタスクの分(日時順)。
+    項目ごとに、直前のイベントの「後」。なければ、その後の最初のイベントの「前」。それもなければ現在の値。
+    その時点で作られていなければ None。"""
+    current = _values(task)
+    found: dict[str, Value] = {}
+    for name in HISTORY_FIELDS:
+        touching = [(e.at, c) for e in events for c in e.changes if c.field == name]
+        earlier = [c for at, c in touching if at < moment]
+        later = [c for at, c in touching if at >= moment]
+        if earlier:
+            found[name] = earlier[-1].after
+        elif later:
+            found[name] = later[0].before
+        else:
+            found[name] = current[name]
+    if found["status"] is None:
+        return None
+    progress, effort = found["progress"], found["effort"]
+    return TaskState(
+        Status(str(found["status"])),
+        progress if isinstance(progress, int) else None,
+        float(effort) if isinstance(effort, (int, float)) else 0.0,
+    )

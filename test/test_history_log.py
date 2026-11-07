@@ -6,7 +6,15 @@ from datetime import datetime
 
 import pytest
 
-from projectapp.history_log import diff_events, record_edit, stamp_creation
+from projectapp.history_log import (
+    TaskState,
+    diff_events,
+    events_by_task,
+    is_known,
+    record_edit,
+    state_at,
+    stamp_creation,
+)
 from projectapp.models import (
     Change,
     HistoryEvent,
@@ -176,3 +184,87 @@ def test_stamp_creation_records_every_normal_task_and_the_start() -> None:
     assert project.history == [
         ev("a", NOW, status=(None, "実行中"), progress=(None, 30), effort=(None, 2.0))
     ]
+
+
+SINCE = datetime(2026, 11, 1, 0, 0)
+
+
+def running_then_done() -> tuple[Project, Task]:
+    task = Task("a", id="a", effort_hours=10, status=Status.DONE, progress=100)
+    project = Project(
+        "p",
+        tasks=[task],
+        history_since=SINCE,
+        history=[
+            ev(
+                "a",
+                datetime(2026, 11, 3, 10),
+                status=("未着手", "実行中"),
+                progress=(None, 50),
+            ),
+            ev(
+                "a",
+                datetime(2026, 11, 5, 10),
+                status=("実行中", "終了"),
+                progress=(50, 100),
+            ),
+        ],
+    )
+    return project, task
+
+
+def test_state_before_the_first_event_uses_that_events_before_values() -> None:
+    project, task = running_then_done()
+    events = events_by_task(project)["a"]
+    assert state_at(task, events, datetime(2026, 11, 2)) == TaskState(
+        Status.NOT_STARTED, None, 10.0
+    )
+
+
+def test_state_between_events_uses_the_latest_after_values() -> None:
+    project, task = running_then_done()
+    events = events_by_task(project)["a"]
+    assert state_at(task, events, datetime(2026, 11, 4)) == TaskState(
+        Status.RUNNING, 50, 10.0
+    )
+    assert state_at(task, events, datetime(2026, 11, 6)) == TaskState(
+        Status.DONE, 100, 10.0
+    )
+
+
+def test_state_without_any_event_is_the_current_value() -> None:
+    task = Task("b", id="b", effort_hours=4, progress=20, status=Status.RUNNING)
+    assert state_at(task, [], datetime(2026, 11, 4)) == TaskState(
+        Status.RUNNING, 20, 4.0
+    )
+
+
+def test_a_task_created_after_the_moment_did_not_exist() -> None:
+    task = Task("c", id="c", effort_hours=4)
+    created = [
+        ev(
+            "c",
+            datetime(2026, 11, 4),
+            status=(None, "未着手"),
+            progress=(None, None),
+            effort=(None, 4.0),
+        )
+    ]
+    assert state_at(task, created, datetime(2026, 11, 3)) is None
+    assert state_at(task, created, datetime(2026, 11, 5)) == TaskState(
+        Status.NOT_STARTED, None, 4.0
+    )
+
+
+def test_a_moment_exactly_at_an_event_does_not_include_it() -> None:
+    project, task = running_then_done()
+    events = events_by_task(project)["a"]
+    state = state_at(task, events, datetime(2026, 11, 3, 10))
+    assert state is not None and state.status is Status.NOT_STARTED
+
+
+def test_history_is_unknown_before_it_started_or_when_never_recorded() -> None:
+    project = Project("p", history_since=SINCE)
+    assert not is_known(project, datetime(2026, 10, 31, 23, 59))
+    assert is_known(project, SINCE)
+    assert not is_known(Project("p"), datetime(2026, 11, 8))
