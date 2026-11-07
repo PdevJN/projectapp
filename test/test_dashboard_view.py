@@ -1887,3 +1887,9 @@ async def test_hiding_the_dashboard_clears_the_maximize(user: User) -> None:
     views[0].set_maximized(CardId.LOAD)
     views[0].hide()
     assert views[0].maximized is None
+
+
+def test_the_maximized_card_keeps_its_children_from_shrinking_so_bars_stay_visible() -> (
+    None
+):
+    assert ".dash-maximized > * { flex-shrink: 0 }" in HEATMAP_CSS

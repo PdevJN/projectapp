@@ -106,6 +106,7 @@ HEATMAP_CSS = (
     ".heat-r2 { top: 18px; height: 30px }\n"
     ".heat-r3 { top: 48px; height: 20px; color: #b71c1c; font-weight: bold }\n"
     ".heatmap-scroll { overflow: auto; max-width: 100%; max-height: calc(var(--app-vh, 100vh) * 0.7) }\n"
+    ".dash-maximized > * { flex-shrink: 0 }\n"
     ".dash-maximized .heatmap-scroll { max-height: calc(var(--app-vh, 100vh) - 16rem) }\n"
     ".heatmap-scroll::-webkit-scrollbar { height: 12px; width: 12px }\n"
     ".heatmap-scroll::-webkit-scrollbar-track { background: rgba(128, 128, 128, 0.15) }\n"
