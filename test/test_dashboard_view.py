@@ -895,7 +895,7 @@ async def test_the_toolbar_shows_the_dirty_mark_and_save_buttons_only_when_dirty
     assert views[0].revert_item.enabled is True
 
 
-async def test_the_toolbar_has_two_rows_one_for_the_view_and_one_for_the_filters(
+async def test_the_toolbar_groups_the_view_controls_and_the_filters_in_one_box(
     user: User,
 ) -> None:
     views, _, _ = mount(actions=recording_actions([]))
@@ -903,24 +903,34 @@ async def test_the_toolbar_has_two_rows_one_for_the_view_and_one_for_the_filters
     views[0].show(
         sample(), PeriodKind.WEEK, view_state=full_state(current="月次", dirty=True)
     )
-    top = set(views[0].top_bar.descendants())
-    filters = set(views[0].filter_bar.descendants())
+    view = views[0]
+    await user.should_see(marker="dashboard-view-group")
+    group = set(user.find(marker="dashboard-view-group").elements.pop().descendants())
+    top, bar, filters = (
+        set(view.top_bar.descendants()),
+        set(view.view_bar.descendants()),
+        set(view.filter_bar.descendants()),
+    )
     assert {
-        views[0].view_select,
-        views[0].dirty_mark,
-        views[0].save_button,
-        views[0].edit_button,
-    } <= top
+        view.view_select,
+        view.dirty_mark,
+        view.save_button,
+        view.edit_button,
+    } <= bar
     assert (
-        views[0].save_as_item in top and views[0].revert_item in top
-    )  # ⋮ の中のメニュー項目も 1 段目
+        view.save_as_item in bar and view.revert_item in bar
+    )  # ⋮ の中のメニュー項目も
     assert {
-        views[0].toggle,
-        views[0].member_select,
-        views[0].cross_switch,
-        views[0].custom_field,
+        view.toggle,
+        view.member_select,
+        view.cross_switch,
+        view.custom_field,
     } <= filters
-    assert top.isdisjoint(filters)
+    assert bar | filters <= group  # ビューの操作も条件も、同じ枠の中
+    assert top.isdisjoint(group)  # 見出しと戻るは枠の外
+    assert bar.isdisjoint(filters)
+    back = user.find(marker="dashboard-back").elements.pop()
+    assert back in top and back not in group
 
 
 async def test_save_is_disabled_when_blocked(user: User) -> None:
