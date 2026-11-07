@@ -1,8 +1,19 @@
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 
-from projectapp.dashboard import PeriodKind
+from projectapp.dashboard import (
+    Dashboard,
+    LoadStats,
+    MemberProgress,
+    OverdueRow,
+    Period,
+    PeriodKind,
+    Progress,
+)
+from projectapp.models import Status
 from projectapp.dashboard_views import (
+    late_counts,
+    load_order,
     DEFAULT_ORDER,
     MAX_VIEW_NAME,
     MAX_VIEWS,
@@ -269,3 +280,58 @@ def test_resolve_team_returns_none_for_a_team_that_left_the_roster() -> None:
     assert resolve_team("開発", ["開発", "QA"]) == "開発"
     assert resolve_team("消えた", ["開発"]) is None
     assert resolve_team(None, ["開発"]) is None
+
+
+def test_load_order_keeps_the_roster_order_by_default() -> None:
+    loads = {"A": LoadStats(0.5, 0.9, 0), "B": LoadStats(1.0, 1.5, 2)}
+    assert load_order(loads, by_load=False, over_only=False) == ["A", "B"]
+
+
+def test_load_order_sorts_by_overload_days_then_peak() -> None:
+    loads = {
+        "A": LoadStats(0.5, 0.9, 0),
+        "B": LoadStats(1.0, 1.5, 2),
+        "C": LoadStats(1.0, 2.5, 2),
+        "D": LoadStats(0.8, 1.1, 5),
+    }
+    assert load_order(loads, by_load=True, over_only=False) == ["D", "C", "B", "A"]
+
+
+def test_load_order_can_keep_only_people_over_100_percent() -> None:
+    loads = {"A": LoadStats(0.5, 0.9, 0), "B": LoadStats(1.0, 1.5, 2)}
+    assert load_order(loads, by_load=False, over_only=True) == ["B"]
+    assert load_order({}, by_load=True, over_only=True) == []
+
+
+def test_late_counts_gives_late_and_warning_counts_per_person() -> None:
+    row = OverdueRow("共同", "田中, 佐藤", datetime(2026, 10, 6, 17), ("田中", "佐藤"))
+    solo = OverdueRow("単独", "田中", datetime(2026, 10, 7, 17), ("田中",))
+    progress = Progress(
+        None,
+        {status: 0 for status in Status},
+        [row, solo],
+        [
+            MemberProgress("田中", None, {s: 0 for s in Status}, warnings=1),
+            MemberProgress("鈴木", None, {s: 0 for s in Status}),
+        ],
+    )
+    data = Dashboard(
+        Period(date(2026, 10, 5), date(2026, 10, 11)), progress, {}, [], []
+    )
+    counts = late_counts(data)
+    assert counts["田中"] == (2, 1) and counts["佐藤"] == (1, 0)
+    assert counts["鈴木"] == (0, 0)
+
+
+def test_late_counts_for_a_selected_member_uses_the_scoped_totals() -> None:
+    solo = OverdueRow("単独", "田中", datetime(2026, 10, 7, 17), ("田中",))
+    progress = Progress(None, {s: 0 for s in Status}, [solo], [], warnings=3)
+    data = Dashboard(
+        Period(date(2026, 10, 5), date(2026, 10, 11)),
+        progress,
+        {},
+        [],
+        [],
+        member="田中",
+    )
+    assert late_counts(data)["田中"] == (1, 3)
