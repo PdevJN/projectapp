@@ -305,3 +305,15 @@ def test_reconcile_leaves_consistent_and_unlogged_tasks_alone() -> None:
         history=[ev("a", NOV8, status=("未着手", "実行中"), progress=(None, 50))],
     )
     assert reconcile(project, NOW) == 0 and len(project.history) == 1
+
+
+@pytest.mark.parametrize("moment", [5, "2026-01-01T00:00:00+09:00", "x"])
+def test_a_non_text_or_timezone_aware_moment_is_rejected(moment) -> None:
+    raw = json.loads(dumps_project(Project("p")))
+    raw["history"] = [{"task": "t", "at": moment, "changes": {"progress": [0, 1]}}]
+    with pytest.raises(ValueError):
+        parse_project(json.dumps(raw), "p")
+    raw["history"] = []
+    raw["history_since"] = moment
+    with pytest.raises(ValueError):
+        parse_project(json.dumps(raw), "p")

@@ -308,6 +308,18 @@ def _datetime(text: str | None) -> datetime | None:
     return moment
 
 
+def _history_moment(value: Any, label: str) -> datetime | None:
+    """変更履歴の日時。文字列で、タイムゾーンなし(アプリの日時はすべてタイムゾーンなし)。違えば ValueError。"""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{label} が正しくありません: {value!r}")
+    moment = _datetime(value)
+    if moment is not None and moment.tzinfo is not None:
+        raise ValueError(f"{label} はタイムゾーンなしで指定してください: {value!r}")
+    return moment
+
+
 def _history_value(name: str, value: Any) -> Value:
     if value is None:
         return None
@@ -340,7 +352,7 @@ def _history(raw: Any) -> list[HistoryEvent]:
         task = item.get("task")
         if not isinstance(task, str) or not task:
             raise ValueError(f"history の task が正しくありません: {task!r}")
-        at = _datetime(item.get("at"))
+        at = _history_moment(item.get("at"), "history の at")
         if at is None:
             raise ValueError("history の at がありません")
         raw_changes = item.get("changes")
@@ -1394,7 +1406,7 @@ def parse_project(text: str, name: str) -> Project:
         ratio_limit_upper=ratio_limits.upper,
         ratio_limit_lower=ratio_limits.lower,
         history=_history(raw.get("history")) if ctx.version >= 21 else [],
-        history_since=_datetime(raw.get("history_since"))
+        history_since=_history_moment(raw.get("history_since"), "history_since")
         if ctx.version >= 21
         else None,
     )
