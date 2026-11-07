@@ -25,9 +25,13 @@ from projectapp.icons import is_valid_icon
 from projectapp.linkgraph import validate_links
 from projectapp.models import (
     EXTRA_EFFORT_DECIMALS,
+    HISTORY_FIELDS,
     MAX_EXTRA_EFFORTS,
     MAX_EXTRA_REASON,
+    Change,
     ExtraEffort,
+    HistoryEvent,
+    Value,
     has_control_char,
     OverloadSpan,
     ReferenceMode,
@@ -137,6 +141,14 @@ def _check_unique_ids(project: Project) -> None:
 def _dump(project: Project) -> dict[str, Any]:
     """ファイルに書く辞書。担当者は名前ではなくメンバー id で指す。メンバーにいない名前は、メンバーを補う(実行時のプロジェクトは変えない)。"""
     data: dict[str, Any] = {"version": FORMAT_VERSION, **asdict(project)}
+    data["history"] = [
+        {
+            "task": event.task,
+            "at": event.at,
+            "changes": {c.field: [c.before, c.after] for c in event.changes},
+        }
+        for event in project.history
+    ]
     for saved, member in zip(data["members"], project.members):
         saved["work_days"] = [asdict(row) for row in sort_work_days(member.work_days)]
     ids: dict[str, str] = {}
@@ -294,6 +306,62 @@ def _datetime(text: str | None) -> datetime | None:
             f"日時の年は{MIN_YEAR}〜{MAX_YEAR}の範囲で指定してください: {text}"
         )
     return moment
+
+
+def _history_value(name: str, value: Any) -> Value:
+    if value is None:
+        return None
+    if name == "status":
+        try:
+            return Status(value).value
+        except ValueError:
+            raise ValueError(f"history の状態が正しくありません: {value!r}") from None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"history の値が正しくありません: {name}={value!r}")
+    if name == "progress":
+        if not isinstance(value, int) or not 0 <= value <= 100:
+            raise ValueError(f"history の進捗度が正しくありません: {value!r}")
+        return value
+    if not isfinite(value) or value < 0:
+        raise ValueError(f"history の工数が正しくありません: {value!r}")
+    return float(value)
+
+
+def _history(raw: Any) -> list[HistoryEvent]:
+    """変更履歴を読む。形が違う・未知の項目・範囲外の値は ValueError。"""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("history が正しくありません")
+    events = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("history の要素が正しくありません")
+        task = item.get("task")
+        if not isinstance(task, str) or not task:
+            raise ValueError(f"history の task が正しくありません: {task!r}")
+        at = _datetime(item.get("at"))
+        if at is None:
+            raise ValueError("history の at がありません")
+        raw_changes = item.get("changes")
+        if not isinstance(raw_changes, dict) or not raw_changes:
+            raise ValueError("history の changes が正しくありません")
+        if unknown := set(raw_changes) - set(HISTORY_FIELDS):
+            raise ValueError(f"history に知らない項目があります: {sorted(unknown)}")
+        changes = []
+        for name in HISTORY_FIELDS:
+            if name not in raw_changes:
+                continue
+            pair = raw_changes[name]
+            if not isinstance(pair, list) or len(pair) != 2:
+                raise ValueError(f"history の {name} が正しくありません")
+            changes.append(
+                Change(
+                    name, _history_value(name, pair[0]), _history_value(name, pair[1])
+                )
+            )
+        events.append(HistoryEvent(task, at, tuple(changes)))
+    return events
 
 
 def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
@@ -1325,6 +1393,10 @@ def parse_project(text: str, name: str) -> Project:
         ),
         ratio_limit_upper=ratio_limits.upper,
         ratio_limit_lower=ratio_limits.lower,
+        history=_history(raw.get("history")) if ctx.version >= 21 else [],
+        history_since=_datetime(raw.get("history_since"))
+        if ctx.version >= 21
+        else None,
     )
     for task in project.all_tasks():
         if task.kind is TaskKind.REFERENCE:
