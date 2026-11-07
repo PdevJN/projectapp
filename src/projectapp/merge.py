@@ -11,7 +11,9 @@ from datetime import date, datetime, time
 from enum import Enum
 from typing import Any
 
+from projectapp import clock
 from projectapp.events import sort_events
+from projectapp.history_log import earliest, merge_logs, reconcile
 from projectapp.models import (
     Assignee,
     Category,
@@ -429,7 +431,12 @@ def fill_empty_weeks(
 
 
 def merge_projects(
-    base: Project, ours: Project, theirs: Project, choices: Choices | None = None
+    base: Project,
+    ours: Project,
+    theirs: Project,
+    choices: Choices | None = None,
+    *,
+    now: datetime | None = None,
 ) -> MergeResult:
     """共通祖先`base`・自分`ours`・相手`theirs`を統合する。選択のない衝突は「自分」になり、`conflicts`に残る。"""
     merger = _Merger(choices)
@@ -742,6 +749,9 @@ def merge_projects(
         ],
         url_templates=[UrlTemplate(key, r["pattern"]) for key, r in templates.items()],
     )
+    project.history = merge_logs(ours.history, theirs.history)
+    project.history_since = earliest(ours.history_since, theirs.history_since)
+    reconcile(project, now or clock.now())
     return MergeResult(copy.deepcopy(project), merger.conflicts, notes)
 
 

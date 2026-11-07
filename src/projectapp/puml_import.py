@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from projectapp import clock
+from projectapp.history_log import stamp_creation
 from projectapp.models import (
     MAX_SECTION_DEPTH,
     MAX_YEAR,
@@ -554,6 +555,7 @@ def parse_plantuml(text: str, name: str, today: date | None = None) -> PlantUmlI
         project = parse_project(dumps_project(project), project.name)
     except (ValueError, KeyError, TypeError) as exc:
         raise PlantUmlImportError(f"取り込んだ結果が正しくありません: {exc}") from exc
+    stamp_creation(project, clock.now())  # 取り込んだタスクの作成を、履歴の最初にする
     counts = builder.counts
     return PlantUmlImport(
         project,

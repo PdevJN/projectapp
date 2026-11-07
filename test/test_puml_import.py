@@ -743,3 +743,10 @@ def test_an_unclosed_style_block_still_ends_at_endgantt() -> None:
     ] and result.skipped_lines == 0
     with pytest.raises(PlantUmlImportError):
         parse("<style>", "[A] lasts 1 day")  # 装飾の中なので、タスクはなし
+
+
+def test_an_imported_plantuml_project_starts_its_history_with_creation_events() -> None:
+    project = parse("[設計] lasts 3 days", "[実装] lasts 2 days").project
+    normal = {t.id for t in project.all_tasks() if t.kind is TaskKind.NORMAL}
+    assert len(normal) == 2 and {e.task for e in project.history} == normal
+    assert project.history_since is not None

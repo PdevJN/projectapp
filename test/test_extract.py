@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
@@ -6,7 +6,9 @@ from projectapp.extract import check, expand_ids, extract, name_error, selection
 from projectapp.models import (
     Assignee,
     Category,
+    Change,
     Event,
+    HistoryEvent,
     Level,
     Member,
     Membership,
@@ -290,3 +292,21 @@ def test_both_results_pass_the_load_validation() -> None:
         check(extract(make(), ids, "子"))
     check(extract(summary_project(), ["k1"], "子"))
     check(extract(summary_project(), ["S1"], "子"))
+
+
+def test_extraction_moves_the_history_of_the_moved_tasks() -> None:
+    at = datetime(2026, 11, 8, 10)
+    project = Project(
+        "p",
+        tasks=[Task("a", id="a"), Task("b", id="b")],
+        history=[
+            HistoryEvent("a", at, (Change("progress", None, 30),)),
+            HistoryEvent("b", at, (Change("progress", None, 40),)),
+        ],
+        history_since=at,
+    )
+    result = extract(project, ["a"], "child")
+    assert [e.task for e in result.child.history] == ["a"]
+    assert [e.task for e in result.parent.history] == ["b"]
+    assert result.child.history_since == at and result.parent.history_since == at
+    assert [e.task for e in project.history] == ["a", "b"]  # 元は変えない

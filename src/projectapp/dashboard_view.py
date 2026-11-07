@@ -23,6 +23,7 @@ from projectapp.dashboard import (
     MemberProgress,
     PeriodKind,
     Progress,
+    ProgressDelta,
     TeamProgress,
 )
 from projectapp.dashboard_drag import DASHBOARD_DRAG_CSS, DASHBOARD_DRAG_JS
@@ -417,6 +418,23 @@ def shortage_text(value: float) -> str:
 def days_text(days: float) -> str:
     """稼働日数の表示。小数 1 桁(整数なら小数点なし)。"""
     return f"{days:.1f}".removesuffix(".0")
+
+
+def delta_line(delta: ProgressDelta, previous: ProgressDelta | None) -> str:
+    """`チーム全体の進捗`の「進んだ分」の 1 行(要望 128)。履歴がない期間は、0 とせず不明と書く。"""
+    if not delta.known:
+        if delta.since is None:
+            return "進んだ分: 履歴はまだありません"
+        return f"進んだ分: 履歴は {delta.since:%m/%d} から(それ以前は不明)"
+    if delta.percent is None:
+        text = "進んだ分: 対象のタスクなし"
+    else:
+        text = f"進んだ分 {round(delta.percent):+d}%"
+        if previous is not None and previous.percent is not None:
+            text += f"(前の期間 {round(previous.percent):+d}%)"
+    if abs(delta.scope_hours) >= 0.05:
+        text += f"  範囲 {delta.scope_hours:+.1f}h"
+    return text
 
 
 def moment_text(moment: datetime) -> str:
@@ -950,6 +968,10 @@ class DashboardView:
                         for status, hours, fraction in slices
                     ]
                 )
+            if data.delta is not None:
+                ui.label(delta_line(data.delta, data.previous_delta)).classes(
+                    "text-caption"
+                ).mark("dashboard-team-delta")
             if team.unset:
                 ui.label(f"工数なし {team.unset} 件は 1h として数えています").classes(
                     "text-caption text-grey"
