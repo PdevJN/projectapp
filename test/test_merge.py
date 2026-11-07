@@ -1,3 +1,4 @@
+import copy
 from dataclasses import replace
 from datetime import date, datetime, time
 
@@ -8,8 +9,10 @@ from projectapp.models import (
     ActualMode,
     Assignee,
     Category,
+    Change,
     Event,
     ExtraEffort,
+    HistoryEvent,
     Level,
     Member,
     Membership,
@@ -19,6 +22,7 @@ from projectapp.models import (
     ReferenceMode,
     ReferenceValue,
     Section,
+    Status,
     Task,
     TaskKind,
     Team,
@@ -1011,3 +1015,36 @@ def test_format_value_shows_extra_efforts_readably() -> None:
         ExtraEffort(date(2026, 11, 3), 1.5),
     ]
     assert format_value(efforts) == "2026-11-02 +5h 調査が増えた, 2026-11-03 +1.5h"
+
+
+def hev(task: str, at: datetime, **fields: tuple) -> HistoryEvent:
+    return HistoryEvent(
+        task, at, tuple(Change(n, b, a) for n, (b, a) in fields.items())
+    )
+
+
+def test_both_sides_history_is_united_and_the_earlier_start_wins() -> None:
+    base = proj(tasks=[Task("t", id="t1")])
+    ours, theirs = copy.deepcopy(base), copy.deepcopy(base)
+    ours.tasks[0].progress = 50
+    ours.history = [hev("t1", datetime(2026, 11, 8, 10), progress=(None, 50))]
+    ours.history_since = datetime(2026, 11, 8, 9)
+    theirs.tasks[0].status = Status.RUNNING
+    theirs.history = [hev("t1", datetime(2026, 11, 7, 10), status=("未着手", "実行中"))]
+    theirs.history_since = datetime(2026, 11, 7, 9)
+    merged = merge_projects(base, ours, theirs, now=datetime(2026, 11, 9)).project
+    assert [e.at.day for e in merged.history] == [7, 8]  # 補正イベントは足されない
+    assert merged.history_since == datetime(2026, 11, 7, 9)
+
+
+def test_a_conflicting_value_gets_a_correction_event() -> None:
+    base = proj(tasks=[Task("t", id="t1")])
+    ours, theirs = copy.deepcopy(base), copy.deepcopy(base)
+    ours.tasks[0].progress = 50
+    ours.history = [hev("t1", datetime(2026, 11, 7, 10), progress=(None, 50))]
+    theirs.tasks[0].progress = 30
+    theirs.history = [hev("t1", datetime(2026, 11, 8, 10), progress=(None, 30))]
+    now = datetime(2026, 11, 9)
+    merged = merge_projects(base, ours, theirs, now=now).project
+    assert merged.tasks[0].progress == 50  # 衝突は自分
+    assert merged.history[-1] == hev("t1", now, progress=(30, 50))

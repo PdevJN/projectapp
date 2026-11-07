@@ -9,8 +9,11 @@ import pytest
 from projectapp.history_log import (
     TaskState,
     diff_events,
+    earliest,
     events_by_task,
     is_known,
+    merge_logs,
+    reconcile,
     record_edit,
     state_at,
     stamp_creation,
@@ -268,3 +271,37 @@ def test_history_is_unknown_before_it_started_or_when_never_recorded() -> None:
     assert not is_known(project, datetime(2026, 10, 31, 23, 59))
     assert is_known(project, SINCE)
     assert not is_known(Project("p"), datetime(2026, 11, 8))
+
+
+def test_merge_logs_unions_dedupes_and_sorts() -> None:
+    first = ev("a", datetime(2026, 11, 3), progress=(None, 10))
+    second = ev("a", datetime(2026, 11, 4), progress=(10, 20))
+    assert merge_logs([second, first], [first]) == [first, second]
+
+
+def test_earliest_ignores_missing_moments() -> None:
+    assert earliest(None, NOV8, SINCE) == SINCE
+    assert earliest(None, None) is None
+
+
+def test_reconcile_adds_a_correction_where_the_log_and_the_value_disagree() -> None:
+    task = Task("a", id="a", progress=70, status=Status.RUNNING)
+    project = Project(
+        "p",
+        tasks=[task],
+        history=[ev("a", NOV8, status=("未着手", "実行中"), progress=(None, 50))],
+    )
+    assert reconcile(project, NOW) == 1
+    assert project.history[-1] == ev("a", NOW, progress=(50, 70))
+
+
+def test_reconcile_leaves_consistent_and_unlogged_tasks_alone() -> None:
+    project = Project(
+        "p",
+        tasks=[
+            Task("a", id="a", progress=50, status=Status.RUNNING),
+            Task("b", id="b", progress=10),
+        ],
+        history=[ev("a", NOV8, status=("未着手", "実行中"), progress=(None, 50))],
+    )
+    assert reconcile(project, NOW) == 0 and len(project.history) == 1

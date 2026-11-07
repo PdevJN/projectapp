@@ -132,3 +132,38 @@ def state_at(
         progress if isinstance(progress, int) else None,
         float(effort) if isinstance(effort, (int, float)) else 0.0,
     )
+
+
+def merge_logs(*logs: Sequence[HistoryEvent]) -> list[HistoryEvent]:
+    """複数のログの和集合。同じイベント(タスク・日時・変化が同じ)は 1 件にし、日時順に並べる。"""
+    unique = dict.fromkeys(event for log in logs for event in log)
+    return sorted(unique, key=lambda e: e.at)
+
+
+def earliest(*moments: datetime | None) -> datetime | None:
+    known = [m for m in moments if m is not None]
+    return min(known) if known else None
+
+
+def reconcile(project: Project, at: datetime) -> int:
+    """ログの最後の「後」と現在の値が食い違うタスクに、`at`の補正イベントを足す(3 者マージの衝突の解決などで起きる)。
+    ログのないタスクは対象外。足した件数を返す。"""
+    index = events_by_task(project)
+    added = 0
+    for task in project.all_tasks():
+        if not _recordable(task) or task.id not in index:
+            continue
+        last: dict[str, Value] = {}
+        for event in index[task.id]:
+            for change in event.changes:
+                last[change.field] = change.after
+        current = _values(task)
+        changes = tuple(
+            Change(name, last[name], current[name])
+            for name in HISTORY_FIELDS
+            if name in last and last[name] != current[name]
+        )
+        if changes:
+            project.history.append(HistoryEvent(task.id, at, changes))
+            added += 1
+    return added
