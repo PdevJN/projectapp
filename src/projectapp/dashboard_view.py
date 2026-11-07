@@ -477,6 +477,7 @@ class DashboardView:
         self.save_as_item: ui.menu_item | None = None
         self.revert_item: ui.menu_item | None = None
         self.top_bar: ui.row | None = None
+        self.view_bar: ui.row | None = None
         self.filter_bar: ui.row | None = None
         self.rename_item: ui.menu_item | None = None
         self.delete_item: ui.menu_item | None = None
@@ -521,109 +522,122 @@ class DashboardView:
             box.mark("dashboard-box")
             with ui.row().classes(
                 "w-full items-center gap-4 justify-between"
-            ) as self.top_bar:  # 1 段目: ビューの管理と画面操作
+            ) as self.top_bar:  # 1 段目: 画面の操作(見出しと戻る)
                 self.top_bar.mark("dashboard-bar-top")
-                with ui.row().classes("items-center gap-2"):
-                    ui.label("ダッシュボード").classes("text-h5")
-                    self.view_select = (
+                ui.label("ダッシュボード").classes("text-h5")
+                ui.button(
+                    "戻る", icon="arrow_back", on_click=lambda: self.on_back()
+                ).props("flat").mark("dashboard-back")
+            with (
+                ui.column()
+                .classes("w-full gap-2")
+                .style(
+                    "border: 1px solid rgba(128, 128, 128, 0.4); border-radius: 6px; padding: 8px 12px"
+                )
+                .mark("dashboard-view-group")
+            ):  # 2 段目: ビューに保存されるもの(ビューの管理・カードの編集・表示条件)
+                with ui.row().classes(
+                    "w-full items-center gap-4 justify-between"
+                ) as self.view_bar:
+                    self.view_bar.mark("dashboard-bar-view")
+                    with ui.row().classes("items-center gap-2"):
+                        self.view_select = (
+                            ui.select(
+                                {STANDARD_NAME: STANDARD_NAME},
+                                value=STANDARD_NAME,
+                                on_change=self.on_view,
+                            )
+                            .props("dense outlined options-dense")
+                            .style("min-width: 8rem")
+                            .mark("dashboard-view")
+                        )
+                        self.dirty_mark = (
+                            ui.label("●")
+                            .classes("text-warning")
+                            .tooltip("保存していない変更があります")
+                            .mark("dashboard-view-dirty")
+                        )
+                        self.save_button = (
+                            ui.button("保存", on_click=lambda: self.act("save"))
+                            .props("flat dense")
+                            .mark("dashboard-view-save")
+                        )
+                        with (
+                            ui.button(icon="more_vert")
+                            .props("flat dense round")
+                            .mark("dashboard-view-menu")
+                        ):
+                            with ui.menu():
+                                self.save_as_item = ui.menu_item(
+                                    "名前をつけて保存",
+                                    on_click=lambda: self.act("save_as"),
+                                ).mark("dashboard-view-save-as")
+                                self.revert_item = ui.menu_item(
+                                    "元に戻す", on_click=lambda: self.act("revert")
+                                ).mark("dashboard-view-revert")
+                                ui.separator()
+                                self.rename_item = ui.menu_item(
+                                    "名前の変更", on_click=lambda: self.act("rename")
+                                ).mark("dashboard-view-rename")
+                                self.delete_item = ui.menu_item(
+                                    "削除", on_click=lambda: self.act("delete")
+                                ).mark("dashboard-view-delete")
+                        for item in (self.dirty_mark, self.save_button):
+                            item.set_visibility(False)
+                    with ui.row().classes("items-center gap-2"):
+                        self.edit_button = (
+                            ui.button(
+                                "カードを編集",
+                                icon="edit",
+                                on_click=lambda: self.set_edit_mode(not self.edit_mode),
+                            )
+                            .props("flat dense")
+                            .mark("dashboard-edit-toggle")
+                        )
+                with ui.row().classes(
+                    "w-full items-start gap-4"
+                ) as self.filter_bar:  # 2 段目: 表示条件の絞り込み
+                    self.filter_bar.mark("dashboard-bar-filters")
+                    self.toggle = ui.toggle(
+                        {kind.value: kind.value for kind in PeriodKind},
+                        value=PeriodKind.WEEK.value,
+                        on_change=self.on_toggle,
+                    ).mark("dashboard-period")
+                    with ui.column().classes(
+                        "gap-0"
+                    ) as custom_box:  # `指定` のときだけ出す期間欄
+                        self.custom_field = (
+                            ui.input(
+                                placeholder="2026-10-01 〜 2026-10-31",
+                                on_change=self.on_custom,
+                            )
+                            .props("dense outlined")
+                            .style("width: 17rem")
+                            .mark("dashboard-period-field")
+                        )
+                        add_range_picker(self.custom_field, "dashboard-period")
+                        self.custom_field.on("blur", lambda _e: self.normalize_custom())
+                        self.custom_error = (
+                            ui.label("")
+                            .classes("text-negative text-caption")
+                            .mark("dashboard-period-error")
+                        )
+                    self.custom_box = custom_box
+                    custom_box.set_visibility(False)
+                    self.custom_field.set_visibility(False)
+                    self.member_select = (
                         ui.select(
-                            {STANDARD_NAME: STANDARD_NAME},
-                            value=STANDARD_NAME,
-                            on_change=self.on_view,
+                            {ALL_MEMBERS: "全員"},
+                            value=ALL_MEMBERS,
+                            on_change=self.on_member,
                         )
                         .props("dense outlined options-dense")
                         .style("min-width: 8rem")
-                        .mark("dashboard-view")
+                        .mark("dashboard-member")
                     )
-                    self.dirty_mark = (
-                        ui.label("●")
-                        .classes("text-warning")
-                        .tooltip("保存していない変更があります")
-                        .mark("dashboard-view-dirty")
-                    )
-                    self.save_button = (
-                        ui.button("保存", on_click=lambda: self.act("save"))
-                        .props("flat dense")
-                        .mark("dashboard-view-save")
-                    )
-                    with (
-                        ui.button(icon="more_vert")
-                        .props("flat dense round")
-                        .mark("dashboard-view-menu")
-                    ):
-                        with ui.menu():
-                            self.save_as_item = ui.menu_item(
-                                "名前をつけて保存", on_click=lambda: self.act("save_as")
-                            ).mark("dashboard-view-save-as")
-                            self.revert_item = ui.menu_item(
-                                "元に戻す", on_click=lambda: self.act("revert")
-                            ).mark("dashboard-view-revert")
-                            ui.separator()
-                            self.rename_item = ui.menu_item(
-                                "名前の変更", on_click=lambda: self.act("rename")
-                            ).mark("dashboard-view-rename")
-                            self.delete_item = ui.menu_item(
-                                "削除", on_click=lambda: self.act("delete")
-                            ).mark("dashboard-view-delete")
-                    for item in (self.dirty_mark, self.save_button):
-                        item.set_visibility(False)
-                with ui.row().classes("items-center gap-2"):
-                    self.edit_button = (
-                        ui.button(
-                            "カードを編集",
-                            icon="edit",
-                            on_click=lambda: self.set_edit_mode(not self.edit_mode),
-                        )
-                        .props("flat dense")
-                        .mark("dashboard-edit-toggle")
-                    )
-                    ui.button(
-                        "戻る", icon="arrow_back", on_click=lambda: self.on_back()
-                    ).props("flat").mark("dashboard-back")
-            with ui.row().classes(
-                "w-full items-start gap-4"
-            ) as self.filter_bar:  # 2 段目: 表示条件の絞り込み
-                self.filter_bar.mark("dashboard-bar-filters")
-                self.toggle = ui.toggle(
-                    {kind.value: kind.value for kind in PeriodKind},
-                    value=PeriodKind.WEEK.value,
-                    on_change=self.on_toggle,
-                ).mark("dashboard-period")
-                with ui.column().classes(
-                    "gap-0"
-                ) as custom_box:  # `指定` のときだけ出す期間欄
-                    self.custom_field = (
-                        ui.input(
-                            placeholder="2026-10-01 〜 2026-10-31",
-                            on_change=self.on_custom,
-                        )
-                        .props("dense outlined")
-                        .style("width: 17rem")
-                        .mark("dashboard-period-field")
-                    )
-                    add_range_picker(self.custom_field, "dashboard-period")
-                    self.custom_field.on("blur", lambda _e: self.normalize_custom())
-                    self.custom_error = (
-                        ui.label("")
-                        .classes("text-negative text-caption")
-                        .mark("dashboard-period-error")
-                    )
-                self.custom_box = custom_box
-                custom_box.set_visibility(False)
-                self.custom_field.set_visibility(False)
-                self.member_select = (
-                    ui.select(
-                        {ALL_MEMBERS: "全員"},
-                        value=ALL_MEMBERS,
-                        on_change=self.on_member,
-                    )
-                    .props("dense outlined options-dense")
-                    .style("min-width: 8rem")
-                    .mark("dashboard-member")
-                )
-                self.cross_switch = ui.switch(
-                    "全プロジェクト", value=False, on_change=self.on_cross
-                ).mark("dashboard-cross")
+                    self.cross_switch = ui.switch(
+                        "全プロジェクト", value=False, on_change=self.on_cross
+                    ).mark("dashboard-cross")
             self.cards()
         box.set_visibility(False)
 
