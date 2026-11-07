@@ -420,6 +420,37 @@ def summarize_progress_delta(
         weighted += weight * (_effective(end) - _effective(start))
         total += weight
         counted += 1
+    # 期間中に通常タスクでなくなった(分解でまとめになった)タスクは、退場の直前の値で進んだ分に数え、
+    # 工数は範囲から引く(子が範囲に足されるので、増減なしになる)
+    scoped = _names(member)
+    for task in project.all_tasks():
+        if task.kind is TaskKind.NORMAL or (
+            scoped is not None and scoped.isdisjoint(task.assignee_names)
+        ):
+            continue
+        events = index.get(task.id, [])
+        left = next(
+            (
+                e.at
+                for e in events
+                if low <= e.at < high
+                and any(
+                    c.field == "status" and c.before is not None and c.after is None
+                    for c in e.changes
+                )
+            ),
+            None,
+        )
+        if left is None:
+            continue
+        start, last = state_at(task, events, low), state_at(task, events, left)
+        if start is None or last is None:
+            continue
+        scope -= _weight(start.effort)
+        weight = _weight(last.effort)
+        weighted += weight * (_effective(last) - _effective(start))
+        total += weight
+        counted += 1
     return ProgressDelta(
         period, weighted / total if total else None, scope, True, since, counted
     )

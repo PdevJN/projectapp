@@ -1873,3 +1873,58 @@ def test_summarize_fills_the_delta_except_for_the_whole_period() -> None:
     week = summarize(project, DELTA_WEEK, D_NOW, {}, PeriodKind.WEEK)
     assert week.delta is not None and week.previous_delta is not None
     assert summarize(project, DELTA_WEEK, D_NOW, {}, PeriodKind.ALL).delta is None
+
+
+def test_decomposing_a_task_keeps_its_progress_and_nets_the_scope() -> None:
+    """8h のタスクが今週 0% → 50% になった週に、4h + 4h の子へ分解された。範囲は増減なし、進んだ分は元のタスクの 50%。"""
+    cut = datetime(2026, 11, 5, 10)
+    parent = Task(
+        "p",
+        id="p",
+        kind=TaskKind.SUMMARY,
+        children=["c1", "c2"],
+        status=Status.RUNNING,
+    )
+    c1 = Task(
+        "c1",
+        id="c1",
+        effort_hours=4,
+        status=Status.DONE,
+        progress=100,
+        deadline=datetime(2026, 11, 6, 17),
+    )
+    c2 = Task("c2", id="c2", effort_hours=4, deadline=datetime(2026, 11, 6, 17))
+    created = dict(status=(None, "未着手"), progress=(None, None), effort=(None, 4.0))
+    project = Project(
+        "p",
+        base_date=date(2026, 11, 2),
+        tasks=[parent, c1, c2],
+        history_since=datetime(2026, 11, 1),
+        history=[
+            hevent(
+                "p",
+                datetime(2026, 11, 3, 10),
+                status=("未着手", "実行中"),
+                progress=(None, 50),
+            ),
+            hevent(
+                "p",
+                cut,
+                status=("実行中", None),
+                progress=(50, None),
+                effort=(8.0, None),
+            ),
+            hevent("c1", cut, **created),
+            hevent("c2", cut, **created),
+            hevent(
+                "c1",
+                datetime(2026, 11, 5, 11),
+                status=("未着手", "終了"),
+                progress=(None, 100),
+            ),
+        ],
+    )
+    delta = summarize_progress_delta(project, DELTA_WEEK, D_NOW, {})
+    assert delta.percent == pytest.approx(50.0)  # 元のタスクの 50%。子の完了は入れない
+    assert delta.scope_hours == pytest.approx(0.0)  # 子の 8h − 元の 8h
+    assert delta.counted == 1

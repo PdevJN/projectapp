@@ -50,7 +50,8 @@ def creation_events(project: Project, now: datetime) -> list[HistoryEvent]:
 
 
 def diff_events(before: Project, after: Project, now: datetime) -> list[HistoryEvent]:
-    """編集の前後の差から、タスクごとに 1 件のイベントを作る。新しい通常タスクは作成イベント、消えたタスクは記録しない。"""
+    """編集の前後の差から、タスクごとに 1 件のイベントを作る。新しい通常タスクは作成イベント、消えたタスクは記録しない。
+    通常タスクがまとめなどに変わって残るときは、退場のイベント(各項目の後が None)を作る。"""
     old = {t.id: t for t in before.all_tasks() if _recordable(t)}
     events = []
     for task in after.all_tasks():
@@ -68,6 +69,18 @@ def diff_events(before: Project, after: Project, now: datetime) -> list[HistoryE
             )
         if changes:
             events.append(HistoryEvent(task.id, now, changes))
+    # 通常タスクが、残ったまま通常でなくなった(分解でまとめになった)ときは、各項目の after を None にした退場の記録
+    still_there = {t.id for t in after.all_tasks() if not _recordable(t)}
+    for task_id, task in old.items():
+        if task_id in still_there:
+            was = _values(task)
+            events.append(
+                HistoryEvent(
+                    task_id,
+                    now,
+                    tuple(Change(name, was[name], None) for name in HISTORY_FIELDS),
+                )
+            )
     return events
 
 

@@ -150,11 +150,28 @@ def test_summaries_checkpoints_and_references_are_not_recorded() -> None:
     assert diff_events(before, after, NOW) == []
 
 
-def test_turning_a_normal_task_into_a_summary_records_nothing() -> None:
-    before = project_of(Task("a", id="a", effort_hours=8))
+def test_turning_a_normal_task_into_a_summary_records_a_retirement() -> None:
+    before = project_of(
+        Task("a", id="a", effort_hours=8, progress=50, status=Status.RUNNING)
+    )
     after = deepcopy(before)
     after.tasks[0].kind = TaskKind.SUMMARY
-    assert diff_events(before, after, NOW) == []
+    events = diff_events(before, after, NOW)
+    assert events == [
+        ev(
+            "a",
+            NOW,
+            status=("実行中", None),
+            progress=(50, None),
+            effort=(8.0, None),
+        )
+    ]
+    assert state_at(after.tasks[0], events, datetime(2026, 11, 10)) is None
+
+
+def test_a_task_that_is_deleted_records_no_retirement() -> None:
+    before = project_of(Task("a", id="a", effort_hours=8))
+    assert diff_events(before, project_of(), NOW) == []
 
 
 def test_tasks_inside_sections_are_recorded() -> None:
