@@ -4,7 +4,7 @@ NiceGUI に依存しない。データの持ち方を変えるときは、この
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 
 from projectapp.models import (
@@ -180,3 +180,15 @@ def reconcile(project: Project, at: datetime) -> int:
             project.history.append(HistoryEvent(task.id, at, changes))
             added += 1
     return added
+
+
+def without_history(project: Project) -> Project:
+    """履歴を空にした浅い複製。`asdict`が履歴の全イベントを辞書にする手間を省くために使う(元は変えない)。"""
+    return replace(project, history=[])
+
+
+def dirty_key(project: Project) -> tuple:
+    """保存済みかどうかの比較用の値。履歴を除いた全体の辞書に、履歴の件数と最後のイベントを添える。
+    履歴は追記のみ(元に戻すで減る)なので、これで変化を見逃さない。履歴の長さに比例して重くならない。"""
+    last = project.history[-1] if project.history else None
+    return (asdict(without_history(project)), len(project.history), last)

@@ -3,7 +3,7 @@ import asyncio
 import gc
 import json
 from collections.abc import Callable
-from dataclasses import asdict, replace
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
@@ -41,6 +41,7 @@ from projectapp.settings_io import (
 )
 from projectapp.categories import CategoryEdit
 from projectapp.gitstate import GitKind, GitState
+from projectapp.history_log import dirty_key
 from projectapp.models import (
     Assignee,
     Actual,
@@ -2606,7 +2607,7 @@ async def test_save_plantuml_writes_the_text_and_notifies(
     target.parent.mkdir()
     exporter = FakeExporter(path=target)
     view = await open_preview(user, tmp_path, exporter)
-    view.snapshot = asdict(
+    view.snapshot = dirty_key(
         view.project
     )  # open_preview がタスクを足すので、保存の直前を基準にする
     user.find(marker="preview-plantuml").click()
@@ -5827,7 +5828,7 @@ async def test_apply_categories_updates_the_project_and_resets_removed_categorie
     view.project.categories = [keep, drop]
     view.save_task((), None, Task("a", category_id=keep.id))
     view.save_task((), None, Task("b", category_id=drop.id))
-    view.snapshot = asdict(view.project)
+    view.snapshot = dirty_key(view.project)
     view.apply_categories(CategoryEdit([keep], [drop.id]))
     assert view.project.categories == [keep]
     assert [t.category_id for t in view.project.all_tasks()] == [keep.id, None]
@@ -5849,7 +5850,7 @@ async def test_apply_members_with_work_days_marks_dirty_and_the_end_date_follows
     )
     view.project.tasks = [task]
     view.gantt.set_project(view.project)
-    view.snapshot = asdict(view.project)
+    view.snapshot = dirty_key(view.project)
     view.committed = deepcopy(view.project)
     assert Schedule(view.project, {}).end(task) == datetime(2026, 10, 19, 11)
     work = [WorkDay(date(2026, 10, 17), time(13), time(16))]
@@ -5868,7 +5869,7 @@ async def test_apply_events_marks_the_project_dirty_and_redraws(
     mount_preview(tmp_path, views, FakeExporter())
     await user.open("/")
     view = views[0]
-    view.snapshot = asdict(view.project)
+    view.snapshot = dirty_key(view.project)
     day = view.project.base_date
     event = Event(day, day, "x", "red", id="e1")
     view.apply_events([event])
@@ -7461,7 +7462,7 @@ async def test_save_plantuml_leaves_out_the_unchecked_tasks(
         ),
     )
     user.find(marker="select-task-top-1").elements.pop().set_value(False)
-    view.snapshot = asdict(
+    view.snapshot = dirty_key(
         view.project
     )  # open_preview がタスクを足すので、保存の直前を基準にする
     user.find(marker="preview-plantuml").click()
@@ -7565,7 +7566,7 @@ async def test_save_plantuml_warns_when_a_same_day_handover_looks_over_100_perce
     view = await open_preview(user, tmp_path, FakeExporter(path=target), extra=a)
     view.project.members = members
     view.save_task((), None, b)
-    view.snapshot = asdict(view.project)
+    view.snapshot = dirty_key(view.project)
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: target.exists())
     await user.should_see("田中 10/14")
@@ -7603,7 +7604,7 @@ async def test_save_plantuml_skips_the_overload_warning_when_the_option_is_off(
     view.project.members = [Member("田中")]
     view.project.plantuml_overload_notice = False
     view.save_task((), None, b)
-    view.snapshot = asdict(view.project)
+    view.snapshot = dirty_key(view.project)
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: target.exists())
     await user.should_see("保存しました")

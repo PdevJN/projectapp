@@ -9,6 +9,7 @@ import pytest
 from projectapp.history_log import (
     TaskState,
     diff_events,
+    dirty_key,
     earliest,
     events_by_task,
     is_known,
@@ -334,3 +335,21 @@ def test_a_non_text_or_timezone_aware_moment_is_rejected(moment) -> None:
     raw["history_since"] = moment
     with pytest.raises(ValueError):
         parse_project(json.dumps(raw), "p")
+
+
+def test_dirty_key_changes_with_the_history_and_with_the_rest() -> None:
+    base = project_of(Task("a", id="a"))
+    same = deepcopy(base)
+    assert dirty_key(base) == dirty_key(same)
+    appended = deepcopy(base)
+    appended.history.append(ev("a", NOW, progress=(None, 10)))
+    assert dirty_key(appended) != dirty_key(base)
+    swapped = deepcopy(appended)
+    swapped.history[-1] = ev("a", NOW, progress=(None, 20))
+    assert dirty_key(swapped) != dirty_key(appended)  # 件数が同じでも最後が違えば違う
+    renamed = deepcopy(base)
+    renamed.tasks[0].name = "b"
+    assert dirty_key(renamed) != dirty_key(base)
+    started = deepcopy(base)
+    started.history_since = NOW
+    assert dirty_key(started) != dirty_key(base)

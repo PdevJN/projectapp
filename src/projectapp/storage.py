@@ -23,6 +23,7 @@ from projectapp.categories import (
 from projectapp.events import normalize_color, validate_events
 from projectapp.icons import is_valid_icon
 from projectapp.linkgraph import validate_links
+from projectapp.history_log import without_history
 from projectapp.models import (
     EXTRA_EFFORT_DECIMALS,
     HISTORY_FIELDS,
@@ -140,7 +141,10 @@ def _check_unique_ids(project: Project) -> None:
 
 def _dump(project: Project) -> dict[str, Any]:
     """ファイルに書く辞書。担当者は名前ではなくメンバー id で指す。メンバーにいない名前は、メンバーを補う(実行時のプロジェクトは変えない)。"""
-    data: dict[str, Any] = {"version": FORMAT_VERSION, **asdict(project)}
+    data: dict[str, Any] = {
+        "version": FORMAT_VERSION,
+        **asdict(without_history(project)),  # 履歴は下で直接書く
+    }
     data["history"] = [
         {
             "task": event.task,

@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 from typing import Any
 from pathlib import Path
@@ -797,10 +797,10 @@ class MainView:
 
     def mark_clean(self) -> None:
         """いまの内容を、保存済み(または開いた直後)の状態として覚える。"""
-        self.snapshot = asdict(self.project)
+        self.snapshot = history_log.dirty_key(self.project)
 
     def is_dirty(self) -> bool:
-        return asdict(self.project) != self.snapshot
+        return history_log.dirty_key(self.project) != self.snapshot
 
     def after_edit(self) -> None:
         """編集のあとの共通の処理。直前の確定した状態と違えば履歴に積み、画面を描き直す(Undo の入口はここだけ)。
@@ -1022,7 +1022,7 @@ class MainView:
         except OSError:
             pass  # 覚えられなくても、取り込みは続ける
         self.show_project(result.project, None)
-        self.snapshot = asdict(
+        self.snapshot = history_log.dirty_key(
             Project(NEW_PROJECT_NAME)
         )  # 空の新規とは別物なので、未保存の扱いにする
         ui.notify(csv_import_summary(result))
@@ -1209,7 +1209,7 @@ class MainView:
             ui.notify(f"取り込めませんでした: {exc}", type="negative")
             return
         self.show_project(result.project, None)
-        self.snapshot = asdict(
+        self.snapshot = history_log.dirty_key(
             Project(NEW_PROJECT_NAME)
         )  # 空の新規とは別物なので、未保存の扱いにする
         ui.notify(import_summary(result))

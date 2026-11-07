@@ -179,3 +179,18 @@ async def test_a_bulk_edit_records_one_event_per_task_and_undo_removes_them(
     assert view.project.history == []  # 元に戻すと、記録も戻る
     view.redo()
     assert view.project.history == redone_events  # やり直すと、同じ日時で復活する
+
+
+async def test_is_dirty_follows_edits_undo_and_redo_including_the_history(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_view(user, tmp_path)
+    assert not view.is_dirty()
+    view.apply_bulk(["a"], BulkChanges(effort=EffortChange(EffortMode.SET, 5)))
+    assert view.is_dirty()
+    view.undo()
+    assert not view.is_dirty()  # 値も履歴も元に戻ったので、保存済みと同じ
+    view.redo()
+    assert view.is_dirty()
+    view.mark_clean()
+    assert not view.is_dirty()
