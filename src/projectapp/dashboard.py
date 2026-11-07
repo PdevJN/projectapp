@@ -289,17 +289,18 @@ class TeamProgress:
     period: Period | None = None  # 絞り込んだ期間。None は全期間(すべてのタスク)
     counts: dict[Status, int] = field(
         default_factory=lambda: {status: 0 for status in Status}
-    )  # 円に数えたタスクの件数
+    )  # 数えたタスクの件数。節目も数える(`進捗と遅れ`と同じ)。節目の工数は 0
     tasks: dict[Status, list[str]] = field(
         default_factory=lambda: {status: [] for status in Status}
     )  # その名前(並び順)
+    unset: int = 0  # 工数が未設定で、1 時間として数えたタスクの件数(節目を除く)
 
     @property
     def total(self) -> float:
         return sum(self.hours.values())
 
     def slices(self) -> list[tuple[Status, float, float]]:
-        """円の切片(状態, 工数, 全体に対する割合)。工数のない状態は出さない。"""
+        """棒の切片(状態, 工数, 全体に対する割合)。工数のない状態は出さない。"""
         total = self.total
         return [
             (status, hours, hours / total)
@@ -332,27 +333,29 @@ def summarize_team_progress(
     member: Scope = None,
     children: Mapping[str, ChildProject] | None = None,
 ) -> TeamProgress:
-    """チーム全体の進捗。担当者に関わらず、1 タスクを 1 回だけ数える。`period` があれば、期間にかかるタスクだけ。参照先のタスクも同列に数える。"""
+    """チーム全体の進捗。担当者に関わらず、1 タスクを 1 回だけ数える。節目は件数だけ数える。`period` があれば、期間にかかるタスクだけ。参照先のタスクも同列に数える。"""
     hours = {status: 0.0 for status in Status}
     counts = {status: 0 for status in Status}
     names: dict[Status, list[str]] = {status: [] for status in Status}
     weighted = total = 0.0
+    unset = 0
     moment = now or clock.now()
     for entry in _entries(project, holidays or {}, member, children):
         task = entry.task
+        if period is not None and not _touches(task, entry.schedule, period, moment):
+            continue
+        counts[task.status] += 1
+        names[task.status].append(entry.label)
         weight_and_percent = _progress_weight(task)
-        if weight_and_percent is None or (
-            period is not None and not _touches(task, entry.schedule, period, moment)
-        ):
+        if weight_and_percent is None:  # 節目は件数だけ(工数・進捗率には入れない)
             continue
         weight, percent = weight_and_percent
         hours[task.status] += weight
-        counts[task.status] += 1
-        names[task.status].append(entry.label)
         weighted += weight * percent
         total += weight
+        unset += weight != task.total_effort
     return TeamProgress(
-        weighted / total if total else None, hours, period, counts, names
+        weighted / total if total else None, hours, period, counts, names, unset
     )
 
 

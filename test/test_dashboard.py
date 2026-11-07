@@ -740,7 +740,7 @@ def test_summarize_filters_the_team_card_except_for_the_whole_period() -> None:
     assert summarize(project, WEEK, NOW, {}).team.total == 4  # 種別を渡さなければ全期間
 
 
-def test_team_progress_counts_tasks_by_status_without_checkpoints_or_summaries() -> (
+def test_team_progress_counts_tasks_and_checkpoints_by_status_but_not_summaries() -> (
     None
 ):
     child = Task("子", effort_hours=4, status=Status.PAUSED)
@@ -751,7 +751,7 @@ def test_team_progress_counts_tasks_by_status_without_checkpoints_or_summaries()
     a, b = Task("A", effort_hours=2), Task("B", effort_hours=3, status=Status.DONE)
     team = summarize_team_progress(project_of(a, b, child, summary, checkpoint))
     assert team.counts == {
-        Status.NOT_STARTED: 1,
+        Status.NOT_STARTED: 2,  # A と節目
         Status.RUNNING: 0,
         Status.PAUSED: 1,
         Status.DONE: 1,
@@ -778,7 +778,7 @@ def test_team_progress_lists_task_names_by_status_in_order() -> None:
     )
     team = summarize_team_progress(project_of(a, b, child, summary, checkpoint, c))
     assert team.tasks == {
-        Status.NOT_STARTED: ["A", "C"],
+        Status.NOT_STARTED: ["A", "節目", "C"],
         Status.RUNNING: [],
         Status.PAUSED: ["子"],
         Status.DONE: ["B"],
@@ -1719,3 +1719,19 @@ def test_unassigned_ignores_referenced_projects() -> None:
     child = ChildProject(project_of(free), {})
     own = project_of(members=[Member("田中", 1.0)])
     assert summarize_progress(own, {}, NOW, None, {"子": child}).unassigned == []
+
+
+def test_team_progress_counts_checkpoints_without_hours_or_percent() -> None:
+    checkpoint = Task(
+        "節目", kind=TaskKind.CHECKPOINT, deadline=datetime(2026, 10, 9, 17)
+    )
+    team = summarize_team_progress(project_of(checkpoint))
+    assert team.counts[Status.NOT_STARTED] == 1
+    assert team.total == 0 and team.percent is None and team.unset == 0
+
+
+def test_team_progress_counts_tasks_without_effort_as_unset() -> None:
+    team = summarize_team_progress(
+        project_of(Task("A", effort_hours=2), Task("B"), Task("C", effort_hours=0))
+    )
+    assert team.unset == 2 and team.total == 4
