@@ -1823,3 +1823,73 @@ def test_the_heatmap_head_rows_stay_in_place_while_scrolling() -> None:
 def test_scroll_to_today_js_looks_for_the_today_mark() -> None:
     script = scroll_to_today_js(7)
     assert "getElementById(7)" in script and ".heat-today" in script
+
+
+async def test_each_card_has_a_maximize_button_and_it_shows_only_that_card(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-maximize-load")
+    await user.should_see(marker="dashboard-progress")
+    user.find(marker="dashboard-maximize-load").click()
+    await user.should_not_see(marker="dashboard-progress")
+    await user.should_see(marker="dashboard-load")
+    await user.should_see(marker="dashboard-restore")
+    assert views[0].maximized is CardId.LOAD
+
+
+async def test_the_restore_button_and_restore_bring_back_all_cards(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-maximize-load")
+    user.find(marker="dashboard-maximize-load").click()
+    await user.should_see(marker="dashboard-restore")
+    user.find(marker="dashboard-restore").click()
+    await user.should_see(marker="dashboard-progress")
+    assert views[0].maximized is None
+    assert views[0].restore() is False  # 最大化していなければ何もしない
+    views[0].set_maximized(CardId.LOAD)
+    assert views[0].restore() is True and views[0].maximized is None
+
+
+async def test_the_maximized_card_is_sized_to_the_screen_and_scrolls_by_itself(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    views[0].set_maximized(CardId.LOAD)
+    await user.should_see(marker="dashboard-load")
+    style = user.find(marker="dashboard-load").elements.pop()._style
+    assert "--app-vh" in style["height"] and style["overflow-y"] == "auto"
+
+
+async def test_editing_cards_clears_the_maximize_and_hides_the_buttons(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    views[0].set_maximized(CardId.LOAD)
+    user.find(marker="dashboard-edit-toggle").click()
+    await user.should_see(marker="dashboard-hide-team")
+    assert views[0].maximized is None
+    await user.should_not_see(marker="dashboard-maximize-load")
+
+
+async def test_hiding_the_dashboard_clears_the_maximize(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    views[0].set_maximized(CardId.LOAD)
+    views[0].hide()
+    assert views[0].maximized is None
+
+
+def test_the_maximized_card_keeps_its_children_from_shrinking_so_bars_stay_visible() -> (
+    None
+):
+    assert ".dash-maximized > * { flex-shrink: 0 }" in HEATMAP_CSS

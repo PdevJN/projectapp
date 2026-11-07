@@ -106,6 +106,8 @@ HEATMAP_CSS = (
     ".heat-r2 { top: 18px; height: 30px }\n"
     ".heat-r3 { top: 48px; height: 20px; color: #b71c1c; font-weight: bold }\n"
     ".heatmap-scroll { overflow: auto; max-width: 100%; max-height: calc(var(--app-vh, 100vh) * 0.7) }\n"
+    ".dash-maximized > * { flex-shrink: 0 }\n"
+    ".dash-maximized .heatmap-scroll { max-height: calc(var(--app-vh, 100vh) - 16rem) }\n"
     ".heatmap-scroll::-webkit-scrollbar { height: 12px; width: 12px }\n"
     ".heatmap-scroll::-webkit-scrollbar-track { background: rgba(128, 128, 128, 0.15) }\n"
     ".heatmap-scroll::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.55); border-radius: 6px }\n"
@@ -426,6 +428,9 @@ class DashboardView:
         self.on_catch_up_change = on_catch_up_change
         self.on_tick = on_tick
         self.edit_mode = False
+        self.maximized: CardId | None = (
+            None  # 画面いっぱいに出しているカード(保存しない)
+        )
         self.edit_button: ui.button | None = None
         self.view_select: ui.select | None = None
         self.dirty_mark: ui.label | None = None
@@ -584,6 +589,7 @@ class DashboardView:
 
     def set_edit_mode(self, on: bool) -> None:
         self.edit_mode = on
+        self.maximized = None  # 編集中は最大化しない(取っ手の操作と競合する)
         if self.edit_button is not None:
             self.edit_button.set_text("完了" if on else "カードを編集")
             self.edit_button.props(f"icon={'check' if on else 'edit'}")
@@ -609,6 +615,45 @@ class DashboardView:
                     f"dashboard-hide-{card_id.value}"
                 )
         bar.move(element, target_index=0)
+
+    def add_maximize_button(
+        self, element: ui.element, card_id: CardId, maximized: bool
+    ) -> None:
+        """カードの右上に、最大化(最大化中は戻す)ボタンを足す。最大化中のカードは画面の高さに合わせる。"""
+        if maximized:
+            element.classes("dash-maximized").style(
+                "grid-column: 1 / -1; height: calc(var(--app-vh, 100vh) - 9rem); overflow-y: auto"
+            )
+        with element:
+            ui.button(
+                icon="fullscreen_exit" if maximized else "fullscreen",
+                on_click=lambda: self.set_maximized(None if maximized else card_id),
+            ).props(
+                f"flat dense round size=sm aria-label={'戻る' if maximized else '最大化'}"
+            ).style("position: absolute; top: 8px; right: 8px").mark(
+                "dashboard-restore"
+                if maximized
+                else f"dashboard-maximize-{card_id.value}"
+            )
+
+    def set_maximized(self, card_id: CardId | None) -> None:
+        self.maximized = card_id
+        self.cards.refresh()
+
+    def restore(self) -> bool:
+        """最大化を解除する(ESC 用)。最大化していなければ何もせず偽を返す。"""
+        if self.maximized is None:
+            return False
+        self.set_maximized(None)
+        return True
+
+    def rows_box(self) -> ui.element:
+        """人の行を並べる箱。`人ごとの負荷`の最大化中は、広い幅に合わせて複数列に折り返す。"""
+        if self.maximized is CardId.LOAD:
+            return ui.element("div").style(
+                "display: grid; grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr)); gap: 12px; width: 100%"
+            )
+        return ui.column().classes("w-full gap-2")
 
     def act(self, name: str, *args: object) -> None:
         """MainView の操作を呼ぶ。actions がないとき(単体のテスト)は何もしない。"""
@@ -759,6 +804,7 @@ class DashboardView:
 
     def hide(self) -> None:
         self.edit_mode = False  # 編集モードは持ち越さない(次に開くときは、ふだんの表示)
+        self.maximized = None
         self.assign_mode = False
         if self.edit_button is not None:
             self.edit_button.set_text("カードを編集")
@@ -780,15 +826,25 @@ class DashboardView:
             CardId.BACKLOG: self.backlog_card,
             CardId.DUE: self.due_card,
         }
+        only = None if self.edit_mode else self.maximized
         with ui.element("div").style(GRID_STYLE) as grid:
             for card_id in self.card_order:
+                if only is not None and card_id is not only:
+                    continue
                 before = len(grid.default_slot.children)
                 builders[card_id](data)
                 created = grid.default_slot.children[before:]
-                if (
-                    self.edit_mode and created
-                ):  # 何も描かないカード(空の横断など)は、取っ手を付けない
+                if not created:  # 何も描かないカード(空の横断など)は、印を付けない
+                    continue
+                if self.edit_mode:
                     self.decorate(created[0], card_id)
+                else:
+                    self.add_maximize_button(created[0], card_id, only is not None)
+            if only is not None and not grid.default_slot.children:
+                self.maximized = (
+                    None  # 最大化中のカードが消えた(データの変化)ときは、一覧に戻す
+                )
+                ui.timer(0.01, self.cards.refresh, once=True)
             if self.edit_mode:
                 ui.element("div").props("data-dash-end=1").style(
                     "min-height: 3rem; border: 2px dashed rgba(128, 128, 128, 0.5)"
@@ -1020,8 +1076,9 @@ class DashboardView:
                 empty_message("dashboard-empty-load")
                 return
             scale = max(1.0, *(stats.peak for stats in data.loads.values()))
-            for name, stats in data.loads.items():
-                self.load_row(name, stats, scale)
+            with self.rows_box():
+                for name, stats in data.loads.items():
+                    self.load_row(name, stats, scale)
 
     def heatmap_card(self, data: Dashboard) -> None:
         cross = data.heat_summary
@@ -1071,13 +1128,15 @@ class DashboardView:
             empty_message("dashboard-empty-load")
             return
         scale = max(1.0, *(entry.total.peak for entry in cross.loads.values()))
-        for name, entry in cross.loads.items():
-            self.load_row(name, entry.total, scale)
-            with ui.expansion("プロジェクト別").classes("w-full text-caption"):
-                for index, row in enumerate(entry.by_project):
-                    ui.label(
-                        f"{row.project}: 平均 {row.average * 100:.0f}% / 最大 {row.peak * 100:.0f}%"
-                    ).mark(f"dashboard-cross-detail-{name}-{index}")
+        with self.rows_box():
+            for name, entry in cross.loads.items():
+                with ui.column().classes("w-full gap-0"):
+                    self.load_row(name, entry.total, scale)
+                    with ui.expansion("プロジェクト別").classes("w-full text-caption"):
+                        for index, row in enumerate(entry.by_project):
+                            ui.label(
+                                f"{row.project}: 平均 {row.average * 100:.0f}% / 最大 {row.peak * 100:.0f}%"
+                            ).mark(f"dashboard-cross-detail-{name}-{index}")
 
     def hours_card(self, data: Dashboard) -> None:
         with card("工数の予定と実績", "dashboard-hours"):

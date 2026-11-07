@@ -1467,11 +1467,12 @@ class MainView:
             self.confirm_bulk_delete(ids)
 
     def escape_pressed(self) -> None:
-        """ESC。プレビュー・ダッシュボードから戻る。何もなければ(ダイアログが開いていないとき)一括操作の選択を解除する。"""
+        """ESC。プレビュー・ダッシュボードから戻る(カードの最大化中は、最大化を戻す)。何もなければ(ダイアログが開いていないとき)一括操作の選択を解除する。"""
         if self.preview is not None:
             self.exit_preview()
         elif self.dashboard_kind is not None:
-            self.close_dashboard()
+            if not self.dashboard_view.restore():  # 最大化中は、最大化を戻すだけ
+                self.close_dashboard()
         elif not self.dialog_open() and self.gantt.has_selection():
             self.gantt.clear_selection()
 
