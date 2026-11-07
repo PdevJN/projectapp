@@ -39,7 +39,7 @@ def test_the_default_order_matches_the_current_dashboard() -> None:
 
 def test_a_view_saved_before_the_backlog_card_hides_it() -> None:
     saved = normalize_cards(["team", "progress", "load", "heatmap", "hours", "due"])
-    assert CardId.BACKLOG in hidden_cards(saved, False)
+    assert CardId.BACKLOG in hidden_cards(saved)
 
 
 def test_the_standard_view_is_todays_dashboard() -> None:
@@ -118,11 +118,10 @@ def test_hide_and_show_card() -> None:
     assert show_card(order, CardId.TEAM) == order
 
 
-def test_hidden_cards_skips_the_heatmap_unless_cross_is_on() -> None:
+def test_hidden_cards_lists_the_heatmap_even_without_cross() -> None:
     order = (CardId.TEAM,)
-    assert CardId.HEATMAP not in hidden_cards(order, cross=False)
-    assert CardId.HEATMAP in hidden_cards(order, cross=True)
-    assert hidden_cards(order, cross=True)[0] is CardId.PROGRESS  # 既定の順
+    assert CardId.HEATMAP in hidden_cards(order)
+    assert hidden_cards(order)[0] is CardId.PROGRESS  # 既定の順
 
 
 def test_resolve_member_falls_back_to_everyone() -> None:

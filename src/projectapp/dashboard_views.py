@@ -18,7 +18,7 @@ class CardId(StrEnum):
     TEAM = "team"
     PROGRESS = "progress"
     LOAD = "load"
-    HEATMAP = "heatmap"  # `負荷の日ごとの推移`。`全プロジェクト`がオンのときだけ描く
+    HEATMAP = "heatmap"  # `負荷の日ごとの推移`。オフのときは開いているプロジェクトだけ
     HOURS = "hours"
     BACKLOG = "backlog"  # `未着手の工数と必要人数`
     DUE = "due"
@@ -122,13 +122,9 @@ def show_card(cards: tuple[CardId, ...], card_id: CardId) -> tuple[CardId, ...]:
     return cards if card_id in cards else (*cards, card_id)
 
 
-def hidden_cards(cards: tuple[CardId, ...], cross: bool) -> tuple[CardId, ...]:
-    """隠れているカード(既定の順)。`負荷の日ごとの推移` は、横断がオフのあいだは数えない。"""
-    return tuple(
-        c
-        for c in DEFAULT_ORDER
-        if c not in cards and (cross or c is not CardId.HEATMAP)
-    )
+def hidden_cards(cards: tuple[CardId, ...]) -> tuple[CardId, ...]:
+    """隠れているカード(既定の順)。"""
+    return tuple(c for c in DEFAULT_ORDER if c not in cards)
 
 
 def resolve_member(member: str | None, names: Iterable[str]) -> str | None:

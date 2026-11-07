@@ -1569,6 +1569,14 @@ class Dashboard:
         default_factory=lambda: Backlog(0.0, 0, None, None, 0.0, [])
     )
     references: int = 0  # 進捗に数えた参照先のプロジェクトの数
+    heat: CrossSummary | None = (
+        None  # 開いているプロジェクト 1 つ分の日ごとの負荷(全プロジェクトがオフのとき用)
+    )
+
+    @property
+    def heat_summary(self) -> CrossSummary | None:
+        """`負荷の日ごとの推移`に出す値。全プロジェクトがオンならそれ、オフなら開いているプロジェクトだけ。"""
+        return self.cross if self.cross is not None else self.heat
 
     @property
     def planned_total(self) -> float:
