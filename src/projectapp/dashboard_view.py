@@ -1354,7 +1354,11 @@ class DashboardView:
                 ui.label(
                     f"工数未設定 {backlog.unset_count} 件(合計に入れていません)"
                 ).classes("text-caption text-grey").mark("dashboard-backlog-unset")
-            if backlog.required is None or backlog.shortfall is None:
+            if (
+                backlog.required is None
+                or backlog.shortfall is None
+                or backlog.days is None
+            ):
                 reason = (
                     "期間がすでに終わっている"
                     if backlog.days == 0
