@@ -1448,8 +1448,10 @@ class DashboardView:
                 with ui.row().classes("items-center no-wrap gap-1"):
                     if line.key == "behind":
                         warning_icon("dashboard-burndown-behind-icon")
-                    with ui.label(line.text).classes("text-caption").mark(
-                        f"dashboard-burndown-{line.key}"
+                    with (
+                        ui.label(line.text)
+                        .classes("text-caption")
+                        .mark(f"dashboard-burndown-{line.key}")
                     ):
                         if line.key == "unset":
                             name_chips_tooltip(

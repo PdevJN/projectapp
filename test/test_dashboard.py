@@ -1958,9 +1958,27 @@ def test_burndown_keeps_a_task_that_became_a_summary_until_it_left() -> None:
         tasks=[summary, child],
         history_since=datetime(2026, 11, 1),
         history=[
-            hevent("s", datetime(2026, 10, 30, 10), status=(None, "実行中"), progress=(None, 50), effort=(None, 10)),
-            hevent("s", datetime(2026, 11, 4, 10), status=("実行中", None), progress=(50, None), effort=(10, None)),
-            hevent("k", datetime(2026, 11, 4, 10), status=(None, "未着手"), progress=(None, None), effort=(None, 10)),
+            hevent(
+                "s",
+                datetime(2026, 10, 30, 10),
+                status=(None, "実行中"),
+                progress=(None, 50),
+                effort=(None, 10),
+            ),
+            hevent(
+                "s",
+                datetime(2026, 11, 4, 10),
+                status=("実行中", None),
+                progress=(50, None),
+                effort=(10, None),
+            ),
+            hevent(
+                "k",
+                datetime(2026, 11, 4, 10),
+                status=(None, "未着手"),
+                progress=(None, None),
+                effort=(None, 10),
+            ),
         ],
     )
     result = summarize_burndown(project, DELTA_WEEK, D_NOW, {})
@@ -1994,7 +2012,9 @@ def members_delta_project() -> Project:
 
 
 def test_each_member_row_carries_the_progress_made_in_the_period() -> None:
-    dashboard = summarize(members_delta_project(), DELTA_WEEK, D_NOW, {}, PeriodKind.WEEK)
+    dashboard = summarize(
+        members_delta_project(), DELTA_WEEK, D_NOW, {}, PeriodKind.WEEK
+    )
     assert {row.name: row.delta for row in dashboard.progress.by_member} == {
         "田中": pytest.approx(100.0),
         "鈴木": pytest.approx(0.0),
@@ -2002,7 +2022,9 @@ def test_each_member_row_carries_the_progress_made_in_the_period() -> None:
 
 
 def test_member_rows_have_no_delta_for_the_whole_period() -> None:
-    dashboard = summarize(members_delta_project(), DELTA_WEEK, D_NOW, {}, PeriodKind.ALL)
+    dashboard = summarize(
+        members_delta_project(), DELTA_WEEK, D_NOW, {}, PeriodKind.ALL
+    )
     assert [row.delta for row in dashboard.progress.by_member] == [None, None]
 
 

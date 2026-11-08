@@ -78,5 +78,13 @@ def test_the_actual_points_say_their_day_and_value() -> None:
 
 
 def test_a_flat_zero_chart_does_not_divide_by_zero() -> None:
-    svg = chart_svg(sample(initial=0.0, actual=(0.0, 0.0, 0.0), planned=(0.0,) * 7, future=(0.0,) * 5, marks=()))
+    svg = chart_svg(
+        sample(
+            initial=0.0,
+            actual=(0.0, 0.0, 0.0),
+            planned=(0.0,) * 7,
+            future=(0.0,) * 5,
+            marks=(),
+        )
+    )
     assert svg.startswith("<svg") and "nan" not in svg.lower()

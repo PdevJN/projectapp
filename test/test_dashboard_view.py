@@ -2141,34 +2141,69 @@ def line_texts(b: Burndown) -> dict[str, str]:
 def test_burndown_lines_for_a_period_in_progress() -> None:
     texts = line_texts(burndown_sample())
     assert texts["end"] == "期間の終わりの予定の残り 0.0h(今日の実際 10.0h)"
-    assert texts["pace"] == "必要なペース 5.0h/稼働日(10/11 までに 10.0h 減らす)・直近 10 稼働日のペース 2.8h/稼働日"
+    assert (
+        texts["pace"]
+        == "必要なペース 5.0h/稼働日(10/11 までに 10.0h 減らす)・直近 10 稼働日のペース 2.8h/稼働日"
+    )
     assert texts["behind"] == "追いついていません"
     assert "ahead" not in texts
     assert texts["unset"] == "進捗度なしの実行中・一時停止 1 件(終了まで減りません)"
 
 
 def test_burndown_lines_when_ahead_or_without_a_recent_pace() -> None:
-    texts = line_texts(burndown_sample(behind=False, ahead=True, recent=None, recent_days=0, unset=()))
+    texts = line_texts(
+        burndown_sample(behind=False, ahead=True, recent=None, recent_days=0, unset=())
+    )
     assert texts["ahead"] == "予定より進んでいます"
     assert texts["pace"].endswith("・直近のペースが出ていません")
     assert "unset" not in texts and "behind" not in texts
 
 
 def test_burndown_lines_without_a_required_pace_still_say_ahead() -> None:
-    texts = line_texts(burndown_sample(required=None, rest=0.0, behind=False, ahead=True))
+    texts = line_texts(
+        burndown_sample(required=None, rest=0.0, behind=False, ahead=True)
+    )
     assert "pace" not in texts and texts["ahead"] == "予定より進んでいます"
 
 
 def test_burndown_lines_before_and_after_the_period() -> None:
-    before = line_texts(burndown_sample(today_index=None, future=(), actual=(), required=None, behind=False, unset=()))
+    before = line_texts(
+        burndown_sample(
+            today_index=None,
+            future=(),
+            actual=(),
+            required=None,
+            behind=False,
+            unset=(),
+        )
+    )
     assert before["end"] == "期間の始めの残り 14.0h(予定どおりなら終わりに 0.0h)"
-    after = line_texts(burndown_sample(today_index=None, future=(), actual=(14.0,) * 6 + (9.0,), required=None, behind=False, unset=()))
+    after = line_texts(
+        burndown_sample(
+            today_index=None,
+            future=(),
+            actual=(14.0,) * 6 + (9.0,),
+            required=None,
+            behind=False,
+            unset=(),
+        )
+    )
     assert after["end"] == "期間の終わりの実際の残り 9.0h(予定 0.0h)"
 
 
 def test_burndown_lines_say_what_is_unknown() -> None:
-    assert line_texts(Burndown(date(2026, 10, 5), date(2026, 10, 11), False, date(2026, 10, 7)))["unknown"] == "履歴は 10/07 から(それ以前は不明)"
-    assert line_texts(Burndown(date(2026, 10, 5), date(2026, 10, 11), False, None))["unknown"] == "履歴はまだありません"
+    assert (
+        line_texts(
+            Burndown(date(2026, 10, 5), date(2026, 10, 11), False, date(2026, 10, 7))
+        )["unknown"]
+        == "履歴は 10/07 から(それ以前は不明)"
+    )
+    assert (
+        line_texts(Burndown(date(2026, 10, 5), date(2026, 10, 11), False, None))[
+            "unknown"
+        ]
+        == "履歴はまだありません"
+    )
 
 
 def test_the_new_card_follows_the_backlog_card_by_default() -> None:
@@ -2194,7 +2229,9 @@ async def test_the_burndown_card_draws_the_chart_and_the_lines(user: User) -> No
     await user.should_see(marker="dashboard-burndown-behind-icon")
 
 
-async def test_the_burndown_card_asks_for_a_period_when_it_is_the_whole_period(user: User) -> None:
+async def test_the_burndown_card_asks_for_a_period_when_it_is_the_whole_period(
+    user: User,
+) -> None:
     views, _, _ = mount()
     await user.open("/")
     views[0].show(sample(), PeriodKind.ALL)
@@ -2205,11 +2242,15 @@ async def test_the_burndown_card_asks_for_a_period_when_it_is_the_whole_period(u
 async def test_the_burndown_card_says_unknown_instead_of_drawing(user: User) -> None:
     views, _, _ = mount()
     data = sample()
-    data.burndown = Burndown(date(2026, 10, 5), date(2026, 10, 11), False, date(2026, 10, 7))
+    data.burndown = Burndown(
+        date(2026, 10, 5), date(2026, 10, 11), False, date(2026, 10, 7)
+    )
     await user.open("/")
     views[0].show(data, PeriodKind.WEEK)
     await user.should_see(marker="dashboard-burndown-unknown")
-    assert text(user, "dashboard-burndown-unknown") == "履歴は 10/07 から(それ以前は不明)"
+    assert (
+        text(user, "dashboard-burndown-unknown") == "履歴は 10/07 から(それ以前は不明)"
+    )
     await user.should_not_see(marker="dashboard-burndown-chart")
 
 

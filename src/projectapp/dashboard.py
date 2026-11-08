@@ -171,7 +171,9 @@ class MemberProgress:
     warnings: int = 0  # 警告のタスクの数(共同タスクは担当者それぞれの行に数える)
     limit: int | None = None  # そのメンバーの警告の件数の閾値(メンバー別の行だけ)
     warned_tasks: tuple[str, ...] = ()  # 警告のタスクの名前(`warnings`の内訳)
-    delta: float | None = None  # 期間中に進んだ分(%ポイント。要望 128 段階 2)。出さないときは None
+    delta: float | None = (
+        None  # 期間中に進んだ分(%ポイント。要望 128 段階 2)。出さないときは None
+    )
 
     @property
     def over_limit(self) -> bool:
@@ -1793,7 +1795,9 @@ def summarize(
         progress = replace(
             progress,
             by_member=[
-                replace(row, delta=_member_delta(project, period, now, holidays, row.name))
+                replace(
+                    row, delta=_member_delta(project, period, now, holidays, row.name)
+                )
                 for row in progress.by_member
             ],
         )

@@ -361,7 +361,12 @@ def test_dirty_key_changes_with_the_history_and_with_the_rest() -> None:
 def test_states_at_matches_state_at_for_every_moment() -> None:
     task = Task("a", id="a", effort_hours=10, status=Status.DONE, progress=80)
     events = [
-        ev("a", datetime(2026, 11, 3, 10), status=("未着手", "実行中"), progress=(None, 40)),
+        ev(
+            "a",
+            datetime(2026, 11, 3, 10),
+            status=("未着手", "実行中"),
+            progress=(None, 40),
+        ),
         ev("a", datetime(2026, 11, 5, 9), progress=(40, 80), effort=(10, 12)),
         ev("a", datetime(2026, 11, 6, 9), status=("実行中", "終了")),
     ]
@@ -374,8 +379,20 @@ def test_states_at_matches_state_at_for_every_moment() -> None:
 def test_states_at_is_none_before_the_task_was_created_and_after_it_left() -> None:
     task = Task("s", id="s", kind=TaskKind.SUMMARY)
     events = [
-        ev("s", datetime(2026, 11, 3), status=(None, "実行中"), progress=(None, 50), effort=(None, 10)),
-        ev("s", datetime(2026, 11, 5), status=("実行中", None), progress=(50, None), effort=(10, None)),
+        ev(
+            "s",
+            datetime(2026, 11, 3),
+            status=(None, "実行中"),
+            progress=(None, 50),
+            effort=(None, 10),
+        ),
+        ev(
+            "s",
+            datetime(2026, 11, 5),
+            status=("実行中", None),
+            progress=(50, None),
+            effort=(10, None),
+        ),
     ]
     moments = [datetime(2026, 11, 2), datetime(2026, 11, 4), datetime(2026, 11, 6)]
     assert states_at(task, events, moments) == [

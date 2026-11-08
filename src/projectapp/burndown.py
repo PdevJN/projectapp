@@ -118,7 +118,9 @@ class Burndown:
     initial: float = 0.0  # 期間の始めの残り[h]
     actual: tuple[float, ...] = ()  # 日ごとの実際の残り(日の終わり。今日の分は「今」)
     planned: tuple[float, ...] = ()  # 当初の予定の残り(期間の全日。日の終わり)
-    future: tuple[float, ...] = ()  # 今後の予定の残り(今日から期間の終わり。先頭は今日の実際)
+    future: tuple[
+        float, ...
+    ] = ()  # 今後の予定の残り(今日から期間の終わり。先頭は今日の実際)
     workdays: tuple[bool, ...] = ()  # 期間の各日が稼働日か
     today_index: int | None = None  # 今日が期間の何日目か(期間の外は None)
     now_fraction: float = 0.0  # 今日の経過した割合(0〜1)
@@ -184,7 +186,11 @@ def _marks(
         for event in item.events:
             changes = {c.field: c for c in event.changes}
             progress, status = changes.get("progress"), changes.get("status")
-            if progress is None or progress.before is not None or progress.after is None:
+            if (
+                progress is None
+                or progress.before is not None
+                or progress.after is None
+            ):
                 continue
             if status is not None and status.before is None:  # 作成
                 continue
@@ -213,7 +219,9 @@ def compute_burndown(
         if end <= now:
             moments.append(end)
         else:
-            if first + timedelta(index) <= today:  # 今日が期間の中: 日の終わりでなく「今」
+            if (
+                first + timedelta(index) <= today
+            ):  # 今日が期間の中: 日の終わりでなく「今」
                 moments.append(now)
             break
     per_task, totals = _by_task(tasks, moments)
@@ -229,7 +237,9 @@ def compute_burndown(
     recent, recent_days = None, 0
     if today_index is not None:
         fraction = (now - datetime.combine(today, time.min)).total_seconds() / 86400
-        tail = planned_curve(tasks, [row[-1] for row in per_task], today, last, holidays)
+        tail = planned_curve(
+            tasks, [row[-1] for row in per_task], today, last, holidays
+        )
         future = (actual[-1], *tail)
         rest = actual[-1] - future[-1]
         days_left = count_workdays(today + timedelta(1), last, holidays)
