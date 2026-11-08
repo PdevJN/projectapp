@@ -518,16 +518,24 @@ def summarize_burndown(
         and _touches(entry.task, entry.schedule, period, now)
     ]
     scoped = _names(member)
+    low = period.bounds()[0]
+    counted = {item.task.id for item in tasks}
     for task in project.all_tasks():
         if task.kind is TaskKind.NORMAL or (
             scoped is not None and scoped.isdisjoint(task.assignee_names)
         ):
             continue
-        if any(
-            c.field == "status" and c.before is not None and c.after is None
+        # 期間の始め以降に分解で退場し、子のどれかが対象に入るまとめだけ(子が全部期間の外なら、親だけ数えると
+        # 退場の日に残りが落ちて「進んだ」ように見える。古い退場は 0 のままで、数えると空の期間が空にならない)
+        left = any(
+            c.field == "status"
+            and c.before is not None
+            and c.after is None
+            and e.at >= low
             for e in index.get(task.id, ())
             for c in e.changes
-        ):
+        )
+        if left and any(child in counted for child in task.children):
             tasks.append(_burn_task(task, index, schedule))
     return compute_burndown(
         tasks, period.start, period.end, now, project.history_since, holidays

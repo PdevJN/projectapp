@@ -2033,3 +2033,52 @@ def test_member_rows_have_no_delta_when_the_history_does_not_reach_back() -> Non
     project.history_since = datetime(2026, 11, 4)
     dashboard = summarize(project, DELTA_WEEK, D_NOW, {}, PeriodKind.WEEK)
     assert [row.delta for row in dashboard.progress.by_member] == [None, None]
+
+
+def summary_project(child_deadline: datetime, left: datetime) -> Project:
+    summary = Task("s", id="s", kind=TaskKind.SUMMARY, children=["k"])
+    child = Task("k", id="k", effort_hours=10, deadline=child_deadline)
+    return Project(
+        "p",
+        base_date=date(2026, 11, 2),
+        tasks=[summary, child],
+        history_since=datetime(2026, 10, 1),
+        history=[
+            hevent(
+                "s",
+                datetime(2026, 10, 5, 10),
+                status=(None, "実行中"),
+                progress=(None, 50),
+                effort=(None, 10),
+            ),
+            hevent(
+                "s",
+                left,
+                status=("実行中", None),
+                progress=(50, None),
+                effort=(10, None),
+            ),
+            hevent(
+                "k",
+                left,
+                status=(None, "未着手"),
+                progress=(None, None),
+                effort=(None, 10),
+            ),
+        ],
+    )
+
+
+def test_burndown_ignores_a_summary_that_left_before_the_period() -> None:
+    project = summary_project(datetime(2026, 12, 6, 17), datetime(2026, 10, 20, 10))
+    result = summarize_burndown(project, DELTA_WEEK, D_NOW, {})
+    assert result.known and result.count == 0
+
+
+def test_burndown_does_not_count_a_summary_whose_children_are_outside_the_period() -> (
+    None
+):
+    # 子が期間の外なら、親の残りが分解の日に消えて「進んだ」ように見えない(親も対象にしない)
+    project = summary_project(datetime(2026, 12, 6, 17), datetime(2026, 11, 4, 10))
+    result = summarize_burndown(project, DELTA_WEEK, D_NOW, {})
+    assert result.count == 0 and result.actual == (0.0,) * 5
