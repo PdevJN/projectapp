@@ -62,12 +62,18 @@ def snap_week(anchor: date, day: date) -> int:
 
 
 def trial_weeks(
-    task: Task, trial: TrialCrew, anchor: date
+    task: Task, trial: TrialCrew, anchor: date, early: bool = False
 ) -> list[list[Assignee]] | None:
-    """今の担当に増員分を足した週ごとの担当。週数が上限を超えるなら None。"""
+    """今の担当に増員分を足した週ごとの担当。週数が上限を超えるなら None。
+    early は、増員日を含む週(早い側)から載せる(遅れたタスクの確定。今日より前の分は働かないので害がない)。"""
+    first = (
+        max((trial.start - anchor).days, 0) // 7
+        if early
+        else snap_week(anchor, trial.start)
+    )
     return _with_added(
         [list(w) for w in task.weekly_crew] or [list(task.assignees)],
-        snap_week(anchor, trial.start),
+        first,
         trial.names,
     )
 
@@ -181,14 +187,18 @@ def confirmed(
     holidays: dict[date, str],
     schedule: Schedule,
     trial: TrialCrew,
+    now: datetime,
 ) -> Task | None:
-    """試算を確定したタスク(weekly_crew に乗せ、assignees は和集合)。対象外は None。"""
+    """試算を確定したタスク(weekly_crew に乗せ、assignees は和集合)。対象外は None。
+    完了予定を過ぎたタスクは、試算が今日から増員する見込みなので、増員日を含む週から載せる。"""
     if not _target(task):
         return None
     start = effective_start(task, project, holidays, schedule)
     if start is None:
         return None
-    weeks = trial_weeks(task, trial, start.date())
+    end = effective_end(task, project, holidays, schedule)
+    late = end is not None and end <= now and start <= now and not _manual(task)
+    weeks = trial_weeks(task, trial, start.date(), early=late)
     if weeks is None:
         return None
     return replace(task, weekly_crew=weeks, assignees=union_assignees(weeks))

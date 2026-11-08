@@ -17,7 +17,7 @@ from projectapp.models import (
     Task,
     TaskKind,
 )
-from projectapp.timeline import Schedule, effective_end
+from projectapp.timeline import Schedule, crew_on, effective_end
 
 START = datetime(2026, 11, 2, 9)  # 月曜
 HOLIDAYS: dict[date, str] = {}
@@ -110,7 +110,7 @@ def test_confirmed_task_ends_where_the_trial_said() -> None:
     schedule = Schedule(project, HOLIDAYS)
     trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 9))
     result = evaluate(task, project, HOLIDAYS, schedule, trial, NOW)
-    saved = confirmed(task, project, HOLIDAYS, schedule, trial)
+    saved = confirmed(task, project, HOLIDAYS, schedule, trial, NOW)
     assert result is not None and saved is not None
     assert [a.name for a in saved.assignees] == ["田中", "鈴木"]
     assert replace_task(project, saved)
@@ -142,7 +142,7 @@ def test_unsuitable_tasks_are_ignored() -> None:
     project2, summary = sample(kind=TaskKind.SUMMARY)
     schedule2 = Schedule(project2, HOLIDAYS)
     assert evaluate(summary, project2, HOLIDAYS, schedule2, trial, NOW) is None
-    assert confirmed(summary, project2, HOLIDAYS, schedule2, trial) is None
+    assert confirmed(summary, project2, HOLIDAYS, schedule2, trial, NOW) is None
 
 
 def test_replace_task_returns_false_for_an_unknown_id() -> None:
@@ -190,3 +190,30 @@ def test_a_task_not_yet_overdue_keeps_the_weekly_calculation() -> None:
         NOW,
     )
     assert result is not None and not result.from_now
+
+
+def test_confirming_an_overdue_task_adds_from_the_week_containing_today() -> None:
+    project, task = sample(progress=50)
+    schedule = Schedule(project, HOLIDAYS)
+    trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 20))
+    saved = confirmed(task, project, HOLIDAYS, schedule, trial, LATE)
+    assert saved is not None
+    # 開始 11/2 から 18 日目 = 第 3 週(添字 2)。早い側の週頭から載せ、今日は増員後の担当
+    assert [a.name for a in crew_on(saved, START.date(), LATE.date())] == [
+        "田中",
+        "鈴木",
+    ]
+    assert [a.name for a in saved.weekly_crew[1]] == ["田中"]
+
+
+def test_confirming_a_task_not_yet_overdue_still_rounds_to_the_later_week() -> None:
+    project, task = sample()
+    schedule = Schedule(project, HOLIDAYS)
+    trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 10))
+    saved = confirmed(task, project, HOLIDAYS, schedule, trial, NOW)
+    assert saved is not None
+    assert [[a.name for a in w] for w in saved.weekly_crew] == [
+        ["田中"],
+        ["田中"],
+        ["田中", "鈴木"],
+    ]

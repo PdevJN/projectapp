@@ -2772,7 +2772,9 @@ class MainView:
         for task_id, trial in list(self.trials.items()):
             task = tasks.get(task_id)
             saved = (
-                confirmed(task, self.project, self.holidays, schedule, trial)
+                confirmed(
+                    task, self.project, self.holidays, schedule, trial, clock.now()
+                )
                 if task is not None
                 else None
             )
