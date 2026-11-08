@@ -1289,3 +1289,135 @@ def test_recovery_date_is_none_when_there_is_no_working_time_at_all() -> None:
     assert recovery_date(project, {}, NOW, 10.0, 1.0) is None
     assert recovery_date(project, {}, NOW, 0.0, 1.0) is None
     assert recovery_date(project, {}, NOW, 10.0, 0.0) is None
+
+
+# --- 要望 131: 遅れを取り戻すために投入する人の候補 -------------------------------
+
+TEAM = [Member("田中", 1.0), Member("鈴木", 1.0)]
+
+
+def late_task(hours: float = 6.5, who: str = "田中", name: str = "遅れ") -> Task:
+    return todo(name, hours, assignees=[Assignee(who)])
+
+
+def invest_of(
+    names: tuple[str, ...],
+    *tasks: Task,
+    members: list[Member] | None = None,
+    holidays: dict[date, str] | None = None,
+    member: str | None = None,
+):
+    return summarize_backlog(
+        project_of(*tasks, members=members or TEAM),
+        WEEK,
+        PeriodKind.WEEK,
+        NOW,
+        holidays or {},
+        member,
+        catch_up=CatchUp(CatchUpMode.PERIOD, 5, 0.0, names),
+    )
+
+
+def test_the_default_rule_invests_nobody() -> None:
+    assert CatchUp().invest == ()
+
+
+def test_candidates_are_listed_with_the_most_spare_first() -> None:
+    backlog = invest_of((), late_task())
+    # 今日の残り 3.5h + 木 6.5h + 金 6.5h = 16.5h。田中は担当の残り 6.5h を引く
+    assert [c.name for c in backlog.candidates] == ["鈴木", "田中"]
+    assert backlog.candidates[0].spare_hours == pytest.approx(16.5)
+    assert backlog.candidates[1].spare_hours == pytest.approx(10.0)
+
+
+def test_spare_follows_the_ratio_and_the_members_days_off() -> None:
+    slow = invest_of(
+        (), late_task(), members=[Member("田中", 1.0), Member("鈴木", 0.5)]
+    )
+    assert {c.name: c.spare_hours for c in slow.candidates}["鈴木"] == pytest.approx(
+        8.25
+    )  # 16.5 × 0.5
+    off = invest_of(
+        (),
+        late_task(),
+        members=[
+            Member("田中", 1.0),
+            Member("鈴木", 1.0, work_days=[WorkDay(date(2026, 10, 8))]),
+        ],
+    )
+    spares = {c.name: c.spare_hours for c in off.candidates}
+    assert spares["鈴木"] == pytest.approx(10.0)  # 木曜が休み。3.5 + 6.5
+
+
+def test_spare_can_be_negative_when_the_member_has_too_much_work() -> None:
+    backlog = invest_of((), late_task(), late_task(30.0, name="多い"))
+    spares = {c.name: c.spare_hours for c in backlog.candidates}
+    assert spares["田中"] < 0 and spares["鈴木"] == pytest.approx(16.5)
+
+
+def test_one_picked_member_recovers_on_the_day_the_cumulative_hours_reach_the_late_hours() -> (
+    None
+):
+    backlog = invest_of(
+        ("鈴木",), late_task()
+    )  # 遅れ 6.5h。今日 3.5h では足りず、木曜に 10h
+    investment = backlog.investment
+    assert investment is not None
+    assert (investment.names, investment.date, investment.hours) == (
+        ("鈴木",),
+        date(2026, 10, 8),
+        6.5,
+    )
+    assert investment.spare_hours == pytest.approx(16.5)
+    assert investment.due == WEEK.end
+
+
+def test_several_picked_members_add_up_and_recover_sooner() -> None:
+    backlog = invest_of(
+        ("鈴木", "田中"), late_task()
+    )  # 今日の残りだけで 3.5 + 3.5 = 7h
+    investment = backlog.investment
+    assert investment is not None and investment.date == date(2026, 10, 7)
+    assert investment.names == ("鈴木", "田中")
+    assert investment.spare_hours == pytest.approx(26.5)
+
+
+def test_a_members_spare_caps_what_that_member_can_take() -> None:
+    members = [
+        Member("田中", 1.0),
+        Member(
+            "鈴木",
+            1.0,
+            work_days=[WorkDay(date(2026, 10, 8)), WorkDay(date(2026, 10, 9))],
+        ),
+    ]
+    # 鈴木の稼働は今日の 3.5h だけ。余力 3.5h。遅れ 6.5h には届かない
+    backlog = invest_of(("鈴木",), late_task(), members=members)
+    investment = backlog.investment
+    assert investment is not None and investment.date is None
+    assert investment.spare_hours == pytest.approx(3.5)
+
+
+def test_not_enough_spare_leaves_no_date_and_reports_the_shortage() -> None:
+    tasks = [late_task(6.5, name=f"遅れ{i}") for i in range(5)]  # 遅れ 32.5h
+    investment = invest_of(("鈴木",), *tasks).investment
+    assert investment is not None and investment.date is None
+    assert investment.spare_hours == pytest.approx(16.5)
+    assert investment.hours == pytest.approx(32.5)
+
+
+def test_a_pick_without_spare_or_unknown_is_ignored() -> None:
+    tasks = [late_task(), late_task(30.0, name="多い")]  # 田中は余力がない
+    investment = invest_of(("田中", "鈴木", "いない人"), *tasks).investment
+    assert investment is not None and investment.names == ("鈴木",)
+
+
+def test_nothing_late_gives_no_investment() -> None:
+    task = Task("先の予定", planned_start=datetime(2026, 10, 9, 9), effort_hours=5)
+    assert invest_of(("鈴木",), task).investment is None
+    assert invest_of((), late_task()).investment is None
+
+
+def test_a_member_filter_limits_the_candidates() -> None:
+    backlog = invest_of((), late_task(), member="田中")
+    assert [c.name for c in backlog.candidates] == ["田中"]
