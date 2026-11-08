@@ -117,3 +117,44 @@ def test_extra_crew_is_rounded_to_the_later_week_and_shortens_the_forecast() -> 
 def test_unavailable_input_returns_none_without_raising() -> None:
     project, task = sample(progress=10, effort_hours=float("nan"))
     assert run(project, task, datetime(2026, 11, 9, 10)) is None
+
+
+def test_300_tasks_forecast_in_under_a_tenth_of_a_second() -> None:
+    import time
+
+    project, _ = sample()
+    tasks = [
+        Task(
+            f"t{i}",
+            id=f"t{i}",
+            planned_start=START,
+            effort_hours=40.0,
+            assignees=[Assignee("田中")],
+            progress=10,
+        )
+        for i in range(300)
+    ]
+    project.sections[0].tasks = tasks
+    schedule = Schedule(project, HOLIDAYS)
+    now = datetime(2026, 11, 9, 10)
+    began = time.perf_counter()
+    for task in tasks:
+        forecast_end(task, project, HOLIDAYS, now, schedule)
+    assert time.perf_counter() - began < 0.1
+
+
+def test_confirmed_forecast_matches_the_trial_when_added_at_a_week_boundary() -> None:
+    from projectapp.crew_trial import TrialCrew, confirmed, evaluate
+
+    project, task = sample()
+    now = datetime(
+        2026, 11, 23, 10
+    )  # 予定超過。開始(11/2)から 3 週後の週頭で、両方の週の格子が重なる
+    schedule = Schedule(project, HOLIDAYS)
+    trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 30))
+    result = evaluate(task, project, HOLIDAYS, schedule, trial, now)
+    done = confirmed(task, project, HOLIDAYS, schedule, trial)
+    assert result is not None and done is not None and result.trial_end is not None
+    after = forecast_end(done, project, HOLIDAYS, now, schedule)
+    assert after is not None
+    assert after.end == result.trial_end
