@@ -3,9 +3,10 @@
 NiceGUI に依存しない。データの持ち方を変えるときは、この境界の内側で変える(集計と画面はここの関数だけを通す)。
 """
 
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from math import isfinite
 
 from projectapp.models import (
@@ -241,3 +242,81 @@ def dirty_key(project: Project) -> tuple:
     履歴は追記のみ(元に戻すで減る)なので、これで変化を見逃さない。履歴の長さに比例して重くならない。"""
     last = project.history[-1] if project.history else None
     return (asdict(without_history(project)), len(project.history), last)
+
+
+DEFAULT_DETAIL_DAYS = 90  # 細かい履歴を残す日数
+MIN_DETAIL_DAYS = 7
+MAX_DETAIL_DAYS = 3650
+DEFAULT_MAX_EVENTS = 50_000  # 履歴の件数の上限
+MIN_MAX_EVENTS = 1_000
+MAX_MAX_EVENTS = 1_000_000
+
+
+@dataclass(frozen=True)
+class HistoryKeep:
+    """保存するときの履歴の残し方。`days`より古い分は日ごとにまとめ、`max_events`を超えたら古い日から捨てる。"""
+
+    days: int = DEFAULT_DETAIL_DAYS
+    max_events: int = DEFAULT_MAX_EVENTS
+
+
+def _merge_day(events: Sequence[HistoryEvent]) -> HistoryEvent | None:
+    """同じタスク・同じ日のイベント(記録した順)を 1 件にする。項目ごとに最初の前と最後の後を取り、
+    前後が同じ項目は消す(前後がどちらも None の項目は、存在しないままを表すので残す)。変わった項目がなければ None。"""
+    first: dict[str, Value] = {}
+    last: dict[str, Value] = {}
+    for event in events:
+        for change in event.changes:
+            first.setdefault(change.field, change.before)
+            last[change.field] = change.after
+    changes = tuple(
+        Change(name, first[name], last[name])
+        for name in HISTORY_FIELDS
+        if name in first and (first[name] != last[name] or first[name] is None)
+    )
+    return HistoryEvent(events[-1].task, events[-1].at, changes) if changes else None
+
+
+def _trim(
+    events: list[HistoryEvent], since: datetime | None, limit: int
+) -> tuple[list[HistoryEvent], datetime | None]:
+    """件数が`limit`以下になるまで、古い日から日ごと丸ごと捨てる(最新の日は残す)。捨てたら記録の開始を、
+    捨てた最後の日の翌日の 0 時へ進める(すでにそれより後ならそのまま)。"""
+    counts = Counter(event.at.date() for event in events)
+    total = len(events)
+    dropped: date | None = None
+    for day in sorted(counts)[:-1]:
+        if total <= limit:
+            break
+        total -= counts[day]
+        dropped = day
+    if dropped is None:
+        return events, since
+    boundary = datetime.combine(dropped + timedelta(1), time.min)
+    kept = [event for event in events if event.at >= boundary]
+    return kept, boundary if since is None else max(since, boundary)
+
+
+def compacted(project: Project, now: datetime, keep: HistoryKeep) -> Project:
+    """保存用に、履歴をまとめた複製を返す(元は変えない)。今のプロジェクトにないタスクのイベントを捨て、
+    「`now`の日の 0 時 − `keep.days`日」より古いイベントをタスク・日ごとに 1 件にし、件数が`keep.max_events`を
+    超えるなら古い日から捨てる。0 時の境目での復元結果は変わらない。"""
+    if not project.history:
+        return project
+    alive = {task.id for task in project.all_tasks()}
+    events = sorted((e for e in project.history if e.task in alive), key=lambda e: e.at)
+    cutoff = datetime.combine(now.date(), time.min) - timedelta(days=keep.days)
+    days: dict[tuple[str, date], list[HistoryEvent]] = {}
+    recent = []
+    for event in events:
+        if event.at < cutoff:
+            days.setdefault((event.task, event.at.date()), []).append(event)
+        else:
+            recent.append(event)
+    merged = [m for group in days.values() if (m := _merge_day(group)) is not None]
+    merged.sort(key=lambda e: e.at)
+    result = [*merged, *recent]
+    since = project.history_since
+    if len(result) > keep.max_events:
+        result, since = _trim(result, since, keep.max_events)
+    return replace(project, history=result, history_since=since)

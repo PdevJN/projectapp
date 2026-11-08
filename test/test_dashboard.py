@@ -29,6 +29,7 @@ from projectapp.dashboard import (
     summarize_workload,
 )
 from projectapp.timeline import overallocations
+from projectapp.history_log import HistoryKeep, compacted
 from projectapp.models import (
     Assignee,
     Actual,
@@ -2125,3 +2126,30 @@ def test_burndown_does_not_count_a_summary_whose_children_are_outside_the_period
     project = summary_project(datetime(2026, 12, 6, 17), datetime(2026, 11, 4, 10))
     result = summarize_burndown(project, DELTA_WEEK, D_NOW, {})
     assert result.count == 0 and result.actual == (0.0,) * 5
+
+
+def test_compacting_old_history_does_not_change_the_aggregates() -> None:
+    project = delta_project()
+    project.history = [  # 11/3 に 2 回進み、つながった履歴にする
+        hevent(
+            "a",
+            datetime(2026, 11, 3, 10),
+            status=("未着手", "実行中"),
+            progress=(None, 50),
+        ),
+        hevent("a", datetime(2026, 11, 3, 15), progress=(50, 70)),
+        hevent(
+            "a",
+            datetime(2026, 11, 5, 10),
+            status=("実行中", "終了"),
+            progress=(70, 100),
+        ),
+    ]
+    result = compacted(project, D_NOW, HistoryKeep(days=1, max_events=50_000))
+    assert len(result.history) == 2
+    assert summarize_progress_delta(
+        result, DELTA_WEEK, D_NOW, {}
+    ) == summarize_progress_delta(project, DELTA_WEEK, D_NOW, {})
+    assert summarize_burndown(result, DELTA_WEEK, D_NOW, {}) == summarize_burndown(
+        project, DELTA_WEEK, D_NOW, {}
+    )
