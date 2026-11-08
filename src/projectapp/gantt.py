@@ -3159,8 +3159,10 @@ class GanttChart:
         """増員の試算を棒に重ねる: 試算後の完了までの点線の枠、元の完了予定の縦線、増員チップ、見込みの文言。"""
         if start is None:
             return
+        # 遅れたタスクは、今日からの残り工数の見込みなので、枠も今日から描く(過去の棒に重ねない)
+        origin = max(start, self.now()) if result.from_now else start
         if result.trial_end is not None:
-            span = bar_span(start, result.trial_end, columns)
+            span = bar_span(origin, result.trial_end, columns)
             if span is not None:
                 ui.element("div").classes("trial-ghost").style(
                     f"position: absolute; left: {from_name(span[0] * width)};"

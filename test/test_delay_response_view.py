@@ -118,3 +118,39 @@ async def test_a_week_that_adds_a_member_is_marked_as_an_increase(
     await user.should_not_see(marker="week-added-top-0-2")  # 人が増えていない週
     chip = user.find(marker="week-added-top-0-1").elements.pop()
     assert "week-added" in chip.classes  # 紫の実線の縁で示す
+
+
+def left_px(style: dict[str, str]) -> float:
+    return float(style["left"].split("+")[1].strip().removesuffix("px)"))
+
+
+async def test_the_ghost_of_an_overdue_task_starts_today_not_at_the_task_start(
+    user: User, tmp_path: Path
+) -> None:
+    from datetime import datetime
+
+    from projectapp import clock
+    from projectapp.models import Task
+
+    view = await opened(user, tmp_path)
+    today = clock.now()
+    view.project.tasks.clear()
+    view.project.tasks.append(
+        Task(
+            "late",
+            id="tl",
+            planned_start=datetime.combine(today.date(), today.time().min).replace(
+                hour=9
+            )
+            - __import__("datetime").timedelta(days=6),
+            effort_hours=20.0,
+            assignees=[Assignee("田中")],
+        )
+    )
+    view.after_edit()
+    view.try_crew("tl", ["鈴木"], today.date())
+    assert view.trial_results()["tl"].from_now
+    await user.should_see(marker="trial-ghost-top-0")
+    bar = user.find(marker="bar-top-0").elements.pop()._style
+    ghost = user.find(marker="trial-ghost-top-0").elements.pop()._style
+    assert left_px(ghost) > left_px(bar)  # 棒の開始ではなく、今日から
