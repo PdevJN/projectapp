@@ -443,7 +443,7 @@ def burndown_lines(b: Burndown) -> list[BurnLine]:
             )
         )
     if b.behind:
-        lines.append(BurnLine("behind", "追いついていません"))
+        lines.append(BurnLine("behind", "ペースを上げるか、予定を見直す必要があります"))
     if b.ahead:
         lines.append(BurnLine("ahead", "予定より進んでいます"))
     if b.unset:

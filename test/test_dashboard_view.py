@@ -2145,7 +2145,7 @@ def test_burndown_lines_for_a_period_in_progress() -> None:
         texts["pace"]
         == "必要なペース 5.0h/稼働日(10/11 までに 10.0h 減らす)・直近 10 稼働日のペース 2.8h/稼働日"
     )
-    assert texts["behind"] == "追いついていません"
+    assert texts["behind"] == "ペースを上げるか、予定を見直す必要があります"
     assert "ahead" not in texts
     assert texts["unset"] == "進捗度なしの実行中・一時停止 1 件(終了まで減りません)"
 
@@ -2225,7 +2225,10 @@ async def test_the_burndown_card_draws_the_chart_and_the_lines(user: User) -> No
     await user.should_see(marker="dashboard-burndown-chart")
     content = user.find(marker="dashboard-burndown-chart").elements.pop().content
     assert content.startswith("<svg") and content.count("<polyline") == 3
-    assert text(user, "dashboard-burndown-behind") == "追いついていません"
+    assert (
+        text(user, "dashboard-burndown-behind")
+        == "ペースを上げるか、予定を見直す必要があります"
+    )
     await user.should_see(marker="dashboard-burndown-behind-icon")
 
 
