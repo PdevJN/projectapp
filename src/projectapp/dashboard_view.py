@@ -599,11 +599,13 @@ class DashboardView:
         on_late_basis_change: Callable[[LateBasis], object] | None = None,
         on_catch_up_change: Callable[[CatchUp], object] | None = None,
         on_assign: Callable[[str], object] | None = None,
+        on_add_crew: Callable[[str], object] | None = None,
         on_try_on_gantt: Callable[[tuple[str, ...]], object] | None = None,
     ) -> None:
         self.on_try_on_gantt = on_try_on_gantt
         self.actions = actions
         self.on_assign = on_assign
+        self.on_add_crew = on_add_crew
         self.assign_mode = (
             False  # 担当なしの割り当てを編集できるか(保存せず、閉じるとオフ)
         )
@@ -1169,30 +1171,35 @@ class DashboardView:
                         row.assignee_names, f"dashboard-overdue-assignee-{index}"
                     )
 
+    def edit_toggle(self) -> None:
+        ui.checkbox(
+            "割り当てを編集",
+            value=self.assign_mode,
+            on_change=lambda e: self.set_assign_mode(bool(e.value)),
+        ).props("dense").mark("dashboard-unassigned-edit")
+
     def unassigned_row(self, progress: Progress) -> None:
-        """`担当なし n 件`の行。ふだんはマウスオーバーでタスク名を見せるだけ。`割り当てを編集`をオンにすると、押して担当を選べる(要望 39)。"""
-        if not progress.unassigned:
+        """`担当なし n 件`の行。ふだんはマウスオーバーでタスク名を見せるだけ。`割り当てを編集`をオンにすると、押して担当を選べる(要望 39)。
+        警告のタスクがあるときは、同じ編集で、警告のタスクを押してメンバーを足せる(要望 134)。担当なしがなくても、警告があればチェックボックスを出す。"""
+        if not progress.unassigned and not progress.warning_tasks:
             self.assign_mode = False  # 対象がなくなったら、次に増えたときはオフから
             return
         with ui.row().classes("w-full items-center gap-2"):
-            with ui.row().classes("items-center no-wrap gap-1"):
-                ui.icon("person_off", size="sm").classes("text-warning")
-                label = ui.label(f"担当なし {len(progress.unassigned)}件").mark(
-                    "dashboard-unassigned-count"
-                )
-                if not self.assign_mode:
-                    with label:
-                        name_chips_tooltip(
-                            [t.name for t in progress.unassigned],
-                            "dashboard-unassigned-chip",
-                            more_marker="dashboard-unassigned-more",
-                        )
-            ui.checkbox(
-                "割り当てを編集",
-                value=self.assign_mode,
-                on_change=lambda e: self.set_assign_mode(bool(e.value)),
-            ).props("dense").mark("dashboard-unassigned-edit")
-        if self.assign_mode:
+            if progress.unassigned:
+                with ui.row().classes("items-center no-wrap gap-1"):
+                    ui.icon("person_off", size="sm").classes("text-warning")
+                    label = ui.label(f"担当なし {len(progress.unassigned)}件").mark(
+                        "dashboard-unassigned-count"
+                    )
+                    if not self.assign_mode:
+                        with label:
+                            name_chips_tooltip(
+                                [t.name for t in progress.unassigned],
+                                "dashboard-unassigned-chip",
+                                more_marker="dashboard-unassigned-more",
+                            )
+            self.edit_toggle()
+        if self.assign_mode and progress.unassigned:
             with ui.row().classes("w-full gap-1"):
                 for index, task in enumerate(progress.unassigned):
                     chip = ui.chip(
@@ -1201,11 +1208,26 @@ class DashboardView:
                         on_click=lambda t=task.id: self.assign(t),
                     ).props("dense square outline clickable")
                     chip.classes("ellipsis").mark(f"dashboard-unassigned-pick-{index}")
+        if self.assign_mode and progress.warning_tasks:
+            with ui.row().classes("w-full items-center gap-1"):
+                warning_icon("dashboard-warning-pick-icon")
+                ui.label("警告のタスクに足す").classes("text-caption")
+                for index, warned in enumerate(progress.warning_tasks):
+                    chip = ui.chip(
+                        warned.name,
+                        color=None,
+                        on_click=lambda t=warned.id: self.add_crew(t),
+                    ).props("dense square outline clickable")
+                    chip.classes("ellipsis").mark(f"dashboard-warning-pick-{index}")
 
     def set_assign_mode(self, on: bool) -> None:
         if on != self.assign_mode:
             self.assign_mode = on
             self.cards.refresh()
+
+    def add_crew(self, task_id: str) -> None:
+        if self.assign_mode and self.on_add_crew is not None:
+            self.on_add_crew(task_id)
 
     def assign(self, task_id: str) -> None:
         if self.assign_mode and self.on_assign is not None:

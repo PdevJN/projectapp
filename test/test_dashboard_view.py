@@ -32,6 +32,7 @@ from projectapp.dashboard import (
     Recovery,
     TeamProgress,
     UnassignedTask,
+    WarningTask,
     WorkloadRow,
 )
 from projectapp.burndown import Burndown, Mark
@@ -2607,3 +2608,51 @@ async def test_the_overdue_row_shows_the_forecast_only_when_there_is_one(
     views[0].show(base, PeriodKind.WEEK)
     await user.should_see(marker="dashboard-overdue-name-0")
     await user.should_not_see(marker="dashboard-overdue-forecast-0")
+
+
+def warning_sample() -> Dashboard:
+    data = sample()
+    data.progress.warning_tasks = [
+        WarningTask("w1", "遅れ気味"),
+        WarningTask("w2", "もう少し"),
+    ]
+    return data
+
+
+def mount_add_crew(picked: list[str]) -> list[DashboardView]:
+    views: list[DashboardView] = []
+
+    @ui.page("/")
+    def index() -> None:
+        view = DashboardView(lambda: None, lambda kind: None, on_add_crew=picked.append)
+        views.append(view)
+        view.build()
+
+    return views
+
+
+async def test_warning_chips_appear_only_while_editing_and_pick_a_task(
+    user: User,
+) -> None:
+    picked: list[str] = []
+    views = mount_add_crew(picked)
+    await user.open("/")
+    views[0].show(warning_sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-unassigned-edit")  # 担当なしがなくても出る
+    await user.should_not_see(marker="dashboard-warning-pick-0")
+    views[0].add_crew("w1")  # オフのときは通知しない
+    assert picked == []
+    user.find(marker="dashboard-unassigned-edit").click()
+    await user.should_see(marker="dashboard-warning-pick-1")
+    user.find(marker="dashboard-warning-pick-1").click()
+    assert picked == ["w2"]
+
+
+async def test_no_edit_checkbox_without_unassigned_or_warning_tasks(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-progress-percent")
+    await user.should_not_see(marker="dashboard-unassigned-edit")

@@ -649,6 +649,7 @@ class MainView:
             on_catch_up_change=self.change_dashboard_catch_up,
             on_try_on_gantt=self.try_invest_on_gantt,
             on_assign=self.assign_from_dashboard,
+            on_add_crew=self.add_crew_from_dashboard,
             actions=ViewActions(
                 select=self.select_dashboard_view,
                 save=self.save_dashboard_view,
@@ -1679,6 +1680,47 @@ class MainView:
             self.refresh_dashboard(sync_field=False)
 
         open_assign_dialog(task.name, self.project.members, apply)
+
+    def add_crew_from_dashboard(self, task_id: str) -> None:
+        """ダッシュボードの警告のタスクに、選んだメンバーを足す(要望 134)。"""
+        task = self.project.task_map().get(task_id)
+        if task is None:
+            return
+        open_assign_dialog(
+            task.name,
+            [m for m in self.project.members if m.name not in task.assignee_names],
+            lambda name: self.add_crew_to_warning(task_id, name),
+        )
+
+    def add_crew_to_warning(self, task_id: str, name: str) -> bool:
+        """警告のタスクに、今日の次の週頭から`name`を割り当て率 100% で足す(要望 132 の確定と同じ`weekly_crew`)。
+        1 回の編集として元に戻せる。足せないときは通知して False。"""
+        now = clock.now()
+        schedule = Schedule(self.project, self.holidays)
+        task = self.project.task_map().get(task_id)
+        done = None
+        if (
+            task is not None
+            and name in {m.name for m in self.project.members}
+            and name not in task.assignee_names
+            and warning_pace(task, self.project, self.holidays, now, schedule)
+            is not None
+        ):
+            done = confirmed(
+                task,
+                self.project,
+                self.holidays,
+                schedule,
+                TrialCrew(task_id, (name,), now.date()),
+            )
+        if done is None or not replace_task(self.project, done):
+            ui.notify("タスクが変わったため、足しませんでした", type="warning")
+            self.refresh_dashboard(sync_field=False)
+            return False
+        self.after_edit()
+        self.warn_overallocation(done)
+        self.refresh_dashboard(sync_field=False)
+        return True
 
     def change_dashboard_late_basis(self, basis: LateBasis) -> None:
         """残りの工数の遅れの判定の基準を切り替える。表示だけで、保存しない(ビューにも入れない)。"""
