@@ -2428,7 +2428,7 @@ def _weekly_project() -> Project:
 
 
 def test_format_version_is_twenty() -> None:
-    assert FORMAT_VERSION == 21
+    assert FORMAT_VERSION == 22
 
 
 def test_weekly_crew_roundtrips_and_assignees_is_the_union(tmp_path: Path) -> None:
@@ -2625,7 +2625,7 @@ def test_work_day_note_round_trips_and_is_stripped() -> None:
     )
     text = dumps_project(Project("p", members=[member]))
     raw = json.loads(text)
-    assert raw["version"] == 21
+    assert raw["version"] == 22
     assert raw["members"][0]["work_days"][0]["note"] == "夏季休暇"
     assert parse_project(text, "p").members[0].work_days[0].note == "夏季休暇"
     raw["members"][0]["work_days"][0]["note"] = "  通院  "
@@ -2710,7 +2710,7 @@ def test_ratio_unclamped_round_trips() -> None:
     ]
     text = dumps_project(Project("p", members=members))
     raw = json.loads(text)
-    assert raw["version"] == 21
+    assert raw["version"] == 22
     assert [m["ratio_unclamped"] for m in raw["members"]] == [True, False]
     assert [m.ratio_unclamped for m in parse_project(text, "p").members] == [
         True,
