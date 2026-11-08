@@ -108,6 +108,7 @@ from projectapp.teams import team_scope, teams_with_members
 from projectapp.selection import CheckState, check_state, task_ids_of, toggled
 from projectapp.urls import resolve
 from projectapp.summary import children_of, parent_map, summary_progress, summary_status
+from projectapp.workdays import work_day_map
 from projectapp.timeline import (
     day_window,
     in_range,
@@ -3298,6 +3299,24 @@ class GanttChart:
             is None
         )
 
+    def members_off(self, day: date, crew: list[Assignee]) -> list[str]:
+        """その日に、個人の稼働日の上書きで休みになっている担当者の名前。"""
+        off = []
+        for a in crew:
+            member = next((m for m in self.project.members if m.name == a.name), None)
+            if member is None or not member.work_days:
+                continue
+            window = day_window(
+                day,
+                self.project.daily_hours,
+                self.project.work_start,
+                self.holidays,
+                work_day_map(member.work_days),
+            )
+            if window is None:
+                off.append(a.name)
+        return off
+
     def through_next_working_day(self, end: datetime) -> datetime:
         """終わりが休みの日に当たるとき、次の稼働日の終わりまで(表示だけ。完了予定は変えない)。"""
         if not self.is_off_day(end.date()):
@@ -3342,7 +3361,11 @@ class GanttChart:
             width_px = min(length * width, bar_width - left_px)
             if width_px <= 0:
                 continue
-            off = daily and self.is_off_day(part.first)
+            resting = self.members_off(part.first, crew) if daily else []
+            # 休みの日、または担当者全員が個人の休みの日は薄くして名前を出さない
+            off = daily and (
+                self.is_off_day(part.first) or len(resting) == len(crew) > 0
+            )
             if daily:  # 日ごとの週は、細いチップを濃い色・下線・点線の区切りで、週のチップと見分ける(要望 135)
                 divider = " border-left: 1px dotted rgba(255,255,255,0.9);"
                 look = (
@@ -3389,6 +3412,8 @@ class GanttChart:
             title = f"第{index + 1}週 {period}{carried}\n{crew_text(crew)}"
             if off:
                 title += "\n休みの日(担当は次の稼働日から効きます)"
+            elif resting:
+                title += f"\n休み: {'・'.join(resting)}"
             if (
                 load := self.overload_text(task, (left, right))
                 if self.options.show_alerts

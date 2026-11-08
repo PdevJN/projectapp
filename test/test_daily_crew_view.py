@@ -201,3 +201,21 @@ async def test_a_bar_ending_on_a_day_off_is_drawn_through_the_next_working_day(
     assert gantt.through_next_working_day(end).date() == date(2099, 1, 12)  # 月曜
     weekday = datetime(2099, 1, 9, 12)
     assert gantt.through_next_working_day(weekday) == weekday
+
+
+async def test_a_day_chip_is_faded_when_everyone_on_it_has_a_personal_day_off(
+    user: User, tmp_path: Path
+) -> None:
+    from projectapp.models import WorkDay
+
+    view = await opened(user, tmp_path)
+    view.project.members[1].work_days = [WorkDay(date(2099, 1, 14), None, None)]
+    view.split_week_days((), 0, 1)
+    days = [[Assignee("田中")]] * 2 + [[Assignee("鈴木")]] + [[Assignee("田中")]] * 4
+    view.save_week_days((), 0, 1, days)
+    view.after_edit()
+    await user.should_see(marker="day-chip-top-0-1-2")
+    assert "day-off" in user.find(marker="day-chip-top-0-1-2").elements.pop().classes
+    assert (
+        "day-off" not in user.find(marker="day-chip-top-0-1-1").elements.pop().classes
+    )
