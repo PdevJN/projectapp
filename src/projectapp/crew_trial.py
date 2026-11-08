@@ -4,7 +4,7 @@
 """
 
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from projectapp.models import (
     Assignee,
@@ -14,10 +14,12 @@ from projectapp.models import (
     TaskKind,
     union_assignees,
 )
+from projectapp.workdays import work_day_map
 from projectapp.daily_crew import DailyCrew, rows_of, with_added_from
 from projectapp.forecast import forecast_end
 from projectapp.timeline import (
     Schedule,
+    day_window,
     calc_end,
     crew_of,
     crew_track,
@@ -179,3 +181,27 @@ def replace_task(project: Project, task: Task) -> bool:
     return _replace_in(project.tasks, task) or _replace_in_sections(
         project.sections, task
     )
+
+
+def effect_day(
+    project: Project,
+    holidays: dict[date, str],
+    name: str,
+    day: date,
+    limit: int = 366,
+) -> date | None:
+    """name が day 以降で最初に稼働できる日(プロジェクトの休み・個人の休みを除く)。メンバーにいない・limit 日以内にない場合は None。"""
+    member = next((m for m in project.members if m.name == name), None)
+    if member is None:
+        return None
+    days = work_day_map(member.work_days)
+    for offset in range(limit):
+        candidate = day + timedelta(days=offset)
+        if (
+            day_window(
+                candidate, project.daily_hours, project.work_start, holidays, days
+            )
+            is not None
+        ):
+            return candidate
+    return None

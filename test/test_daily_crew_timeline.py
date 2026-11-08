@@ -306,3 +306,30 @@ def test_a_person_off_delays_the_effect_to_their_next_working_day() -> None:
         date(2026, 11, 24), now, START, NONE, members
     )
     assert from_20 == from_24
+
+
+# --- 効き始めの日 ----------------------------------------------------------------
+
+from projectapp.crew_trial import effect_day  # noqa: E402
+
+
+def test_effect_day_skips_weekends_holidays_events_and_personal_days_off() -> None:
+    project = Project(
+        name="p",
+        base_date=date(2026, 11, 2),
+        members=[
+            Member("田中"),
+            Member("鈴木", work_days=[WorkDay(date(2027, 1, 4))]),
+        ],
+    )
+    assert effect_day(project, YEAR_END, "田中", date(2026, 12, 26)) == date(2027, 1, 4)
+    assert effect_day(project, YEAR_END, "鈴木", date(2026, 12, 26)) == date(2027, 1, 5)
+    assert effect_day(project, NONE, "田中", date(2026, 11, 2)) == date(2026, 11, 2)
+    assert effect_day(project, NONE, "だれか", date(2026, 11, 2)) is None
+    assert effect_day(project, NONE, "田中", date(2028, 2, 26)) == date(
+        2028, 2, 28
+    )  # 土曜 → 月曜
+    assert effect_day(project, NONE, "田中", date(2028, 2, 28)) == date(2028, 2, 28)
+    assert effect_day(project, NONE, "田中", date(2027, 2, 27)) == date(
+        2027, 3, 1
+    )  # 平年: 土曜 → 3/1(月)

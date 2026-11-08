@@ -127,6 +127,7 @@ from projectapp.crew_trial import (
     TrialCrew,
     TrialResult,
     confirmed,
+    effect_day,
     evaluate,
     replace_task,
 )
@@ -1693,9 +1694,10 @@ class MainView:
         )
 
     def add_crew_to_warning(self, task_id: str, name: str) -> bool:
-        """警告のタスクに、今日の次の週頭から`name`を割り当て率 100% で足す(要望 132 の確定と同じ`weekly_crew`)。
+        """警告のタスクに、翌日から`name`を割り当て率 100% で足す(要望 132 の確定と同じ。増員日を含む週だけ日ごとになる)。
         1 回の編集として元に戻せる。足せないときは通知して False。"""
         now = clock.now()
+        start = now.date() + timedelta(days=1)
         schedule = Schedule(self.project, self.holidays)
         task = self.project.task_map().get(task_id)
         done = None
@@ -1711,7 +1713,7 @@ class MainView:
                 self.project,
                 self.holidays,
                 schedule,
-                TrialCrew(task_id, (name,), now.date()),
+                TrialCrew(task_id, (name,), start),
             )
         if done is None or not replace_task(self.project, done):
             ui.notify("タスクが変わったため、足しませんでした", type="warning")
@@ -1720,7 +1722,17 @@ class MainView:
         self.after_edit()
         self.warn_overallocation(done)
         self.refresh_dashboard(sync_field=False)
+        self.notify_effect((name,), start)
         return True
+
+    def notify_effect(self, names: tuple[str, ...], day: date) -> None:
+        """増員する人が休みで、day から効かないときは、効き始めの日を知らせる。"""
+        for name in names:
+            first = effect_day(self.project, self.holidays, name, day)
+            if first is not None and first != day:
+                ui.notify(
+                    f"{name} は {first.month}/{first.day} から効きます(休みのため)"
+                )
 
     def change_dashboard_late_basis(self, basis: LateBasis) -> None:
         """残りの工数の遅れの判定の基準を切り替える。表示だけで、保存しない(ビューにも入れない)。"""
@@ -2776,6 +2788,7 @@ class MainView:
             return False
         self.trials[task_id] = trial
         self.refresh_trials()
+        self.notify_effect(trial.names, start)
         return True
 
     def drop_trial(self, task_id: str) -> None:
@@ -2844,7 +2857,7 @@ class MainView:
             delay_band(len(results), recovered, self.confirm_trials, self.clear_trials)
 
     def try_invest_on_gantt(self, names: tuple[str, ...]) -> int:
-        """投入候補で選んだ人を、遅れているタスク(`警告を含む`のときは警告のタスクも)に今日から増員する試算にして、ガントチャートへ切り替える。"""
+        """投入候補で選んだ人を、遅れているタスク(`警告を含む`のときは警告のタスクも)に翌日から増員する試算にして、ガントチャートへ切り替える。"""
         now = clock.now()
         schedule = Schedule(self.project, self.holidays)
         self.trials = {}
@@ -2858,7 +2871,7 @@ class MainView:
             )  # `警告を含む`のときは、警告のタスクも対象
             if not late:
                 continue
-            trial = TrialCrew(task.id, names, now.date())
+            trial = TrialCrew(task.id, names, now.date() + timedelta(days=1))
             if (
                 evaluate(
                     task, self.project, self.holidays, schedule, trial, clock.now()
@@ -2878,7 +2891,7 @@ class MainView:
         task = self.tasks_in(path)[index]
         trial_dialog(
             [m.name for m in self.project.members],
-            clock.now().date(),
+            clock.now().date() + timedelta(days=1),
             lambda names, day: self.try_crew(task.id, names, day),
         )
 

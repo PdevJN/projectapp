@@ -228,3 +228,26 @@ async def test_try_invest_on_gantt_includes_warning_tasks_when_warnings_count_as
     view.dashboard_late_basis = LateBasis.WARNING
     assert view.try_invest_on_gantt(("鈴木",)) == 1  # 警告を含む: 対象
     assert set(view.trials) == {"ta"}
+
+
+async def test_try_invest_on_gantt_starts_the_next_day(
+    user: User, tmp_path: Path
+) -> None:
+    from datetime import timedelta
+
+    from projectapp import clock
+
+    view = await opened(user, tmp_path)
+    view.project.tasks.clear()
+    view.project.tasks.append(
+        Task(
+            "late",
+            id="tl",
+            planned_start=datetime(2026, 10, 12, 9),
+            effort_hours=40.0,
+            assignees=[Assignee("田中")],
+        )
+    )
+    view.after_edit()
+    assert view.try_invest_on_gantt(("鈴木",)) == 1
+    assert view.trials["tl"].start == clock.now().date() + timedelta(days=1)
