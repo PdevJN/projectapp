@@ -4,6 +4,7 @@ from pathlib import Path
 from nicegui.testing import User
 
 from projectapp.delay_response import DELAY_RESPONSE_CSS
+from projectapp.models import Assignee
 from test_delay_response import opened
 
 
@@ -98,3 +99,22 @@ async def test_switching_project_clears_the_band_and_the_overlay(
     view.reset_history()  # プロジェクトの切り替え・名前をつけて保存の入口
     assert view.gantt.trial_results == {}
     await user.should_not_see(marker="delay-band")
+
+
+async def test_a_week_that_adds_a_member_is_marked_as_an_increase(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    task = view.project.tasks[0]
+    task.weekly_crew = [
+        [Assignee("田中")],
+        [Assignee("田中"), Assignee("鈴木")],
+        [Assignee("田中"), Assignee("鈴木")],
+    ]
+    view.after_edit()
+    await user.should_see(marker="week-chip-top-0-1")
+    await user.should_see(marker="week-added-top-0-1")  # 鈴木が増えた週
+    await user.should_not_see(marker="week-added-top-0-0")  # 第 1 週は最初の担当
+    await user.should_not_see(marker="week-added-top-0-2")  # 人が増えていない週
+    chip = user.find(marker="week-added-top-0-1").elements.pop()
+    assert "week-added" in chip.classes  # 紫の実線の縁で示す

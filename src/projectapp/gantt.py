@@ -3251,7 +3251,16 @@ class GanttChart:
                 else ""
             ):
                 title += f"\n⚠ {load}"
-            chip.tooltip(title).mark(f"week-chip-{key}-{ti}-{index}")
+            markers = [f"week-chip-{key}-{ti}-{index}"]
+            if (
+                1 <= index < defined
+            ):  # 前の週にいない人が現れる週は、増員(確定済み)として示す(要望 132)
+                before = {a.name for a in task.weekly_crew[index - 1]}
+                if added := [a.name for a in crew if a.name not in before]:
+                    title += f"\n増員 +{'・'.join(added)}(確定済み)"
+                    chip.classes("week-added")
+                    markers.append(f"week-added-{key}-{ti}-{index}")
+            chip.tooltip(title).mark(*markers)
             if not self.options.read_only:
                 # 修飾キーつきのクリックは、チップで受けず棒へ伝える(棒の Shift クリックは進捗度・実績の簡易入力。両方は開かない)
                 chip.style("cursor: pointer").on(
