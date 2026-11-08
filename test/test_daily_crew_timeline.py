@@ -216,3 +216,93 @@ def test_crew_track_expands_weeks_to_days_only_when_there_is_a_daily_week() -> N
     assert plain.step == 7 and len(plain) == 2
     mixed = crew_track(weekly, {0: [[Assignee("田中")]] * 7}, workers)
     assert mixed.step == 1 and len(mixed) == 7 + 7
+
+
+# --- 確定後の完了見込み = 試算 -------------------------------------------------
+
+from projectapp.crew_trial import TrialCrew, confirmed, evaluate  # noqa: E402
+from projectapp.forecast import forecast_end  # noqa: E402
+from projectapp.models import Member, Project, Section  # noqa: E402
+from projectapp.timeline import Schedule  # noqa: E402
+
+
+def check_confirmed_equals_trial(
+    day: date, now: datetime, start: datetime, holidays=NONE, members=None
+) -> datetime:
+    task = Task(
+        "a",
+        id="ta",
+        planned_start=start,
+        effort_hours=120.0,
+        progress=10,  # 進捗情報があれば、確定後も見込みが出る(なければ警告の解消で消える)
+        assignees=[Assignee("田中")],
+    )
+    project = Project(
+        name="p",
+        base_date=start.date(),
+        members=members or [Member("田中"), Member("鈴木")],
+        sections=[Section("s", tasks=[task])],
+    )
+    schedule = Schedule(project, holidays)
+    trial = TrialCrew("ta", ("鈴木",), day)
+    result = evaluate(task, project, holidays, schedule, trial, now)
+    done = confirmed(task, project, holidays, schedule, trial)
+    assert result is not None and done is not None and result.trial_end is not None
+    after = forecast_end(done, project, holidays, now, schedule)
+    assert after is not None and after.end == result.trial_end
+    return result.trial_end
+
+
+def test_confirmed_forecast_equals_the_trial_for_a_mid_week_day() -> None:
+    now = datetime(2026, 11, 19, 10)
+    end = check_confirmed_equals_trial(date(2026, 11, 20), now, START)
+    assert end > now
+
+
+def test_confirmed_equals_the_trial_across_the_year_end_break() -> None:
+    start = datetime(2026, 12, 7, 9)
+    now = datetime(2026, 12, 25, 10)  # 金曜
+    results = {
+        day: check_confirmed_equals_trial(day, now, start, YEAR_END)
+        for day in (
+            date(2026, 12, 26),
+            date(2026, 12, 27),
+            date(2026, 12, 28),
+            date(2027, 1, 4),
+        )
+    }
+    assert (
+        len(set(results.values())) == 1
+    )  # 休みの間のどの日に指定しても、効き始めは 1/4
+
+
+def test_confirmed_equals_the_trial_across_a_leap_day_and_a_plain_year() -> None:
+    leap_start = datetime(2028, 2, 14, 9)
+    on_29 = check_confirmed_equals_trial(
+        date(2028, 2, 29), datetime(2028, 2, 28, 10), leap_start
+    )
+    on_mar1 = check_confirmed_equals_trial(
+        date(2028, 3, 1), datetime(2028, 2, 29, 10), leap_start
+    )
+    assert on_29 <= on_mar1
+    check_confirmed_equals_trial(
+        date(2027, 3, 1), datetime(2027, 2, 28, 10), datetime(2027, 2, 15, 9)
+    )
+
+
+def test_a_person_off_delays_the_effect_to_their_next_working_day() -> None:
+    members = [
+        Member("田中"),
+        Member(
+            "鈴木", work_days=[WorkDay(date(2026, 11, 20)), WorkDay(date(2026, 11, 23))]
+        ),
+    ]
+    now = datetime(2026, 11, 19, 10)
+    # 11/20 は個人の休み、11/21・22 は土日、11/23 は個人の休み。効き始めは 11/24
+    from_20 = check_confirmed_equals_trial(
+        date(2026, 11, 20), now, START, NONE, members
+    )
+    from_24 = check_confirmed_equals_trial(
+        date(2026, 11, 24), now, START, NONE, members
+    )
+    assert from_20 == from_24

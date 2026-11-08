@@ -3,13 +3,12 @@
 当初の完了予定(`effective_end`)は変えない。見込みは保存せず、表示のたびに算出する。
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date, datetime
 from math import isfinite
 
+from projectapp.daily_crew import rows_of, with_added_from
 from projectapp.models import (
-    MAX_WEEKS,
-    Assignee,
     Project,
     Status,
     Task,
@@ -21,6 +20,7 @@ from projectapp.timeline import (
     Schedule,
     calc_end,
     crew_of,
+    crew_track,
     effective_end,
     effective_start,
 )
@@ -39,32 +39,8 @@ class Forecast:
         return (self.end.date() - self.planned_end.date()).days
 
 
-def snap_week(anchor: date, day: date) -> int:
-    """増員日を、anchor から 7 日ごとの週の境目に、遅い側へ丸めた週の添字(0 始まり)。anchor より前は第 1 週。"""
-    days = (day - anchor).days
-    return 0 if days <= 0 else -(-days // 7)
-
-
 def _has_progress(task: Task) -> bool:
     return bool(task.progress) or bool(task.actuals)
-
-
-def with_added(
-    base: list[list[Assignee]], first: int, names: tuple[str, ...]
-) -> list[list[Assignee]] | None:
-    """base の週ごとの担当の、first 週以降に names を足す(重複なし)。上限を超えるなら None。"""
-    if first >= MAX_WEEKS:
-        return None
-    while len(base) <= first:
-        base.append([replace(a) for a in base[-1]])
-    weeks: list[list[Assignee]] = []
-    for number, week in enumerate(base):
-        crew = [replace(a) for a in week]
-        if number >= first:
-            present = {a.name for a in crew}
-            crew += [Assignee(n) for n in names if n not in present]
-        weeks.append(crew)
-    return weeks
 
 
 def forecast_end(
@@ -79,7 +55,7 @@ def forecast_end(
 
     通常タスクで、終了しておらず、残りの工数があり、実効の開始が今日以前のものが対象。
     進捗度も実績もないタスクは、予定超過か警告のときだけ出す(経過日数ぶん常に遅く出るのを避ける)。
-    extra_crew = (増員の名前の列, 増員日)は要望 132 の試算用。増員日は週の境目の遅い側に丸める。
+    extra_crew = (増員の名前の列, 増員日)は要望 132 の試算用。増員日は丸めずそのまま使う(週頭ならその週以降、週の途中ならその週だけ日ごと)。
     """
     if task.kind is not TaskKind.NORMAL or task.status is Status.DONE:
         return None
@@ -95,35 +71,32 @@ def forecast_end(
         if not overdue and warning_pace(task, project, holidays, now, schedule) is None:
             return None
     origin = max(now, start)
-    weekly = bool(task.weekly_crew)
-    anchor = start.date() if weekly else origin.date()
-    rows = [[replace(a) for a in w] for w in task.weekly_crew] or [
-        [replace(a) for a in task.assignees]
-    ]
+    anchor = start.date()  # 週の区切りは常に実効の開始から数える(確定後の担当と同じ)
+    weekly, daily = rows_of(task)
     if extra_crew is not None:
         names, day = extra_crew
-        first = snap_week(anchor, max(day, origin.date()) if weekly else day)
-        added = with_added(rows, first, names)
+        added = with_added_from(weekly, daily, (day - anchor).days, names)
         if added is None:
             return None
-        rows = added
-    crews = [
-        crew_of(
-            week,
+        weekly, daily = added
+    track = crew_track(
+        weekly,
+        daily,
+        lambda crew: crew_of(
+            crew,
             project.members,
             project.parameters,
             task.parameters,
             project.ratio_limits,
-        )
-        for week in rows
-    ]
+        ),
+    )
     end = calc_end(
         origin,
         rest,
         project.daily_hours,
         project.work_start,
         holidays,
-        weeks=crews,
+        weeks=track,
         weeks_start=anchor,
     )
     return None if end is None else Forecast(end, planned)

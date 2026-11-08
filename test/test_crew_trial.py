@@ -5,8 +5,7 @@ from projectapp.crew_trial import (
     confirmed,
     evaluate,
     replace_task,
-    snap_week,
-    trial_weeks,
+    trial_crews,
 )
 from projectapp.models import (
     MAX_WEEKS,
@@ -43,48 +42,40 @@ def sample(**changes: object) -> tuple[Project, Task]:
     return project, task
 
 
-def test_snap_week_rounds_to_the_later_week_boundary() -> None:
-    anchor = date(2026, 11, 2)
-    assert snap_week(anchor, date(2026, 11, 2)) == 0
-    assert snap_week(anchor, date(2026, 11, 1)) == 0  # 開始より前は第 1 週
-    assert snap_week(anchor, date(2026, 11, 3)) == 1  # 週の途中は次の週頭
-    assert snap_week(anchor, date(2026, 11, 9)) == 1  # ちょうど境目
-    assert snap_week(anchor, date(2026, 11, 10)) == 2
+def names(crew):
+    return [a.name for a in crew]
 
 
-def test_trial_weeks_adds_members_from_the_snapped_week_and_carries_on() -> None:
+def test_trial_crews_from_a_week_head_adds_to_the_week_and_carries_on() -> None:
     _, task = sample()
-    weeks = trial_weeks(
-        task, TrialCrew("ta", ("鈴木",), date(2026, 11, 10)), date(2026, 11, 2)
-    )
-    assert weeks is not None
-    names = [[a.name for a in w] for w in weeks]
-    assert names == [["田中"], ["田中"], ["田中", "鈴木"]]
-
-
-def test_trial_weeks_keeps_existing_weekly_crew_and_does_not_duplicate() -> None:
-    _, task = sample(
-        weekly_crew=[
-            [Assignee("田中")],
-            [Assignee("田中")],
-            [Assignee("田中"), Assignee("鈴木")],
-        ]
-    )
-    weeks = trial_weeks(
+    weekly, daily = trial_crews(
         task, TrialCrew("ta", ("鈴木",), date(2026, 11, 9)), date(2026, 11, 2)
     )
-    assert weeks is not None
-    assert [[a.name for a in w] for w in weeks] == [
-        ["田中"],
-        ["田中", "鈴木"],
-        ["田中", "鈴木"],
-    ]
+    assert [names(w) for w in weekly] == [["田中"], ["田中", "鈴木"]] and daily == {}
 
 
-def test_trial_weeks_refuses_beyond_the_week_limit() -> None:
+def test_trial_crews_mid_week_makes_that_week_daily() -> None:
+    _, task = sample()
+    weekly, daily = trial_crews(
+        task, TrialCrew("ta", ("鈴木",), date(2026, 11, 5)), date(2026, 11, 2)
+    )
+    assert list(daily) == [0]
+    assert [names(d) for d in daily[0]] == [["田中"]] * 3 + [["田中", "鈴木"]] * 4
+    assert names(weekly[0]) == ["田中", "鈴木"]
+
+
+def test_trial_crews_keeps_existing_weeks_and_does_not_duplicate() -> None:
+    _, task = sample(weekly_crew=[[Assignee("田中")], [Assignee("田中")]])
+    weekly, daily = trial_crews(
+        task, TrialCrew("ta", ("田中",), date(2026, 11, 9)), date(2026, 11, 2)
+    )
+    assert [names(w) for w in weekly] == [["田中"], ["田中"]] and daily == {}
+
+
+def test_trial_crews_refuses_beyond_the_week_limit() -> None:
     _, task = sample()
     far = date.fromordinal(date(2026, 11, 2).toordinal() + 7 * MAX_WEEKS + 1)
-    assert trial_weeks(task, TrialCrew("ta", ("鈴木",), far), date(2026, 11, 2)) is None
+    assert trial_crews(task, TrialCrew("ta", ("鈴木",), far), date(2026, 11, 2)) is None
 
 
 def test_evaluate_shows_an_earlier_end_with_more_people() -> None:
@@ -205,17 +196,19 @@ def test_confirming_an_overdue_task_does_not_shrink_the_past_bar() -> None:
     assert [a.name for a in saved.weekly_crew[0]] == ["田中"]
 
 
-def test_confirming_rounds_to_the_later_week() -> None:
+def test_confirming_starts_on_the_given_day_and_makes_only_that_week_daily() -> None:
     project, task = sample()
     schedule = Schedule(project, HOLIDAYS)
-    trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 10))
+    trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 10))  # 第 2 週(11/9〜)の火曜
     saved = confirmed(task, project, HOLIDAYS, schedule, trial)
     assert saved is not None
     assert [[a.name for a in w] for w in saved.weekly_crew] == [
         ["田中"],
-        ["田中"],
         ["田中", "鈴木"],
     ]
+    assert [[a.name for a in d] for d in saved.daily_crew[1]] == [["田中"]] + [
+        ["田中", "鈴木"]
+    ] * 6
 
 
 def test_a_warning_task_is_estimated_from_todays_remaining_effort() -> None:
