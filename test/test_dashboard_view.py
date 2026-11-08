@@ -13,6 +13,8 @@ from projectapp.dashboard import (
     DayLoad,
     CatchUp,
     CatchUpMode,
+    Candidate,
+    Investment,
     LateBasis,
     LoadFailure,
     ProjectLoad,
@@ -2436,3 +2438,135 @@ async def test_nothing_is_shown_for_zero_people(user: User) -> None:
     await user.should_see(marker="dashboard-backlog-catch-up")
     await user.should_not_see(marker="dashboard-backlog-recovery")
     await user.should_not_see(marker="dashboard-backlog-recovery-note")
+
+
+# --- 要望 131: 投入の候補 --------------------------------------------------------
+
+CANDIDATES = [
+    Candidate("鈴木", 16.5, 1.0),
+    Candidate("田中", 3.0, 1.0),
+    Candidate("佐藤", -2.0, 1.0),
+]
+
+
+def invest_backlog(
+    invest: tuple[str, ...] = (),
+    investment: Investment | None = None,
+    overdue: float = 26.0,
+    candidates: list[Candidate] | None = None,
+) -> Backlog:
+    return Backlog(
+        30.0, 0, 3, 1.0, 1.5, [("田中", 30.0)], overdue_hours=overdue,
+        overdue_count=1 if overdue else 0,
+        catch_up=CatchUp(CatchUpMode.PERIOD, 5, 1.5, invest),
+        candidates=CANDIDATES if candidates is None else candidates,
+        investment=investment,
+    )  # fmt: skip
+
+
+async def test_candidates_are_listed_with_their_spare_and_a_member_without_spare_is_disabled(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(invest_backlog()), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-candidate-鈴木")
+    assert user.find(marker="dashboard-backlog-candidate-鈴木").elements.pop().text == (
+        "鈴木  余力 16.5h"
+    )
+    assert user.find(marker="dashboard-backlog-candidate-田中").elements.pop().text == (
+        "田中  余力 3.0h"
+    )
+    none = user.find(marker="dashboard-backlog-candidate-佐藤").elements.pop()
+    assert none.text == "佐藤  余力なし" and not none.enabled
+
+
+async def test_ticking_a_candidate_notifies_the_new_rule_keeping_the_rest(
+    user: User,
+) -> None:
+    changes: list[CatchUp] = []
+    views, _, _ = mount(catch_up_changes=changes)
+    await user.open("/")
+    views[0].show(with_backlog(invest_backlog(("鈴木",))), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-candidate-田中")
+    user.find(marker="dashboard-backlog-candidate-田中").elements.pop().set_value(True)
+    assert changes == [CatchUp(CatchUpMode.PERIOD, 5, 1.5, ("鈴木", "田中"))]
+
+
+async def test_unticking_a_candidate_removes_only_that_member(user: User) -> None:
+    changes: list[CatchUp] = []
+    views, _, _ = mount(catch_up_changes=changes)
+    await user.open("/")
+    views[0].show(with_backlog(invest_backlog(("鈴木", "田中"))), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-candidate-鈴木")
+    user.find(marker="dashboard-backlog-candidate-鈴木").elements.pop().set_value(False)
+    assert changes == [CatchUp(CatchUpMode.PERIOD, 5, 1.5, ("田中",))]
+
+
+async def test_the_investment_line_gives_the_date_and_whether_the_period_end_holds(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    investment = Investment(
+        ("鈴木", "田中"), 19.5, 18.0, date(2026, 11, 13), date(2026, 11, 15)
+    )
+    views[0].show(
+        with_backlog(invest_backlog(("鈴木", "田中"), investment)), PeriodKind.WEEK
+    )
+    await user.should_see(marker="dashboard-backlog-invest")
+    line = text(user, "dashboard-backlog-invest")
+    assert "鈴木・田中を投入すると 11/13 に取り戻せます" in line
+    assert "余力の合計 19.5h ≥ 遅れ 18.0h" in line
+    assert "期間の終わり(11/15)に間に合います" in line
+
+
+async def test_the_investment_line_says_when_the_period_end_is_missed(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    investment = Investment(
+        ("鈴木",), 19.5, 18.0, date(2026, 11, 20), date(2026, 11, 15)
+    )
+    views[0].show(with_backlog(invest_backlog(("鈴木",), investment)), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-invest")
+    assert "期間の終わり(11/15)に間に合いません" in text(
+        user, "dashboard-backlog-invest"
+    )
+
+
+async def test_the_investment_line_reports_a_spare_shortage(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    investment = Investment(("田中",), 3.0, 26.0, None, None)
+    views[0].show(with_backlog(invest_backlog(("田中",), investment)), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-invest")
+    line = text(user, "dashboard-backlog-invest")
+    assert "選んだ人の余力 3.0h では、遅れ 26.0h のうち 3.0h しか取り戻せません" in line
+    assert "残り 23.0h" in line
+
+
+async def test_a_missing_date_with_enough_spare_is_explained(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    investment = Investment(("鈴木",), 30.0, 26.0, None, None)
+    views[0].show(with_backlog(invest_backlog(("鈴木",), investment)), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-invest")
+    assert "取り戻せる日を出せません" in text(user, "dashboard-backlog-invest")
+
+
+async def test_candidates_are_hidden_when_nothing_is_late(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(invest_backlog(overdue=0.0)), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-catch-up")
+    await user.should_not_see(marker="dashboard-backlog-candidate-鈴木")
+
+
+async def test_candidates_are_hidden_without_any_candidate(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(invest_backlog(candidates=[])), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-catch-up")
+    await user.should_not_see(marker="dashboard-backlog-candidates")

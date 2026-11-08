@@ -19,6 +19,7 @@ from projectapp.dashboard import (
     CrossSummary,
     Dashboard,
     DayLoad,
+    Investment,
     CatchUp,
     CatchUpMode,
     LateBasis,
@@ -365,6 +366,34 @@ def legend(prefix: str, entries: tuple[tuple[str, str, str], ...]) -> None:
 
 
 MAX_RECOVER_PEOPLE = 20.0  # 遅れを取り戻すために追加できる人数の上限
+
+
+def toggled(names: tuple[str, ...], name: str, on: bool) -> tuple[str, ...]:
+    """投入するメンバーの選択に、`name`を足す(on)か外す。選んだ順を保つ。"""
+    rest = tuple(n for n in names if n != name)
+    return (*rest, name) if on else rest
+
+
+def investment_text(investment: Investment) -> str:
+    """選んだメンバーを投入したときの文言(要望 131)。余力が届かないときは不足を、届くときは日付を出す。"""
+    spare, hours = investment.spare_hours, investment.hours
+    if spare < hours - 1e-9:
+        return (
+            f"選んだ人の余力 {spare:.1f}h では、遅れ {hours:.1f}h のうち {spare:.1f}h しか"
+            f"取り戻せません(残り {hours - spare:.1f}h)"
+        )
+    if investment.date is None:
+        return "稼働日が見つからず、取り戻せる日を出せません"
+    text = (
+        f"{'・'.join(investment.names)}を投入すると {investment.date:%m/%d} に取り戻せます"
+        f"(余力の合計 {spare:.1f}h ≥ 遅れ {hours:.1f}h)"
+    )
+    if investment.due is not None:
+        verdict = (
+            "間に合います" if investment.date <= investment.due else "間に合いません"
+        )
+        text += f"。期間の終わり({investment.due:%m/%d})に{verdict}"
+    return text
 
 
 def recovery_text(recovery: Recovery) -> str:
@@ -1656,6 +1685,7 @@ class DashboardView:
                 ).props(props).mark(f"dashboard-backlog-late-{marker}")
         self.catch_up_controls(backlog.catch_up)
         self.recovery_controls(backlog)
+        self.invest_controls(backlog)
 
     def catch_up_controls(self, rule: CatchUp) -> None:
         """遅れを取り戻す期限の選択(`期間の終わり`・`タスクごと`)。`タスクごと`のときは、予定超過を取り戻す稼働日数の欄も出す(選択は保存しない)。"""
@@ -1740,6 +1770,56 @@ class DashboardView:
             "追加した人だけで遅れを取り戻す前提の、稼働時間の算術です(予測ではありません)。"
             "追加した人が並行して進められること、立ち上がりの遅れは見ていません。"
         ).classes("text-caption text-grey").mark("dashboard-backlog-recovery-note")
+
+    def invest_controls(self, backlog: Backlog) -> None:
+        """遅れを取り戻すために投入する人の候補(余力の多い順)と、選んだ人を投入したときに取り戻せる日の試算(要望 131)。
+        選択は保存しない。遅れがないとき・候補がいないときは出さない。"""
+        if backlog.late_hours <= 0 or not backlog.candidates:
+            return
+        rule = backlog.catch_up
+        with ui.column().classes("gap-0").mark("dashboard-backlog-candidates"):
+            ui.label("投入の候補(余力の多い順)").classes("text-caption")
+            for candidate in backlog.candidates:
+                has_spare = candidate.spare_hours > 0
+                label = (
+                    f"{candidate.name}  余力 {candidate.spare_hours:.1f}h"
+                    if has_spare
+                    else f"{candidate.name}  余力なし"
+                )
+                box = (
+                    ui.checkbox(
+                        label,
+                        value=candidate.name in rule.invest,
+                        on_change=lambda e, n=candidate.name, now=rule: (
+                            self.pick_catch_up(
+                                replace(now, invest=toggled(now.invest, n, e.value)),
+                                now,
+                            )
+                        ),
+                    )
+                    .props("dense")
+                    .mark(f"dashboard-backlog-candidate-{candidate.name}")
+                )
+                if not has_spare:
+                    box.disable()
+        investment = backlog.investment
+        if investment is None:
+            return
+        missed = investment.date is None or (
+            investment.due is not None and investment.date > investment.due
+        )
+        with (
+            ui.row().classes("items-center gap-1").mark("dashboard-backlog-invest-row")
+        ):
+            if missed:
+                warning_icon("dashboard-backlog-invest-icon")
+            ui.label(investment_text(investment)).classes("text-caption").mark(
+                "dashboard-backlog-invest"
+            )
+        ui.label(
+            "選んだ人が自分の余力の範囲で遅れを手伝う前提の、稼働時間の算術です(予測ではありません)。"
+            "並行して進められること、立ち上がりの遅れは見ていません。"
+        ).classes("text-caption text-grey").mark("dashboard-backlog-invest-note")
 
     def pick_catch_up(self, rule: CatchUp, current: CatchUp) -> None:
         """取り戻す期限と追加人数を選ぶ。今と同じなら何もしない。日数は 1〜60、追加人数は 0〜20(小数 1 桁)に収める。"""
