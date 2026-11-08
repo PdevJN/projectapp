@@ -272,6 +272,7 @@ from projectapp.models import (
     union_assignees,
 )
 from projectapp.selection import set_checked
+from projectapp.pace import warning_pace
 from projectapp.preview import (
     LARGE_IMAGE_MESSAGE,
     NOT_NATIVE_MESSAGE,
@@ -2803,14 +2804,19 @@ class MainView:
             delay_band(len(results), recovered, self.confirm_trials, self.clear_trials)
 
     def try_invest_on_gantt(self, names: tuple[str, ...]) -> int:
-        """投入候補で選んだ人を、遅れているタスクに今日の次の週頭から増員する試算にして、ガントチャートへ切り替える。"""
+        """投入候補で選んだ人を、遅れているタスク(`警告を含む`のときは警告のタスクも)に今日から増員する試算にして、ガントチャートへ切り替える。"""
         now = clock.now()
         schedule = Schedule(self.project, self.holidays)
         self.trials = {}
         for task in self.project.all_tasks():
             if task.kind is not TaskKind.NORMAL or task.status is Status.DONE:
                 continue
-            if not is_overdue(task, self.project, self.holidays, now, schedule):
+            late = is_overdue(task, self.project, self.holidays, now, schedule) or (
+                self.dashboard_late_basis is LateBasis.WARNING
+                and warning_pace(task, self.project, self.holidays, now, schedule)
+                is not None
+            )  # `警告を含む`のときは、警告のタスクも対象
+            if not late:
                 continue
             trial = TrialCrew(task.id, names, now.date())
             if (

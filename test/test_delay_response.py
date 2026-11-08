@@ -211,3 +211,20 @@ async def test_an_overdue_task_gets_a_from_now_estimate_that_is_earlier(
     assert result.trial_end is not None and result.baseline_end is not None
     assert result.trial_end < result.baseline_end
     assert (result.days_earlier or 0) > 0
+
+
+async def test_try_invest_on_gantt_includes_warning_tasks_when_warnings_count_as_late(
+    user: User, tmp_path: Path, monkeypatch
+) -> None:
+    from projectapp import views as views_module
+    from projectapp.dashboard import LateBasis
+
+    view = await opened(user, tmp_path)  # 将来の通常タスク ta(遅れていない)
+    monkeypatch.setattr(
+        views_module, "warning_pace", lambda task, *args, **kwargs: object()
+    )
+    view.dashboard_late_basis = LateBasis.DELAY
+    assert view.try_invest_on_gantt(("鈴木",)) == 0  # 遅れのみ: 警告は対象外
+    view.dashboard_late_basis = LateBasis.WARNING
+    assert view.try_invest_on_gantt(("鈴木",)) == 1  # 警告を含む: 対象
+    assert set(view.trials) == {"ta"}
