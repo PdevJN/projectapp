@@ -69,3 +69,36 @@ def trial_dialog(
             ui.button("キャンセル", on_click=dialog.close).props("flat")
             ui.button("試す", on_click=ok).mark("trial-dialog-ok")
     dialog.open()
+
+
+def open_trial_save_dialog(
+    count: int,
+    on_confirm: Callable[[], object],
+    on_keep: Callable[[], object],
+    on_discard: Callable[[], object],
+) -> None:
+    """保存時に試算が残っているときの確認。黙って確定しない。"""
+    with ui.dialog() as dialog, ui.card().mark("trial-save-dialog"):
+        ui.label(f"{count} 件の増員を確定して保存します")
+        ui.label("確定すると、担当に「週ごとの担当」として保存されます。").classes(
+            "text-caption"
+        )
+
+        def pick(action: Callable[[], object]) -> None:
+            dialog.close()
+            action()
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark(
+                "trial-save-cancel"
+            )
+            ui.button("試算を捨てて保存", on_click=lambda: pick(on_discard)).props(
+                "flat"
+            ).mark("trial-save-discard")
+            ui.button("確定せずに保存", on_click=lambda: pick(on_keep)).props(
+                "flat"
+            ).mark("trial-save-keep")
+            ui.button("確定して保存", on_click=lambda: pick(on_confirm)).mark(
+                "trial-save-confirm"
+            )
+    dialog.open()

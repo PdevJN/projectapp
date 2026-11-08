@@ -118,7 +118,11 @@ from projectapp.shortcuts import (
     label_for,
     resolve,
 )
-from projectapp.delay_response import delay_band, trial_dialog
+from projectapp.delay_response import (
+    delay_band,
+    open_trial_save_dialog,
+    trial_dialog,
+)
 from projectapp.crew_trial import (
     TrialCrew,
     TrialResult,
@@ -2485,6 +2489,14 @@ class MainView:
             open_name_dialog(
                 self.save_as_new,
                 lambda name: validate_name(name, self.project_dir, new=True),
+            )
+            return
+        if self.trials:
+            open_trial_save_dialog(
+                len(self.trials),
+                on_confirm=lambda: (self.confirm_trials(), self.write(overwrite=True)),
+                on_keep=lambda: self.write(overwrite=True),
+                on_discard=lambda: (self.clear_trials(), self.write(overwrite=True)),
             )
             return
         self.write(overwrite=True)

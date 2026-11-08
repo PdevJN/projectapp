@@ -8,7 +8,7 @@ from projectapp.calendar import save_cache
 from projectapp.models import Assignee, Member, Task
 from projectapp.timeline import effective_end
 from projectapp.views import MainView
-from test_views import make_view
+from test_views import make_view, wait_until
 
 START = datetime(2026, 11, 2, 9)
 
@@ -137,3 +137,54 @@ async def test_try_invest_on_gantt_puts_trials_on_overdue_tasks(
     assert view.try_invest_on_gantt(("鈴木",)) == 1
     assert set(view.trials) == {"tl"}  # 遅れているタスクだけ
     assert view.dashboard_kind is None
+
+
+async def saved_with_trial(user: User, tmp_path: Path) -> MainView:
+    view = await opened(user, tmp_path)
+    assert view.save_as_new("確認")  # 最初の保存でファイルを作る
+    view.try_crew("ta", ["鈴木"], date(2026, 11, 9))
+    user.find(marker="save-project").click()
+    await user.should_see(marker="trial-save-dialog")
+    return view
+
+
+async def test_saving_with_trials_asks_and_confirm_saves_the_weekly_crew(
+    user: User, tmp_path: Path
+) -> None:
+    view = await saved_with_trial(user, tmp_path)
+    await user.should_see("1 件の増員を確定して保存します")
+    user.find(marker="trial-save-confirm").click()
+    assert await wait_until(lambda: view.trials == {} and not view.is_dirty())
+    assert view.project.tasks[0].weekly_crew != []
+
+
+async def test_keep_saves_without_confirming_and_leaves_the_trial(
+    user: User, tmp_path: Path
+) -> None:
+    view = await saved_with_trial(user, tmp_path)
+    user.find(marker="trial-save-keep").click()
+    assert await wait_until(lambda: user.notify.contains("保存しました"))
+    assert "ta" in view.trials
+    assert view.project.tasks[0].weekly_crew == []
+
+
+async def test_discard_drops_the_trial_and_saves(user: User, tmp_path: Path) -> None:
+    view = await saved_with_trial(user, tmp_path)
+    user.find(marker="trial-save-discard").click()
+    assert await wait_until(lambda: view.trials == {})
+    assert await wait_until(lambda: user.notify.contains("保存しました"))
+    assert view.project.tasks[0].weekly_crew == []
+
+
+async def test_cancel_changes_nothing(user: User, tmp_path: Path) -> None:
+    view = await saved_with_trial(user, tmp_path)
+    user.find(marker="trial-save-cancel").click()
+    assert "ta" in view.trials and view.project.tasks[0].weekly_crew == []
+
+
+async def test_saving_without_trials_does_not_ask(user: User, tmp_path: Path) -> None:
+    view = await opened(user, tmp_path)
+    assert view.save_as_new("確認")
+    user.find(marker="save-project").click()
+    assert await wait_until(lambda: user.notify.contains("保存しました"))
+    await user.should_not_see(marker="trial-save-dialog")
