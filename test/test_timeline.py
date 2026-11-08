@@ -1742,7 +1742,9 @@ def test_calc_end_counts_weeks_from_weeks_start_when_given() -> None:
     fast = calc_end(
         start, 16.0, 8.0, time(9), {}, weeks=weeks, weeks_start=date(2026, 11, 2)
     )
-    slow = calc_end(start, 16.0, 8.0, time(9), {}, weeks=weeks)  # 省略: start から数える
+    slow = calc_end(
+        start, 16.0, 8.0, time(9), {}, weeks=weeks
+    )  # 省略: start から数える
     assert fast is not None and slow is not None
     assert fast.date() == date(2026, 11, 9)  # 4 倍速で 4h → 当日
     assert slow.date() > fast.date()  # 第 1 週(等速)なので 2 日かかる
