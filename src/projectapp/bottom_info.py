@@ -92,7 +92,8 @@ def _stamp(value: datetime | None) -> str:
 def _crew(task: Task) -> str:
     if not task.assignees:
         return DASH
-    return "・".join(f"{a.name} {round(a.allocation * 100)}%" for a in task.assignees)
+    text = "・".join(f"{a.name} {round(a.allocation * 100)}%" for a in task.assignees)
+    return text + "(日ごとの週あり)" if task.daily_crew else text
 
 
 def _effort_text(task: Task) -> str:

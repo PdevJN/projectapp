@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta
 
 
+from projectapp.daily_crew import copy_daily, copy_weekly
 from projectapp.models import (
     MAX_SECTION_DEPTH,
     MAX_TASK_NAME_LENGTH,
@@ -134,7 +135,8 @@ def _plain_copy(original: Task, task_id: str, name: str) -> Task:
         predecessors=[],
         actuals=[],
         assignees=[replace(a) for a in original.assignees],
-        weekly_crew=[[replace(a) for a in week] for week in original.weekly_crew],
+        weekly_crew=copy_weekly(original.weekly_crew),
+        daily_crew=copy_daily(original.daily_crew),
         parameters=list(original.parameters),
         urls=[replace(u, values=dict(u.values)) for u in original.urls],
     )

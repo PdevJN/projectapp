@@ -267,7 +267,13 @@ def _crew_applied(
 
         if weeks:
             added = [add(w) for w in weeks]
-            return replace(task, weekly_crew=added, assignees=union_assignees(added))
+            days = {k: [add(d) for d in ds] for k, ds in task.daily_crew.items()}
+            return replace(
+                task,
+                weekly_crew=added,
+                daily_crew=days,
+                assignees=union_assignees(added),
+            )
         return replace(task, assignees=add(task.assignees))
     if change.mode is CrewMode.REMOVE:
         name = change.members[0].name
@@ -279,9 +285,21 @@ def _crew_applied(
             filled, empties = fill_empty_weeks([drop(w) for w in weeks])
             if not filled:  # 全週が空: 週ごとをやめて担当なしにする
                 result.emptied += 1
-                return replace(task, weekly_crew=[], assignees=[])
+                return replace(task, weekly_crew=[], daily_crew={}, assignees=[])
             result.filled_weeks += len(empties)
-            return replace(task, weekly_crew=filled, assignees=union_assignees(filled))
+            days = {}
+            for k, ds in task.daily_crew.items():
+                if k >= len(filled):
+                    continue
+                # 外して空になった日は、その週の(外した後の)担当で埋める
+                days[k] = [drop(d) or _copy(filled[k]) for d in ds]
+                filled[k] = union_assignees(days[k])
+            return replace(
+                task,
+                weekly_crew=filled,
+                daily_crew=days,
+                assignees=union_assignees(filled),
+            )
         crew = drop(task.assignees)
         if task.assignees and not crew:
             result.emptied += 1
@@ -289,7 +307,9 @@ def _crew_applied(
     if change.mode is CrewMode.REPLACE:
         if weeks:
             result.weeks_dropped += 1
-        return replace(task, weekly_crew=[], assignees=_copy(change.members))
+        return replace(
+            task, weekly_crew=[], daily_crew={}, assignees=_copy(change.members)
+        )
 
 
 @dataclass(frozen=True)

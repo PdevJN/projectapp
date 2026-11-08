@@ -52,6 +52,7 @@ class PlantUml:
     day_overloads: tuple[tuple[str, date], ...] = ()
     # 週ごとの担当を持つ出力したタスクの数(担当者を出したときだけ)。PlantUML は週ごとを表せず、和集合・最大の割り当て率の近似で出す
     weekly_tasks: int = 0
+    daily_tasks: int = 0  # そのうち、日ごとの週も持つタスクの数(要望 135)
 
 
 def day_overload_notice(items: tuple[tuple[str, date], ...]) -> str | None:
@@ -63,11 +64,14 @@ def day_overload_notice(items: tuple[tuple[str, date], ...]) -> str | None:
     return f"PlantUML は日単位で集計するため、100% 超に見える日があります(実際の予定では超過していません): {shown}{more}"
 
 
-def weekly_crew_notice(count: int) -> str | None:
-    """週ごとの担当を近似で出力したことの通知。なければ None。"""
+def weekly_crew_notice(count: int, daily: int = 0) -> str | None:
+    """週ごとの担当を近似で出力したことの通知。なければ None。daily は、日ごとの週も持つ件数。"""
     if count <= 0:
         return None
-    return f"週ごとの担当は近似で出力しました({count} 件。和集合の担当者を、各人の最大の割り当て率で出しています)"
+    text = f"週ごとの担当は近似で出力しました({count} 件。和集合の担当者を、各人の最大の割り当て率で出しています)"
+    if daily > 0:
+        text += f"。日ごとの週あり {daily} 件"
+    return text
 
 
 def default_filename(project_name: str, today: date) -> str:
@@ -334,6 +338,12 @@ def build_plantuml(
         lines += [f"-- {EVENT_SECTION} --", *event_lines]
     lines += [*section_body, *arrows, "@endgantt"]
     weekly_tasks = sum(1 for t in order if t.weekly_crew) if show_chips else 0
+    daily_tasks = sum(1 for t in order if t.daily_crew) if show_chips else 0
     return PlantUml(
-        "\n".join(lines) + "\n", len(aliases), skipped, day_overloads, weekly_tasks
+        "\n".join(lines) + "\n",
+        len(aliases),
+        skipped,
+        day_overloads,
+        weekly_tasks,
+        daily_tasks,
     )

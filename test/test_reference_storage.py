@@ -41,7 +41,7 @@ def reference_task(**kwargs: object) -> Task:
 
 
 def test_format_version_is_12() -> None:
-    assert FORMAT_VERSION == 21
+    assert FORMAT_VERSION == 22
 
 
 def test_a_reference_task_round_trips_with_its_snapshot() -> None:

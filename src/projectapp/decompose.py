@@ -8,6 +8,7 @@ from math import isfinite
 
 from projectapp import clock
 from projectapp.arrange import section_at, tasks_at
+from projectapp.daily_crew import crew_spans
 from projectapp.models import (
     MAX_SECTION_DEPTH,
     MAX_TASK_NAME_LENGTH,
@@ -30,7 +31,6 @@ from projectapp.timeline import (
     combine_rate,
     crew_on,
     effective_start,
-    week_index,
 )
 
 MAX_PARTS = 20  # 一度に分けられる数の上限
@@ -133,11 +133,7 @@ def settle(
             project.ratio_limits,
         )
         consumed = consumed_hours(task, rate)
-    crew = (
-        task.weekly_crew[week_index(anchor, today.date(), len(task.weekly_crew))]
-        if task.weekly_crew
-        else task.assignees
-    )
+    crew = crew_on(task, anchor, today.date())
     return Settled(
         round(consumed, EFFORT_DECIMALS), [Assignee(a.name, a.allocation) for a in crew]
     )
@@ -293,7 +289,11 @@ def decompose(
             predecessors = [children[n - 1].id]
         done = settled is not None and n == 0  # 消し込みの子
         if settled is None:
-            crew = task.weekly_crew[0] if task.weekly_crew else task.assignees
+            crew = (
+                crew_spans(task.weekly_crew, task.daily_crew)[0][1]
+                if task.weekly_crew
+                else task.assignees
+            )
         else:
             crew = task.assignees if done else settled.crew
         children.append(
@@ -328,6 +328,7 @@ def decompose(
         extra_efforts=[],
         assignees=[],
         weekly_crew=[],
+        daily_crew={},
         predecessors=[],
         actuals=[],
         progress=None,

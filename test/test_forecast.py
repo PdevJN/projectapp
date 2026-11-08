@@ -158,3 +158,13 @@ def test_confirmed_forecast_matches_the_trial_when_added_at_a_week_boundary() ->
     after = forecast_end(done, project, HOLIDAYS, now, schedule)
     assert after is not None
     assert after.end == result.trial_end
+
+
+def test_extra_crew_is_not_rounded_to_a_week_head() -> None:
+    project, task = sample(effort_hours=60.0)
+    now = datetime(2026, 11, 20, 10)
+    tuesday = run(project, task, now, (("鈴木",), date(2026, 11, 24)))
+    wednesday = run(project, task, now, (("鈴木",), date(2026, 11, 25)))
+    next_monday = run(project, task, now, (("鈴木",), date(2026, 11, 30)))
+    assert tuesday and wednesday and next_monday
+    assert tuesday.end < wednesday.end < next_monday.end  # 1 日ずつ効き方が変わる

@@ -47,7 +47,7 @@ def delay_band(
 
 
 def trial_dialog(
-    members: list[str], today: date, on_ok: Callable[[list[str], date], object]
+    members: list[str], default_day: date, on_ok: Callable[[list[str], date], object]
 ) -> None:
     """増員を試すメンバーと開始日を選ぶ小さなダイアログ。"""
     with ui.dialog() as dialog, ui.card().mark("trial-dialog"):
@@ -55,7 +55,9 @@ def trial_dialog(
         chosen = ui.select(members, multiple=True, label="メンバー").mark(
             "trial-dialog-member"
         )
-        start = ui.input("開始日", value=today.isoformat()).mark("trial-dialog-start")
+        start = ui.input("開始日", value=default_day.isoformat()).mark(
+            "trial-dialog-start"
+        )
 
         def ok() -> None:
             try:

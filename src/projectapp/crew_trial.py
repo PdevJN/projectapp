@@ -4,7 +4,7 @@
 """
 
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from projectapp.models import (
     Assignee,
@@ -14,12 +14,15 @@ from projectapp.models import (
     TaskKind,
     union_assignees,
 )
-from projectapp.forecast import forecast_end, snap_week, with_added
+from projectapp.workdays import work_day_map
+from projectapp.daily_crew import DailyCrew, rows_of, with_added_from
+from projectapp.forecast import forecast_end
 from projectapp.timeline import (
     Schedule,
-    Worker,
+    day_window,
     calc_end,
     crew_of,
+    crew_track,
     effective_end,
     effective_start,
 )
@@ -27,7 +30,7 @@ from projectapp.timeline import (
 
 @dataclass(frozen=True)
 class TrialCrew:
-    """だれを・どのタスクに・いつから増員するかの試算(画面の中だけ)。start は丸める前の指定日。"""
+    """だれを・どのタスクに・いつから増員するかの試算(画面の中だけ)。start は増員を始める日(丸めない)。"""
 
     task_id: str
     names: tuple[str, ...]
@@ -54,15 +57,12 @@ class TrialResult:
         return (base.date() - self.trial_end.date()).days
 
 
-def trial_weeks(
+def trial_crews(
     task: Task, trial: TrialCrew, anchor: date
-) -> list[list[Assignee]] | None:
-    """今の担当に増員分を足した週ごとの担当。週数が上限を超えるなら None。"""
-    return with_added(
-        [list(w) for w in task.weekly_crew] or [list(task.assignees)],
-        snap_week(anchor, trial.start),
-        trial.names,
-    )
+) -> tuple[list[list[Assignee]], DailyCrew] | None:
+    """今の担当に増員分を足した、週ごとの担当と日ごとの担当。増員日はそのまま使う(丸めない)。週数が上限を超えるなら None。"""
+    weekly, daily = rows_of(task)
+    return with_added_from(weekly, daily, (trial.start - anchor).days, trial.names)
 
 
 def _target(task: Task) -> bool:
@@ -88,25 +88,14 @@ def evaluate(
     start = effective_start(task, project, holidays, schedule)
     if start is None:
         return None
-    weeks = trial_weeks(task, trial, start.date())
-    if weeks is None:
+    crews = trial_crews(task, trial, start.date())
+    if crews is None:
         return None
+    weekly, daily = crews
     original = effective_end(task, project, holidays, schedule)
-    first = snap_week(start.date(), trial.start)
+    first = max((trial.start - start.date()).days, 0) // 7
     if _manual(task):
         return TrialResult(task.id, trial.names, first, original, None, True)
-
-    def crews_of(rows: list[list[Assignee]]) -> list[list[Worker]]:
-        return [
-            crew_of(
-                week,
-                project.members,
-                project.parameters,
-                task.parameters,
-                project.ratio_limits,
-            )
-            for week in rows
-        ]
 
     forecast = forecast_end(task, project, holidays, now, schedule)
     if forecast is not None:
@@ -132,7 +121,17 @@ def evaluate(
         project.daily_hours,
         project.work_start,
         holidays,
-        weeks=crews_of(weeks),
+        weeks=crew_track(
+            weekly,
+            daily,
+            lambda crew: crew_of(
+                crew,
+                project.members,
+                project.parameters,
+                task.parameters,
+                project.ratio_limits,
+            ),
+        ),
     )
     return TrialResult(task.id, trial.names, first, original, end, False)
 
@@ -145,16 +144,19 @@ def confirmed(
     trial: TrialCrew,
 ) -> Task | None:
     """試算を確定したタスク(weekly_crew に乗せ、assignees は和集合)。対象外は None。
-    増員は次の週の境目から載せる(過去の週の担当を変えないので、過去の棒は縮まない)。"""
+    増員日から載せる(過去の週の担当を変えないので、過去の棒は縮まない)。"""
     if not _target(task):
         return None
     start = effective_start(task, project, holidays, schedule)
     if start is None:
         return None
-    weeks = trial_weeks(task, trial, start.date())
-    if weeks is None:
+    crews = trial_crews(task, trial, start.date())
+    if crews is None:
         return None
-    return replace(task, weekly_crew=weeks, assignees=union_assignees(weeks))
+    weekly, daily = crews
+    return replace(
+        task, weekly_crew=weekly, daily_crew=daily, assignees=union_assignees(weekly)
+    )
 
 
 def _replace_in(tasks: list[Task], task: Task) -> bool:
@@ -179,3 +181,27 @@ def replace_task(project: Project, task: Task) -> bool:
     return _replace_in(project.tasks, task) or _replace_in_sections(
         project.sections, task
     )
+
+
+def effect_day(
+    project: Project,
+    holidays: dict[date, str],
+    name: str,
+    day: date,
+    limit: int = 366,
+) -> date | None:
+    """name が day 以降で最初に稼働できる日(プロジェクトの休み・個人の休みを除く)。メンバーにいない・limit 日以内にない場合は None。"""
+    member = next((m for m in project.members if m.name == name), None)
+    if member is None:
+        return None
+    days = work_day_map(member.work_days)
+    for offset in range(limit):
+        candidate = day + timedelta(days=offset)
+        if (
+            day_window(
+                candidate, project.daily_hours, project.work_start, holidays, days
+            )
+            is not None
+        ):
+            return candidate
+    return None

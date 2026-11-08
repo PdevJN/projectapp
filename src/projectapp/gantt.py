@@ -12,6 +12,7 @@ from nicegui.events import ValueChangeEventArguments
 from projectapp import arrange
 from projectapp import clock
 from projectapp.crew_trial import TrialResult
+from projectapp.daily_crew import segments
 from projectapp.delay_response import DELAY_RESPONSE_CSS
 from projectapp.forecast import Forecast, forecast_end
 from projectapp.avatar import avatar
@@ -107,7 +108,9 @@ from projectapp.teams import team_scope, teams_with_members
 from projectapp.selection import CheckState, check_state, task_ids_of, toggled
 from projectapp.urls import resolve
 from projectapp.summary import children_of, parent_map, summary_progress, summary_status
+from projectapp.workdays import work_day_map
 from projectapp.timeline import (
+    day_window,
     in_range,
     Band,
     Column,
@@ -555,7 +558,8 @@ def week_summary(task: Task, start: date | None = None) -> str:
         if start is not None:
             first = start + timedelta(days=7 * (number - 1))
             period = f" {short_date(first)}〜{short_date(first + timedelta(days=6))}"
-        lines.append(f"第{number}週{period}: {crew_text(week)}")
+        suffix = "(日ごとの週)" if task.daily_crew.get(number - 1) else ""
+        lines.append(f"第{number}週{period}{suffix}: {crew_text(week)}")
     return "\n".join(lines)
 
 
@@ -2824,6 +2828,20 @@ class GanttChart:
                 self.work_day_strip(key, ti, notes, columns, width)
             start = self.schedule.start(task)
             end = self.schedule.bar_end(task)
+            if task.daily_crew and end is not None:
+                end = self.through_next_working_day(end)
+            planned_end = end
+            extended = False
+            if (
+                task.weekly_crew
+                and self.options.show_alerts
+                and end is not None
+                and (fc := self.forecast_of(task)) is not None
+                and fc.end > end
+            ):
+                # 担当を足したタスクは、棒を完了見込みまで伸ばす(当初の完了予定は細い印で残す。要望 135)
+                end = fc.end
+                extended = True
             span = bar_span(start, end, columns)
             if span is not None and self.bar_visible(start, end, columns):
                 left, length = span
@@ -2868,6 +2886,14 @@ class GanttChart:
                         self.overload_stripes(
                             key, ti, task, left, bar_width, columns, width
                         )
+                    if extended and planned_end is not None:
+                        mark = bar_span(planned_end, planned_end, columns)
+                        if mark is not None:
+                            ui.element("div").classes("planned-end-tick").style(
+                                f"position: absolute; left: {(mark[0] - left) * width:.1f}px;"
+                                " top: 0; bottom: 0; border-left: 2px solid #fff; z-index: 2;"
+                                " pointer-events: none"
+                            ).mark(f"planned-end-tick-{key}-{ti}")
                     if self.options.show_chips and task.weekly_crew:
                         assert start is not None and end is not None
                         self.week_chips(
@@ -2890,7 +2916,7 @@ class GanttChart:
                         key, ti, result, start, columns, width, left, bar_width
                     )
                 elif self.options.show_alerts:
-                    self.forecast_overlay(key, ti, task, columns, width)
+                    self.forecast_overlay(key, ti, task, columns, width, not extended)
                 mark_left = self.marker_left(
                     task, columns, width, left * width + bar_width
                 )
@@ -3216,7 +3242,13 @@ class GanttChart:
         return self.forecast_cache[task.id]
 
     def forecast_overlay(
-        self, key: int | str, ti: int, task: Task, columns: list[Column], width: int
+        self,
+        key: int | str,
+        ti: int,
+        task: Task,
+        columns: list[Column],
+        width: int,
+        line: bool = True,
     ) -> None:
         """当初の完了予定の位置から見込みの位置まで細い灰青の点線を伸ばし、右に `見込み m/d(+N 日)` を出す。
         見込みの日付が当初の予定の日付と同じなら出さない。"""
@@ -3231,11 +3263,12 @@ class GanttChart:
         span = bar_span(low, high, columns)
         if span is None:
             return
-        ui.element("div").classes("forecast-line").style(
-            f"position: absolute; left: {from_name(span[0] * width)};"
-            f" width: {max(span[1] * width, 2):.1f}px;"
-            f" top: {BAR_TOP_PX + BAR_HEIGHT_PX // 2}px"
-        ).mark(f"forecast-line-{key}-{ti}")
+        if line:  # 棒を見込みまで伸ばしたときは、点線を引かず、ラベルだけ出す
+            ui.element("div").classes("forecast-line").style(
+                f"position: absolute; left: {from_name(span[0] * width)};"
+                f" width: {max(span[1] * width, 2):.1f}px;"
+                f" top: {BAR_TOP_PX + BAR_HEIGHT_PX // 2}px"
+            ).mark(f"forecast-line-{key}-{ti}")
         ui.label(forecast_text(forecast)).classes("forecast-label").style(
             f"position: absolute; left: {from_name((span[0] + span[1]) * width + 4)};"
             f" top: {BAR_TOP_PX + 2}px"
@@ -3284,6 +3317,48 @@ class GanttChart:
             f"position: absolute; left: {from_name(after)}; top: {BAR_TOP_PX + 14}px"
         ).mark(f"trial-label-{key}-{ti}")
 
+    def is_off_day(self, day: date) -> bool:
+        """プロジェクトの休み(土日祝・イベント)の日か。"""
+        return (
+            day_window(
+                day, self.project.daily_hours, self.project.work_start, self.holidays
+            )
+            is None
+        )
+
+    def members_off(self, day: date, crew: list[Assignee]) -> list[str]:
+        """その日に、個人の稼働日の上書きで休みになっている担当者の名前。"""
+        off = []
+        for a in crew:
+            member = next((m for m in self.project.members if m.name == a.name), None)
+            if member is None or not member.work_days:
+                continue
+            window = day_window(
+                day,
+                self.project.daily_hours,
+                self.project.work_start,
+                self.holidays,
+                work_day_map(member.work_days),
+            )
+            if window is None:
+                off.append(a.name)
+        return off
+
+    def through_next_working_day(self, end: datetime) -> datetime:
+        """終わりが休みの日に当たるとき、次の稼働日の終わりまで(表示だけ。完了予定は変えない)。"""
+        if not self.is_off_day(end.date()):
+            return end
+        for offset in range(1, 15):
+            window = day_window(
+                end.date() + timedelta(days=offset),
+                self.project.daily_hours,
+                self.project.work_start,
+                self.holidays,
+            )
+            if window is not None:
+                return window[1]
+        return end
+
     def week_chips(
         self,
         key: int | str,
@@ -3299,37 +3374,52 @@ class GanttChart:
     ) -> None:
         """棒の上に、週ごと(実効の開始の日から 7 日ごと)の担当のチップを重ねる。2 つ目からは左端に区切り線を付ける。"""
         defined = len(task.weekly_crew)
-        n = 0
-        while (
-            left := start
-            if n == 0
-            else datetime.combine(start.date() + timedelta(days=7 * n), time.min)
-        ) < end:
+        last_day = (end - timedelta(microseconds=1)).date()
+        parts = segments(task.weekly_crew, task.daily_crew, start.date(), last_day)
+        for position, part in enumerate(parts):
             # 定義した週より後も、7 日ごとに区切る(担当は最後の週のものが続く。タップすると、その週まで足して直せる)
-            right = min(
-                datetime.combine(start.date() + timedelta(days=7 * (n + 1)), time.min),
-                end,
-            )
-            crew = task.weekly_crew[min(n, defined - 1)]
-            n += 1
-            index = n - 1
+            left = start if position == 0 else datetime.combine(part.first, time.min)
+            right = min(datetime.combine(part.last + timedelta(days=1), time.min), end)
+            crew = part.crew
+            index = part.week
+            daily = part.day is not None
             origin, length = interval_span(left, right, columns)
             left_px = max((origin - bar_left) * width, 0.0)
             width_px = min(length * width, bar_width - left_px)
             if width_px <= 0:
                 continue
-            divider = " border-left: 1px solid rgba(255,255,255,0.8);" if index else ""
-            text = week_chip_text([a.name for a in crew], width_px, self.view_scale)
-            shown = crew[:MAX_ASSIGNEE_CHIPS]
+            resting = self.members_off(part.first, crew) if daily else []
+            # 休みの日、または担当者全員が個人の休みの日は薄くして名前を出さない
+            off = daily and (
+                self.is_off_day(part.first) or len(resting) == len(crew) > 0
+            )
+            if daily:  # 日ごとの週は、細いチップを濃い色・下線・点線の区切りで、週のチップと見分ける(要望 135)
+                divider = " border-left: 1px dotted rgba(255,255,255,0.9);"
+                look = (
+                    "background: rgba(0,48,56,0.6); border-bottom: 2px solid #26c6da;"
+                )
+            else:
+                divider = (
+                    " border-left: 1px solid rgba(255,255,255,0.8);" if position else ""
+                )
+                look = "background: rgba(0,0,0,0.3);"
+            text = (
+                ""
+                if off
+                else week_chip_text([a.name for a in crew], width_px, self.view_scale)
+            )
+            shown = [] if off else crew[:MAX_ASSIGNEE_CHIPS]
             with_icons = bool(text) and any(self.icon_lookup.get(a.name) for a in shown)
             chip = ui.label("" if with_icons else text).style(
                 f"position: absolute; left: {left_px:.1f}px; width: {width_px:.1f}px; top: 0;"
                 f" height: {WEEK_CHIP_HEIGHT_PX}px; font-size: 10px; line-height: {WEEK_CHIP_HEIGHT_PX}px;"
-                f" color: #fff; background: rgba(0,0,0,0.3); padding-left: 3px; overflow: hidden;"
+                f" color: #fff; {look} padding-left: 3px; overflow: hidden;"
                 f" white-space: nowrap; z-index: 1; text-shadow: {WEEK_CHIP_TEXT_SHADOW};{divider}"
             )
-            # 見出し(第N週 と期間)を 1 行にまとめ、担当、負荷の順に並べる。期間は見出しにあるので、負荷には付けない
-            last_day = (right - timedelta(microseconds=1)).date()
+            if daily:
+                chip.classes("day-chip")
+            if off:  # 休みの日は薄くし、名前は出さない(効くのは次の稼働日から)
+                chip.classes("day-off").style("opacity: 0.35")
             if with_icons:
                 # アイコンのある人は小さな丸い画像、ない人は頭文字(幅に合わせて、4 人目以降は +n)
                 chip.style("display: flex; align-items: center; gap: 2px")
@@ -3341,23 +3431,40 @@ class GanttChart:
                             ui.label(a.name[:1])
                     if (rest := len(crew) - len(shown)) > 0:
                         ui.label(f"+{rest}")
-            carried = f"(第{defined}週の担当が続く)" if index >= defined else ""
-            title = f"第{index + 1}週 {short_date(left.date())}〜{short_date(last_day)}{carried}\n{crew_text(crew)}"
+            carried = f"(第{defined}週の担当が続く)" if part.carried else ""
+            if daily:
+                period = f"{short_date(part.first)}({WEEKDAYS[part.first.weekday()]})"
+            else:
+                period = f"{short_date(part.first)}〜{short_date(part.last)}"
+            title = f"第{index + 1}週 {period}{carried}\n{crew_text(crew)}"
+            if off:
+                title += "\n休みの日(担当は次の稼働日から効きます)"
+            elif resting:
+                title += f"\n休み: {'・'.join(resting)}"
             if (
                 load := self.overload_text(task, (left, right))
                 if self.options.show_alerts
                 else ""
             ):
                 title += f"\n⚠ {load}"
-            markers = [f"week-chip-{key}-{ti}-{index}"]
-            if (
-                1 <= index < defined
-            ):  # 前の週にいない人が現れる週は、増員(確定済み)として示す(要望 132)
-                before = {a.name for a in task.weekly_crew[index - 1]}
+            tag = f"{key}-{ti}-{index}" + (f"-{part.day}" if daily else "")
+            markers = [f"day-chip-{tag}" if daily else f"week-chip-{tag}"]
+            if position and not part.carried and not off:
+                # 前の(稼働日の)区間にいない人が現れるところは、増員(確定済み)として示す(要望 132)。
+                # 休みの日には付けず、最初の稼働日のチップに付ける
+                previous = next(
+                    (
+                        p
+                        for p in reversed(parts[:position])
+                        if p.day is None or not self.is_off_day(p.first)
+                    ),
+                    parts[position - 1],
+                )
+                before = {a.name for a in previous.crew}
                 if added := [a.name for a in crew if a.name not in before]:
                     title += f"\n増員 +{'・'.join(added)}(確定済み)"
                     chip.classes("week-added")
-                    markers.append(f"week-added-{key}-{ti}-{index}")
+                    markers.append(f"week-added-{tag}")
             chip.tooltip(title).mark(*markers)
             if not self.options.read_only:
                 # 修飾キーつきのクリックは、チップで受けず棒へ伝える(棒の Shift クリックは進捗度・実績の簡易入力。両方は開かない)

@@ -22,6 +22,7 @@ from projectapp.models import (
     TaskKind,
     WorkDay,
 )
+from projectapp.daily_crew import WEEK_DAYS, DailyCrew, crew_spans
 from projectapp.ratios import effective_ratio
 from projectapp.summary import children_of
 from projectapp.workdays import work_day_map
@@ -47,6 +48,32 @@ class Worker:
     days: Mapping[date, WorkDay] = field(default_factory=dict)
     name: str = field(default="", compare=False)
     allocation: float = field(default=1.0, compare=False)
+
+
+class CrewTrack(list[list[Worker]]):
+    """日の位置で引く担当の並び。要素ごとに step 日ぶん(週は 7、日ごとは 1)。最後の要素は以降も続く。
+    普通の list を渡したときは、1 要素 = 1 週(step 7)として扱う。"""
+
+    def __init__(
+        self, crews: Iterable[list[Worker]] = (), step: int = WEEK_DAYS
+    ) -> None:
+        super().__init__(crews)
+        self.step = step
+
+
+def crew_track(
+    weekly: list[list[Assignee]],
+    daily: DailyCrew,
+    to_workers: Callable[[list[Assignee]], list[Worker]],
+) -> CrewTrack:
+    """週ごとの担当と日ごとの担当から、算出用の並びを作る。日ごとの週がなければ 1 要素 = 1 週。ある場合は 1 要素 = 1 日に展開する。"""
+    if not daily:
+        return CrewTrack([to_workers(week) for week in weekly], WEEK_DAYS)
+    track = CrewTrack([], 1)
+    for days, crew in crew_spans(weekly, daily):
+        workers = to_workers(crew)
+        track.extend([workers] * days)
+    return track
 
 
 @dataclass(frozen=True)
@@ -239,20 +266,22 @@ def crew_pieces(
     if not task.weekly_crew:
         return [(start, end, task.assignees)]
     pieces: list[tuple[datetime, datetime, list[Assignee]]] = []
-    last = len(task.weekly_crew) - 1
-    for week, crew in enumerate(task.weekly_crew):
+    spans = crew_spans(task.weekly_crew, task.daily_crew)
+    offset = 0
+    for number, (days, crew) in enumerate(spans):
         left = (
             start
-            if week == 0
-            else datetime.combine(start.date() + timedelta(days=7 * week), time.min)
+            if number == 0
+            else datetime.combine(start.date() + timedelta(days=offset), time.min)
         )
         right = (
             end
-            if week == last
+            if number == len(spans) - 1
             else datetime.combine(
-                start.date() + timedelta(days=7 * (week + 1)), time.min
+                start.date() + timedelta(days=offset + days), time.min
             )
         )
+        offset += days
         left, right = max(left, start), min(right, end)
         if left < right:
             pieces.append((left, right, crew))
@@ -431,16 +460,32 @@ def day_hours(
     return (window[1] - window[0]).total_seconds() / 3600 if window else 0.0
 
 
-def week_index(start: date, day: date, count: int) -> int:
-    """開始の日から 7 日(暦日)ごとの週の添字(0 が第1週)。最後の週より後は最後の週。開始より前は第1週。"""
-    return min(max((day - start).days, 0) // 7, count - 1)
+def week_index(start: date, day: date, count: int, step: int = WEEK_DAYS) -> int:
+    """起点の日から step 日(暦日)ごとの添字(週なら 0 が第1週)。最後の要素より後は最後の要素。起点より前は先頭。"""
+    return min(max((day - start).days, 0) // step, count - 1)
 
 
 def crew_on(task: Task, start: date, day: date) -> list[Assignee]:
-    """その日の担当者。週ごとに分けないタスクは assignees。start は実効の開始の日。"""
+    """その日の担当者。週ごとに分けないタスクは assignees。start は実効の開始の日。日ごとの週はその日の担当。"""
     if not task.weekly_crew:
         return task.assignees
-    return task.weekly_crew[week_index(start, day, len(task.weekly_crew))]
+    spans = crew_spans(task.weekly_crew, task.daily_crew)
+    offset = max((day - start).days, 0)
+    for days, crew in spans:
+        if offset < days:
+            return crew
+        offset -= days
+    return spans[-1][1]
+
+
+def _track(
+    crew: Sequence[Worker] | None, weeks: Sequence[Sequence[Worker]] | None
+) -> CrewTrack:
+    """算出に使う担当の並び。weeks があればその step を保ち、なければ 1 要素 = 1 週。担当者のいない要素は換算率 1 の 1 人。"""
+    if weeks:
+        step = getattr(weeks, "step", WEEK_DAYS)
+        return CrewTrack([list(week) or [Worker()] for week in weeks], step)
+    return CrewTrack([list(crew) if crew else [Worker()]], WEEK_DAYS)
 
 
 def _crews(
@@ -448,14 +493,10 @@ def _crews(
     daily_hours: float,
     crew: Sequence[Worker] | None,
     weeks: Sequence[Sequence[Worker]] | None,
-) -> list[list[Worker]] | None:
+) -> CrewTrack | None:
     """算出に使う週ごとの担当(週ごとに分けないときは 1 週ぶん)。算出できない入力は None。
     担当者のいない週は換算率 1 の 1 人。工数の上限の判定は、最も遅い週(換算率の合計が最小)で行う。"""
-    crews = (
-        [list(week) or [Worker()] for week in weeks]
-        if weeks
-        else [list(crew) if crew else [Worker()]]
-    )
+    crews = _track(crew, weeks)
     total = min(sum(w.rate for w in c) for c in crews)
     if not isfinite(effort_hours) or effort_hours <= 0 or not 0 < daily_hours <= 24:
         return None
@@ -534,11 +575,7 @@ def work_capacity(
     空の範囲・不正な稼働可能時間は 0。数える日数は MAX_WORKDAYS で打ち切る。"""
     if end <= start or not 0 < daily_hours <= 24:
         return 0.0
-    crews = (
-        [list(week) or [Worker()] for week in weeks]
-        if weeks
-        else [list(crew) if crew else [Worker()]]
-    )
+    crews = _track(crew, weeks)
     origin = weeks_start or start.date()
     try:
         end = min(end, start + timedelta(days=MAX_WORKDAYS))
@@ -547,7 +584,7 @@ def work_capacity(
     total = 0.0
     day = start.date()
     while day <= end.date():
-        workers = crews[week_index(origin, day, len(crews))]
+        workers = crews[week_index(origin, day, len(crews), crews.step)]
         windows = [
             (w, window)
             for w in workers
@@ -572,14 +609,14 @@ def _consume(
     daily_hours: float,
     work_start: time,
     holidays: dict[date, str],
-    crews: list[list[Worker]],
+    crews: CrewTrack,
     weeks_start: date | None = None,
 ) -> Iterator[tuple[datetime, datetime, list[Worker]]]:
     remaining = effort_hours
     origin = weeks_start or start.date()
     day, cursor = start.date(), start
     while True:
-        workers = crews[week_index(origin, day, len(crews))]
+        workers = crews[week_index(origin, day, len(crews), crews.step)]
         windows = [
             (w, window)
             for w in workers
@@ -616,7 +653,7 @@ def _calc_end(
     daily_hours: float,
     work_start: time,
     holidays: dict[date, str],
-    crews: list[list[Worker]],
+    crews: CrewTrack,
     weeks_start: date | None = None,
 ) -> datetime:
     end = start
@@ -679,18 +716,19 @@ def conversion_rate(task: Task, project: Project) -> float:
     )
 
 
-def weekly_crews(task: Task, project: Project) -> list[list[Worker]]:
-    """週ごとの担当を算出用の Worker にしたもの(パラメータを反映)。週ごとに分けないタスクは空。"""
-    return [
-        crew_of(
-            week,
+def weekly_crews(task: Task, project: Project) -> CrewTrack:
+    """週ごとの担当を算出用の Worker にしたもの(パラメータを反映)。日ごとの週があれば 1 日ごとに展開する。週ごとに分けないタスクは空。"""
+    return crew_track(
+        task.weekly_crew,
+        task.daily_crew if task.weekly_crew else {},
+        lambda crew: crew_of(
+            crew,
             project.members,
             project.parameters,
             task.parameters,
             project.ratio_limits,
-        )
-        for week in task.weekly_crew
-    ]
+        ),
+    )
 
 
 def effort_days(effort_hours: float, rate: float, daily_hours: float) -> float | None:
