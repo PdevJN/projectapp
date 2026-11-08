@@ -3763,6 +3763,27 @@ async def test_the_added_people_are_kept_per_session_and_reach_the_backlog(
     assert view.dashboard_catch_up.people == 0.0  # 開き直すと 0 人
 
 
+async def test_the_invested_members_are_kept_per_session_and_not_part_of_the_view(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    user.find(marker="open-dashboard").click()
+    await user.should_see(marker="dashboard-backlog-hours")
+    assert view.dashboard_catch_up.invest == ()
+    view.change_dashboard_catch_up(CatchUp(invest=("田中", "鈴木")))
+    assert view.dashboard_catch_up.invest == ("田中", "鈴木")
+    view.select_dashboard_view(STANDARD_NAME)
+    assert view.dashboard_catch_up.invest == (
+        "田中",
+        "鈴木",
+    )  # ビューを切り替えても変えない
+    assert not view.dashboard_dirty()
+    assert not view.is_dirty()
+    view.close_dashboard()
+    view.open_dashboard()
+    assert view.dashboard_catch_up.invest == ()  # 開き直すと選びなおし
+
+
 async def test_excluding_a_project_removes_it_from_the_total(
     user: User, tmp_path: Path
 ) -> None:

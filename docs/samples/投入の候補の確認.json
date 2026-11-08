@@ -1,0 +1,225 @@
+{
+  "version": 21,
+  "name": "投入の候補の確認",
+  "base_date": "2026-11-02",
+  "daily_hours": 6.5,
+  "work_start": "09:00:00",
+  "members": [
+    {
+      "name": "田中",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "d2919b9a",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    },
+    {
+      "name": "鈴木",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "7c61e11c",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    },
+    {
+      "name": "佐藤",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "a78969dd",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    },
+    {
+      "name": "高橋",
+      "ratio": 0.5,
+      "levels": {},
+      "id": "134dd4d6",
+      "icon": "",
+      "work_days": [
+        {
+          "day": "2026-11-11",
+          "start": null,
+          "end": null,
+          "note": ""
+        }
+      ],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    }
+  ],
+  "sections": [],
+  "tasks": [
+    {
+      "name": "遅れA(田中 13h)",
+      "id": "i000001",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 13.0,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "d2919b9a",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "遅れB(鈴木 20h・25%)",
+      "id": "i000002",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 20.0,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "7c61e11c",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": 25,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "通常D(田中 20h)",
+      "id": "i000003",
+      "planned_start": "2026-11-09T09:00:00",
+      "effort_hours": 20.0,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "d2919b9a",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "通常E(鈴木 6.5h)",
+      "id": "i000004",
+      "planned_start": "2026-11-10T09:00:00",
+      "effort_hours": 6.5,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "7c61e11c",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "通常F(高橋 3h)",
+      "id": "i000005",
+      "planned_start": "2026-11-12T09:00:00",
+      "effort_hours": 3.0,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "134dd4d6",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    }
+  ],
+  "actual_mode": "simple",
+  "url_templates": [],
+  "parameters": [],
+  "categories": [],
+  "events": [],
+  "teams": [],
+  "reference_mode": "live",
+  "plantuml_overload_notice": true,
+  "ratio_limit_upper": null,
+  "ratio_limit_lower": null,
+  "history": [],
+  "history_since": null
+}

@@ -77,6 +77,9 @@ class CatchUp:
     mode: CatchUpMode = CatchUpMode.PERIOD
     days: int = 5
     people: float = 0.0  # 遅れを取り戻すために追加する人数(100% の人に換算。要望 130)。0 は試算しない
+    invest: tuple[
+        str, ...
+    ] = ()  # 遅れを取り戻すために投入するメンバー名(要望 131)。空は試算しない
 
 
 @dataclass(frozen=True)
@@ -87,6 +90,28 @@ class Recovery:
     hours: float  # 取り戻す遅れの残りの工数
     days: float  # 1 人あたり要る稼働時間 ÷ 1 日の稼働時間
     date: date | None  # 取り戻せる日。稼働日が見つからないとき None
+    due: date | None = (
+        None  # 比べる期限(カードの期間の終わり)。`タスクごと`のときは None
+    )
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """遅れを取り戻すために投入できるメンバーの候補(要望 131)。"""
+
+    name: str
+    spare_hours: float  # 余力(基準の人の時間)= 稼働できる時間 − 担当している残りの工数。負は余力なし
+    rate: float  # 相対比率(チームで絞るときは所属の割合を掛けた値)
+
+
+@dataclass(frozen=True)
+class Investment:
+    """選んだメンバーを投入したときに、遅れを取り戻せる日の試算(要望 131)。"""
+
+    names: tuple[str, ...]  # 投入する人(余力のある人だけ)
+    spare_hours: float  # 余力の合計
+    hours: float  # 取り戻す遅れの残りの工数
+    date: date | None  # 取り戻せる日。余力が遅れに届かない・日が見つからないとき None
     due: date | None = (
         None  # 比べる期限(カードの期間の終わり)。`タスクごと`のときは None
     )
@@ -1121,6 +1146,10 @@ class Backlog:
     overdue_people: float | None = None  # `タスクごと`のときの、予定超過の分の人数
     warning_people: float | None = None  # `タスクごと`のときの、警告の分の人数
     recovery: Recovery | None = None  # 追加人数があり、遅れがあるときの試算(要望 130)
+    candidates: list[Candidate] = field(
+        default_factory=list
+    )  # 投入の候補(余力の多い順。要望 131)
+    investment: Investment | None = None  # 選んだメンバーを投入したときの試算
 
     @property
     def late_hours(self) -> float:
@@ -1255,6 +1284,76 @@ def recovery_date(
         if total >= need - 1e-9:
             return day
     return None
+
+
+def investment_date(
+    project: Project,
+    holidays: dict[date, str],
+    now: datetime,
+    hours: float,
+    picks: Sequence[tuple[float, float, Mapping[date, WorkDay] | None]],
+) -> date | None:
+    """選んだ人(余力・相対比率・稼働日の上書き)を投入して`hours`を消化し終える日。各人が日 D までに回せる量は
+    min(余力, 相対比率 × 今日から D までのその人の稼働時間)で、その合計が初めて届く日。余力の合計が足りない・見つからなければ None。"""
+    if hours <= 0 or not picks or project.daily_hours <= 0:
+        return None
+    if sum(spare for spare, _, _ in picks) < hours - 1e-9:
+        return None
+    today = now.date()
+    rest_of_today = datetime.combine(today + timedelta(days=1), time.min)
+    worked = [0.0] * len(picks)
+    for offset in range(RECOVERY_HORIZON_DAYS):
+        day = today + timedelta(days=offset)
+        total = 0.0
+        for i, (spare, rate, work_days) in enumerate(picks):
+            worked[i] += (
+                overlap_hours(project, holidays, day, now, rest_of_today, work_days)
+                if offset == 0
+                else day_hours(day, project.daily_hours, holidays, work_days)
+            )
+            total += min(spare, rate * worked[i])
+        if total >= hours - 1e-9:
+            return day
+    return None
+
+
+def _investment(
+    base: Project,
+    holidays: dict[date, str],
+    now: datetime,
+    hours: float,
+    candidates: list[Candidate],
+    staff: Mapping[str, Member],
+    catch_up: CatchUp,
+    window: tuple[date, date] | None,
+) -> Investment | None:
+    """選んだメンバーのうち余力のある人を投入したときの試算。選んでいない・遅れがない・余力のある人がいなければ None。"""
+    if hours <= 0 or not catch_up.invest:
+        return None
+    by_name = {c.name: c for c in candidates if c.spare_hours > 0}
+    names = tuple(dict.fromkeys(n for n in catch_up.invest if n in by_name))
+    if not names:
+        return None
+    picks = [
+        (
+            by_name[n].spare_hours,
+            by_name[n].rate,
+            work_day_map(staff[n].work_days) if staff[n].work_days else None,
+        )
+        for n in names
+    ]
+    due = (
+        window[1]
+        if window is not None and catch_up.mode is CatchUpMode.PERIOD
+        else None
+    )
+    return Investment(
+        names,
+        sum(by_name[n].spare_hours for n in names),
+        hours,
+        investment_date(base, holidays, now, hours, picks),
+        due,
+    )
 
 
 def _recovery(
@@ -1717,6 +1816,8 @@ def _assemble_backlog(
             + warning_people
         )
     supply = nominal = 0.0
+    candidates: list[Candidate] = []
+    staff: dict[str, Member] = {}
     for m, owner in supply_from:
         if scoped is not None and m.name not in scoped:
             continue
@@ -1732,6 +1833,15 @@ def _assemble_backlog(
                 / standard
             )
         supply += weight * scale
+        if (
+            window is not None
+        ):  # 余力 = 稼働できる時間(基準の人の時間)− 担当している残りの工数
+            mine = split.get(m.name, 0.0) * _factor(member, m.name)
+            candidates.append(
+                Candidate(m.name, weight * standard * scale - mine, weight)
+            )
+            staff[m.name] = m
+    candidates.sort(key=lambda c: (-c.spare_hours, c.name))
     rows = [
         (name, split[name] * _factor(member, name)) for name in shown if split[name] > 0
     ]
@@ -1755,6 +1865,17 @@ def _assemble_backlog(
         overdue_people,
         warning_people,
         _recovery(base, holidays, now, overdue_hours + warning_hours, catch_up, window),
+        candidates,
+        _investment(
+            base,
+            holidays,
+            now,
+            overdue_hours + warning_hours,
+            candidates,
+            staff,
+            catch_up,
+            window,
+        ),
     )
 
 
