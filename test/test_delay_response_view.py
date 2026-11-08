@@ -154,3 +154,10 @@ async def test_the_ghost_of_an_overdue_task_starts_today_not_at_the_task_start(
     bar = user.find(marker="bar-top-0").elements.pop()._style
     ghost = user.find(marker="trial-ghost-top-0").elements.pop()._style
     assert left_px(ghost) > left_px(bar)  # 棒の開始ではなく、今日から
+
+
+def test_the_trial_ghost_is_a_filled_band_in_front_of_the_bar() -> None:
+    rule = DELAY_RESPONSE_CSS.split(".trial-ghost {")[1].split("}")[0]
+    assert "color-mix" in rule and "--delay-accent" in rule  # 薄い紫の塗り
+    assert "z-index" in rule  # 実績・進捗の印に隠れない
+    assert "dashed" in rule  # 試算の点線の縁は残す

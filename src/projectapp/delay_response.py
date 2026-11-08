@@ -11,8 +11,9 @@ DELAY_RESPONSE_CSS = """
 body.body--dark { --delay-bg: #2a2140; --delay-fg: #d1c4e9; --delay-accent: #b39ddb; }
 .delay-band { background: var(--delay-bg); color: var(--delay-fg);
   border: 3px dotted var(--delay-accent); border-radius: 6px; padding: 4px 10px; }
-.trial-ghost { border: 2px dashed var(--delay-accent); background: transparent;
-  border-radius: 4px; pointer-events: none; }
+.trial-ghost { border: 2px dashed var(--delay-accent);
+  background: color-mix(in srgb, var(--delay-accent) 22%, transparent);
+  border-radius: 4px; pointer-events: none; z-index: 2; }
 .trial-chip { border: 1px dashed var(--delay-accent); background: var(--delay-bg);
   color: var(--delay-fg); font-size: 10px; padding: 0 3px; border-radius: 3px;
   white-space: nowrap; }
