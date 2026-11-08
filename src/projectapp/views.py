@@ -118,6 +118,7 @@ from projectapp.shortcuts import (
     label_for,
     resolve,
 )
+from projectapp.delay_response import delay_band, trial_dialog
 from projectapp.crew_trial import (
     TrialCrew,
     TrialResult,
@@ -606,6 +607,8 @@ class MainView:
                 add_named_section=self.add_named_section,
                 toggle_weeks=self.toggle_weeks,
                 edit_week_crew=self.edit_week_crew,
+                try_crew=self.open_try_crew,
+                drop_trial=self.drop_trial_at,
                 edit_progress=self.edit_progress,
                 add_extra_effort=self.add_extra_effort,
                 open_reference=self.open_reference,
@@ -848,7 +851,9 @@ class MainView:
             self.history.record(self.committed)
             history_log.record_edit(self.committed, self.project, clock.now())
             self.committed = deepcopy(self.project)
-        self.gantt.set_trials(self.trial_results())
+        results = self.trial_results()
+        self.gantt.trial_results = results  # set_project が描き直す
+        self.update_trial_band(results)
         self.gantt.set_project(self.project)
 
     def reset_history(self) -> None:
@@ -2762,7 +2767,30 @@ class MainView:
 
     def refresh_trials(self) -> None:
         """試算の表示(チャートと帯)を描き直す。"""
-        self.gantt.set_trials(self.trial_results())
+        results = self.trial_results()
+        self.update_trial_band(results)
+        self.gantt.set_trials(results)
+
+    def update_trial_band(self, results: dict[str, TrialResult]) -> None:
+        """試算中だけ、ガントチャートの上に `遅延対応` の帯を出す。"""
+        self.trial_band.clear()
+        if not results:
+            return
+        recovered = sum(1 for r in results.values() if (r.days_earlier or 0) >= 1)
+        with self.trial_band:
+            delay_band(len(results), recovered, self.confirm_trials, self.clear_trials)
+
+    def open_try_crew(self, path: SectionPath, index: int) -> None:
+        """右クリックの `増員を試す…`。メンバーと開始日を選んで試算を入れる。"""
+        task = self.tasks_in(path)[index]
+        trial_dialog(
+            [m.name for m in self.project.members],
+            clock.now().date(),
+            lambda names, day: self.try_crew(task.id, names, day),
+        )
+
+    def drop_trial_at(self, path: SectionPath, index: int) -> None:
+        self.drop_trial(self.tasks_in(path)[index].id)
 
     def toggle_weeks(self, path: SectionPath, index: int) -> None:
         """担当を週ごとに分ける(今の担当を、開始から完了までの全部の週に入れる)/ 週ごとをやめる(第1週の担当に戻す)。"""
@@ -3283,6 +3311,7 @@ class MainView:
             self.title()
         self.preview_bar.build()
         self.dashboard_view.build()
+        self.trial_band = ui.column().classes("w-full")
         self.gantt.build()
         self.client = ui.context.client
         self.request_git_refresh()
