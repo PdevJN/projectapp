@@ -7,7 +7,7 @@
 | `main.py` | エントリポイント(NiceGUI + pywebview。静的ファイルの登録)。起動オプション `--mode native|web`・`--port`(`parse_args`・`run_kwargs`。エラー文は日本語〔`JapaneseParser`〕。Web は `127.0.0.1` 固定) |
 | `views.py` | メイン画面(ヘッダー〔メニュー 5 つ(ファイル〔インポート・エクスポートのサブメニューを含む〕・プロジェクト・移動・Git・ヘルプ)・プロジェクトの切り替え・チャートプレビュー・ダッシュボード・テーマのメニュー。プロジェクト名はヘッダーの外の `title_box`。`header` / `header_menu`(項目は `MenuItem`: 文言・アイコン・操作・マーカー・キー。`menu_entry` が左のアイコンと右端のキーを足す)/ `theme_menu`。配色とフォントは `HEADER_CSS`〕・チャート領域・ヘルプのダイアログ・プレビューとダッシュボードの出入り・画像の保存・担当者向けファイルの書き出し) |
 | `calendar.py` | 祝日の取得・キャッシュ(`holidays.json`)と日付種別の判定 |
-| `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出(`Worker`・`crew_of`・`calc_end(crew, weeks)`・`crew_on`・`crew_pieces`)、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`・`assignees_rate`・`counted_assignees`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |
+| `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出(`Worker`・`crew_of`・`calc_end(crew, weeks)`・`crew_on`・`crew_pieces`・`CrewTrack`〔日ごとの週を 1 日 1 要素に展開した並び。`.step` が 1 日の長さ〕・`crew_track`)、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`・`assignees_rate`・`counted_assignees`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |
 | `linkgraph.py` | タスクの連結(先行 → 後続)のグラフ操作。NiceGUI に依存しない純粋関数 |
 | `links.py` | 矢印の連結の計算(行の並び〔`row_slots`。名前の入力行は種別 `quick-add` の 1 行〕・縦位置・折れ線)。NiceGUI に依存しない純粋関数 |
 | `filtering.py` | 絞り込み条件(`TaskFilter`)とタスクの判定(`matches`)、セクションで描くタスクの決定(`visible_task_indexes`)(純粋関数) |
@@ -63,7 +63,8 @@
 | `scope.py` | メンバー・チームの絞り込みのプルダウンの値(要望 85 段階 2)。`read_scope`・`scope_value`・`scope_options`・`team_key`(チームの値は制御文字の接頭辞 `TEAM_KEY` つき)。ガントチャートとダッシュボードが共有する。NiceGUI に依存しない |
 | `teams.py` | チーム(要望 85)。`team_name_error`・`membership_error`(整数 1〜100・合計 100)・`normalize`(比を保って 100 に揃える。端数は最大の所属)・`even_split`・`settle_memberships`・`membership_summary`・`team_member_names`・`drop_teams`・`TeamRow`/`build_teams`・`replace_teams`・`removal_impacts`・`add_team_members`。NiceGUI に依存しない |
 | `history_log.py` | 変更履歴(要望 128)。`diff_events`・`record_edit`(編集の前後の差から`Project.history`に追記。入口は`views.after_edit`)・`creation_events`・`stamp_creation`(取り込み用)・`state_at`・`states_at`(昇順の時刻の列を一度に復元)・`effort_weight`・`effective_progress`・`is_known`(過去の値の復元と「不明」の判定)・`merge_logs`・`earliest`・`reconcile`(3 者マージの和集合と補正)・`HistoryKeep`・`compacted`(保存するときだけ、古い履歴をタスク・日ごとにまとめ、件数の上限で古い日から捨てる複製を返す。`views.commit`が呼ぶ)。NiceGUI に依存しない。集計は`dashboard.summarize_progress_delta` |
-| `crew_trial.py` | 遅延対応(要望 132)の増員の試算。`TrialCrew`・`snap_week`(増員日を遅い側の週頭へ)・`trial_weeks`・`evaluate`(完了見込み)・`confirmed`(`weekly_crew`への変換)・`replace_task`。NiceGUI に依存しない |
+| `daily_crew.py` | 日ごとの担当(要望 135)の純粋関数。`with_added_from`(増員日から足す)・`segments`(表示区間)・`split_week`・`merge_week`・`set_week_days`・`crew_spans`。NiceGUI に依存しない |
+| `crew_trial.py` | 遅延対応(要望 132)の増員の試算。`TrialCrew`・`trial_crews`(増員日を丸めず、週の途中ならその週だけ日ごと)・`effect_day`(効き始め)・`evaluate`(完了見込み)・`confirmed`(`weekly_crew`への変換)・`replace_task`。NiceGUI に依存しない |
 | `forecast.py` | 完了見込み(要望 133)。`Forecast`(`end`・`planned_end`・`days_later`)・`forecast_end`(今日からの残りの工数を今の担当で消化した終了日時。`extra_crew`で増員の試算も同じ計算)・`snap_week`・`with_added`。`timeline.calc_end`の`weeks_start`(週の区切りの起点。既定は開始)を使う。`crew_trial`の試算はこれに共通化 |
 | `delay_response.py` | 遅延対応の帯(`delay_band`)・増員を試すダイアログ・保存時の確認・CSS(紫・太い点線) |
 | `extract.py` | タスクの子プロジェクトへの切り出し(要望 89)。`expand_ids`・`selection_error`・`name_error`・`extract`(子の`Project`と、参照行に置き換えた親の複製を返す。元は変えない)・`check`(保存・読込の検証)。NiceGUI に依存しない。画面は`views.extract_tasks`(名前の入力)・`apply_extract`(子を先に新規保存し、親を置き換える) |
@@ -131,7 +132,7 @@ uvx ruff format src test        # 整形。確認だけなら --check
 
 ## ファイル形式の注意
 
-- 形式のバージョンは先頭の `version`(整数。`models.FORMAT_VERSION`、現在 19)。キーのない古いファイルは 1 として読む。整数でない値(`true`・小数・文字列・`null`)と 1 未満は読込を拒否し、このアプリより新しい値は「アプリを更新してください」で拒否する(`storage._check_version`)。形式を変える(キーの意味を変える・消す)ときは `FORMAT_VERSION` を上げ、旧形式の読み替えはバージョンで分ける。
+- 形式のバージョンは先頭の `version`(整数。`models.FORMAT_VERSION`、現在 22)。キーのない古いファイルは 1 として読む。整数でない値(`true`・小数・文字列・`null`)と 1 未満は読込を拒否し、このアプリより新しい値は「アプリを更新してください」で拒否する(`storage._check_version`)。形式を変える(キーの意味を変える・消す)ときは `FORMAT_VERSION` を上げ、旧形式の読み替えはバージョンで分ける。
 - version 2(2026-10-10): `members[].id` と `sections[].id`(`new_id()` の 8 桁の 16 進。入れ子のセクションも)を保存し、担当者は `tasks[].assignees[]` の `{"member": <メンバーid>, "allocation": …}` で指す(`name` は書かない。`_dump`)。実行時の `Assignee` は名前のまま(読込が id から名前へ戻す。`_member_assignees`)。読込は、`id` の欠落・`null`・空・文字列以外・重複(メンバー同士・セクション同士)、存在しない/文字列でない `member`、担当者の旧キー `name` を拒否する。名前が空・重複のメンバーは最初の 1 件を残して捨てるが、捨てた同名のメンバーの id を指す担当者は、残ったメンバーへ読む(名前が空のメンバーの id を指すものは拒否)。version 1(キーなしを含む)は、メンバー・セクションと id のないタスクに読込の最後に新しい id を振る(`_assign_ids`。ファイルの他の id と重ならない)。保存し直すと version 2 になる。
 - 保存(`save_project`)は、タスク同士・メンバー同士・セクション同士の id の重複を `ValueError` にして、ファイルを書かない(読めないファイルを作らない)。担当者の名前がメンバーにいなければ、保存するファイルにだけメンバー(比率 100%)を補う(読込の補完と同じ。実行時のプロジェクトは変えない)。新しい id は `new_id(project.used_ids())` で振る(セクションの追加・新規タスク・行のコピー・メンバーのダイアログの新しい行)。メンバーのダイアログは `MemberRow.id` で行の id を引き継ぐ(改名・並べ替えでは変わらない。行を消して足し直すと新しくなる)。
 - 画像の書き出し(`export.CAPTURE_JS`)は、`htmlToImage.toPng` に **`skipFonts: true`** を渡す。渡さないと、フォントの埋め込みが `@import` 先の CSS(Quasar の約 2,000 ルール)を画面のスタイルシートへ `insertRule` し、`@layer` の外に出て、書き出しのあと、見出しの行の高さ・日付のラベルの位置が変わったままになる(拡大とは無関係。2026-10-09)。画像は、フォントなしでも見た目が変わらない(システムフォントを使うため)。
