@@ -123,3 +123,14 @@ async def test_the_added_mark_follows_the_day_the_person_appears(
     await user.should_not_see(marker="week-added-top-0-1-2")
     await user.should_see(marker="week-added-top-0-1-3")
     await user.should_not_see(marker="week-added-top-0-1-4")
+
+
+async def test_renaming_a_member_reaches_the_daily_crew(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    view.split_week_days((), 0, 0)
+    members = [Member("田中太郎"), Member("鈴木")]
+    view.apply_members(members, {"田中": "田中太郎"})
+    task = view.project.tasks[0]
+    assert all(a.name == "田中太郎" for d in task.daily_crew[0] for a in d)

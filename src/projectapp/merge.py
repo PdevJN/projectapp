@@ -347,6 +347,7 @@ TASK_LABELS = {
     "children": "子",
     "parameters": "パラメータ",
     "weekly_crew": "週ごとの担当",
+    "daily_crew": "日ごとの担当",
     "extra_efforts": "追加工数",
     "parent": "所属",
     "ref_project": "参照先",
@@ -380,7 +381,7 @@ def _flatten(project: Project) -> _Flat:
             record: Record = {
                 f.name: getattr(t, f.name)
                 for f in fields(Task)
-                if f.name not in ("id", "assignees", "weekly_crew")
+                if f.name not in ("id", "assignees", "weekly_crew", "daily_crew")
             }
             # 週ごとのタスクの担当は週の表が正(和集合は持たない)なので、「担当」は空にして衝突させない
             record["assignees"] = (
@@ -392,6 +393,13 @@ def _flatten(project: Project) -> _Flat:
                 [(ids.get(a.name, a.name), a.allocation) for a in week]
                 for week in t.weekly_crew
             ]
+            record["daily_crew"] = {
+                week: [
+                    [(ids.get(a.name, a.name), a.allocation) for a in day]
+                    for day in days
+                ]
+                for week, days in t.daily_crew.items()
+            }
             record["parent"] = container
             flat.tasks[t.id] = record
         for s in sections:
@@ -556,6 +564,16 @@ def merge_projects(
                 f"第{n}週: " + "、".join(f"{shown.get(i, i)} {a:.0%}" for i, a in week)
                 for n, week in enumerate(value, start=1)
             ]
+        if name == "daily_crew":
+            return [
+                f"第{week + 1}週(日ごと): "
+                + "、".join(
+                    f"{j + 1}日目 "
+                    + "・".join(f"{shown.get(i, i)} {a:.0%}" for i, a in day)
+                    for j, day in enumerate(days)
+                )
+                for week, days in sorted(value.items())
+            ]
         return value
 
     sections = merger.collection(
@@ -615,6 +633,28 @@ def merge_projects(
             )
         if record["weekly_crew"] and not weeks:
             notes.append(f"週ごとの担当をすべて外しました: 「{record['name']}」")
+        daily: dict[int, list[list[Assignee]]] = {}
+        for week, days in record["daily_crew"].items():
+            if (
+                not 0 <= week < len(weeks)
+            ):  # 週がなくなった(または空になった)日ごとの担当は捨てる
+                continue
+            rebuilt = []
+            for day in days:
+                crew = [
+                    Assignee(names[i], allocation)
+                    for i, allocation in day
+                    if i in names
+                ]
+                if len(crew) < len(day):
+                    notes.append(
+                        f"日ごとの担当から外しました: 「{record['name']}」の第{week + 1}週"
+                    )
+                rebuilt.append(
+                    crew or [Assignee(a.name, a.allocation) for a in weeks[week]]
+                )
+            daily[week] = rebuilt
+            weeks[week] = union_assignees(rebuilt)
         data = {
             k: v
             for k, v in record.items()
@@ -622,6 +662,7 @@ def merge_projects(
             not in (
                 "assignees",
                 "weekly_crew",
+                "daily_crew",
                 "parent",
                 "predecessors",
                 "category_id",
@@ -640,6 +681,7 @@ def merge_projects(
             id=key,
             assignees=union_assignees(weeks) if weeks else assignees,
             weekly_crew=weeks,
+            daily_crew=daily,
             predecessors=predecessors,
             category_id=category,
             children=children,

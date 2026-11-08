@@ -99,6 +99,7 @@ from projectapp.timeline import (
     combine_rate,
     computed_end,
     crew_of,
+    crew_track,
     effort_days,
 )
 from projectapp.workdays import work_day_map
@@ -1435,7 +1436,11 @@ def open_task_dialog(
                 daily_hours,
                 holidays or {},
                 crew_of(initial.assignees, member_list),
-                weeks=[crew_of(week, member_list) for week in initial.weekly_crew],
+                weeks=crew_track(
+                    initial.weekly_crew,
+                    initial.daily_crew,
+                    lambda crew: crew_of(crew, member_list),
+                ),
             )
             with fields.second_row:
                 effort = EffortField(

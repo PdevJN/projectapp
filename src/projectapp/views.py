@@ -2250,7 +2250,9 @@ class MainView:
                 and (warning := day_overload_notice(result.day_overloads)) is not None
             ):
                 ui.notify(warning, type="warning", timeout=10000)
-            if (approx := weekly_crew_notice(result.weekly_tasks)) is not None:
+            if (
+                approx := weekly_crew_notice(result.weekly_tasks, result.daily_tasks)
+            ) is not None:
                 ui.notify(approx, type="warning", timeout=10000)
         finally:
             self.saving = False
@@ -2342,6 +2344,12 @@ class MainView:
                 for assignee in [
                     *task.assignees,
                     *(a for week in task.weekly_crew for a in week),
+                    *(
+                        a
+                        for days in task.daily_crew.values()
+                        for day in days
+                        for a in day
+                    ),
                 ]:
                     if assignee.name in renames:
                         assignee.name = renames[assignee.name]
