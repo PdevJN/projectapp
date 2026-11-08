@@ -8,6 +8,15 @@ from pathlib import Path
 
 from projectapp.csv_profile import CsvProfile, profile_to_config, profiles_from_config
 from projectapp.dashboard_views import ViewSpec, views_from_config, views_to_config
+from projectapp.history_log import (
+    DEFAULT_DETAIL_DAYS,
+    DEFAULT_MAX_EVENTS,
+    MAX_DETAIL_DAYS,
+    MAX_MAX_EVENTS,
+    MIN_DETAIL_DAYS,
+    MIN_MAX_EVENTS,
+    HistoryKeep,
+)
 from projectapp.storage import BASE_DIR
 from projectapp.theme import (
     CustomTheme,
@@ -235,6 +244,40 @@ def load_open_ratio(base_dir: Path = BASE_DIR) -> int:
 
 def save_open_ratio(value: int, base_dir: Path = BASE_DIR) -> None:
     update_config({"bottom_open_ratio": value}, base_dir)
+
+
+def _clamped_int(value: object, low: int, high: int, default: int) -> int:
+    number = _finite_number(value)
+    return default if number is None else min(max(round(number), low), high)
+
+
+def parse_history_keep(raw: dict) -> HistoryKeep:
+    """履歴の残し方の検証。有限の数を丸めて範囲に収め、それ以外は既定にする。"""
+    return HistoryKeep(
+        _clamped_int(
+            raw.get("history_detail_days"),
+            MIN_DETAIL_DAYS,
+            MAX_DETAIL_DAYS,
+            DEFAULT_DETAIL_DAYS,
+        ),
+        _clamped_int(
+            raw.get("history_max_events"),
+            MIN_MAX_EVENTS,
+            MAX_MAX_EVENTS,
+            DEFAULT_MAX_EVENTS,
+        ),
+    )
+
+
+def load_history_keep(base_dir: Path = BASE_DIR) -> HistoryKeep:
+    return parse_history_keep(read_config(base_dir))
+
+
+def save_history_keep(keep: HistoryKeep, base_dir: Path = BASE_DIR) -> None:
+    update_config(
+        {"history_detail_days": keep.days, "history_max_events": keep.max_events},
+        base_dir,
+    )
 
 
 PROJECT_DIR_MISSING_MESSAGE = "格納先が見つからないため、既定の場所を使っています"

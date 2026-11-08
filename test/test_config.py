@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from projectapp.history_log import HistoryKeep
+
 from projectapp.config import (
     DEFAULT_NAME_WIDTH_PX,
     MAX_NAME_WIDTH_PX,
@@ -11,6 +13,7 @@ from projectapp.config import (
     PROJECT_DIR_MISSING_MESSAGE,
     check_project_dir,
     load_dashboard_view_last,
+    load_history_keep,
     load_dashboard_views,
     load_custom_theme,
     load_name_width,
@@ -18,6 +21,7 @@ from projectapp.config import (
     load_theme,
     parse_name_width,
     resolve_project_dir,
+    save_history_keep,
     save_dashboard_view_last,
     save_dashboard_views,
     save_custom_theme,
@@ -627,3 +631,34 @@ def test_csv_profiles_round_trip_and_survive_a_broken_file(tmp_path) -> None:
     assert load_csv_profile_last(tmp_path) == "自作"
     (tmp_path / "config.json").write_text("{broken", encoding="utf-8")
     assert load_csv_profiles(tmp_path) == [] and load_csv_profile_last(tmp_path) is None
+
+
+def test_history_keep_defaults_when_nothing_is_saved(tmp_path: Path) -> None:
+    assert load_history_keep(tmp_path) == HistoryKeep(90, 50_000)
+
+
+def test_history_keep_round_trips(tmp_path: Path) -> None:
+    save_history_keep(HistoryKeep(30, 20_000), tmp_path)
+    assert load_history_keep(tmp_path) == HistoryKeep(30, 20_000)
+    raw = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert raw["history_detail_days"] == 30 and raw["history_max_events"] == 20_000
+
+
+@pytest.mark.parametrize(
+    ("days", "max_events", "expected"),
+    [
+        (1, 10, HistoryKeep(7, 1_000)),  # 下限へ寄せる
+        (99999, 10**9, HistoryKeep(3650, 1_000_000)),  # 上限へ寄せる
+        ("x", None, HistoryKeep(90, 50_000)),  # 不正は既定
+        (True, [1], HistoryKeep(90, 50_000)),
+        (45.6, 2500.4, HistoryKeep(46, 2500)),  # 丸める
+    ],
+)
+def test_history_keep_is_clamped_or_defaulted(
+    tmp_path: Path, days: object, max_events: object, expected: HistoryKeep
+) -> None:
+    (tmp_path / "config.json").write_text(
+        json.dumps({"history_detail_days": days, "history_max_events": max_events}),
+        encoding="utf-8",
+    )
+    assert load_history_keep(tmp_path) == expected
