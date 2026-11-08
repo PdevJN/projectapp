@@ -144,3 +144,13 @@ def test_assignees_change_the_capacity() -> None:
     )
     value = judged(task)
     assert value is not None and value.capacity == pytest.approx(3.5)
+
+
+def test_hint_adds_the_forecast_date_when_given() -> None:
+    from datetime import datetime
+
+    from projectapp.pace import Pace
+
+    pace = Pace(54.0, 40.0)
+    assert "完了見込み" not in pace.hint()
+    assert pace.hint(datetime(2026, 11, 16, 18)).endswith("完了見込み 11/16")

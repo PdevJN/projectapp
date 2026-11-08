@@ -5103,7 +5103,9 @@ def name_tooltips(user: User, marker: str) -> list[str]:
 async def test_the_warning_name_has_a_tooltip_with_the_numbers(user: User) -> None:
     mount(warning_project(), now=WARN_NOW)
     await user.open("/")
-    assert name_tooltips(user, "task-name-0-0") == ["警告: 残り 9.8h / 稼働 3.5h(279%)"]
+    assert name_tooltips(user, "task-name-0-0") == [
+        "警告: 残り 9.8h / 稼働 3.5h(279%) 完了見込み 10/08"
+    ]
     assert name_tooltips(user, "task-name-0-1") == []
 
 
