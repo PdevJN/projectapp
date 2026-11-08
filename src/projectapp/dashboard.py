@@ -9,6 +9,7 @@ from math import isfinite
 from typing import NamedTuple
 
 from projectapp import clock
+from projectapp.burndown import BurnTask, Burndown, compute_burndown
 from projectapp.events import effective_holidays
 from projectapp.history_log import (
     TaskState,
@@ -18,7 +19,16 @@ from projectapp.history_log import (
     is_known,
     state_at,
 )
-from projectapp.models import Assignee, Member, Project, Status, Task, TaskKind, WorkDay
+from projectapp.models import (
+    Assignee,
+    HistoryEvent,
+    Member,
+    Project,
+    Status,
+    Task,
+    TaskKind,
+    WorkDay,
+)
 from projectapp.pace import warning_pace
 from projectapp.ratios import effective_ratio
 from projectapp.remaining import overlap_hours, remaining_hours, total_effort
@@ -460,6 +470,52 @@ def summarize_progress_delta(
         counted += 1
     return ProgressDelta(
         period, weighted / total if total else None, scope, True, since, counted
+    )
+
+
+def _burn_task(
+    task: Task, index: Mapping[str, list[HistoryEvent]], schedule: Schedule
+) -> BurnTask:
+    start, end = schedule.start(task), schedule.end(task)
+    return BurnTask(
+        task,
+        tuple(index.get(task.id, ())),
+        start.date() if start else None,
+        end.date() if end else None,
+    )
+
+
+def summarize_burndown(
+    project: Project,
+    period: Period,
+    now: datetime,
+    holidays: dict[date, str],
+    member: Scope = None,
+) -> Burndown:
+    """期間中の残りの工数の推移(要望 128 段階 2)。対象は`進んだ分`と同じ集合(予定の期間・締切・実績が期間にかかる
+    通常タスク)に、期間中に分解でまとめになったタスク(退場まで数える)を足したもの。参照先は含めない。"""
+    index = events_by_task(project)
+    schedule = Schedule(project, holidays)
+    tasks = [
+        _burn_task(entry.task, index, entry.schedule)
+        for entry in _entries(project, holidays, member, None)
+        if entry.task.kind is TaskKind.NORMAL
+        and _touches(entry.task, entry.schedule, period, now)
+    ]
+    scoped = _names(member)
+    for task in project.all_tasks():
+        if task.kind is TaskKind.NORMAL or (
+            scoped is not None and scoped.isdisjoint(task.assignee_names)
+        ):
+            continue
+        if any(
+            c.field == "status" and c.before is not None and c.after is None
+            for e in index.get(task.id, ())
+            for c in e.changes
+        ):
+            tasks.append(_burn_task(task, index, schedule))
+    return compute_burndown(
+        tasks, period.start, period.end, now, project.history_since, holidays
     )
 
 
@@ -1681,6 +1737,7 @@ class Dashboard:
     )
     delta: ProgressDelta | None = None  # 期間中に進んだ分。全期間は None
     previous_delta: ProgressDelta | None = None  # 同じ長さの直前の期間の分
+    burndown: Burndown | None = None  # 残りの工数の推移。全期間は None
 
     @property
     def heat_summary(self) -> CrossSummary | None:
@@ -1711,12 +1768,13 @@ def summarize(
     """`member`があれば`team`は無視する。存在しない・メンバーのいないチームは絞り込まない。"""
     team_members = team_scope(project, team) if member is None else None
     scope: Scope = member if member is not None else team_weights(project, team)
-    delta = previous = None
+    delta = previous = burndown = None
     if kind is not PeriodKind.ALL:
         delta = summarize_progress_delta(project, period, now, holidays, scope)
         previous = summarize_progress_delta(
             project, previous_period(period), now, holidays, scope
         )
+        burndown = summarize_burndown(project, period, now, holidays, scope)
     return Dashboard(
         period,
         summarize_progress(project, holidays, now, scope, children),
@@ -1741,4 +1799,5 @@ def summarize(
         references=len(children or {}),
         delta=delta,
         previous_delta=previous,
+        burndown=burndown,
     )
