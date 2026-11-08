@@ -476,11 +476,13 @@ def calc_end(
     holidays: dict[date, str],
     crew: Sequence[Worker] | None = None,
     weeks: Sequence[Sequence[Worker]] | None = None,
+    weeks_start: date | None = None,
 ) -> datetime | None:
     """基準の人の工数を、担当者全員の稼働の枠(その人の上書き、なければ始業から稼働可能時間)に割り当てた終了日時。
 
     枠が重なる時刻は、稼働中の担当者の換算率の合計で工数を消化する。crew が空なら換算率1の1人。
-    weeks があれば、start の日から 7 日ごとにその週の担当者で消化する(最後の週は以降も続く。crew は使わない)。
+    weeks があれば、start の日(weeks_start があればその日)から 7 日ごとにその週の担当者で消化する
+    (最後の週は以降も続く。crew は使わない)。起点が開始より後でも、週の区切りを保てる。
     工数が不正(NaN・inf・0以下・稼働日数の上限超え)、daily_hoursが0以下・24超、
     または日付が範囲を超えるときは、例外にせずNoneを返す。
     """
@@ -488,7 +490,9 @@ def calc_end(
     if crews is None:
         return None
     try:
-        return _calc_end(start, effort_hours, daily_hours, work_start, holidays, crews)
+        return _calc_end(
+            start, effort_hours, daily_hours, work_start, holidays, crews, weeks_start
+        )
     except OverflowError:
         return None
 
@@ -569,11 +573,13 @@ def _consume(
     work_start: time,
     holidays: dict[date, str],
     crews: list[list[Worker]],
+    weeks_start: date | None = None,
 ) -> Iterator[tuple[datetime, datetime, list[Worker]]]:
     remaining = effort_hours
+    origin = weeks_start or start.date()
     day, cursor = start.date(), start
     while True:
-        workers = crews[week_index(start.date(), day, len(crews))]
+        workers = crews[week_index(origin, day, len(crews))]
         windows = [
             (w, window)
             for w in workers
@@ -611,10 +617,11 @@ def _calc_end(
     work_start: time,
     holidays: dict[date, str],
     crews: list[list[Worker]],
+    weeks_start: date | None = None,
 ) -> datetime:
     end = start
     for _, end, _ in _consume(
-        start, effort_hours, daily_hours, work_start, holidays, crews
+        start, effort_hours, daily_hours, work_start, holidays, crews, weeks_start
     ):
         pass
     return end
