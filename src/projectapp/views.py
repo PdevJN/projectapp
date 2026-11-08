@@ -38,6 +38,7 @@ from projectapp.config import (
     check_project_dir,
     load_custom_theme,
     load_main_split,
+    load_history_keep,
     load_open_ratio,
     load_today_color,
     load_warning_color,
@@ -55,6 +56,8 @@ from projectapp.config import (
     resolve_project_dir,
     save_custom_theme,
     save_main_split,
+    parse_history_keep,
+    save_history_keep,
     save_open_ratio,
     save_today_color,
     save_warning_color,
@@ -235,6 +238,7 @@ from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, short_date
+from projectapp.history_log import HistoryKeep
 from projectapp.models import (
     MAX_SECTION_DEPTH,
     MAX_WEEKS,
@@ -544,6 +548,12 @@ class MainView:
         self.warning_color = load_warning_color(base_dir)  # 警告の色。None は既定(黄)
         self.main_split = load_main_split(base_dir)  # 分割の位置(ガントチャートの割合)
         self.open_ratio = load_open_ratio(base_dir)  # 下部パネルを開くときの割合
+        self.dropped_notice: tuple[str, datetime] | None = (
+            None  # 履歴を捨てた通知を出した、(プロジェクト名, 記録の開始)。同じ内容は繰り返さない
+        )
+        self.history_keep: HistoryKeep = load_history_keep(
+            base_dir
+        )  # 保存するときの履歴の残し方。全プロジェクト共通
         self.pending_split: int | None = None
         self.split_timer: ui.timer | None = None
         self.dark = ui.dark_mode()
@@ -728,8 +738,27 @@ class MainView:
                     self.gantt.syncing_split = False
 
         show_global_settings_dialog(
-            self.open_ratio, preview, self.apply_open_ratio, cancel
+            self.open_ratio,
+            self.history_keep,
+            preview,
+            self.apply_global_settings,
+            cancel,
         )
+
+    def apply_global_settings(self, ratio: int, keep: HistoryKeep) -> bool:
+        """開くときの割合と履歴の残し方を保存する。範囲外は範囲に収める。失敗したら通知して False。"""
+        keep = parse_history_keep(
+            {"history_detail_days": keep.days, "history_max_events": keep.max_events}
+        )
+        if not self.apply_open_ratio(ratio):
+            return False
+        try:
+            save_history_keep(keep, self.base_dir)
+        except OSError:
+            ui.notify("全体の設定を保存できませんでした", type="warning")
+            return False
+        self.history_keep = keep
+        return True
 
     def apply_open_ratio(self, value: int) -> bool:
         """開くときの割合を保存する。失敗したら通知して False(ダイアログは閉じない)。"""
@@ -2492,8 +2521,9 @@ class MainView:
 
     def commit(self, *, overwrite: bool, after: Callable[[], object] | None) -> bool:
         """検査なしで保存する(`write` の本体)。"""
+        stored = history_log.compacted(self.project, self.now(), self.history_keep)
         try:
-            path = save_project(self.project, self.project_dir, overwrite=overwrite)
+            path = save_project(stored, self.project_dir, overwrite=overwrite)
         except FileExistsError:
             ui.notify("同じ名前のファイルがすでにあります", type="negative")
             return False
@@ -2510,6 +2540,17 @@ class MainView:
         self.file_select.set_options(sorted(self.files), value=path.stem)
         self.title.refresh()
         ui.notify("保存しました")
+        dropped = stored.history_since
+        if (
+            dropped
+            and dropped != self.project.history_since
+            and self.dropped_notice != (self.project.name, dropped)
+        ):
+            self.dropped_notice = (self.project.name, dropped)
+            ui.notify(
+                f"履歴が上限を超えたため、{dropped:%m/%d} より前の履歴を捨てました",
+                type="warning",
+            )
         self.request_git_refresh()
         if after is not None:
             after()

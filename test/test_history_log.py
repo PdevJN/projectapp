@@ -2,12 +2,14 @@
 
 import json
 from copy import deepcopy
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
 from projectapp.history_log import (
+    HistoryKeep,
     TaskState,
+    compacted,
     diff_events,
     dirty_key,
     earliest,
@@ -420,3 +422,283 @@ def test_effective_progress_is_100_when_done_and_zero_without_progress() -> None
     assert effective_progress(TaskState(Status.DONE, 30, 1.0)) == 100.0
     assert effective_progress(TaskState(Status.RUNNING, 30, 1.0)) == 30.0
     assert effective_progress(TaskState(Status.RUNNING, None, 1.0)) == 0.0
+
+
+NOW = datetime(2026, 11, 8, 12)
+KEEP = HistoryKeep(days=7, max_events=50_000)  # カット線: 2026-11-01 0:00
+
+
+def midnights(since: datetime, until: datetime) -> list[datetime]:
+    """`since`より後の最初の 0 時から、`until`の日の 0 時まで、毎日の 0 時。"""
+    first = datetime.combine(since.date() + timedelta(1), datetime.min.time())
+    days = (until.date() - first.date()).days + 1
+    return [first + timedelta(d) for d in range(days)]
+
+
+def restored(project: Project, moments: list[datetime]) -> dict[str, list]:
+    index = events_by_task(project)
+    return {
+        t.id: states_at(t, index.get(t.id, []), moments) for t in project.all_tasks()
+    }
+
+
+def long_project() -> Project:
+    """a: 10/20 に作成 → 10/21 に着手(同じ日に 2 回進捗)→ 10/25 に終了。b: 10/22 に作成。c: 10/23 に作成して同じ日に分解で退場。"""
+    a = Task("a", id="a", effort_hours=10, status=Status.DONE, progress=100)
+    b = Task("b", id="b", effort_hours=4, progress=50)
+    c = Task("c", id="c", kind=TaskKind.SUMMARY, children=["x"])
+    x = Task("x", id="x")
+    events = [
+        ev(
+            "a",
+            datetime(2026, 10, 20, 9),
+            status=(None, "未着手"),
+            progress=(None, None),
+            effort=(None, 10.0),
+        ),
+        ev(
+            "a",
+            datetime(2026, 10, 21, 9),
+            status=("未着手", "実行中"),
+            progress=(None, 30),
+        ),
+        ev("a", datetime(2026, 10, 21, 15), progress=(30, 60)),
+        ev(
+            "a",
+            datetime(2026, 10, 25, 11),
+            status=("実行中", "終了"),
+            progress=(60, 100),
+        ),
+        ev(
+            "b",
+            datetime(2026, 10, 22, 9),
+            status=(None, "未着手"),
+            progress=(None, 20),
+            effort=(None, 4.0),
+        ),
+        ev(
+            "c",
+            datetime(2026, 10, 23, 9),
+            status=(None, "未着手"),
+            progress=(None, None),
+            effort=(None, 1.0),
+        ),
+        ev(
+            "c",
+            datetime(2026, 10, 23, 16),
+            status=("未着手", None),
+            progress=(None, None),
+            effort=(1.0, None),
+        ),
+        ev("b", datetime(2026, 11, 3, 10), progress=(20, 50)),
+    ]
+    return Project(
+        "p", tasks=[a, b, c, x], history=events, history_since=datetime(2026, 10, 20, 8)
+    )
+
+
+def test_old_events_of_one_task_and_day_become_one_event() -> None:
+    result = compacted(long_project(), NOW, KEEP)
+    day = [
+        e for e in result.history if e.task == "a" and e.at.date() == date(2026, 10, 21)
+    ]
+    assert day == [
+        ev(
+            "a",
+            datetime(2026, 10, 21, 15),
+            status=("未着手", "実行中"),
+            progress=(None, 60),
+        )
+    ]
+
+
+def test_events_newer_than_the_cut_line_are_untouched() -> None:
+    result = compacted(long_project(), NOW, KEEP)
+    assert ev("b", datetime(2026, 11, 3, 10), progress=(20, 50)) in result.history
+
+
+def test_restoring_at_every_midnight_is_unchanged() -> None:
+    project = long_project()
+    assert project.history_since is not None
+    moments = midnights(project.history_since, NOW)
+    result = compacted(project, NOW, KEEP)
+    assert len(result.history) < len(project.history)
+    assert restored(result, moments) == restored(project, moments)
+
+
+def test_compacting_twice_gives_the_same_result() -> None:
+    once = compacted(long_project(), NOW, KEEP)
+    assert compacted(once, NOW, KEEP) == once
+
+
+def test_the_original_project_is_not_changed() -> None:
+    project = long_project()
+    before = list(project.history)
+    compacted(project, NOW, KEEP)
+    assert project.history == before
+    assert project.history_since == datetime(2026, 10, 20, 8)
+
+
+def test_a_task_created_and_retired_on_the_same_day_stays_nonexistent() -> None:
+    project = long_project()
+    assert project.history_since is not None
+    result = compacted(project, NOW, KEEP)
+    day = [e for e in result.history if e.task == "c"]
+    assert len(day) == 2  # 作成と退場は同じ日でも別の件
+    moments = midnights(project.history_since, NOW)
+    assert all(s is None for s in restored(result, moments)["c"])
+
+
+def test_events_of_deleted_tasks_are_dropped() -> None:
+    project = long_project()
+    project.history.append(
+        ev("gone", datetime(2026, 10, 22, 9), status=(None, "未着手"))
+    )
+    result = compacted(project, NOW, KEEP)
+    assert all(e.task != "gone" for e in result.history)
+
+
+def test_events_at_the_same_moment_keep_their_recorded_order() -> None:
+    at = datetime(2026, 10, 21, 9)
+    project = Project(
+        "p",
+        tasks=[Task("a", id="a", progress=70)],
+        history=[ev("a", at, progress=(None, 30)), ev("a", at, progress=(30, 70))],
+        history_since=datetime(2026, 10, 20),
+    )
+    assert compacted(project, NOW, KEEP).history == [ev("a", at, progress=(None, 70))]
+
+
+def test_a_field_that_returns_to_its_first_value_disappears() -> None:
+    project = Project(
+        "p",
+        tasks=[Task("a", id="a", progress=30)],
+        history=[
+            ev("a", datetime(2026, 10, 21, 9), progress=(30, 50)),
+            ev("a", datetime(2026, 10, 21, 15), progress=(50, 30)),
+        ],
+        history_since=datetime(2026, 10, 20),
+    )
+    assert compacted(project, NOW, KEEP).history == []
+
+
+def test_nothing_happens_without_history() -> None:
+    project = Project("p", tasks=[Task("a", id="a")])
+    assert compacted(project, NOW, KEEP) == project
+
+
+def cap_project() -> Project:
+    """a が 10/20〜10/23 の 4 日、毎日 1 件ずつ動く(合計 4 件)。"""
+    events = [
+        ev(
+            "a",
+            datetime(2026, 10, 20, 9),
+            status=(None, "実行中"),
+            progress=(None, 0),
+            effort=(None, 1.0),
+        ),
+        ev("a", datetime(2026, 10, 21, 9), progress=(0, 10)),
+        ev("a", datetime(2026, 10, 22, 9), progress=(10, 20)),
+        ev("a", datetime(2026, 10, 23, 9), progress=(20, 40)),
+    ]
+    return Project(
+        "p",
+        tasks=[Task("a", id="a", status=Status.RUNNING, progress=40, effort_hours=1)],
+        history=events,
+        history_since=datetime(2026, 10, 20, 8),
+    )
+
+
+def test_over_the_cap_the_oldest_whole_days_go_and_the_start_moves() -> None:
+    project = cap_project()
+    result = compacted(project, NOW, HistoryKeep(days=7, max_events=2))
+    assert [e.at.date() for e in result.history] == [
+        date(2026, 10, 22),
+        date(2026, 10, 23),
+    ]
+    assert result.history_since == datetime(2026, 10, 22)
+    moments = midnights(datetime(2026, 10, 21, 12), NOW)  # 10/22 0:00 から
+    assert restored(result, moments) == restored(project, moments)
+
+
+def test_the_latest_day_is_never_dropped_even_over_the_cap() -> None:
+    result = compacted(cap_project(), NOW, HistoryKeep(days=7, max_events=0))
+    assert [e.at.date() for e in result.history] == [date(2026, 10, 23)]
+    assert result.history_since == datetime(2026, 10, 23)
+
+
+def test_under_the_cap_the_start_does_not_move() -> None:
+    project = cap_project()
+    result = compacted(project, NOW, HistoryKeep(days=7, max_events=100))
+    assert result.history_since == project.history_since
+
+
+def test_compacting_a_years_history_of_300_tasks_is_fast() -> None:
+    from time import perf_counter
+
+    start = datetime(2025, 11, 8, 9)
+    tasks = [Task(f"t{i}", id=f"t{i}", progress=50) for i in range(300)]
+    events = [
+        ev(
+            f"t{i}",
+            start + timedelta(days=step * 11, hours=i % 8),
+            progress=(step, step + 1),
+        )
+        for i in range(300)
+        for step in range(33)  # 約 9,900 件
+    ]
+    project = Project("p", tasks=tasks, history=events, history_since=start)
+    began = perf_counter()
+    result = compacted(project, NOW, HistoryKeep())
+    took = perf_counter() - began
+    assert 0 < len(result.history) <= len(events)
+    assert took < 1.0  # 目安は 0.1 秒未満。遅い環境でも落ちないよう 1 秒で見張る
+
+
+def test_a_retirement_stays_a_separate_event_after_the_earlier_ones_of_the_day() -> (
+    None
+):
+    """退場の直前の値(`state_at(退場の時刻)`)を変えないよう、退場のイベントは同じ日の前の分とまとめない。"""
+    project = Project(
+        "p",
+        tasks=[
+            Task("p", id="p", kind=TaskKind.SUMMARY, children=["x"]),
+            Task("x", id="x"),
+        ],
+        history=[
+            ev(
+                "p",
+                datetime(2026, 10, 21, 9),
+                status=("未着手", "実行中"),
+                progress=(0, 30),
+            ),
+            ev("p", datetime(2026, 10, 21, 10), progress=(30, 80)),
+            ev(
+                "p",
+                datetime(2026, 10, 21, 15),
+                status=("実行中", None),
+                progress=(80, None),
+            ),
+        ],
+        history_since=datetime(2026, 10, 20),
+    )
+    result = compacted(project, NOW, KEEP)
+    assert result.history == [
+        ev(
+            "p",
+            datetime(2026, 10, 21, 10),
+            status=("未着手", "実行中"),
+            progress=(0, 80),
+        ),
+        ev(
+            "p",
+            datetime(2026, 10, 21, 15),
+            status=("実行中", None),
+            progress=(80, None),
+        ),
+    ]
+    task = project.tasks[0]
+    moment = datetime(2026, 10, 21, 15)
+    assert state_at(task, events_by_task(result)["p"], moment) == state_at(
+        task, events_by_task(project)["p"], moment
+    )
