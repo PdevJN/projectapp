@@ -4,7 +4,7 @@ from pathlib import Path
 from nicegui.testing import User
 
 from projectapp.calendar import save_cache
-from projectapp.models import Assignee, Member, Task
+from projectapp.models import Assignee, Member, Task, WorkDay
 from projectapp.views import MainView
 from test_views import make_view
 
@@ -240,3 +240,20 @@ async def test_a_late_task_with_added_crew_is_drawn_through_the_forecast(
     await user.should_see(marker="planned-end-tick-top-0")
     await user.should_not_see(marker="forecast-line-top-0")
     await user.should_see(marker="forecast-label-top-0")
+
+
+async def test_confirming_and_investing_notify_when_a_day_off_delays_the_start(
+    user: User, tmp_path: Path
+) -> None:
+    from unittest.mock import patch
+
+    view = await opened(user, tmp_path)
+    view.project.members[1].work_days = [WorkDay(date(2099, 1, 12), None, None)]
+    from projectapp.crew_trial import TrialCrew
+
+    view.trials = {"ta": TrialCrew("ta", ("鈴木",), date(2099, 1, 12))}
+    with user.client, patch("projectapp.views.ui.notify") as notify:
+        view.confirm_trials()
+    assert any(
+        "鈴木 は 1/13 から効きます" in str(c.args[0]) for c in notify.call_args_list
+    )
