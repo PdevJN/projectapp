@@ -11,6 +11,8 @@ from projectapp.history_log import (
     diff_events,
     dirty_key,
     earliest,
+    effective_progress,
+    effort_weight,
     events_by_task,
     is_known,
     merge_logs,
@@ -18,6 +20,7 @@ from projectapp.history_log import (
     record_edit,
     state_at,
     stamp_creation,
+    states_at,
 )
 from projectapp.models import (
     Change,
@@ -353,3 +356,67 @@ def test_dirty_key_changes_with_the_history_and_with_the_rest() -> None:
     started = deepcopy(base)
     started.history_since = NOW
     assert dirty_key(started) != dirty_key(base)
+
+
+def test_states_at_matches_state_at_for_every_moment() -> None:
+    task = Task("a", id="a", effort_hours=10, status=Status.DONE, progress=80)
+    events = [
+        ev(
+            "a",
+            datetime(2026, 11, 3, 10),
+            status=("未着手", "実行中"),
+            progress=(None, 40),
+        ),
+        ev("a", datetime(2026, 11, 5, 9), progress=(40, 80), effort=(10, 12)),
+        ev("a", datetime(2026, 11, 6, 9), status=("実行中", "終了")),
+    ]
+    moments = [datetime(2026, 11, d, h) for d in range(2, 8) for h in (0, 12)]
+    assert states_at(task, events, moments) == [
+        state_at(task, events, m) for m in moments
+    ]
+
+
+def test_states_at_is_none_before_the_task_was_created_and_after_it_left() -> None:
+    task = Task("s", id="s", kind=TaskKind.SUMMARY)
+    events = [
+        ev(
+            "s",
+            datetime(2026, 11, 3),
+            status=(None, "実行中"),
+            progress=(None, 50),
+            effort=(None, 10),
+        ),
+        ev(
+            "s",
+            datetime(2026, 11, 5),
+            status=("実行中", None),
+            progress=(50, None),
+            effort=(10, None),
+        ),
+    ]
+    moments = [datetime(2026, 11, 2), datetime(2026, 11, 4), datetime(2026, 11, 6)]
+    assert states_at(task, events, moments) == [
+        None,
+        TaskState(Status.RUNNING, 50, 10.0),
+        None,
+    ]
+
+
+def test_states_at_without_events_is_the_current_value() -> None:
+    task = Task("a", id="a", effort_hours=4, status=Status.PAUSED, progress=20)
+    moments = [datetime(2026, 11, 2), datetime(2026, 11, 9)]
+    assert states_at(task, [], moments) == [TaskState(Status.PAUSED, 20, 4.0)] * 2
+
+
+def test_effort_weight_counts_missing_or_broken_effort_as_one_hour() -> None:
+    assert effort_weight(6.5) == 6.5
+    assert effort_weight(0) == 1.0
+    assert effort_weight(-3) == 1.0
+    assert effort_weight(float("nan")) == 1.0
+    assert effort_weight(float("inf")) == 1.0
+
+
+def test_effective_progress_is_100_when_done_and_zero_without_progress() -> None:
+    assert effective_progress(TaskState(Status.DONE, 30, 1.0)) == 100.0
+    assert effective_progress(TaskState(Status.RUNNING, 30, 1.0)) == 30.0
+    assert effective_progress(TaskState(Status.RUNNING, None, 1.0)) == 0.0

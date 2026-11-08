@@ -13,10 +13,12 @@ from projectapp.dashboard import (
     previous_period,
     summarize_progress_delta,
     MAX_CUSTOM_DAYS,
+    burndown_whole_period,
     custom_period_error,
     period_for,
     summarize,
     summarize_backlog,
+    summarize_burndown,
     summarize_cross_loads,
     summarize_due,
     summarize_member_progress,
@@ -1928,3 +1930,198 @@ def test_decomposing_a_task_keeps_its_progress_and_nets_the_scope() -> None:
     assert delta.percent == pytest.approx(50.0)  # 元のタスクの 50%。子の完了は入れない
     assert delta.scope_hours == pytest.approx(0.0)  # 子の 8h − 元の 8h
     assert delta.counted == 1
+
+
+def test_burndown_sums_the_remaining_hours_of_the_tasks_in_the_period() -> None:
+    result = summarize_burndown(delta_project(), DELTA_WEEK, D_NOW, {})
+    assert result.known and result.count == 2
+    # a: 10h、11/03 に 50%、11/05 に終了。b: 10h で動かない
+    assert result.initial == 20.0
+    assert result.actual == (20.0, 15.0, 15.0, 10.0, 10.0)
+    assert result.today_index == 4
+
+
+def test_burndown_follows_the_member_filter() -> None:
+    project = delta_project()
+    project.members = [Member("田中"), Member("鈴木")]
+    project.tasks[0].assignees = [Assignee("田中")]
+    project.tasks[1].assignees = [Assignee("鈴木")]
+    result = summarize_burndown(project, DELTA_WEEK, D_NOW, {}, "田中")
+    assert result.count == 1 and result.actual == (10.0, 5.0, 5.0, 0.0, 0.0)
+
+
+def test_burndown_keeps_a_task_that_became_a_summary_until_it_left() -> None:
+    summary = Task("s", id="s", kind=TaskKind.SUMMARY, children=["k"])
+    child = Task("k", id="k", effort_hours=10, deadline=datetime(2026, 11, 6, 17))
+    project = Project(
+        "p",
+        base_date=date(2026, 11, 2),
+        tasks=[summary, child],
+        history_since=datetime(2026, 11, 1),
+        history=[
+            hevent(
+                "s",
+                datetime(2026, 10, 30, 10),
+                status=(None, "実行中"),
+                progress=(None, 50),
+                effort=(None, 10),
+            ),
+            hevent(
+                "s",
+                datetime(2026, 11, 4, 10),
+                status=("実行中", None),
+                progress=(50, None),
+                effort=(10, None),
+            ),
+            hevent(
+                "k",
+                datetime(2026, 11, 4, 10),
+                status=(None, "未着手"),
+                progress=(None, None),
+                effort=(None, 10),
+            ),
+        ],
+    )
+    result = summarize_burndown(project, DELTA_WEEK, D_NOW, {})
+    # 親の残り 5h(10h の半分が進んでいた)は退場の 11/04 まで数え、そのあとは子の 10h が数えられる
+    assert result.initial == 5.0
+    assert result.actual == (5.0, 5.0, 10.0, 10.0, 10.0)
+
+
+def test_burndown_is_unknown_without_history() -> None:
+    project = delta_project()
+    project.history_since = None
+    project.history = []
+    result = summarize_burndown(project, DELTA_WEEK, D_NOW, {})
+    assert not result.known and result.since is None
+
+
+def test_summarize_attaches_the_burndown_for_the_whole_period_too() -> None:
+    project = delta_project()
+    project.tasks.append(
+        Task("later", id="later", effort_hours=5, deadline=datetime(2026, 12, 1, 17))
+    )
+    period = period_for(PeriodKind.ALL, D_NOW.date(), project, {})
+    whole = summarize(project, period, D_NOW, {}, PeriodKind.ALL).burndown
+    assert whole is not None and whole.whole and whole.known
+    assert whole.count == 3  # 期間にかかるかで絞らない
+    assert whole.last == date(2026, 12, 1)
+    week = summarize(project, DELTA_WEEK, D_NOW, {}, PeriodKind.WEEK).burndown
+    assert week is not None and not week.whole and week.count == 2
+
+
+def test_the_whole_burndown_period_starts_where_the_history_is_known() -> None:
+    given = Period(date(2026, 10, 1), date(2026, 12, 1))
+    project = Project("p", history_since=datetime(2026, 11, 3, 9))
+    assert burndown_whole_period(project, given) == Period(
+        date(2026, 11, 4), date(2026, 12, 1)
+    )  # 9 時に始まった記録は、その日の 0 時を復元できないので翌日から
+    project.history_since = datetime(2026, 11, 3)
+    assert burndown_whole_period(project, given).start == date(2026, 11, 3)
+    project.history_since = datetime(2026, 10, 1)
+    later = Period(date(2026, 11, 5), date(2026, 12, 1))
+    assert burndown_whole_period(project, later).start == date(2026, 11, 5)
+
+
+def test_the_whole_burndown_period_is_at_most_400_days() -> None:
+    project = Project("p", history_since=datetime(2025, 1, 1))
+    result = burndown_whole_period(
+        project, Period(date(2025, 1, 2), date(2026, 12, 31))
+    )
+    assert result.end == date(2026, 12, 31) and len(result.days()) == MAX_CUSTOM_DAYS
+
+
+def test_the_whole_burndown_period_without_history_is_the_given_one() -> None:
+    given = Period(date(2026, 10, 1), date(2026, 12, 1))
+    assert burndown_whole_period(Project("p"), given) == given
+
+
+def test_history_that_starts_after_the_last_plan_is_unknown_for_the_whole_period() -> (
+    None
+):
+    project = Project("p", history_since=datetime(2026, 12, 5))
+    result = burndown_whole_period(
+        project, Period(date(2026, 11, 5), date(2026, 12, 1))
+    )
+    assert result.start == result.end == date(2026, 12, 1)
+
+
+def members_delta_project() -> Project:
+    project = delta_project()  # a: 0% → 100%(+100)。b: 動かない(0)
+    project.members = [Member("田中"), Member("鈴木")]
+    project.tasks[0].assignees = [Assignee("田中")]
+    project.tasks[1].assignees = [Assignee("鈴木")]
+    return project
+
+
+def test_each_member_row_carries_the_progress_made_in_the_period() -> None:
+    dashboard = summarize(
+        members_delta_project(), DELTA_WEEK, D_NOW, {}, PeriodKind.WEEK
+    )
+    assert {row.name: row.delta for row in dashboard.progress.by_member} == {
+        "田中": pytest.approx(100.0),
+        "鈴木": pytest.approx(0.0),
+    }
+
+
+def test_member_rows_have_no_delta_for_the_whole_period() -> None:
+    dashboard = summarize(
+        members_delta_project(), DELTA_WEEK, D_NOW, {}, PeriodKind.ALL
+    )
+    assert [row.delta for row in dashboard.progress.by_member] == [None, None]
+
+
+def test_member_rows_have_no_delta_when_the_history_does_not_reach_back() -> None:
+    project = members_delta_project()
+    project.history_since = datetime(2026, 11, 4)
+    dashboard = summarize(project, DELTA_WEEK, D_NOW, {}, PeriodKind.WEEK)
+    assert [row.delta for row in dashboard.progress.by_member] == [None, None]
+
+
+def summary_project(child_deadline: datetime, left: datetime) -> Project:
+    summary = Task("s", id="s", kind=TaskKind.SUMMARY, children=["k"])
+    child = Task("k", id="k", effort_hours=10, deadline=child_deadline)
+    return Project(
+        "p",
+        base_date=date(2026, 11, 2),
+        tasks=[summary, child],
+        history_since=datetime(2026, 10, 1),
+        history=[
+            hevent(
+                "s",
+                datetime(2026, 10, 5, 10),
+                status=(None, "実行中"),
+                progress=(None, 50),
+                effort=(None, 10),
+            ),
+            hevent(
+                "s",
+                left,
+                status=("実行中", None),
+                progress=(50, None),
+                effort=(10, None),
+            ),
+            hevent(
+                "k",
+                left,
+                status=(None, "未着手"),
+                progress=(None, None),
+                effort=(None, 10),
+            ),
+        ],
+    )
+
+
+def test_burndown_ignores_a_summary_that_left_before_the_period() -> None:
+    project = summary_project(datetime(2026, 12, 6, 17), datetime(2026, 10, 20, 10))
+    result = summarize_burndown(project, DELTA_WEEK, D_NOW, {})
+    assert result.known and result.count == 0
+
+
+def test_burndown_does_not_count_a_summary_whose_children_are_outside_the_period() -> (
+    None
+):
+    # 子が期間の外なら、親の残りが分解の日に消えて「進んだ」ように見えない(親も対象にしない)
+    project = summary_project(datetime(2026, 12, 6, 17), datetime(2026, 11, 4, 10))
+    result = summarize_burndown(project, DELTA_WEEK, D_NOW, {})
+    assert result.count == 0 and result.actual == (0.0,) * 5

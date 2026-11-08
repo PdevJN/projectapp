@@ -44,6 +44,7 @@ def test_the_default_order_matches_the_current_dashboard() -> None:
         CardId.HEATMAP,
         CardId.HOURS,
         CardId.BACKLOG,
+        CardId.BURNDOWN,
         CardId.DUE,
     )
 

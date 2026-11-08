@@ -2,16 +2,33 @@
 
 from calendar import monthrange
 from collections.abc import Collection, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from math import isfinite
 from typing import NamedTuple
 
 from projectapp import clock
+from projectapp.burndown import BurnTask, Burndown, compute_burndown
 from projectapp.events import effective_holidays
-from projectapp.history_log import TaskState, events_by_task, is_known, state_at
-from projectapp.models import Assignee, Member, Project, Status, Task, TaskKind, WorkDay
+from projectapp.history_log import (
+    TaskState,
+    effective_progress,
+    effort_weight,
+    events_by_task,
+    is_known,
+    state_at,
+)
+from projectapp.models import (
+    Assignee,
+    HistoryEvent,
+    Member,
+    Project,
+    Status,
+    Task,
+    TaskKind,
+    WorkDay,
+)
 from projectapp.pace import warning_pace
 from projectapp.ratios import effective_ratio
 from projectapp.remaining import overlap_hours, remaining_hours, total_effort
@@ -154,6 +171,9 @@ class MemberProgress:
     warnings: int = 0  # 警告のタスクの数(共同タスクは担当者それぞれの行に数える)
     limit: int | None = None  # そのメンバーの警告の件数の閾値(メンバー別の行だけ)
     warned_tasks: tuple[str, ...] = ()  # 警告のタスクの名前(`warnings`の内訳)
+    delta: float | None = (
+        None  # 期間中に進んだ分(%ポイント。要望 128 段階 2)。出さないときは None
+    )
 
     @property
     def over_limit(self) -> bool:
@@ -267,7 +287,7 @@ def warning_tasks(entries: Sequence[Entry], now: datetime) -> frozenset[int]:
 
 
 def _weight(effort_hours: float) -> float:
-    return effort_hours if isfinite(effort_hours) and effort_hours > 0 else 1.0
+    return effort_weight(effort_hours)
 
 
 def _progress_weight(task: Task) -> tuple[float, float] | None:
@@ -382,7 +402,7 @@ def previous_period(period: Period) -> Period:
 
 def _effective(state: TaskState) -> float:
     """実効の進捗(0〜100)。終了なら 100、それ以外は進捗度(なければ 0)。"""
-    return 100.0 if state.status is Status.DONE else float(state.progress or 0)
+    return effective_progress(state)
 
 
 def summarize_progress_delta(
@@ -454,6 +474,91 @@ def summarize_progress_delta(
     return ProgressDelta(
         period, weighted / total if total else None, scope, True, since, counted
     )
+
+
+def _burn_task(
+    task: Task, index: Mapping[str, list[HistoryEvent]], schedule: Schedule
+) -> BurnTask:
+    start, end = schedule.start(task), schedule.end(task)
+    return BurnTask(
+        task,
+        tuple(index.get(task.id, ())),
+        start.date() if start else None,
+        end.date() if end else None,
+    )
+
+
+def _member_delta(
+    project: Project,
+    period: Period,
+    now: datetime,
+    holidays: dict[date, str],
+    name: str,
+) -> float | None:
+    """メンバー 1 人の担当のタスクの、期間中に進んだ分。履歴が足りない・対象がないときは None。"""
+    delta = summarize_progress_delta(project, period, now, holidays, name)
+    return delta.percent if delta.known else None
+
+
+def burndown_whole_period(project: Project, period: Period) -> Period:
+    """`全期間`で推移を描く期間。履歴から値を復元できる最初の日(予定の開始のほうが遅ければそこ)から、
+    最後の完了予定まで。400 日を超えるときは終わりから 400 日。履歴の記録開始が最後の完了予定より後なら 1 日
+    (復元できないので不明になる)。`period`は`period_for(ALL)`の値。"""
+    first = period.start
+    since = project.history_since
+    if since is not None:
+        known = (
+            since.date() if since.time() == time.min else since.date() + timedelta(1)
+        )
+        first = max(first, known)
+    last = period.end
+    first = min(first, last)
+    return Period(max(first, last - timedelta(days=MAX_CUSTOM_DAYS - 1)), last)
+
+
+def summarize_burndown(
+    project: Project,
+    period: Period,
+    now: datetime,
+    holidays: dict[date, str],
+    member: Scope = None,
+    whole: bool = False,
+) -> Burndown:
+    """期間中の残りの工数の推移(要望 128 段階 2)。対象は`進んだ分`と同じ集合(予定の期間・締切・実績が期間にかかる
+    通常タスク)に、期間中に分解でまとめになったタスク(退場まで数える)を足したもの。参照先は含めない。
+    `whole`(`全期間`)のときは、期間にかかるかで絞らず、すべての通常タスクを数える(`period`は`burndown_whole_period`)。"""
+    index = events_by_task(project)
+    schedule = Schedule(project, holidays)
+    tasks = [
+        _burn_task(entry.task, index, entry.schedule)
+        for entry in _entries(project, holidays, member, None)
+        if entry.task.kind is TaskKind.NORMAL
+        and (whole or _touches(entry.task, entry.schedule, period, now))
+    ]
+    scoped = _names(member)
+    low = period.bounds()[0]
+    counted = {item.task.id for item in tasks}
+    for task in project.all_tasks():
+        if task.kind is TaskKind.NORMAL or (
+            scoped is not None and scoped.isdisjoint(task.assignee_names)
+        ):
+            continue
+        # 期間の始め以降に分解で退場し、子のどれかが対象に入るまとめだけ(子が全部期間の外なら、親だけ数えると
+        # 退場の日に残りが落ちて「進んだ」ように見える。古い退場は 0 のままで、数えると空の期間が空にならない)
+        left = any(
+            c.field == "status"
+            and c.before is not None
+            and c.after is None
+            and e.at >= low
+            for e in index.get(task.id, ())
+            for c in e.changes
+        )
+        if left and any(child in counted for child in task.children):
+            tasks.append(_burn_task(task, index, schedule))
+    result = compute_burndown(
+        tasks, period.start, period.end, now, project.history_since, holidays
+    )
+    return replace(result, whole=True) if whole else result
 
 
 def _member_row(
@@ -1674,6 +1779,7 @@ class Dashboard:
     )
     delta: ProgressDelta | None = None  # 期間中に進んだ分。全期間は None
     previous_delta: ProgressDelta | None = None  # 同じ長さの直前の期間の分
+    burndown: Burndown | None = None  # 残りの工数の推移。全期間は None
 
     @property
     def heat_summary(self) -> CrossSummary | None:
@@ -1704,15 +1810,36 @@ def summarize(
     """`member`があれば`team`は無視する。存在しない・メンバーのいないチームは絞り込まない。"""
     team_members = team_scope(project, team) if member is None else None
     scope: Scope = member if member is not None else team_weights(project, team)
-    delta = previous = None
+    delta = previous = burndown = None
     if kind is not PeriodKind.ALL:
         delta = summarize_progress_delta(project, period, now, holidays, scope)
         previous = summarize_progress_delta(
             project, previous_period(period), now, holidays, scope
         )
+        burndown = summarize_burndown(project, period, now, holidays, scope)
+    else:
+        burndown = summarize_burndown(
+            project,
+            burndown_whole_period(project, period),
+            now,
+            holidays,
+            scope,
+            whole=True,
+        )
+    progress = summarize_progress(project, holidays, now, scope, children)
+    if kind is not PeriodKind.ALL:
+        progress = replace(
+            progress,
+            by_member=[
+                replace(
+                    row, delta=_member_delta(project, period, now, holidays, row.name)
+                )
+                for row in progress.by_member
+            ],
+        )
     return Dashboard(
         period,
-        summarize_progress(project, holidays, now, scope, children),
+        progress,
         summarize_loads(project, period, holidays, scope),
         summarize_workload(project, period, now, holidays, scope),
         summarize_due(project, period, now, holidays, scope),
@@ -1734,4 +1861,5 @@ def summarize(
         references=len(children or {}),
         delta=delta,
         previous_delta=previous,
+        burndown=burndown,
     )

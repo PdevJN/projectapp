@@ -4,15 +4,18 @@ import html
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import NamedTuple
 
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp import clock
 from projectapp.avatar import avatar, avatar_html
+from projectapp.burndown_chart import chart_svg
 from projectapp.dashboard import (
     UNASSIGNED,
     Backlog,
+    Burndown,
     CrossSummary,
     Dashboard,
     DayLoad,
@@ -21,6 +24,7 @@ from projectapp.dashboard import (
     LateBasis,
     LoadStats,
     MemberProgress,
+    Period,
     PeriodKind,
     Progress,
     ProgressDelta,
@@ -76,6 +80,7 @@ CARD_TITLES = {
     CardId.HEATMAP: "負荷の日ごとの推移",
     CardId.HOURS: "工数の予定と実績",
     CardId.BACKLOG: "残りの工数と必要人数",
+    CardId.BURNDOWN: "残りの工数の推移",
     CardId.DUE: "期限とマイルストーン",
 }
 REFRESH_SECONDS = 300  # 表示中に集計し直す間隔(今日の残り時間が変わるため)
@@ -376,6 +381,79 @@ def card(title: str, marker: str, title_marker: str | None = None) -> ui.card:
 
 def empty_message(marker: str) -> None:
     ui.label(EMPTY).classes("text-grey").mark(marker)
+
+
+def scope_label(data: Dashboard, period: Period | None) -> str:
+    """カードの見出しに添える対象。メンバー・チームを選んでいれば先頭に付く。"""
+    scope = (
+        "すべてのタスク"
+        if period is None
+        else f"{period.start:%m/%d}〜{period.end:%m/%d} にかかるタスク"
+    )
+    if data.member:
+        return f"{data.member}・{scope}"
+    if data.team_name:
+        return f"チーム「{data.team_name}」・{scope}"
+    return scope
+
+
+class BurnLine(NamedTuple):
+    key: str  # マークの末尾(unknown・end・pace・behind・ahead・unset)
+    text: str
+
+
+def burndown_lines(b: Burndown) -> list[BurnLine]:
+    """`残りの工数の推移`のグラフの下の行(要望 128 段階 2)。"""
+    if not b.known:
+        if b.since is None:
+            return [BurnLine("unknown", "履歴はまだありません")]
+        return [BurnLine("unknown", f"履歴は {b.since:%m/%d} から(それ以前は不明)")]
+    lines: list[BurnLine] = []
+    if b.today_index is not None and b.future:
+        lines.append(
+            BurnLine(
+                "end",
+                f"期間の終わりの予定の残り {b.future[-1]:.1f}h(今日の実際 {b.actual[-1]:.1f}h)",
+            )
+        )
+    elif b.actual:
+        lines.append(
+            BurnLine(
+                "end",
+                f"期間の終わりの実際の残り {b.actual[-1]:.1f}h(予定 {b.planned[-1]:.1f}h)",
+            )
+        )
+    elif b.planned:
+        lines.append(
+            BurnLine(
+                "end",
+                f"期間の始めの残り {b.initial:.1f}h(予定どおりなら終わりに {b.planned[-1]:.1f}h)",
+            )
+        )
+    if b.required is not None and b.rest is not None:
+        recent = (
+            f"直近 {b.recent_days} 稼働日のペース {b.recent:.1f}h/稼働日"
+            if b.recent is not None
+            else "直近のペースが出ていません"
+        )
+        lines.append(
+            BurnLine(
+                "pace",
+                f"必要なペース {b.required:.1f}h/稼働日({b.last:%m/%d} までに {b.rest:.1f}h 減らす)・{recent}",
+            )
+        )
+    if b.behind:
+        lines.append(BurnLine("behind", "ペースを上げるか、予定を見直す必要があります"))
+    if b.ahead:
+        lines.append(BurnLine("ahead", "予定より進んでいます"))
+    if b.unset:
+        lines.append(
+            BurnLine(
+                "unset",
+                f"進捗度なしの実行中・一時停止 {len(b.unset)} 件(終了まで減りません)",
+            )
+        )
+    return lines
 
 
 def references_note(data: Dashboard, key: str) -> None:
@@ -897,6 +975,7 @@ class DashboardView:
             CardId.HEATMAP: self.heatmap_card,
             CardId.HOURS: self.hours_card,
             CardId.BACKLOG: self.backlog_card,
+            CardId.BURNDOWN: self.burndown_card,
             CardId.DUE: self.due_card,
         }
         only = None if self.edit_mode else self.maximized
@@ -935,15 +1014,7 @@ class DashboardView:
     def team_card(self, data: Dashboard) -> None:
         team = data.team
         period = team.period
-        scope = (
-            "すべてのタスク"
-            if period is None
-            else f"{period.start:%m/%d}〜{period.end:%m/%d} にかかるタスク"
-        )
-        if data.member:
-            scope = f"{data.member}・{scope}"
-        elif data.team_name:
-            scope = f"チーム「{data.team_name}」・{scope}"
+        scope = scope_label(data, period)
         with card(
             f"チーム全体の進捗({scope})", "dashboard-team", "dashboard-team-scope"
         ):
@@ -1135,6 +1206,10 @@ class DashboardView:
             ui.label(f"{row.percent:.0f}% / {sum(row.counts.values())}件").classes(
                 "text-caption"
             ).mark(f"{marker}-progress-{row.name}")
+            if row.delta is not None:
+                ui.label(f"進んだ分 {round(row.delta):+d}%").classes(
+                    "text-caption"
+                ).mark(f"{marker}-delta-{row.name}")
             bar(row.percent / 100, LOAD_COLOR)
 
     def pick_member(self, name: object) -> None:
@@ -1350,6 +1425,44 @@ class DashboardView:
             ui.label(
                 f"合計 予定 {data.planned_total:.1f}h / 実績 {data.actual_total:.1f}h"
             ).classes("text-subtitle2").mark("dashboard-hours-total")
+
+    def burndown_card(self, data: Dashboard) -> None:
+        b = data.burndown
+        if b is None or b.whole:  # 全期間は、履歴のある期間を添える
+            scope = scope_label(data, None)
+            if b is not None:
+                scope += f"・履歴のある期間 {b.first:%m/%d}〜{b.last:%m/%d}"
+        else:
+            scope = scope_label(data, Period(b.first, b.last))
+        with card("残りの工数の推移", "dashboard-burndown"):
+            ui.label(scope).classes("text-caption text-grey").mark(
+                "dashboard-burndown-scope"
+            )
+            if b is None:
+                empty_message("dashboard-empty-burndown")
+                return
+            if b.known and not b.count:
+                empty_message("dashboard-empty-burndown")
+                return
+            if b.known:
+                ui.html(chart_svg(b), sanitize=False).classes("w-full").mark(
+                    "dashboard-burndown-chart"
+                )
+            for line in burndown_lines(b):
+                with ui.row().classes("items-center no-wrap gap-1"):
+                    if line.key == "behind":
+                        warning_icon("dashboard-burndown-behind-icon")
+                    with (
+                        ui.label(line.text)
+                        .classes("text-caption")
+                        .mark(f"dashboard-burndown-{line.key}")
+                    ):
+                        if line.key == "unset":
+                            name_chips_tooltip(
+                                b.unset,
+                                "dashboard-burndown-chip",
+                                more_marker="dashboard-burndown-more",
+                            )
 
     def backlog_card(self, data: Dashboard) -> None:
         backlog = data.backlog

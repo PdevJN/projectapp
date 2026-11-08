@@ -1,0 +1,467 @@
+{
+  "version": 21,
+  "name": "バーンダウンの確認",
+  "base_date": "2026-11-02",
+  "daily_hours": 6.5,
+  "work_start": "09:00:00",
+  "members": [
+    {
+      "name": "田中",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "4dd2db30",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    },
+    {
+      "name": "鈴木",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "1f2f0462",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    }
+  ],
+  "sections": [],
+  "tasks": [
+    {
+      "name": "設計",
+      "id": "b000001",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 10,
+      "priority": "中",
+      "status": "終了",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "4dd2db30",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": 50,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "実装",
+      "id": "b000002",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 32,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "1f2f0462",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": 25,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "テスト",
+      "id": "b000003",
+      "planned_start": "2026-11-04T09:00:00",
+      "effort_hours": 13,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "4dd2db30",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": 40,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "結合(週をまたぐ)",
+      "id": "b000004",
+      "planned_start": "2026-11-06T09:00:00",
+      "effort_hours": 19.5,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "4dd2db30",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "資料(来週)",
+      "id": "b000005",
+      "planned_start": "2026-11-09T09:00:00",
+      "effort_hours": 6.5,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "1f2f0462",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "保守(予定超過・進捗度なし)",
+      "id": "b000006",
+      "planned_start": "2026-10-29T09:00:00",
+      "effort_hours": 8,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "1f2f0462",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": "2026-11-06T17:00:00",
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "レビュー(途中で追加)",
+      "id": "b000007",
+      "planned_start": "2026-11-05T09:00:00",
+      "effort_hours": 6.5,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "1f2f0462",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    }
+  ],
+  "actual_mode": "simple",
+  "url_templates": [],
+  "parameters": [],
+  "categories": [],
+  "events": [],
+  "teams": [],
+  "reference_mode": "live",
+  "plantuml_overload_notice": true,
+  "ratio_limit_upper": null,
+  "ratio_limit_lower": null,
+  "history": [
+    {
+      "task": "b000001",
+      "at": "2026-10-26T10:00:00",
+      "changes": {
+        "status": [
+          null,
+          "未着手"
+        ],
+        "progress": [
+          null,
+          null
+        ],
+        "effort": [
+          null,
+          10
+        ]
+      }
+    },
+    {
+      "task": "b000002",
+      "at": "2026-10-26T10:00:00",
+      "changes": {
+        "status": [
+          null,
+          "未着手"
+        ],
+        "progress": [
+          null,
+          null
+        ],
+        "effort": [
+          null,
+          26
+        ]
+      }
+    },
+    {
+      "task": "b000003",
+      "at": "2026-10-26T10:00:00",
+      "changes": {
+        "status": [
+          null,
+          "未着手"
+        ],
+        "progress": [
+          null,
+          null
+        ],
+        "effort": [
+          null,
+          13
+        ]
+      }
+    },
+    {
+      "task": "b000004",
+      "at": "2026-10-26T10:00:00",
+      "changes": {
+        "status": [
+          null,
+          "未着手"
+        ],
+        "progress": [
+          null,
+          null
+        ],
+        "effort": [
+          null,
+          19.5
+        ]
+      }
+    },
+    {
+      "task": "b000005",
+      "at": "2026-10-26T10:00:00",
+      "changes": {
+        "status": [
+          null,
+          "未着手"
+        ],
+        "progress": [
+          null,
+          null
+        ],
+        "effort": [
+          null,
+          6.5
+        ]
+      }
+    },
+    {
+      "task": "b000006",
+      "at": "2026-10-26T10:00:00",
+      "changes": {
+        "status": [
+          null,
+          "未着手"
+        ],
+        "progress": [
+          null,
+          null
+        ],
+        "effort": [
+          null,
+          8
+        ]
+      }
+    },
+    {
+      "task": "b000002",
+      "at": "2026-11-02T09:30:00",
+      "changes": {
+        "status": [
+          "未着手",
+          "実行中"
+        ]
+      }
+    },
+    {
+      "task": "b000006",
+      "at": "2026-11-02T10:00:00",
+      "changes": {
+        "status": [
+          "未着手",
+          "実行中"
+        ]
+      }
+    },
+    {
+      "task": "b000001",
+      "at": "2026-11-02T17:00:00",
+      "changes": {
+        "status": [
+          "未着手",
+          "実行中"
+        ],
+        "progress": [
+          null,
+          50
+        ]
+      }
+    },
+    {
+      "task": "b000001",
+      "at": "2026-11-03T15:00:00",
+      "changes": {
+        "status": [
+          "実行中",
+          "終了"
+        ]
+      }
+    },
+    {
+      "task": "b000003",
+      "at": "2026-11-04T10:00:00",
+      "changes": {
+        "status": [
+          "未着手",
+          "実行中"
+        ]
+      }
+    },
+    {
+      "task": "b000002",
+      "at": "2026-11-04T11:00:00",
+      "changes": {
+        "effort": [
+          26,
+          32
+        ]
+      }
+    },
+    {
+      "task": "b000007",
+      "at": "2026-11-04T15:00:00",
+      "changes": {
+        "status": [
+          null,
+          "未着手"
+        ],
+        "progress": [
+          null,
+          null
+        ],
+        "effort": [
+          null,
+          6.5
+        ]
+      }
+    },
+    {
+      "task": "b000002",
+      "at": "2026-11-05T10:00:00",
+      "changes": {
+        "progress": [
+          null,
+          25
+        ]
+      }
+    },
+    {
+      "task": "b000003",
+      "at": "2026-11-05T14:00:00",
+      "changes": {
+        "progress": [
+          null,
+          40
+        ]
+      }
+    }
+  ],
+  "history_since": "2026-10-26T09:00:00"
+}
