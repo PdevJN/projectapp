@@ -2851,6 +2851,10 @@ class MainView:
             )
             if saved is not None and replace_task(self.project, saved):
                 count += 1
+        for names, day in dict.fromkeys(
+            (t.names, t.start) for t in self.trials.values()
+        ):
+            self.notify_effect(names, day)  # 休みで効き始めがずれるときは知らせる
         self.trials = {}
         if count:
             self.after_edit()
@@ -2901,6 +2905,8 @@ class MainView:
         self.refresh_trials()
         if not self.trials:
             ui.notify("増員を試せる遅れたタスクがありません")
+        else:
+            self.notify_effect(names, now.date() + timedelta(days=1))
         return len(self.trials)
 
     def open_try_crew(self, path: SectionPath, index: int) -> None:

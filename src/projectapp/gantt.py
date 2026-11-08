@@ -3212,25 +3212,26 @@ class GanttChart:
     ) -> None:
         """確定した増員(前の週にいない人が現れる週)のうち、棒より後ろにある週のものを、棒の右に紫のチップで示す。
         棒の上にある週は、週チップの縁(`week-added`)で示す(要望 132)。"""
-        crews = task.weekly_crew
-        for index in range(1, len(crews)):
-            week_start = datetime.combine(
-                start.date() + timedelta(days=7 * index), time.min
-            )
-            if week_start < end:
-                continue  # 棒の上の週は、週チップが描く
-            before = {a.name for a in crews[index - 1]}
-            added = [a.name for a in crews[index] if a.name not in before]
-            span = bar_span(week_start, week_start, columns)
+        last_day = start.date() + timedelta(days=7 * len(task.weekly_crew) - 1)
+        parts = segments(task.weekly_crew, task.daily_crew, start.date(), last_day)
+        for position in range(1, len(parts)):
+            part = parts[position]
+            first = datetime.combine(part.first, time.min)
+            if first < end:
+                continue  # 棒の上は、週チップ・日ごとのチップが描く
+            before = {a.name for a in parts[position - 1].crew}
+            added = [a.name for a in part.crew if a.name not in before]
+            span = bar_span(first, first, columns)
             if not added or span is None:
                 continue
-            day = short_date(week_start.date())
+            day = short_date(part.first)
             names = "・".join(added)
+            tag = f"{part.week}" + (f"-{part.day}" if part.day is not None else "")
             ui.label(f"+{names} {day}〜").classes("confirmed-add").style(
                 f"position: absolute; left: {from_name(span[0] * width)};"
                 f" top: {BAR_TOP_PX - 2}px"
             ).tooltip(f"増員 +{names}({day} から。確定済み)").mark(
-                f"week-added-ext-{key}-{ti}-{index}"
+                f"week-added-ext-{key}-{ti}-{tag}"
             )
 
     def forecast_of(self, task: Task) -> Forecast | None:

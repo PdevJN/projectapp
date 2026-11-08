@@ -398,11 +398,7 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
     kind = _kind(raw.get("kind"))
     actuals, legacy_progress = _actuals(raw.get("actuals"))
     weekly = _weekly_crew(raw.get("weekly_crew"), ctx) if ctx.version >= 10 else []
-    daily = (
-        _daily_crew(raw.get("daily_crew"), ctx, len(weekly))
-        if ctx.version >= 22
-        else {}
-    )
+    daily = _daily_crew(raw.get("daily_crew"), ctx, weekly) if ctx.version >= 22 else {}
     assignees = (
         union_assignees(weekly) if weekly else _assignees(raw, ctx)
     )  # 週ごとのタスクの担当は週の表が正
@@ -1103,7 +1099,7 @@ def _weekly_crew(value: Any, ctx: "_Context") -> list[list[Assignee]]:
 
 
 def _daily_crew(
-    value: Any, ctx: "_Context", weeks: int
+    value: Any, ctx: "_Context", weekly: list[list[Assignee]]
 ) -> dict[int, list[list[Assignee]]]:
     """version 22 の日ごとの担当。キーは週の添字(週ごとの担当の範囲内)、値は 7 日ぶんの担当(各日 1 人以上)。不正は ValueError。"""
     if value is None:
@@ -1116,7 +1112,7 @@ def _daily_crew(
             week = int(key)
         except (TypeError, ValueError):
             raise ValueError(f"日ごとの担当の週が整数ではありません: {key!r}") from None
-        if not 0 <= week < weeks:
+        if not 0 <= week < len(weekly):
             raise ValueError(f"日ごとの担当の週が範囲外です: {week}")
         if not isinstance(days, list) or len(days) != 7:
             raise ValueError("日ごとの担当は 7 日ぶん必要です")
@@ -1126,6 +1122,11 @@ def _daily_crew(
             if not crew:
                 raise ValueError("担当者のいない日があります")
             crews.append(crew)
+        union = {a.name for day in crews for a in day}
+        if union != {a.name for a in weekly[week]}:
+            raise ValueError(
+                f"週の担当が日ごとの担当の和集合と一致しません: 第{week + 1}週"
+            )
         result[week] = crews
     return result
 

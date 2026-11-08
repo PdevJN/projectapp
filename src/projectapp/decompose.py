@@ -8,7 +8,6 @@ from math import isfinite
 
 from projectapp import clock
 from projectapp.arrange import section_at, tasks_at
-from projectapp.daily_crew import crew_spans
 from projectapp.models import (
     MAX_SECTION_DEPTH,
     MAX_TASK_NAME_LENGTH,
@@ -289,11 +288,7 @@ def decompose(
             predecessors = [children[n - 1].id]
         done = settled is not None and n == 0  # 消し込みの子
         if settled is None:
-            crew = (
-                crew_spans(task.weekly_crew, task.daily_crew)[0][1]
-                if task.weekly_crew
-                else task.assignees
-            )
+            crew = task.weekly_crew[0] if task.weekly_crew else task.assignees
         else:
             crew = task.assignees if done else settled.crew
         children.append(

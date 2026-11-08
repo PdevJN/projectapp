@@ -191,3 +191,18 @@ async def test_no_extra_chip_when_the_increase_is_inside_the_bar(
     view.after_edit()
     await user.should_see(marker="week-added-top-0-1")
     await user.should_not_see(marker="week-added-ext-top-0-1")
+
+
+async def test_a_confirmed_increase_inside_a_daily_week_beyond_the_bar_shows_its_day(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    task = view.project.tasks[0]
+    task.effort_hours = 8.0  # 棒は第 1 週で終わる
+    task.weekly_crew = [[Assignee("田中")], [Assignee("田中"), Assignee("鈴木")]]
+    task.daily_crew = {
+        1: [[Assignee("田中")]] * 3 + [[Assignee("田中"), Assignee("鈴木")]] * 4
+    }
+    view.after_edit()
+    await user.should_see(marker="week-added-ext-top-0-1-3")  # 効き始める日のところ
+    await user.should_not_see(marker="week-added-ext-top-0-1")

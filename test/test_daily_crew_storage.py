@@ -90,3 +90,13 @@ def test_a_newer_version_is_refused(tmp_path: Path) -> None:
     path = edited(tmp_path, newer)
     with pytest.raises(ValueError, match="新しい"):
         load_project(path)
+
+
+def test_a_week_crew_that_is_not_the_union_of_its_days_is_refused(
+    tmp_path: Path,
+) -> None:
+    def change(task, raw):
+        task["weekly_crew"][0] = task["weekly_crew"][0][:1]  # 田中だけに
+
+    with pytest.raises(ValueError, match="和集合"):
+        load_project(edited(tmp_path, change))
