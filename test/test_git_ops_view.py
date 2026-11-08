@@ -324,7 +324,12 @@ async def test_a_second_run_is_refused_while_busy(user: User, tmp_path: Path) ->
     fakes = Fakes()
     fakes.gate = threading.Event()
     view = await open_with(user, tmp_path, fakes)
-    first = asyncio.create_task(view.run_commit(["乙.json"], "m", False))
+
+    async def commit_in_the_page() -> None:
+        with user.client:  # 新しいタスクはスロットを引き継がない(NiceGUI 3.19)
+            await view.run_commit(["乙.json"], "m", False)
+
+    first = asyncio.create_task(commit_in_the_page())
     try:
         assert await wait_until(lambda: view.git_busy and len(fakes.commits) == 1)
         await view.run_commit(["甲.json"], "m2", False)  # 無視される
