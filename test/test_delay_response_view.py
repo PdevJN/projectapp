@@ -20,7 +20,7 @@ async def test_no_band_without_trials_and_a_band_with_them(
 ) -> None:
     view = await opened(user, tmp_path)
     await user.should_not_see(marker="delay-band")
-    view.try_crew("ta", ["鈴木"], date(2026, 11, 9))
+    view.try_crew("ta", ["鈴木"], date(2099, 1, 12))
     await user.should_see(marker="delay-band")
     await user.should_see(marker="trial-ghost-top-0")
     await user.should_see(marker="trial-origin-top-0")
@@ -30,14 +30,14 @@ async def test_no_band_without_trials_and_a_band_with_them(
 
 async def test_the_band_shows_the_title_and_counts(user: User, tmp_path: Path) -> None:
     view = await opened(user, tmp_path)
-    view.try_crew("ta", ["鈴木"], date(2026, 11, 9))
+    view.try_crew("ta", ["鈴木"], date(2099, 1, 12))
     await user.should_see("遅延対応")
     await user.should_see("試算中: 1 件の増員")
 
 
 async def test_clear_button_removes_the_band(user: User, tmp_path: Path) -> None:
     view = await opened(user, tmp_path)
-    view.try_crew("ta", ["鈴木"], date(2026, 11, 9))
+    view.try_crew("ta", ["鈴木"], date(2099, 1, 12))
     await user.should_see(marker="delay-band-clear")
     user.find(marker="delay-band-clear").click()
     await user.should_not_see(marker="delay-band")
@@ -46,7 +46,7 @@ async def test_clear_button_removes_the_band(user: User, tmp_path: Path) -> None
 
 async def test_confirm_button_writes_weekly_crew(user: User, tmp_path: Path) -> None:
     view = await opened(user, tmp_path)
-    view.try_crew("ta", ["鈴木"], date(2026, 11, 9))
+    view.try_crew("ta", ["鈴木"], date(2099, 1, 12))
     await user.should_see(marker="delay-band-confirm")
     user.find(marker="delay-band-confirm").click()
     await user.should_not_see(marker="delay-band")
@@ -72,7 +72,7 @@ async def test_week_chips_are_unchanged_when_there_are_no_trials(
 
 async def test_the_drop_action_removes_the_trial(user: User, tmp_path: Path) -> None:
     view = await opened(user, tmp_path)
-    view.try_crew("ta", ["鈴木"], date(2026, 11, 9))
+    view.try_crew("ta", ["鈴木"], date(2099, 1, 12))
     view.drop_trial_at((), 0)
     assert view.trials == {}
     await user.should_not_see(marker="delay-band")

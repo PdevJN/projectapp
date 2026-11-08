@@ -2724,7 +2724,8 @@ class MainView:
         if (
             task is None
             or not names
-            or evaluate(task, self.project, self.holidays, schedule, trial) is None
+            or evaluate(task, self.project, self.holidays, schedule, trial, clock.now())
+            is None
         ):
             ui.notify("このタスクには増員を試せません")
             return False
@@ -2749,7 +2750,9 @@ class MainView:
         for task_id, trial in list(self.trials.items()):
             task = tasks.get(task_id)
             result = (
-                evaluate(task, self.project, self.holidays, schedule, trial)
+                evaluate(
+                    task, self.project, self.holidays, schedule, trial, clock.now()
+                )
                 if task is not None
                 else None
             )
@@ -2806,7 +2809,12 @@ class MainView:
             if not is_overdue(task, self.project, self.holidays, now, schedule):
                 continue
             trial = TrialCrew(task.id, names, now.date())
-            if evaluate(task, self.project, self.holidays, schedule, trial) is not None:
+            if (
+                evaluate(
+                    task, self.project, self.holidays, schedule, trial, clock.now()
+                )
+                is not None
+            ):
                 self.trials[task.id] = trial
         if self.dashboard_kind is not None:
             self.close_dashboard()

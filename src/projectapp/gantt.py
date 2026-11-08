@@ -672,9 +672,13 @@ class GanttActions:
 
 def trial_text(result: TrialResult) -> str:
     """棒の横に出す、試算後の完了見込み。"""
-    if result.manual or result.trial_end is None:
+    if result.manual:
         return "完了予定は手で指定されています(見込みなし)"
+    if result.trial_end is None:
+        return "見込みなし"
     text = f"見込み {result.trial_end:%m/%d}"
+    if result.from_now:
+        text += "(今日からの残り工数)"
     days = result.days_earlier
     if days is not None and days > 0:
         text += f"({days} 日早まる)"

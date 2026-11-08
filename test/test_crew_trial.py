@@ -21,6 +21,7 @@ from projectapp.timeline import Schedule, effective_end
 
 START = datetime(2026, 11, 2, 9)  # 月曜
 HOLIDAYS: dict[date, str] = {}
+NOW = datetime(2026, 11, 2, 8)  # 開始の前(遅れていない)
 
 
 def sample(**changes: object) -> tuple[Project, Task]:
@@ -90,7 +91,12 @@ def test_evaluate_shows_an_earlier_end_with_more_people() -> None:
     project, task = sample()
     schedule = Schedule(project, HOLIDAYS)
     result = evaluate(
-        task, project, HOLIDAYS, schedule, TrialCrew("ta", ("鈴木",), date(2026, 11, 9))
+        task,
+        project,
+        HOLIDAYS,
+        schedule,
+        TrialCrew("ta", ("鈴木",), date(2026, 11, 9)),
+        NOW,
     )
     assert result is not None
     assert result.trial_end is not None and result.original_end is not None
@@ -103,7 +109,7 @@ def test_confirmed_task_ends_where_the_trial_said() -> None:
     project, task = sample()
     schedule = Schedule(project, HOLIDAYS)
     trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 9))
-    result = evaluate(task, project, HOLIDAYS, schedule, trial)
+    result = evaluate(task, project, HOLIDAYS, schedule, trial, NOW)
     saved = confirmed(task, project, HOLIDAYS, schedule, trial)
     assert result is not None and saved is not None
     assert [a.name for a in saved.assignees] == ["田中", "鈴木"]
@@ -117,7 +123,12 @@ def test_manual_end_wins_and_has_no_trial_end() -> None:
     )
     schedule = Schedule(project, HOLIDAYS)
     result = evaluate(
-        task, project, HOLIDAYS, schedule, TrialCrew("ta", ("鈴木",), date(2026, 11, 9))
+        task,
+        project,
+        HOLIDAYS,
+        schedule,
+        TrialCrew("ta", ("鈴木",), date(2026, 11, 9)),
+        NOW,
     )
     assert result is not None
     assert result.manual and result.trial_end is None
@@ -127,10 +138,10 @@ def test_unsuitable_tasks_are_ignored() -> None:
     project, task = sample(assignees=[])
     schedule = Schedule(project, HOLIDAYS)
     trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 9))
-    assert evaluate(task, project, HOLIDAYS, schedule, trial) is None
+    assert evaluate(task, project, HOLIDAYS, schedule, trial, NOW) is None
     project2, summary = sample(kind=TaskKind.SUMMARY)
     schedule2 = Schedule(project2, HOLIDAYS)
-    assert evaluate(summary, project2, HOLIDAYS, schedule2, trial) is None
+    assert evaluate(summary, project2, HOLIDAYS, schedule2, trial, NOW) is None
     assert confirmed(summary, project2, HOLIDAYS, schedule2, trial) is None
 
 
@@ -139,3 +150,43 @@ def test_replace_task_returns_false_for_an_unknown_id() -> None:
     other = Task("x", id="nope")
     assert not replace_task(project, other)
     assert replace_task(project, task)
+
+
+LATE = datetime(2026, 11, 20, 9)  # 完了予定(11/13 ごろ)を過ぎた今日
+
+
+def test_an_overdue_task_is_estimated_from_todays_remaining_effort() -> None:
+    project, task = sample(progress=50)
+    schedule = Schedule(project, HOLIDAYS)
+    trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 20))
+    result = evaluate(task, project, HOLIDAYS, schedule, trial, LATE)
+    assert result is not None and result.from_now
+    assert result.trial_end is not None and result.baseline_end is not None
+    assert result.baseline_end > LATE  # 追加なしでも、今日から残りを消化する
+    assert result.trial_end < result.baseline_end  # 増員で早まる
+    assert (result.days_earlier or 0) > 0  # 早まりは、追加なしの見込みとの差
+
+
+def test_remaining_effort_follows_progress() -> None:
+    project, half = sample(progress=50)
+    _, none = sample()
+    schedule = Schedule(project, HOLIDAYS)
+    trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 20))
+    a = evaluate(half, project, HOLIDAYS, schedule, trial, LATE)
+    b = evaluate(none, project, HOLIDAYS, schedule, trial, LATE)
+    assert a is not None and b is not None
+    assert a.trial_end is not None and b.trial_end is not None
+    assert a.trial_end < b.trial_end  # 進んだ分だけ早い
+
+
+def test_a_task_not_yet_overdue_keeps_the_weekly_calculation() -> None:
+    project, task = sample()
+    result = evaluate(
+        task,
+        project,
+        HOLIDAYS,
+        Schedule(project, HOLIDAYS),
+        TrialCrew("ta", ("鈴木",), date(2026, 11, 9)),
+        NOW,
+    )
+    assert result is not None and not result.from_now

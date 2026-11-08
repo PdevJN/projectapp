@@ -17,8 +17,10 @@ from projectapp.models import (
 )
 from projectapp.timeline import (
     Schedule,
+    Worker,
     calc_end,
     crew_of,
+    crew_on,
     effective_end,
     effective_start,
 )
@@ -41,12 +43,16 @@ class TrialResult:
     original_end: datetime | None
     trial_end: datetime | None  # 手動指定の完了予定のタスクは None
     manual: bool
+    from_now: bool = False  # 完了予定を過ぎたタスク: 今日からの残り工数で出した見込み
+    baseline_end: datetime | None = None  # from_now のとき、増員しない場合の見込み
 
     @property
     def days_earlier(self) -> int | None:
-        if self.original_end is None or self.trial_end is None:
+        """増員で早まる日数。遅れたタスクは、増員しない場合の見込みとの差。"""
+        base = self.baseline_end if self.from_now else self.original_end
+        if base is None or self.trial_end is None:
             return None
-        return (self.original_end.date() - self.trial_end.date()).days
+        return (base.date() - self.trial_end.date()).days
 
 
 def snap_week(anchor: date, day: date) -> int:
@@ -59,10 +65,19 @@ def trial_weeks(
     task: Task, trial: TrialCrew, anchor: date
 ) -> list[list[Assignee]] | None:
     """今の担当に増員分を足した週ごとの担当。週数が上限を超えるなら None。"""
-    first = snap_week(anchor, trial.start)
+    return _with_added(
+        [list(w) for w in task.weekly_crew] or [list(task.assignees)],
+        snap_week(anchor, trial.start),
+        trial.names,
+    )
+
+
+def _with_added(
+    base: list[list[Assignee]], first: int, names: tuple[str, ...]
+) -> list[list[Assignee]] | None:
+    """base の週ごとの担当の、first 週以降に names を足す(重複なし)。上限を超えるなら None。"""
     if first >= MAX_WEEKS:
         return None
-    base = [list(w) for w in task.weekly_crew] or [list(task.assignees)]
     while len(base) <= first:
         base.append([replace(a) for a in base[-1]])
     weeks: list[list[Assignee]] = []
@@ -70,7 +85,7 @@ def trial_weeks(
         crew = [replace(a) for a in week]
         if number >= first:
             present = {a.name for a in crew}
-            crew += [Assignee(n) for n in trial.names if n not in present]
+            crew += [Assignee(n) for n in names if n not in present]
         weeks.append(crew)
     return weeks
 
@@ -89,8 +104,10 @@ def evaluate(
     holidays: dict[date, str],
     schedule: Schedule,
     trial: TrialCrew,
+    now: datetime,
 ) -> TrialResult | None:
-    """増員後の完了見込み。対象外(担当なし・通常でない・開始なし・上限超え)は None。"""
+    """増員後の完了見込み。対象外(担当なし・通常でない・開始なし・上限超え)は None。
+    完了予定を過ぎたタスクは、今日からの残り工数(全工数 ×(1 − 進捗度))を、増員後の担当で消化する見込みにする。"""
     if not _target(task):
         return None
     start = effective_start(task, project, holidays, schedule)
@@ -103,23 +120,57 @@ def evaluate(
     first = snap_week(start.date(), trial.start)
     if _manual(task):
         return TrialResult(task.id, trial.names, first, original, None, True)
-    crews = [
-        crew_of(
-            week,
-            project.members,
-            project.parameters,
-            task.parameters,
-            project.ratio_limits,
+
+    def crews_of(rows: list[list[Assignee]]) -> list[list[Worker]]:
+        return [
+            crew_of(
+                week,
+                project.members,
+                project.parameters,
+                task.parameters,
+                project.ratio_limits,
+            )
+            for week in rows
+        ]
+
+    if original is not None and original <= now and start <= now:
+        # 遅れたタスク: 今日を起点に、残りの工数を消化する。今日の担当に、増員分を足す
+        done = task.progress if task.progress is not None else 0
+        remaining = task.total_effort * (1 - min(max(done, 0), 100) / 100)
+        today_crew = [replace(a) for a in crew_on(task, start.date(), now.date())]
+        added = _with_added(
+            [list(today_crew)], snap_week(now.date(), trial.start), trial.names
         )
-        for week in weeks
-    ]
+        if added is None:
+            return None
+
+        def finish(rows: list[list[Assignee]]) -> datetime | None:
+            return calc_end(
+                now,
+                remaining,
+                project.daily_hours,
+                project.work_start,
+                holidays,
+                weeks=crews_of(rows),
+            )
+
+        return TrialResult(
+            task.id,
+            trial.names,
+            first,
+            original,
+            finish(added),
+            False,
+            from_now=True,
+            baseline_end=finish([today_crew]),
+        )
     end = calc_end(
         start,
         task.total_effort,
         project.daily_hours,
         project.work_start,
         holidays,
-        weeks=crews,
+        weeks=crews_of(weeks),
     )
     return TrialResult(task.id, trial.names, first, original, end, False)
 
