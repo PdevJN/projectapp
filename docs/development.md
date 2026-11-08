@@ -33,7 +33,7 @@
 | `bulk_dialog.py` | 一括編集のダイアログ。節ごとに「変更する」をオンにしたものだけを `BulkChanges` にし、入力のたびにドライランの見込みを出す |
 | `bottom_info.py` | ガントチャートの下部パネルの内容(要望 95)。`task_detail`(選んだタスクの詳細)・`period_summary`(見えているタスクの集計)・`today_plan`(今日の予定)・`LEGEND`(凡例)。判定は`timeline`・`pace`・`dashboard`の既存の関数を使う。純粋関数 |
 | `bottom_panel.py` | 下部パネルの描画(`BottomPanel`・`PanelContent`)。選択があれば詳細、なければ集計とタブ(今日の予定・凡例)。計算はしない |
-| `global_settings_dialog.py` | 全体の設定のダイアログ(`open_global_settings_dialog`)。下部パネルを開くときの割合のスライダー。`適用`で保存、閉じるときに`on_cancel`で戻す |
+| `global_settings_dialog.py` | 全体の設定のダイアログ(`open_global_settings_dialog`)。下部パネルを開くときの割合のスライダーと、履歴の残し方(日数・件数の上限)の数値欄。`適用`で保存、閉じるときに`on_cancel`で戻す |
 | `pace.py` | 警告の判定(要望 103)。`Pace`・`pace`(残りの工数 ÷ 完了予定までの稼働量の比。稼働量は、担当者の稼働日の上書き・祝日・イベントの休み・週ごとの担当を反映)・`warning_pace`(比が`WARNING_RATIO`〔110%〕以上なら警告)。予定超過のタスクは赤に任せる。純粋関数 |
 | `remaining.py` | 残りの工数の計算(要望 98・103)。`total_effort`・`overlap_hours`・`open_hours`・`remaining_hours`。ダッシュボードと警告の判定が共有する。純粋関数 |
 | `periodfield.py` | 期間の欄(`2026-10-01 〜 2026-10-31`)の読み書き(`validate_period`・`format_period`・`split_period`・`normalize_period`・`check_column_count`)と、範囲カレンダー(`add_range_picker`)。プレビュー・メイン・ダッシュボードが共用する |
@@ -62,7 +62,7 @@
 | `csv_dialog.py` | 取り込み(`open_csv_import_dialog`。列の対応・プレビュー・項目ごとの書式)と書き出し(`open_csv_export_dialog`。項目の選択・見出し・並び〔ドラッグ可〕・自由書式)のダイアログ、`ask_profile_name`。確定のコールバックは背景タスクで動くので、`MainView.run_csv_export` は`self.client`に入って通知する |
 | `scope.py` | メンバー・チームの絞り込みのプルダウンの値(要望 85 段階 2)。`read_scope`・`scope_value`・`scope_options`・`team_key`(チームの値は制御文字の接頭辞 `TEAM_KEY` つき)。ガントチャートとダッシュボードが共有する。NiceGUI に依存しない |
 | `teams.py` | チーム(要望 85)。`team_name_error`・`membership_error`(整数 1〜100・合計 100)・`normalize`(比を保って 100 に揃える。端数は最大の所属)・`even_split`・`settle_memberships`・`membership_summary`・`team_member_names`・`drop_teams`・`TeamRow`/`build_teams`・`replace_teams`・`removal_impacts`・`add_team_members`。NiceGUI に依存しない |
-| `history_log.py` | 変更履歴(要望 128)。`diff_events`・`record_edit`(編集の前後の差から`Project.history`に追記。入口は`views.after_edit`)・`creation_events`・`stamp_creation`(取り込み用)・`state_at`・`states_at`(昇順の時刻の列を一度に復元)・`effort_weight`・`effective_progress`・`is_known`(過去の値の復元と「不明」の判定)・`merge_logs`・`earliest`・`reconcile`(3 者マージの和集合と補正)。NiceGUI に依存しない。集計は`dashboard.summarize_progress_delta` |
+| `history_log.py` | 変更履歴(要望 128)。`diff_events`・`record_edit`(編集の前後の差から`Project.history`に追記。入口は`views.after_edit`)・`creation_events`・`stamp_creation`(取り込み用)・`state_at`・`states_at`(昇順の時刻の列を一度に復元)・`effort_weight`・`effective_progress`・`is_known`(過去の値の復元と「不明」の判定)・`merge_logs`・`earliest`・`reconcile`(3 者マージの和集合と補正)・`HistoryKeep`・`compacted`(保存するときだけ、古い履歴をタスク・日ごとにまとめ、件数の上限で古い日から捨てる複製を返す。`views.commit`が呼ぶ)。NiceGUI に依存しない。集計は`dashboard.summarize_progress_delta` |
 | `extract.py` | タスクの子プロジェクトへの切り出し(要望 89)。`expand_ids`・`selection_error`・`name_error`・`extract`(子の`Project`と、参照行に置き換えた親の複製を返す。元は変えない)・`check`(保存・読込の検証)。NiceGUI に依存しない。画面は`views.extract_tasks`(名前の入力)・`apply_extract`(子を先に新規保存し、親を置き換える) |
 | `teams_dialog.py` | `チーム`タブ(`teams_panel`)とメンバーの所属ダイアログ(`open_member_teams_dialog`)。`forms.py` から import されるので、`forms` を import しない |
 | `settings_io.py` | 設定値のエクスポート・インポート(要望 78)。`build_settings`・`write_settings`・`parse_settings`(`ImportFile`。設定ファイルを「タスクのないプロジェクト」に組み直して `storage.parse_project` で検証する)、`plan_import`(`ImportPlan`: 区分ごとの追加・重複とプロジェクト設定の違い)、`apply_import`(`ImportResult`。選んだ区分と上書きを、コピーに適用して検証する。元は変えない)、`summary`、`copy_into`(`MainView` の `Project` の参照を保つ)。鍵は名前(イベントは期間と文字列)。NiceGUI に依存しない |

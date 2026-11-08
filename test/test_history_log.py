@@ -633,3 +633,25 @@ def test_under_the_cap_the_start_does_not_move() -> None:
     project = cap_project()
     result = compacted(project, NOW, HistoryKeep(days=7, max_events=100))
     assert result.history_since == project.history_since
+
+
+def test_compacting_a_years_history_of_300_tasks_is_fast() -> None:
+    from time import perf_counter
+
+    start = datetime(2025, 11, 8, 9)
+    tasks = [Task(f"t{i}", id=f"t{i}", progress=50) for i in range(300)]
+    events = [
+        ev(
+            f"t{i}",
+            start + timedelta(days=step * 11, hours=i % 8),
+            progress=(step, step + 1),
+        )
+        for i in range(300)
+        for step in range(33)  # 約 9,900 件
+    ]
+    project = Project("p", tasks=tasks, history=events, history_since=start)
+    began = perf_counter()
+    result = compacted(project, NOW, HistoryKeep())
+    took = perf_counter() - began
+    assert 0 < len(result.history) <= len(events)
+    assert took < 1.0  # 目安は 0.1 秒未満。遅い環境でも落ちないよう 1 秒で見張る
