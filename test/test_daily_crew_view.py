@@ -84,3 +84,42 @@ async def test_clicking_a_week_offers_to_split_and_a_daily_week_opens_the_day_di
     assert text_of(user, "day-edit-title").startswith("第1週")
     await user.should_see(marker="day-edit-merge")
     await user.should_see(marker="day-edit-row-6")  # 7 日ぶんの行
+
+
+def tooltips(user: User, marker: str) -> list[str]:
+    from nicegui import ui
+
+    chip = user.find(marker=marker).elements.pop()
+    return [
+        c.text
+        for c in chip.parent_slot.children
+        if isinstance(c, ui.tooltip) and c.props.get("target") == f"#{chip.html_id}"
+    ]
+
+
+async def test_a_daily_week_shows_seven_thin_chips_apart_from_the_weekly_chip(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    view.split_week_days((), 0, 0)
+    for j in range(7):
+        await user.should_see(marker=f"day-chip-top-0-0-{j}")
+    await user.should_not_see(marker="week-chip-top-0-0")
+    await user.should_see(marker="week-chip-top-0-1")
+    day = user.find(marker="day-chip-top-0-0-2").elements.pop()
+    assert "day-chip" in day.classes
+    assert "week-chip" not in day.classes
+    assert "第1週 1/7(水)" in tooltips(user, "day-chip-top-0-0-2")[0]
+    assert "第2週 1/12〜1/18" in tooltips(user, "week-chip-top-0-1")[0]
+
+
+async def test_the_added_mark_follows_the_day_the_person_appears(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    view.split_week_days((), 0, 1)
+    days = [[Assignee("田中")]] * 3 + [[Assignee("田中"), Assignee("鈴木")]] * 4
+    view.save_week_days((), 0, 1, days)
+    await user.should_not_see(marker="week-added-top-0-1-2")
+    await user.should_see(marker="week-added-top-0-1-3")
+    await user.should_not_see(marker="week-added-top-0-1-4")

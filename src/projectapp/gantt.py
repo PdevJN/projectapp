@@ -12,6 +12,7 @@ from nicegui.events import ValueChangeEventArguments
 from projectapp import arrange
 from projectapp import clock
 from projectapp.crew_trial import TrialResult
+from projectapp.daily_crew import segments
 from projectapp.delay_response import DELAY_RESPONSE_CSS
 from projectapp.forecast import Forecast, forecast_end
 from projectapp.avatar import avatar
@@ -555,7 +556,8 @@ def week_summary(task: Task, start: date | None = None) -> str:
         if start is not None:
             first = start + timedelta(days=7 * (number - 1))
             period = f" {short_date(first)}〜{short_date(first + timedelta(days=6))}"
-        lines.append(f"第{number}週{period}: {crew_text(week)}")
+        suffix = "(日ごとの週)" if task.daily_crew.get(number - 1) else ""
+        lines.append(f"第{number}週{period}{suffix}: {crew_text(week)}")
     return "\n".join(lines)
 
 
@@ -3299,37 +3301,41 @@ class GanttChart:
     ) -> None:
         """棒の上に、週ごと(実効の開始の日から 7 日ごと)の担当のチップを重ねる。2 つ目からは左端に区切り線を付ける。"""
         defined = len(task.weekly_crew)
-        n = 0
-        while (
-            left := start
-            if n == 0
-            else datetime.combine(start.date() + timedelta(days=7 * n), time.min)
-        ) < end:
+        last_day = (end - timedelta(microseconds=1)).date()
+        parts = segments(task.weekly_crew, task.daily_crew, start.date(), last_day)
+        for position, part in enumerate(parts):
             # 定義した週より後も、7 日ごとに区切る(担当は最後の週のものが続く。タップすると、その週まで足して直せる)
-            right = min(
-                datetime.combine(start.date() + timedelta(days=7 * (n + 1)), time.min),
-                end,
-            )
-            crew = task.weekly_crew[min(n, defined - 1)]
-            n += 1
-            index = n - 1
+            left = start if position == 0 else datetime.combine(part.first, time.min)
+            right = min(datetime.combine(part.last + timedelta(days=1), time.min), end)
+            crew = part.crew
+            index = part.week
+            daily = part.day is not None
             origin, length = interval_span(left, right, columns)
             left_px = max((origin - bar_left) * width, 0.0)
             width_px = min(length * width, bar_width - left_px)
             if width_px <= 0:
                 continue
-            divider = " border-left: 1px solid rgba(255,255,255,0.8);" if index else ""
+            if daily:  # 日ごとの週は、細いチップを濃い色・下線・点線の区切りで、週のチップと見分ける(要望 135)
+                divider = " border-left: 1px dotted rgba(255,255,255,0.9);"
+                look = (
+                    "background: rgba(0,48,56,0.6); border-bottom: 2px solid #26c6da;"
+                )
+            else:
+                divider = (
+                    " border-left: 1px solid rgba(255,255,255,0.8);" if position else ""
+                )
+                look = "background: rgba(0,0,0,0.3);"
             text = week_chip_text([a.name for a in crew], width_px, self.view_scale)
             shown = crew[:MAX_ASSIGNEE_CHIPS]
             with_icons = bool(text) and any(self.icon_lookup.get(a.name) for a in shown)
             chip = ui.label("" if with_icons else text).style(
                 f"position: absolute; left: {left_px:.1f}px; width: {width_px:.1f}px; top: 0;"
                 f" height: {WEEK_CHIP_HEIGHT_PX}px; font-size: 10px; line-height: {WEEK_CHIP_HEIGHT_PX}px;"
-                f" color: #fff; background: rgba(0,0,0,0.3); padding-left: 3px; overflow: hidden;"
+                f" color: #fff; {look} padding-left: 3px; overflow: hidden;"
                 f" white-space: nowrap; z-index: 1; text-shadow: {WEEK_CHIP_TEXT_SHADOW};{divider}"
             )
-            # 見出し(第N週 と期間)を 1 行にまとめ、担当、負荷の順に並べる。期間は見出しにあるので、負荷には付けない
-            last_day = (right - timedelta(microseconds=1)).date()
+            if daily:
+                chip.classes("day-chip")
             if with_icons:
                 # アイコンのある人は小さな丸い画像、ない人は頭文字(幅に合わせて、4 人目以降は +n)
                 chip.style("display: flex; align-items: center; gap: 2px")
@@ -3341,23 +3347,27 @@ class GanttChart:
                             ui.label(a.name[:1])
                     if (rest := len(crew) - len(shown)) > 0:
                         ui.label(f"+{rest}")
-            carried = f"(第{defined}週の担当が続く)" if index >= defined else ""
-            title = f"第{index + 1}週 {short_date(left.date())}〜{short_date(last_day)}{carried}\n{crew_text(crew)}"
+            carried = f"(第{defined}週の担当が続く)" if part.carried else ""
+            if daily:
+                period = f"{short_date(part.first)}({WEEKDAYS[part.first.weekday()]})"
+            else:
+                period = f"{short_date(part.first)}〜{short_date(part.last)}"
+            title = f"第{index + 1}週 {period}{carried}\n{crew_text(crew)}"
             if (
                 load := self.overload_text(task, (left, right))
                 if self.options.show_alerts
                 else ""
             ):
                 title += f"\n⚠ {load}"
-            markers = [f"week-chip-{key}-{ti}-{index}"]
-            if (
-                1 <= index < defined
-            ):  # 前の週にいない人が現れる週は、増員(確定済み)として示す(要望 132)
-                before = {a.name for a in task.weekly_crew[index - 1]}
+            tag = f"{key}-{ti}-{index}" + (f"-{part.day}" if daily else "")
+            markers = [f"day-chip-{tag}" if daily else f"week-chip-{tag}"]
+            if position and not part.carried:
+                # 前の区間にいない人が現れるところは、増員(確定済み)として示す(要望 132)
+                before = {a.name for a in parts[position - 1].crew}
                 if added := [a.name for a in crew if a.name not in before]:
                     title += f"\n増員 +{'・'.join(added)}(確定済み)"
                     chip.classes("week-added")
-                    markers.append(f"week-added-{key}-{ti}-{index}")
+                    markers.append(f"week-added-{tag}")
             chip.tooltip(title).mark(*markers)
             if not self.options.read_only:
                 # 修飾キーつきのクリックは、チップで受けず棒へ伝える(棒の Shift クリックは進捗度・実績の簡易入力。両方は開かない)

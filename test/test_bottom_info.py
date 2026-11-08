@@ -413,3 +413,17 @@ def test_detail_has_no_forecast_line_when_nothing_to_forecast() -> None:
         task, project, {}, datetime(2026, 11, 1, 10), Schedule(project, {})
     )
     assert "完了見込み" not in [label for label, _ in detail.lines]
+
+
+def test_the_crew_line_notes_weeks_split_by_day() -> None:
+    from projectapp.bottom_info import _crew
+
+    plain = Task("a", assignees=[Assignee("田中")])
+    daily = Task(
+        "a",
+        assignees=[Assignee("田中")],
+        weekly_crew=[[Assignee("田中")]],
+        daily_crew={0: [[Assignee("田中")]] * 7},
+    )
+    assert "日ごとの週あり" not in _crew(plain)
+    assert _crew(daily).endswith("(日ごとの週あり)")
