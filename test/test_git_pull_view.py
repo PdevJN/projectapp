@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from pathlib import Path
 
-import httpx
+import httpx2
 from nicegui import ui
 from nicegui.testing import User
 from test_git_ops_view import Fakes, menu_entry, wait_until
@@ -66,7 +66,7 @@ async def open_pull(
     @ui.page("/")
     def index() -> None:
         view = MainView(
-            tmp_path, httpx.MockTransport(lambda request: httpx.Response(200))
+            tmp_path, httpx2.MockTransport(lambda request: httpx2.Response(200))
         )
         view.read_git = fakes.read_git
         view.pull_ops = ops

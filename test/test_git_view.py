@@ -3,7 +3,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-import httpx
+import httpx2
 from nicegui import ui
 from nicegui.testing import User
 
@@ -38,7 +38,7 @@ def mount(
     @ui.page("/")
     def index() -> None:
         view = MainView(
-            base_dir, httpx.MockTransport(lambda request: httpx.Response(200))
+            base_dir, httpx2.MockTransport(lambda request: httpx2.Response(200))
         )
         if read_git is not None:
             view.read_git = read_git

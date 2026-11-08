@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-import httpx
+import httpx2
 import pytest
 from nicegui import ui
 from nicegui.testing import User
@@ -77,7 +77,7 @@ async def open_view(user: User, tmp_path: Path) -> None:
     @ui.page("/")
     def index() -> None:
         MainView(
-            tmp_path, httpx.MockTransport(lambda request: httpx.Response(200))
+            tmp_path, httpx2.MockTransport(lambda request: httpx2.Response(200))
         ).build()
 
     await user.open("/")

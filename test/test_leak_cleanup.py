@@ -13,7 +13,7 @@ import gc
 
 from pathlib import Path
 
-import httpx
+import httpx2
 import pytest
 from nicegui import ui
 from nicegui.testing import User
@@ -46,7 +46,7 @@ async def test_a_main_view_does_not_outlive_its_test(
     @ui.page("/")
     def index() -> None:
         MainView(
-            tmp_path, httpx.MockTransport(lambda request: httpx.Response(200))
+            tmp_path, httpx2.MockTransport(lambda request: httpx2.Response(200))
         ).build()
 
     await user.open("/")
@@ -80,7 +80,9 @@ async def test_main_views_do_not_pile_up_across_tests(
     @ui.page("/")
     def index() -> None:
         captured.append(
-            MainView(tmp_path, httpx.MockTransport(lambda request: httpx.Response(200)))
+            MainView(
+                tmp_path, httpx2.MockTransport(lambda request: httpx2.Response(200))
+            )
         )
         captured[0].build()
 

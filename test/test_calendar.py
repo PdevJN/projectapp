@@ -2,7 +2,7 @@ import json
 from datetime import date, time
 from pathlib import Path
 
-import httpx
+import httpx2
 import pytest
 
 from projectapp.calendar import (
@@ -21,8 +21,10 @@ HEADER = "国民の祝日・休日月日,国民の祝日・休日名称\n"
 CSV = (HEADER + "2026/1/1,元日\n2026/1/12,成人の日\n").encode("cp932")
 
 
-def transport_returning(status: int, content: bytes) -> httpx.MockTransport:
-    return httpx.MockTransport(lambda request: httpx.Response(status, content=content))
+def transport_returning(status: int, content: bytes) -> httpx2.MockTransport:
+    return httpx2.MockTransport(
+        lambda request: httpx2.Response(status, content=content)
+    )
 
 
 def test_parse_holidays_csv() -> None:
@@ -73,7 +75,7 @@ async def test_refresh_fetches_and_saves(tmp_path: Path) -> None:
 
 async def test_refresh_http_error_keeps_cache(tmp_path: Path) -> None:
     save_cache({date(2026, 1, 1): "元日"}, tmp_path)
-    with pytest.raises(httpx.HTTPError):
+    with pytest.raises(httpx2.HTTPError):
         await refresh_holidays(tmp_path, transport_returning(500, b""))
     assert load_cache(tmp_path) == {date(2026, 1, 1): "元日"}
 
