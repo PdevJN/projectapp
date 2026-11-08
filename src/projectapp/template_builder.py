@@ -65,3 +65,44 @@ def remove_token(tokens: list[Token], index: int) -> list[Token]:
     if not 0 <= index < len(tokens):
         return list(tokens)
     return tokens[:index] + tokens[index + 1 :]
+
+
+# ---- 書き出しの列の一覧(`列の詳細設定`)。行は {"field": CsvField, "use": bool, "header": str} ----
+Row = dict
+
+
+def used_rows(rows: list[Row]) -> list[Row]:
+    return [r for r in rows if r["use"]]
+
+
+def _arranged(rows: list[Row], used: list[Row]) -> list[Row]:
+    return used + [r for r in rows if not r["use"]]
+
+
+def reorder_rows(rows: list[Row], source: int, target: int) -> None:
+    """使う列の`source`番目を、取り除いたあとの`target`番目へ移す(使わない列は後ろに並べる)。"""
+    used = used_rows(rows)
+    if 0 <= source < len(used):
+        used.insert(max(0, min(target, len(used) - 1)), used.pop(source))
+        rows[:] = _arranged(rows, used)
+
+
+def add_row(rows: list[Row], field: CsvField, index: int | None) -> None:
+    """項目を使う列にして、使う列の`index`番目(None は末尾)へ入れる。見出しが空なら項目名にする。"""
+    row = next((r for r in rows if r["field"] == field), None)
+    if row is None or row["use"]:
+        return
+    row["use"] = True
+    if not str(row["header"]).strip():
+        row["header"] = FIELD_LABELS[field]
+    used = [r for r in rows if r["use"] and r is not row]
+    at = len(used) if index is None else max(0, min(index, len(used)))
+    used.insert(at, row)
+    rows[:] = _arranged(rows, used)
+
+
+def remove_row(rows: list[Row], index: int) -> None:
+    used = used_rows(rows)
+    if 0 <= index < len(used):
+        used[index]["use"] = False
+        rows[:] = _arranged(rows, [r for r in rows if r["use"]])

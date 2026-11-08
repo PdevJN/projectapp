@@ -67,3 +67,54 @@ def test_move_and_remove() -> None:
 def test_the_built_template_is_checked_by_the_existing_rule() -> None:
     assert template_problem(template_of([S, E, T])) is not None  # 区切りがない
     assert template_problem(template_of([S, "/", E, ": ", T])) is None
+
+
+def make_rows() -> list[dict]:
+    from projectapp.csv_profile import FIELD_LABELS
+
+    return [
+        {"field": f, "use": f in (CsvField.WBS, T, S), "header": FIELD_LABELS[f]}
+        for f in (CsvField.WBS, T, S, E)
+    ]
+
+
+def fields_of(rows: list[dict]) -> list[CsvField]:
+    return [r["field"] for r in rows if r["use"]]
+
+
+def test_reorder_rows_moves_among_the_used_ones() -> None:
+    from projectapp.template_builder import reorder_rows
+
+    rows = make_rows()
+    reorder_rows(rows, 0, 2)
+    assert fields_of(rows) == [T, S, CsvField.WBS]
+    assert [r["use"] for r in rows] == [True, True, True, False]  # 使わない列は後ろ
+
+
+def test_add_row_uses_the_field_at_the_position() -> None:
+    from projectapp.template_builder import add_row
+
+    rows = make_rows()
+    add_row(rows, E, 1)
+    assert fields_of(rows) == [CsvField.WBS, E, T, S]
+    add_row(rows, E, None)  # すでに使っている
+    assert fields_of(rows) == [CsvField.WBS, E, T, S]
+
+
+def test_add_row_restores_a_blank_header() -> None:
+    from projectapp.template_builder import add_row
+
+    rows = make_rows()
+    rows[3]["header"] = "  "
+    add_row(rows, E, None)
+    assert rows[3]["header"] == "期限"
+
+
+def test_remove_row_stops_using_it() -> None:
+    from projectapp.template_builder import remove_row
+
+    rows = make_rows()
+    remove_row(rows, 1)
+    assert fields_of(rows) == [CsvField.WBS, S]
+    remove_row(rows, 9)
+    assert fields_of(rows) == [CsvField.WBS, S]

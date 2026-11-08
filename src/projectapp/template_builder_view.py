@@ -12,16 +12,21 @@ from collections.abc import Callable, Sequence
 from nicegui import ui
 from nicegui.events import GenericEventArguments
 
-from projectapp.csv_profile import CsvField, template_problem
+from projectapp.csv_profile import FIELD_LABELS, CsvField, template_problem
 from projectapp.template_builder import (
     SEPARATORS,
+    Row,
     Token,
+    add_row,
     insert_token,
     move_token,
+    remove_row,
     remove_token,
+    reorder_rows,
     template_of,
     token_label,
     tokens_of,
+    used_rows,
 )
 
 _ids = itertools.count(1)
@@ -394,6 +399,167 @@ class TemplateBuilder:
         self.selected = None
         self.composer.refresh()
         self._caption()
+
+    def set_enabled(self, enabled: bool) -> None:
+        self.enabled = enabled
+        if enabled:
+            self.root.classes(remove="pointer-events-none opacity-50")
+        else:
+            self.root.classes("pointer-events-none opacity-50")
+
+
+class ColumnBuilder:
+    """書き出しの列(項目と見出し)を、チップの並びで組み立てる(`列の詳細設定`)。
+
+    `rows`(`{"field", "use", "header"}`の一覧。ダイアログが持つもの)をその場で書き換え、変わるたびに`on_change`を呼ぶ。
+    チップは使う列の順。ダブルクリックで見出しをその場で編集、ドラッグで並べ替え、×で使わない列にする。
+    パレットには、使っていない項目が並ぶ。
+    """
+
+    def __init__(
+        self,
+        rows: list[Row],
+        fields: Sequence[CsvField],
+        on_change: Callable[[], None],
+        *,
+        mark: str = "cb",
+    ) -> None:
+        self.id = f"tb{next(_ids)}"
+        self.rows = rows
+        self.fields = tuple(fields)
+        self.on_change = on_change
+        self.mark = mark
+        self.editing: int | None = None  # 見出しを編集中のチップの番号
+        self.enabled = True
+        self.composer = ui.refreshable(self._render_composer)
+        self.palette = ui.refreshable(self._render_palette)
+
+    def build(self) -> None:
+        ui.run_javascript(TEMPLATE_BUILDER_JS)
+        with (
+            ui.column().classes("w-full gap-1").props(f"data-tb-root={self.id}") as root
+        ):
+            self.root = root
+            ui.on("template_builder", self._on_event)
+            self.composer()
+            self.palette()
+        self.set_enabled(self.enabled)
+
+    def refresh(self) -> None:
+        """`rows`が外で作り直されたとき(プロファイルの切り替え)。"""
+        self.editing = None
+        self.composer.refresh()
+        self.palette.refresh()
+
+    def _render_composer(self) -> None:
+        with (
+            ui.row()
+            .classes("items-center w-full gap-1 tb-zone")
+            .props("data-tb-zone=1")
+        ):
+            with ui.row().classes("items-center gap-1 grow").props("data-tb-items=1"):
+                for index, row in enumerate(used_rows(self.rows)):
+                    self._item(index, row)
+            if not used_rows(self.rows):
+                ui.label("ここに項目をドロップ").classes("text-grey text-caption")
+
+    def _item(self, index: int, row: Row) -> None:
+        field: CsvField = row["field"]
+        if self.editing == index:
+            box = (
+                ui.input(value=str(row["header"]), placeholder="列の見出し")
+                .props(f"dense outlined autofocus data-tb-item={index}")
+                .classes("w-40")
+                .mark(f"{self.mark}-header-input")
+            )
+            box.on("keydown.enter", lambda _, i=index: self.commit(i, box.value))
+            box.on("keydown.escape", lambda _: self.cancel())
+            box.on("blur", lambda _, i=index: self.commit(i, box.value))
+            return
+        header = str(row["header"])
+        label = FIELD_LABELS[field] + (
+            f" → {header}" if header != FIELD_LABELS[field] else ""
+        )
+        chip = (
+            ui.chip(
+                label,
+                removable=True,
+                color="primary",
+                text_color="white",
+                on_value_change=lambda e, i=index: e.value is False and self.remove(i),
+            )
+            .props(f"draggable=true data-tb-item={index}")
+            .mark(f"{self.mark}-item-{field.value}")
+            .tooltip("ダブルクリックで見出しを編集")
+        )
+        chip.on("dblclick", lambda _, i=index: self.start(i))
+
+    def _render_palette(self) -> None:
+        with ui.row().classes("items-center gap-1"):
+            ui.label("項目").classes("text-caption text-grey w-12")
+            used = {r["field"] for r in used_rows(self.rows)}
+            for field in self.fields:
+                if field in used:
+                    continue
+                chip = (
+                    ui.chip(FIELD_LABELS[field], color="grey-4", text_color="black")
+                    .props(f"draggable=true data-tb-palette=f:{field.value}")
+                    .mark(f"{self.mark}-pal-{field.value}")
+                )
+                chip.on("click", lambda _, f=field: self.add(f))
+
+    # ---- 操作 ----
+    def start(self, index: int) -> None:
+        if self.enabled:
+            self.editing = index
+            self.composer.refresh()
+
+    def commit(self, index: int, value: str | None) -> None:
+        if self.editing != index:
+            return
+        self.editing = None
+        used = used_rows(self.rows)
+        if 0 <= index < len(used):
+            used[index]["header"] = str(value or "").strip()
+        self._changed()
+
+    def cancel(self) -> None:
+        self.editing = None
+        self.composer.refresh()
+
+    def add(self, field: CsvField, index: int | None = None) -> None:
+        if self.enabled:
+            add_row(self.rows, field, index)
+            self._changed()
+
+    def remove(self, index: int) -> None:
+        if self.enabled:
+            remove_row(self.rows, index)
+            self._changed()
+
+    def _changed(self) -> None:
+        self.composer.refresh()
+        self.palette.refresh()
+        self.on_change()
+
+    def _on_event(self, event: GenericEventArguments) -> None:
+        args = event.args if isinstance(event.args, dict) else {}
+        if args.get("root") != self.id or not self.enabled:
+            return
+        self.editing = None
+        if args.get("op") == "move":
+            source, target = args.get("from"), args.get("to")
+            if isinstance(source, int) and isinstance(target, int):
+                reorder_rows(self.rows, source, target)
+                self._changed()
+                return
+        elif args.get("op") == "insert":
+            key, index = str(args.get("key")), args.get("index")
+            field = next((f for f in self.fields if f"f:{f.value}" == key), None)
+            if field is not None and isinstance(index, int):
+                self.add(field, index)
+                return
+        self.composer.refresh()  # 画面が先に動いているので、元の並びへ戻す
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled

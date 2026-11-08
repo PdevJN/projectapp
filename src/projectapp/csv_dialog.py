@@ -27,25 +27,8 @@ from projectapp.csv_profile import (
     validate_profile,
 )
 from projectapp.forms import disposable
-from projectapp.template_builder_view import TemplateBuilder
+from projectapp.template_builder_view import ColumnBuilder, TemplateBuilder
 
-# ドラッグ中の見た目。行は背景が透明なので、そのまま掴むと後ろの画面が透けて写る。
-# ダイアログの背景色(不透明)を付けた行の複製を、画面の外に作ってドラッグの画像にする。
-DRAG_START_JS = """(event) => {
-  const row = event.currentTarget;
-  const card = row.closest('.q-card');
-  const ghost = row.cloneNode(true);
-  ghost.style.cssText = 'position:fixed;top:-1000px;left:-1000px;width:' +
-    row.offsetWidth + 'px;background:' +
-    (card ? getComputedStyle(card).backgroundColor : '#ffffff') +
-    ';color:' + getComputedStyle(row).color + ';opacity:1';
-  document.body.appendChild(ghost);
-  event.dataTransfer.effectAllowed = 'move';
-  event.dataTransfer.setData('text/plain', '');
-  event.dataTransfer.setDragImage(ghost, 16, 16);
-  setTimeout(() => ghost.remove(), 0);
-  emit();
-}"""
 GUESS_NAME = "推測"  # その場限りの対応(見出しから推測したもの)
 UNASSIGNED = -1  # 列のコンボで「割り当てなし」を表す値
 DELIMITER_OPTIONS = {",": "カンマ", "\t": "タブ", ";": "セミコロン"}
@@ -497,8 +480,6 @@ def open_csv_export_dialog(
 
     quick = quick_of(start)
 
-    locked: list = []  # 自由書式のあいだ使えなくする、列の一覧の部品
-
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-[48rem] max-w-full"):
         dialog.mark("csv-export-dialog")
         ui.label("CSV・TSV の書き出し").classes("text-h6")
@@ -552,49 +533,6 @@ def open_csv_export_dialog(
             )
         note = ui.label("").classes("text-negative")
 
-        drag: dict[str, int | None] = {"source": None}
-
-        @ui.refreshable
-        def columns_table() -> None:
-            locked.clear()
-            for index, row in enumerate(rows):
-                field = row["field"]
-                with (
-                    ui.row()
-                    .classes("items-center no-wrap w-full")
-                    .props("draggable=true")
-                    .mark(f"csv-ex-row-{field.value}") as line
-                ):
-                    line.on(
-                        "dragstart",
-                        lambda _, i=index: drag.update(source=i),
-                        js_handler=DRAG_START_JS,
-                    )
-                    line.on("dragover.prevent", lambda _: None)
-                    line.on("drop.prevent", lambda _, i=index: drop(i))
-                    ui.icon("drag_indicator").classes("cursor-move text-grey")
-                    ui.checkbox(
-                        FIELD_LABELS[field],
-                        value=row["use"],
-                        on_change=lambda e, r=row: use(r, e.value),
-                    ).classes("min-w-[12rem]").mark(f"csv-ex-use-{field.value}")
-                    ui.input(
-                        value=row["header"],
-                        on_change=lambda e, r=row: edit_header(r, e.value),
-                    ).props("dense outlined").classes("grow").mark(
-                        f"csv-ex-header-{field.value}"
-                    )
-                    ui.button(
-                        icon="arrow_upward", on_click=lambda i=index: move(i, -1)
-                    ).props("flat round dense").mark(f"csv-ex-up-{field.value}")
-                    ui.button(
-                        icon="arrow_downward", on_click=lambda i=index: move(i, 1)
-                    ).props("flat round dense").mark(f"csv-ex-down-{field.value}")
-                for child in line.default_slot.children:
-                    if isinstance(child, ui.checkbox | ui.input | ui.button):
-                        child.set_enabled(not quick["on"])  # 自由書式のあいだは使えない
-                        locked.append(child)
-
         with ui.row().classes("items-end w-full no-wrap"):
             quick_check = ui.checkbox(
                 "書式を使う",
@@ -611,6 +549,10 @@ def open_csv_export_dialog(
                 .classes("grow")
                 .mark("csv-ex-quick")
             )
+
+        columns = ColumnBuilder(
+            rows, EXPORT_FIELDS, lambda: refresh_state(), mark="csv-ex-cb"
+        )
 
         def set_quick_text(text: str) -> None:
             quick_input.set_value(text)
@@ -631,7 +573,8 @@ def open_csv_export_dialog(
             .classes("w-full")
             .mark("csv-ex-details")
         ):
-            columns_table()
+            columns.build()
+            columns.set_enabled(not quick["on"])  # 自由書式のあいだは使えない
         with ui.row().classes("justify-end w-full"):
             ui.button("キャンセル", on_click=dialog.close).props("flat").mark(
                 "csv-ex-cancel"
@@ -688,14 +631,6 @@ def open_csv_export_dialog(
         note.set_text(message or "")
         confirm.set_enabled(message is None)
 
-    def use(row: dict, value: bool) -> None:
-        row["use"] = bool(value)
-        refresh_state()
-
-    def edit_header(row: dict, value: str) -> None:
-        row["header"] = value or ""
-        refresh_state()
-
     def quick_template() -> str:
         text = quick["template"].strip()
         if quick["on"] and text and template_problem(text) is None:
@@ -707,31 +642,10 @@ def open_csv_export_dialog(
         if key == "template":
             builder.set_template(quick["template"])
         if key == "on":
-            for widget in locked:
-                widget.set_enabled(not value)
+            columns.set_enabled(not value)
             quick_input.set_enabled(bool(value))
             builder.set_enabled(bool(value))
         refresh_state()
-
-    def drop(target: int) -> None:
-        """ドラッグした行を、落とした行の位置へ移す。"""
-        source = drag["source"]
-        drag["source"] = None
-        if (
-            quick["on"]
-            or source is None
-            or source == target
-            or not 0 <= source < len(rows)
-        ):
-            return
-        rows.insert(target, rows.pop(source))
-        columns_table.refresh()
-
-    def move(index: int, step: int) -> None:
-        target = index + step
-        if 0 <= target < len(rows):
-            rows[index], rows[target] = rows[target], rows[index]
-            columns_table.refresh()
 
     def current_profile(name: str | None = None) -> CsvProfile:
         columns = current_columns()
@@ -770,7 +684,7 @@ def open_csv_export_dialog(
         quick_input.set_value(quick["template"])
         builder.set_template(quick["template"])
         builder.set_header(quick["header"])
-        columns_table.refresh()
+        columns.refresh()
         refresh_state()
 
     def ask_save() -> None:
