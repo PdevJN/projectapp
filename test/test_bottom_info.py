@@ -371,3 +371,45 @@ def test_assignment_cells_list_the_tasks_overlapping_the_column() -> None:
     week = [Column(date(2026, 10, 5), date(2026, 10, 12), "10/5")]
     cell = assignment_table([a, b], project, {}, schedule, week).rows[0].cells[0]
     assert cell.tasks == ("A", "B")  # 週の列でも 1 回ずつ
+
+
+def test_detail_has_a_forecast_line_under_the_planned_end_when_late() -> None:
+    task = Task(
+        "a",
+        id="ta",
+        planned_start=datetime(2026, 11, 2, 9),
+        effort_hours=20.0,
+        assignees=[Assignee("田中")],
+    )
+    project = Project(
+        name="p",
+        base_date=date(2026, 11, 2),
+        members=[Member("田中", 1.0)],
+        tasks=[task],
+    )
+    detail = task_detail(
+        task, project, {}, datetime(2026, 11, 20, 10), Schedule(project, {})
+    )
+    labels = [label for label, _ in detail.lines]
+    assert labels.index("完了見込み") == labels.index("完了予定") + 1
+    assert "(+" in dict(detail.lines)["完了見込み"]
+
+
+def test_detail_has_no_forecast_line_when_nothing_to_forecast() -> None:
+    task = Task(
+        "a",
+        id="ta",
+        planned_start=datetime(2026, 11, 2, 9),
+        effort_hours=20.0,
+        assignees=[Assignee("田中")],
+    )
+    project = Project(
+        name="p",
+        base_date=date(2026, 11, 2),
+        members=[Member("田中", 1.0)],
+        tasks=[task],
+    )
+    detail = task_detail(
+        task, project, {}, datetime(2026, 11, 1, 10), Schedule(project, {})
+    )
+    assert "完了見込み" not in [label for label, _ in detail.lines]

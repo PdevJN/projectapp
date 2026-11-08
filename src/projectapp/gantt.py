@@ -13,6 +13,7 @@ from projectapp import arrange
 from projectapp import clock
 from projectapp.crew_trial import TrialResult
 from projectapp.delay_response import DELAY_RESPONSE_CSS
+from projectapp.forecast import Forecast, forecast_end
 from projectapp.avatar import avatar
 from projectapp.browser import open_url as default_open_url
 from projectapp.bottom_info import (
@@ -158,6 +159,24 @@ TODAY_CSS = f":root {{ --today: {TODAY_COLOR}; }}\nbody.body--dark {{ --today: {
 WARNING_COLOR = "#fdd835"  # 警告のタスクの行・名前の欄の背景(薄く重ねる)。設定で変えられる(--warning)
 WARNING_BACKGROUND = "color-mix(in srgb, var(--warning) 22%, transparent)"
 WARNING_CSS = f":root {{ --warning: {WARNING_COLOR}; }}"
+# 完了見込み(要望 133)の灰青。赤(遅れ)・黄(警告)・緑・紫(試算中)とは別系統
+FORECAST_CSS = """
+:root { --forecast: #78909c; }
+body.body--dark { --forecast: #90a4ae; }
+.forecast-line { border-top: 2px dotted var(--forecast); pointer-events: none; }
+.forecast-label { color: var(--forecast); font-size: 11px; white-space: nowrap; }
+"""
+
+
+def forecast_text(forecast: Forecast) -> str:
+    """棒の横に出す完了見込み。差が負(早まる)のときは `−N 日`。"""
+    text = f"見込み {forecast.end:%m/%d}"
+    days = forecast.days_later
+    if days is None or days == 0:
+        return text
+    return f"{text}(+{days} 日)" if days > 0 else f"{text}(−{-days} 日)"
+
+
 OVERLOAD_STRIPES = (  # 割り当て合計が100%を超える期間の縞。タスクの色に依存しないよう白と黒の半透明を重ねる
     "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 4px, rgba(0,0,0,0.35) 4px 8px)"
 )
@@ -725,6 +744,7 @@ class GanttChart:
         self.category_lookup: dict[str, Category] = {}
         self.icon_lookup: dict[str, str] = {}
         self.schedule = Schedule(project, self.holidays)
+        self.forecast_cache: dict[str, Forecast | None] = {}
         self.trial_results: dict[
             str, TrialResult
         ] = {}  # 遅延対応の試算の結果(要望 132)
@@ -1645,6 +1665,7 @@ class GanttChart:
         ui.add_css(TODAY_CSS)
         ui.add_css(WARNING_CSS)
         ui.add_css(DELAY_RESPONSE_CSS)
+        ui.add_css(FORECAST_CSS)
         ui.add_css(PRIORITY_CSS)
         ui.add_css(LINK_CSS)
         ui.add_css(CONTEXT_MENU_CSS)
@@ -2250,6 +2271,7 @@ class GanttChart:
         self.parents = parent_map(self.project)
         self.refs = self.references_of()
         self.schedule = Schedule(self.project, self.holidays, self.reference_values())
+        self.forecast_cache.clear()
         columns = build_columns(
             self.project,
             self.view_scale,
@@ -2763,7 +2785,9 @@ class GanttChart:
                         js_handler=PLAIN_CLICK_JS,
                     )
                 if warning is not None:
-                    name.tooltip(warning.hint())
+                    name.tooltip(
+                        warning.hint(f.end if (f := self.forecast_of(task)) else None)
+                    )
                 elif (
                     overdue and task.kind is not TaskKind.REFERENCE
                 ):  # 参照行の名前は、開くヒントを優先する
@@ -2865,6 +2889,8 @@ class GanttChart:
                     self.trial_overlay(
                         key, ti, result, start, columns, width, left, bar_width
                     )
+                elif self.options.show_alerts:
+                    self.forecast_overlay(key, ti, task, columns, width)
                 mark_left = self.marker_left(
                     task, columns, width, left * width + bar_width
                 )
@@ -3180,6 +3206,40 @@ class GanttChart:
             ).tooltip(f"増員 +{names}({day} から。確定済み)").mark(
                 f"week-added-ext-{key}-{ti}-{index}"
             )
+
+    def forecast_of(self, task: Task) -> Forecast | None:
+        """タスクの完了見込み。描画の間は結果を使い回す。"""
+        if task.id not in self.forecast_cache:
+            self.forecast_cache[task.id] = forecast_end(
+                task, self.project, self.holidays, self.now(), self.schedule
+            )
+        return self.forecast_cache[task.id]
+
+    def forecast_overlay(
+        self, key: int | str, ti: int, task: Task, columns: list[Column], width: int
+    ) -> None:
+        """当初の完了予定の位置から見込みの位置まで細い灰青の点線を伸ばし、右に `見込み m/d(+N 日)` を出す。
+        見込みの日付が当初の予定の日付と同じなら出さない。"""
+        forecast = self.forecast_of(task)
+        if (
+            forecast is None
+            or forecast.planned_end is None
+            or forecast.days_later in (None, 0)
+        ):
+            return
+        low, high = sorted((forecast.planned_end, forecast.end))
+        span = bar_span(low, high, columns)
+        if span is None:
+            return
+        ui.element("div").classes("forecast-line").style(
+            f"position: absolute; left: {from_name(span[0] * width)};"
+            f" width: {max(span[1] * width, 2):.1f}px;"
+            f" top: {BAR_TOP_PX + BAR_HEIGHT_PX // 2}px"
+        ).mark(f"forecast-line-{key}-{ti}")
+        ui.label(forecast_text(forecast)).classes("forecast-label").style(
+            f"position: absolute; left: {from_name((span[0] + span[1]) * width + 4)};"
+            f" top: {BAR_TOP_PX + 2}px"
+        ).mark(f"forecast-label-{key}-{ti}")
 
     def trial_overlay(
         self,

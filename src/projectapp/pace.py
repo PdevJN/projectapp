@@ -37,10 +37,11 @@ class Pace:
     def warning(self) -> bool:
         return self.ratio >= WARNING_RATIO - _EPSILON
 
-    def hint(self) -> str:
-        """ホバーの文字。稼働量がないときは、割合を出さない。"""
+    def hint(self, forecast: datetime | None = None) -> str:
+        """ホバーの文字。稼働量がないときは、割合を出さない。見込みがあれば末尾に完了見込みを足す。"""
         head = f"警告: 残り {self.remaining:.1f}h / 稼働 {self.capacity:.1f}h"
-        return head if self.capacity <= 0 else f"{head}({self.ratio * 100:.0f}%)"
+        text = head if self.capacity <= 0 else f"{head}({self.ratio * 100:.0f}%)"
+        return text if forecast is None else f"{text} 完了見込み {forecast:%m/%d}"
 
 
 def pace(
