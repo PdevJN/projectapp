@@ -42,7 +42,11 @@ def open_global_settings_dialog(
             step=OPEN_RATIO_STEP,
             value=initial_ratio,
             on_change=change,
-        ).props("label-always").mark("global-settings-ratio")
+        ).props("label-always").classes(
+            "mt-8"
+        ).mark(  # 値の吹き出しが上の説明と重ならないよう空ける
+            "global-settings-ratio"
+        )
         ui.label(
             "タスクを選んで下部パネルが畳まれているとき、この割合で開きます(下は残り)"
         ).classes("text-caption text-grey")
