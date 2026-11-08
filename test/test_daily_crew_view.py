@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from nicegui.testing import User
@@ -83,7 +83,25 @@ async def test_clicking_a_week_offers_to_split_and_a_daily_week_opens_the_day_di
     await user.should_see(marker="day-edit-title")
     assert text_of(user, "day-edit-title").startswith("第1週")
     await user.should_see(marker="day-edit-merge")
-    await user.should_see(marker="day-edit-row-6")  # 7 日ぶんの行
+    await user.should_see(marker="day-edit-row-4")  # 平日(月〜金)の行
+    await user.should_not_see(marker="day-edit-row-5")  # 土日は休みなので出さない
+    await user.should_not_see(marker="day-edit-row-6")
+
+
+async def test_a_holiday_is_hidden_from_the_day_dialog_and_keeps_its_crew(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    view.holidays[date(2099, 1, 7)] = "祝"  # 水曜
+    view.split_week_days((), 0, 0)
+    with user.client:
+        view.edit_week_crew((), 0, 0)
+    await user.should_see(marker="day-edit-row-1")
+    await user.should_not_see(marker="day-edit-row-2")
+    await user.should_see(marker="day-edit-row-3")
+    user.find(marker="day-edit-save").click()
+    task = view.project.tasks[0]
+    assert [a.name for a in task.daily_crew[0][2]] == ["田中"]
 
 
 def tooltips(user: User, marker: str) -> list[str]:

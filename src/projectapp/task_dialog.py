@@ -1043,33 +1043,38 @@ def open_day_crew_dialog(
     on_save: Callable[[list[list[Assignee]]], object],
     on_merge: Callable[[], object],
     period: str = "",
+    hidden: frozenset[int] = frozenset(),
 ) -> None:
-    """日ごとの週の、7 日ぶんの担当を直すダイアログ。タイトルは「第N週 期間(日ごと)」。"""
+    """日ごとの週の、7 日ぶんの担当を直すダイアログ。タイトルは「第N週 期間(日ごと)」。
+    hidden は、休み(祝日・イベントなど)で一覧に出さない日の添字。その日の担当は保存でも変えない。"""
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
         ui.label(f"第{number}週 {period}(日ごと)".replace("  ", " ")).classes(
             "text-h6"
         ).mark("day-edit-title")
-        rows: list[AssigneeFields] = []
+        rows: dict[int, AssigneeFields] = {}
         with (
             ui.column()
             .classes("w-full gap-2")
             .style("max-height: 60vh; overflow-y: auto")
         ):
             for j, (label, crew) in enumerate(zip(labels, days)):
+                if j in hidden:
+                    continue
                 ui.label(label).classes("text-caption text-grey").mark(
                     f"day-edit-label-{j}"
                 )
                 with ui.column().classes("w-full").mark(f"day-edit-row-{j}"):
-                    rows.append(
-                        AssigneeFields(
-                            crew, members, lambda: None, marker=f"day-edit-{j}"
-                        )
+                    rows[j] = AssigneeFields(
+                        crew, members, lambda: None, marker=f"day-edit-{j}"
                     )
         error = ui.label("").classes("text-negative").mark("day-edit-error")
 
         def save() -> None:
             chosen: list[list[Assignee]] = []
-            for j, fields in enumerate(rows):
+            for j in range(len(days)):
+                if (fields := rows.get(j)) is None:
+                    chosen.append(days[j])  # 出していない日は、今の担当のまま
+                    continue
                 try:
                     crew = _build_assignees(fields.rows())
                 except ValueError as exc:

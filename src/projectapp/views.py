@@ -341,6 +341,7 @@ from projectapp.timeline import (
     Schedule,
     build_columns,
     clip_overloads,
+    day_window,
     effective_end,
     effective_start,
     is_overdue,
@@ -2996,6 +2997,18 @@ class MainView:
                 lambda days: self.save_week_days(path, index, week, days),
                 lambda: self.merge_week_days(path, index, week),
                 period,
+                frozenset(
+                    j
+                    for j in range(7)
+                    if first is not None
+                    and day_window(
+                        first + timedelta(days=j),
+                        self.project.daily_hours,
+                        self.project.work_start,
+                        self.holidays,
+                    )
+                    is None
+                ),
             )
             return
         shown = task.weekly_crew[
