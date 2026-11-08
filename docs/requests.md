@@ -1748,3 +1748,22 @@ CSV の書き出し・取り込みの書式(`{開始日}/{期限}: {タスク名
 - サマリの中身(週ごと・日ごとの担当の変わり目を、`11/23(月)から 鈴木が加わる`のように要約するか、週ごとの行に日ごとを添えるか)。既存の`week_summary`との関係。
 - 日次・週次の表示は、今の日ごとのチップのまま。
 - 休みの日(薄く表示する日)の扱い。
+
+## 要望 137: NiceGUI を v4.0.0 へ更新する(2026-11-09 に受領)
+
+> **状態**: 未着手(記録のみ)。
+
+### 要望
+利用している NiceGUI ライブラリを、`v4.0.0`へ更新する。
+
+### 現状(2026-11-09 に確認)
+- 依存は`pyproject.toml`の`nicegui>=3.17.1`(インストール済みは 3.17.1)。
+- テストは`nicegui.testing.user_plugin`(`pytest`の`addopts`)に依存している。
+- 画面は NiceGUI の要素と CSS による自前描画。要望 119 では、`ui.refreshable`・`ui.on`・`ui.run_javascript`・`ui.chip`・`emitEvent`(JS)を使っている。
+
+### 検討する点
+- メジャー更新の破壊的変更(公式のリリースノート・移行の手引きを先に読む)。`ui.refreshable`・`ui.on`・`emitEvent`・`ui.chip`・`ui.add_head_html`・`.mark()`・ユーザーテストの API の変更の有無。
+- Quasar・Vue のバージョンが上がる場合の、自前の CSS・JS(ドラッグ・`zoom`・`ZOOM_FIT_CSS`・`PLAIN_CLICK_JS`)への影響。
+- ネイティブ(pywebview)と Web の両モードでの動作確認。
+- 全テスト(`uv run pytest -n auto`)と、実機での確認。
+- 依存の下限を`>=4.0.0`に上げるか。`uv.lock`の更新。
