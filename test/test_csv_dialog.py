@@ -1,4 +1,8 @@
+import asyncio
+from contextlib import suppress
+
 from nicegui import ui
+from nicegui.events import GenericEventArguments
 from nicegui.testing import User
 
 from projectapp.csv_dialog import (
@@ -132,20 +136,19 @@ async def test_export_dialog_starts_with_smartsheet_and_exports_it(user: User) -
     assert [c.header for c in p.columns][:2] == ["WBS 番号", "タスクのタイトル"]
 
 
-async def test_unchecking_and_moving_columns_changes_the_profile(user: User) -> None:
+async def test_removing_a_column_chip_changes_the_profile(user: User) -> None:
     exported, _ = await open_export(user)
-    user.find(marker="csv-ex-use-duration").elements.pop().set_value(False)
-    user.find(marker="csv-ex-down-wbs").click()
+    user.find(marker="csv-ex-cb-item-duration").elements.pop().set_value(False)
+    await asyncio.sleep(0.05)
     user.find(marker="csv-export-confirm").click()
     p = exported[0]
-    fields = [c.field.value for c in p.columns]
-    assert "duration" not in fields and fields[:2] == ["title", "wbs"]
+    assert "duration" not in [c.field.value for c in p.columns]
     assert p.blank_rows == 0  # 組み込みの形から外れたら、テンプレートの空行は入れない
 
 
 async def test_export_is_disabled_without_the_title_column(user: User) -> None:
     await open_export(user)
-    user.find(marker="csv-ex-use-title").elements.pop().set_value(False)
+    user.find(marker="csv-ex-cb-item-title").elements.pop().set_value(False)
     assert not user.find(marker="csv-export-confirm").elements.pop().enabled
 
 
@@ -185,13 +188,46 @@ async def test_the_second_of_two_equal_headings_cannot_be_chosen(user: User) -> 
     assert 0 in options and 1 not in options and 2 in options
 
 
-async def test_dragging_a_row_onto_another_moves_it_there(user: User) -> None:
-    exported, _ = await open_export(user)
-    user.find(marker="csv-ex-row-owner").trigger("dragstart")
-    user.find(marker="csv-ex-row-wbs").trigger("drop.prevent")
-    user.find(marker="csv-export-confirm").click()
-    fields = [c.field.value for c in exported[0].columns]
-    assert fields[:3] == ["owner", "wbs", "title"]
+async def test_dropping_a_column_chip_reorders_the_columns(user: User) -> None:
+    from projectapp.template_builder_view import ColumnBuilder
+
+    rows = [
+        {"field": f, "use": f is not CsvField.END, "header": f.value}
+        for f in (CsvField.WBS, CsvField.TITLE, CsvField.OWNER, CsvField.END)
+    ]
+    changed: list[bool] = []
+    holder: dict = {}
+
+    @ui.page("/")
+    def index() -> None:
+        holder["b"] = ColumnBuilder(
+            rows, list(CsvField), lambda: changed.append(True), mark="t"
+        )
+        holder["b"].build()
+
+    await user.open("/")
+    builder = holder["b"]
+    builder._on_event(
+        GenericEventArguments(
+            sender=builder.root,
+            client=user.client,
+            args={"root": builder.id, "op": "move", "from": 2, "to": 0},
+        )
+    )
+    assert [r["field"] for r in rows if r["use"]] == [
+        CsvField.OWNER,
+        CsvField.WBS,
+        CsvField.TITLE,
+    ]
+    builder._on_event(
+        GenericEventArguments(
+            sender=builder.root,
+            client=user.client,
+            args={"root": builder.id, "op": "insert", "key": "f:end", "index": 1},
+        )
+    )
+    assert rows[1]["field"] is CsvField.END and rows[1]["use"]
+    assert len(changed) == 2
 
 
 async def test_the_progress_field_is_named_shinchoku(user: User) -> None:
@@ -211,8 +247,6 @@ async def test_export_option_labels_are_not_truncated(user: User) -> None:
     ):
         select = user.find(marker=marker).elements.pop()
         assert "min-w-[12rem]" in select.classes, marker
-    checkbox = user.find(marker="csv-ex-use-owner").elements.pop()
-    assert "w-40" not in checkbox.classes and "min-w-[12rem]" in checkbox.classes
 
 
 async def test_the_percent_sign_can_be_turned_off_for_the_export(user: User) -> None:
@@ -255,8 +289,8 @@ async def test_the_column_list_is_inside_a_collapsed_expansion(user: User) -> No
     await open_export(user)
     details = user.find(marker="csv-ex-details").elements.pop()
     assert details.value is False
-    row = user.find(marker="csv-ex-use-title").elements.pop()
-    assert any(a is details for a in row.ancestors())
+    chip = user.find(marker="csv-ex-cb-item-title").elements.pop()
+    assert any(a is details for a in chip.ancestors())
 
 
 async def test_the_quick_template_is_ignored_while_its_checkbox_is_off(
@@ -268,18 +302,43 @@ async def test_the_quick_template_is_ignored_while_its_checkbox_is_off(
     assert not any(c.template for c in exported[0].columns)
 
 
-async def test_the_available_items_are_listed_as_a_reference(user: User) -> None:
+async def test_the_available_items_are_offered_as_chips(user: User) -> None:
     await open_export(user)
-    hint = user.find(marker="csv-ex-quick-hint").elements.pop()
-    assert "{開始日}" in hint.text and "{担当の割合}" in hint.text
+    await user.should_see(marker="csv-ex-tb-pal-start")
+    await user.should_see(marker="csv-ex-tb-pal-ratio")
+    await user.should_see(marker="csv-ex-tb-sep-8")
 
 
-async def test_the_drag_image_is_an_opaque_copy_of_the_row(user: User) -> None:
-    await open_export(user)
-    row = user.find(marker="csv-ex-row-title").elements.pop()
-    listener = next(x for x in row._event_listeners.values() if x.type == "dragstart")
-    script = listener.js_handler or ""
-    assert "setDragImage" in script and "backgroundColor" in script
+async def test_a_column_header_is_edited_in_place_by_double_click(user: User) -> None:
+    exported, _ = await open_export(user)
+    user.find(marker="csv-ex-cb-item-title").trigger("dblclick")
+    await user.should_see(marker="csv-ex-cb-header-input")
+    user.find(marker="csv-ex-cb-header-input").elements.pop().set_value("件名")
+    user.find(marker="csv-ex-cb-header-input").trigger("keydown.enter")
+    await asyncio.sleep(0.05)
+    user.find(marker="csv-export-confirm").click()
+    assert (
+        next(c.header for c in exported[0].columns if c.field is CsvField.TITLE)
+        == "件名"
+    )
+
+
+async def test_an_unused_item_is_added_from_the_palette_by_click(user: User) -> None:
+    exported, _ = await open_export(user)
+    user.find(marker="csv-ex-cb-item-duration").elements.pop().set_value(False)
+    await asyncio.sleep(0.05)
+    user.find(marker="csv-ex-cb-pal-duration").click()
+    await asyncio.sleep(0.05)
+    user.find(marker="csv-export-confirm").click()
+    assert exported[0].columns[-1].field is CsvField.DURATION
+
+
+async def set_header(user: User, text: str) -> None:
+    """見出しのチップをダブルクリックして入力欄に変え、確定する。"""
+    user.find(marker="csv-ex-tb-header").trigger("dblclick")
+    await user.should_see(marker="csv-ex-tb-header-input")
+    user.find(marker="csv-ex-tb-header-input").elements.pop().set_value(text)
+    user.find(marker="csv-ex-tb-header-input").trigger("keydown.enter")
 
 
 async def test_a_free_format_replaces_the_column_list(user: User) -> None:
@@ -288,7 +347,7 @@ async def test_a_free_format_replaces_the_column_list(user: User) -> None:
     user.find(marker="csv-ex-quick").elements.pop().set_value(
         "{開始日}/{期限}: {タスク名}"
     )
-    user.find(marker="csv-ex-quick-header").elements.pop().set_value("予定")
+    await set_header(user, "予定")
     user.find(marker="csv-export-confirm").click()
     columns = exported[0].columns
     assert len(columns) == 1  # 通常の項目の列は出さない
@@ -300,12 +359,16 @@ async def test_the_column_list_is_disabled_while_the_free_format_is_on(
     user: User,
 ) -> None:
     await open_export(user)
-    markers = ("csv-ex-use-title", "csv-ex-header-title", "csv-ex-up-title")
-    assert all(user.find(marker=m).elements.pop().enabled for m in markers)
+
+    def locked() -> bool:
+        chip = user.find(marker="csv-ex-cb-item-title").elements.pop()
+        return any("pointer-events-none" in a.classes for a in chip.ancestors())
+
+    assert not locked()
     user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
-    assert not any(user.find(marker=m).elements.pop().enabled for m in markers)
+    assert locked()
     user.find(marker="csv-ex-quick-on").elements.pop().set_value(False)
-    assert all(user.find(marker=m).elements.pop().enabled for m in markers)
+    assert not locked()
 
 
 async def test_an_empty_free_format_cannot_be_exported(user: User) -> None:
@@ -318,7 +381,7 @@ async def test_the_free_format_may_have_no_header(user: User) -> None:
     exported, _ = await open_export(user)
     user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
     user.find(marker="csv-ex-quick").elements.pop().set_value("【{タスク名}】")
-    user.find(marker="csv-ex-quick-header").elements.pop().set_value("")
+    await set_header(user, "")
     assert user.find(marker="csv-export-confirm").elements.pop().enabled
     user.find(marker="csv-export-confirm").click()
     assert exported[0].columns[0].header == ""
@@ -335,3 +398,100 @@ async def test_a_saved_free_format_comes_back_in_the_quick_fields(user: User) ->
     )
     user.find(marker="csv-export-confirm").click()
     assert [c.template for c in exported[0].columns] == ["{開始日}〜{タスク名}"]
+
+
+async def builder_items(user: User) -> list[str]:
+    await asyncio.sleep(0.05)  # 描画の更新は背景で走る
+    found = []
+    for index in range(20):
+        with suppress(AssertionError):
+            found.append(
+                user.find(marker=f"csv-ex-tb-item-{index}").elements.pop().text
+            )
+            continue
+        break
+    return found
+
+
+async def test_clicking_the_palette_builds_the_template(user: User) -> None:
+    await open_export(user)
+    user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
+    user.find(marker="csv-ex-tb-pal-start").click()
+    user.find(marker="csv-ex-tb-sep-8").click()  # /
+    user.find(marker="csv-ex-tb-pal-end").click()
+    user.find(marker="csv-ex-tb-sep-1").click()  # :
+    user.find(marker="csv-ex-tb-sep-9").click()  # 空白
+    user.find(marker="csv-ex-tb-pal-title").click()
+    assert await builder_items(user) == ["開始日", "/", "期限", ":", "␣", "タスク名"]
+    assert user.find(marker="csv-ex-quick").elements.pop().value == (
+        "{開始日}/{期限}: {タスク名}"
+    )
+
+
+async def test_typing_the_template_rebuilds_the_chips(user: User) -> None:
+    await open_export(user)
+    user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
+    user.find(marker="csv-ex-quick").elements.pop().set_value("{開始日}〜{タスク名}")
+    assert await builder_items(user) == ["開始日", "〜", "タスク名"]
+
+
+async def test_a_custom_separator_can_be_typed(user: User) -> None:
+    await open_export(user)
+    user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
+    user.find(marker="csv-ex-tb-pal-start").click()
+    user.find(marker="csv-ex-tb-custom").elements.pop().set_value("〜")
+    user.find(marker="csv-ex-tb-custom-add").click()
+    user.find(marker="csv-ex-tb-pal-end").click()
+    assert user.find(marker="csv-ex-quick").elements.pop().value == "{開始日}〜{期限}"
+
+
+async def test_a_selected_chip_receives_the_next_one_on_its_right(user: User) -> None:
+    await open_export(user)
+    user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
+    user.find(marker="csv-ex-quick").elements.pop().set_value("{開始日}/{タスク名}")
+    await builder_items(user)
+    user.find(marker="csv-ex-tb-item-1").click()  # /
+    user.find(marker="csv-ex-tb-pal-end").click()
+    assert user.find(marker="csv-ex-quick").elements.pop().value == (
+        "{開始日}/{期限}{タスク名}"
+    )
+
+
+async def test_removing_a_chip_updates_the_template(user: User) -> None:
+    await open_export(user)
+    user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
+    user.find(marker="csv-ex-quick").elements.pop().set_value("{開始日}/{タスク名}")
+    await builder_items(user)
+    user.find(marker="csv-ex-tb-item-1").elements.pop().set_value(False)
+    assert user.find(marker="csv-ex-quick").elements.pop().value == "{開始日}{タスク名}"
+
+
+async def test_the_builder_is_disabled_while_the_free_format_is_off(user: User) -> None:
+    await open_export(user)
+    user.find(marker="csv-ex-tb-pal-start").click()
+    assert user.find(marker="csv-ex-quick").elements.pop().value == ""
+
+
+async def test_double_clicking_the_header_chip_edits_it_in_place(user: User) -> None:
+    exported, _ = await open_export(user)
+    user.find(marker="csv-ex-quick-on").elements.pop().set_value(True)
+    user.find(marker="csv-ex-quick").elements.pop().set_value("【{タスク名}】")
+    await user.should_see("見出し: まとめ")
+    await set_header(user, "予定")
+    await user.should_see("見出し: 予定")
+    user.find(marker="csv-export-confirm").click()
+    assert exported[0].columns[0].header == "予定"
+
+
+async def test_the_import_builder_fills_the_template_field(user: User) -> None:
+    await open_dialog(user)
+    user.find(marker="csv-template-start").elements.pop()
+    user.find(marker="csv-build-start").click()
+    await user.should_see(marker="csv-tb-dialog")
+    user.find(marker="csv-tb-pal-start").click()
+    user.find(marker="csv-tb-sep-8").click()
+    user.find(marker="csv-tb-pal-end").click()
+    user.find(marker="csv-tb-ok").click()
+    assert user.find(marker="csv-template-start").elements.pop().value == (
+        "{開始日}/{期限}"
+    )

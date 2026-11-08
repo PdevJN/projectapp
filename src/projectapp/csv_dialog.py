@@ -27,24 +27,8 @@ from projectapp.csv_profile import (
     validate_profile,
 )
 from projectapp.forms import disposable
+from projectapp.template_builder_view import ColumnBuilder, TemplateBuilder
 
-# ドラッグ中の見た目。行は背景が透明なので、そのまま掴むと後ろの画面が透けて写る。
-# ダイアログの背景色(不透明)を付けた行の複製を、画面の外に作ってドラッグの画像にする。
-DRAG_START_JS = """(event) => {
-  const row = event.currentTarget;
-  const card = row.closest('.q-card');
-  const ghost = row.cloneNode(true);
-  ghost.style.cssText = 'position:fixed;top:-1000px;left:-1000px;width:' +
-    row.offsetWidth + 'px;background:' +
-    (card ? getComputedStyle(card).backgroundColor : '#ffffff') +
-    ';color:' + getComputedStyle(row).color + ';opacity:1';
-  document.body.appendChild(ghost);
-  event.dataTransfer.effectAllowed = 'move';
-  event.dataTransfer.setData('text/plain', '');
-  event.dataTransfer.setDragImage(ghost, 16, 16);
-  setTimeout(() => ghost.remove(), 0);
-  emit();
-}"""
 GUESS_NAME = "推測"  # その場限りの対応(見出しから推測したもの)
 UNASSIGNED = -1  # 列のコンボで「割り当てなし」を表す値
 DELIMITER_OPTIONS = {",": "カンマ", "\t": "タブ", ";": "セミコロン"}
@@ -195,14 +179,49 @@ def open_csv_import_dialog(
                             .classes("min-w-[10rem]")
                             .mark(f"csv-map-{field.value}")
                         )
-                        ui.input(
-                            label="書式(任意)",
-                            value=templates.get(field, ""),
-                            placeholder="{開始日}〜{期限}",
-                            on_change=lambda e, f=field: set_template(f, e),
-                        ).props("dense").classes("w-40").mark(
-                            f"csv-template-{field.value}"
+                        template_input = (
+                            ui.input(
+                                label="書式(任意)",
+                                value=templates.get(field, ""),
+                                placeholder="{開始日}〜{期限}",
+                                on_change=lambda e, f=field: set_template(f, e),
+                            )
+                            .props("dense")
+                            .classes("w-40")
+                            .mark(f"csv-template-{field.value}")
                         )
+                        ui.button(
+                            "組み立て…",
+                            on_click=lambda _, box=template_input: open_builder(box),
+                        ).props("flat dense").mark(f"csv-build-{field.value}")
+
+        def open_builder(box: ui.input) -> None:
+            """書式の欄の中身を、項目と区切りのチップで組み立て直す小さなダイアログ。"""
+            with (
+                ui.dialog() as sub,
+                ui.card().classes("min-w-[32rem]").mark("csv-tb-dialog"),
+            ):
+                ui.label("書式を組み立てる").classes("text-h6")
+                made = {"text": str(box.value or "")}
+                tb = TemplateBuilder(
+                    made["text"],
+                    IMPORT_FIELDS,
+                    lambda text: made.update(text=text),
+                    mark="csv-tb",
+                )
+                tb.build()
+
+                def accept() -> None:
+                    box.set_value(made["text"])
+                    sub.close()
+
+                with ui.row().classes("justify-end w-full"):
+                    ui.button("キャンセル", on_click=sub.close).props("flat").mark(
+                        "csv-tb-cancel"
+                    )
+                    ui.button("決定", on_click=accept).mark("csv-tb-ok")
+            sub.on("hide", lambda _: sub.delete())
+            sub.open()
 
         def template_part(field: CsvField, text: str) -> str:
             """書式にまとめた列は、その項目の部分だけを返す。"""
@@ -461,8 +480,6 @@ def open_csv_export_dialog(
 
     quick = quick_of(start)
 
-    locked: list = []  # 自由書式のあいだ使えなくする、列の一覧の部品
-
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-[48rem] max-w-full"):
         dialog.mark("csv-export-dialog")
         ui.label("CSV・TSV の書き出し").classes("text-h6")
@@ -516,49 +533,6 @@ def open_csv_export_dialog(
             )
         note = ui.label("").classes("text-negative")
 
-        drag: dict[str, int | None] = {"source": None}
-
-        @ui.refreshable
-        def columns_table() -> None:
-            locked.clear()
-            for index, row in enumerate(rows):
-                field = row["field"]
-                with (
-                    ui.row()
-                    .classes("items-center no-wrap w-full")
-                    .props("draggable=true")
-                    .mark(f"csv-ex-row-{field.value}") as line
-                ):
-                    line.on(
-                        "dragstart",
-                        lambda _, i=index: drag.update(source=i),
-                        js_handler=DRAG_START_JS,
-                    )
-                    line.on("dragover.prevent", lambda _: None)
-                    line.on("drop.prevent", lambda _, i=index: drop(i))
-                    ui.icon("drag_indicator").classes("cursor-move text-grey")
-                    ui.checkbox(
-                        FIELD_LABELS[field],
-                        value=row["use"],
-                        on_change=lambda e, r=row: use(r, e.value),
-                    ).classes("min-w-[12rem]").mark(f"csv-ex-use-{field.value}")
-                    ui.input(
-                        value=row["header"],
-                        on_change=lambda e, r=row: edit_header(r, e.value),
-                    ).props("dense outlined").classes("grow").mark(
-                        f"csv-ex-header-{field.value}"
-                    )
-                    ui.button(
-                        icon="arrow_upward", on_click=lambda i=index: move(i, -1)
-                    ).props("flat round dense").mark(f"csv-ex-up-{field.value}")
-                    ui.button(
-                        icon="arrow_downward", on_click=lambda i=index: move(i, 1)
-                    ).props("flat round dense").mark(f"csv-ex-down-{field.value}")
-                for child in line.default_slot.children:
-                    if isinstance(child, ui.checkbox | ui.input | ui.button):
-                        child.set_enabled(not quick["on"])  # 自由書式のあいだは使えない
-                        locked.append(child)
-
         with ui.row().classes("items-end w-full no-wrap"):
             quick_check = ui.checkbox(
                 "書式を使う",
@@ -575,26 +549,32 @@ def open_csv_export_dialog(
                 .classes("grow")
                 .mark("csv-ex-quick")
             )
-            quick_header = (
-                ui.input(
-                    label="その列の見出し(空なら見出しなし)",
-                    value=quick["header"],
-                    on_change=lambda e: edit_quick("header", e.value),
-                )
-                .classes("w-40")
-                .mark("csv-ex-quick-header")
-            )
+
+        columns = ColumnBuilder(
+            rows, EXPORT_FIELDS, lambda: refresh_state(), mark="csv-ex-cb"
+        )
+
+        def set_quick_text(text: str) -> None:
+            quick_input.set_value(text)
+
+        builder = TemplateBuilder(
+            quick["template"],
+            EXPORT_FIELDS,
+            set_quick_text,
+            header=quick["header"],
+            on_header=lambda text: edit_quick("header", text),
+            mark="csv-ex-tb",
+        )
+        builder.build()
+        builder.set_enabled(quick["on"])
         quick_input.set_enabled(quick["on"])
-        quick_header.set_enabled(quick["on"])
-        ui.label(
-            "使える項目: " + " ".join(f"{{{FIELD_LABELS[f]}}}" for f in EXPORT_FIELDS)
-        ).classes("text-caption text-grey").mark("csv-ex-quick-hint")
         with (
             ui.expansion("列の詳細設定(使う・見出し・並び)", value=False)
             .classes("w-full")
             .mark("csv-ex-details")
         ):
-            columns_table()
+            columns.build()
+            columns.set_enabled(not quick["on"])  # 自由書式のあいだは使えない
         with ui.row().classes("justify-end w-full"):
             ui.button("キャンセル", on_click=dialog.close).props("flat").mark(
                 "csv-ex-cancel"
@@ -651,14 +631,6 @@ def open_csv_export_dialog(
         note.set_text(message or "")
         confirm.set_enabled(message is None)
 
-    def use(row: dict, value: bool) -> None:
-        row["use"] = bool(value)
-        refresh_state()
-
-    def edit_header(row: dict, value: str) -> None:
-        row["header"] = value or ""
-        refresh_state()
-
     def quick_template() -> str:
         text = quick["template"].strip()
         if quick["on"] and text and template_problem(text) is None:
@@ -667,32 +639,13 @@ def open_csv_export_dialog(
 
     def edit_quick(key: str, value: str) -> None:
         quick[key] = value if key == "on" else (value or "")
+        if key == "template":
+            builder.set_template(quick["template"])
         if key == "on":
-            for widget in locked:
-                widget.set_enabled(not value)
-            for widget in (quick_input, quick_header):
-                widget.set_enabled(bool(value))
+            columns.set_enabled(not value)
+            quick_input.set_enabled(bool(value))
+            builder.set_enabled(bool(value))
         refresh_state()
-
-    def drop(target: int) -> None:
-        """ドラッグした行を、落とした行の位置へ移す。"""
-        source = drag["source"]
-        drag["source"] = None
-        if (
-            quick["on"]
-            or source is None
-            or source == target
-            or not 0 <= source < len(rows)
-        ):
-            return
-        rows.insert(target, rows.pop(source))
-        columns_table.refresh()
-
-    def move(index: int, step: int) -> None:
-        target = index + step
-        if 0 <= target < len(rows):
-            rows[index], rows[target] = rows[target], rows[index]
-            columns_table.refresh()
 
     def current_profile(name: str | None = None) -> CsvProfile:
         columns = current_columns()
@@ -729,8 +682,9 @@ def open_csv_export_dialog(
         quick.update(quick_of(profile))
         quick_check.set_value(quick["on"])
         quick_input.set_value(quick["template"])
-        quick_header.set_value(quick["header"])
-        columns_table.refresh()
+        builder.set_template(quick["template"])
+        builder.set_header(quick["header"])
+        columns.refresh()
         refresh_state()
 
     def ask_save() -> None:
