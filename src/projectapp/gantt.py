@@ -2830,6 +2830,18 @@ class GanttChart:
             end = self.schedule.bar_end(task)
             if task.daily_crew and end is not None:
                 end = self.through_next_working_day(end)
+            planned_end = end
+            extended = False
+            if (
+                task.weekly_crew
+                and self.options.show_alerts
+                and end is not None
+                and (fc := self.forecast_of(task)) is not None
+                and fc.end > end
+            ):
+                # 担当を足したタスクは、棒を完了見込みまで伸ばす(当初の完了予定は細い印で残す。要望 135)
+                end = fc.end
+                extended = True
             span = bar_span(start, end, columns)
             if span is not None and self.bar_visible(start, end, columns):
                 left, length = span
@@ -2874,6 +2886,14 @@ class GanttChart:
                         self.overload_stripes(
                             key, ti, task, left, bar_width, columns, width
                         )
+                    if extended and planned_end is not None:
+                        mark = bar_span(planned_end, planned_end, columns)
+                        if mark is not None:
+                            ui.element("div").classes("planned-end-tick").style(
+                                f"position: absolute; left: {(mark[0] - left) * width:.1f}px;"
+                                " top: 0; bottom: 0; border-left: 2px solid #fff; z-index: 2;"
+                                " pointer-events: none"
+                            ).mark(f"planned-end-tick-{key}-{ti}")
                     if self.options.show_chips and task.weekly_crew:
                         assert start is not None and end is not None
                         self.week_chips(
@@ -2896,7 +2916,7 @@ class GanttChart:
                         key, ti, result, start, columns, width, left, bar_width
                     )
                 elif self.options.show_alerts:
-                    self.forecast_overlay(key, ti, task, columns, width)
+                    self.forecast_overlay(key, ti, task, columns, width, not extended)
                 mark_left = self.marker_left(
                     task, columns, width, left * width + bar_width
                 )
@@ -3222,7 +3242,13 @@ class GanttChart:
         return self.forecast_cache[task.id]
 
     def forecast_overlay(
-        self, key: int | str, ti: int, task: Task, columns: list[Column], width: int
+        self,
+        key: int | str,
+        ti: int,
+        task: Task,
+        columns: list[Column],
+        width: int,
+        line: bool = True,
     ) -> None:
         """当初の完了予定の位置から見込みの位置まで細い灰青の点線を伸ばし、右に `見込み m/d(+N 日)` を出す。
         見込みの日付が当初の予定の日付と同じなら出さない。"""
@@ -3237,11 +3263,12 @@ class GanttChart:
         span = bar_span(low, high, columns)
         if span is None:
             return
-        ui.element("div").classes("forecast-line").style(
-            f"position: absolute; left: {from_name(span[0] * width)};"
-            f" width: {max(span[1] * width, 2):.1f}px;"
-            f" top: {BAR_TOP_PX + BAR_HEIGHT_PX // 2}px"
-        ).mark(f"forecast-line-{key}-{ti}")
+        if line:  # 棒を見込みまで伸ばしたときは、点線を引かず、ラベルだけ出す
+            ui.element("div").classes("forecast-line").style(
+                f"position: absolute; left: {from_name(span[0] * width)};"
+                f" width: {max(span[1] * width, 2):.1f}px;"
+                f" top: {BAR_TOP_PX + BAR_HEIGHT_PX // 2}px"
+            ).mark(f"forecast-line-{key}-{ti}")
         ui.label(forecast_text(forecast)).classes("forecast-label").style(
             f"position: absolute; left: {from_name((span[0] + span[1]) * width + 4)};"
             f" top: {BAR_TOP_PX + 2}px"

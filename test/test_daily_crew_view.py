@@ -219,3 +219,24 @@ async def test_a_day_chip_is_faded_when_everyone_on_it_has_a_personal_day_off(
     assert (
         "day-off" not in user.find(marker="day-chip-top-0-1-1").elements.pop().classes
     )
+
+
+async def test_a_late_task_with_added_crew_is_drawn_through_the_forecast(
+    user: User, tmp_path: Path
+) -> None:
+    from datetime import timedelta
+
+    view = await opened(user, tmp_path)
+    task = view.project.tasks[0]
+    task.effort_hours = 13.0
+    task.weekly_crew = [[Assignee("田中")], [Assignee("田中"), Assignee("鈴木")]]
+    view.after_edit()
+    gantt = view.gantt
+    planned = gantt.schedule.bar_end(task)
+    assert planned is not None
+    gantt.now = lambda: planned + timedelta(days=2)  # 予定超過
+    gantt.forecast_cache.clear()
+    view.after_edit()
+    await user.should_see(marker="planned-end-tick-top-0")
+    await user.should_not_see(marker="forecast-line-top-0")
+    await user.should_see(marker="forecast-label-top-0")
