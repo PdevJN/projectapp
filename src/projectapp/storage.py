@@ -186,6 +186,10 @@ def _dump(project: Project) -> dict[str, Any]:
     for task in _task_dicts(data["tasks"], data["sections"]):
         task["assignees"] = refs_of(task["assignees"])
         task["weekly_crew"] = [refs_of(week) for week in task["weekly_crew"]]
+        task["daily_crew"] = {
+            week: [refs_of(day) for day in days]
+            for week, days in task["daily_crew"].items()
+        }
     return data
 
 
@@ -394,6 +398,11 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
     kind = _kind(raw.get("kind"))
     actuals, legacy_progress = _actuals(raw.get("actuals"))
     weekly = _weekly_crew(raw.get("weekly_crew"), ctx) if ctx.version >= 10 else []
+    daily = (
+        _daily_crew(raw.get("daily_crew"), ctx, len(weekly))
+        if ctx.version >= 22
+        else {}
+    )
     assignees = (
         union_assignees(weekly) if weekly else _assignees(raw, ctx)
     )  # 週ごとのタスクの担当は週の表が正
@@ -410,6 +419,7 @@ def _task(raw: dict[str, Any], ctx: "_Context") -> Task:
         color=raw["color"],
         assignees=assignees,
         weekly_crew=weekly,
+        daily_crew=daily,
         predecessors=_predecessors(raw.get("predecessors")),
         actuals=actuals,
         kind=kind,
@@ -1090,6 +1100,34 @@ def _weekly_crew(value: Any, ctx: "_Context") -> list[list[Assignee]]:
             raise ValueError("担当者のいない週があります")
         weeks.append(crew)
     return weeks
+
+
+def _daily_crew(
+    value: Any, ctx: "_Context", weeks: int
+) -> dict[int, list[list[Assignee]]]:
+    """version 22 の日ごとの担当。キーは週の添字(週ごとの担当の範囲内)、値は 7 日ぶんの担当(各日 1 人以上)。不正は ValueError。"""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("日ごとの担当が辞書ではありません")
+    result: dict[int, list[list[Assignee]]] = {}
+    for key, days in value.items():
+        try:
+            week = int(key)
+        except (TypeError, ValueError):
+            raise ValueError(f"日ごとの担当の週が整数ではありません: {key!r}") from None
+        if not 0 <= week < weeks:
+            raise ValueError(f"日ごとの担当の週が範囲外です: {week}")
+        if not isinstance(days, list) or len(days) != 7:
+            raise ValueError("日ごとの担当は 7 日ぶん必要です")
+        crews: list[list[Assignee]] = []
+        for day in days:
+            crew = _member_assignees(day, ctx.member_names)
+            if not crew:
+                raise ValueError("担当者のいない日があります")
+            crews.append(crew)
+        result[week] = crews
+    return result
 
 
 def _assignees(raw: dict[str, Any], ctx: "_Context") -> list[Assignee]:

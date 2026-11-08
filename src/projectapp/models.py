@@ -10,7 +10,7 @@ from enum import StrEnum
 
 from projectapp import clock
 
-FORMAT_VERSION = 21  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕。16: メンバーの丸め対象外〔members[].ratio_unclamped〕。17: チーム〔teams・members[].teams〕。18: イベントの色に #rrggbb を許す)。19: メンバーの警告の件数の閾値 warning_limit、20: タスクの追加工数 extra_efforts、21: 変更履歴 history・history_since
+FORMAT_VERSION = 22  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕。16: メンバーの丸め対象外〔members[].ratio_unclamped〕。17: チーム〔teams・members[].teams〕。18: イベントの色に #rrggbb を許す)。19: メンバーの警告の件数の閾値 warning_limit、20: タスクの追加工数 extra_efforts、21: 変更履歴 history・history_since、22: 日ごとの担当 daily_crew
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -361,6 +361,9 @@ class Task:
     weekly_crew: list[list[Assignee]] = field(
         default_factory=list
     )  # 週ごとの担当(添字が週。開始の日から 7 日ごと)。空は週ごとに分けない。分けるときの assignees は全週の和集合
+    daily_crew: dict[int, list[list[Assignee]]] = field(
+        default_factory=dict
+    )  # 日ごとの担当(要望 135)。週の添字 → その週の 7 日ぶんの担当。添字は weekly_crew の週だけ。その週の weekly_crew は 7 日の担当の和集合
     extra_efforts: list[ExtraEffort] = field(
         default_factory=list
     )  # 後から足した追加工数の履歴(通常タスクだけ。工数があるとき)
