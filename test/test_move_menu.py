@@ -2,7 +2,7 @@ import asyncio
 from datetime import date
 from pathlib import Path
 
-import httpx
+import httpx2
 from nicegui import ui
 from nicegui.testing import User
 
@@ -27,7 +27,7 @@ async def open_view(user: User, tmp_path: Path) -> MainView:
     @ui.page("/")
     def index() -> None:
         view = MainView(
-            tmp_path, httpx.MockTransport(lambda request: httpx.Response(200))
+            tmp_path, httpx2.MockTransport(lambda request: httpx2.Response(200))
         )
         views.append(view)
         view.build()

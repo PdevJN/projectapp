@@ -8,7 +8,7 @@ from datetime import date
 from enum import StrEnum
 from pathlib import Path
 
-import httpx
+import httpx2
 
 from projectapp.models import Project, Task, WorkDay
 from projectapp.storage import BASE_DIR
@@ -107,10 +107,10 @@ def save_cache(holidays: dict[date, str], base_dir: Path = BASE_DIR) -> None:
 
 async def refresh_holidays(
     base_dir: Path = BASE_DIR,
-    transport: httpx.AsyncBaseTransport | None = None,
+    transport: httpx2.AsyncBaseTransport | None = None,
 ) -> dict[date, str]:
     """祝日を取得してキャッシュに保存する。失敗時は何も保存せず例外を送出する。"""
-    async with httpx.AsyncClient(
+    async with httpx2.AsyncClient(
         transport=transport, timeout=TIMEOUT_SECONDS, follow_redirects=True
     ) as client:
         response = await client.get(HOLIDAYS_URL)

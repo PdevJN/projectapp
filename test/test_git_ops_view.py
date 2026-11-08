@@ -3,7 +3,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-import httpx
+import httpx2
 import pytest
 from nicegui import ui
 from nicegui.testing import User
@@ -61,7 +61,7 @@ def mount(base_dir: Path, views: list[MainView], fakes: Fakes) -> None:
     @ui.page("/")
     def index() -> None:
         view = MainView(
-            base_dir, httpx.MockTransport(lambda request: httpx.Response(200))
+            base_dir, httpx2.MockTransport(lambda request: httpx2.Response(200))
         )
         view.read_git = fakes.read_git
         view.read_changes = fakes.read_changes
@@ -324,7 +324,12 @@ async def test_a_second_run_is_refused_while_busy(user: User, tmp_path: Path) ->
     fakes = Fakes()
     fakes.gate = threading.Event()
     view = await open_with(user, tmp_path, fakes)
-    first = asyncio.create_task(view.run_commit(["乙.json"], "m", False))
+
+    async def commit_in_the_page() -> None:
+        with user.client:  # 新しいタスクはスロットを引き継がない(NiceGUI 3.19)
+            await view.run_commit(["乙.json"], "m", False)
+
+    first = asyncio.create_task(commit_in_the_page())
     try:
         assert await wait_until(lambda: view.git_busy and len(fakes.commits) == 1)
         await view.run_commit(["甲.json"], "m2", False)  # 無視される

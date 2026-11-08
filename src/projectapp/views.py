@@ -8,7 +8,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 from pathlib import Path
 
-import httpx
+import httpx2
 from nicegui import app, run, ui
 from nicegui.events import KeyEventArguments
 
@@ -466,7 +466,7 @@ class MainView:
     def __init__(
         self,
         base_dir: Path = BASE_DIR,
-        transport: httpx.AsyncBaseTransport | None = None,
+        transport: httpx2.AsyncBaseTransport | None = None,
         exporter: ImageExporter | None = None,
         project_dir: Path | None = None,
     ) -> None:
@@ -3480,7 +3480,7 @@ class MainView:
         try:
             self.base_holidays = await download_holidays(self.base_dir, self.transport)
         except (
-            httpx.HTTPError,
+            httpx2.HTTPError,
             ValueError,
             OSError,
         ):  # OSErrorはキャッシュの書き込み失敗

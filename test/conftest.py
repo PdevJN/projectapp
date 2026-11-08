@@ -5,6 +5,7 @@ import weakref
 
 import pytest
 from nicegui import ui
+from nicegui.testing import User
 
 from projectapp.gitstate import GitKind, GitState
 
@@ -116,3 +117,22 @@ def icon(make_png) -> str:
     from projectapp.icons import make_icon
 
     return make_icon(make_png())
+
+
+@pytest.fixture(autouse=True)
+def enter_the_page_slot_after_open(monkeypatch: pytest.MonkeyPatch):
+    """`user.open` のあと、テスト本体がページの画面(スロット)の中にいる形にする。
+
+    テストは、`MainView` のメソッドを、画面のイベントを通さずに直接呼ぶ(`view.undo()` など)。それが`ui.notify`を呼ぶとき、
+    NiceGUI 3.17 までは、シミュレーションが最後に触れた`User`の画面へ振り分けていた。3.19 で、この振り分けは直った(#6413)ので、
+    スロットのないタスクからの`ui.notify`は、`RuntimeError`になる。本番では、通知はいつもイベントの中(スロットの中)から呼ぶ。
+    """
+    original = User.open
+
+    async def open_and_enter(self: User, *args, **kwargs):
+        result = await original(self, *args, **kwargs)
+        if self.client is not None:
+            self.client.__enter__()
+        return result
+
+    monkeypatch.setattr(User, "open", open_and_enter)

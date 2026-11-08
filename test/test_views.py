@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-import httpx
+import httpx2
 import pytest
 from nicegui.slot import Slot
 from nicegui import events, ui
@@ -113,15 +113,15 @@ def holiday_csv() -> bytes:
     return ("国民の祝日・休日月日,国民の祝日・休日名称\n" + row).encode("cp932")
 
 
-def make_transport(status: int, calls: list[str]) -> httpx.MockTransport:
-    def handler(request: httpx.Request) -> httpx.Response:
+def make_transport(status: int, calls: list[str]) -> httpx2.MockTransport:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         calls.append(str(request.url))
-        return httpx.Response(status, content=holiday_csv())
+        return httpx2.Response(status, content=holiday_csv())
 
-    return httpx.MockTransport(handler)
+    return httpx2.MockTransport(handler)
 
 
-def mount(base_dir: Path, transport: httpx.MockTransport) -> None:
+def mount(base_dir: Path, transport: httpx2.MockTransport) -> None:
     @ui.page("/")
     def index() -> None:
         MainView(base_dir, transport).build()
