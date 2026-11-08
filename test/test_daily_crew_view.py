@@ -170,3 +170,34 @@ async def test_editing_a_week_beyond_a_daily_last_week_continues_its_last_day(
     user.find(marker="week-edit-save").click()
     weeks = view.project.tasks[0].weekly_crew
     assert [a.name for a in weeks[1]] == ["田中", "鈴木"]  # 7 日目の担当が続く
+
+
+async def test_a_day_chip_on_a_holiday_is_faded_without_a_name_and_the_mark_moves_on(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    view.base_holidays[date(2099, 1, 7)] = "祝"  # 水曜
+    view.split_week_days((), 0, 1)  # 第 2 週: 1/12(月)〜
+    view.base_holidays[date(2099, 1, 14)] = "祝"  # 第 2 週の水曜
+    days = [[Assignee("田中")]] * 2 + [[Assignee("田中"), Assignee("鈴木")]] * 5
+    view.save_week_days((), 0, 1, days)
+    view.after_edit()
+    await user.should_see(marker="day-chip-top-0-1-2")
+    off = user.find(marker="day-chip-top-0-1-2").elements.pop()  # 1/14(水)
+    assert "day-off" in off.classes and off.text == ""
+    assert "休みの日" in tooltips(user, "day-chip-top-0-1-2")[0]
+    await user.should_not_see(marker="week-added-top-0-1-2")  # 休みの日には付けない
+    await user.should_see(marker="week-added-top-0-1-3")  # 最初の稼働日(木)に付く
+    working = user.find(marker="day-chip-top-0-1-1").elements.pop()
+    assert "day-off" not in working.classes
+
+
+async def test_a_bar_ending_on_a_day_off_is_drawn_through_the_next_working_day(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    gantt = view.gantt
+    end = datetime(2099, 1, 10, 12)  # 土曜
+    assert gantt.through_next_working_day(end).date() == date(2099, 1, 12)  # 月曜
+    weekday = datetime(2099, 1, 9, 12)
+    assert gantt.through_next_working_day(weekday) == weekday
