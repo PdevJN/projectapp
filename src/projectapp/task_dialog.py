@@ -1000,6 +1000,7 @@ def open_week_crew_dialog(
     members: list[Member],
     on_save: Callable[[list[Assignee]], object],
     period: str = "",
+    on_split: Callable[[], object] | None = None,
 ) -> None:
     """週ごとのタスクの、1 週ぶんの担当だけを直す小さなダイアログ(ガントチャートのチップのクリックで開く)。
     タイトルは、チップのヒントの見出しと同じ「第N週 期間」。"""
@@ -1024,7 +1025,68 @@ def open_week_crew_dialog(
 
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")
+            if on_split is not None:
+                ui.button(
+                    "日ごとに分ける",
+                    on_click=lambda: (dialog.close(), on_split()),
+                ).props("flat").mark("week-edit-split")
             ui.button("保存", on_click=save).mark("week-edit-save")
+    dialog.open()
+
+
+def open_day_crew_dialog(
+    number: int,
+    labels: list[str],
+    days: list[list[Assignee]],
+    members: list[Member],
+    on_save: Callable[[list[list[Assignee]]], object],
+    on_merge: Callable[[], object],
+    period: str = "",
+) -> None:
+    """日ごとの週の、7 日ぶんの担当を直すダイアログ。タイトルは「第N週 期間(日ごと)」。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
+        ui.label(f"第{number}週 {period}(日ごと)".replace("  ", " ")).classes(
+            "text-h6"
+        ).mark("day-edit-title")
+        rows: list[AssigneeFields] = []
+        with (
+            ui.column()
+            .classes("w-full gap-2")
+            .style("max-height: 60vh; overflow-y: auto")
+        ):
+            for j, (label, crew) in enumerate(zip(labels, days)):
+                ui.label(label).classes("text-caption text-grey").mark(
+                    f"day-edit-label-{j}"
+                )
+                with ui.column().classes("w-full").mark(f"day-edit-row-{j}"):
+                    rows.append(
+                        AssigneeFields(
+                            crew, members, lambda: None, marker=f"day-edit-{j}"
+                        )
+                    )
+        error = ui.label("").classes("text-negative").mark("day-edit-error")
+
+        def save() -> None:
+            chosen: list[list[Assignee]] = []
+            for j, fields in enumerate(rows):
+                try:
+                    crew = _build_assignees(fields.rows())
+                except ValueError as exc:
+                    error.set_text(f"{labels[j]}: {exc}")
+                    return
+                if not crew:
+                    error.set_text(f"{labels[j]}: 担当者を選んでください")
+                    return
+                chosen.append(crew)
+            dialog.close()
+            on_save(chosen)
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat")
+            ui.button(
+                "週ごとに戻す", on_click=lambda: (dialog.close(), on_merge())
+            ).props("flat").mark("day-edit-merge")
+            ui.button("保存", on_click=save).mark("day-edit-save")
     dialog.open()
 
 

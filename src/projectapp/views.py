@@ -250,7 +250,14 @@ from projectapp.decompose import ParamMode, Part, can_make_section, decompose, s
 from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
-from projectapp.gantt import GanttActions, GanttChart, ViewOptions, short_date
+from projectapp.daily_crew import merge_week, set_week_days, split_week
+from projectapp.gantt import (
+    WEEKDAYS,
+    GanttActions,
+    GanttChart,
+    ViewOptions,
+    short_date,
+)
 from projectapp.history_log import HistoryKeep
 from projectapp.models import (
     MAX_SECTION_DEPTH,
@@ -302,6 +309,7 @@ from projectapp.summary import parent_map
 from projectapp.task_dialog import (
     open_extra_effort_dialog,
     open_quick_progress_dialog,
+    open_day_crew_dialog,
     open_task_dialog,
     open_week_crew_dialog,
 )
@@ -2902,7 +2910,12 @@ class MainView:
         """担当を週ごとに分ける(今の担当を、開始から完了までの全部の週に入れる)/ 週ごとをやめる(第1週の担当に戻す)。"""
         task = self.tasks_in(path)[index]
         if task.weekly_crew:
-            saved = replace(task, weekly_crew=[], assignees=list(task.weekly_crew[0]))
+            saved = replace(
+                task,
+                weekly_crew=[],
+                daily_crew={},
+                assignees=list(task.weekly_crew[0]),
+            )
         elif task.kind is TaskKind.NORMAL and task.assignees:
             schedule = Schedule(self.project, self.holidays)
             start = effective_start(task, self.project, self.holidays, schedule)
@@ -2921,10 +2934,61 @@ class MainView:
         self.tasks_in(path)[index] = saved
         self.after_edit()
 
+    def _replace_task_at(
+        self, path: SectionPath, index: int, saved: Task | None
+    ) -> None:
+        if saved is None:
+            ui.notify("この週は日ごとに変えられません")
+            return
+        self.tasks_in(path)[index] = saved
+        self.after_edit()
+        self.warn_overallocation(saved)
+
+    def split_week_days(self, path: SectionPath, index: int, week: int) -> None:
+        """週を日ごとに分ける(その週の担当を 7 日すべてにコピー。元に戻せる 1 回の編集)。"""
+        self._replace_task_at(path, index, split_week(self.tasks_in(path)[index], week))
+
+    def merge_week_days(self, path: SectionPath, index: int, week: int) -> None:
+        """日ごとの週を週に戻す(1 日目の担当を週の担当にする)。"""
+        self._replace_task_at(path, index, merge_week(self.tasks_in(path)[index], week))
+
+    def save_week_days(
+        self, path: SectionPath, index: int, week: int, days: list[list[Assignee]]
+    ) -> None:
+        """日ごとの週の 7 日ぶんの担当を保存する。"""
+        self._replace_task_at(
+            path, index, set_week_days(self.tasks_in(path)[index], week, days)
+        )
+
     def edit_week_crew(self, path: SectionPath, index: int, week: int) -> None:
-        """週ごとのタスクの、1 週ぶんの担当だけを直す(ガントチャートのチップのクリック)。"""
+        """週ごとのタスクの、1 週ぶんの担当だけを直す(ガントチャートのチップのクリック)。日ごとの週は、7 日ぶんを直すダイアログを開く。"""
         task = self.tasks_in(path)[index]
         if not task.weekly_crew or week >= MAX_WEEKS:
+            return
+        period = ""
+        first: date | None = None
+        schedule = Schedule(self.project, self.holidays)
+        if (
+            start := effective_start(task, self.project, self.holidays, schedule)
+        ) is not None:
+            first = start.date() + timedelta(days=7 * week)
+            period = f"{short_date(first)}〜{short_date(first + timedelta(days=6))}"
+        if week < len(task.weekly_crew) and len(task.daily_crew.get(week, [])) == 7:
+            labels = [
+                f"{short_date(day)}({WEEKDAYS[day.weekday()]})"
+                if first is not None and (day := first + timedelta(days=j))
+                else f"{j + 1}日目"
+                for j in range(7)
+            ]
+            open_day_crew_dialog(
+                week + 1,
+                labels,
+                task.daily_crew[week],
+                self.project.members,
+                lambda days: self.save_week_days(path, index, week, days),
+                lambda: self.merge_week_days(path, index, week),
+                period,
+            )
             return
         shown = task.weekly_crew[
             min(week, len(task.weekly_crew) - 1)
@@ -2940,14 +3004,14 @@ class MainView:
             self.after_edit()
             self.warn_overallocation(saved)
 
-        period = ""
-        schedule = Schedule(self.project, self.holidays)
-        if (
-            start := effective_start(task, self.project, self.holidays, schedule)
-        ) is not None:
-            first = start.date() + timedelta(days=7 * week)
-            period = f"{short_date(first)}〜{short_date(first + timedelta(days=6))}"
-        open_week_crew_dialog(week + 1, shown, self.project.members, apply, period)
+        open_week_crew_dialog(
+            week + 1,
+            shown,
+            self.project.members,
+            apply,
+            period,
+            on_split=lambda: self.split_week_days(path, index, week),
+        )
 
     def edit_progress(self, path: SectionPath, index: int) -> None:
         """棒の Shift クリック。通常タスクの進捗度と実績だけを直す小さなダイアログを開く(保存は元に戻す 1 ステップ)。"""
