@@ -1428,15 +1428,18 @@ class DashboardView:
 
     def burndown_card(self, data: Dashboard) -> None:
         b = data.burndown
-        period = None if b is None else Period(b.first, b.last)
+        if b is None or b.whole:  # 全期間は、履歴のある期間を添える
+            scope = scope_label(data, None)
+            if b is not None:
+                scope += f"・履歴のある期間 {b.first:%m/%d}〜{b.last:%m/%d}"
+        else:
+            scope = scope_label(data, Period(b.first, b.last))
         with card("残りの工数の推移", "dashboard-burndown"):
-            ui.label(scope_label(data, period)).classes("text-caption text-grey").mark(
+            ui.label(scope).classes("text-caption text-grey").mark(
                 "dashboard-burndown-scope"
             )
             if b is None:
-                ui.label("期間を選ぶと推移が出ます").classes("text-grey").mark(
-                    "dashboard-burndown-all"
-                )
+                empty_message("dashboard-empty-burndown")
                 return
             if b.known and not b.count:
                 empty_message("dashboard-empty-burndown")

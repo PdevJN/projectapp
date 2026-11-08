@@ -13,6 +13,7 @@ from projectapp.dashboard import (
     previous_period,
     summarize_progress_delta,
     MAX_CUSTOM_DAYS,
+    burndown_whole_period,
     custom_period_error,
     period_for,
     summarize,
@@ -1995,12 +1996,54 @@ def test_burndown_is_unknown_without_history() -> None:
     assert not result.known and result.since is None
 
 
-def test_summarize_attaches_the_burndown_except_for_the_whole_period() -> None:
+def test_summarize_attaches_the_burndown_for_the_whole_period_too() -> None:
     project = delta_project()
-    week = summarize(project, DELTA_WEEK, D_NOW, {}, PeriodKind.WEEK)
-    assert week.burndown is not None and week.burndown.known
-    whole = summarize(project, DELTA_WEEK, D_NOW, {}, PeriodKind.ALL)
-    assert whole.burndown is None
+    project.tasks.append(
+        Task("later", id="later", effort_hours=5, deadline=datetime(2026, 12, 1, 17))
+    )
+    period = period_for(PeriodKind.ALL, D_NOW.date(), project, {})
+    whole = summarize(project, period, D_NOW, {}, PeriodKind.ALL).burndown
+    assert whole is not None and whole.whole and whole.known
+    assert whole.count == 3  # 期間にかかるかで絞らない
+    assert whole.last == date(2026, 12, 1)
+    week = summarize(project, DELTA_WEEK, D_NOW, {}, PeriodKind.WEEK).burndown
+    assert week is not None and not week.whole and week.count == 2
+
+
+def test_the_whole_burndown_period_starts_where_the_history_is_known() -> None:
+    given = Period(date(2026, 10, 1), date(2026, 12, 1))
+    project = Project("p", history_since=datetime(2026, 11, 3, 9))
+    assert burndown_whole_period(project, given) == Period(
+        date(2026, 11, 4), date(2026, 12, 1)
+    )  # 9 時に始まった記録は、その日の 0 時を復元できないので翌日から
+    project.history_since = datetime(2026, 11, 3)
+    assert burndown_whole_period(project, given).start == date(2026, 11, 3)
+    project.history_since = datetime(2026, 10, 1)
+    later = Period(date(2026, 11, 5), date(2026, 12, 1))
+    assert burndown_whole_period(project, later).start == date(2026, 11, 5)
+
+
+def test_the_whole_burndown_period_is_at_most_400_days() -> None:
+    project = Project("p", history_since=datetime(2025, 1, 1))
+    result = burndown_whole_period(
+        project, Period(date(2025, 1, 2), date(2026, 12, 31))
+    )
+    assert result.end == date(2026, 12, 31) and len(result.days()) == MAX_CUSTOM_DAYS
+
+
+def test_the_whole_burndown_period_without_history_is_the_given_one() -> None:
+    given = Period(date(2026, 10, 1), date(2026, 12, 1))
+    assert burndown_whole_period(Project("p"), given) == given
+
+
+def test_history_that_starts_after_the_last_plan_is_unknown_for_the_whole_period() -> (
+    None
+):
+    project = Project("p", history_since=datetime(2026, 12, 5))
+    result = burndown_whole_period(
+        project, Period(date(2026, 11, 5), date(2026, 12, 1))
+    )
+    assert result.start == result.end == date(2026, 12, 1)
 
 
 def members_delta_project() -> Project:

@@ -2232,13 +2232,26 @@ async def test_the_burndown_card_draws_the_chart_and_the_lines(user: User) -> No
     await user.should_see(marker="dashboard-burndown-behind-icon")
 
 
-async def test_the_burndown_card_asks_for_a_period_when_it_is_the_whole_period(
+async def test_the_burndown_card_names_the_range_for_the_whole_period(
     user: User,
 ) -> None:
     views, _, _ = mount()
+    data = sample()
+    data.burndown = replace(burndown_sample(), whole=True)
+    await user.open("/")
+    views[0].show(data, PeriodKind.ALL)
+    await user.should_see(marker="dashboard-burndown-chart")
+    assert (
+        text(user, "dashboard-burndown-scope")
+        == "すべてのタスク・履歴のある期間 10/05〜10/11"
+    )
+
+
+async def test_the_burndown_card_is_empty_without_a_burndown(user: User) -> None:
+    views, _, _ = mount()
     await user.open("/")
     views[0].show(sample(), PeriodKind.ALL)
-    await user.should_see(marker="dashboard-burndown-all")
+    await user.should_see(marker="dashboard-empty-burndown")
     await user.should_not_see(marker="dashboard-burndown-chart")
 
 

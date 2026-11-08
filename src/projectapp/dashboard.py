@@ -500,22 +500,40 @@ def _member_delta(
     return delta.percent if delta.known else None
 
 
+def burndown_whole_period(project: Project, period: Period) -> Period:
+    """`全期間`で推移を描く期間。履歴から値を復元できる最初の日(予定の開始のほうが遅ければそこ)から、
+    最後の完了予定まで。400 日を超えるときは終わりから 400 日。履歴の記録開始が最後の完了予定より後なら 1 日
+    (復元できないので不明になる)。`period`は`period_for(ALL)`の値。"""
+    first = period.start
+    since = project.history_since
+    if since is not None:
+        known = (
+            since.date() if since.time() == time.min else since.date() + timedelta(1)
+        )
+        first = max(first, known)
+    last = period.end
+    first = min(first, last)
+    return Period(max(first, last - timedelta(days=MAX_CUSTOM_DAYS - 1)), last)
+
+
 def summarize_burndown(
     project: Project,
     period: Period,
     now: datetime,
     holidays: dict[date, str],
     member: Scope = None,
+    whole: bool = False,
 ) -> Burndown:
     """期間中の残りの工数の推移(要望 128 段階 2)。対象は`進んだ分`と同じ集合(予定の期間・締切・実績が期間にかかる
-    通常タスク)に、期間中に分解でまとめになったタスク(退場まで数える)を足したもの。参照先は含めない。"""
+    通常タスク)に、期間中に分解でまとめになったタスク(退場まで数える)を足したもの。参照先は含めない。
+    `whole`(`全期間`)のときは、期間にかかるかで絞らず、すべての通常タスクを数える(`period`は`burndown_whole_period`)。"""
     index = events_by_task(project)
     schedule = Schedule(project, holidays)
     tasks = [
         _burn_task(entry.task, index, entry.schedule)
         for entry in _entries(project, holidays, member, None)
         if entry.task.kind is TaskKind.NORMAL
-        and _touches(entry.task, entry.schedule, period, now)
+        and (whole or _touches(entry.task, entry.schedule, period, now))
     ]
     scoped = _names(member)
     low = period.bounds()[0]
@@ -537,9 +555,10 @@ def summarize_burndown(
         )
         if left and any(child in counted for child in task.children):
             tasks.append(_burn_task(task, index, schedule))
-    return compute_burndown(
+    result = compute_burndown(
         tasks, period.start, period.end, now, project.history_since, holidays
     )
+    return replace(result, whole=True) if whole else result
 
 
 def _member_row(
@@ -1798,6 +1817,15 @@ def summarize(
             project, previous_period(period), now, holidays, scope
         )
         burndown = summarize_burndown(project, period, now, holidays, scope)
+    else:
+        burndown = summarize_burndown(
+            project,
+            burndown_whole_period(project, period),
+            now,
+            holidays,
+            scope,
+            whole=True,
+        )
     progress = summarize_progress(project, holidays, now, scope, children)
     if kind is not PeriodKind.ALL:
         progress = replace(

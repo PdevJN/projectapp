@@ -132,6 +132,7 @@ class Burndown:
     recent_days: int = 0  # 直近のペースの窓の稼働日数
     behind: bool = False  # 必要なペースが直近のペースの 1.2 倍を超える
     ahead: bool = False  # 今日の実際が、当初の予定の今日の終わり以下
+    whole: bool = False  # `全期間`のため、履歴のある期間で描いている
 
 
 def _remaining(state: TaskState | None) -> float:
