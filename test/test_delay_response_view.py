@@ -161,3 +161,33 @@ def test_the_trial_ghost_is_a_filled_band_in_front_of_the_bar() -> None:
     assert "color-mix" in rule and "--delay-accent" in rule  # 薄い紫の塗り
     assert "z-index" in rule  # 実績・進捗の印に隠れない
     assert "dashed" in rule  # 試算の点線の縁は残す
+
+
+async def test_a_confirmed_increase_beyond_the_bar_is_shown_as_a_chip(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    task = view.project.tasks[0]
+    task.effort_hours = 8.0  # 棒は第 1 週で終わる
+    task.weekly_crew = [[Assignee("田中")], [Assignee("田中"), Assignee("鈴木")]]
+    view.after_edit()
+    await user.should_see(marker="week-added-ext-top-0-1")  # 棒より後ろの週の増員
+    await user.should_not_see(marker="week-chip-top-0-1")  # 棒の上には描かれない週
+    chip = user.find(marker="week-added-ext-top-0-1").elements.pop()
+    assert chip.text.startswith("+鈴木")
+    assert "var(--name-w)" in chip._style["left"]
+
+
+async def test_no_extra_chip_when_the_increase_is_inside_the_bar(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    task = view.project.tasks[0]
+    task.weekly_crew = [
+        [Assignee("田中")],
+        [Assignee("田中"), Assignee("鈴木")],
+        [Assignee("田中"), Assignee("鈴木")],
+    ]
+    view.after_edit()
+    await user.should_see(marker="week-added-top-0-1")
+    await user.should_not_see(marker="week-added-ext-top-0-1")

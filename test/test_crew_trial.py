@@ -17,7 +17,7 @@ from projectapp.models import (
     Task,
     TaskKind,
 )
-from projectapp.timeline import Schedule, crew_on, effective_end
+from projectapp.timeline import Schedule, effective_end
 
 START = datetime(2026, 11, 2, 9)  # 月曜
 HOLIDAYS: dict[date, str] = {}
@@ -110,7 +110,7 @@ def test_confirmed_task_ends_where_the_trial_said() -> None:
     schedule = Schedule(project, HOLIDAYS)
     trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 9))
     result = evaluate(task, project, HOLIDAYS, schedule, trial, NOW)
-    saved = confirmed(task, project, HOLIDAYS, schedule, trial, NOW)
+    saved = confirmed(task, project, HOLIDAYS, schedule, trial)
     assert result is not None and saved is not None
     assert [a.name for a in saved.assignees] == ["田中", "鈴木"]
     assert replace_task(project, saved)
@@ -142,7 +142,7 @@ def test_unsuitable_tasks_are_ignored() -> None:
     project2, summary = sample(kind=TaskKind.SUMMARY)
     schedule2 = Schedule(project2, HOLIDAYS)
     assert evaluate(summary, project2, HOLIDAYS, schedule2, trial, NOW) is None
-    assert confirmed(summary, project2, HOLIDAYS, schedule2, trial, NOW) is None
+    assert confirmed(summary, project2, HOLIDAYS, schedule2, trial) is None
 
 
 def test_replace_task_returns_false_for_an_unknown_id() -> None:
@@ -192,28 +192,47 @@ def test_a_task_not_yet_overdue_keeps_the_weekly_calculation() -> None:
     assert result is not None and not result.from_now
 
 
-def test_confirming_an_overdue_task_adds_from_the_week_containing_today() -> None:
+def test_confirming_an_overdue_task_does_not_shrink_the_past_bar() -> None:
     project, task = sample(progress=50)
     schedule = Schedule(project, HOLIDAYS)
+    before = effective_end(task, project, HOLIDAYS, schedule)
     trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 20))
-    saved = confirmed(task, project, HOLIDAYS, schedule, trial, LATE)
+    saved = confirmed(task, project, HOLIDAYS, schedule, trial)
     assert saved is not None
-    # 開始 11/2 から 18 日目 = 第 3 週(添字 2)。早い側の週頭から載せ、今日は増員後の担当
-    assert [a.name for a in crew_on(saved, START.date(), LATE.date())] == [
-        "田中",
-        "鈴木",
-    ]
-    assert [a.name for a in saved.weekly_crew[1]] == ["田中"]
+    assert replace_task(project, saved)
+    # 増員は次の週の境目から。過去の週の担当は変わらず、完了予定は前倒しされない
+    assert effective_end(saved, project, HOLIDAYS) == before
+    assert [a.name for a in saved.weekly_crew[0]] == ["田中"]
 
 
-def test_confirming_a_task_not_yet_overdue_still_rounds_to_the_later_week() -> None:
+def test_confirming_rounds_to_the_later_week() -> None:
     project, task = sample()
     schedule = Schedule(project, HOLIDAYS)
     trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 10))
-    saved = confirmed(task, project, HOLIDAYS, schedule, trial, NOW)
+    saved = confirmed(task, project, HOLIDAYS, schedule, trial)
     assert saved is not None
     assert [[a.name for a in w] for w in saved.weekly_crew] == [
         ["田中"],
         ["田中"],
         ["田中", "鈴木"],
     ]
+
+
+def test_a_warning_task_is_estimated_from_todays_remaining_effort() -> None:
+    project, task = sample(effort_hours=40.0, progress=10)
+    now = datetime(2026, 11, 6, 10)  # 完了予定(11/10 ごろ)の手前。残りが稼働量を超える
+    schedule = Schedule(project, HOLIDAYS)
+    assert (end := effective_end(task, project, HOLIDAYS, schedule)) is not None
+    assert end > now  # 遅れてはいない(警告)
+    result = evaluate(
+        task,
+        project,
+        HOLIDAYS,
+        schedule,
+        TrialCrew("ta", ("鈴木",), date(2026, 11, 6)),
+        now,
+    )
+    assert result is not None and result.from_now
+    assert result.trial_end is not None and result.baseline_end is not None
+    assert result.baseline_end > end  # 追加なしでは、完了予定に間に合わない見込み
+    assert result.trial_end < result.baseline_end  # 増員で早まる

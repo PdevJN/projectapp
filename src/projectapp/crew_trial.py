@@ -15,6 +15,8 @@ from projectapp.models import (
     TaskKind,
     union_assignees,
 )
+from projectapp.pace import warning_pace
+from projectapp.remaining import remaining_hours
 from projectapp.timeline import (
     Schedule,
     Worker,
@@ -62,18 +64,12 @@ def snap_week(anchor: date, day: date) -> int:
 
 
 def trial_weeks(
-    task: Task, trial: TrialCrew, anchor: date, early: bool = False
+    task: Task, trial: TrialCrew, anchor: date
 ) -> list[list[Assignee]] | None:
-    """今の担当に増員分を足した週ごとの担当。週数が上限を超えるなら None。
-    early は、増員日を含む週(早い側)から載せる(遅れたタスクの確定。今日より前の分は働かないので害がない)。"""
-    first = (
-        max((trial.start - anchor).days, 0) // 7
-        if early
-        else snap_week(anchor, trial.start)
-    )
+    """今の担当に増員分を足した週ごとの担当。週数が上限を超えるなら None。"""
     return _with_added(
         [list(w) for w in task.weekly_crew] or [list(task.assignees)],
-        first,
+        snap_week(anchor, trial.start),
         trial.names,
     )
 
@@ -113,7 +109,7 @@ def evaluate(
     now: datetime,
 ) -> TrialResult | None:
     """増員後の完了見込み。対象外(担当なし・通常でない・開始なし・上限超え)は None。
-    完了予定を過ぎたタスクは、今日からの残り工数(全工数 ×(1 − 進捗度))を、増員後の担当で消化する見込みにする。"""
+    完了予定を過ぎたタスクと警告のタスクは、今日からの残りの工数を、増員後の担当で消化する見込みにする。"""
     if not _target(task):
         return None
     start = effective_start(task, project, holidays, schedule)
@@ -139,20 +135,21 @@ def evaluate(
             for week in rows
         ]
 
-    if original is not None and original <= now and start <= now:
-        # 遅れたタスク: 今日を起点に、残りの工数を消化する。今日の担当に、増員分を足す
-        done = task.progress if task.progress is not None else 0
-        remaining = task.total_effort * (1 - min(max(done, 0), 100) / 100)
-        today_crew = [replace(a) for a in crew_on(task, start.date(), now.date())]
+    overdue = original is not None and original <= now and start <= now
+    if overdue or warning_pace(task, project, holidays, now, schedule) is not None:
+        # 遅れたタスクと警告のタスク: 今日を起点に、残りの工数を消化する。今日の担当に、増員分を足す
+        origin = max(now, start)
+        remaining = remaining_hours(task, project, holidays, now)
+        today_crew = [replace(a) for a in crew_on(task, start.date(), origin.date())]
         added = _with_added(
-            [list(today_crew)], snap_week(now.date(), trial.start), trial.names
+            [list(today_crew)], snap_week(origin.date(), trial.start), trial.names
         )
         if added is None:
             return None
 
         def finish(rows: list[list[Assignee]]) -> datetime | None:
             return calc_end(
-                now,
+                origin,
                 remaining,
                 project.daily_hours,
                 project.work_start,
@@ -187,18 +184,15 @@ def confirmed(
     holidays: dict[date, str],
     schedule: Schedule,
     trial: TrialCrew,
-    now: datetime,
 ) -> Task | None:
     """試算を確定したタスク(weekly_crew に乗せ、assignees は和集合)。対象外は None。
-    完了予定を過ぎたタスクは、試算が今日から増員する見込みなので、増員日を含む週から載せる。"""
+    増員は次の週の境目から載せる(過去の週の担当を変えないので、過去の棒は縮まない)。"""
     if not _target(task):
         return None
     start = effective_start(task, project, holidays, schedule)
     if start is None:
         return None
-    end = effective_end(task, project, holidays, schedule)
-    late = end is not None and end <= now and start <= now and not _manual(task)
-    weeks = trial_weeks(task, trial, start.date(), early=late)
+    weeks = trial_weeks(task, trial, start.date())
     if weeks is None:
         return None
     return replace(task, weekly_crew=weeks, assignees=union_assignees(weeks))

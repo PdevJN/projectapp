@@ -17,6 +17,8 @@ body.body--dark { --delay-bg: #2a2140; --delay-fg: #d1c4e9; --delay-accent: #b39
 .trial-chip { border: 1px dashed var(--delay-accent); background: var(--delay-bg);
   color: var(--delay-fg); font-size: 10px; padding: 0 3px; border-radius: 3px;
   white-space: nowrap; }
+.confirmed-add { background: var(--delay-accent); color: #fff; font-size: 10px;
+  padding: 0 4px; border-radius: 3px; white-space: nowrap; z-index: 2; }
 .week-added { box-shadow: inset 4px 0 0 var(--delay-accent); }
 .trial-origin { border-left: 2px solid var(--delay-accent); pointer-events: none; }
 .trial-label { color: var(--delay-fg); font-size: 11px; white-space: nowrap; }

@@ -2858,6 +2858,9 @@ class GanttChart:
                             columns,
                             width,
                         )
+                if self.options.show_chips and task.weekly_crew:
+                    assert start is not None and end is not None
+                    self.added_beyond_bar(key, ti, task, start, end, columns, width)
                 if (result := self.trial_results.get(task.id)) is not None:
                     self.trial_overlay(
                         key, ti, result, start, columns, width, left, bar_width
@@ -3144,6 +3147,39 @@ class GanttChart:
                 .classes(STATUS_CLASSES[task.status])
             )
             gap.mark(f"actual-gap-{key}-{ti}-{n}")
+
+    def added_beyond_bar(
+        self,
+        key: int | str,
+        ti: int,
+        task: Task,
+        start: datetime,
+        end: datetime,
+        columns: list[Column],
+        width: int,
+    ) -> None:
+        """確定した増員(前の週にいない人が現れる週)のうち、棒より後ろにある週のものを、棒の右に紫のチップで示す。
+        棒の上にある週は、週チップの縁(`week-added`)で示す(要望 132)。"""
+        crews = task.weekly_crew
+        for index in range(1, len(crews)):
+            week_start = datetime.combine(
+                start.date() + timedelta(days=7 * index), time.min
+            )
+            if week_start < end:
+                continue  # 棒の上の週は、週チップが描く
+            before = {a.name for a in crews[index - 1]}
+            added = [a.name for a in crews[index] if a.name not in before]
+            span = bar_span(week_start, week_start, columns)
+            if not added or span is None:
+                continue
+            day = short_date(week_start.date())
+            names = "・".join(added)
+            ui.label(f"+{names} {day}〜").classes("confirmed-add").style(
+                f"position: absolute; left: {from_name(span[0] * width)};"
+                f" top: {BAR_TOP_PX - 2}px"
+            ).tooltip(f"増員 +{names}({day} から。確定済み)").mark(
+                f"week-added-ext-{key}-{ti}-{index}"
+            )
 
     def trial_overlay(
         self,
