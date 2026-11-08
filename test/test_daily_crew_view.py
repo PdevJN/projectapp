@@ -152,3 +152,21 @@ async def test_renaming_a_member_reaches_the_daily_crew(
     view.apply_members(members, {"田中": "田中太郎"})
     task = view.project.tasks[0]
     assert all(a.name == "田中太郎" for d in task.daily_crew[0] for a in d)
+
+
+async def test_editing_a_week_beyond_a_daily_last_week_continues_its_last_day(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    task = view.project.tasks[0]
+    task.weekly_crew = [[Assignee("田中"), Assignee("鈴木")]]
+    task.daily_crew = {
+        0: [[Assignee("田中")]] * 6 + [[Assignee("田中"), Assignee("鈴木")]]
+    }
+    view.after_edit()
+    with user.client:
+        view.edit_week_crew((), 0, 2)
+    await user.should_see(marker="week-edit-save")
+    user.find(marker="week-edit-save").click()
+    weeks = view.project.tasks[0].weekly_crew
+    assert [a.name for a in weeks[1]] == ["田中", "鈴木"]  # 7 日目の担当が続く

@@ -230,3 +230,25 @@ def test_handoff_estimate_follows_the_daily_crew() -> None:
     weekly_hours = _estimate_hours(weekly, project_of(weekly), "鈴木", {})
     # 週ごと(第 1 週は 2 人)より、日ごと(水曜まで鈴木はいない)のほうが鈴木の見積もりは小さい
     assert 0 < daily_hours < weekly_hours
+
+
+def test_merge_notes_when_a_weekly_edit_meets_a_daily_split() -> None:
+    base_task = daily_task(daily_crew={}, weekly_crew=[list(T), list(T)])
+    base_task.assignees = list(T)
+    ours = daily_task(
+        daily_crew={0: [list(T) for _ in range(7)]}, weekly_crew=[list(T), list(T)]
+    )
+    ours.assignees = list(T)
+    theirs = daily_task(daily_crew={}, weekly_crew=[[Assignee("佐藤")], list(T)])
+    theirs.assignees = [Assignee("佐藤"), Assignee("田中")]
+    members = [
+        Member("田中", id="m1"),
+        Member("鈴木", id="m2"),
+        Member("佐藤", id="m3"),
+    ]
+    result = merge_projects(
+        project_of(base_task, members=members),
+        project_of(ours, members=members),
+        project_of(theirs, members=members),
+    )
+    assert any("食い違う" in n and "第1週" in n for n in result.notes)

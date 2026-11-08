@@ -98,6 +98,7 @@ from projectapp.timeline import (
     assignees_rate,
     combine_rate,
     computed_end,
+    CrewTrack,
     crew_of,
     crew_track,
     effort_days,
@@ -338,7 +339,9 @@ class DateTimeFields:
         )
         self.effort = task.effort_hours
         self._crew = list(crew)
-        self._weeks = [list(week) for week in weeks]
+        self._weeks = CrewTrack(
+            [list(week) for week in weeks], getattr(weeks, "step", 7)
+        )
         self.first_row = ui.row().classes("w-full no-wrap items-start gap-4")
         with self.first_row:
             self.start_day, self.start_time, self.use_start_time, _ = self._column(
@@ -481,7 +484,9 @@ class DateTimeFields:
         self, crew: Sequence[Worker], weeks: Sequence[Sequence[Worker]] = ()
     ) -> None:
         self._crew = list(crew)
-        self._weeks = [list(week) for week in weeks]
+        self._weeks = CrewTrack(
+            [list(week) for week in weeks], getattr(weeks, "step", 7)
+        )
         self._refresh_end()
 
     def set_effort(self, value: float | None) -> None:
@@ -1570,13 +1575,18 @@ def open_task_dialog(
                 ]
                 fields.set_crew(
                     [],
-                    [
-                        [
-                            Worker(combine_rate(m.ratio, f), work_day_map(m.work_days))
-                            for m, f in week
-                        ]
-                        for week in weeks
-                    ],
+                    crew_track(
+                        initial.weekly_crew,
+                        initial.daily_crew,
+                        lambda crew: [
+                            Worker(
+                                combine_rate(by_name[a.name].ratio, a.allocation),
+                                work_day_map(by_name[a.name].work_days),
+                            )
+                            for a in crew
+                            if a.name in by_name
+                        ],
+                    ),
                 )
                 if not (effort.value or 0.0) > 0 or not any(weeks):
                     conversion.set_text("")

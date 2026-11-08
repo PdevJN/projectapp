@@ -250,7 +250,7 @@ from projectapp.decompose import ParamMode, Part, can_make_section, decompose, s
 from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
-from projectapp.daily_crew import merge_week, set_week_days, split_week
+from projectapp.daily_crew import crew_spans, merge_week, set_week_days, split_week
 from projectapp.gantt import (
     WEEKDAYS,
     GanttActions,
@@ -3011,14 +3011,14 @@ class MainView:
                 ),
             )
             return
-        shown = task.weekly_crew[
-            min(week, len(task.weekly_crew) - 1)
-        ]  # 定義した週より後は、最後の週の担当が続いている
+        # 定義した週より後は、最後の週の担当(日ごとの週なら 7 日目)が続いている
+        tail = crew_spans(task.weekly_crew, task.daily_crew)[-1][1]
+        shown = task.weekly_crew[week] if week < len(task.weekly_crew) else tail
 
         def apply(crew: list[Assignee]) -> None:
             weeks = [list(w) for w in task.weekly_crew]
             while len(weeks) <= week:
-                weeks.append(list(weeks[-1]))  # 間の週は、直前の週のコピーで足す
+                weeks.append(list(tail))  # 間の週は、最後の担当のコピーで足す
             weeks[week] = crew
             saved = replace(task, weekly_crew=weeks, assignees=union_assignees(weeks))
             self.tasks_in(path)[index] = saved

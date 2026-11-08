@@ -654,7 +654,12 @@ def merge_projects(
                     crew or [Assignee(a.name, a.allocation) for a in weeks[week]]
                 )
             daily[week] = rebuilt
-            weeks[week] = union_assignees(rebuilt)
+            merged_union = union_assignees(rebuilt)
+            if {a.name for a in merged_union} != {a.name for a in weeks[week]}:
+                notes.append(
+                    f"週の担当と日ごとの担当が食い違うため、日ごとの担当を使いました: 「{record['name']}」の第{week + 1}週"
+                )
+            weeks[week] = merged_union
         data = {
             k: v
             for k, v in record.items()
