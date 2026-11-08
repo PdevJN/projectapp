@@ -11,6 +11,7 @@ from typing import NamedTuple
 from projectapp import clock
 from projectapp.burndown import BurnTask, Burndown, compute_burndown
 from projectapp.events import effective_holidays
+from projectapp.forecast import forecast_end
 from projectapp.history_log import (
     TaskState,
     effective_progress,
@@ -198,6 +199,7 @@ class OverdueRow:
     assignee_names: tuple[
         str, ...
     ] = ()  # 担当者の名前(アイコンを人ごとに並べる表示用。assignee と同じ並び)
+    forecast: datetime | None = None  # 完了見込み(要望 133)。出せないときは None
 
 
 @dataclass(frozen=True)
@@ -722,9 +724,16 @@ def summarize_progress(
             limit = min(
                 limits, default=task.deadline or now
             )  # 見込みの超過は、締切を基準にする
+            predicted = forecast_end(
+                task, entry.project, entry.schedule.holidays, now, entry.schedule
+            )
             overdue.append(
                 OverdueRow(
-                    entry.label, assignee_label(task), limit, tuple(task.assignee_names)
+                    entry.label,
+                    assignee_label(task),
+                    limit,
+                    tuple(task.assignee_names),
+                    predicted.end if predicted else None,
                 )
             )
     overdue.sort(key=lambda row: row.limit)

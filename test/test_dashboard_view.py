@@ -2585,3 +2585,25 @@ async def test_the_try_on_gantt_button_needs_a_chosen_person(user: User) -> None
     await user.should_see(marker="dashboard-backlog-try-gantt")
     user.find(marker="dashboard-backlog-try-gantt").click()
     assert tried == [("鈴木",)]
+
+
+async def test_the_overdue_row_shows_the_forecast_only_when_there_is_one(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    base = sample()
+    row = base.progress.overdue[0]
+    with_forecast = replace(
+        base,
+        progress=replace(
+            base.progress,
+            overdue=[replace(row, forecast=datetime(2026, 10, 14, 18))],
+        ),
+    )
+    views[0].show(with_forecast, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-overdue-forecast-0")
+    assert text(user, "dashboard-overdue-forecast-0") == "見込み 10/14"
+    views[0].show(base, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-overdue-name-0")
+    await user.should_not_see(marker="dashboard-overdue-forecast-0")

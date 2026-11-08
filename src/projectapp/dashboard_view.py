@@ -1161,6 +1161,10 @@ class DashboardView:
                     ui.label(row.name).classes("col ellipsis").mark(
                         f"dashboard-overdue-name-{index}"
                     )
+                    if row.forecast is not None:
+                        ui.label(f"見込み {row.forecast:%m/%d}").classes(
+                            "text-grey text-caption"
+                        ).mark(f"dashboard-overdue-forecast-{index}")
                     self.assignee_chips(
                         row.assignee_names, f"dashboard-overdue-assignee-{index}"
                     )

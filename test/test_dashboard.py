@@ -2200,3 +2200,17 @@ def test_compacting_keeps_the_values_just_before_a_retirement_on_the_same_day() 
     before = summarize_progress_delta(project, DELTA_WEEK, D_NOW, {})
     assert before.percent == pytest.approx(80.0)
     assert summarize_progress_delta(result, DELTA_WEEK, D_NOW, {}) == before
+
+
+def test_overdue_rows_carry_the_forecast() -> None:
+    late = Task(
+        "late",
+        status=Status.RUNNING,
+        planned_start=datetime(2026, 10, 5, 9),
+        effort_hours=10.0,
+        assignees=[Assignee("田中")],
+    )
+    row = summarize_progress(project_of(late), {}, datetime(2026, 10, 14, 12)).overdue[
+        0
+    ]
+    assert row.forecast is not None and row.forecast > datetime(2026, 10, 14, 12)

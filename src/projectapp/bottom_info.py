@@ -4,6 +4,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 
 from projectapp.dashboard import Span, _day_peak, _progress_weight
+from projectapp.forecast import Forecast, forecast_end
 from projectapp.models import Project, Status, Task, TaskKind
 from projectapp.pace import warning_pace
 from projectapp.timeline import (
@@ -106,6 +107,14 @@ def _effort_text(task: Task) -> str:
     )
 
 
+def _forecast_value(forecast: Forecast) -> str:
+    text = f"{forecast.end:%m/%d}"
+    days = forecast.days_later
+    if days is None or days == 0:
+        return text
+    return f"{text}(+{days} 日)" if days > 0 else f"{text}(−{-days} 日)"
+
+
 def task_detail(
     task: Task,
     project: Project,
@@ -128,6 +137,7 @@ def task_detail(
         )
     if task.kind is TaskKind.SUMMARY:
         lines.append(("子", f"{len(task.children)} 件"))
+    forecast = forecast_end(task, project, holidays, now, schedule)
     lines += [
         ("担当", _crew(task)),
         ("開始予定", _stamp(schedule.start(task))),
@@ -136,6 +146,10 @@ def task_detail(
             _stamp(schedule.end(task))
             + ("(手指定)" if task.planned_end_manual else ""),
         ),
+    ]
+    if forecast is not None:
+        lines.append(("完了見込み", _forecast_value(forecast)))
+    lines += [
         ("締切", _stamp(task.deadline)),
         ("工数", _effort_text(task)),
         ("進捗度", f"{task.progress}%" if task.progress is not None else DASH),
@@ -144,7 +158,11 @@ def task_detail(
         ("先行", f"{len(task.predecessors)} 件" if task.predecessors else DASH),
     ]
     return TaskDetail(
-        task.name, kind, lines, _notes(task, project, holidays, now, schedule), others
+        task.name,
+        kind,
+        lines,
+        _notes(task, project, holidays, now, schedule, forecast),
+        others,
     )
 
 
@@ -154,11 +172,12 @@ def _notes(
     holidays: dict[date, str],
     now: datetime,
     schedule: Schedule,
+    forecast: Forecast | None = None,
 ) -> list[str]:
     notes = overdue_reasons(task, project, holidays, now, schedule)
     pace = warning_pace(task, project, holidays, now, schedule)
     if pace is not None:
-        notes.append(pace.hint())
+        notes.append(pace.hint(forecast.end if forecast else None))
     return notes
 
 
