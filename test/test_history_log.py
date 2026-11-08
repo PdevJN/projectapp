@@ -544,9 +544,7 @@ def test_a_task_created_and_retired_on_the_same_day_stays_nonexistent() -> None:
     assert project.history_since is not None
     result = compacted(project, NOW, KEEP)
     day = [e for e in result.history if e.task == "c"]
-    assert len(day) == 1
-    status = [c for c in day[0].changes if c.field == "status"]
-    assert all(c.before is None and c.after is None for c in status)
+    assert len(day) == 2  # 作成と退場は同じ日でも別の件
     moments = midnights(project.history_since, NOW)
     assert all(s is None for s in restored(result, moments)["c"])
 
@@ -655,3 +653,52 @@ def test_compacting_a_years_history_of_300_tasks_is_fast() -> None:
     took = perf_counter() - began
     assert 0 < len(result.history) <= len(events)
     assert took < 1.0  # 目安は 0.1 秒未満。遅い環境でも落ちないよう 1 秒で見張る
+
+
+def test_a_retirement_stays_a_separate_event_after_the_earlier_ones_of_the_day() -> (
+    None
+):
+    """退場の直前の値(`state_at(退場の時刻)`)を変えないよう、退場のイベントは同じ日の前の分とまとめない。"""
+    project = Project(
+        "p",
+        tasks=[
+            Task("p", id="p", kind=TaskKind.SUMMARY, children=["x"]),
+            Task("x", id="x"),
+        ],
+        history=[
+            ev(
+                "p",
+                datetime(2026, 10, 21, 9),
+                status=("未着手", "実行中"),
+                progress=(0, 30),
+            ),
+            ev("p", datetime(2026, 10, 21, 10), progress=(30, 80)),
+            ev(
+                "p",
+                datetime(2026, 10, 21, 15),
+                status=("実行中", None),
+                progress=(80, None),
+            ),
+        ],
+        history_since=datetime(2026, 10, 20),
+    )
+    result = compacted(project, NOW, KEEP)
+    assert result.history == [
+        ev(
+            "p",
+            datetime(2026, 10, 21, 10),
+            status=("未着手", "実行中"),
+            progress=(0, 80),
+        ),
+        ev(
+            "p",
+            datetime(2026, 10, 21, 15),
+            status=("実行中", None),
+            progress=(80, None),
+        ),
+    ]
+    task = project.tasks[0]
+    moment = datetime(2026, 10, 21, 15)
+    assert state_at(task, events_by_task(result)["p"], moment) == state_at(
+        task, events_by_task(project)["p"], moment
+    )

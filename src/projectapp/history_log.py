@@ -277,6 +277,22 @@ def _merge_day(events: Sequence[HistoryEvent]) -> HistoryEvent | None:
     return HistoryEvent(events[-1].task, events[-1].at, changes) if changes else None
 
 
+def _retires(event: HistoryEvent) -> bool:
+    """通常タスクでなくなる(分解でまとめになる)退場のイベントか。"""
+    return any(
+        c.field == "status" and c.before is not None and c.after is None
+        for c in event.changes
+    )
+
+
+def _merge_day_events(events: Sequence[HistoryEvent]) -> list[HistoryEvent]:
+    """同じタスク・同じ日のイベントをまとめる。退場のイベントは、その日の前の分とまとめず別の件にする
+    (退場の直前の値を`state_at(退場の時刻)`で読む集計があり、まとめると日の始めの値になってしまうため)。"""
+    cut = next((i for i, e in enumerate(events) if _retires(e)), None)
+    parts = [events] if cut is None else [events[:cut], events[cut:]]
+    return [m for part in parts if part and (m := _merge_day(part)) is not None]
+
+
 def _trim(
     events: list[HistoryEvent], since: datetime | None, limit: int
 ) -> tuple[list[HistoryEvent], datetime | None]:
@@ -313,7 +329,7 @@ def compacted(project: Project, now: datetime, keep: HistoryKeep) -> Project:
             days.setdefault((event.task, event.at.date()), []).append(event)
         else:
             recent.append(event)
-    merged = [m for group in days.values() if (m := _merge_day(group)) is not None]
+    merged = [m for group in days.values() for m in _merge_day_events(group)]
     merged.sort(key=lambda e: e.at)
     result = [*merged, *recent]
     since = project.history_since

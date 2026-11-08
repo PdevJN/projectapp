@@ -9407,3 +9407,17 @@ async def test_going_over_the_cap_drops_old_days_and_tells_the_user(
             "履歴が上限を超えたため、01/06 より前の履歴を捨てました"
         )
     )
+
+
+async def test_the_dropping_notice_is_shown_once_not_on_every_save(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_for_history(user, tmp_path)
+    view.history_keep = HistoryKeep(days=7, max_events=1)
+    notice = "履歴が上限を超えたため"
+    view.commit(overwrite=True, after=None)
+    assert await wait_until(lambda: user.notify.contains(notice))
+    user.notify.messages.clear()
+    view.commit(overwrite=True, after=None)  # 編集せずにもう一度保存
+    assert await wait_until(lambda: user.notify.contains("保存しました"))
+    assert not user.notify.contains(notice)

@@ -548,6 +548,9 @@ class MainView:
         self.warning_color = load_warning_color(base_dir)  # 警告の色。None は既定(黄)
         self.main_split = load_main_split(base_dir)  # 分割の位置(ガントチャートの割合)
         self.open_ratio = load_open_ratio(base_dir)  # 下部パネルを開くときの割合
+        self.dropped_notice: tuple[str, datetime] | None = (
+            None  # 履歴を捨てた通知を出した、(プロジェクト名, 記録の開始)。同じ内容は繰り返さない
+        )
         self.history_keep: HistoryKeep = load_history_keep(
             base_dir
         )  # 保存するときの履歴の残し方。全プロジェクト共通
@@ -2537,9 +2540,15 @@ class MainView:
         self.file_select.set_options(sorted(self.files), value=path.stem)
         self.title.refresh()
         ui.notify("保存しました")
-        if stored.history_since and stored.history_since != self.project.history_since:
+        dropped = stored.history_since
+        if (
+            dropped
+            and dropped != self.project.history_since
+            and self.dropped_notice != (self.project.name, dropped)
+        ):
+            self.dropped_notice = (self.project.name, dropped)
             ui.notify(
-                f"履歴が上限を超えたため、{stored.history_since:%m/%d} より前の履歴を捨てました",
+                f"履歴が上限を超えたため、{dropped:%m/%d} より前の履歴を捨てました",
                 type="warning",
             )
         self.request_git_refresh()

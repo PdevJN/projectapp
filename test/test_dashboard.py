@@ -2153,3 +2153,50 @@ def test_compacting_old_history_does_not_change_the_aggregates() -> None:
     assert summarize_burndown(result, DELTA_WEEK, D_NOW, {}) == summarize_burndown(
         project, DELTA_WEEK, D_NOW, {}
     )
+
+
+def test_compacting_keeps_the_values_just_before_a_retirement_on_the_same_day() -> None:
+    """同じ日に進み、その日のうちに分解で退場したタスクは、退場の直前の値で`進んだ分`に数える。"""
+    x = Task("x", id="x", effort_hours=5, deadline=datetime(2026, 11, 5, 17))
+    y = Task("y", id="y", effort_hours=5, deadline=datetime(2026, 11, 5, 17))
+    p = Task("p", id="p", kind=TaskKind.SUMMARY, children=["x", "y"])
+    events = [
+        hevent(
+            "p",
+            datetime(2026, 11, 3, 10),
+            status=("未着手", "実行中"),
+            progress=(0, 80),
+        ),
+        hevent(
+            "p",
+            datetime(2026, 11, 3, 15),
+            status=("実行中", None),
+            progress=(80, None),
+            effort=(10.0, None),
+        ),
+        hevent(
+            "x",
+            datetime(2026, 11, 3, 15),
+            status=(None, "未着手"),
+            progress=(None, 0),
+            effort=(None, 5.0),
+        ),
+        hevent(
+            "y",
+            datetime(2026, 11, 3, 15),
+            status=(None, "未着手"),
+            progress=(None, 0),
+            effort=(None, 5.0),
+        ),
+    ]
+    project = Project(
+        "p",
+        base_date=date(2026, 11, 2),
+        tasks=[p, x, y],
+        history=events,
+        history_since=datetime(2026, 11, 1),
+    )
+    result = compacted(project, datetime(2026, 11, 20, 12), HistoryKeep(7, 50_000))
+    before = summarize_progress_delta(project, DELTA_WEEK, D_NOW, {})
+    assert before.percent == pytest.approx(80.0)
+    assert summarize_progress_delta(result, DELTA_WEEK, D_NOW, {}) == before
