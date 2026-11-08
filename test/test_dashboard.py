@@ -1983,3 +1983,31 @@ def test_summarize_attaches_the_burndown_except_for_the_whole_period() -> None:
     assert week.burndown is not None and week.burndown.known
     whole = summarize(project, DELTA_WEEK, D_NOW, {}, PeriodKind.ALL)
     assert whole.burndown is None
+
+
+def members_delta_project() -> Project:
+    project = delta_project()  # a: 0% → 100%(+100)。b: 動かない(0)
+    project.members = [Member("田中"), Member("鈴木")]
+    project.tasks[0].assignees = [Assignee("田中")]
+    project.tasks[1].assignees = [Assignee("鈴木")]
+    return project
+
+
+def test_each_member_row_carries_the_progress_made_in_the_period() -> None:
+    dashboard = summarize(members_delta_project(), DELTA_WEEK, D_NOW, {}, PeriodKind.WEEK)
+    assert {row.name: row.delta for row in dashboard.progress.by_member} == {
+        "田中": pytest.approx(100.0),
+        "鈴木": pytest.approx(0.0),
+    }
+
+
+def test_member_rows_have_no_delta_for_the_whole_period() -> None:
+    dashboard = summarize(members_delta_project(), DELTA_WEEK, D_NOW, {}, PeriodKind.ALL)
+    assert [row.delta for row in dashboard.progress.by_member] == [None, None]
+
+
+def test_member_rows_have_no_delta_when_the_history_does_not_reach_back() -> None:
+    project = members_delta_project()
+    project.history_since = datetime(2026, 11, 4)
+    dashboard = summarize(project, DELTA_WEEK, D_NOW, {}, PeriodKind.WEEK)
+    assert [row.delta for row in dashboard.progress.by_member] == [None, None]

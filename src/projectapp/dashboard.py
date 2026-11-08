@@ -2,7 +2,7 @@
 
 from calendar import monthrange
 from collections.abc import Collection, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from math import isfinite
@@ -171,6 +171,7 @@ class MemberProgress:
     warnings: int = 0  # 警告のタスクの数(共同タスクは担当者それぞれの行に数える)
     limit: int | None = None  # そのメンバーの警告の件数の閾値(メンバー別の行だけ)
     warned_tasks: tuple[str, ...] = ()  # 警告のタスクの名前(`warnings`の内訳)
+    delta: float | None = None  # 期間中に進んだ分(%ポイント。要望 128 段階 2)。出さないときは None
 
     @property
     def over_limit(self) -> bool:
@@ -483,6 +484,18 @@ def _burn_task(
         start.date() if start else None,
         end.date() if end else None,
     )
+
+
+def _member_delta(
+    project: Project,
+    period: Period,
+    now: datetime,
+    holidays: dict[date, str],
+    name: str,
+) -> float | None:
+    """メンバー 1 人の担当のタスクの、期間中に進んだ分。履歴が足りない・対象がないときは None。"""
+    delta = summarize_progress_delta(project, period, now, holidays, name)
+    return delta.percent if delta.known else None
 
 
 def summarize_burndown(
@@ -1775,9 +1788,18 @@ def summarize(
             project, previous_period(period), now, holidays, scope
         )
         burndown = summarize_burndown(project, period, now, holidays, scope)
+    progress = summarize_progress(project, holidays, now, scope, children)
+    if kind is not PeriodKind.ALL:
+        progress = replace(
+            progress,
+            by_member=[
+                replace(row, delta=_member_delta(project, period, now, holidays, row.name))
+                for row in progress.by_member
+            ],
+        )
     return Dashboard(
         period,
-        summarize_progress(project, holidays, now, scope, children),
+        progress,
         summarize_loads(project, period, holidays, scope),
         summarize_workload(project, period, now, holidays, scope),
         summarize_due(project, period, now, holidays, scope),

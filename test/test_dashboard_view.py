@@ -2231,3 +2231,20 @@ async def test_the_burndown_title_names_the_member_and_the_period(user: User) ->
     await user.open("/")
     views[0].show(data, PeriodKind.WEEK)
     await user.should_see("残りの工数の推移(田中・10/05〜10/11 にかかるタスク)")
+
+
+async def test_a_member_row_shows_the_progress_made(user: User) -> None:
+    views, _, _ = mount()
+    data = sample()
+    data.progress.by_member[0] = replace(data.progress.by_member[0], delta=12.4)
+    await user.open("/")
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-member-delta-田中")
+    assert text(user, "dashboard-member-delta-田中") == "進んだ分 +12%"
+
+
+async def test_a_member_row_without_a_delta_shows_nothing(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_not_see(marker="dashboard-member-delta-田中")

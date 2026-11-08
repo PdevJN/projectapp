@@ -1206,6 +1206,10 @@ class DashboardView:
             ui.label(f"{row.percent:.0f}% / {sum(row.counts.values())}件").classes(
                 "text-caption"
             ).mark(f"{marker}-progress-{row.name}")
+            if row.delta is not None:
+                ui.label(f"進んだ分 {round(row.delta):+d}%").classes(
+                    "text-caption"
+                ).mark(f"{marker}-delta-{row.name}")
             bar(row.percent / 100, LOAD_COLOR)
 
     def pick_member(self, name: object) -> None:
