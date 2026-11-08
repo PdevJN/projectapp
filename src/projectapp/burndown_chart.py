@@ -71,7 +71,7 @@ def chart_svg(b: Burndown) -> str:
     for index in range(0, days, label_every):  # 日付
         day = b.first + timedelta(index)
         parts.append(
-            f'<text x="{x(index + 0.5):.1f}" y="{HEIGHT - BOTTOM + 14}" text-anchor="middle" '
+            f'<text x="{x(index + 0.5):.1f}" y="{HEIGHT - BOTTOM + 24}" text-anchor="middle" '
             f'font-size="10" fill="currentColor" opacity="0.7">{day:%m/%d}</text>'
         )
     planned = [(0.0, b.initial)] + [(i + 1.0, v) for i, v in enumerate(b.planned)]

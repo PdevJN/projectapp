@@ -88,3 +88,17 @@ def test_a_flat_zero_chart_does_not_divide_by_zero() -> None:
         )
     )
     assert svg.startswith("<svg") and "nan" not in svg.lower()
+
+
+def test_a_mark_never_overlaps_the_date_labels() -> None:
+    svg = chart_svg(sample())
+    polygon = re.search(r'<polygon class="mark" points="([^"]+)"', svg)
+    assert polygon is not None
+    mark_bottom = max(float(pair.split(",")[1]) for pair in polygon.group(1).split())
+    label_ys = [
+        float(y)
+        for y in re.findall(r'<text x="[\d.]+" y="([\d.]+)" text-anchor="middle"', svg)
+    ]
+    assert label_ys
+    # 文字の上端(基線 − 文字サイズ 10)が、▲ の下端より下にある
+    assert min(label_ys) - 10 >= mark_bottom
