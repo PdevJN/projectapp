@@ -133,6 +133,7 @@ def mount(
     actions: ViewActions | None = None,
     late_basis_changes: list[LateBasis] | None = None,
     catch_up_changes: list[CatchUp] | None = None,
+    try_changes: list[tuple[str, ...]] | None = None,
 ) -> tuple[list[DashboardView], list[int], list[PeriodKind]]:
     views: list[DashboardView] = []
     backs: list[int] = []
@@ -151,6 +152,7 @@ def mount(
             on_catch_up_change=catch_up_changes.append
             if catch_up_changes is not None
             else None,
+            on_try_on_gantt=try_changes.append if try_changes is not None else None,
         )
         views.append(view)
         view.build()
@@ -2570,3 +2572,16 @@ async def test_candidates_are_hidden_without_any_candidate(user: User) -> None:
     views[0].show(with_backlog(invest_backlog(candidates=[])), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-catch-up")
     await user.should_not_see(marker="dashboard-backlog-candidates")
+
+
+async def test_the_try_on_gantt_button_needs_a_chosen_person(user: User) -> None:
+    tried: list[tuple[str, ...]] = []
+    views, _, _ = mount(try_changes=tried)
+    await user.open("/")
+    views[0].show(with_backlog(invest_backlog()), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-candidates")
+    await user.should_not_see(marker="dashboard-backlog-try-gantt")  # 選んでいない
+    views[0].show(with_backlog(invest_backlog(("鈴木",))), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-try-gantt")
+    user.find(marker="dashboard-backlog-try-gantt").click()
+    assert tried == [("鈴木",)]

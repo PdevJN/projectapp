@@ -11,6 +11,8 @@ from nicegui.events import ValueChangeEventArguments
 
 from projectapp import arrange
 from projectapp import clock
+from projectapp.crew_trial import TrialResult
+from projectapp.delay_response import DELAY_RESPONSE_CSS
 from projectapp.avatar import avatar
 from projectapp.browser import open_url as default_open_url
 from projectapp.bottom_info import (
@@ -645,6 +647,12 @@ class GanttActions:
     toggle_weeks: Callable[[SectionPath, int], object] = lambda path, ti: (
         None
     )  # 週ごとに分ける / やめる
+    try_crew: Callable[[SectionPath, int], object] = lambda path, ti: (
+        None
+    )  # 増員を試す(遅延対応)
+    drop_trial: Callable[[SectionPath, int], object] = lambda path, ti: (
+        None
+    )  # この増員をやめる
     edit_week_crew: Callable[[SectionPath, int, int], object] = lambda path, ti, week: (
         None
     )  # 週ごとの担当の編集(0 始まり)
@@ -660,6 +668,21 @@ class GanttActions:
     set_main_split: Callable[[int], object] = lambda value: (
         None
     )  # 分割の位置を変えたとき(保存は呼び出し側)
+
+
+def trial_text(result: TrialResult) -> str:
+    """棒の横に出す、試算後の完了見込み。"""
+    if result.manual:
+        return "完了予定は手で指定されています(見込みなし)"
+    if result.trial_end is None:
+        return "見込みなし"
+    text = f"見込み {result.trial_end:%m/%d}"
+    if result.from_now:
+        text += "(今日からの残り工数)"
+    days = result.days_earlier
+    if days is not None and days > 0:
+        text += f"({days} 日早まる)"
+    return text
 
 
 class GanttChart:
@@ -702,6 +725,9 @@ class GanttChart:
         self.category_lookup: dict[str, Category] = {}
         self.icon_lookup: dict[str, str] = {}
         self.schedule = Schedule(project, self.holidays)
+        self.trial_results: dict[
+            str, TrialResult
+        ] = {}  # 遅延対応の試算の結果(要望 132)
         self.links_html: ui.html | None = None
         self.link_layout: tuple[list[Column], int] | None = None
         self.scale = Scale.DAY
@@ -756,6 +782,8 @@ class GanttChart:
         self.extract_item: ui.menu_item | None = None
         self.extract_label: ui.label | None = None
         self.weeks_item: ui.menu_item | None = None
+        self.try_crew_item: ui.menu_item | None = None
+        self.drop_trial_item: ui.menu_item | None = None
         self.refresh_item: ui.menu_item | None = None
         self.weeks_label: ui.label | None = None
         self.section_menu: ui.context_menu | None = (
@@ -771,6 +799,11 @@ class GanttChart:
         self.search_input: ui.input | None = None
         self.assignee_select: ui.select | None = None
         self.client: Client | None = None
+
+    def set_trials(self, results: dict[str, TrialResult]) -> None:
+        """遅延対応の試算の結果を受け取って描き直す(保存しない)。"""
+        self.trial_results = results
+        self.render.refresh()
 
     def set_project(self, project: Project) -> None:
         """条件は保つ。担当者がメンバーからいなくなったときだけ、担当者の指定を外す。"""
@@ -1611,6 +1644,7 @@ class GanttChart:
         ui.add_css(STATUS_CSS)
         ui.add_css(TODAY_CSS)
         ui.add_css(WARNING_CSS)
+        ui.add_css(DELAY_RESPONSE_CSS)
         ui.add_css(PRIORITY_CSS)
         ui.add_css(LINK_CSS)
         ui.add_css(CONTEXT_MENU_CSS)
@@ -1815,6 +1849,13 @@ class GanttChart:
                         "context-weeks-label"
                     )  # 状態で文言を替える
             self.weeks_item = item
+            self.try_crew_item = ui.menu_item(
+                "増員を試す…", on_click=act(lambda p, t: self.actions.try_crew(p, t))
+            ).mark("context-try-crew")
+            self.drop_trial_item = ui.menu_item(
+                "この増員をやめる",
+                on_click=act(lambda p, t: self.actions.drop_trial(p, t)),
+            ).mark("context-drop-trial")
             ui.menu_item(
                 "コピー", on_click=act(lambda p, t: self.actions.copy_task(p, t))
             ).mark("context-copy")
@@ -1929,6 +1970,24 @@ class GanttChart:
             self.weeks_item.props(
                 add="" if can else "disable", remove="disable" if can else ""
             )
+        target = tasks[ti] if ti < len(tasks) else None
+        for item, enabled in (
+            (
+                self.try_crew_item,
+                target is not None
+                and target.kind is TaskKind.NORMAL
+                and bool(target.assignees),
+            ),
+            (
+                self.drop_trial_item,
+                target is not None and target.id in self.trial_results,
+            ),
+        ):
+            if item is not None:
+                item.props(
+                    add="" if enabled else "disable",
+                    remove="disable" if enabled else "",
+                )
         blocked = (
             ti >= len(tasks)
             or decompose_block_reason(self.project, tasks[ti], self.holidays)
@@ -2799,6 +2858,13 @@ class GanttChart:
                             columns,
                             width,
                         )
+                if self.options.show_chips and task.weekly_crew:
+                    assert start is not None and end is not None
+                    self.added_beyond_bar(key, ti, task, start, end, columns, width)
+                if (result := self.trial_results.get(task.id)) is not None:
+                    self.trial_overlay(
+                        key, ti, result, start, columns, width, left, bar_width
+                    )
                 mark_left = self.marker_left(
                     task, columns, width, left * width + bar_width
                 )
@@ -3082,6 +3148,82 @@ class GanttChart:
             )
             gap.mark(f"actual-gap-{key}-{ti}-{n}")
 
+    def added_beyond_bar(
+        self,
+        key: int | str,
+        ti: int,
+        task: Task,
+        start: datetime,
+        end: datetime,
+        columns: list[Column],
+        width: int,
+    ) -> None:
+        """確定した増員(前の週にいない人が現れる週)のうち、棒より後ろにある週のものを、棒の右に紫のチップで示す。
+        棒の上にある週は、週チップの縁(`week-added`)で示す(要望 132)。"""
+        crews = task.weekly_crew
+        for index in range(1, len(crews)):
+            week_start = datetime.combine(
+                start.date() + timedelta(days=7 * index), time.min
+            )
+            if week_start < end:
+                continue  # 棒の上の週は、週チップが描く
+            before = {a.name for a in crews[index - 1]}
+            added = [a.name for a in crews[index] if a.name not in before]
+            span = bar_span(week_start, week_start, columns)
+            if not added or span is None:
+                continue
+            day = short_date(week_start.date())
+            names = "・".join(added)
+            ui.label(f"+{names} {day}〜").classes("confirmed-add").style(
+                f"position: absolute; left: {from_name(span[0] * width)};"
+                f" top: {BAR_TOP_PX - 2}px"
+            ).tooltip(f"増員 +{names}({day} から。確定済み)").mark(
+                f"week-added-ext-{key}-{ti}-{index}"
+            )
+
+    def trial_overlay(
+        self,
+        key: int | str,
+        ti: int,
+        result: TrialResult,
+        start: datetime | None,
+        columns: list[Column],
+        width: int,
+        bar_left: float,
+        bar_width: float,
+    ) -> None:
+        """増員の試算を棒に重ねる: 試算後の完了までの点線の枠、元の完了予定の縦線、増員チップ、見込みの文言。"""
+        if start is None:
+            return
+        # 遅れたタスクは、今日からの残り工数の見込みなので、枠も今日から描く(過去の棒に重ねない)
+        origin = max(start, self.now()) if result.from_now else start
+        if result.trial_end is not None:
+            span = bar_span(origin, result.trial_end, columns)
+            if span is not None:
+                ui.element("div").classes("trial-ghost").style(
+                    f"position: absolute; left: {from_name(span[0] * width)};"
+                    f" width: {max(span[1] * width, MIN_BAR_PX):.1f}px;"
+                    f" top: {BAR_TOP_PX - 2}px; height: {BAR_HEIGHT_PX + 4}px"
+                ).mark(f"trial-ghost-{key}-{ti}")
+        if result.original_end is not None:
+            line = bar_span(result.original_end, result.original_end, columns)
+            if line is not None:
+                ui.element("div").classes("trial-origin").style(
+                    f"position: absolute; left: {from_name(line[0] * width)};"
+                    f" top: {BAR_TOP_PX - 4}px; height: {BAR_HEIGHT_PX + 8}px"
+                ).mark(f"trial-origin-{key}-{ti}")
+        after = max(bar_left * width + bar_width, (bar_left * width) + 0) + 4
+        if result.trial_end is not None:
+            end_span = bar_span(start, result.trial_end, columns)
+            if end_span is not None:
+                after = max(after, (end_span[0] + end_span[1]) * width + 4)
+        ui.label("+" + "・".join(result.names)).classes("trial-chip").style(
+            f"position: absolute; left: {from_name(after)}; top: {BAR_TOP_PX - 2}px"
+        ).mark(f"trial-chip-{key}-{ti}")
+        ui.label(trial_text(result)).classes("trial-label").style(
+            f"position: absolute; left: {from_name(after)}; top: {BAR_TOP_PX + 14}px"
+        ).mark(f"trial-label-{key}-{ti}")
+
     def week_chips(
         self,
         key: int | str,
@@ -3147,7 +3289,16 @@ class GanttChart:
                 else ""
             ):
                 title += f"\n⚠ {load}"
-            chip.tooltip(title).mark(f"week-chip-{key}-{ti}-{index}")
+            markers = [f"week-chip-{key}-{ti}-{index}"]
+            if (
+                1 <= index < defined
+            ):  # 前の週にいない人が現れる週は、増員(確定済み)として示す(要望 132)
+                before = {a.name for a in task.weekly_crew[index - 1]}
+                if added := [a.name for a in crew if a.name not in before]:
+                    title += f"\n増員 +{'・'.join(added)}(確定済み)"
+                    chip.classes("week-added")
+                    markers.append(f"week-added-{key}-{ti}-{index}")
+            chip.tooltip(title).mark(*markers)
             if not self.options.read_only:
                 # 修飾キーつきのクリックは、チップで受けず棒へ伝える(棒の Shift クリックは進捗度・実績の簡易入力。両方は開かない)
                 chip.style("cursor: pointer").on(
