@@ -27,6 +27,7 @@ from projectapp.csv_profile import (
     validate_profile,
 )
 from projectapp.forms import disposable
+from projectapp.template_builder_view import TemplateBuilder
 
 # ドラッグ中の見た目。行は背景が透明なので、そのまま掴むと後ろの画面が透けて写る。
 # ダイアログの背景色(不透明)を付けた行の複製を、画面の外に作ってドラッグの画像にする。
@@ -195,14 +196,49 @@ def open_csv_import_dialog(
                             .classes("min-w-[10rem]")
                             .mark(f"csv-map-{field.value}")
                         )
-                        ui.input(
-                            label="書式(任意)",
-                            value=templates.get(field, ""),
-                            placeholder="{開始日}〜{期限}",
-                            on_change=lambda e, f=field: set_template(f, e),
-                        ).props("dense").classes("w-40").mark(
-                            f"csv-template-{field.value}"
+                        template_input = (
+                            ui.input(
+                                label="書式(任意)",
+                                value=templates.get(field, ""),
+                                placeholder="{開始日}〜{期限}",
+                                on_change=lambda e, f=field: set_template(f, e),
+                            )
+                            .props("dense")
+                            .classes("w-40")
+                            .mark(f"csv-template-{field.value}")
                         )
+                        ui.button(
+                            "組み立て…",
+                            on_click=lambda _, box=template_input: open_builder(box),
+                        ).props("flat dense").mark(f"csv-build-{field.value}")
+
+        def open_builder(box: ui.input) -> None:
+            """書式の欄の中身を、項目と区切りのチップで組み立て直す小さなダイアログ。"""
+            with (
+                ui.dialog() as sub,
+                ui.card().classes("min-w-[32rem]").mark("csv-tb-dialog"),
+            ):
+                ui.label("書式を組み立てる").classes("text-h6")
+                made = {"text": str(box.value or "")}
+                tb = TemplateBuilder(
+                    made["text"],
+                    IMPORT_FIELDS,
+                    lambda text: made.update(text=text),
+                    mark="csv-tb",
+                )
+                tb.build()
+
+                def accept() -> None:
+                    box.set_value(made["text"])
+                    sub.close()
+
+                with ui.row().classes("justify-end w-full"):
+                    ui.button("キャンセル", on_click=sub.close).props("flat").mark(
+                        "csv-tb-cancel"
+                    )
+                    ui.button("決定", on_click=accept).mark("csv-tb-ok")
+            sub.on("hide", lambda _: sub.delete())
+            sub.open()
 
         def template_part(field: CsvField, text: str) -> str:
             """書式にまとめた列は、その項目の部分だけを返す。"""
@@ -575,20 +611,21 @@ def open_csv_export_dialog(
                 .classes("grow")
                 .mark("csv-ex-quick")
             )
-            quick_header = (
-                ui.input(
-                    label="その列の見出し(空なら見出しなし)",
-                    value=quick["header"],
-                    on_change=lambda e: edit_quick("header", e.value),
-                )
-                .classes("w-40")
-                .mark("csv-ex-quick-header")
-            )
+
+        def set_quick_text(text: str) -> None:
+            quick_input.set_value(text)
+
+        builder = TemplateBuilder(
+            quick["template"],
+            EXPORT_FIELDS,
+            set_quick_text,
+            header=quick["header"],
+            on_header=lambda text: edit_quick("header", text),
+            mark="csv-ex-tb",
+        )
+        builder.build()
+        builder.set_enabled(quick["on"])
         quick_input.set_enabled(quick["on"])
-        quick_header.set_enabled(quick["on"])
-        ui.label(
-            "使える項目: " + " ".join(f"{{{FIELD_LABELS[f]}}}" for f in EXPORT_FIELDS)
-        ).classes("text-caption text-grey").mark("csv-ex-quick-hint")
         with (
             ui.expansion("列の詳細設定(使う・見出し・並び)", value=False)
             .classes("w-full")
@@ -667,11 +704,13 @@ def open_csv_export_dialog(
 
     def edit_quick(key: str, value: str) -> None:
         quick[key] = value if key == "on" else (value or "")
+        if key == "template":
+            builder.set_template(quick["template"])
         if key == "on":
             for widget in locked:
                 widget.set_enabled(not value)
-            for widget in (quick_input, quick_header):
-                widget.set_enabled(bool(value))
+            quick_input.set_enabled(bool(value))
+            builder.set_enabled(bool(value))
         refresh_state()
 
     def drop(target: int) -> None:
@@ -729,7 +768,8 @@ def open_csv_export_dialog(
         quick.update(quick_of(profile))
         quick_check.set_value(quick["on"])
         quick_input.set_value(quick["template"])
-        quick_header.set_value(quick["header"])
+        builder.set_template(quick["template"])
+        builder.set_header(quick["header"])
         columns_table.refresh()
         refresh_state()
 
