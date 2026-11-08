@@ -76,6 +76,20 @@ class CatchUp:
 
     mode: CatchUpMode = CatchUpMode.PERIOD
     days: int = 5
+    people: float = 0.0  # 遅れを取り戻すために追加する人数(100% の人に換算。要望 130)。0 は試算しない
+
+
+@dataclass(frozen=True)
+class Recovery:
+    """追加した人だけで遅れを取り戻す試算(要望 130)。日付の予測ではなく、稼働時間の算術。"""
+
+    people: float  # 追加する人数
+    hours: float  # 取り戻す遅れの残りの工数
+    days: float  # 1 人あたり要る稼働時間 ÷ 1 日の稼働時間
+    date: date | None  # 取り戻せる日。稼働日が見つからないとき None
+    due: date | None = (
+        None  # 比べる期限(カードの期間の終わり)。`タスクごと`のときは None
+    )
 
 
 @dataclass(frozen=True)
@@ -1106,6 +1120,7 @@ class Backlog:
     catch_up: CatchUp = field(default_factory=CatchUp)  # 取り戻す期限の基準
     overdue_people: float | None = None  # `タスクごと`のときの、予定超過の分の人数
     warning_people: float | None = None  # `タスクごと`のときの、警告の分の人数
+    recovery: Recovery | None = None  # 追加人数があり、遅れがあるときの試算(要望 130)
 
     @property
     def late_hours(self) -> float:
@@ -1209,6 +1224,62 @@ def _window_hours(
         if day == today
         else day_hours(day, project.daily_hours, holidays, work_days)
         for day in Period(start, end).days()
+    )
+
+
+RECOVERY_HORIZON_DAYS = 400  # 取り戻せる日を探す日数の上限
+
+
+def recovery_date(
+    project: Project,
+    holidays: dict[date, str],
+    now: datetime,
+    hours: float,
+    people: float,
+) -> date | None:
+    """追加した`people`人(100% の人に換算)だけで`hours`を消化し終える日。今日から稼働時間(通常カレンダー。
+    今日は今から枠の終わりまでの残り)を累積して、1 人あたり要る時間に初めて届く日。見つからなければ None。"""
+    if hours <= 0 or people <= 0 or project.daily_hours <= 0:
+        return None
+    need = hours / people
+    today = now.date()
+    rest_of_today = datetime.combine(today + timedelta(days=1), time.min)
+    total = 0.0
+    for offset in range(RECOVERY_HORIZON_DAYS):
+        day = today + timedelta(days=offset)
+        total += (
+            overlap_hours(project, holidays, day, now, rest_of_today)
+            if offset == 0
+            else day_hours(day, project.daily_hours, holidays)
+        )
+        if total >= need - 1e-9:
+            return day
+    return None
+
+
+def _recovery(
+    base: Project,
+    holidays: dict[date, str],
+    now: datetime,
+    hours: float,
+    catch_up: CatchUp,
+    window: tuple[date, date] | None,
+) -> Recovery | None:
+    """追加人数と遅れの工数があるときの試算。なければ None。"""
+    if catch_up.people <= 0 or hours <= 0:
+        return None
+    days = hours / catch_up.people / base.daily_hours if base.daily_hours > 0 else 0.0
+    due = (
+        window[1]
+        if window is not None and catch_up.mode is CatchUpMode.PERIOD
+        else None
+    )
+    return Recovery(
+        catch_up.people,
+        hours,
+        days,
+        recovery_date(base, holidays, now, hours, catch_up.people),
+        due,
     )
 
 
@@ -1683,6 +1754,7 @@ def _assemble_backlog(
         catch_up,
         overdue_people,
         warning_people,
+        _recovery(base, holidays, now, overdue_hours + warning_hours, catch_up, window),
     )
 
 

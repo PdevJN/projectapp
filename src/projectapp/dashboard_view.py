@@ -2,7 +2,7 @@
 
 import html
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import NamedTuple
 
@@ -26,6 +26,7 @@ from projectapp.dashboard import (
     MemberProgress,
     Period,
     PeriodKind,
+    Recovery,
     Progress,
     ProgressDelta,
     TeamProgress,
@@ -361,6 +362,24 @@ def legend(prefix: str, entries: tuple[tuple[str, str, str], ...]) -> None:
                     f"width: 10px; height: 10px; border-radius: 2px; background: {color}"
                 ).mark(f"{prefix}-swatch-{key}")
                 ui.label(label).mark(f"{prefix}-legend-{key}")
+
+
+MAX_RECOVER_PEOPLE = 20.0  # 遅れを取り戻すために追加できる人数の上限
+
+
+def recovery_text(recovery: Recovery) -> str:
+    """追加した人だけで遅れを取り戻せる日の文言(要望 130)。期限があれば、間に合うかも添える。"""
+    if recovery.date is None:
+        return "稼働日が見つからず、取り戻せる日を出せません"
+    text = (
+        f"追加 {recovery.people:.1f} 人で {recovery.date:%m/%d} に取り戻せます"
+        f"(遅れ {recovery.hours:.1f}h ÷ {recovery.people:.1f} 人"
+        f" = 1 人あたり {recovery.hours / recovery.people:.1f}h・約 {recovery.days:.1f} 稼働日)"
+    )
+    if recovery.due is not None:
+        verdict = "間に合います" if recovery.date <= recovery.due else "間に合いません"
+        text += f"。期間の終わり({recovery.due:%m/%d})に{verdict}"
+    return text
 
 
 def warning_icon(marker: str) -> ui.icon:
@@ -1636,6 +1655,7 @@ class DashboardView:
                     ),
                 ).props(props).mark(f"dashboard-backlog-late-{marker}")
         self.catch_up_controls(backlog.catch_up)
+        self.recovery_controls(backlog)
 
     def catch_up_controls(self, rule: CatchUp) -> None:
         """遅れを取り戻す期限の選択(`期間の終わり`・`タスクごと`)。`タスクごと`のときは、予定超過を取り戻す稼働日数の欄も出す(選択は保存しない)。"""
@@ -1651,7 +1671,7 @@ class DashboardView:
                     ui.button(
                         mode.value,
                         on_click=lambda m=mode, now=rule: self.pick_catch_up(
-                            CatchUp(m, now.days), now
+                            replace(now, mode=m), now
                         ),
                     ).props(props).mark(f"dashboard-backlog-catch-up-{marker}")
             if rule.mode is CatchUpMode.TASK:
@@ -1665,14 +1685,69 @@ class DashboardView:
                     field.on(
                         event,
                         lambda _=None, f=field, now=rule: self.pick_catch_up(
-                            CatchUp(now.mode, int(f.value or now.days)), now
+                            replace(now, days=int(f.value or now.days)), now
                         ),
                     )
                 ui.label("稼働日で取り戻す").classes("text-caption")
 
+    def recovery_controls(self, backlog: Backlog) -> None:
+        """遅れを取り戻すために追加する人数の欄と、追加した人だけで取り戻せる日の試算(要望 130)。保存しない。"""
+        rule = backlog.catch_up
+        with ui.row().classes("items-center gap-2").mark("dashboard-backlog-recover"):
+            ui.label("遅れを取り戻す追加人数").classes("text-caption")
+            people = (
+                ui.number(
+                    value=rule.people,
+                    min=0,
+                    max=MAX_RECOVER_PEOPLE,
+                    step=0.5,
+                    format="%.1f",
+                )
+                .props("dense outlined style=width:5rem")
+                .mark("dashboard-backlog-recover-people")
+            )
+            for event in ("blur", "keydown.enter"):
+                people.on(
+                    event,
+                    lambda _=None, f=people, now=rule: self.pick_catch_up(
+                        replace(now, people=float(f.value or 0.0)), now
+                    ),
+                )
+            ui.label("人(100% の人に換算)").classes("text-caption")
+        if rule.people <= 0:
+            return
+        recovery = backlog.recovery
+        if recovery is None:
+            ui.label("遅れはありません").classes("text-caption").mark(
+                "dashboard-backlog-recovery"
+            )
+            return
+        with (
+            ui.row()
+            .classes("items-center gap-1")
+            .mark("dashboard-backlog-recovery-row")
+        ):
+            if (
+                recovery.date is not None
+                and recovery.due is not None
+                and (recovery.date > recovery.due)
+            ):
+                warning_icon("dashboard-backlog-recovery-icon")
+            ui.label(recovery_text(recovery)).classes("text-caption").mark(
+                "dashboard-backlog-recovery"
+            )
+        ui.label(
+            "追加した人だけで遅れを取り戻す前提の、稼働時間の算術です(予測ではありません)。"
+            "追加した人が並行して進められること、立ち上がりの遅れは見ていません。"
+        ).classes("text-caption text-grey").mark("dashboard-backlog-recovery-note")
+
     def pick_catch_up(self, rule: CatchUp, current: CatchUp) -> None:
-        """取り戻す期限を選ぶ。今と同じなら何もしない。日数は 1〜60 に収める。"""
-        rule = CatchUp(rule.mode, min(60, max(1, rule.days)))
+        """取り戻す期限と追加人数を選ぶ。今と同じなら何もしない。日数は 1〜60、追加人数は 0〜20(小数 1 桁)に収める。"""
+        rule = replace(
+            rule,
+            days=min(60, max(1, rule.days)),
+            people=round(min(MAX_RECOVER_PEOPLE, max(0.0, rule.people)), 1),
+        )
         if rule != current and self.on_catch_up_change is not None:
             self.on_catch_up_change(rule)
 

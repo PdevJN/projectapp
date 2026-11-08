@@ -27,6 +27,7 @@ from projectapp.dashboard import (
     PeriodKind,
     Progress,
     ProgressDelta,
+    Recovery,
     TeamProgress,
     UnassignedTask,
     WorkloadRow,
@@ -2310,3 +2311,128 @@ async def test_a_member_row_without_a_delta_shows_nothing(user: User) -> None:
     await user.open("/")
     views[0].show(sample(), PeriodKind.WEEK)
     await user.should_not_see(marker="dashboard-member-delta-田中")
+
+
+# --- 要望 130: 追加人数と、取り戻せる日 ----------------------------------------
+
+
+def recovery_backlog(
+    people: float,
+    recovery: Recovery | None,
+    mode: CatchUpMode = CatchUpMode.PERIOD,
+    overdue: float = 0.0,
+) -> Backlog:
+    return Backlog(
+        6.5, 0, 3, 1.0, 1.5, [("田中", 6.5)], overdue_hours=overdue,
+        overdue_count=1 if overdue else 0,
+        catch_up=CatchUp(mode, 5, people), recovery=recovery,
+    )  # fmt: skip
+
+
+async def test_the_people_field_is_shown_even_with_zero_people(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(recovery_backlog(0, None)), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-recover-people")
+    field = user.find(marker="dashboard-backlog-recover-people").elements.pop()
+    assert field.value == 0
+
+
+async def test_the_people_field_shows_the_current_value(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(recovery_backlog(2.5, None)), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-recover-people")
+    field = user.find(marker="dashboard-backlog-recover-people").elements.pop()
+    assert field.value == 2.5
+
+
+async def test_switching_the_mode_keeps_the_added_people(user: User) -> None:
+    changes: list[CatchUp] = []
+    views, _, _ = mount(catch_up_changes=changes)
+    await user.open("/")
+    views[0].show(with_backlog(recovery_backlog(2.0, None)), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-catch-up")
+    user.find(marker="dashboard-backlog-catch-up-task").click()
+    assert changes == [CatchUp(CatchUpMode.TASK, 5, 2.0)]
+
+
+def test_picking_clamps_the_people_to_zero_to_twenty_in_tenths() -> None:
+    seen: list[CatchUp] = []
+    view = DashboardView(
+        lambda: None, lambda kind: None, on_catch_up_change=seen.append
+    )
+    current = CatchUp()
+    view.pick_catch_up(CatchUp(people=99), current)
+    view.pick_catch_up(CatchUp(people=-3), CatchUp(people=1))
+    view.pick_catch_up(CatchUp(people=1.26), current)
+    assert [rule.people for rule in seen] == [20.0, 0.0, 1.3]
+
+
+async def test_the_recovery_line_gives_the_date_and_the_working(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    recovery = Recovery(2.0, 26.0, 2.0, date(2026, 11, 20), date(2026, 11, 27))
+    views[0].show(
+        with_backlog(recovery_backlog(2.0, recovery, overdue=26.0)), PeriodKind.WEEK
+    )
+    await user.should_see(marker="dashboard-backlog-recovery")
+    line = text(user, "dashboard-backlog-recovery")
+    assert "追加 2.0 人で 11/20 に取り戻せます" in line
+    assert "遅れ 26.0h ÷ 2.0 人 = 1 人あたり 13.0h・約 2.0 稼働日" in line
+    assert "期間の終わり(11/27)に間に合います" in line
+    await user.should_see(marker="dashboard-backlog-recovery-note")
+
+
+async def test_the_recovery_line_says_when_the_period_end_is_missed(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    recovery = Recovery(1.0, 26.0, 4.0, date(2026, 12, 3), date(2026, 11, 27))
+    views[0].show(
+        with_backlog(recovery_backlog(1.0, recovery, overdue=26.0)), PeriodKind.WEEK
+    )
+    await user.should_see(marker="dashboard-backlog-recovery")
+    assert "期間の終わり(11/27)に間に合いません" in text(
+        user, "dashboard-backlog-recovery"
+    )
+
+
+async def test_the_per_task_mode_shows_the_date_without_comparing(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    recovery = Recovery(2.0, 26.0, 2.0, date(2026, 11, 20), None)
+    views[0].show(
+        with_backlog(recovery_backlog(2.0, recovery, CatchUpMode.TASK, overdue=26.0)),
+        PeriodKind.WEEK,
+    )
+    await user.should_see(marker="dashboard-backlog-recovery")
+    line = text(user, "dashboard-backlog-recovery")
+    assert "11/20 に取り戻せます" in line and "間に合" not in line
+
+
+async def test_no_late_work_is_explained(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(recovery_backlog(2.0, None)), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-recovery")
+    assert text(user, "dashboard-backlog-recovery") == "遅れはありません"
+
+
+async def test_a_missing_date_is_explained(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    none_found = Recovery(2.0, 26.0, 2.0, None, None)
+    views[0].show(
+        with_backlog(recovery_backlog(2.0, none_found, overdue=26.0)), PeriodKind.WEEK
+    )
+    await user.should_see(marker="dashboard-backlog-recovery")
+    assert "取り戻せる日を出せません" in text(user, "dashboard-backlog-recovery")
+
+
+async def test_nothing_is_shown_for_zero_people(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(with_backlog(recovery_backlog(0, None)), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-catch-up")
+    await user.should_not_see(marker="dashboard-backlog-recovery")
+    await user.should_not_see(marker="dashboard-backlog-recovery-note")
