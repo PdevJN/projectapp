@@ -49,7 +49,7 @@ def _has_progress(task: Task) -> bool:
     return bool(task.progress) or bool(task.actuals)
 
 
-def _with_added(
+def with_added(
     base: list[list[Assignee]], first: int, names: tuple[str, ...]
 ) -> list[list[Assignee]] | None:
     """base の週ごとの担当の、first 週以降に names を足す(重複なし)。上限を超えるなら None。"""
@@ -103,7 +103,7 @@ def forecast_end(
     if extra_crew is not None:
         names, day = extra_crew
         first = snap_week(anchor, max(day, origin.date()) if weekly else day)
-        added = _with_added(rows, first, names)
+        added = with_added(rows, first, names)
         if added is None:
             return None
         rows = added

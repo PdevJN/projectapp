@@ -236,3 +236,21 @@ def test_a_warning_task_is_estimated_from_todays_remaining_effort() -> None:
     assert result.trial_end is not None and result.baseline_end is not None
     assert result.baseline_end > end  # 追加なしでは、完了予定に間に合わない見込み
     assert result.trial_end < result.baseline_end  # 増員で早まる
+
+
+def test_trial_end_equals_the_forecast_with_the_extra_crew_for_late_tasks() -> None:
+    from projectapp.forecast import forecast_end
+
+    project, task = sample()
+    schedule = Schedule(project, HOLIDAYS)
+    now = datetime(2026, 11, 20, 10)  # 予定超過
+    trial = TrialCrew("ta", ("鈴木",), date(2026, 11, 23))
+    result = evaluate(task, project, HOLIDAYS, schedule, trial, now)
+    expected = forecast_end(
+        task, project, HOLIDAYS, now, schedule, (trial.names, trial.start)
+    )
+    base = forecast_end(task, project, HOLIDAYS, now, schedule)
+    assert result is not None and expected is not None and base is not None
+    assert result.from_now
+    assert result.trial_end == expected.end
+    assert result.baseline_end == base.end
