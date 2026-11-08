@@ -1429,9 +1429,10 @@ class DashboardView:
     def burndown_card(self, data: Dashboard) -> None:
         b = data.burndown
         period = None if b is None else Period(b.first, b.last)
-        with card(
-            f"残りの工数の推移({scope_label(data, period)})", "dashboard-burndown"
-        ):
+        with card("残りの工数の推移", "dashboard-burndown"):
+            ui.label(scope_label(data, period)).classes("text-caption text-grey").mark(
+                "dashboard-burndown-scope"
+            )
             if b is None:
                 ui.label("期間を選ぶと推移が出ます").classes("text-grey").mark(
                     "dashboard-burndown-all"

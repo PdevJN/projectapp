@@ -2264,14 +2264,19 @@ async def test_the_burndown_card_is_empty_without_tasks(user: User) -> None:
     await user.should_not_see(marker="dashboard-burndown-chart")
 
 
-async def test_the_burndown_title_names_the_member_and_the_period(user: User) -> None:
+async def test_the_burndown_card_shows_the_period_apart_from_the_title(
+    user: User,
+) -> None:
     views, _, _ = mount()
     data = sample()
     data.member = "田中"
     data.burndown = burndown_sample()
     await user.open("/")
     views[0].show(data, PeriodKind.WEEK)
-    await user.should_see("残りの工数の推移(田中・10/05〜10/11 にかかるタスク)")
+    await user.should_see("残りの工数の推移")
+    await user.should_see(marker="dashboard-burndown-scope")
+    assert text(user, "dashboard-burndown-scope") == "田中・10/05〜10/11 にかかるタスク"
+    await user.should_not_see("残りの工数の推移(")
 
 
 async def test_a_member_row_shows_the_progress_made(user: User) -> None:
