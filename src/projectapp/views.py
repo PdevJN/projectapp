@@ -56,6 +56,8 @@ from projectapp.config import (
     resolve_project_dir,
     save_custom_theme,
     save_main_split,
+    parse_history_keep,
+    save_history_keep,
     save_open_ratio,
     save_today_color,
     save_warning_color,
@@ -733,8 +735,27 @@ class MainView:
                     self.gantt.syncing_split = False
 
         show_global_settings_dialog(
-            self.open_ratio, preview, self.apply_open_ratio, cancel
+            self.open_ratio,
+            self.history_keep,
+            preview,
+            self.apply_global_settings,
+            cancel,
         )
+
+    def apply_global_settings(self, ratio: int, keep: HistoryKeep) -> bool:
+        """開くときの割合と履歴の残し方を保存する。範囲外は範囲に収める。失敗したら通知して False。"""
+        keep = parse_history_keep(
+            {"history_detail_days": keep.days, "history_max_events": keep.max_events}
+        )
+        if not self.apply_open_ratio(ratio):
+            return False
+        try:
+            save_history_keep(keep, self.base_dir)
+        except OSError:
+            ui.notify("全体の設定を保存できませんでした", type="warning")
+            return False
+        self.history_keep = keep
+        return True
 
     def apply_open_ratio(self, value: int) -> bool:
         """開くときの割合を保存する。失敗したら通知して False(ダイアログは閉じない)。"""
