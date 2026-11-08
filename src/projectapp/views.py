@@ -867,6 +867,8 @@ class MainView:
         """履歴を捨て、いまの内容を確定した状態にする(別のプロジェクトに切り替えたとき・名前をつけて保存したとき)。"""
         self.history.clear()
         self.trials = {}
+        self.gantt.trial_results = {}  # 切り替え先の描き直し(set_project)で消える
+        self.update_trial_band({})
         self.committed = deepcopy(self.project)
         self.gantt.clear_selection()  # 履歴を捨てる場面(開く・新規・取り込み・名前をつけて保存)では、一括操作の選択も解除する
 

@@ -3163,7 +3163,7 @@ class GanttChart:
             span = bar_span(start, result.trial_end, columns)
             if span is not None:
                 ui.element("div").classes("trial-ghost").style(
-                    f"position: absolute; left: {span[0] * width:.1f}px;"
+                    f"position: absolute; left: {from_name(span[0] * width)};"
                     f" width: {max(span[1] * width, MIN_BAR_PX):.1f}px;"
                     f" top: {BAR_TOP_PX - 2}px; height: {BAR_HEIGHT_PX + 4}px"
                 ).mark(f"trial-ghost-{key}-{ti}")
@@ -3171,7 +3171,7 @@ class GanttChart:
             line = bar_span(result.original_end, result.original_end, columns)
             if line is not None:
                 ui.element("div").classes("trial-origin").style(
-                    f"position: absolute; left: {line[0] * width:.1f}px;"
+                    f"position: absolute; left: {from_name(line[0] * width)};"
                     f" top: {BAR_TOP_PX - 4}px; height: {BAR_HEIGHT_PX + 8}px"
                 ).mark(f"trial-origin-{key}-{ti}")
         after = max(bar_left * width + bar_width, (bar_left * width) + 0) + 4
@@ -3180,10 +3180,10 @@ class GanttChart:
             if end_span is not None:
                 after = max(after, (end_span[0] + end_span[1]) * width + 4)
         ui.label("+" + "・".join(result.names)).classes("trial-chip").style(
-            f"position: absolute; left: {after:.1f}px; top: {BAR_TOP_PX - 2}px"
+            f"position: absolute; left: {from_name(after)}; top: {BAR_TOP_PX - 2}px"
         ).mark(f"trial-chip-{key}-{ti}")
         ui.label(trial_text(result)).classes("trial-label").style(
-            f"position: absolute; left: {after:.1f}px; top: {BAR_TOP_PX + 14}px"
+            f"position: absolute; left: {from_name(after)}; top: {BAR_TOP_PX + 14}px"
         ).mark(f"trial-label-{key}-{ti}")
 
     def week_chips(

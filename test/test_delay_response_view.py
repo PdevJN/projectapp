@@ -76,3 +76,25 @@ async def test_the_drop_action_removes_the_trial(user: User, tmp_path: Path) -> 
     view.drop_trial_at((), 0)
     assert view.trials == {}
     await user.should_not_see(marker="delay-band")
+
+
+async def test_overlay_positions_follow_the_name_column_width(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    view.try_crew("ta", ["鈴木"], date(2099, 1, 12))
+    for marker in ("ghost", "origin", "chip", "label"):
+        await user.should_see(marker=f"trial-{marker}-top-0")
+        style = user.find(marker=f"trial-{marker}-top-0").elements.pop()._style
+        assert "var(--name-w)" in style["left"], marker  # 棒と同じ基準
+
+
+async def test_switching_project_clears_the_band_and_the_overlay(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    view.try_crew("ta", ["鈴木"], date(2099, 1, 12))
+    await user.should_see(marker="delay-band")
+    view.reset_history()  # プロジェクトの切り替え・名前をつけて保存の入口
+    assert view.gantt.trial_results == {}
+    await user.should_not_see(marker="delay-band")
