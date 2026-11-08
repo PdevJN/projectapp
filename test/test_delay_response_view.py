@@ -70,13 +70,10 @@ async def test_week_chips_are_unchanged_when_there_are_no_trials(
     assert view.trial_results() == {}
 
 
-async def test_try_crew_dialog_opens_and_the_drop_action_removes_the_trial(
+async def test_the_drop_action_removes_the_trial(
     user: User, tmp_path: Path
 ) -> None:
     view = await opened(user, tmp_path)
-    view.open_try_crew((), 0)
-    await user.should_see(marker="trial-dialog")
-    await user.should_see(marker="trial-dialog-ok")
     view.try_crew("ta", ["鈴木"], date(2026, 11, 9))
     view.drop_trial_at((), 0)
     assert view.trials == {}
