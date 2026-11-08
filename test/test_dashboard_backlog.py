@@ -10,6 +10,7 @@ from projectapp.dashboard import (
     LateBasis,
     Period,
     PeriodKind,
+    recovery_date,
     summarize,
     summarize_backlog,
     summarize_cross_backlog,
@@ -1173,3 +1174,118 @@ def test_summarize_and_cross_pass_the_rule_to_the_backlog() -> None:
         [project], project, WEEK, PeriodKind.WEEK, NOW, {}, catch_up=task_rule(1)
     )
     assert cross.overdue_required == pytest.approx(6.5 / 3.5)
+
+
+# --- 要望 130: 追加した人だけで遅れを取り戻せる日 ---------------------------------
+
+
+def people_rule(people: float, mode: CatchUpMode = CatchUpMode.PERIOD) -> CatchUp:
+    return CatchUp(mode, 5, people)
+
+
+def recovery_of(
+    people: float,
+    count: int = 1,
+    holidays: dict[date, str] | None = None,
+    basis: LateBasis = LateBasis.DELAY,
+    rule: CatchUp | None = None,
+):
+    backlog = summarize_backlog(
+        project_of(*[todo(f"遅れた{i}", 6.5) for i in range(count)]),
+        WEEK,
+        PeriodKind.WEEK,
+        NOW,
+        holidays or {},
+        basis=basis,
+        catch_up=rule or people_rule(people),
+    )
+    return backlog.recovery
+
+
+def test_the_recovery_date_adds_todays_rest_then_whole_workdays() -> None:
+    recovery = recovery_of(
+        1
+    )  # 遅れ 6.5h。今日の残り 3.5h では足りず、木曜の 6.5h で足りる
+    assert recovery is not None
+    assert (recovery.date, recovery.hours, recovery.people) == (
+        date(2026, 10, 8),
+        6.5,
+        1,
+    )
+    assert recovery.days == pytest.approx(1.0)  # 6.5h ÷ (1 人 × 6.5h)
+
+
+def test_more_people_recover_sooner_even_today() -> None:
+    recovery = recovery_of(2)  # 1 人あたり 3.25h。今日の残り 3.5h で足りる
+    assert recovery is not None and recovery.date == date(2026, 10, 7)
+    assert recovery.days == pytest.approx(0.5)
+
+
+def test_a_fractional_head_count_works() -> None:
+    recovery = recovery_of(0.5)  # 1 人あたり 13h。今日 3.5 + 木 6.5 + 金 6.5 = 16.5
+    assert recovery is not None and recovery.date == date(2026, 10, 9)
+    assert recovery.days == pytest.approx(2.0)
+
+
+def test_weekends_and_holidays_are_skipped() -> None:
+    recovery = recovery_of(1, count=2, holidays={date(2026, 10, 8): "休み"})
+    assert recovery is not None
+    assert recovery.date == date(
+        2026, 10, 12
+    )  # 今日 3.5 + 金 6.5 = 10 では足りず、土日を飛ばして月曜
+
+
+def test_the_period_end_is_the_due_date_in_the_period_mode() -> None:
+    late = recovery_of(1, count=2, holidays={date(2026, 10, 8): "休み"})
+    on_time = recovery_of(1)
+    assert late is not None and on_time is not None
+    assert late.due == on_time.due == WEEK.end
+    assert late.date > late.due and on_time.date <= on_time.due
+
+
+def test_there_is_no_due_date_in_the_per_task_mode() -> None:
+    recovery = recovery_of(1, rule=people_rule(1, CatchUpMode.TASK))
+    assert recovery is not None and recovery.due is None
+    assert recovery.date == date(2026, 10, 8)  # 日付の計算は同じ
+
+
+def test_no_added_people_or_nothing_late_gives_no_estimate() -> None:
+    assert recovery_of(0) is None
+    backlog = summarize_backlog(
+        project_of(
+            Task("先の予定", planned_start=datetime(2026, 10, 9, 9), effort_hours=5)
+        ),
+        WEEK,
+        PeriodKind.WEEK,
+        NOW,
+        {},
+        catch_up=people_rule(2),
+    )
+    assert backlog.late_hours == 0 and backlog.recovery is None
+
+
+def test_the_warning_basis_adds_the_warning_hours_to_the_late_part() -> None:
+    delay = recovery_of(1, basis=LateBasis.DELAY)
+    backlog = summarize_backlog(
+        project_of(warned_todo(), todo("遅れた", 6.5)),
+        WEEK,
+        PeriodKind.WEEK,
+        NOW,
+        {},
+        basis=LateBasis.WARNING,
+        catch_up=people_rule(1),
+    )
+    assert delay is not None and backlog.recovery is not None
+    assert backlog.recovery.hours == pytest.approx(backlog.late_hours)
+    assert backlog.recovery.hours > delay.hours
+
+
+def test_the_default_rule_has_no_added_people() -> None:
+    assert CatchUp().people == 0.0
+
+
+def test_recovery_date_is_none_when_there_is_no_working_time_at_all() -> None:
+    project = Project("P", daily_hours=0.0)
+    assert recovery_date(project, {}, NOW, 10.0, 1.0) is None
+    assert recovery_date(project, {}, NOW, 0.0, 1.0) is None
+    assert recovery_date(project, {}, NOW, 10.0, 0.0) is None
