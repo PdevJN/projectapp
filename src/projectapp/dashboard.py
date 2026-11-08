@@ -10,7 +10,14 @@ from typing import NamedTuple
 
 from projectapp import clock
 from projectapp.events import effective_holidays
-from projectapp.history_log import TaskState, events_by_task, is_known, state_at
+from projectapp.history_log import (
+    TaskState,
+    effective_progress,
+    effort_weight,
+    events_by_task,
+    is_known,
+    state_at,
+)
 from projectapp.models import Assignee, Member, Project, Status, Task, TaskKind, WorkDay
 from projectapp.pace import warning_pace
 from projectapp.ratios import effective_ratio
@@ -267,7 +274,7 @@ def warning_tasks(entries: Sequence[Entry], now: datetime) -> frozenset[int]:
 
 
 def _weight(effort_hours: float) -> float:
-    return effort_hours if isfinite(effort_hours) and effort_hours > 0 else 1.0
+    return effort_weight(effort_hours)
 
 
 def _progress_weight(task: Task) -> tuple[float, float] | None:
@@ -382,7 +389,7 @@ def previous_period(period: Period) -> Period:
 
 def _effective(state: TaskState) -> float:
     """実効の進捗(0〜100)。終了なら 100、それ以外は進捗度(なければ 0)。"""
-    return 100.0 if state.status is Status.DONE else float(state.progress or 0)
+    return effective_progress(state)
 
 
 def summarize_progress_delta(

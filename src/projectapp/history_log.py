@@ -6,6 +6,7 @@ NiceGUI に依存しない。データの持ち方を変えるときは、この
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime
+from math import isfinite
 
 from projectapp.models import (
     HISTORY_FIELDS,
@@ -145,6 +146,54 @@ def state_at(
         progress if isinstance(progress, int) else None,
         float(effort) if isinstance(effort, (int, float)) else 0.0,
     )
+
+
+def effort_weight(hours: float) -> float:
+    """工数の重み。工数なし・負・有限でない値は 1 時間として数える。"""
+    return hours if isfinite(hours) and hours > 0 else 1.0
+
+
+def effective_progress(state: TaskState) -> float:
+    """実効の進捗(0〜100)。終了なら 100、それ以外は進捗度(なければ 0)。"""
+    return 100.0 if state.status is Status.DONE else float(state.progress or 0)
+
+
+def states_at(
+    task: Task, events: Sequence[HistoryEvent], moments: Sequence[datetime]
+) -> list[TaskState | None]:
+    """`state_at`を、昇順の時刻の列にまとめて求める(1 回の走査。日ごとに呼ぶより速い)。
+    `events`はこのタスクの分で、日時の昇順。"""
+    current = _values(task)
+    columns: dict[str, list[Value]] = {}
+    for name in HISTORY_FIELDS:
+        touching = [(e.at, c) for e in events for c in e.changes if c.field == name]
+        column: list[Value] = []
+        seen = 0
+        for moment in moments:
+            while seen < len(touching) and touching[seen][0] < moment:
+                seen += 1
+            if seen:
+                column.append(touching[seen - 1][1].after)
+            elif touching:
+                column.append(touching[0][1].before)
+            else:
+                column.append(current[name])
+        columns[name] = column
+    states: list[TaskState | None] = []
+    for index in range(len(moments)):
+        status = columns["status"][index]
+        if status is None:
+            states.append(None)
+            continue
+        progress, effort = columns["progress"][index], columns["effort"][index]
+        states.append(
+            TaskState(
+                Status(str(status)),
+                progress if isinstance(progress, int) else None,
+                float(effort) if isinstance(effort, (int, float)) else 0.0,
+            )
+        )
+    return states
 
 
 def merge_logs(*logs: Sequence[HistoryEvent]) -> list[HistoryEvent]:
