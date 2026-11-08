@@ -1579,7 +1579,7 @@ def test_saved_file_starts_with_the_format_version(tmp_path: Path) -> None:
     path = save_project(Project("demo"), tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert list(raw)[0] == "version"
-    assert raw["version"] == FORMAT_VERSION == 20
+    assert raw["version"] == FORMAT_VERSION == 21
 
 
 @pytest.mark.smoke
@@ -1664,7 +1664,7 @@ def ids_project() -> Project:
 def test_saved_file_is_version_3_and_refers_to_members_by_id(tmp_path: Path) -> None:
     project = ids_project()
     raw = json.loads(save_project(project, tmp_path).read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 20
+    assert raw["version"] == FORMAT_VERSION == 21
     tanaka, suzuki = project.members
     assert [m["id"] for m in raw["members"]] == [tanaka.id, suzuki.id]
     assert raw["sections"][0]["id"] == project.sections[0].id
@@ -2370,7 +2370,7 @@ def test_task_parameters_round_trip_and_the_version_is_10(tmp_path: Path) -> Non
     )
     path = save_project(project, tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["version"] == FORMAT_VERSION == 20
+    assert raw["version"] == FORMAT_VERSION == 21
     assert raw["tasks"][0]["parameters"] == ["Python", "Java"]
     assert load_project(path).tasks[0].parameters == ["Python", "Java"]
 
@@ -2428,7 +2428,7 @@ def _weekly_project() -> Project:
 
 
 def test_format_version_is_twenty() -> None:
-    assert FORMAT_VERSION == 20
+    assert FORMAT_VERSION == 21
 
 
 def test_weekly_crew_roundtrips_and_assignees_is_the_union(tmp_path: Path) -> None:
@@ -2625,7 +2625,7 @@ def test_work_day_note_round_trips_and_is_stripped() -> None:
     )
     text = dumps_project(Project("p", members=[member]))
     raw = json.loads(text)
-    assert raw["version"] == 20
+    assert raw["version"] == 21
     assert raw["members"][0]["work_days"][0]["note"] == "夏季休暇"
     assert parse_project(text, "p").members[0].work_days[0].note == "夏季休暇"
     raw["members"][0]["work_days"][0]["note"] = "  通院  "
@@ -2710,7 +2710,7 @@ def test_ratio_unclamped_round_trips() -> None:
     ]
     text = dumps_project(Project("p", members=members))
     raw = json.loads(text)
-    assert raw["version"] == 20
+    assert raw["version"] == 21
     assert [m["ratio_unclamped"] for m in raw["members"]] == [True, False]
     assert [m.ratio_unclamped for m in parse_project(text, "p").members] == [
         True,

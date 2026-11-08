@@ -10,6 +10,7 @@ from typing import NamedTuple
 
 from projectapp import clock
 from projectapp.events import effective_holidays
+from projectapp.history_log import TaskState, events_by_task, is_known, state_at
 from projectapp.models import Assignee, Member, Project, Status, Task, TaskKind, WorkDay
 from projectapp.pace import warning_pace
 from projectapp.ratios import effective_ratio
@@ -356,6 +357,102 @@ def summarize_team_progress(
         unset += weight != task.total_effort
     return TeamProgress(
         weighted / total if total else None, hours, period, counts, names, unset
+    )
+
+
+@dataclass(frozen=True)
+class ProgressDelta:
+    """期間中に進んだ分(要望 128)。`percent`は、期間の始めにあったタスクの工数で重みづけした進捗率の増分(%ポイント)。"""
+
+    period: Period
+    percent: float | None  # 対象のタスクがない・履歴が不明のとき None
+    scope_hours: float  # 範囲の増加[h]。期間中に増えたタスクの工数と、工数の変更の増分
+    known: bool  # 期間の始めまで履歴がある
+    since: date | None  # 履歴を記録し始めた日
+    counted: int  # 進んだ分を求めたタスクの件数
+
+
+def previous_period(period: Period) -> Period:
+    """同じ長さの、直前の期間。"""
+    length = (period.end - period.start).days + 1
+    return Period(
+        period.start - timedelta(days=length), period.start - timedelta(days=1)
+    )
+
+
+def _effective(state: TaskState) -> float:
+    """実効の進捗(0〜100)。終了なら 100、それ以外は進捗度(なければ 0)。"""
+    return 100.0 if state.status is Status.DONE else float(state.progress or 0)
+
+
+def summarize_progress_delta(
+    project: Project,
+    period: Period,
+    now: datetime,
+    holidays: dict[date, str],
+    member: Scope = None,
+) -> ProgressDelta:
+    """期間中に進んだ分。対象は`チーム全体の進捗`と同じ集合(予定の期間・締切・実績が期間にかかる通常タスク)のうち、
+    期間の始めにあったもの。工数のないタスクは 1 時間として数える。期間の始めが記録開始より前なら不明。"""
+    low, high = period.bounds()
+    since = project.history_since.date() if project.history_since else None
+    if not is_known(project, low):
+        return ProgressDelta(period, None, 0.0, False, since, 0)
+    index = events_by_task(project)
+    weighted = total = scope = 0.0
+    counted = 0
+    for entry in _entries(project, holidays, member, None):
+        task = entry.task
+        if task.kind is not TaskKind.NORMAL or not _touches(
+            task, entry.schedule, period, now
+        ):
+            continue
+        events = index.get(task.id, [])
+        end = state_at(task, events, high)
+        if end is None:
+            continue
+        weight = _weight(end.effort)
+        start = state_at(task, events, low)
+        if start is None:  # 期間の途中で作られた分は、進んだ分ではなく範囲の増加
+            scope += weight
+            continue
+        scope += weight - _weight(start.effort)
+        weighted += weight * (_effective(end) - _effective(start))
+        total += weight
+        counted += 1
+    # 期間中に通常タスクでなくなった(分解でまとめになった)タスクは、退場の直前の値で進んだ分に数え、
+    # 工数は範囲から引く(子が範囲に足されるので、増減なしになる)
+    scoped = _names(member)
+    for task in project.all_tasks():
+        if task.kind is TaskKind.NORMAL or (
+            scoped is not None and scoped.isdisjoint(task.assignee_names)
+        ):
+            continue
+        events = index.get(task.id, [])
+        left = next(
+            (
+                e.at
+                for e in events
+                if low <= e.at < high
+                and any(
+                    c.field == "status" and c.before is not None and c.after is None
+                    for c in e.changes
+                )
+            ),
+            None,
+        )
+        if left is None:
+            continue
+        start, last = state_at(task, events, low), state_at(task, events, left)
+        if start is None or last is None:
+            continue
+        scope -= _weight(start.effort)
+        weight = _weight(last.effort)
+        weighted += weight * (_effective(last) - _effective(start))
+        total += weight
+        counted += 1
+    return ProgressDelta(
+        period, weighted / total if total else None, scope, True, since, counted
     )
 
 
@@ -1575,6 +1672,8 @@ class Dashboard:
     heat: CrossSummary | None = (
         None  # 開いているプロジェクト 1 つ分の日ごとの負荷(全プロジェクトがオフのとき用)
     )
+    delta: ProgressDelta | None = None  # 期間中に進んだ分。全期間は None
+    previous_delta: ProgressDelta | None = None  # 同じ長さの直前の期間の分
 
     @property
     def heat_summary(self) -> CrossSummary | None:
@@ -1605,6 +1704,12 @@ def summarize(
     """`member`があれば`team`は無視する。存在しない・メンバーのいないチームは絞り込まない。"""
     team_members = team_scope(project, team) if member is None else None
     scope: Scope = member if member is not None else team_weights(project, team)
+    delta = previous = None
+    if kind is not PeriodKind.ALL:
+        delta = summarize_progress_delta(project, period, now, holidays, scope)
+        previous = summarize_progress_delta(
+            project, previous_period(period), now, holidays, scope
+        )
     return Dashboard(
         period,
         summarize_progress(project, holidays, now, scope, children),
@@ -1627,4 +1732,6 @@ def summarize(
         team_name=team if team_members is not None else None,
         teams=teams_with_members(project),
         references=len(children or {}),
+        delta=delta,
+        previous_delta=previous,
     )

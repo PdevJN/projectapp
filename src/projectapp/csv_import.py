@@ -9,6 +9,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from projectapp import clock
+from projectapp.history_log import stamp_creation
 from projectapp.csv_profile import (
     ALIASES,
     SMARTSHEET,
@@ -555,6 +556,7 @@ def parse_csv(
         project = parse_project(dumps_project(project), project.name)
     except (ValueError, KeyError, TypeError) as exc:
         raise CsvImportError(f"取り込んだ結果が正しくありません: {exc}") from exc
+    stamp_creation(project, clock.now())  # 取り込んだタスクの作成を、履歴の最初にする
     return CsvImport(
         project,
         len(project.all_tasks()),

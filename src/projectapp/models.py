@@ -10,7 +10,7 @@ from enum import StrEnum
 
 from projectapp import clock
 
-FORMAT_VERSION = 20  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕。16: メンバーの丸め対象外〔members[].ratio_unclamped〕。17: チーム〔teams・members[].teams〕。18: イベントの色に #rrggbb を許す)。19: メンバーの警告の件数の閾値 warning_limit、20: タスクの追加工数 extra_efforts
+FORMAT_VERSION = 21  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕。16: メンバーの丸め対象外〔members[].ratio_unclamped〕。17: チーム〔teams・members[].teams〕。18: イベントの色に #rrggbb を許す)。19: メンバーの警告の件数の閾値 warning_limit、20: タスクの追加工数 extra_efforts、21: 変更履歴 history・history_since
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -240,6 +240,31 @@ class ExtraEffort:
     reason: str = ""
 
 
+HISTORY_FIELDS = ("status", "progress", "effort")  # 変更履歴に残す項目(この順で並べる)
+Value = str | int | float | None  # 変更履歴の値。状態は Status.value の文字列
+
+
+@dataclass(frozen=True)
+class Change:
+    """変更履歴の 1 項目の変化。作成のときは、各項目の before が None。"""
+
+    field: str
+    before: Value
+    after: Value
+
+
+@dataclass(frozen=True)
+class HistoryEvent:
+    """1 回の編集で、1 タスクの対象項目が変わった記録(要望 128)。追記のみで、書き換えない。"""
+
+    task: str
+    at: datetime
+    changes: tuple[Change, ...]
+
+    def __deepcopy__(self, memo: dict) -> "HistoryEvent":
+        return self  # 不変なので、元に戻すの複製で増やさない
+
+
 def union_assignees(weeks: Sequence[Sequence[Assignee]]) -> list[Assignee]:
     """全週の担当者の和集合(初出の順)。割り当て率は各人の最大値。元の週は書き換えない。"""
     merged: dict[str, Assignee] = {}
@@ -418,6 +443,10 @@ class Project:
         None  # 相対比率の上限(150% は 1.5)。None は設定なし(50〜150%)
     )
     ratio_limit_lower: float | None = None  # 同じく下限(50% は 0.5)
+    history: list[HistoryEvent] = field(
+        default_factory=list
+    )  # タスクの状態・進捗度・工数の変更履歴(追記のみ。削除したタスクの分も残す)
+    history_since: datetime | None = None  # 履歴を記録し始めた日時。これより前は不明
 
     @property
     def ratio_limits(self) -> RatioLimits:

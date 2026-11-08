@@ -25,6 +25,7 @@ from projectapp.dashboard import (
     Period,
     PeriodKind,
     Progress,
+    ProgressDelta,
     TeamProgress,
     UnassignedTask,
     WorkloadRow,
@@ -36,6 +37,7 @@ from projectapp.dashboard_view import (
     ViewActions,
     HEATMAP_HINT_DAYS,
     DashboardView,
+    delta_line,
     heatmap_html,
     scroll_to_today_js,
     percent_width,
@@ -2046,3 +2048,59 @@ async def test_the_load_bars_use_a_fixed_range_with_a_100_percent_line(
         if e._style.get("border-left", "").startswith("2px dotted")
     ]
     assert "50.0%" in styles  # 100% の線は、範囲の真ん中
+
+
+DELTA_PERIOD = Period(date(2026, 10, 5), date(2026, 10, 11))
+
+
+def delta(
+    percent: float | None = 12.4,
+    scope: float = 6.0,
+    known: bool = True,
+    since: date | None = date(2026, 10, 1),
+) -> ProgressDelta:
+    return ProgressDelta(DELTA_PERIOD, percent, scope, known, since, 2)
+
+
+def test_delta_line_shows_the_gain_the_previous_period_and_the_scope() -> None:
+    assert delta_line(delta(), delta(8.2)) == "進んだ分 +12%(前の期間 +8%)  範囲 +6.0h"
+
+
+def test_delta_line_omits_what_is_missing() -> None:
+    assert delta_line(delta(scope=0.0), None) == "進んだ分 +12%"
+    assert delta_line(delta(), delta(None, known=False)) == "進んだ分 +12%  範囲 +6.0h"
+    assert delta_line(delta(-3.2, scope=-2.0), None) == "進んだ分 -3%  範囲 -2.0h"
+    assert delta_line(delta(0.2, scope=0.0), None) == "進んだ分 +0%"
+
+
+def test_delta_line_says_unknown_instead_of_zero() -> None:
+    assert (
+        delta_line(delta(None, known=False), None)
+        == "進んだ分: 履歴は 10/01 から(それ以前は不明)"
+    )
+    assert (
+        delta_line(delta(None, known=False, since=None), None)
+        == "進んだ分: 履歴はまだありません"
+    )
+    assert delta_line(delta(None), None) == "進んだ分: 対象のタスクなし  範囲 +6.0h"
+
+
+async def test_the_team_card_shows_the_delta_line(user: User) -> None:
+    views, _, _ = mount()
+    data = sample()
+    data.delta, data.previous_delta = delta(), delta(8.2)
+    await user.open("/")
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-team-delta")
+    assert (
+        text(user, "dashboard-team-delta") == "進んだ分 +12%(前の期間 +8%)  範囲 +6.0h"
+    )
+
+
+async def test_the_team_card_has_no_delta_line_for_the_whole_period(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.ALL)
+    await user.should_not_see(marker="dashboard-team-delta")

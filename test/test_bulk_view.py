@@ -164,3 +164,33 @@ async def test_delete_key_asks_to_delete_the_selection_and_does_nothing_without_
     await user.should_see("1 件のタスクを削除します")
     user.find(marker="confirm-ok").click()
     assert [t.id for t in view.project.all_tasks()] == ["b", "c"]
+
+
+async def test_a_bulk_edit_records_one_event_per_task_and_undo_removes_them(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_view(user, tmp_path)
+    assert view.project.history == []
+    view.apply_bulk(["a", "b"], BulkChanges(effort=EffortChange(EffortMode.SET, 5)))
+    assert sorted(e.task for e in view.project.history) == ["a", "b"]
+    assert view.project.history_since is not None
+    redone_events = list(view.project.history)
+    view.undo()
+    assert view.project.history == []  # 元に戻すと、記録も戻る
+    view.redo()
+    assert view.project.history == redone_events  # やり直すと、同じ日時で復活する
+
+
+async def test_is_dirty_follows_edits_undo_and_redo_including_the_history(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_view(user, tmp_path)
+    assert not view.is_dirty()
+    view.apply_bulk(["a"], BulkChanges(effort=EffortChange(EffortMode.SET, 5)))
+    assert view.is_dirty()
+    view.undo()
+    assert not view.is_dirty()  # 値も履歴も元に戻ったので、保存済みと同じ
+    view.redo()
+    assert view.is_dirty()
+    view.mark_clean()
+    assert not view.is_dirty()

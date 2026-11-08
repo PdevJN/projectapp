@@ -10,6 +10,8 @@ from projectapp.dashboard import (
     MemberProgress,
     Period,
     PeriodKind,
+    previous_period,
+    summarize_progress_delta,
     MAX_CUSTOM_DAYS,
     custom_period_error,
     period_for,
@@ -31,6 +33,8 @@ from projectapp.models import (
     Event,
     Member,
     Membership,
+    Change,
+    HistoryEvent,
     Project,
     Status,
     Task,
@@ -1735,3 +1739,192 @@ def test_team_progress_counts_tasks_without_effort_as_unset() -> None:
         project_of(Task("A", effort_hours=2), Task("B"), Task("C", effort_hours=0))
     )
     assert team.unset == 2 and team.total == 4
+
+
+DELTA_WEEK = Period(date(2026, 11, 2), date(2026, 11, 8))
+D_NOW = datetime(2026, 11, 6, 12)
+
+
+def hevent(task: str, at: datetime, **fields: tuple) -> HistoryEvent:
+    return HistoryEvent(
+        task, at, tuple(Change(n, b, a) for n, (b, a) in fields.items())
+    )
+
+
+def delta_project() -> Project:
+    """a: 10h、今週のうちに 0% → 100%。b: 10h、動かず。どちらも締切が今週。"""
+    a = Task(
+        "a",
+        id="a",
+        effort_hours=10,
+        status=Status.DONE,
+        progress=100,
+        deadline=datetime(2026, 11, 5, 17),
+    )
+    b = Task("b", id="b", effort_hours=10, deadline=datetime(2026, 11, 6, 17))
+    return Project(
+        "p",
+        base_date=date(2026, 11, 2),
+        tasks=[a, b],
+        history_since=datetime(2026, 11, 1),
+        history=[
+            hevent(
+                "a",
+                datetime(2026, 11, 3, 10),
+                status=("未着手", "実行中"),
+                progress=(None, 50),
+            ),
+            hevent(
+                "a",
+                datetime(2026, 11, 5, 10),
+                status=("実行中", "終了"),
+                progress=(50, 100),
+            ),
+        ],
+    )
+
+
+def test_progress_delta_weights_by_effort_and_counts_only_tasks_that_existed() -> None:
+    delta = summarize_progress_delta(delta_project(), DELTA_WEEK, D_NOW, {})
+    assert delta.known and delta.counted == 2
+    assert delta.percent == pytest.approx(50.0)  # (10×100 + 10×0) ÷ 20
+    assert delta.scope_hours == 0.0
+
+
+def test_a_task_created_in_the_period_is_scope_not_progress() -> None:
+    project = delta_project()
+    project.tasks.append(
+        Task(
+            "c",
+            id="c",
+            effort_hours=4,
+            status=Status.DONE,
+            progress=100,
+            deadline=datetime(2026, 11, 6, 17),
+        )
+    )
+    project.history.append(
+        hevent(
+            "c",
+            datetime(2026, 11, 4, 9),
+            status=(None, "未着手"),
+            progress=(None, None),
+            effort=(None, 4.0),
+        )
+    )
+    project.history.append(
+        hevent(
+            "c",
+            datetime(2026, 11, 4, 15),
+            status=("未着手", "終了"),
+            progress=(None, 100),
+        )
+    )
+    delta = summarize_progress_delta(project, DELTA_WEEK, D_NOW, {})
+    assert delta.percent == pytest.approx(50.0)  # c の完了は進んだ分に入れない
+    assert delta.scope_hours == 4.0
+
+
+def test_an_effort_change_is_scope_and_weights_by_the_end_effort() -> None:
+    project = delta_project()
+    project.tasks[1].effort_hours = 30
+    project.history.append(hevent("b", datetime(2026, 11, 4, 9), effort=(10.0, 30.0)))
+    delta = summarize_progress_delta(project, DELTA_WEEK, D_NOW, {})
+    assert delta.scope_hours == 20.0
+    assert delta.percent == pytest.approx(10 * 100 / 40)
+
+
+def test_the_period_before_the_history_started_is_unknown_not_zero() -> None:
+    delta = summarize_progress_delta(
+        delta_project(), previous_period(DELTA_WEEK), D_NOW, {}
+    )
+    assert not delta.known and delta.percent is None
+    assert delta.since == date(2026, 11, 1)
+
+
+def test_a_project_with_no_history_is_unknown() -> None:
+    project = Project("p", tasks=[Task("a", id="a")])
+    delta = summarize_progress_delta(project, DELTA_WEEK, D_NOW, {})
+    assert not delta.known and delta.since is None
+
+
+def test_summaries_checkpoints_and_tasks_outside_the_period_are_not_counted() -> None:
+    project = delta_project()
+    project.tasks.append(
+        Task("far", id="far", effort_hours=10, deadline=datetime(2026, 12, 20, 17))
+    )
+    project.tasks.append(
+        Task(
+            "cp",
+            id="cp",
+            kind=TaskKind.CHECKPOINT,
+            deadline=datetime(2026, 11, 5, 17),
+        )
+    )
+    assert summarize_progress_delta(project, DELTA_WEEK, D_NOW, {}).counted == 2
+
+
+def test_previous_period_has_the_same_length_just_before() -> None:
+    assert previous_period(DELTA_WEEK) == Period(date(2026, 10, 26), date(2026, 11, 1))
+
+
+def test_summarize_fills_the_delta_except_for_the_whole_period() -> None:
+    project = delta_project()
+    week = summarize(project, DELTA_WEEK, D_NOW, {}, PeriodKind.WEEK)
+    assert week.delta is not None and week.previous_delta is not None
+    assert summarize(project, DELTA_WEEK, D_NOW, {}, PeriodKind.ALL).delta is None
+
+
+def test_decomposing_a_task_keeps_its_progress_and_nets_the_scope() -> None:
+    """8h のタスクが今週 0% → 50% になった週に、4h + 4h の子へ分解された。範囲は増減なし、進んだ分は元のタスクの 50%。"""
+    cut = datetime(2026, 11, 5, 10)
+    parent = Task(
+        "p",
+        id="p",
+        kind=TaskKind.SUMMARY,
+        children=["c1", "c2"],
+        status=Status.RUNNING,
+    )
+    c1 = Task(
+        "c1",
+        id="c1",
+        effort_hours=4,
+        status=Status.DONE,
+        progress=100,
+        deadline=datetime(2026, 11, 6, 17),
+    )
+    c2 = Task("c2", id="c2", effort_hours=4, deadline=datetime(2026, 11, 6, 17))
+    created = dict(status=(None, "未着手"), progress=(None, None), effort=(None, 4.0))
+    project = Project(
+        "p",
+        base_date=date(2026, 11, 2),
+        tasks=[parent, c1, c2],
+        history_since=datetime(2026, 11, 1),
+        history=[
+            hevent(
+                "p",
+                datetime(2026, 11, 3, 10),
+                status=("未着手", "実行中"),
+                progress=(None, 50),
+            ),
+            hevent(
+                "p",
+                cut,
+                status=("実行中", None),
+                progress=(50, None),
+                effort=(8.0, None),
+            ),
+            hevent("c1", cut, **created),
+            hevent("c2", cut, **created),
+            hevent(
+                "c1",
+                datetime(2026, 11, 5, 11),
+                status=("未着手", "終了"),
+                progress=(None, 100),
+            ),
+        ],
+    )
+    delta = summarize_progress_delta(project, DELTA_WEEK, D_NOW, {})
+    assert delta.percent == pytest.approx(50.0)  # 元のタスクの 50%。子の完了は入れない
+    assert delta.scope_hours == pytest.approx(0.0)  # 子の 8h − 元の 8h
+    assert delta.counted == 1

@@ -149,9 +149,12 @@ def extract(project: Project, ids: Collection[str], name: str) -> Extraction:
         plantuml_overload_notice=project.plantuml_overload_notice,
         ratio_limit_upper=project.ratio_limit_upper,
         ratio_limit_lower=project.ratio_limit_lower,
+        history=[deepcopy(e) for e in project.history if e.task in moved],
+        history_since=project.history_since,
     )
 
     parent = deepcopy(project)
+    parent.history = [e for e in parent.history if e.task not in moved]
     owner = parent_map(project).get(
         moved_ids[0]
     )  # 最初のタスクがまとめの子なら、参照行はそのまとめの子になる
