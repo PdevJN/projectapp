@@ -229,6 +229,14 @@ class UnassignedTask:
     name: str
 
 
+@dataclass(frozen=True)
+class WarningTask:
+    """警告のタスク(ダッシュボードからメンバーを足す対象。要望 134)。"""
+
+    id: str
+    name: str
+
+
 @dataclass
 class Progress:
     percent: float | None  # 工数で重みづけした進捗率(0〜100)。タスクがなければ None
@@ -244,6 +252,9 @@ class Progress:
     unassigned: list[UnassignedTask] = field(
         default_factory=list
     )  # 担当なしのタスク。メンバーがいて絞り込みなしのときだけ
+    warning_tasks: list[WarningTask] = field(
+        default_factory=list
+    )  # 警告の、開いているプロジェクト自身の終わっていない通常タスク(参照先は除く。絞り込みに従う)
 
 
 Scope = (
@@ -749,6 +760,14 @@ def summarize_progress(
         by_team,
         sum(1 for e in entries if id(e.task) in warned),
         unassigned_tasks(project, member),
+        [
+            WarningTask(e.task.id, e.task.name)
+            for e in entries
+            if id(e.task) in warned
+            and not e.origin
+            and e.task.kind is TaskKind.NORMAL
+            and e.task.status is not Status.DONE
+        ],
     )
 
 

@@ -2214,3 +2214,39 @@ def test_overdue_rows_carry_the_forecast() -> None:
         0
     ]
     assert row.forecast is not None and row.forecast > datetime(2026, 10, 14, 12)
+
+
+def warning_task(**changes: object) -> Task:
+    task = Task(
+        "遅れ気味",
+        id="tw",
+        planned_start=datetime(2026, 10, 5, 9),
+        effort_hours=19.5,
+        progress=50,
+        assignees=[Assignee("田中")],
+    )
+    for key, value in changes.items():
+        setattr(task, key, value)
+    return task
+
+
+def test_progress_lists_the_warning_tasks_for_adding_crew() -> None:
+    fine = Task(
+        "予定どおり",
+        id="tf",
+        planned_start=datetime(2026, 10, 5, 9),
+        effort_hours=19.5,
+        progress=82,
+        assignees=[Assignee("田中")],
+    )
+    progress = summarize_progress(project_of(warning_task(), fine), {}, NOW)
+    assert [(t.id, t.name) for t in progress.warning_tasks] == [("tw", "遅れ気味")]
+    assert progress.warnings == 1
+
+
+def test_warning_tasks_exclude_done_and_filtered_out_members() -> None:
+    done = warning_task(status=Status.DONE)
+    assert summarize_progress(project_of(done), {}, NOW).warning_tasks == []
+    other = warning_task(assignees=[Assignee("鈴木")])
+    project = project_of(other, members=[Member("田中", 1.0), Member("鈴木", 1.0)])
+    assert summarize_progress(project, {}, NOW, "田中").warning_tasks == []
