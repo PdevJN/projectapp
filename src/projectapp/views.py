@@ -260,6 +260,7 @@ from projectapp.models import (
     ReferenceValue,
     Section,
     SectionPath,
+    Status,
     Task,
     TaskKind,
     Team,
@@ -328,6 +329,7 @@ from projectapp.timeline import (
     clip_overloads,
     effective_end,
     effective_start,
+    is_overdue,
     overallocations,
     visible_range,
     week_count,
@@ -640,6 +642,7 @@ class MainView:
             on_tick=lambda: self.refresh_dashboard(sync_field=False),
             on_late_basis_change=self.change_dashboard_late_basis,
             on_catch_up_change=self.change_dashboard_catch_up,
+            on_try_on_gantt=self.try_invest_on_gantt,
             on_assign=self.assign_from_dashboard,
             actions=ViewActions(
                 select=self.select_dashboard_view,
@@ -2779,6 +2782,26 @@ class MainView:
         recovered = sum(1 for r in results.values() if (r.days_earlier or 0) >= 1)
         with self.trial_band:
             delay_band(len(results), recovered, self.confirm_trials, self.clear_trials)
+
+    def try_invest_on_gantt(self, names: tuple[str, ...]) -> int:
+        """投入候補で選んだ人を、遅れているタスクに今日の次の週頭から増員する試算にして、ガントチャートへ切り替える。"""
+        now = clock.now()
+        schedule = Schedule(self.project, self.holidays)
+        self.trials = {}
+        for task in self.project.all_tasks():
+            if task.kind is not TaskKind.NORMAL or task.status is Status.DONE:
+                continue
+            if not is_overdue(task, self.project, self.holidays, now, schedule):
+                continue
+            trial = TrialCrew(task.id, names, now.date())
+            if evaluate(task, self.project, self.holidays, schedule, trial) is not None:
+                self.trials[task.id] = trial
+        if self.dashboard_kind is not None:
+            self.close_dashboard()
+        self.refresh_trials()
+        if not self.trials:
+            ui.notify("増員を試せる遅れたタスクがありません")
+        return len(self.trials)
 
     def open_try_crew(self, path: SectionPath, index: int) -> None:
         """右クリックの `増員を試す…`。メンバーと開始日を選んで試算を入れる。"""

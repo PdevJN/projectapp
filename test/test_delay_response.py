@@ -108,3 +108,32 @@ async def test_a_trial_for_a_deleted_task_is_dropped_on_redraw(
     view.after_edit()
     assert view.trial_results() == {}
     assert view.trials == {}
+
+
+async def test_try_invest_on_gantt_puts_trials_on_overdue_tasks(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    view.project.tasks.clear()
+    view.project.tasks.append(
+        Task(
+            "late",
+            id="tl",
+            planned_start=datetime(2026, 10, 12, 9),
+            effort_hours=16.0,
+            assignees=[Assignee("田中")],
+        )
+    )
+    view.project.tasks.append(
+        Task(
+            "ok",
+            id="to",
+            planned_start=datetime(2099, 1, 5, 9),
+            effort_hours=8.0,
+            assignees=[Assignee("田中")],
+        )
+    )
+    view.after_edit()
+    assert view.try_invest_on_gantt(("鈴木",)) == 1
+    assert set(view.trials) == {"tl"}  # 遅れているタスクだけ
+    assert view.dashboard_kind is None

@@ -599,7 +599,9 @@ class DashboardView:
         on_late_basis_change: Callable[[LateBasis], object] | None = None,
         on_catch_up_change: Callable[[CatchUp], object] | None = None,
         on_assign: Callable[[str], object] | None = None,
+        on_try_on_gantt: Callable[[tuple[str, ...]], object] | None = None,
     ) -> None:
+        self.on_try_on_gantt = on_try_on_gantt
         self.actions = actions
         self.on_assign = on_assign
         self.assign_mode = (
@@ -1802,6 +1804,12 @@ class DashboardView:
                 )
                 if not has_spare:
                     box.disable()
+        if rule.invest and self.on_try_on_gantt is not None:
+            handler = self.on_try_on_gantt
+            ui.button(
+                "ガントチャートで試す",
+                on_click=lambda names=rule.invest: handler(names),
+            ).props("dense flat").mark("dashboard-backlog-try-gantt")
         investment = backlog.investment
         if investment is None:
             return
