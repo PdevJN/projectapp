@@ -118,6 +118,13 @@ from projectapp.shortcuts import (
     label_for,
     resolve,
 )
+from projectapp.crew_trial import (
+    TrialCrew,
+    TrialResult,
+    confirmed,
+    evaluate,
+    replace_task,
+)
 from projectapp.dashboard import (
     MAX_CUSTOM_DAYS,
     CrossSummary,
@@ -473,6 +480,9 @@ class MainView:
             LateBasis.DELAY
         )  # 残りの工数の遅れの判定。保存しない・ビューに入れない
         self.dashboard_catch_up = CatchUp()  # 遅れを取り戻す期限(要望 104)。同上
+        self.trials: dict[
+            str, TrialCrew
+        ] = {}  # 遅延対応の増員の試算(要望 132)。保存しない
         self.dashboard_excluded: set[str] = (
             set()
         )  # 重ねるのから外したプロジェクトの名前。保存しない
@@ -838,11 +848,13 @@ class MainView:
             self.history.record(self.committed)
             history_log.record_edit(self.committed, self.project, clock.now())
             self.committed = deepcopy(self.project)
+        self.gantt.set_trials(self.trial_results())
         self.gantt.set_project(self.project)
 
     def reset_history(self) -> None:
         """履歴を捨て、いまの内容を確定した状態にする(別のプロジェクトに切り替えたとき・名前をつけて保存したとき)。"""
         self.history.clear()
+        self.trials = {}
         self.committed = deepcopy(self.project)
         self.gantt.clear_selection()  # 履歴を捨てる場面(開く・新規・取り込み・名前をつけて保存)では、一括操作の選択も解除する
 
@@ -2682,6 +2694,75 @@ class MainView:
             initial=task.name,
             label="タスク名",
         )
+
+    # --- 遅延対応(要望 132): 増員の試算 -------------------------------------
+    def try_crew(self, task_id: str, names: list[str], start: date) -> bool:
+        """増員の試算を入れる(同じタスクは置き換え)。保存せず、元に戻す履歴にも入れない。"""
+        task = self.project.task_map().get(task_id)
+        trial = TrialCrew(task_id, tuple(names), start)
+        schedule = Schedule(self.project, self.holidays)
+        if (
+            task is None
+            or not names
+            or evaluate(task, self.project, self.holidays, schedule, trial) is None
+        ):
+            ui.notify("このタスクには増員を試せません")
+            return False
+        self.trials[task_id] = trial
+        self.refresh_trials()
+        return True
+
+    def drop_trial(self, task_id: str) -> None:
+        if self.trials.pop(task_id, None) is not None:
+            self.refresh_trials()
+
+    def clear_trials(self) -> None:
+        if self.trials:
+            self.trials = {}
+            self.refresh_trials()
+
+    def trial_results(self) -> dict[str, TrialResult]:
+        """試算の今の結果。消えた・対象外になったタスクの試算は捨てる。"""
+        schedule = Schedule(self.project, self.holidays)
+        tasks = self.project.task_map()
+        results: dict[str, TrialResult] = {}
+        for task_id, trial in list(self.trials.items()):
+            task = tasks.get(task_id)
+            result = (
+                evaluate(task, self.project, self.holidays, schedule, trial)
+                if task is not None
+                else None
+            )
+            if result is None:
+                del self.trials[task_id]
+            else:
+                results[task_id] = result
+        return results
+
+    def confirm_trials(self) -> int:
+        """試算を確定する(weekly_crew に乗せる)。通常の編集 1 回分(元に戻せる)。確定した件数を返す。"""
+        schedule = Schedule(self.project, self.holidays)
+        tasks = self.project.task_map()
+        count = 0
+        for task_id, trial in list(self.trials.items()):
+            task = tasks.get(task_id)
+            saved = (
+                confirmed(task, self.project, self.holidays, schedule, trial)
+                if task is not None
+                else None
+            )
+            if saved is not None and replace_task(self.project, saved):
+                count += 1
+        self.trials = {}
+        if count:
+            self.after_edit()
+        else:
+            self.refresh_trials()
+        return count
+
+    def refresh_trials(self) -> None:
+        """試算の表示(チャートと帯)を描き直す。"""
+        self.gantt.set_trials(self.trial_results())
 
     def toggle_weeks(self, path: SectionPath, index: int) -> None:
         """担当を週ごとに分ける(今の担当を、開始から完了までの全部の週に入れる)/ 週ごとをやめる(第1週の担当に戻す)。"""

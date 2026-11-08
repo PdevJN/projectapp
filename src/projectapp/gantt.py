@@ -11,6 +11,7 @@ from nicegui.events import ValueChangeEventArguments
 
 from projectapp import arrange
 from projectapp import clock
+from projectapp.crew_trial import TrialResult
 from projectapp.avatar import avatar
 from projectapp.browser import open_url as default_open_url
 from projectapp.bottom_info import (
@@ -702,6 +703,9 @@ class GanttChart:
         self.category_lookup: dict[str, Category] = {}
         self.icon_lookup: dict[str, str] = {}
         self.schedule = Schedule(project, self.holidays)
+        self.trial_results: dict[
+            str, TrialResult
+        ] = {}  # 遅延対応の試算の結果(要望 132)
         self.links_html: ui.html | None = None
         self.link_layout: tuple[list[Column], int] | None = None
         self.scale = Scale.DAY
@@ -771,6 +775,11 @@ class GanttChart:
         self.search_input: ui.input | None = None
         self.assignee_select: ui.select | None = None
         self.client: Client | None = None
+
+    def set_trials(self, results: dict[str, TrialResult]) -> None:
+        """遅延対応の試算の結果を受け取って描き直す(保存しない)。"""
+        self.trial_results = results
+        self.render.refresh()
 
     def set_project(self, project: Project) -> None:
         """条件は保つ。担当者がメンバーからいなくなったときだけ、担当者の指定を外す。"""
