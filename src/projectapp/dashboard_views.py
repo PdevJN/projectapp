@@ -27,6 +27,7 @@ class CardId(StrEnum):
     HEATMAP = "heatmap"  # `負荷の日ごとの推移`。オフのときは開いているプロジェクトだけ
     HOURS = "hours"
     BACKLOG = "backlog"  # `未着手の工数と必要人数`
+    BURNDOWN = "burndown"  # `残りの工数の推移`(要望 128)
     DUE = "due"
 
 
@@ -37,6 +38,7 @@ DEFAULT_ORDER: tuple[CardId, ...] = (
     CardId.HEATMAP,
     CardId.HOURS,
     CardId.BACKLOG,
+    CardId.BURNDOWN,
     CardId.DUE,
 )
 
