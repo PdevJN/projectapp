@@ -38,6 +38,7 @@ from projectapp.config import (
     check_project_dir,
     load_custom_theme,
     load_main_split,
+    load_history_keep,
     load_open_ratio,
     load_today_color,
     load_warning_color,
@@ -235,6 +236,7 @@ from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, short_date
+from projectapp.history_log import HistoryKeep
 from projectapp.models import (
     MAX_SECTION_DEPTH,
     MAX_WEEKS,
@@ -544,6 +546,9 @@ class MainView:
         self.warning_color = load_warning_color(base_dir)  # 警告の色。None は既定(黄)
         self.main_split = load_main_split(base_dir)  # 分割の位置(ガントチャートの割合)
         self.open_ratio = load_open_ratio(base_dir)  # 下部パネルを開くときの割合
+        self.history_keep: HistoryKeep = load_history_keep(
+            base_dir
+        )  # 保存するときの履歴の残し方。全プロジェクト共通
         self.pending_split: int | None = None
         self.split_timer: ui.timer | None = None
         self.dark = ui.dark_mode()
@@ -2492,8 +2497,9 @@ class MainView:
 
     def commit(self, *, overwrite: bool, after: Callable[[], object] | None) -> bool:
         """検査なしで保存する(`write` の本体)。"""
+        stored = history_log.compacted(self.project, self.now(), self.history_keep)
         try:
-            path = save_project(self.project, self.project_dir, overwrite=overwrite)
+            path = save_project(stored, self.project_dir, overwrite=overwrite)
         except FileExistsError:
             ui.notify("同じ名前のファイルがすでにあります", type="negative")
             return False
@@ -2510,6 +2516,11 @@ class MainView:
         self.file_select.set_options(sorted(self.files), value=path.stem)
         self.title.refresh()
         ui.notify("保存しました")
+        if stored.history_since and stored.history_since != self.project.history_since:
+            ui.notify(
+                f"履歴が上限を超えたため、{stored.history_since:%m/%d} より前の履歴を捨てました",
+                type="warning",
+            )
         self.request_git_refresh()
         if after is not None:
             after()

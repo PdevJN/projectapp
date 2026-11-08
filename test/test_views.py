@@ -41,13 +41,15 @@ from projectapp.settings_io import (
 )
 from projectapp.categories import CategoryEdit
 from projectapp.gitstate import GitKind, GitState
-from projectapp.history_log import dirty_key
+from projectapp.history_log import HistoryKeep, dirty_key
 from projectapp.models import (
     Assignee,
     Actual,
     ActualMode,
     Category,
+    Change,
     Event,
+    HistoryEvent,
     Level,
     Member,
     Membership,
@@ -9344,3 +9346,64 @@ def test_zoom_fit_css_divides_the_viewport_based_sizes_by_the_zoom() -> None:
         " { max-height: calc(var(--app-vh, 100vh) - 48px)" in ZOOM_FIT_CSS
     )
     assert ZOOM_FIT_CSS.count("!important") == 3  # Quasar のインラインの値に勝つ
+
+
+def old_history_project(name: str = "p") -> Project:
+    return Project(
+        name,
+        tasks=[Task("a", id="a", progress=60)],
+        history=[
+            HistoryEvent("a", datetime(2026, 1, 5, 9), (Change("progress", None, 30),)),
+            HistoryEvent("a", datetime(2026, 1, 5, 15), (Change("progress", 30, 60),)),
+            HistoryEvent("a", datetime(2026, 1, 6, 9), (Change("effort", 1.0, 2.0),)),
+        ],
+        history_since=datetime(2026, 1, 1),
+    )
+
+
+async def open_for_history(user: User, tmp_path: Path) -> MainView:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    view.now = lambda: datetime(2026, 11, 8, 12)
+    view.project = old_history_project()
+    return view
+
+
+async def test_saving_writes_the_compacted_history_and_keeps_memory_as_it_is(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_for_history(user, tmp_path)
+    memory = list(view.project.history)
+    assert view.commit(overwrite=True, after=None)
+    saved = load_project(tmp_path / "p.json")
+    assert len(saved.history) == 2  # 1/5 の 2 件が 1 件に
+    assert view.project.history == memory  # 画面のデータは細かいまま
+    assert not view.is_dirty()  # 保存後は未保存の扱いにならない
+
+
+async def test_a_save_that_only_compacts_does_not_notify_about_dropping(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_for_history(user, tmp_path)
+    view.commit(overwrite=True, after=None)
+    assert await wait_until(lambda: user.notify.contains("保存しました"))
+    assert not user.notify.contains("履歴が上限を超えた")
+
+
+async def test_going_over_the_cap_drops_old_days_and_tells_the_user(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_for_history(user, tmp_path)
+    view.history_keep = HistoryKeep(days=7, max_events=1)
+    view.commit(overwrite=True, after=None)
+    saved = load_project(tmp_path / "p.json")
+    assert [e.at.date() for e in saved.history] == [date(2026, 1, 6)]
+    assert saved.history_since == datetime(2026, 1, 6)
+    assert await wait_until(
+        lambda: user.notify.contains(
+            "履歴が上限を超えたため、01/06 より前の履歴を捨てました"
+        )
+    )
