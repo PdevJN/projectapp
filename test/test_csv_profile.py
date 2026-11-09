@@ -276,3 +276,23 @@ def test_seven_fields_render_and_split_back() -> None:
     text = render_template(template, values, False)
     assert split_template(template, text) == values
     assert split_template(template, "v0/v1") is not None  # 後ろが空の形も読む
+
+
+def test_hierarchy_options_default_to_the_current_behaviour_and_round_trip() -> None:
+    from projectapp.csv_profile import (
+        CsvColumn,
+        CsvField,
+        CsvProfile,
+        profile_from_config,
+        profile_to_config,
+    )
+
+    base = CsvProfile("p", (CsvColumn(CsvField.TITLE, "名前"),))
+    assert (base.summary_rows, base.section_mode) == (False, "row")
+    raw = profile_to_config(base)
+    raw.pop("summary_rows"), raw.pop("section_mode")
+    assert profile_from_config(raw) == base  # キーのない古い設定
+    custom = CsvProfile("p", base.columns, summary_rows=True, section_mode="breadcrumb")
+    assert profile_from_config(profile_to_config(custom)) == custom
+    raw = profile_to_config(base) | {"section_mode": "bogus"}
+    assert profile_from_config(raw) is None

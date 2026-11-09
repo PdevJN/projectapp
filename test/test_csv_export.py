@@ -464,3 +464,76 @@ def test_a_single_empty_cell_is_written_as_an_empty_line_not_quotes() -> None:
     )
     lines = build_table(p, {}, profile).text.split("\n")
     assert lines[0] == "" and lines[1] == "設計"  # 見出しが空でも、"" とは書かない
+
+
+def _hierarchy_project() -> Project:
+    child_a = Task(
+        "子A", planned_start=datetime(2026, 10, 5), effort_hours=8, progress=50
+    )
+    child_b = Task(
+        "子B", planned_start=datetime(2026, 10, 7), effort_hours=8, progress=100
+    )
+    parent = Task("親", kind=TaskKind.SUMMARY, children=[child_a.id, child_b.id])
+    inner = Section("2#基本設計", tasks=[Task("画面一覧")])
+    outer = Section("設計", tasks=[parent, child_a, child_b], sections=[inner])
+    return Project("p", tasks=[Task("直下")], sections=[outer])
+
+
+def _profile(**kwargs) -> CsvProfile:
+    columns = (
+        CsvColumn(CsvField.TITLE, "タイトル"),
+        CsvColumn(CsvField.SECTION, "セクション"),
+        CsvColumn(CsvField.START, "開始"),
+        CsvColumn(CsvField.END, "期限"),
+        CsvColumn(CsvField.PROGRESS, "進捗"),
+    )
+    return CsvProfile("t", columns, delimiter="\t", date_format="ymd-dash", **kwargs)
+
+
+def _lines(text: str) -> list[list[str]]:
+    return [line.split("\t") for line in text.split("\n") if line][1:]
+
+
+def test_summary_rows_are_not_written_by_default() -> None:
+    out = build_table(_hierarchy_project(), {}, _profile())
+    assert "親" not in [r[0] for r in _lines(out.text)]
+    assert out.skipped == 1
+
+
+def test_summary_rows_take_the_span_of_the_children_and_their_progress() -> None:
+    out = build_table(_hierarchy_project(), {}, _profile(summary_rows=True))
+    row = next(r for r in _lines(out.text) if r[0] == "親")
+    assert row[1] == "設計"
+    assert row[2] == "2026-10-05"
+    child_b = next(r for r in _lines(out.text) if r[0] == "子B")
+    assert row[3] == child_b[3] == "2026-10-08"  # 子の最遅の期限
+    assert row[4] == "75%"  # 工数が同じ子 50 と 100 の平均
+    assert out.skipped == 0
+
+
+def test_the_section_column_joins_the_hierarchy_and_section_rows_hold_their_parent() -> (
+    None
+):
+    out = build_table(_hierarchy_project(), {}, _profile())
+    by_title = {r[0]: r[1] for r in _lines(out.text)}
+    assert by_title["直下"] == ""
+    assert by_title["子A"] == "設計"
+    assert by_title["画面一覧"] == "設計 > 基本設計"
+    assert by_title["設計"] == ""  # セクション行は親の階層(最上位は空)
+    assert by_title["基本設計"] == "設計"
+
+
+def test_sections_can_be_left_out() -> None:
+    out = build_table(_hierarchy_project(), {}, _profile(section_mode="none"))
+    titles = [r[0] for r in _lines(out.text)]
+    assert "設計" not in titles and "基本設計" not in titles
+    assert out.section_count == 0 and "画面一覧" in titles
+
+
+def test_sections_can_become_a_breadcrumb_in_the_title() -> None:
+    out = build_table(_hierarchy_project(), {}, _profile(section_mode="breadcrumb"))
+    titles = [r[0] for r in _lines(out.text)]
+    assert "直下" in titles
+    assert "設計 > 子A" in titles
+    assert "設計 > 基本設計 > 画面一覧" in titles
+    assert "設計" not in titles and out.section_count == 0

@@ -12,12 +12,14 @@ from pathlib import Path
 from projectapp.csv_import import WBS_NUMBER, WBS_SEPARATOR
 from projectapp.models import Project, ReferenceValue, Section, Status, Task, TaskKind
 from projectapp.csv_profile import (
+    SECTION_PATH_SEPARATOR,
     SMARTSHEET,
     CsvField,
     CsvProfile,
     render_template,
 )
 from projectapp.plantuml import write_text
+from projectapp.summary import children_of, summary_progress, summary_status
 from projectapp.timeline import Schedule, effective_end, effective_start
 
 TSV_FILE_TYPES = ("TSV ファイル (*.tsv)",)
@@ -107,6 +109,7 @@ def build_table(
         "multiple": 0,
         "references": 0,
         "unresolved": 0,
+        "summaries": 0,
     }
 
     def write(values: dict[CsvField, str]) -> None:
@@ -148,9 +151,48 @@ def build_table(
             }
         )
 
-    def task_row(task: Task) -> None:
+    by_id = {t.id: t for t in project.all_tasks()}
+    breadcrumb = profile.section_mode == "breadcrumb"
+
+    def place(title: str, path: tuple[str, ...]) -> dict[CsvField, str]:
+        """セクションの階層を、`セクション`の項目と(パンくずのとき)タイトルの手前に入れる。"""
+        crumbs = SECTION_PATH_SEPARATOR.join(path)
+        return {
+            CsvField.SECTION: crumbs,
+            CsvField.TITLE: f"{crumbs}{SECTION_PATH_SEPARATOR}{title}"
+            if breadcrumb and path
+            else title,
+        }
+
+    def summary_row(task: Task, path: tuple[str, ...]) -> None:
+        wbs, title = split_name(task.name)
+        start = effective_start(task, project, holidays, schedule)
+        end = effective_end(task, project, holidays, schedule)
+        first, last = (
+            (start.date() if start else None),
+            (_last_day(end) if end else None),
+        )
+        children = children_of(task, by_id)
+        percent = summary_progress(children, references)
+        counts["summaries"] += 1
+        write(
+            {
+                CsvField.WBS: wbs,
+                **place(title, path),
+                CsvField.START: format_date(first, style) if first else "",
+                CsvField.END: format_date(last, style) if last else "",
+                CsvField.DURATION: str((last - first).days if first and last else 0),
+                CsvField.PROGRESS: f"{percent or 0}{sign}",
+                CsvField.STATUS: summary_status(children, references).value,
+            }
+        )
+
+    def task_row(task: Task, path: tuple[str, ...] = ()) -> None:
         if task.kind is TaskKind.REFERENCE:
             reference_row(task)
+            return
+        if task.kind is TaskKind.SUMMARY and profile.summary_rows:
+            summary_row(task, path)
             return
         if task.kind is not TaskKind.NORMAL:
             counts["skipped"] += 1
@@ -183,7 +225,7 @@ def build_table(
         write(
             {
                 CsvField.WBS: wbs,
-                CsvField.TITLE: title,
+                **place(title, path),
                 CsvField.OWNER: owner,
                 CsvField.RATIO: ratio,
                 CsvField.DEADLINE: format_date(task.deadline.date(), style)
@@ -206,14 +248,22 @@ def build_table(
             }
         )
 
-    def section_rows(section: Section) -> None:
-        counts["sections"] += 1
+    def section_rows(section: Section, parents: tuple[str, ...] = ()) -> None:
         wbs, title = split_name(section.name)
-        write({CsvField.WBS: wbs, CsvField.TITLE: title})
+        if profile.section_mode == "row":
+            counts["sections"] += 1
+            write(
+                {
+                    CsvField.WBS: wbs,
+                    CsvField.TITLE: title,
+                    CsvField.SECTION: SECTION_PATH_SEPARATOR.join(parents),
+                }
+            )
+        path = (*parents, title)
         for task in section.tasks:
-            task_row(task)
+            task_row(task, path)
         for child in section.sections:
-            section_rows(child)
+            section_rows(child, path)
 
     for task in project.tasks:
         task_row(task)
@@ -221,7 +271,7 @@ def build_table(
         section_rows(section)
     return TableExport(
         out.getvalue(),
-        counts["tasks"],
+        counts["tasks"] + counts["summaries"],
         counts["sections"],
         counts["skipped"],
         counts["multiple"],

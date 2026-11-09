@@ -14,6 +14,12 @@ MAX_PROFILES = 20
 MAX_PROFILE_NAME = 30
 MAX_HEADER = 40
 MAX_SEPARATOR = 3
+SECTION_MODES = (
+    "row",
+    "none",
+    "breadcrumb",
+)  # セクションの書き出し: 行・書かない・タイトルの手前のパンくず
+SECTION_PATH_SEPARATOR = " > "  # セクションの階層をつなぐ
 
 
 class CsvField(StrEnum):
@@ -31,6 +37,7 @@ class CsvField(StrEnum):
     ACTUAL_START = "actual_start"
     ACTUAL_END = "actual_end"
     CATEGORY = "category"
+    SECTION = "section"
 
 
 FIELD_LABELS = {
@@ -48,11 +55,12 @@ FIELD_LABELS = {
     CsvField.ACTUAL_START: "開始実績",
     CsvField.ACTUAL_END: "終了実績",
     CsvField.CATEGORY: "カテゴリ",
+    CsvField.SECTION: "セクション",
 }
 EXPORT_FIELDS = tuple(CsvField)  # ダイアログの表示順
 IMPORT_FIELDS = tuple(
-    f for f in CsvField if f is not CsvField.DURATION
-)  # 期間は読まない
+    f for f in CsvField if f not in (CsvField.DURATION, CsvField.SECTION)
+)  # 期間は読まない。セクションは書き出しだけ(取り込みは別の段階)
 
 ALIASES: dict[CsvField, tuple[str, ...]] = {  # 見出しの別名(header_key にそろえた形)
     CsvField.WBS: ("wbs番号", "wbs", "wbsno", "no", "番号"),
@@ -130,6 +138,7 @@ ALIASES: dict[CsvField, tuple[str, ...]] = {  # 見出しの別名(header_key �
         "category",
         "projectcode",
     ),
+    CsvField.SECTION: ("セクション", "section"),
 }
 
 
@@ -267,6 +276,10 @@ class CsvProfile:
     blank_rows: int = 0  # 見出しの次に入れる空行の数(Smartsheet のテンプレートだけ)
 
     keep_separators: bool = False  # 書式で、空の項目の区切りも残す
+    summary_rows: bool = (
+        False  # 書き出しで、まとめを行として書く(開始=子の最早、期限=子の最遅)
+    )
+    section_mode: str = "row"  # 書き出しでのセクション: row=行 / none=書かない / breadcrumb=タイトルの手前に階層
 
     @property
     def headers(self) -> dict[CsvField, str]:
@@ -373,6 +386,8 @@ def validate_profile(profile: CsvProfile) -> str | None:
         return "文字コードは UTF-8・UTF-8(BOM 付き)・Shift_JIS から選んでください"
     if profile.date_format not in DATE_FORMATS:
         return "日付の書式を選んでください"
+    if profile.section_mode not in SECTION_MODES:
+        return "セクションの書き出し方を選んでください"
     if len(profile.owner_separator) > MAX_SEPARATOR:
         return f"担当の区切りは {MAX_SEPARATOR} 文字までです"
     for column in profile.columns:
@@ -407,6 +422,8 @@ def profile_to_config(profile: CsvProfile) -> dict:
         "owner_separator": profile.owner_separator,
         "progress_percent": profile.progress_percent,
         "keep_separators": profile.keep_separators,
+        "summary_rows": profile.summary_rows,
+        "section_mode": profile.section_mode,
     }
 
 
@@ -432,6 +449,8 @@ def profile_from_config(raw: object) -> CsvProfile | None:
             str(raw.get("owner_separator", ";")),
             progress_percent=raw.get("progress_percent", True) is not False,
             keep_separators=raw.get("keep_separators", False) is True,
+            summary_rows=raw.get("summary_rows", False) is True,
+            section_mode=str(raw.get("section_mode", "row")),
         )
     except (KeyError, TypeError, ValueError):
         return None
