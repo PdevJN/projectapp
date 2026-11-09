@@ -257,3 +257,37 @@ async def test_confirming_and_investing_notify_when_a_day_off_delays_the_start(
     assert any(
         "鈴木 は 1/13 から効きます" in str(c.args[0]) for c in notify.call_args_list
     )
+
+
+async def test_monthly_view_folds_a_daily_week_and_summarises_it_on_the_bar(
+    user: User, tmp_path: Path
+) -> None:
+    from nicegui import ui
+
+    from projectapp.timeline import Scale
+
+    view = await opened(user, tmp_path)
+    days = [[Assignee("田中")]] * 3 + [[Assignee("田中"), Assignee("鈴木")]] * 4
+    view.split_week_days((), 0, 0)
+    view.save_week_days((), 0, 0, days)
+    view.gantt.set_scale(Scale.MONTH)
+    await user.should_see(marker="day-chip-top-0-0-0")
+    await user.should_not_see(marker="day-chip-top-0-0-1")
+    await user.should_see(marker="week-chip-top-0-1")
+    assert not tooltips(user, "day-chip-top-0-0-0")
+    bar = user.find(marker="bar-top-0").elements.pop()
+    tip = next(c for c in bar.parent_slot.children if isinstance(c, ui.tooltip))
+    assert tip.text.splitlines() == [
+        "第1週 1/5〜1/11(日ごとの週)",
+        "　1/5(月)〜1/7(水): 田中 100%",
+        "　1/8(木)〜1/9(金): 田中 100%、鈴木 100% (+鈴木)",
+    ]
+    view.gantt.set_scale(Scale.DAY)
+    await user.should_see(marker="day-chip-top-0-0-6")
+
+
+def test_summary_is_empty_without_a_daily_week() -> None:
+    from projectapp.gantt import month_daily_summary
+
+    task = Task("a", weekly_crew=[[Assignee("田中")]])
+    assert month_daily_summary(task, date(2099, 1, 5), lambda d: False) == ""

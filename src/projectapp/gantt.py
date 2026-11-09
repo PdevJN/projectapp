@@ -12,7 +12,7 @@ from nicegui.events import ValueChangeEventArguments
 from projectapp import arrange
 from projectapp import clock
 from projectapp.crew_trial import TrialResult
-from projectapp.daily_crew import segments
+from projectapp.daily_crew import Segment, segments
 from projectapp.delay_response import DELAY_RESPONSE_CSS
 from projectapp.forecast import Forecast, forecast_end
 from projectapp.avatar import avatar
@@ -561,6 +561,61 @@ def week_summary(task: Task, start: date | None = None) -> str:
         suffix = "(日ごとの週)" if task.daily_crew.get(number - 1) else ""
         lines.append(f"第{number}週{period}{suffix}: {crew_text(week)}")
     return "\n".join(lines)
+
+
+def month_daily_summary(task: Task, start: date, is_off: Callable[[date], bool]) -> str:
+    """月次表示で、日ごとの週の担当をまとめた説明(棒のマウスオーバー用)。日ごとの週がなければ空。
+    休みの日(is_off)は数えず、同じ担当が続く日をまとめ、前の担当との増減を +名前・−名前で添える。"""
+    lines: list[str] = []
+    previous: set[str] | None = None
+    for number in sorted(task.daily_crew):
+        if number >= len(task.weekly_crew):
+            continue
+        first = start + timedelta(days=7 * number)
+        lines.append(
+            f"第{number + 1}週 {short_date(first)}〜{short_date(first + timedelta(days=6))}(日ごとの週)"
+        )
+        runs: list[tuple[date, date, list[Assignee]]] = []
+        for offset, crew in enumerate(task.daily_crew[number]):
+            day = first + timedelta(days=offset)
+            if is_off(day):
+                continue
+            names = [(a.name, a.allocation) for a in crew]
+            if runs and [(a.name, a.allocation) for a in runs[-1][2]] == names:
+                runs[-1] = (runs[-1][0], day, runs[-1][2])
+            else:
+                runs.append((day, day, crew))
+        for begin, finish, crew in runs:
+            names = {a.name for a in crew}
+            change = ""
+            if previous is not None and names != previous:
+                gain = [n for n in (a.name for a in crew) if n not in previous]
+                loss = sorted(previous - names)
+                change = (
+                    " ("
+                    + " ".join([f"+{n}" for n in gain] + [f"−{n}" for n in loss])
+                    + ")"
+                )
+            span = f"{short_date(begin)}({WEEKDAYS[begin.weekday()]})"
+            if finish != begin:
+                span += f"〜{short_date(finish)}({WEEKDAYS[finish.weekday()]})"
+            lines.append(f"　{span}: {crew_text(crew)}{change}")
+            previous = names
+    return "\n".join(lines)
+
+
+def collapse_daily_weeks(parts: list[Segment]) -> list[Segment]:
+    """月次表示用に、日ごとの週の 7 日ぶんのチップを、週 1 つぶんのチップ(担当は 7 日の合併)にまとめる。"""
+    result: list[Segment] = []
+    for part in parts:
+        if part.day is not None and result and result[-1].week == part.week:
+            before = result[-1]
+            crew = list(before.crew)
+            crew += [a for a in part.crew if a.name not in {c.name for c in crew}]
+            result[-1] = Segment(before.week, 0, before.first, part.last, crew, False)
+        else:
+            result.append(part)
+    return result
 
 
 def fill_percent(task: Task) -> int | None:
@@ -2863,6 +2918,18 @@ class GanttChart:
                 if state in PROGRESS_STATE_CLASSES:
                     bar.classes(PROGRESS_STATE_CLASSES[state])
                 bar.mark(f"bar-{key}-{ti}")
+                if (
+                    self.view_scale is Scale.MONTH
+                    and task.daily_crew
+                    and self.options.show_chips
+                    and start is not None
+                    and (
+                        summary_text := month_daily_summary(
+                            task, start.date(), self.is_off_day
+                        )
+                    )
+                ):  # 月次では日ごとのチップが細すぎるので、棒のマウスオーバーにまとめる(要望 136)
+                    bar.tooltip(summary_text)
                 if task.kind is TaskKind.NORMAL and not self.options.read_only:
                     bar.on(
                         "click",
@@ -3377,6 +3444,10 @@ class GanttChart:
         defined = len(task.weekly_crew)
         last_day = (end - timedelta(microseconds=1)).date()
         parts = segments(task.weekly_crew, task.daily_crew, start.date(), last_day)
+        if (
+            self.view_scale is Scale.MONTH
+        ):  # 月次は幅が足りないので、日ごとの週も 1 つにまとめる(要望 136)
+            parts = collapse_daily_weeks(parts)
         for position, part in enumerate(parts):
             # 定義した週より後も、7 日ごとに区切る(担当は最後の週のものが続く。タップすると、その週まで足して直せる)
             left = start if position == 0 else datetime.combine(part.first, time.min)
@@ -3389,10 +3460,13 @@ class GanttChart:
             width_px = min(length * width, bar_width - left_px)
             if width_px <= 0:
                 continue
-            resting = self.members_off(part.first, crew) if daily else []
+            folded = daily and part.last > part.first  # 月次でまとめた日ごとの週
+            resting = self.members_off(part.first, crew) if daily and not folded else []
             # 休みの日、または担当者全員が個人の休みの日は薄くして名前を出さない
-            off = daily and (
-                self.is_off_day(part.first) or len(resting) == len(crew) > 0
+            off = (
+                daily
+                and not folded
+                and (self.is_off_day(part.first) or len(resting) == len(crew) > 0)
             )
             if daily:  # 日ごとの週は、細いチップを濃い色・下線・点線の区切りで、週のチップと見分ける(要望 135)
                 divider = " border-left: 1px dotted rgba(255,255,255,0.9);"
@@ -3466,7 +3540,10 @@ class GanttChart:
                     title += f"\n増員 +{'・'.join(added)}(確定済み)"
                     chip.classes("week-added")
                     markers.append(f"week-added-{tag}")
-            chip.tooltip(title).mark(*markers)
+            if folded:  # 中身は棒のマウスオーバーのサマリで示す
+                chip.mark(*markers)
+            else:
+                chip.tooltip(title).mark(*markers)
             if not self.options.read_only:
                 # 修飾キーつきのクリックは、チップで受けず棒へ伝える(棒の Shift クリックは進捗度・実績の簡易入力。両方は開かない)
                 chip.style("cursor: pointer").on(
