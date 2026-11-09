@@ -43,6 +43,12 @@ DATE_OPTIONS = {
     "ymd-slash": "2026/10/05",
 }
 KEEP_OPTIONS = {False: "区切りも消す", True: "区切りは残す"}
+SUMMARY_OPTIONS = {False: "書かない", True: "行として書く"}
+SECTION_OPTIONS = {
+    "row": "行として書く",
+    "none": "書かない",
+    "breadcrumb": "タイトルの手前に階層を付ける",
+}
 PERCENT_OPTIONS = {True: "% あり(50%)", False: "% なし(50)"}
 OWNER_SEPARATOR_OPTIONS = {
     ";": ";",
@@ -531,6 +537,24 @@ def open_csv_export_dialog(
                 .classes("min-w-[12rem]")
                 .mark("csv-ex-keep-sep")
             )
+            summary_select = (
+                ui.select(
+                    SUMMARY_OPTIONS,
+                    label="まとめの行",
+                    value=start.summary_rows,
+                )
+                .classes("min-w-[12rem]")
+                .mark("csv-ex-summary")
+            )
+            section_select = (
+                ui.select(
+                    SECTION_OPTIONS,
+                    label="セクション",
+                    value=start.section_mode,
+                )
+                .classes("min-w-[12rem]")
+                .mark("csv-ex-section")
+            )
         note = ui.label("").classes("text-negative")
 
         with ui.row().classes("items-end w-full no-wrap"):
@@ -658,6 +682,8 @@ def open_csv_export_dialog(
             str(owner_select.value or ""),
             progress_percent=bool(percent_select.value),
             keep_separators=bool(keep_select.value),
+            summary_rows=bool(summary_select.value),
+            section_mode=str(section_select.value),
         )
         same = (
             columns == SMARTSHEET.columns
@@ -667,6 +693,8 @@ def open_csv_export_dialog(
             and profile.owner_separator == SMARTSHEET.owner_separator
             and profile.progress_percent == SMARTSHEET.progress_percent
             and profile.keep_separators == SMARTSHEET.keep_separators
+            and profile.summary_rows == SMARTSHEET.summary_rows
+            and profile.section_mode == SMARTSHEET.section_mode
         )
         return replace(profile, blank_rows=SMARTSHEET.blank_rows if same else 0)
 
@@ -679,6 +707,8 @@ def open_csv_export_dialog(
         owner_select.set_value(profile.owner_separator)
         percent_select.set_value(profile.progress_percent)
         keep_select.set_value(profile.keep_separators)
+        summary_select.set_value(profile.summary_rows)
+        section_select.set_value(profile.section_mode)
         quick.update(quick_of(profile))
         quick_check.set_value(quick["on"])
         quick_input.set_value(quick["template"])

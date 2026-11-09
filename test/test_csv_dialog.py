@@ -495,3 +495,14 @@ async def test_the_import_builder_fills_the_template_field(user: User) -> None:
     assert user.find(marker="csv-template-start").elements.pop().value == (
         "{開始日}/{期限}"
     )
+
+
+async def test_summary_and_section_choices_reach_the_exported_profile(
+    user: User,
+) -> None:
+    exported, _ = await open_export(user)
+    user.find(marker="csv-ex-summary").elements.pop().set_value(True)
+    user.find(marker="csv-ex-section").elements.pop().set_value("breadcrumb")
+    user.find(marker="csv-export-confirm").click()
+    assert exported[0].summary_rows is True
+    assert exported[0].section_mode == "breadcrumb"

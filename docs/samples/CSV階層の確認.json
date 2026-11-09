@@ -1,0 +1,302 @@
+{
+  "version": 22,
+  "name": "CSV階層の確認",
+  "base_date": "2026-11-02",
+  "daily_hours": 6.5,
+  "work_start": "09:00:00",
+  "members": [
+    {
+      "name": "田中",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "b24619f7",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    },
+    {
+      "name": "佐藤",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "336b8931",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    },
+    {
+      "name": "b24619f7",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "d060545b",
+      "icon": "",
+      "work_days": [],
+      "teams": []
+    },
+    {
+      "name": "336b8931",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "da609a31",
+      "icon": "",
+      "work_days": [],
+      "teams": []
+    }
+  ],
+  "sections": [
+    {
+      "name": "1#基本設計",
+      "tasks": [
+        {
+          "name": "画面設計",
+          "id": "d7a4bd8d",
+          "planned_start": null,
+          "effort_hours": 0.0,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "まとめ",
+          "urls": [],
+          "progress": null,
+          "children": [
+            "b4353367",
+            "37306460"
+          ],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "daily_crew": {},
+          "extra_efforts": []
+        },
+        {
+          "name": "画面一覧",
+          "id": "b4353367",
+          "planned_start": "2026-11-02T09:00:00",
+          "effort_hours": 13,
+          "priority": "中",
+          "status": "終了",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "d060545b",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": 100,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "daily_crew": {},
+          "extra_efforts": []
+        },
+        {
+          "name": "画面遷移図",
+          "id": "37306460",
+          "planned_start": "2026-11-04T09:00:00",
+          "effort_hours": 13,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "d060545b",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": 40,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "daily_crew": {},
+          "extra_efforts": []
+        },
+        {
+          "name": "DB設計",
+          "id": "868ee719",
+          "planned_start": "2026-11-04T09:00:00",
+          "effort_hours": 19.5,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "da609a31",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": 20,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "daily_crew": {},
+          "extra_efforts": []
+        }
+      ],
+      "sections": [
+        {
+          "name": "詳細",
+          "tasks": [
+            {
+              "name": "API設計",
+              "id": "629825b9",
+              "planned_start": "2026-11-09T09:00:00",
+              "effort_hours": 13,
+              "priority": "中",
+              "status": "未着手",
+              "color": "#4c8bf5",
+              "assignees": [
+                {
+                  "member": "da609a31",
+                  "allocation": 1.0
+                }
+              ],
+              "predecessors": [],
+              "deadline": null,
+              "planned_end": null,
+              "planned_end_manual": false,
+              "actuals": [],
+              "category_id": null,
+              "kind": "通常",
+              "urls": [],
+              "progress": null,
+              "children": [],
+              "parameters": [],
+              "ref_project": "",
+              "ref_snapshot": null,
+              "weekly_crew": [],
+              "daily_crew": {},
+              "extra_efforts": []
+            }
+          ],
+          "sections": [],
+          "id": "ac5de93c"
+        }
+      ],
+      "id": "902c5730"
+    },
+    {
+      "name": "2#テスト",
+      "tasks": [
+        {
+          "name": "結合テスト",
+          "id": "ffa50b78",
+          "planned_start": "2026-11-16T09:00:00",
+          "effort_hours": 13,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "d060545b",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "daily_crew": {},
+          "extra_efforts": []
+        }
+      ],
+      "sections": [],
+      "id": "13381ac5"
+    }
+  ],
+  "tasks": [
+    {
+      "name": "キックオフ",
+      "id": "33c995c8",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 3.25,
+      "priority": "中",
+      "status": "終了",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "d060545b",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": 100,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "daily_crew": {},
+      "extra_efforts": []
+    }
+  ],
+  "actual_mode": "simple",
+  "url_templates": [],
+  "parameters": [],
+  "categories": [],
+  "events": [],
+  "teams": [],
+  "reference_mode": "live",
+  "plantuml_overload_notice": true,
+  "ratio_limit_upper": null,
+  "ratio_limit_lower": null,
+  "history": [],
+  "history_since": null
+}
