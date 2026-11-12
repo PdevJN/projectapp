@@ -788,3 +788,13 @@ def test_today_uses_the_configured_color_instead_of_red() -> None:
 def test_the_configured_today_color_is_not_used_when_today_is_off() -> None:
     out = lines(Project("p"), now=TODAY, today_color="#1e88e5", show_today=False)
     assert not any("#1e88e5" in line for line in out)
+
+
+def test_the_quarter_is_blocked_unless_the_fiscal_year_starts_in_january() -> None:
+    from projectapp.plantuml import quarter_block_reason
+
+    assert quarter_block_reason(Scale.QUARTER, 1) is None
+    reason = quarter_block_reason(Scale.QUARTER, 10)
+    assert reason is not None and "10月始まり" in reason
+    for scale in (Scale.DAY, Scale.WEEK, Scale.MONTH):
+        assert quarter_block_reason(scale, 10) is None

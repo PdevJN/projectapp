@@ -9478,3 +9478,31 @@ async def test_the_preview_toggle_has_the_quarter_and_shows_quarter_columns(
     assert view.gantt.view_scale is Scale.QUARTER
     await user.should_see(marker="year-band")
     await user.should_not_see(marker="month-band")
+
+
+async def test_plantuml_is_disabled_with_a_reason_for_a_non_january_quarter(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    assert view.fiscal_start_month == 10
+    item = user.find(marker="preview-plantuml").elements.pop()
+    assert item.enabled and view.preview_bar.plantuml_tip is None
+    user.find(marker="preview-scale").elements.pop().set_value("四半期")
+    await asyncio.sleep(0.2)
+    assert not item.enabled  # 10 月始まりの四半期は出せない
+    tip = view.preview_bar.plantuml_tip
+    assert tip is not None and "10月始まり" in tip.text
+    assert view.preview_bar.save_button.enabled  # 画像の保存は使える
+    user.find(marker="preview-scale").elements.pop().set_value("月次")
+    await asyncio.sleep(0.2)
+    assert item.enabled and view.preview_bar.plantuml_tip is None
+
+
+async def test_plantuml_quarter_is_allowed_when_the_year_starts_in_january(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    view.fiscal_start_month = 1
+    user.find(marker="preview-scale").elements.pop().set_value("四半期")
+    await asyncio.sleep(0.2)
+    assert user.find(marker="preview-plantuml").elements.pop().enabled

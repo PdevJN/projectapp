@@ -113,6 +113,11 @@ class PreviewBar:
         self.select_state: CheckState | None = None
         self.syncing = False
         self.box: ui.column | None = None
+        self.plantuml_block: str | None = (
+            None  # PlantUML に出せない理由(出せるなら None)
+        )
+        self.plantuml_tip: ui.tooltip | None = None
+        self.save_enabled = True
 
     def build(self) -> None:
         with ui.column().classes("w-full gap-1") as box:
@@ -175,10 +180,13 @@ class PreviewBar:
                         self.save_button = ui.menu_item(
                             "画像として保存", on_click=lambda: self.on_save()
                         ).mark("preview-save")
-                        self.plantuml_button = ui.menu_item(
-                            "PlantUML として保存",
-                            on_click=lambda: self.on_save_plantuml(),
-                        ).mark("preview-plantuml")
+                        with (
+                            ui.element("div") as self.plantuml_wrap
+                        ):  # 無効のメニュー項目は hover を受けないので、説明は外側に付ける
+                            self.plantuml_button = ui.menu_item(
+                                "PlantUML として保存",
+                                on_click=lambda: self.on_save_plantuml(),
+                            ).mark("preview-plantuml")
             self.error = (
                 ui.label("").classes("text-negative text-caption").mark("preview-error")
             )
@@ -261,6 +269,21 @@ class PreviewBar:
         self.warning.set_text(text or "")
 
     def set_save_enabled(self, enabled: bool) -> None:
+        self.save_enabled = enabled
         self.save_menu_button.set_enabled(enabled)
         self.save_button.set_enabled(enabled)
-        self.plantuml_button.set_enabled(enabled)
+        self.plantuml_button.set_enabled(enabled and self.plantuml_block is None)
+
+    def set_plantuml_block(self, reason: str | None) -> None:
+        """PlantUML に出せないとき、項目を無効にして、マウスオーバーで理由を出す。"""
+        self.plantuml_block = reason
+        self.plantuml_button.set_enabled(self.save_enabled and reason is None)
+        if reason is None:
+            if self.plantuml_tip is not None:
+                self.plantuml_tip.delete()
+                self.plantuml_tip = None
+        elif self.plantuml_tip is None:
+            with self.plantuml_wrap:
+                self.plantuml_tip = ui.tooltip(reason).classes("text-body2")
+        else:
+            self.plantuml_tip.set_text(reason)

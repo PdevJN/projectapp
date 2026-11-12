@@ -170,6 +170,17 @@ def _day_overloads(
     return tuple(sorted(flagged, key=lambda key: (key[1], key[0])))
 
 
+def quarter_block_reason(scale: Scale, fiscal_start_month: int) -> str | None:
+    """PlantUML に出せない理由(なければ None)。PlantUML の四半期は暦(1 月始まり)で区切るので、
+    会計年度の開始月が 1 月でないと、アプリの四半期と区切りが合わない。"""
+    if scale is Scale.QUARTER and fiscal_start_month != 1:
+        return (
+            f"会計年度が{fiscal_start_month}月始まりのため、四半期は PlantUML に出せません"
+            "(PlantUML の四半期は 1 月始まり。月次などに切り替えるか、開始月を 1 月にしてください)"
+        )
+    return None
+
+
 def build_plantuml(
     project: Project,
     holidays: dict[date, str],

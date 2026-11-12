@@ -187,6 +187,7 @@ from projectapp.handoff import default_filename as handoff_filename
 from projectapp.plantuml import (
     PLANTUML_FILE_TYPES,
     build_plantuml,
+    quarter_block_reason,
     day_overload_notice,
     weekly_crew_notice,
     write_text,
@@ -802,6 +803,10 @@ class MainView:
             self.fiscal_start_month = fiscal_month
             self.gantt.fiscal_start_month = fiscal_month
             self.gantt.render.refresh()  # 四半期の列を描き直す
+            if self.preview is not None:
+                self.preview_bar.set_plantuml_block(
+                    quarter_block_reason(self.preview.scale, fiscal_month)
+                )
         return True
 
     def apply_open_ratio(self, value: int) -> bool:
@@ -2164,6 +2169,9 @@ class MainView:
         self.preview_bar.set_error(None)
         available = self.exporter.available
         self.preview_bar.set_save_enabled(available and not self.saving)
+        self.preview_bar.set_plantuml_block(
+            quarter_block_reason(settings.scale, self.fiscal_start_month)
+        )
         if not available:
             self.preview_bar.set_warning(NOT_NATIVE_MESSAGE)
         elif exceeds_canvas(self.gantt.content_width()):
@@ -2222,6 +2230,10 @@ class MainView:
         if self.preview is None or self.saving or not self.exporter.available:
             return
         settings = self.preview
+        block = quarter_block_reason(settings.scale, self.fiscal_start_month)
+        if block is not None:
+            ui.notify(block, type="warning")
+            return
         result = build_plantuml(
             self.project,
             self.holidays,
