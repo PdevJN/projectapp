@@ -290,9 +290,15 @@ def test_hierarchy_options_default_to_the_current_behaviour_and_round_trip() -> 
     base = CsvProfile("p", (CsvColumn(CsvField.TITLE, "名前"),))
     assert (base.summary_rows, base.section_mode) == (False, "row")
     raw = profile_to_config(base)
-    raw.pop("summary_rows"), raw.pop("section_mode")
+    raw.pop("summary_rows"), raw.pop("section_mode"), raw.pop("title_breadcrumb")
     assert profile_from_config(raw) == base  # キーのない古い設定
-    custom = CsvProfile("p", base.columns, summary_rows=True, section_mode="breadcrumb")
+    custom = CsvProfile(
+        "p",
+        base.columns,
+        summary_rows=True,
+        section_mode="breadcrumb",
+        title_breadcrumb=True,
+    )
     assert profile_from_config(profile_to_config(custom)) == custom
     raw = profile_to_config(base) | {"section_mode": "bogus"}
     assert profile_from_config(raw) is None

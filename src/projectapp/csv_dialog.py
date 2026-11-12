@@ -5,7 +5,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from nicegui import background_tasks, ui
-from nicegui.events import ValueChangeEventArguments
 
 from projectapp.csv_import import CsvImportError, cell_ok, sniff_table
 from projectapp.csv_profile import (
@@ -26,6 +25,7 @@ from projectapp.csv_profile import (
     template_problem,
     validate_profile,
 )
+from projectapp.csv_import_chips import ImportChips
 from projectapp.forms import disposable
 from projectapp.template_builder_view import ColumnBuilder, TemplateBuilder
 
@@ -93,9 +93,8 @@ def open_csv_import_dialog(
     sniff = sniff_table(data)
     saved = list(profiles)
     mapping: dict[CsvField, int] = {}
-    selects: dict[CsvField, ui.select] = {}
     templates: dict[CsvField, str] = {}  # 書式の最初の項目 → 書式
-    state = {"name": GUESS_NAME, "date": "ymd-dash", "updating": False}
+    state = {"name": GUESS_NAME, "date": "ymd-dash", "breadcrumb": False}
 
     def known() -> list[CsvProfile]:
         return [SMARTSHEET, *saved]
@@ -125,8 +124,12 @@ def open_csv_import_dialog(
     mapping.update(resolve_columns(first, sniff.header))
     templates.update({c.field: c.template for c in first.columns if c.template})
     state["date"] = first.date_format
+    state["breadcrumb"] = first.title_breadcrumb
 
-    with disposable(ui.dialog()) as dialog, ui.card().classes("w-[46rem] max-w-full"):
+    with (
+        disposable(ui.dialog()) as dialog,
+        ui.card().classes("w-[46rem] max-w-full") as card,
+    ):
         dialog.mark("csv-import-dialog")
         ui.label("CSV・TSV の取り込み").classes("text-h6")
         with ui.row().classes("items-end w-full"):
@@ -158,75 +161,106 @@ def open_csv_import_dialog(
                 .mark("csv-owner-sep")
             )
 
-        @ui.refreshable
-        def mapping_panel() -> None:
-            selects.clear()
+        def header_of_column(index: int) -> str:
+            return sniff.header[index] if index < len(sniff.header) else ""
+
+        chips = ImportChips(
+            IMPORT_FIELDS,
+            mapping,
+            templates,
+            header_of_column,
+            lambda: bool(state["breadcrumb"]),
+            on_pick=lambda f: pick_column(f),
+            on_remove=lambda f: choose(f, UNASSIGNED),
+            on_format=lambda f: open_format(f),
+            on_clear_format=lambda f: clear_format(f),
+        )
+
+        def column_options() -> dict[int, str]:
             seen: set[str] = set()
-            options = {UNASSIGNED: "割り当てなし"}
+            options: dict[int, str] = {}
             for i, cell in enumerate(sniff.header):
                 key = header_key(cell)
                 if key and key in seen:
                     continue  # 同じ見出しの 2 列目は、取り込みが 1 列目を読むので選ばせない
                 seen.add(key)
                 options[i] = f"{i + 1}: {cell}"
-            with ui.grid(columns=2).classes("w-full"):
-                for field in IMPORT_FIELDS:
-                    label = FIELD_LABELS[field] + (
-                        "(必須)" if field is CsvField.TITLE else ""
-                    )
-                    with ui.row().classes("items-end no-wrap"):
-                        selects[field] = (
-                            ui.select(
-                                options,
-                                label=label,
-                                value=mapping.get(field, UNASSIGNED),
-                                on_change=lambda e, f=field: choose(f, e.value),
-                            )
-                            .classes("min-w-[10rem]")
-                            .mark(f"csv-map-{field.value}")
-                        )
-                        template_input = (
-                            ui.input(
-                                label="書式(任意)",
-                                value=templates.get(field, ""),
-                                placeholder="{開始日}〜{期限}",
-                                on_change=lambda e, f=field: set_template(f, e),
-                            )
-                            .props("dense")
-                            .classes("w-40")
-                            .mark(f"csv-template-{field.value}")
-                        )
-                        ui.button(
-                            "組み立て…",
-                            on_click=lambda _, box=template_input: open_builder(box),
-                        ).props("flat dense").mark(f"csv-build-{field.value}")
+            return options
 
-        def open_builder(box: ui.input) -> None:
-            """書式の欄の中身を、項目と区切りのチップで組み立て直す小さなダイアログ。"""
-            with (
-                ui.dialog() as sub,
-                ui.card().classes("min-w-[32rem]").mark("csv-tb-dialog"),
-            ):
-                ui.label("書式を組み立てる").classes("text-h6")
-                made = {"text": str(box.value or "")}
-                tb = TemplateBuilder(
-                    made["text"],
-                    IMPORT_FIELDS,
-                    lambda text: made.update(text=text),
-                    mark="csv-tb",
+        def pick_column(field: CsvField) -> None:
+            """項目に割り当てる列を選ぶ小さなダイアログ。"""
+            with card, disposable(ui.dialog()) as sub, ui.card():
+                ui.label(f"「{FIELD_LABELS[field]}」の列を選ぶ").classes("text-h6")
+                column = (
+                    ui.select(column_options(), label="列", value=mapping.get(field))
+                    .classes("min-w-[14rem]")
+                    .mark("csv-pick-select")
                 )
-                tb.build()
 
                 def accept() -> None:
-                    box.set_value(made["text"])
+                    if isinstance(column.value, int):
+                        choose(field, column.value)
                     sub.close()
 
                 with ui.row().classes("justify-end w-full"):
                     ui.button("キャンセル", on_click=sub.close).props("flat").mark(
-                        "csv-tb-cancel"
+                        "csv-pick-cancel"
                     )
-                    ui.button("決定", on_click=accept).mark("csv-tb-ok")
-            sub.on("hide", lambda _: sub.delete())
+                    ui.button("決定", on_click=accept).mark("csv-pick-ok")
+            sub.open()
+
+        def open_format(anchor: CsvField | None) -> None:
+            """書式の列(複数の項目を 1 列にまとめる)と、タイトルの階層の読み方を決める。"""
+            current = templates.get(anchor, "") if anchor else ""
+            with (
+                card,
+                disposable(ui.dialog()) as sub,
+                ui.card().classes("min-w-[32rem]").mark("csv-fmt-dialog"),
+            ):
+                ui.label("書式の列").classes("text-h6")
+                column = (
+                    ui.select(
+                        column_options(),
+                        label="読み込む列(書式を使うとき)",
+                        value=mapping.get(anchor) if anchor else None,
+                    )
+                    .classes("min-w-[14rem]")
+                    .mark("csv-fmt-column")
+                )
+                made = {"text": current}
+                TemplateBuilder(
+                    current,
+                    IMPORT_FIELDS,
+                    lambda text: made.update(text=text),
+                    mark="csv-tb",
+                ).build()
+                crumb = ui.checkbox(
+                    "タイトルの「 > 」をセクションとして読む",
+                    value=bool(state["breadcrumb"]),
+                ).mark("csv-fmt-breadcrumb")
+                note = ui.label("").classes("text-negative").mark("csv-fmt-note")
+
+                def accept() -> None:
+                    text = made["text"].strip()
+                    if text:
+                        problem = template_problem(text)
+                        if problem is None and not isinstance(column.value, int):
+                            problem = "読み込む列を選んでください"
+                        if problem:
+                            note.set_text(problem)
+                            return
+                        apply_format(anchor, int(column.value), text)
+                    elif anchor is not None:
+                        clear_format(anchor, refresh=False)
+                    state["breadcrumb"] = bool(crumb.value)
+                    refresh_state()
+                    sub.close()
+
+                with ui.row().classes("justify-end w-full"):
+                    ui.button("キャンセル", on_click=sub.close).props("flat").mark(
+                        "csv-fmt-cancel"
+                    )
+                    ui.button("決定", on_click=accept).mark("csv-fmt-ok")
             sub.open()
 
         def template_part(field: CsvField, text: str) -> str:
@@ -262,7 +296,7 @@ def open_csv_import_dialog(
                                 + ("" if cell_ok(f, text) else " text-negative")
                             )
 
-        mapping_panel()
+        chips.build()
         preview()
         with ui.row().classes("justify-end w-full"):
             ui.button("キャンセル", on_click=dialog.close).props("flat").mark(
@@ -277,6 +311,7 @@ def open_csv_import_dialog(
 
     def refresh_state() -> None:
         confirm.set_enabled(CsvField.TITLE in mapping)
+        chips.refresh()
         preview.refresh()
 
     def drop_templates_with(field: CsvField) -> None:
@@ -284,56 +319,38 @@ def open_csv_import_dialog(
             for other in template_fields(templates.pop(anchor)):
                 if other != field and other != anchor:
                     mapping.pop(other, None)
-                    if other in selects:
-                        state["updating"] = True
-                        selects[other].set_value(UNASSIGNED)
-                        state["updating"] = False
 
-    def set_template(field: CsvField, event: ValueChangeEventArguments) -> None:
-        """書式を入れると、その列を書式の項目すべてに割り当てる。空にすると、書式で足した割り当てを外す。"""
-        sender = event.sender
-        text = str(event.value or "").strip()
-        for anchor in [a for a, t in templates.items() if a == field]:
-            drop_templates_with(anchor)
-        if not text:
-            sender.props(remove="error")
+    def clear_format(field: CsvField, refresh: bool = True) -> None:
+        """書式を外す(書式で足した割り当ても外れ、先頭の項目の列だけ残る)。"""
+        drop_templates_with(field)
+        if refresh:
             refresh_state()
-            return
-        problem = template_problem(text)
-        if problem is None and field not in mapping:
-            problem = "先に列を選んでください"
-        if problem:
-            sender.props(f'error error-message="{problem}"')
-            return
-        sender.props(remove="error")
-        index = mapping[field]
-        for other in template_fields(text):
+
+    def apply_format(anchor: CsvField | None, index: int, text: str) -> None:
+        """書式の列を、書式の項目すべてに割り当てる。前の書式があれば置き換える。"""
+        had_template = anchor is not None and anchor in templates
+        if anchor is not None:
+            drop_templates_with(anchor)
+        fields = template_fields(text)
+        if anchor is not None and had_template and anchor not in fields:
+            mapping.pop(anchor, None)
+        for other in fields:
             drop_templates_with(other)
+        for other in [f for f, i in mapping.items() if i == index and f not in fields]:
+            drop_templates_with(other)
+            mapping.pop(other, None)
+        for other in fields:
             mapping[other] = index
-            if other in selects and other != field:
-                state["updating"] = True
-                selects[other].set_value(index)
-                state["updating"] = False
-        templates[template_fields(text)[0]] = text
-        refresh_state()
+        templates[fields[0]] = text
 
     def choose(field: CsvField, value: int) -> None:
-        if state["updating"]:
-            return
         drop_templates_with(field)
         if value == UNASSIGNED:
             mapping.pop(field, None)
         else:
-            state["updating"] = True
-            try:
-                for other in [
-                    f for f, i in mapping.items() if i == value and f != field
-                ]:
-                    mapping.pop(other)
-                    if other in selects:
-                        selects[other].set_value(UNASSIGNED)
-            finally:
-                state["updating"] = False
+            for other in [f for f, i in mapping.items() if i == value and f != field]:
+                drop_templates_with(other)
+                mapping.pop(other, None)
             mapping[field] = value
         refresh_state()
 
@@ -344,7 +361,7 @@ def open_csv_import_dialog(
         templates.update({c.field: c.template for c in profile.columns if c.template})
         state["date"] = profile.date_format
         owner_sep.set_value(profile.owner_separator)
-        mapping_panel.refresh()
+        state["breadcrumb"] = profile.title_breadcrumb
         refresh_state()
 
     def current_profile(name: str | None = None) -> CsvProfile:
@@ -370,6 +387,7 @@ def open_csv_import_dialog(
             str(encoding_select.value),
             state["date"] if isinstance(state["date"], str) else "ymd-dash",
             str(owner_sep.value or ""),
+            title_breadcrumb=bool(state["breadcrumb"]),
         )
 
     def resniff() -> None:
@@ -394,7 +412,6 @@ def open_csv_import_dialog(
         for f, text in texts.items():
             if text in sniff.header:
                 mapping[f] = sniff.header.index(text)
-        mapping_panel.refresh()
         refresh_state()
 
     def on_profile(name: str) -> None:

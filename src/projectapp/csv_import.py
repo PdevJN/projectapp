@@ -12,6 +12,7 @@ from projectapp import clock
 from projectapp.history_log import stamp_creation
 from projectapp.csv_profile import (
     ALIASES,
+    SECTION_PATH_SEPARATOR,
     SMARTSHEET,
     CsvField,
     CsvProfile,
@@ -213,6 +214,12 @@ class _Row:
     category: str = ""
     ratio: str = ""
     deadline: str = ""
+    section: str = ""  # 親のセクションの階層(` > ` 区切り)
+
+    @property
+    def section_path(self) -> list[str]:
+        parts = (tidy_task_name(p) for p in self.section.split(SECTION_PATH_SEPARATOR))
+        return [p for p in parts if p][:MAX_SECTION_DEPTH]
 
     @property
     def blank_fields(self) -> bool:
@@ -296,9 +303,14 @@ def _rows(
                 cells[index].strip() if index is not None and index < len(cells) else ""
             )
 
+        title, section = cell(CsvField.TITLE), cell(CsvField.SECTION)
+        if profile.title_breadcrumb and SECTION_PATH_SEPARATOR in title:
+            crumbs, _, rest = title.rpartition(SECTION_PATH_SEPARATOR)
+            if rest.strip():  # 列があれば列を優先し、タイトルからは手前の階層だけ除く
+                title, section = rest.strip(), section or crumbs
         row = _Row(
             _plain(cell(CsvField.WBS)),
-            cell(CsvField.TITLE),
+            title,
             cell(CsvField.OWNER),
             cell(CsvField.START),
             cell(CsvField.END),
@@ -310,6 +322,7 @@ def _rows(
             cell(CsvField.CATEGORY),
             cell(CsvField.RATIO),
             cell(CsvField.DEADLINE),
+            section,
         )
         rows.append(row if tidy_task_name(row.title) else None)
     return rows
@@ -352,7 +365,29 @@ class _Builder:
         else:
             self.add_task(row)
 
+    def child_section(self, parent: Section | None, name: str) -> Section:
+        """親(なければ根)の下の同名のセクション。なければ作る。"""
+        siblings = parent.sections if parent else self.project.sections
+        found = next((s for s in siblings if s.name == name), None)
+        if found is None:
+            found = Section(name, id=self.fresh())
+            siblings.append(found)
+            self.sections += 1
+        return found
+
+    def chain(self, path: list[str]) -> list[Section]:
+        """階層のセクションを根から順にたどる(なければ作る)。"""
+        chain: list[Section] = []
+        for name in path:
+            chain.append(self.child_section(chain[-1] if chain else None, name))
+        return chain
+
     def add_section(self, row: _Row) -> None:
+        if row.section_path:  # 列の階層の下に作る。直近のセクションは、そこから続ける
+            chain = self.chain(row.section_path[: MAX_SECTION_DEPTH - 1])
+            chain.append(self.child_section(chain[-1], row.name))
+            self.stack = chain
+            return
         depth = min(
             row.section_depth or 1, MAX_SECTION_DEPTH, len(self.stack) + 1
         )  # 階層を飛ばした分は詰める
@@ -382,7 +417,11 @@ class _Builder:
         self.apply_status(task, row)
         self.apply_actuals(task, row)
         self.apply_category(task, row)
-        (self.stack[-1].tasks if self.stack else self.project.tasks).append(task)
+        if row.section_path:  # 列の階層が、直近のセクションより優先
+            holder = self.chain(row.section_path)[-1].tasks
+        else:
+            holder = self.stack[-1].tasks if self.stack else self.project.tasks
+        holder.append(task)
 
     def owners(self, text: str) -> list[tuple[str, int]]:
         """(名前, 元の並びの位置)。割合は位置で対応づける。"""

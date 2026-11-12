@@ -52,7 +52,7 @@ async def test_the_guess_fills_the_mapping_and_import_returns_it(user: User) -> 
 
 async def test_import_is_disabled_without_a_title_column(user: User) -> None:
     await open_dialog(user)
-    user.find(marker="csv-map-title").elements.pop().set_value(-1)
+    user.find(marker="csv-ic-item-title").elements.pop().set_value(False)  # ×で外す
     assert not user.find(marker="csv-import-confirm").elements.pop().enabled
 
 
@@ -60,10 +60,17 @@ async def test_choosing_the_same_column_twice_clears_the_earlier_field(
     user: User,
 ) -> None:
     await open_dialog(user)
-    owner = user.find(marker="csv-map-owner").elements.pop()
-    title = user.find(marker="csv-map-title").elements.pop()
-    owner.set_value(title.value)  # 担当にも「件名」の列を選ぶ
-    assert title.value == -1
+    user.find(marker="csv-ic-item-owner").trigger("dblclick")
+    await user.should_see(marker="csv-pick-select")
+    user.find(marker="csv-pick-select").elements.pop().set_value(
+        0
+    )  # 担当にも「件名」の列
+    user.find(marker="csv-pick-ok").click()
+    await asyncio.sleep(0.05)
+    await user.should_not_see(marker="csv-ic-item-title")  # 先の項目が外れる
+    owner = user.find(marker="csv-ic-item-owner").elements.pop()
+    assert "1: 件名" in owner.text
+    assert not user.find(marker="csv-import-confirm").elements.pop().enabled
 
 
 async def test_the_preview_marks_unreadable_cells(user: User) -> None:
@@ -184,7 +191,9 @@ async def test_export_dialog_saves_the_current_settings(user: User) -> None:
 
 async def test_the_second_of_two_equal_headings_cannot_be_chosen(user: User) -> None:
     await open_dialog(user, data="名前,名前,担当\nA,B,田中\n".encode())
-    options = user.find(marker="csv-map-title").elements.pop().options
+    user.find(marker="csv-ic-item-title").trigger("dblclick")
+    await user.should_see(marker="csv-pick-select")
+    options = user.find(marker="csv-pick-select").elements.pop().options
     assert 0 in options and 1 not in options and 2 in options
 
 
@@ -256,26 +265,125 @@ async def test_the_percent_sign_can_be_turned_off_for_the_export(user: User) -> 
     assert exported[0].progress_percent is False
 
 
-async def test_a_template_in_the_import_dialog_splits_one_column(user: User) -> None:
+async def add_format_column(
+    user: User, column: int, template_clicks: list[str]
+) -> None:
+    """`＋書式の列`で、列を選び、パレットのチップを順にクリックして書式を組み立てる。"""
+    user.find(marker="csv-ic-pal-format").click()
+    await user.should_see(marker="csv-fmt-dialog")
+    user.find(marker="csv-fmt-column").elements.pop().set_value(column)
+    for marker in template_clicks:
+        user.find(marker=marker).click()
+
+
+async def test_a_format_column_splits_one_column(user: User) -> None:
     data = "件名,期間\n設計,2026-10-05〜2026-10-09\n".encode()
     chosen, _ = await open_dialog(user, data=data)
-    user.find(marker="csv-map-start").elements.pop().set_value(1)
-    user.find(marker="csv-template-start").elements.pop().set_value("{開始日}〜{期限}")
-    assert user.find(marker="csv-map-end").elements.pop().value == 1
+    await add_format_column(
+        user,
+        1,
+        ["csv-tb-pal-start", "csv-tb-sep-8", "csv-tb-pal-end"],
+    )
+    user.find(marker="csv-fmt-ok").click()
+    await asyncio.sleep(0.05)
+    await user.should_see(marker="csv-ic-item-start")  # 書式の列は 1 つのチップ
+    await user.should_not_see(marker="csv-ic-item-end")
     user.find(marker="csv-import-confirm").click()
     profile = chosen[0][0].profile
     column = next(c for c in profile.columns if c.template)
     assert column.field is CsvField.START and column.header == "期間"
+    assert column.template == "{開始日}/{期限}"
     assert CsvField.END not in {c.field for c in profile.columns}
 
 
-async def test_an_invalid_template_is_not_applied(user: User) -> None:
+async def test_a_format_without_a_column_is_not_applied(user: User) -> None:
+    data = "件名,期間\n設計,2026-10-05〜2026-10-09\n".encode()
+    await open_dialog(user, data=data)
+    user.find(marker="csv-ic-pal-format").click()
+    await user.should_see(marker="csv-fmt-dialog")
+    user.find(marker="csv-tb-pal-start").click()
+    user.find(marker="csv-tb-pal-end").click()
+    user.find(marker="csv-fmt-ok").click()
+    await asyncio.sleep(0.05)  # 区切りもなく、列も未選択
+    await user.should_see(marker="csv-fmt-dialog")  # 閉じない
+    await user.should_not_see(marker="csv-ic-item-start")
+
+
+async def test_only_format_chips_have_the_right_click_menu(user: User) -> None:
+    data = "件名,期間\n設計,2026-10-05〜2026-10-09\n".encode()
+    await open_dialog(user, data=data)
+    await user.should_not_see(marker="csv-ic-menu-edit-title")
+    await add_format_column(
+        user, 1, ["csv-tb-pal-start", "csv-tb-sep-8", "csv-tb-pal-end"]
+    )
+    user.find(marker="csv-fmt-ok").click()
+    await asyncio.sleep(0.05)
+    await user.should_see(marker="csv-ic-menu-edit-start")
+    await user.should_not_see(marker="csv-ic-menu-edit-title")
+
+
+async def test_clearing_a_format_restores_the_plain_column(user: User) -> None:
     data = "件名,期間\n設計,2026-10-05〜2026-10-09\n".encode()
     chosen, _ = await open_dialog(user, data=data)
-    user.find(marker="csv-map-start").elements.pop().set_value(1)
-    user.find(marker="csv-template-start").elements.pop().set_value("{開始日}{期限}")
+    await add_format_column(
+        user, 1, ["csv-tb-pal-start", "csv-tb-sep-8", "csv-tb-pal-end"]
+    )
+    user.find(marker="csv-fmt-ok").click()
+    await asyncio.sleep(0.05)
+    user.find(marker="csv-ic-menu-clear-start").click()
+    await asyncio.sleep(0.05)
+    await user.should_not_see(marker="csv-ic-menu-edit-start")
     user.find(marker="csv-import-confirm").click()
     assert not any(c.template for c in chosen[0][0].profile.columns)
+
+
+async def test_the_breadcrumb_setting_reaches_the_profile_and_adds_the_menu(
+    user: User,
+) -> None:
+    chosen, _ = await open_dialog(user)
+    await user.should_not_see(marker="csv-ic-menu-edit-title")
+    user.find(marker="csv-ic-pal-format").click()
+    await user.should_see(marker="csv-fmt-dialog")
+    user.find(marker="csv-fmt-breadcrumb").elements.pop().set_value(True)
+    user.find(marker="csv-fmt-ok").click()
+    await asyncio.sleep(0.05)
+    await user.should_see(marker="csv-ic-menu-edit-title")  # 階層を読むタスク名
+    user.find(marker="csv-import-confirm").click()
+    assert chosen[0][0].profile.title_breadcrumb is True
+
+
+async def test_the_title_chip_can_open_the_format_dialog_to_turn_it_off(
+    user: User,
+) -> None:
+    chosen, _ = await open_dialog(user)
+    user.find(marker="csv-ic-pal-format").click()
+    await user.should_see(marker="csv-fmt-dialog")
+    user.find(marker="csv-fmt-breadcrumb").elements.pop().set_value(True)
+    user.find(marker="csv-fmt-ok").click()
+    await asyncio.sleep(0.05)
+    user.find(marker="csv-ic-menu-edit-title").click()
+    await user.should_see(marker="csv-fmt-dialog")
+    for box in user.find(marker="csv-fmt-breadcrumb").elements:  # 閉じた前の分も残る
+        box.set_value(False)
+    user.find(marker="csv-fmt-ok").click()
+    await asyncio.sleep(0.05)
+    user.find(marker="csv-import-confirm").click()
+    assert chosen[0][0].profile.title_breadcrumb is False
+
+
+async def test_an_unassigned_item_is_added_from_the_palette(user: User) -> None:
+    data = "件名,担当,期限\nA,田中,2026-10-09\n".encode()
+    chosen, _ = await open_dialog(user, data=data)
+    user.find(marker="csv-ic-item-end").elements.pop().set_value(False)
+    await asyncio.sleep(0.05)
+    user.find(marker="csv-ic-pal-end").click()
+    await user.should_see(marker="csv-pick-select")
+    user.find(marker="csv-pick-select").elements.pop().set_value(2)
+    user.find(marker="csv-pick-ok").click()
+    await asyncio.sleep(0.05)
+    user.find(marker="csv-import-confirm").click()
+    fields = {c.field: c.header for c in chosen[0][0].profile.columns}
+    assert fields[CsvField.END] == "期限"
 
 
 async def test_an_invalid_quick_template_disables_the_export(user: User) -> None:
@@ -481,20 +589,6 @@ async def test_double_clicking_the_header_chip_edits_it_in_place(user: User) -> 
     await user.should_see("見出し: 予定")
     user.find(marker="csv-export-confirm").click()
     assert exported[0].columns[0].header == "予定"
-
-
-async def test_the_import_builder_fills_the_template_field(user: User) -> None:
-    await open_dialog(user)
-    user.find(marker="csv-template-start").elements.pop()
-    user.find(marker="csv-build-start").click()
-    await user.should_see(marker="csv-tb-dialog")
-    user.find(marker="csv-tb-pal-start").click()
-    user.find(marker="csv-tb-sep-8").click()
-    user.find(marker="csv-tb-pal-end").click()
-    user.find(marker="csv-tb-ok").click()
-    assert user.find(marker="csv-template-start").elements.pop().value == (
-        "{開始日}/{期限}"
-    )
 
 
 async def test_summary_and_section_choices_reach_the_exported_profile(
