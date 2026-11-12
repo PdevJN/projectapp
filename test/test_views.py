@@ -2338,8 +2338,6 @@ async def test_the_preview_bar_has_a_view_row_and_an_output_row(
         "preview-select-all",
         "preview-select-count",
         "preview-save-menu",
-        "preview-save",
-        "preview-plantuml",
     } <= output_row
     assert (
         not {
@@ -2368,7 +2366,10 @@ async def test_the_display_items_are_in_a_menu_and_the_save_actions_are_in_anoth
         "preview-events",
         "preview-today",
     } <= menu_children("preview-display-menu")
-    assert {"preview-save", "preview-plantuml"} <= menu_children("preview-save-menu")
+    # 保存の項目は、ボタンから開く小さなダイアログの中(Quasar のメニューは画面の倍率で位置がずれるため)
+    for marker in ("preview-save", "preview-plantuml"):
+        item = user.find(marker=marker).elements.pop()
+        assert any(isinstance(a, ui.dialog) for a in item.ancestors())
 
 
 async def test_the_save_menu_button_follows_the_save_enabled_state(
@@ -2593,6 +2594,7 @@ async def test_save_writes_the_png_and_notifies(user: User, tmp_path: Path) -> N
     target.parent.mkdir()
     exporter = FakeExporter(path=target)
     await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-save").click()
     assert await wait_until(lambda: (tmp_path / "out" / "chart.png").exists())
     assert (tmp_path / "out" / "chart.png").read_bytes() == PNG_BYTES
@@ -2612,6 +2614,7 @@ async def test_save_plantuml_writes_the_text_and_notifies(
     view.snapshot = dirty_key(
         view.project
     )  # open_preview がタスクを足すので、保存の直前を基準にする
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: (tmp_path / "out" / "chart.puml").exists())
     text = (tmp_path / "out" / "chart.puml").read_text(encoding="utf-8")
@@ -2637,6 +2640,7 @@ async def test_save_plantuml_uses_the_preview_settings(
     await open_preview(user, tmp_path, exporter)
     user.find(marker="preview-scale").elements.pop().set_value("週次")
     user.find(marker="preview-chips").elements.pop().set_value(False)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: target.exists())
     text = target.read_text(encoding="utf-8")
@@ -2659,6 +2663,7 @@ async def test_save_plantuml_passes_the_configured_today_color(
     save_today_color("#1e88e5", tmp_path)
     target = tmp_path / "chart.puml"
     await open_preview(user, tmp_path, FakeExporter(path=target))
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: target.exists())
     assert seen == ["#1e88e5"]
@@ -2671,6 +2676,8 @@ async def test_save_plantuml_with_no_tasks_notifies_and_writes_nothing(
     view = await open_preview(user, tmp_path, exporter)
     set_period(user, start="2030-01-01")
     set_period(user, end="2030-01-31")  # 期間の外
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
+    await user.should_see(marker="preview-plantuml")
     user.find(marker="preview-plantuml").click()
     await user.should_see("出力できるタスクがありません")
     assert exporter.asked == [] and not list(tmp_path.glob("*.puml"))
@@ -2687,6 +2694,7 @@ async def test_save_plantuml_notes_skipped_tasks(user: User, tmp_path: Path) -> 
     exporter = FakeExporter(path=target)
     await open_preview(user, tmp_path, exporter, extra=far)
     set_period(user, end="2026-12-31")
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: target.exists())
     await user.should_see("1 件を省きました")
@@ -2697,6 +2705,7 @@ async def test_cancelling_the_plantuml_dialog_writes_nothing(
 ) -> None:
     exporter = FakeExporter(path=None)
     view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: exporter.asked != [])
     assert not list(tmp_path.glob("*.puml")) and view.preview is not None
@@ -2707,6 +2716,7 @@ async def test_a_plantuml_write_failure_is_reported_and_leaves_nothing(
 ) -> None:
     exporter = FakeExporter(path=tmp_path / "missing" / "chart.puml")
     view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-plantuml").click()
     await user.should_see("保存できませんでした")
     assert view.preview is not None and not list(tmp_path.rglob("*.tmp"))
@@ -2738,6 +2748,7 @@ async def test_cancelling_the_save_dialog_writes_nothing(
 ) -> None:
     exporter = FakeExporter(path=None)
     view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-save").click()
     assert await wait_until(lambda: exporter.asked != [])
     assert not list(tmp_path.glob("*.png"))
@@ -2749,6 +2760,7 @@ async def test_a_capture_failure_is_reported_and_the_preview_stays(
 ) -> None:
     exporter = FakeExporter(error=ExportError("boom"))
     view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-save").click()
     await user.should_see("画像を作れませんでした: boom")
     assert exporter.asked == []  # 保存先は聞かない
@@ -2761,6 +2773,7 @@ async def test_a_write_failure_is_reported_and_leaves_nothing(
 ) -> None:
     exporter = FakeExporter(path=tmp_path / "missing" / "chart.png")
     view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-save").click()
     await user.should_see("保存できませんでした")
     assert view.preview is not None
@@ -2778,6 +2791,7 @@ async def test_saving_cannot_be_started_twice(user: User, tmp_path: Path) -> Non
 
     exporter = SlowExporter(path=tmp_path / "chart.png")
     view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-save").click()
     assert await wait_until(lambda: exporter.captured != [])
     assert (
@@ -2850,6 +2864,7 @@ async def test_leaving_and_changing_the_settings_are_ignored_while_saving(
 
     exporter = SlowExporter(path=tmp_path / "chart.png")
     view = await open_preview(user, tmp_path, exporter)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-save").click()
     assert await wait_until(lambda: exporter.captured != [])
     options = view.gantt.options
@@ -7511,6 +7526,7 @@ async def test_save_plantuml_leaves_out_the_unchecked_tasks(
     view.snapshot = dirty_key(
         view.project
     )  # open_preview がタスクを足すので、保存の直前を基準にする
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: target.exists())
     text = target.read_text(encoding="utf-8")
@@ -7524,6 +7540,7 @@ async def test_save_plantuml_with_every_task_unchecked_writes_nothing(
     exporter = FakeExporter(path=tmp_path / "chart.puml")
     await open_preview(user, tmp_path, exporter)
     task_box(user).set_value(False)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-plantuml").click()
     await user.should_see("出力できるタスクがありません")
     assert exporter.asked == []
@@ -7545,6 +7562,7 @@ async def test_save_image_leaves_out_the_unchecked_rows_and_restores_them(
         )
     )
     user.find(marker="select-task-top-1").elements.pop().set_value(False)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-save").click()
     assert await wait_until(lambda: (tmp_path / "chart.png").exists())
     assert seen == [(1, 0)]  # 撮る間は、外した行もチェックボックスもない
@@ -7568,6 +7586,7 @@ async def test_save_image_hides_the_checkboxes_even_when_nothing_is_unchecked(
             ),
         )
     )
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-save").click()
     assert await wait_until(lambda: (tmp_path / "chart.png").exists())
     assert seen == [
@@ -7587,6 +7606,7 @@ async def test_save_image_with_every_task_unchecked_notifies_and_captures_nothin
     exporter = FakeExporter(path=tmp_path / "chart.png")
     await open_preview(user, tmp_path, exporter)
     task_box(user).set_value(False)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-save").click()
     await user.should_see("出力するタスクがありません")
     assert exporter.captured == [] and exporter.asked == []
@@ -7613,6 +7633,7 @@ async def test_save_plantuml_warns_when_a_same_day_handover_looks_over_100_perce
     view.project.members = members
     view.save_task((), None, b)
     view.snapshot = dirty_key(view.project)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: target.exists())
     await user.should_see("田中 10/14")
@@ -7624,6 +7645,7 @@ async def test_save_plantuml_shows_no_overload_warning_normally(
 ) -> None:
     target = tmp_path / "chart.puml"
     await open_preview(user, tmp_path, FakeExporter(path=target))
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: target.exists())
     await user.should_see("保存しました")
@@ -7651,6 +7673,7 @@ async def test_save_plantuml_skips_the_overload_warning_when_the_option_is_off(
     view.project.plantuml_overload_notice = False
     view.save_task((), None, b)
     view.snapshot = dirty_key(view.project)
+    user.find(marker="preview-save-menu").click()  # 保存のダイアログを開く
     user.find(marker="preview-plantuml").click()
     assert await wait_until(lambda: target.exists())
     await user.should_see("保存しました")
@@ -9465,3 +9488,44 @@ async def test_the_dropping_notice_is_shown_once_not_on_every_save(
     view.commit(overwrite=True, after=None)  # 編集せずにもう一度保存
     assert await wait_until(lambda: user.notify.contains("保存しました"))
     assert not user.notify.contains(notice)
+
+
+async def test_the_preview_toggle_has_the_quarter_and_shows_quarter_columns(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    toggle = user.find(marker="preview-scale").elements.pop()
+    assert "四半期" in [getattr(o, "value", o) for o in toggle.options]
+    toggle.set_value("四半期")
+    await asyncio.sleep(0.2)
+    assert view.gantt.view_scale is Scale.QUARTER
+    await user.should_see(marker="year-band")
+    await user.should_not_see(marker="month-band")
+
+
+async def test_plantuml_is_disabled_with_a_reason_for_a_non_january_quarter(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    assert view.fiscal_start_month == 10
+    item = user.find(marker="preview-plantuml").elements.pop()
+    assert item.enabled and view.preview_bar.plantuml_tip is None
+    user.find(marker="preview-scale").elements.pop().set_value("四半期")
+    await asyncio.sleep(0.2)
+    assert not item.enabled  # 10 月始まりの四半期は出せない
+    tip = view.preview_bar.plantuml_tip
+    assert tip is not None and "10月始まり" in tip.text
+    assert view.preview_bar.save_button.enabled  # 画像の保存は使える
+    user.find(marker="preview-scale").elements.pop().set_value("月次")
+    await asyncio.sleep(0.2)
+    assert item.enabled and view.preview_bar.plantuml_tip is None
+
+
+async def test_plantuml_quarter_is_allowed_when_the_year_starts_in_january(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    view.fiscal_start_month = 1
+    user.find(marker="preview-scale").elements.pop().set_value("四半期")
+    await asyncio.sleep(0.2)
+    assert user.find(marker="preview-plantuml").elements.pop().enabled

@@ -32,7 +32,12 @@ from projectapp.timeline import (
 
 PLANTUML_FILE_TYPES = ("PlantUML ファイル (*.puml)",)
 UNSAFE_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
-SCALE_NAMES = {Scale.DAY: "daily", Scale.WEEK: "weekly", Scale.MONTH: "monthly"}
+SCALE_NAMES = {
+    Scale.DAY: "daily",
+    Scale.WEEK: "weekly",
+    Scale.MONTH: "monthly",
+    Scale.QUARTER: "quarterly",  # PlantUML の四半期は暦(1 月始まり)で区切る
+}
 STATUS_COLORS = {  # gantt.STATUS_COLORS と同じ(あちらは NiceGUI に依存するので、写して持つ。テストで一致を確かめる)
     Status.NOT_STARTED: "#78909c",
     Status.RUNNING: "#1e88e5",
@@ -163,6 +168,17 @@ def _day_overloads(
             real.add((over.member, over.start.date() + timedelta(days=offset)))
     flagged = [key for key, total in totals.items() if total > 100 and key not in real]
     return tuple(sorted(flagged, key=lambda key: (key[1], key[0])))
+
+
+def quarter_block_reason(scale: Scale, fiscal_start_month: int) -> str | None:
+    """PlantUML に出せない理由(なければ None)。PlantUML の四半期は暦(1 月始まり)で区切るので、
+    会計年度の開始月が 1 月でないと、アプリの四半期と区切りが合わない。"""
+    if scale is Scale.QUARTER and fiscal_start_month != 1:
+        return (
+            f"会計年度が{fiscal_start_month}月始まりのため、四半期は PlantUML に出せません"
+            "(PlantUML の四半期は 1 月始まり。月次などに切り替えるか、開始月を 1 月にしてください)"
+        )
+    return None
 
 
 def build_plantuml(

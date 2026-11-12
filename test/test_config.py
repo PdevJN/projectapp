@@ -662,3 +662,35 @@ def test_history_keep_is_clamped_or_defaulted(
         encoding="utf-8",
     )
     assert load_history_keep(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (1, 1),
+        (10, 10),
+        (12, 12),
+        (0, None),
+        (13, None),
+        (4.5, None),
+        ("4", None),
+        (True, None),
+        (None, None),
+        (float("nan"), None),
+        (10**400, None),
+    ],
+)
+def test_parse_fiscal_start_month(value, expected) -> None:
+    from projectapp import config
+
+    assert config.parse_fiscal_start_month(value) == expected
+
+
+def test_fiscal_start_month_defaults_to_october_and_round_trips(tmp_path: Path) -> None:
+    from projectapp import config
+
+    assert config.load_fiscal_start_month(tmp_path) == 10
+    config.save_fiscal_start_month(4, tmp_path)
+    assert config.load_fiscal_start_month(tmp_path) == 4
+    config.update_config({"fiscal_start_month": 99}, tmp_path)
+    assert config.load_fiscal_start_month(tmp_path) == 10  # 壊れた値は既定

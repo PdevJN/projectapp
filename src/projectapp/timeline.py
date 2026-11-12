@@ -32,9 +32,12 @@ class Scale(StrEnum):
     DAY = "日次"
     WEEK = "週次"
     MONTH = "月次"
+    QUARTER = "四半期"  # 会計年度の四半期(要望 140)
 
 
-MIN_COLUMNS = {Scale.DAY: 42, Scale.WEEK: 26, Scale.MONTH: 12}
+MIN_COLUMNS = {Scale.DAY: 42, Scale.WEEK: 26, Scale.MONTH: 12, Scale.QUARTER: 8}
+DEFAULT_FISCAL_START_MONTH = 10  # 会計年度の開始月の既定(全体の設定で変える)
+COARSE_SCALES = (Scale.MONTH, Scale.QUARTER)  # 1 列が長く、日の位置を持たない単位
 MAX_WORKDAYS = 3650  # 約14年分。誤入力で計算が長引くのを防ぐ
 CAPACITY_EPSILON = 1e-9  # 工数の消化の比較の許容差[h](約3.6µs)
 
@@ -121,9 +124,10 @@ def build_columns(
     holidays: dict[date, str] | None = None,
     period: tuple[date, date] | None = None,
     references: Mapping[str, ReferenceValue] | None = None,
+    fiscal_start_month: int = DEFAULT_FISCAL_START_MONTH,
 ) -> list[Column]:
     """列を作る。period は [開始日, 終了日](終了日を含む)。None は、基準日とバーから決めた表示範囲で、最小の列数まで足す。
-    期間を指定したときは足さず、期間にかかる列だけにする(週は月曜、月は 1 日で区切る)。"""
+    期間を指定したときは足さず、期間にかかる列だけにする(週は月曜、月は 1 日、四半期は会計年度の四半期の初日で区切る)。"""
     pad = period is None
     if period is None:
         start, end = visible_range(project, holidays, references)
@@ -135,6 +139,8 @@ def build_columns(
         return _week_columns(start, end, pad)
     if scale is Scale.MONTH:
         return _month_columns(start, end, pad)
+    if scale is Scale.QUARTER:
+        return _quarter_columns(start, end, pad, fiscal_start_month)
     return _day_columns(start, end, pad)
 
 
@@ -164,6 +170,31 @@ def _month_columns(start: date, end: date, pad: bool = True) -> list[Column]:
     for i in range(max(count, MIN_COLUMNS[Scale.MONTH] if pad else 1)):
         month = _add_months(first, i)
         columns.append(Column(month, _add_months(first, i + 1), f"{month.month}月"))
+    return columns
+
+
+def quarter_start(day: date, fiscal_start_month: int) -> date:
+    """日を含む会計年度の四半期の初日。"""
+    back = (day.month - fiscal_start_month) % 12 % 3
+    return _add_months(day.replace(day=1), -back)
+
+
+def fiscal_year(day: date, fiscal_start_month: int) -> int:
+    """日の会計年度(始まった年で数える。10 月始まりなら 2026-10〜2027-09 が 2026 年度)。"""
+    return day.year if day.month >= fiscal_start_month else day.year - 1
+
+
+def _quarter_columns(
+    start: date, end: date, pad: bool, fiscal_start_month: int
+) -> list[Column]:
+    first = quarter_start(start, fiscal_start_month)
+    last = quarter_start(max(end - timedelta(days=1), first), fiscal_start_month)
+    count = ((last.year - first.year) * 12 + last.month - first.month) // 3 + 1
+    columns: list[Column] = []
+    for i in range(max(count, MIN_COLUMNS[Scale.QUARTER] if pad else 1)):
+        begin = _add_months(first, 3 * i)
+        number = (begin.month - fiscal_start_month) % 12 // 3 + 1
+        columns.append(Column(begin, _add_months(begin, 3), f"Q{number}"))
     return columns
 
 
@@ -405,6 +436,15 @@ def _bands(
 
 def year_bands(columns: list[Column]) -> list[Band]:
     return _bands(columns, lambda c: c.start.year, lambda c: f"{c.start.year}年")
+
+
+def fiscal_bands(columns: list[Column], fiscal_start_month: int) -> list[Band]:
+    """会計年度の帯(四半期の列用)。"""
+    return _bands(
+        columns,
+        lambda c: fiscal_year(c.start, fiscal_start_month),
+        lambda c: f"{fiscal_year(c.start, fiscal_start_month)}年度",
+    )
 
 
 def month_bands(columns: list[Column]) -> list[Band]:

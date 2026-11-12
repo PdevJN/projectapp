@@ -121,3 +121,28 @@ async def test_the_name_width_change_is_harmless_in_the_info_view(user: User) ->
     await user.open("/")
     charts[0].handle_name_width({"width": 300})
     assert charts[0].bottom.content.layout is None
+
+
+async def test_the_table_and_header_follow_the_quarter_scale(user: User) -> None:
+    from projectapp.timeline import Scale
+
+    charts = mount()
+    await user.open("/")
+    charts[0].fiscal_start_month = 4
+    charts[0].toggle_assignment()
+    charts[0].set_scale(Scale.QUARTER)
+    await asyncio.sleep(0.2)
+    labels = charts[0].bottom.content.assignment.labels
+    assert 0 < len(labels) <= 12 and set(labels) <= {"Q1", "Q2", "Q3", "Q4"}
+    await user.should_see(marker="year-band")
+    await user.should_not_see(marker="month-band")
+    band = user.find(marker="year-band-label").elements.pop()
+    assert band.text.endswith("年度")
+
+
+def test_the_quarter_column_limit_and_unit() -> None:
+    from projectapp.periodfield import check_column_count
+
+    assert check_column_count(Scale.QUARTER, 80) is None
+    message = check_column_count(Scale.QUARTER, 81)
+    assert message is not None and "四半期" in message

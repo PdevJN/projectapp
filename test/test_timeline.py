@@ -56,6 +56,7 @@ from projectapp.timeline import (
     overdue_reasons,
     visible_range,
     is_workday,
+    fiscal_bands,
     month_bands,
     year_bands,
 )
@@ -1748,3 +1749,65 @@ def test_calc_end_counts_weeks_from_weeks_start_when_given() -> None:
     assert fast is not None and slow is not None
     assert fast.date() == date(2026, 11, 9)  # 4 倍速で 4h → 当日
     assert slow.date() > fast.date()  # 第 1 週(等速)なので 2 日かかる
+
+
+# --- 要望 140: 会計年度の四半期 ---
+
+
+def test_quarter_columns_start_at_the_fiscal_quarter_boundaries() -> None:
+    task = Task(
+        "t", planned_start=datetime(2026, 11, 15), planned_end=datetime(2027, 5, 10)
+    )
+    project = project_with(task, base=date(2026, 11, 15))
+    columns = build_columns(project, Scale.QUARTER, fiscal_start_month=10)
+    assert [c.label for c in columns[:3]] == ["Q1", "Q2", "Q3"]
+    assert (columns[0].start, columns[0].end) == (date(2026, 10, 1), date(2027, 1, 1))
+    assert (columns[2].start, columns[2].end) == (date(2027, 4, 1), date(2027, 7, 1))
+    assert all(a.end == b.start for a, b in zip(columns, columns[1:]))
+
+
+@pytest.mark.parametrize(
+    ("fiscal", "day", "start", "label"),
+    [
+        (4, date(2026, 5, 20), date(2026, 4, 1), "Q1"),
+        (4, date(2027, 2, 1), date(2027, 1, 1), "Q4"),
+        (1, date(2026, 8, 31), date(2026, 7, 1), "Q3"),
+        (10, date(2026, 12, 31), date(2026, 10, 1), "Q1"),
+        (10, date(2027, 1, 1), date(2027, 1, 1), "Q2"),
+        (11, date(2026, 1, 15), date(2025, 11, 1), "Q1"),
+    ],
+)
+def test_the_quarter_around_a_day(
+    fiscal: int, day: date, start: date, label: str
+) -> None:
+    project = Project("p", base_date=day)
+    columns = build_columns(
+        project, Scale.QUARTER, period=(day, day), fiscal_start_month=fiscal
+    )
+    assert len(columns) == 1
+    assert (columns[0].start, columns[0].label) == (start, label)
+
+
+def test_quarter_columns_are_padded_to_the_minimum_count() -> None:
+    project = Project("p", base_date=BASE)
+    assert len(build_columns(project, Scale.QUARTER)) == 8
+
+
+def test_the_fiscal_year_band_is_named_by_the_year_it_starts() -> None:
+    task = Task(
+        "t", planned_start=datetime(2026, 8, 1), planned_end=datetime(2027, 12, 1)
+    )
+    columns = build_columns(
+        project_with(task, base=date(2026, 8, 1)), Scale.QUARTER, fiscal_start_month=10
+    )
+    assert columns[0].start == date(2026, 7, 1)  # 2025 年度の Q4
+    bands = fiscal_bands(columns, 10)
+    assert [b.label for b in bands[:3]] == ["2025年度", "2026年度", "2027年度"]
+    assert [b.count for b in bands[:3]] == [1, 4, 3]  # 8 列までで切れる
+
+
+def test_the_today_line_is_in_the_middle_of_the_quarter_column() -> None:
+    project = Project("p", base_date=date(2026, 11, 12))
+    columns = build_columns(project, Scale.QUARTER, fiscal_start_month=10)
+    position = today_position(datetime(2026, 11, 12, 9), columns, Scale.QUARTER)
+    assert position == columns.index(columns[0]) + 0.5

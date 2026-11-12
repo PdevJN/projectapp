@@ -33,7 +33,12 @@ LARGE_IMAGE_MESSAGE = (
 NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、画像として保存できます"
 # 資料に貼ると、画像の幅に合わせて縮む。これを超えると、文字が小さくなりすぎるので、粗いスケールで開く
 PREVIEW_COMFORT_WIDTH_PX = 6000
-COARSER = (Scale.DAY, Scale.WEEK, Scale.MONTH)  # 細かい順
+COARSER = (
+    Scale.DAY,
+    Scale.WEEK,
+    Scale.MONTH,
+)  # 細かい順(自動で粗くする対象。四半期へは自動で変えない)
+PREVIEW_SCALES = (*COARSER, Scale.QUARTER)  # トグルに出す単位
 
 
 @dataclass(frozen=True)
@@ -75,6 +80,8 @@ def fit_scale(
     references: Mapping[str, ReferenceValue] | None = None,
 ) -> Scale:
     """全期間の画像の幅が快適な幅に収まるまで、スケールを 1 段ずつ粗くする。細かくはしない。月次は、広くても月次。"""
+    if scale is Scale.QUARTER:
+        return scale  # 最も粗い単位。選んだとおりに開く
     for candidate in COARSER[COARSER.index(scale) :]:
         columns = build_columns(project, candidate, holidays, period, references)
         if (
@@ -106,6 +113,11 @@ class PreviewBar:
         self.select_state: CheckState | None = None
         self.syncing = False
         self.box: ui.column | None = None
+        self.plantuml_block: str | None = (
+            None  # PlantUML に出せない理由(出せるなら None)
+        )
+        self.plantuml_tip: ui.tooltip | None = None
+        self.save_enabled = True
 
     def build(self) -> None:
         with ui.column().classes("w-full gap-1") as box:
@@ -125,7 +137,7 @@ class PreviewBar:
                         self.period, lambda t: normalize_period(t, task_dialog.today())
                     ),
                 )
-                self.scale = ui.toggle({s.value: s.value for s in Scale}).mark(
+                self.scale = ui.toggle({s.value: s.value for s in PREVIEW_SCALES}).mark(
                     "preview-scale"
                 )
                 with (
@@ -161,17 +173,22 @@ class PreviewBar:
                     ui.label("").classes("text-caption").mark("preview-select-count")
                 )
                 ui.space()
-                with ui.button("保存", icon="save").mark(
-                    "preview-save-menu"
-                ) as self.save_menu_button:
-                    with ui.menu():
+                # Quasar のメニューは、画面の倍率(CSS の zoom)があると位置がずれて画面の外へ出る。ダイアログなら位置を計算しない
+                self.save_menu_button = ui.button(
+                    "保存", icon="save", on_click=lambda: self.save_dialog.open()
+                ).mark("preview-save-menu")
+                with ui.dialog() as self.save_dialog, ui.card().classes("p-0"):
+                    with ui.list().props("dense"):
                         self.save_button = ui.menu_item(
-                            "画像として保存", on_click=lambda: self.on_save()
+                            "画像として保存", on_click=lambda: self._pick(self.on_save)
                         ).mark("preview-save")
-                        self.plantuml_button = ui.menu_item(
-                            "PlantUML として保存",
-                            on_click=lambda: self.on_save_plantuml(),
-                        ).mark("preview-plantuml")
+                        with (
+                            ui.element("div") as self.plantuml_wrap
+                        ):  # 無効の項目は hover を受けないので、説明は外側に付ける
+                            self.plantuml_button = ui.menu_item(
+                                "PlantUML として保存",
+                                on_click=lambda: self._pick(self.on_save_plantuml),
+                            ).mark("preview-plantuml")
             self.error = (
                 ui.label("").classes("text-negative text-caption").mark("preview-error")
             )
@@ -253,7 +270,27 @@ class PreviewBar:
     def set_warning(self, text: str | None) -> None:
         self.warning.set_text(text or "")
 
+    def _pick(self, action: Callable[[], object]) -> object:
+        """項目を選んだらダイアログを閉じて、保存を始める(非同期の処理は、そのまま呼び出し側に返して待たせる)。"""
+        self.save_dialog.close()
+        return action()
+
     def set_save_enabled(self, enabled: bool) -> None:
+        self.save_enabled = enabled
         self.save_menu_button.set_enabled(enabled)
         self.save_button.set_enabled(enabled)
-        self.plantuml_button.set_enabled(enabled)
+        self.plantuml_button.set_enabled(enabled and self.plantuml_block is None)
+
+    def set_plantuml_block(self, reason: str | None) -> None:
+        """PlantUML に出せないとき、項目を無効にして、マウスオーバーで理由を出す。"""
+        self.plantuml_block = reason
+        self.plantuml_button.set_enabled(self.save_enabled and reason is None)
+        if reason is None:
+            if self.plantuml_tip is not None:
+                self.plantuml_tip.delete()
+                self.plantuml_tip = None
+        elif self.plantuml_tip is None:
+            with self.plantuml_wrap:
+                self.plantuml_tip = ui.tooltip(reason).classes("text-body2")
+        else:
+            self.plantuml_tip.set_text(reason)
