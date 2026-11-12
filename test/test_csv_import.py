@@ -693,3 +693,134 @@ def test_an_imported_project_starts_its_history_with_creation_events() -> None:
     assert normal and {e.task for e in project.history} == normal
     assert project.history_since is not None
     assert all(e.changes[0].before is None for e in project.history)
+
+
+# --- 要望 138 段階 2: セクション列とタイトルのパンくず ---
+
+_SEC_PROFILE = CsvProfile(
+    "階層",
+    (
+        CsvColumn(CsvField.TITLE, "タスク名"),
+        CsvColumn(CsvField.SECTION, "セクション"),
+        CsvColumn(CsvField.END, "期限"),
+    ),
+)
+_CRUMB_PROFILE = CsvProfile(
+    "パンくず",
+    (
+        CsvColumn(CsvField.TITLE, "タスク名"),
+        CsvColumn(CsvField.SECTION, "セクション"),
+        CsvColumn(CsvField.END, "期限"),
+    ),
+    title_breadcrumb=True,
+)
+
+
+def _import(text: str, profile: CsvProfile) -> CsvImport:
+    return parse_csv(text, "t", {}, date(2026, 1, 5), profile, ",")
+
+
+def test_section_column_builds_hierarchy_and_merges_same_names() -> None:
+    out = _import(
+        "タスク名,セクション,期限\na,A > B,2026-01-09\nb,A > B,2026-01-09\nc,A,2026-01-09\nd,,2026-01-09\n",
+        _SEC_PROFILE,
+    )
+    project = out.project
+    assert [t.name for t in project.tasks] == ["d"]
+    (a,) = project.sections
+    assert a.name == "A" and [t.name for t in a.tasks] == ["c"]
+    (b,) = a.sections
+    assert b.name == "B" and [t.name for t in b.tasks] == ["a", "b"]
+    assert out.section_count == 2
+
+
+def test_section_column_wins_over_latest_section_and_blank_follows_it() -> None:
+    text = "WBS 番号,タスク名,セクション,開始日\n1,章,,\n1.1,x,Z,2026-01-05\n1.2,y,,2026-01-05\n"
+    profile = CsvProfile(
+        "wbs",
+        (
+            CsvColumn(CsvField.WBS, "WBS 番号"),
+            CsvColumn(CsvField.TITLE, "タスク名"),
+            CsvColumn(CsvField.SECTION, "セクション"),
+            CsvColumn(CsvField.START, "開始日"),
+        ),
+    )
+    project = _import(text, profile).project
+    by_name = {s.name: s for s in project.sections}
+    assert [t.name for t in by_name["Z"].tasks] == ["1.1#x"]
+    assert [t.name for t in by_name["1#章"].tasks] == ["1.2#y"]
+
+
+def test_section_depth_is_capped_at_three() -> None:
+    out = _import(
+        "タスク名,セクション,期限\nt,A > B > C > D,2026-01-09\n", _SEC_PROFILE
+    )
+    node = out.project.sections[0]
+    depth = 1
+    while node.sections:
+        node = node.sections[0]
+        depth += 1
+    assert depth == 3 and [t.name for t in node.tasks] == ["t"]
+
+
+def test_title_breadcrumb_off_keeps_title() -> None:
+    out = _import("タスク名,セクション,期限\nA > B > t,,2026-01-09\n", _SEC_PROFILE)
+    assert not out.project.sections and out.project.tasks[0].name == "A > B > t"
+
+
+def test_title_breadcrumb_on_reads_sections() -> None:
+    out = _import("タスク名,セクション,期限\nA > B > t,,2026-01-09\n", _CRUMB_PROFILE)
+    (a,) = out.project.sections
+    assert a.name == "A" and a.sections[0].name == "B"
+    assert a.sections[0].tasks[0].name == "t"
+
+
+def test_title_breadcrumb_column_wins_but_title_is_stripped() -> None:
+    out = _import("タスク名,セクション,期限\nA > B > t,X,2026-01-09\n", _CRUMB_PROFILE)
+    (x,) = out.project.sections
+    assert x.name == "X" and x.tasks[0].name == "t"
+
+
+def test_export_then_import_restores_the_hierarchy() -> None:
+    from projectapp.csv_export import build_table
+    from projectapp.models import Project, Section
+
+    inner = Section(
+        "B",
+        tasks=[
+            Task(
+                "t2",
+                planned_start=datetime(2026, 1, 8, 9),
+                planned_end=datetime(2026, 1, 9, 17),
+            )
+        ],
+        id="s2",
+    )
+    outer = Section(
+        "A",
+        [
+            Task(
+                "t1",
+                planned_start=datetime(2026, 1, 7, 9),
+                planned_end=datetime(2026, 1, 8, 17),
+            )
+        ],
+        [inner],
+        id="s1",
+    )
+    source = Project("p", sections=[outer])
+    profile = CsvProfile(
+        "往復",
+        (
+            CsvColumn(CsvField.TITLE, "タスク名"),
+            CsvColumn(CsvField.END, "期限"),
+            CsvColumn(CsvField.SECTION, "セクション"),
+        ),
+        delimiter=",",
+    )
+    text = build_table(source, {}, profile).text
+    back = _import(text, profile).project
+    (a,) = back.sections
+    assert a.name == "A" and [t.name for t in a.tasks] == ["t1"]
+    assert [s.name for s in a.sections] == ["B"]
+    assert [t.name for t in a.sections[0].tasks] == ["t2"]
