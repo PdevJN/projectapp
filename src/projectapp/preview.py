@@ -173,19 +173,21 @@ class PreviewBar:
                     ui.label("").classes("text-caption").mark("preview-select-count")
                 )
                 ui.space()
-                with ui.button("保存", icon="save").mark(
-                    "preview-save-menu"
-                ) as self.save_menu_button:
-                    with ui.menu():
+                # Quasar のメニューは、画面の倍率(CSS の zoom)があると位置がずれて画面の外へ出る。ダイアログなら位置を計算しない
+                self.save_menu_button = ui.button(
+                    "保存", icon="save", on_click=lambda: self.save_dialog.open()
+                ).mark("preview-save-menu")
+                with ui.dialog() as self.save_dialog, ui.card().classes("p-0"):
+                    with ui.list().props("dense"):
                         self.save_button = ui.menu_item(
-                            "画像として保存", on_click=lambda: self.on_save()
+                            "画像として保存", on_click=lambda: self._pick(self.on_save)
                         ).mark("preview-save")
                         with (
                             ui.element("div") as self.plantuml_wrap
-                        ):  # 無効のメニュー項目は hover を受けないので、説明は外側に付ける
+                        ):  # 無効の項目は hover を受けないので、説明は外側に付ける
                             self.plantuml_button = ui.menu_item(
                                 "PlantUML として保存",
-                                on_click=lambda: self.on_save_plantuml(),
+                                on_click=lambda: self._pick(self.on_save_plantuml),
                             ).mark("preview-plantuml")
             self.error = (
                 ui.label("").classes("text-negative text-caption").mark("preview-error")
@@ -267,6 +269,11 @@ class PreviewBar:
 
     def set_warning(self, text: str | None) -> None:
         self.warning.set_text(text or "")
+
+    def _pick(self, action: Callable[[], object]) -> object:
+        """項目を選んだらダイアログを閉じて、保存を始める(非同期の処理は、そのまま呼び出し側に返して待たせる)。"""
+        self.save_dialog.close()
+        return action()
 
     def set_save_enabled(self, enabled: bool) -> None:
         self.save_enabled = enabled
