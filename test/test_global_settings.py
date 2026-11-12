@@ -149,3 +149,18 @@ async def test_out_of_range_values_are_clamped_when_applied(
     user.find(marker="global-settings-history-max").elements.pop().set_value(10**9)
     user.find(marker="global-settings-apply").click()
     assert view.history_keep == HistoryKeep(7, 1_000_000)
+
+
+async def test_the_fiscal_start_month_is_saved_and_redraws_the_quarters(
+    user: User, tmp_path: Path
+) -> None:
+    from projectapp.timeline import Scale
+
+    view = await open_view(user, tmp_path)
+    assert view.fiscal_start_month == 10 and view.gantt.fiscal_start_month == 10
+    view.gantt.set_scale(Scale.QUARTER)
+    user.find(marker="open-global-settings").click()
+    user.find(marker="global-settings-fiscal-month").elements.pop().set_value(4)
+    user.find(marker="global-settings-apply").click()
+    assert config.load_fiscal_start_month(tmp_path) == 4
+    assert view.fiscal_start_month == 4 and view.gantt.fiscal_start_month == 4

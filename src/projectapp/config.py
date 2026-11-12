@@ -18,6 +18,7 @@ from projectapp.history_log import (
     HistoryKeep,
 )
 from projectapp.storage import BASE_DIR
+from projectapp.timeline import DEFAULT_FISCAL_START_MONTH
 from projectapp.theme import (
     CustomTheme,
     custom_theme_to_dict,
@@ -244,6 +245,23 @@ def load_open_ratio(base_dir: Path = BASE_DIR) -> int:
 
 def save_open_ratio(value: int, base_dir: Path = BASE_DIR) -> None:
     update_config({"bottom_open_ratio": value}, base_dir)
+
+
+def parse_fiscal_start_month(value: object) -> int | None:
+    """会計年度の開始月(1〜12の整数)の検証。それ以外は None(既定)。"""
+    number = _finite_number(value)
+    if number is None or number != int(number) or not 1 <= number <= 12:
+        return None
+    return int(number)
+
+
+def load_fiscal_start_month(base_dir: Path = BASE_DIR) -> int:
+    value = parse_fiscal_start_month(read_config(base_dir).get("fiscal_start_month"))
+    return DEFAULT_FISCAL_START_MONTH if value is None else value
+
+
+def save_fiscal_start_month(value: int, base_dir: Path = BASE_DIR) -> None:
+    update_config({"fiscal_start_month": value}, base_dir)
 
 
 def _clamped_int(value: object, low: int, high: int, default: int) -> int:

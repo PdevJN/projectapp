@@ -1,4 +1,4 @@
-"""全体の設定のダイアログ(全プロジェクト共通の値)。下部パネルを開くときの比率と、保存するときの履歴の残し方。"""
+"""全体の設定のダイアログ(全プロジェクト共通の値)。下部パネルを開くときの比率、会計年度の開始月、保存するときの履歴の残し方。"""
 
 from collections.abc import Callable
 
@@ -16,17 +16,22 @@ from projectapp.history_log import (
 )
 
 
+FISCAL_MONTH_OPTIONS = {month: f"{month}月" for month in range(1, 13)}
+
+
 def open_global_settings_dialog(
     initial_ratio: int,
     initial_keep: HistoryKeep,
+    initial_fiscal_month: int,
     on_preview: Callable[[int], object],
-    on_apply: Callable[[int, HistoryKeep], bool],
+    on_apply: Callable[[int, HistoryKeep, int], bool],
     on_cancel: Callable[[], object],
 ) -> None:
     """動かすとすぐ反映し(プレビュー)、`適用`で保存。適用せずに閉じたら`on_cancel`で元に戻す。"""
     applied = False
     current = initial_ratio
     keep = initial_keep
+    fiscal_month = initial_fiscal_month
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-[26rem] max-w-full"):
         ui.label("全体の設定").classes("text-h6")
         ui.label("下部パネルを開くときの、ガントチャートの割合").classes("text-caption")
@@ -49,6 +54,22 @@ def open_global_settings_dialog(
         )
         ui.label(
             "タスクを選んで下部パネルが畳まれているとき、この割合で開きます(下は残り)"
+        ).classes("text-caption text-grey")
+        ui.separator()
+
+        def set_fiscal(event: ValueChangeEventArguments) -> None:
+            nonlocal fiscal_month
+            if event.value is not None:
+                fiscal_month = int(event.value)
+
+        ui.select(
+            FISCAL_MONTH_OPTIONS,
+            label="会計年度の開始月",
+            value=initial_fiscal_month,
+            on_change=set_fiscal,
+        ).classes("w-full").mark("global-settings-fiscal-month")
+        ui.label(
+            "ガントチャートの`四半期`の区切りと、年度の呼び方に使います(10 月始まりなら 2026-10〜2027-09 が 2026 年度)"
         ).classes("text-caption text-grey")
         ui.separator()
         ui.label("保存するときの履歴の残し方").classes("text-caption")
@@ -82,7 +103,7 @@ def open_global_settings_dialog(
 
         def apply() -> None:
             nonlocal applied
-            if on_apply(current, keep):
+            if on_apply(current, keep, fiscal_month):
                 applied = True
                 dialog.close()
 

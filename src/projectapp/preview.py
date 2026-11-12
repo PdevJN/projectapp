@@ -125,7 +125,7 @@ class PreviewBar:
                         self.period, lambda t: normalize_period(t, task_dialog.today())
                     ),
                 )
-                self.scale = ui.toggle({s.value: s.value for s in Scale}).mark(
+                self.scale = ui.toggle({s.value: s.value for s in COARSER}).mark(
                     "preview-scale"
                 )
                 with (

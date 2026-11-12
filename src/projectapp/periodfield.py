@@ -15,8 +15,13 @@ PERIOD_SEPARATOR_PATTERN = re.compile(
 )  # 日付の区切りの `-` と混ざらないよう、波ダッシュだけ
 PERIOD_ORDER_MESSAGE = "期間は、開始日が終了日以前になるように入れてください"
 # 列が多すぎると、描き直しでブラウザとサーバが固まる。日次は約2年まで(1年強は問題なく出せる)
-MAX_COLUMNS = {Scale.DAY: 800, Scale.WEEK: 400, Scale.MONTH: 240}
-COLUMN_UNITS = {Scale.DAY: "日", Scale.WEEK: "週", Scale.MONTH: "か月"}
+MAX_COLUMNS = {Scale.DAY: 800, Scale.WEEK: 400, Scale.MONTH: 240, Scale.QUARTER: 80}
+COLUMN_UNITS = {
+    Scale.DAY: "日",
+    Scale.WEEK: "週",
+    Scale.MONTH: "か月",
+    Scale.QUARTER: "四半期",
+}
 
 
 def validate_period(start_text: str, end_text: str) -> tuple[date, date]:

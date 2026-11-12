@@ -38,6 +38,7 @@ from projectapp.config import (
     check_project_dir,
     load_custom_theme,
     load_main_split,
+    load_fiscal_start_month,
     load_history_keep,
     load_open_ratio,
     load_today_color,
@@ -57,6 +58,7 @@ from projectapp.config import (
     save_custom_theme,
     save_main_split,
     parse_history_keep,
+    save_fiscal_start_month,
     save_history_keep,
     save_open_ratio,
     save_today_color,
@@ -576,6 +578,7 @@ class MainView:
         self.warning_color = load_warning_color(base_dir)  # 警告の色。None は既定(黄)
         self.main_split = load_main_split(base_dir)  # 分割の位置(ガントチャートの割合)
         self.open_ratio = load_open_ratio(base_dir)  # 下部パネルを開くときの割合
+        self.fiscal_start_month = load_fiscal_start_month(base_dir)  # 四半期の区切り
         self.dropped_notice: tuple[str, datetime] | None = (
             None  # 履歴を捨てた通知を出した、(プロジェクト名, 記録の開始)。同じ内容は繰り返さない
         )
@@ -635,6 +638,7 @@ class MainView:
             name_width=load_name_width(base_dir),
             main_split=self.main_split,
             open_ratio=self.open_ratio,
+            fiscal_start_month=self.fiscal_start_month,
             references=lambda: build_references(
                 self.project, self.reference_resolver, clock.now()
             ),
@@ -772,13 +776,16 @@ class MainView:
         show_global_settings_dialog(
             self.open_ratio,
             self.history_keep,
+            self.fiscal_start_month,
             preview,
             self.apply_global_settings,
             cancel,
         )
 
-    def apply_global_settings(self, ratio: int, keep: HistoryKeep) -> bool:
-        """開くときの割合と履歴の残し方を保存する。範囲外は範囲に収める。失敗したら通知して False。"""
+    def apply_global_settings(
+        self, ratio: int, keep: HistoryKeep, fiscal_month: int
+    ) -> bool:
+        """開くときの割合・履歴の残し方・会計年度の開始月を保存する。範囲外は範囲に収める。失敗したら通知して False。"""
         keep = parse_history_keep(
             {"history_detail_days": keep.days, "history_max_events": keep.max_events}
         )
@@ -786,10 +793,15 @@ class MainView:
             return False
         try:
             save_history_keep(keep, self.base_dir)
+            save_fiscal_start_month(fiscal_month, self.base_dir)
         except OSError:
             ui.notify("全体の設定を保存できませんでした", type="warning")
             return False
         self.history_keep = keep
+        if fiscal_month != self.fiscal_start_month:
+            self.fiscal_start_month = fiscal_month
+            self.gantt.fiscal_start_month = fiscal_month
+            self.gantt.render.refresh()  # 四半期の列を描き直す
         return True
 
     def apply_open_ratio(self, value: int) -> bool:

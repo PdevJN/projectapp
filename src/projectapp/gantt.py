@@ -110,7 +110,10 @@ from projectapp.urls import resolve
 from projectapp.summary import children_of, parent_map, summary_progress, summary_status
 from projectapp.workdays import work_day_map
 from projectapp.timeline import (
+    COARSE_SCALES,
+    DEFAULT_FISCAL_START_MONTH,
     day_window,
+    fiscal_bands,
     in_range,
     Band,
     Column,
@@ -141,7 +144,12 @@ NAME_WIDTH_PROPS = (  # JS が範囲と掴み場所の幅を読む。定義元�
     f" data-name-default={DEFAULT_NAME_WIDTH_PX} data-name-edge={RESIZE_EDGE_PX}"
 )
 ROW_HEIGHT_PX = 32
-COLUMN_WIDTH_PX = {Scale.DAY: 40, Scale.WEEK: 56, Scale.MONTH: 80}
+COLUMN_WIDTH_PX = {
+    Scale.DAY: 40,
+    Scale.WEEK: 56,
+    Scale.MONTH: 80,
+    Scale.QUARTER: 120,
+}
 KIND_COLORS = {
     DayKind.SATURDAY: "rgba(66, 165, 245, 0.18)",
     DayKind.SUNDAY: "rgba(244, 143, 177, 0.22)",
@@ -440,6 +448,7 @@ WEEK_PX = {
     Scale.DAY: 7 * 40,
     Scale.WEEK: 56,
     Scale.MONTH: 80 * 7 / 30,
+    Scale.QUARTER: 120 * 7 / 91,
 }  # 7 日ぶんの幅(px)。COLUMN_WIDTH_PX から
 
 
@@ -500,7 +509,7 @@ def planned_background(color: str) -> str:
 
 def week_chip_text(names: list[str], width_px: float, scale: Scale) -> str:
     """棒の上の週ごとのチップの文字。日次・週次で幅が足りるときだけ頭文字を出す(4 人目以降は +n)。"""
-    if scale is Scale.MONTH or width_px < MIN_WEEK_CHIP_TEXT_PX or not names:
+    if scale in COARSE_SCALES or width_px < MIN_WEEK_CHIP_TEXT_PX or not names:
         return ""
     rest = len(names) - MAX_ASSIGNEE_CHIPS
     return "".join(name[0] for name in names[:MAX_ASSIGNEE_CHIPS]) + (
@@ -775,6 +784,7 @@ class GanttChart:
         references: Callable[[], dict[str, Reference]] = lambda: {},
         main_split: int = DEFAULT_MAIN_SPLIT,
         open_ratio: int = DEFAULT_OPEN_RATIO,
+        fiscal_start_month: int = DEFAULT_FISCAL_START_MONTH,
     ) -> None:
         self.project = project
         self.main_split = main_split  # 畳んでいないときの、ガントチャートの割合(%)
@@ -810,6 +820,9 @@ class GanttChart:
         self.links_html: ui.html | None = None
         self.link_layout: tuple[list[Column], int] | None = None
         self.scale = Scale.DAY
+        self.fiscal_start_month = (
+            DEFAULT_FISCAL_START_MONTH  # 全体の設定(四半期の区切り)
+        )
         self.options = ViewOptions()
         self.period: tuple[date, date] | None = (
             None  # メインの表示期間。None は自動(基準日とバーから決める)。保存しない
@@ -1237,6 +1250,7 @@ class GanttChart:
                 self.holidays,
                 self.view_period,
                 self.reference_values(),
+                fiscal_start_month=self.fiscal_start_month,
             )
             assignment = assignment_table(
                 tasks, self.project, self.holidays, self.schedule, columns
@@ -1332,6 +1346,7 @@ class GanttChart:
                 self.holidays,
                 self.view_period,
                 self.reference_values(),
+                fiscal_start_month=self.fiscal_start_month,
             )
         position = today_position(self.now(), columns, self.view_scale)
         return None if position is None else position * COLUMN_WIDTH_PX[self.view_scale]
@@ -1350,6 +1365,7 @@ class GanttChart:
                 self.holidays,
                 self.view_period,
                 self.reference_values(),
+                fiscal_start_month=self.fiscal_start_month,
             )
         position = date_position(day, columns, self.view_scale)
         return None if position is None else position * COLUMN_WIDTH_PX[self.view_scale]
@@ -1497,7 +1513,12 @@ class GanttChart:
     def period_error_text(self, period: tuple[date, date], scale: Scale) -> str | None:
         """期間が列の数の上限を超えるときの、エラー文。"""
         columns = build_columns(
-            self.project, scale, self.holidays, period, self.reference_values()
+            self.project,
+            scale,
+            self.holidays,
+            period,
+            self.reference_values(),
+            fiscal_start_month=self.fiscal_start_month,
         )
         return check_column_count(scale, len(columns))
 
@@ -1611,6 +1632,7 @@ class GanttChart:
             self.holidays,
             self.view_period,
             self.reference_values(),
+            fiscal_start_month=self.fiscal_start_month,
         )
         return self.name_width + COLUMN_WIDTH_PX[self.view_scale] * len(columns)
 
@@ -2337,6 +2359,7 @@ class GanttChart:
             self.holidays,
             self.view_period,
             self.reference_values(),
+            fiscal_start_month=self.fiscal_start_month,
         )
         self.sync_move_menu(columns)
         self.overloads = overallocations(self.project, self.holidays)
@@ -2348,7 +2371,7 @@ class GanttChart:
             f" --name-w: {self.name_width}px"
         )
         with content.props(NAME_WIDTH_PROPS).mark("chart-content"):
-            top = BAND_HEIGHT_PX * (1 if self.view_scale is Scale.MONTH else 2)
+            top = BAND_HEIGHT_PX * (1 if self.view_scale in COARSE_SCALES else 2)
             self.gridlines(columns, width, top)
             if self.view_scale is Scale.DAY:
                 self.stripes(columns, width, top)
@@ -2562,8 +2585,12 @@ class GanttChart:
             .style(header_style)
             .mark("chart-header")
         ):
-            self.band_row(year_bands(columns), width, "year-band")
-            if self.view_scale is not Scale.MONTH:
+            if self.view_scale is Scale.QUARTER:  # 会計年度の帯。月の帯はない
+                bands = fiscal_bands(columns, self.fiscal_start_month)
+                self.band_row(bands, width, "year-band")
+            else:
+                self.band_row(year_bands(columns), width, "year-band")
+            if self.view_scale not in COARSE_SCALES:
                 self.band_row(month_bands(columns), width, "month-band")
             self.label_row(columns, width)
             self.event_rows(columns, width)
@@ -2919,7 +2946,7 @@ class GanttChart:
                     bar.classes(PROGRESS_STATE_CLASSES[state])
                 bar.mark(f"bar-{key}-{ti}")
                 if (
-                    self.view_scale is Scale.MONTH
+                    self.view_scale in COARSE_SCALES
                     and task.daily_crew
                     and self.options.show_chips
                     and start is not None
@@ -3445,8 +3472,8 @@ class GanttChart:
         last_day = (end - timedelta(microseconds=1)).date()
         parts = segments(task.weekly_crew, task.daily_crew, start.date(), last_day)
         if (
-            self.view_scale is Scale.MONTH
-        ):  # 月次は幅が足りないので、日ごとの週も 1 つにまとめる(要望 136)
+            self.view_scale in COARSE_SCALES
+        ):  # 月次・四半期は幅が足りないので、日ごとの週も 1 つにまとめる(要望 136)
             parts = collapse_daily_weeks(parts)
         for position, part in enumerate(parts):
             # 定義した週より後も、7 日ごとに区切る(担当は最後の週のものが続く。タップすると、その週まで足して直せる)
