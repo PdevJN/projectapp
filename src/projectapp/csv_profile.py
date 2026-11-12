@@ -59,8 +59,8 @@ FIELD_LABELS = {
 }
 EXPORT_FIELDS = tuple(CsvField)  # ダイアログの表示順
 IMPORT_FIELDS = tuple(
-    f for f in CsvField if f not in (CsvField.DURATION, CsvField.SECTION)
-)  # 期間は読まない。セクションは書き出しだけ(取り込みは別の段階)
+    f for f in CsvField if f is not CsvField.DURATION
+)  # 期間は読まない
 
 ALIASES: dict[CsvField, tuple[str, ...]] = {  # 見出しの別名(header_key にそろえた形)
     CsvField.WBS: ("wbs番号", "wbs", "wbsno", "no", "番号"),
@@ -279,6 +279,9 @@ class CsvProfile:
     summary_rows: bool = (
         False  # 書き出しで、まとめを行として書く(開始=子の最早、期限=子の最遅)
     )
+    title_breadcrumb: bool = (
+        False  # 取り込みで、タイトルの「 > 」までをセクションとして読む
+    )
     section_mode: str = "row"  # 書き出しでのセクション: row=行 / none=書かない / breadcrumb=タイトルの手前に階層
 
     @property
@@ -424,6 +427,7 @@ def profile_to_config(profile: CsvProfile) -> dict:
         "keep_separators": profile.keep_separators,
         "summary_rows": profile.summary_rows,
         "section_mode": profile.section_mode,
+        "title_breadcrumb": profile.title_breadcrumb,
     }
 
 
@@ -451,6 +455,7 @@ def profile_from_config(raw: object) -> CsvProfile | None:
             keep_separators=raw.get("keep_separators", False) is True,
             summary_rows=raw.get("summary_rows", False) is True,
             section_mode=str(raw.get("section_mode", "row")),
+            title_breadcrumb=raw.get("title_breadcrumb", False) is True,
         )
     except (KeyError, TypeError, ValueError):
         return None

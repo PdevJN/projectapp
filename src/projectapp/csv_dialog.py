@@ -157,6 +157,10 @@ def open_csv_import_dialog(
                 .classes("min-w-[12rem]")
                 .mark("csv-owner-sep")
             )
+            breadcrumb_check = ui.checkbox(
+                "タイトルの「 > 」をセクションとして読む",
+                value=first.title_breadcrumb,
+            ).mark("csv-title-breadcrumb")
 
         @ui.refreshable
         def mapping_panel() -> None:
@@ -344,6 +348,7 @@ def open_csv_import_dialog(
         templates.update({c.field: c.template for c in profile.columns if c.template})
         state["date"] = profile.date_format
         owner_sep.set_value(profile.owner_separator)
+        breadcrumb_check.set_value(profile.title_breadcrumb)
         mapping_panel.refresh()
         refresh_state()
 
@@ -370,6 +375,7 @@ def open_csv_import_dialog(
             str(encoding_select.value),
             state["date"] if isinstance(state["date"], str) else "ymd-dash",
             str(owner_sep.value or ""),
+            title_breadcrumb=bool(breadcrumb_check.value),
         )
 
     def resniff() -> None:
