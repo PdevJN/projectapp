@@ -70,7 +70,12 @@ def test_header_and_footer() -> None:
 
 @pytest.mark.parametrize(
     ("scale", "word"),
-    [(Scale.DAY, "daily"), (Scale.WEEK, "weekly"), (Scale.MONTH, "monthly")],
+    [
+        (Scale.DAY, "daily"),
+        (Scale.WEEK, "weekly"),
+        (Scale.MONTH, "monthly"),
+        (Scale.QUARTER, "quarterly"),
+    ],
 )
 def test_print_scale(scale: Scale, word: str) -> None:
     assert f"printscale {word}" in lines(Project("p"), scale=scale)

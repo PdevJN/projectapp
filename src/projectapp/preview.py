@@ -33,7 +33,12 @@ LARGE_IMAGE_MESSAGE = (
 NOT_NATIVE_MESSAGE = "ネイティブウィンドウでのみ、画像として保存できます"
 # 資料に貼ると、画像の幅に合わせて縮む。これを超えると、文字が小さくなりすぎるので、粗いスケールで開く
 PREVIEW_COMFORT_WIDTH_PX = 6000
-COARSER = (Scale.DAY, Scale.WEEK, Scale.MONTH)  # 細かい順
+COARSER = (
+    Scale.DAY,
+    Scale.WEEK,
+    Scale.MONTH,
+)  # 細かい順(自動で粗くする対象。四半期へは自動で変えない)
+PREVIEW_SCALES = (*COARSER, Scale.QUARTER)  # トグルに出す単位
 
 
 @dataclass(frozen=True)
@@ -75,6 +80,8 @@ def fit_scale(
     references: Mapping[str, ReferenceValue] | None = None,
 ) -> Scale:
     """全期間の画像の幅が快適な幅に収まるまで、スケールを 1 段ずつ粗くする。細かくはしない。月次は、広くても月次。"""
+    if scale is Scale.QUARTER:
+        return scale  # 最も粗い単位。選んだとおりに開く
     for candidate in COARSER[COARSER.index(scale) :]:
         columns = build_columns(project, candidate, holidays, period, references)
         if (
@@ -125,7 +132,7 @@ class PreviewBar:
                         self.period, lambda t: normalize_period(t, task_dialog.today())
                     ),
                 )
-                self.scale = ui.toggle({s.value: s.value for s in COARSER}).mark(
+                self.scale = ui.toggle({s.value: s.value for s in PREVIEW_SCALES}).mark(
                     "preview-scale"
                 )
                 with (

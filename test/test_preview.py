@@ -146,6 +146,13 @@ def test_a_narrow_project_keeps_the_scale() -> None:
     assert fit_scale(project, {}, None, Scale.DAY) is Scale.DAY
     assert fit_scale(project, {}, None, Scale.WEEK) is Scale.WEEK
     assert fit_scale(project, {}, None, Scale.MONTH) is Scale.MONTH
+    assert fit_scale(project, {}, None, Scale.QUARTER) is Scale.QUARTER
+
+
+def test_the_preview_toggle_offers_the_quarter() -> None:
+    from projectapp.preview import PREVIEW_SCALES
+
+    assert PREVIEW_SCALES[-1] is Scale.QUARTER and len(PREVIEW_SCALES) == 4
 
 
 def test_the_boundary_is_inclusive() -> None:

@@ -2117,6 +2117,7 @@ class MainView:
                     self.holidays,
                     (start, end),
                     self.reference_values(),
+                    fiscal_start_month=self.fiscal_start_month,
                 )
             ),
         )

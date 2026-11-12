@@ -32,7 +32,12 @@ from projectapp.timeline import (
 
 PLANTUML_FILE_TYPES = ("PlantUML ファイル (*.puml)",)
 UNSAFE_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
-SCALE_NAMES = {Scale.DAY: "daily", Scale.WEEK: "weekly", Scale.MONTH: "monthly"}
+SCALE_NAMES = {
+    Scale.DAY: "daily",
+    Scale.WEEK: "weekly",
+    Scale.MONTH: "monthly",
+    Scale.QUARTER: "quarterly",  # PlantUML の四半期は暦(1 月始まり)で区切る
+}
 STATUS_COLORS = {  # gantt.STATUS_COLORS と同じ(あちらは NiceGUI に依存するので、写して持つ。テストで一致を確かめる)
     Status.NOT_STARTED: "#78909c",
     Status.RUNNING: "#1e88e5",

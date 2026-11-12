@@ -9465,3 +9465,16 @@ async def test_the_dropping_notice_is_shown_once_not_on_every_save(
     view.commit(overwrite=True, after=None)  # 編集せずにもう一度保存
     assert await wait_until(lambda: user.notify.contains("保存しました"))
     assert not user.notify.contains(notice)
+
+
+async def test_the_preview_toggle_has_the_quarter_and_shows_quarter_columns(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_preview(user, tmp_path, FakeExporter())
+    toggle = user.find(marker="preview-scale").elements.pop()
+    assert "四半期" in [getattr(o, "value", o) for o in toggle.options]
+    toggle.set_value("四半期")
+    await asyncio.sleep(0.2)
+    assert view.gantt.view_scale is Scale.QUARTER
+    await user.should_see(marker="year-band")
+    await user.should_not_see(marker="month-band")
