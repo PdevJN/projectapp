@@ -81,6 +81,18 @@ class CatchUp:
     invest: tuple[
         str, ...
     ] = ()  # 遅れを取り戻すために投入するメンバー名(要望 131)。空は試算しない
+    skip: tuple[
+        str, ...
+    ] = ()  # 取り戻す試算(要望 130・131)から外すタスクの ID(要望 141)。空は遅れの全タスク
+
+
+@dataclass(frozen=True)
+class LateItem:
+    """遅れた 1 タスクの、集計に入れた残りの工数(要望 141。適用するタスクの選択に使う)。"""
+
+    task_id: str
+    name: str
+    hours: float
 
 
 @dataclass(frozen=True)
@@ -1178,6 +1190,9 @@ class Backlog:
         default_factory=list
     )  # 投入の候補(余力の多い順。要望 131)
     investment: Investment | None = None  # 選んだメンバーを投入したときの試算
+    late_items: list[LateItem] = field(
+        default_factory=list
+    )  # 遅れのタスクごとの工数(要望 141)
 
     @property
     def late_hours(self) -> float:
@@ -1597,6 +1612,8 @@ def _late_kind(
 class _LateTask:
     """遅れた 1 タスクの、残りの全量(期間で按分しない)の担当者ごとの内訳と、取り戻す期限(要望 104)。"""
 
+    task_id: str
+    name: str
     kind: str  # overdue / warning
     due: (
         date | None
@@ -1695,6 +1712,8 @@ def _backlog_parts(
             ]
             late_tasks.append(
                 _LateTask(
+                    task.id,
+                    task.name,
                     late,
                     min(ends_of_task) if late == "warning" and ends_of_task else None,
                     {
@@ -1821,6 +1840,15 @@ def _assemble_backlog(
     warning_hours = sum(
         warning_split.get(name, 0.0) * _factor(member, name) for name in shown
     )
+    late_items: list[LateItem] = []
+    for part in parts:
+        for item in part.late_tasks:
+            item_hours = sum(item.split.get(n, 0.0) * _factor(member, n) for n in shown)
+            if item_hours > 0:
+                late_items.append(LateItem(item.task_id, item.name, item_hours))
+    picked_hours = sum(
+        item.hours for item in late_items if item.task_id not in catch_up.skip
+    )  # 取り戻す試算に入れる遅れの工数(要望 141)
     ends = [moment for part in parts for moment in part.ends]
     window = _backlog_window(base, period, kind, now, holidays, ends)
     standard = 0.0 if window is None else _window_hours(base, holidays, window, now)
@@ -1892,18 +1920,19 @@ def _assemble_backlog(
         catch_up,
         overdue_people,
         warning_people,
-        _recovery(base, holidays, now, overdue_hours + warning_hours, catch_up, window),
+        _recovery(base, holidays, now, picked_hours, catch_up, window),
         candidates,
         _investment(
             base,
             holidays,
             now,
-            overdue_hours + warning_hours,
+            picked_hours,
             candidates,
             staff,
             catch_up,
             window,
         ),
+        late_items,
     )
 
 
