@@ -600,7 +600,8 @@ class DashboardView:
         on_catch_up_change: Callable[[CatchUp], object] | None = None,
         on_assign: Callable[[str], object] | None = None,
         on_add_crew: Callable[[str], object] | None = None,
-        on_try_on_gantt: Callable[[tuple[str, ...]], object] | None = None,
+        on_try_on_gantt: Callable[[tuple[str, ...], tuple[str, ...]], object]
+        | None = None,
     ) -> None:
         self.on_try_on_gantt = on_try_on_gantt
         self.actions = actions
@@ -1712,6 +1713,7 @@ class DashboardView:
                     ),
                 ).props(props).mark(f"dashboard-backlog-late-{marker}")
         self.catch_up_controls(backlog.catch_up)
+        self.late_pick_controls(backlog)
         self.recovery_controls(backlog)
         self.invest_controls(backlog)
 
@@ -1747,6 +1749,49 @@ class DashboardView:
                         ),
                     )
                 ui.label("稼働日で取り戻す").classes("text-caption")
+
+    def late_pick_controls(self, backlog: Backlog) -> None:
+        """追加人数・投入の試算と`ガントチャートで試す`を、どの遅れのタスクに適用するかのチップ(要望 141)。
+        押して選択・解除する。既定は全選択。選択は保存しない。試算の対象がないときは出さない。"""
+        rule = backlog.catch_up
+        if not backlog.late_items or not (rule.people > 0 or backlog.candidates):
+            return
+        everyone = tuple(item.task_id for item in backlog.late_items)
+        with ui.column().classes("gap-0").mark("dashboard-backlog-late-pick"):
+            with ui.row().classes("items-center gap-1"):
+                ui.label("適用するタスク").classes("text-caption")
+                for text, skip, marker in (
+                    ("全選択", (), "all"),
+                    ("全解除", everyone, "none"),
+                ):
+                    ui.button(
+                        text,
+                        on_click=lambda s=skip, now=rule: self.pick_catch_up(
+                            replace(now, skip=s), now
+                        ),
+                    ).props("dense flat no-caps size=sm").mark(
+                        f"dashboard-backlog-late-pick-{marker}"
+                    )
+            with ui.row().classes("w-full gap-1"):
+                for item in backlog.late_items:
+                    picked = item.task_id not in rule.skip
+                    ui.chip(
+                        f"{item.name} {item.hours:.1f}h",
+                        color="primary" if picked else None,
+                        on_click=lambda i=item.task_id, p=picked, now=rule: (
+                            self.pick_catch_up(
+                                replace(now, skip=toggled(now.skip, i, p)), now
+                            )
+                        ),
+                    ).props(
+                        "dense square clickable" + ("" if picked else " outline")
+                    ).classes("ellipsis").mark(
+                        f"dashboard-backlog-late-pick-{item.task_id}"
+                    )
+            if all(item.task_id in rule.skip for item in backlog.late_items):
+                ui.label("適用するタスクを選んでください").classes(
+                    "text-caption text-grey"
+                ).mark("dashboard-backlog-late-pick-empty")
 
     def recovery_controls(self, backlog: Backlog) -> None:
         """遅れを取り戻すために追加する人数の欄と、追加した人だけで取り戻せる日の試算(要望 130)。保存しない。"""
@@ -1832,10 +1877,20 @@ class DashboardView:
                     box.disable()
         if rule.invest and self.on_try_on_gantt is not None:
             handler = self.on_try_on_gantt
-            ui.button(
-                "ガントチャートで試す",
-                on_click=lambda names=rule.invest: handler(names),
-            ).props("dense flat").mark("dashboard-backlog-try-gantt")
+            button = (
+                ui.button(
+                    "ガントチャートで試す",
+                    on_click=lambda names=rule.invest, skip=rule.skip: handler(
+                        names, skip
+                    ),
+                )
+                .props("dense flat")
+                .mark("dashboard-backlog-try-gantt")
+            )
+            if backlog.late_items and all(
+                item.task_id in rule.skip for item in backlog.late_items
+            ):
+                button.disable()
         investment = backlog.investment
         if investment is None:
             return

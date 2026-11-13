@@ -251,3 +251,23 @@ async def test_try_invest_on_gantt_starts_the_next_day(
     view.after_edit()
     assert view.try_invest_on_gantt(("鈴木",)) == 1
     assert view.trials["tl"].start == clock.now().date() + timedelta(days=1)
+
+
+async def test_try_invest_on_gantt_skips_the_tasks_left_out(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    view.project.tasks.clear()
+    for name, ident in (("one", "t1"), ("two", "t2")):
+        view.project.tasks.append(
+            Task(
+                name,
+                id=ident,
+                planned_start=datetime(2026, 10, 12, 9),
+                effort_hours=16.0,
+                assignees=[Assignee("田中")],
+            )
+        )
+    view.after_edit()
+    assert view.try_invest_on_gantt(("鈴木",), ("t1",)) == 1
+    assert set(view.trials) == {"t2"}

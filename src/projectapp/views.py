@@ -2902,13 +2902,20 @@ class MainView:
         with self.trial_band:
             delay_band(len(results), recovered, self.confirm_trials, self.clear_trials)
 
-    def try_invest_on_gantt(self, names: tuple[str, ...]) -> int:
-        """投入候補で選んだ人を、遅れているタスク(`警告を含む`のときは警告のタスクも)に翌日から増員する試算にして、ガントチャートへ切り替える。"""
+    def try_invest_on_gantt(
+        self, names: tuple[str, ...], skip: tuple[str, ...] = ()
+    ) -> int:
+        """投入候補で選んだ人を、遅れているタスク(`警告を含む`のときは警告のタスクも)に翌日から増員する試算にして、ガントチャートへ切り替える。
+        skip は、ダッシュボードで適用から外したタスクの ID(要望 141)。"""
         now = clock.now()
         schedule = Schedule(self.project, self.holidays)
         self.trials = {}
         for task in self.project.all_tasks():
-            if task.kind is not TaskKind.NORMAL or task.status is Status.DONE:
+            if (
+                task.kind is not TaskKind.NORMAL
+                or task.status is Status.DONE
+                or task.id in skip
+            ):
                 continue
             late = is_overdue(task, self.project, self.holidays, now, schedule) or (
                 self.dashboard_late_basis is LateBasis.WARNING
