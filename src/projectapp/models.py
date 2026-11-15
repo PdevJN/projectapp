@@ -442,9 +442,7 @@ class Project:
     plantuml_overload_notice: bool = (
         True  # PlantUML の保存後に、100% 超に見える担当者を通知するか
     )
-    actual_time_optional: bool = (
-        True  # 実績の時刻を省略できるか(省くと始業・終業を補う。False は日付と時刻の両方が要る)
-    )
+    actual_time_optional: bool = True  # 実績の時刻を省略できるか(省くと始業・終業を補う。False は日付と時刻の両方が要る)
     ratio_limit_upper: float | None = (
         None  # 相対比率の上限(150% は 1.5)。None は設定なし(50〜150%)
     )
