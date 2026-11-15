@@ -633,6 +633,7 @@ class MainView:
                 edit_week_crew=self.edit_week_crew,
                 try_crew=self.open_try_crew,
                 drop_trial=self.drop_trial_at,
+                pick_trial=self.pick_trial,
                 edit_progress=self.edit_progress,
                 add_extra_effort=self.add_extra_effort,
                 open_reference=self.open_reference,
@@ -892,6 +893,7 @@ class MainView:
             self.committed = deepcopy(self.project)
         results = self.trial_results()
         self.gantt.trial_results = results  # set_project が描き直す
+        self.gantt.trial_pool_ids = frozenset(self.trial_pool)
         self.update_trial_band(results)
         self.gantt.set_project(self.project)
 
@@ -900,6 +902,7 @@ class MainView:
         self.history.clear()
         self.trials = {}
         self.trial_pool = {}
+        self.gantt.trial_pool_ids = frozenset()
         self.gantt.trial_results = {}  # 切り替え先の描き直し(set_project)で消える
         self.update_trial_band({})
         self.committed = deepcopy(self.project)
@@ -2897,7 +2900,7 @@ class MainView:
         """試算の表示(チャートと帯)を描き直す。"""
         results = self.trial_results()
         self.update_trial_band(results)
-        self.gantt.set_trials(results)
+        self.gantt.set_trials(results, frozenset(self.trial_pool))
 
     def update_trial_band(self, results: dict[str, TrialResult]) -> None:
         """試算中だけ、ガントチャートの上に `遅延対応` の帯を出す。候補(trial_pool)があれば、全部外しても帯は残す。"""
