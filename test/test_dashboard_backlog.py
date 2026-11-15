@@ -1421,3 +1421,40 @@ def test_nothing_late_gives_no_investment() -> None:
 def test_a_member_filter_limits_the_candidates() -> None:
     backlog = invest_of((), late_task(), member="田中")
     assert [c.name for c in backlog.candidates] == ["田中"]
+
+
+def skip_of(skip: tuple[str, ...], names: tuple[str, ...], *tasks: Task):
+    return summarize_backlog(
+        project_of(*tasks, members=TEAM),
+        WEEK,
+        PeriodKind.WEEK,
+        NOW,
+        {},
+        None,
+        catch_up=CatchUp(CatchUpMode.PERIOD, 5, 2.0, names, skip),
+    )
+
+
+def test_the_late_items_list_each_late_task_with_its_remaining_hours() -> None:
+    first, second = late_task(6.5, name="一"), late_task(4.0, name="二")
+    backlog = skip_of((), (), first, second)
+    assert [(i.task_id, i.name) for i in backlog.late_items] == [
+        (first.id, "一"),
+        (second.id, "二"),
+    ]
+    assert [i.hours for i in backlog.late_items] == pytest.approx([6.5, 4.0])
+
+
+def test_skipping_a_task_removes_its_hours_from_the_recovery_and_investment() -> None:
+    first, second = late_task(6.5, name="一"), late_task(4.0, name="二")
+    backlog = skip_of((first.id,), ("鈴木",), first, second)
+    assert backlog.recovery is not None and backlog.recovery.hours == pytest.approx(4.0)
+    assert backlog.investment is not None
+    assert backlog.investment.hours == pytest.approx(4.0)
+    assert backlog.late_hours == pytest.approx(10.5)  # 見出しの数字は変わらない
+
+
+def test_skipping_every_late_task_gives_no_trial() -> None:
+    task = late_task()
+    backlog = skip_of((task.id,), ("鈴木",), task)
+    assert backlog.recovery is None and backlog.investment is None

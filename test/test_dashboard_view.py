@@ -15,6 +15,7 @@ from projectapp.dashboard import (
     CatchUpMode,
     Candidate,
     Investment,
+    LateItem,
     LateBasis,
     LoadFailure,
     ProjectLoad,
@@ -134,7 +135,7 @@ def mount(
     actions: ViewActions | None = None,
     late_basis_changes: list[LateBasis] | None = None,
     catch_up_changes: list[CatchUp] | None = None,
-    try_changes: list[tuple[str, ...]] | None = None,
+    try_changes: list[tuple[tuple[str, ...], tuple[str, ...]]] | None = None,
 ) -> tuple[list[DashboardView], list[int], list[PeriodKind]]:
     views: list[DashboardView] = []
     backs: list[int] = []
@@ -153,7 +154,9 @@ def mount(
             on_catch_up_change=catch_up_changes.append
             if catch_up_changes is not None
             else None,
-            on_try_on_gantt=try_changes.append if try_changes is not None else None,
+            on_try_on_gantt=(lambda names, skip: try_changes.append((names, skip)))
+            if try_changes is not None
+            else None,
         )
         views.append(view)
         view.build()
@@ -2576,7 +2579,7 @@ async def test_candidates_are_hidden_without_any_candidate(user: User) -> None:
 
 
 async def test_the_try_on_gantt_button_needs_a_chosen_person(user: User) -> None:
-    tried: list[tuple[str, ...]] = []
+    tried: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
     views, _, _ = mount(try_changes=tried)
     await user.open("/")
     views[0].show(with_backlog(invest_backlog()), PeriodKind.WEEK)
@@ -2585,7 +2588,7 @@ async def test_the_try_on_gantt_button_needs_a_chosen_person(user: User) -> None
     views[0].show(with_backlog(invest_backlog(("鈴木",))), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-backlog-try-gantt")
     user.find(marker="dashboard-backlog-try-gantt").click()
-    assert tried == [("鈴木",)]
+    assert tried == [(("鈴木",), ())]
 
 
 async def test_the_overdue_row_shows_the_forecast_only_when_there_is_one(
@@ -2656,3 +2659,69 @@ async def test_no_edit_checkbox_without_unassigned_or_warning_tasks(
     views[0].show(sample(), PeriodKind.WEEK)
     await user.should_see(marker="dashboard-progress-percent")
     await user.should_not_see(marker="dashboard-unassigned-edit")
+
+
+# --- 要望 141: 適用するタスクの選択 ----------------------------------------------
+
+
+def pick_backlog(skip: tuple[str, ...] = (), invest: tuple[str, ...] = ()) -> Backlog:
+    return replace(
+        invest_backlog(invest),
+        catch_up=CatchUp(CatchUpMode.PERIOD, 5, 1.5, invest, skip),
+        late_items=[LateItem("a", "設計", 16.0), LateItem("b", "試験", 10.0)],
+    )
+
+
+async def test_late_tasks_are_chips_that_toggle_into_the_skip_list(user: User) -> None:
+    changes: list[CatchUp] = []
+    views, _, _ = mount(catch_up_changes=changes)
+    await user.open("/")
+    views[0].show(with_backlog(pick_backlog()), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-late-pick-a")
+    assert user.find(marker="dashboard-backlog-late-pick-a").elements.pop().text == (
+        "設計 16.0h"
+    )
+    user.find(marker="dashboard-backlog-late-pick-b").click()
+    assert changes == [CatchUp(CatchUpMode.PERIOD, 5, 1.5, (), ("b",))]
+
+
+async def test_clicking_a_skipped_chip_picks_it_again(user: User) -> None:
+    changes: list[CatchUp] = []
+    views, _, _ = mount(catch_up_changes=changes)
+    await user.open("/")
+    views[0].show(with_backlog(pick_backlog(("a", "b"))), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-late-pick-a")
+    user.find(marker="dashboard-backlog-late-pick-a").click()
+    assert changes == [CatchUp(CatchUpMode.PERIOD, 5, 1.5, (), ("b",))]
+
+
+async def test_select_all_and_clear_all_buttons(user: User) -> None:
+    changes: list[CatchUp] = []
+    views, _, _ = mount(catch_up_changes=changes)
+    await user.open("/")
+    views[0].show(with_backlog(pick_backlog(("a",))), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-late-pick-none")
+    user.find(marker="dashboard-backlog-late-pick-none").click()
+    user.find(marker="dashboard-backlog-late-pick-all").click()
+    assert [c.skip for c in changes] == [("a", "b"), ()]
+
+
+async def test_clearing_every_task_asks_for_a_pick_and_stops_the_gantt_trial(
+    user: User,
+) -> None:
+    views, _, _ = mount(try_changes=[])
+    await user.open("/")
+    views[0].show(with_backlog(pick_backlog(("a", "b"), ("鈴木",))), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-late-pick-empty")
+    button = user.find(marker="dashboard-backlog-try-gantt").elements.pop()
+    assert not button.enabled
+
+
+async def test_the_gantt_trial_passes_the_skipped_tasks(user: User) -> None:
+    tried: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+    views, _, _ = mount(try_changes=tried)
+    await user.open("/")
+    views[0].show(with_backlog(pick_backlog(("b",), ("鈴木",))), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-backlog-try-gantt")
+    user.find(marker="dashboard-backlog-try-gantt").click()
+    assert tried == [(("鈴木",), ("b",))]

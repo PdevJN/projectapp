@@ -206,3 +206,31 @@ async def test_a_confirmed_increase_inside_a_daily_week_beyond_the_bar_shows_its
     view.after_edit()
     await user.should_see(marker="week-added-ext-top-0-1-3")  # 効き始める日のところ
     await user.should_not_see(marker="week-added-ext-top-0-1")
+
+
+async def test_clicking_a_pooled_bar_or_its_ghost_toggles_the_trial(
+    user: User, tmp_path: Path
+) -> None:
+    from test_delay_response import seed_two_late
+
+    view = await opened(user, tmp_path)
+    seed_two_late(view)
+    view.try_invest_on_gantt(("鈴木",), ("t1",))
+    assert set(view.trials) == {"t2"}
+    await user.should_see(marker="bar-top-0")
+    user.find(marker="bar-top-0").click()  # 外れているタスクのバー: 入れる
+    assert set(view.trials) == {"t1", "t2"}
+    user.find(marker="bar-top-0").click()  # もう一度: 外す
+    assert set(view.trials) == {"t2"}
+    user.find(marker="trial-ghost-top-1").click()  # 増員の破線の枠: 外す
+    assert view.trials == {}
+
+
+async def test_clicking_a_bar_outside_the_pool_does_nothing(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    view.try_crew("ta", ["鈴木"], date(2099, 1, 12))  # 単独の試算: 候補なし
+    await user.should_see(marker="bar-top-0")
+    user.find(marker="bar-top-0").click()
+    assert set(view.trials) == {"ta"}

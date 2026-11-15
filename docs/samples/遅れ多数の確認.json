@@ -1,0 +1,488 @@
+{
+  "version": 21,
+  "name": "遅れ多数の確認",
+  "base_date": "2026-11-02",
+  "daily_hours": 6.5,
+  "work_start": "09:00:00",
+  "members": [
+    {
+      "name": "田中",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "030bef92",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    },
+    {
+      "name": "鈴木",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "ed0c02b3",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    },
+    {
+      "name": "佐藤",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "a78969dd",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    },
+    {
+      "name": "高橋",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "134dd4d6",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    }
+  ],
+  "sections": [],
+  "tasks": [
+    {
+      "name": "遅れ01 設計レビュー(24h)",
+      "id": "i000201",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 24,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "030bef92",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": 30,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "遅れ02 API 実装(40h)",
+      "id": "i000202",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 40,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "ed0c02b3",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "遅れ03 画面の改修(32h)",
+      "id": "i000203",
+      "planned_start": "2026-11-02T09:00:00",
+      "effort_hours": 32,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "a78969dd",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": 50,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "遅れ04 テスト作成(16h)",
+      "id": "i000204",
+      "planned_start": "2026-11-03T09:00:00",
+      "effort_hours": 16,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "134dd4d6",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "遅れ05 DB 移行(28h)",
+      "id": "i000205",
+      "planned_start": "2026-11-03T09:00:00",
+      "effort_hours": 28,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "030bef92",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": 10,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "遅れ06 権限の見直し(12h)",
+      "id": "i000206",
+      "planned_start": "2026-11-04T09:00:00",
+      "effort_hours": 12,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "ed0c02b3",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "遅れ07 帳票の修正(20h)",
+      "id": "i000207",
+      "planned_start": "2026-11-04T09:00:00",
+      "effort_hours": 20,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "a78969dd",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": 60,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "遅れ08 性能の調査(8h)",
+      "id": "i000208",
+      "planned_start": "2026-11-04T09:00:00",
+      "effort_hours": 8,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "134dd4d6",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "遅れ09 ログ基盤(36h)",
+      "id": "i000209",
+      "planned_start": "2026-11-05T09:00:00",
+      "effort_hours": 36,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "030bef92",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": 25,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "遅れ10 通知の追加(10h)",
+      "id": "i000210",
+      "planned_start": "2026-11-05T09:00:00",
+      "effort_hours": 10,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "ed0c02b3",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "遅れ11 文書の更新(6h)",
+      "id": "i000211",
+      "planned_start": "2026-11-06T09:00:00",
+      "effort_hours": 6,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "a78969dd",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "遅れ12 リリース準備(14h)",
+      "id": "i000212",
+      "planned_start": "2026-11-06T09:00:00",
+      "effort_hours": 14,
+      "priority": "中",
+      "status": "実行中",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "134dd4d6",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": 40,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "遅れ13 監視の設定(18h)",
+      "id": "i000213",
+      "planned_start": "2026-11-06T09:00:00",
+      "effort_hours": 18,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "030bef92",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    },
+    {
+      "name": "通常 来週の作業(13h)",
+      "id": "i000299",
+      "planned_start": "2026-11-16T09:00:00",
+      "effort_hours": 13,
+      "priority": "中",
+      "status": "未着手",
+      "color": "#4c8bf5",
+      "assignees": [
+        {
+          "member": "030bef92",
+          "allocation": 1.0
+        }
+      ],
+      "predecessors": [],
+      "deadline": null,
+      "planned_end": null,
+      "planned_end_manual": false,
+      "actuals": [],
+      "category_id": null,
+      "kind": "通常",
+      "urls": [],
+      "progress": null,
+      "children": [],
+      "parameters": [],
+      "ref_project": "",
+      "ref_snapshot": null,
+      "weekly_crew": [],
+      "extra_efforts": []
+    }
+  ],
+  "actual_mode": "simple",
+  "url_templates": [],
+  "parameters": [],
+  "categories": [],
+  "events": [],
+  "teams": [],
+  "reference_mode": "live",
+  "plantuml_overload_notice": true,
+  "ratio_limit_upper": null,
+  "ratio_limit_lower": null,
+  "history": [],
+  "history_since": null
+}

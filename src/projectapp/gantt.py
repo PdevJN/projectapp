@@ -740,6 +740,9 @@ class GanttActions:
     drop_trial: Callable[[SectionPath, int], object] = lambda path, ti: (
         None
     )  # この増員をやめる
+    pick_trial: Callable[[str], object] = lambda task_id: (
+        None
+    )  # 候補の棒のクリックで、増員を入れる・外す(要望 141)
     edit_week_crew: Callable[[SectionPath, int, int], object] = lambda path, ti, week: (
         None
     )  # 週ごとの担当の編集(0 始まり)
@@ -817,6 +820,9 @@ class GanttChart:
         self.trial_results: dict[
             str, TrialResult
         ] = {}  # 遅延対応の試算の結果(要望 132)
+        self.trial_pool_ids: frozenset[str] = (
+            frozenset()
+        )  # 棒のクリックで増員を切り替えられるタスクの id(要望 141)
         self.links_html: ui.html | None = None
         self.link_layout: tuple[list[Column], int] | None = None
         self.scale = Scale.DAY
@@ -892,9 +898,12 @@ class GanttChart:
         self.assignee_select: ui.select | None = None
         self.client: Client | None = None
 
-    def set_trials(self, results: dict[str, TrialResult]) -> None:
-        """遅延対応の試算の結果を受け取って描き直す(保存しない)。"""
+    def set_trials(
+        self, results: dict[str, TrialResult], pool: frozenset[str] = frozenset()
+    ) -> None:
+        """遅延対応の試算の結果と、棒のクリックで切り替えられるタスクを受け取って描き直す(保存しない)。"""
         self.trial_results = results
+        self.trial_pool_ids = pool
         self.render.refresh()
 
     def set_project(self, project: Project) -> None:
@@ -2963,6 +2972,12 @@ class GanttChart:
                         lambda path=path, ti=ti: self.actions.edit_progress(path, ti),
                         js_handler=BAR_SHIFT_CLICK_JS,
                     )
+                if task.id in self.trial_pool_ids and not self.options.read_only:
+                    bar.on(
+                        "click",
+                        lambda tid=task.id: self.actions.pick_trial(tid),
+                        js_handler=PLAIN_CLICK_JS,
+                    )
                 if draggable:
                     least = arrange.min_shift_days(
                         task,
@@ -3007,7 +3022,15 @@ class GanttChart:
                     self.added_beyond_bar(key, ti, task, start, end, columns, width)
                 if (result := self.trial_results.get(task.id)) is not None:
                     self.trial_overlay(
-                        key, ti, result, start, columns, width, left, bar_width
+                        key,
+                        ti,
+                        result,
+                        start,
+                        columns,
+                        width,
+                        left,
+                        bar_width,
+                        task.id,
                     )
                 elif self.options.show_alerts:
                     self.forecast_overlay(key, ti, task, columns, width, not extended)
@@ -3379,6 +3402,7 @@ class GanttChart:
         width: int,
         bar_left: float,
         bar_width: float,
+        task_id: str = "",
     ) -> None:
         """増員の試算を棒に重ねる: 試算後の完了までの点線の枠、元の完了予定の縦線、増員チップ、見込みの文言。"""
         if start is None:
@@ -3388,11 +3412,22 @@ class GanttChart:
         if result.trial_end is not None:
             span = bar_span(origin, result.trial_end, columns)
             if span is not None:
-                ui.element("div").classes("trial-ghost").style(
-                    f"position: absolute; left: {from_name(span[0] * width)};"
-                    f" width: {max(span[1] * width, MIN_BAR_PX):.1f}px;"
-                    f" top: {BAR_TOP_PX - 2}px; height: {BAR_HEIGHT_PX + 4}px"
-                ).mark(f"trial-ghost-{key}-{ti}")
+                ghost = (
+                    ui.element("div")
+                    .classes("trial-ghost")
+                    .style(
+                        f"position: absolute; left: {from_name(span[0] * width)};"
+                        f" width: {max(span[1] * width, MIN_BAR_PX):.1f}px;"
+                        f" top: {BAR_TOP_PX - 2}px; height: {BAR_HEIGHT_PX + 4}px"
+                    )
+                    .mark(f"trial-ghost-{key}-{ti}")
+                )
+                if task_id in self.trial_pool_ids and not self.options.read_only:
+                    ghost.style("pointer-events: auto; cursor: pointer").on(
+                        "click",
+                        lambda tid=task_id: self.actions.pick_trial(tid),
+                        js_handler=PLAIN_CLICK_JS,
+                    )
         if result.original_end is not None:
             line = bar_span(result.original_end, result.original_end, columns)
             if line is not None:

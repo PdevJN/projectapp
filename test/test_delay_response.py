@@ -251,3 +251,101 @@ async def test_try_invest_on_gantt_starts_the_next_day(
     view.after_edit()
     assert view.try_invest_on_gantt(("鈴木",)) == 1
     assert view.trials["tl"].start == clock.now().date() + timedelta(days=1)
+
+
+async def test_try_invest_on_gantt_skips_the_tasks_left_out(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    view.project.tasks.clear()
+    for name, ident in (("one", "t1"), ("two", "t2")):
+        view.project.tasks.append(
+            Task(
+                name,
+                id=ident,
+                planned_start=datetime(2026, 10, 12, 9),
+                effort_hours=16.0,
+                assignees=[Assignee("田中")],
+            )
+        )
+    view.after_edit()
+    assert view.try_invest_on_gantt(("鈴木",), ("t1",)) == 1
+    assert set(view.trials) == {"t2"}
+
+
+def seed_two_late(view: MainView) -> None:
+    view.project.tasks.clear()
+    for name, ident in (("one", "t1"), ("two", "t2")):
+        view.project.tasks.append(
+            Task(
+                name,
+                id=ident,
+                planned_start=datetime(2026, 10, 12, 9),
+                effort_hours=16.0,
+                assignees=[Assignee("田中")],
+            )
+        )
+    view.after_edit()
+
+
+async def test_the_band_chips_toggle_the_trial_of_each_late_task(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    seed_two_late(view)
+    view.try_invest_on_gantt(("鈴木",), ("t1",))
+    assert set(view.trials) == {"t2"}  # ダッシュボードで外したタスクは最初は入らない
+    await user.should_see(marker="delay-band-pick-t1")
+    user.find(marker="delay-band-pick-t1").click()  # 入れる
+    assert set(view.trials) == {"t1", "t2"}
+    assert view.trials["t1"].names == ("鈴木",)
+    user.find(marker="delay-band-pick-t2").click()  # 外す
+    assert set(view.trials) == {"t1"}
+
+
+async def test_the_band_stays_when_every_trial_is_taken_off_and_can_put_one_back(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    seed_two_late(view)
+    view.try_invest_on_gantt(("鈴木",))
+    user.find(marker="delay-band-none").click()
+    assert view.trials == {}
+    await user.should_see(marker="delay-band")
+    user.find(marker="delay-band-pick-t1").click()
+    assert set(view.trials) == {"t1"}
+    user.find(marker="delay-band-all").click()
+    assert set(view.trials) == {"t1", "t2"}
+
+
+async def test_a_task_dropped_by_the_context_menu_stays_as_a_chip(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    seed_two_late(view)
+    view.try_invest_on_gantt(("鈴木",))
+    view.drop_trial("t1")
+    await user.should_see(marker="delay-band-pick-t1")
+    user.find(marker="delay-band-pick-t1").click()
+    assert set(view.trials) == {"t1", "t2"}
+
+
+async def test_the_pool_ends_with_clear_and_confirm(user: User, tmp_path: Path) -> None:
+    view = await opened(user, tmp_path)
+    seed_two_late(view)
+    view.try_invest_on_gantt(("鈴木",))
+    user.find(marker="delay-band-clear").click()
+    await user.should_not_see(marker="delay-band")
+    view.try_invest_on_gantt(("鈴木",))
+    user.find(marker="delay-band-confirm").click()
+    await user.should_not_see(marker="delay-band")
+    assert view.trials == {}
+
+
+async def test_a_single_trial_from_the_context_menu_has_no_chips(
+    user: User, tmp_path: Path
+) -> None:
+    view = await opened(user, tmp_path)
+    view.try_crew("ta", ["鈴木"], date(2099, 1, 12))
+    await user.should_see(marker="delay-band")
+    await user.should_not_see(marker="delay-band-all")
