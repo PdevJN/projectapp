@@ -9529,3 +9529,43 @@ async def test_plantuml_quarter_is_allowed_when_the_year_starts_in_january(
     user.find(marker="preview-scale").elements.pop().set_value("四半期")
     await asyncio.sleep(0.2)
     assert user.find(marker="preview-plantuml").elements.pop().enabled
+
+
+def overview_layout():
+    from projectapp.overview import NodeKind, OverviewNode, layout_overview
+
+    root = OverviewNode("r", "開発", NodeKind.SECTION, Status.NOT_STARTED)
+    return layout_overview(root, True, True)
+
+
+async def test_overview_pdf_is_refused_outside_the_native_window(
+    user: User, tmp_path: Path
+) -> None:
+    exporter = FakeExporter(path=tmp_path / "x.pdf", available=False)
+    view = await open_for_import(user, tmp_path, exporter)
+    await view.export_overview_pdf(overview_layout())
+    await user.should_see("ネイティブウィンドウでのみ、書き出せます")
+    assert exporter.asked == []
+
+
+async def test_cancelling_the_overview_pdf_dialog_writes_nothing(
+    user: User, tmp_path: Path
+) -> None:
+    exporter = FakeExporter(path=None)
+    view = await open_for_import(user, tmp_path, exporter)
+    await view.export_overview_pdf(overview_layout())
+    assert exporter.asked == ["overview.pdf"]
+    assert not list(tmp_path.glob("*.pdf"))
+
+
+async def test_overview_pdf_reports_a_missing_font_and_keeps_the_project(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("projectapp.overview_pdf.find_font", lambda *a, **k: None)
+    target = tmp_path / "out.pdf"
+    exporter = FakeExporter(path=target)
+    view = await open_for_import(user, tmp_path, exporter)
+    dirty = view.is_dirty()
+    await view.export_overview_pdf(overview_layout())
+    await user.should_see("日本語のフォントが見つからない")
+    assert not target.exists() and view.is_dirty() == dirty

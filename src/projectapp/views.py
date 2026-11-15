@@ -83,6 +83,9 @@ from projectapp.bulk_edit import (
 from projectapp.bulk_edit import (
     apply_bulk as apply_bulk_changes,
 )  # MainView.apply_bulk と紛れないように
+from projectapp.overview import Layout, OverviewNode, build_overview
+from projectapp.overview_dialog import open_overview_dialog
+from projectapp.overview_pdf import OverviewPdfError, render_pdf
 from projectapp.forms import (
     MEMBER_TABLE_CSS,
     can_add_extra_effort,
@@ -623,6 +626,8 @@ class MainView:
                 delete_task=self.confirm_delete_task,
                 copy_section=self.copy_section,
                 rename_section=self.rename_section,
+                overview_section=self.open_overview_section,
+                overview_summary=self.open_overview_summary,
                 delete_section=self.confirm_delete_section,
                 move_section=self.move_section,
                 add_named_task=self.add_named_task,
@@ -3184,6 +3189,36 @@ class MainView:
         )  # 後ろの兄弟の番号が 1 つずれる
         self.after_edit()
         ui.notify(f"セクション「{name}」をコピーしました")
+
+    def open_overview_section(self, path: SectionPath) -> None:
+        root = build_overview(
+            self.project, self.holidays, clock.now(), section_path=path
+        )
+        self.show_overview(root)
+
+    def open_overview_summary(self, task_id: str) -> None:
+        root = build_overview(
+            self.project, self.holidays, clock.now(), summary_id=task_id
+        )
+        self.show_overview(root)
+
+    def show_overview(self, root: OverviewNode) -> None:
+        open_overview_dialog(root, self.gantt.reveal_task, self.export_overview_pdf)
+
+    async def export_overview_pdf(self, layout: Layout) -> None:
+        """俯瞰図を PDF に書き出す。プロジェクトは変えない(保存も、変更扱いもしない)。"""
+        if not self.exporter.available:
+            ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
+            return
+        path = await self.exporter.ask_path("overview.pdf", ("PDF (*.pdf)",))
+        if path is None:
+            return
+        try:
+            written = render_pdf(layout, path)
+        except OverviewPdfError as exc:
+            ui.notify(str(exc), type="negative")
+            return
+        ui.notify(f"書き出しました({written.name})")
 
     def rename_section(self, path: SectionPath) -> None:
         """セクション名だけを変える(名前の入力ダイアログ)。"""
