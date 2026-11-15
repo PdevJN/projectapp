@@ -504,6 +504,9 @@ class MainView:
         self.trials: dict[
             str, TrialCrew
         ] = {}  # 遅延対応の増員の試算(要望 132)。保存しない
+        self.trial_pool: dict[
+            str, TrialCrew
+        ] = {}  # 帯のチップで入れ替えられる試算の候補(要望 141)。保存しない
         self.dashboard_excluded: set[str] = (
             set()
         )  # 重ねるのから外したプロジェクトの名前。保存しない
@@ -896,6 +899,7 @@ class MainView:
         """履歴を捨て、いまの内容を確定した状態にする(別のプロジェクトに切り替えたとき・名前をつけて保存したとき)。"""
         self.history.clear()
         self.trials = {}
+        self.trial_pool = {}
         self.gantt.trial_results = {}  # 切り替え先の描き直し(set_project)で消える
         self.update_trial_band({})
         self.committed = deepcopy(self.project)
@@ -2838,8 +2842,9 @@ class MainView:
             self.refresh_trials()
 
     def clear_trials(self) -> None:
-        if self.trials:
+        if self.trials or self.trial_pool:
             self.trials = {}
+            self.trial_pool = {}
             self.refresh_trials()
 
     def trial_results(self) -> dict[str, TrialResult]:
@@ -2881,6 +2886,7 @@ class MainView:
         ):
             self.notify_effect(names, day)  # 休みで効き始めがずれるときは知らせる
         self.trials = {}
+        self.trial_pool = {}
         if count:
             self.after_edit()
         else:
@@ -2894,13 +2900,40 @@ class MainView:
         self.gantt.set_trials(results)
 
     def update_trial_band(self, results: dict[str, TrialResult]) -> None:
-        """試算中だけ、ガントチャートの上に `遅延対応` の帯を出す。"""
+        """試算中だけ、ガントチャートの上に `遅延対応` の帯を出す。候補(trial_pool)があれば、全部外しても帯は残す。"""
         self.trial_band.clear()
-        if not results:
+        names = {t.id: t.name for t in self.project.all_tasks()}
+        pool = [
+            (task_id, names[task_id], task_id in results)
+            for task_id in self.trial_pool
+            if task_id in names
+        ]
+        if not results and not pool:
             return
         recovered = sum(1 for r in results.values() if (r.days_earlier or 0) >= 1)
         with self.trial_band:
-            delay_band(len(results), recovered, self.confirm_trials, self.clear_trials)
+            delay_band(
+                len(results),
+                recovered,
+                self.confirm_trials,
+                self.clear_trials,
+                pool,
+                self.pick_trial,
+                self.pick_all_trials,
+            )
+
+    def pick_trial(self, task_id: str) -> None:
+        """帯のチップ。そのタスクの増員の試算を、入れる・外すで切り替える。"""
+        if task_id in self.trials:
+            del self.trials[task_id]
+        elif task_id in self.trial_pool:
+            self.trials[task_id] = self.trial_pool[task_id]
+        self.refresh_trials()
+
+    def pick_all_trials(self, on: bool) -> None:
+        """帯の全選択・全解除。"""
+        self.trials = dict(self.trial_pool) if on else {}
+        self.refresh_trials()
 
     def try_invest_on_gantt(
         self, names: tuple[str, ...], skip: tuple[str, ...] = ()
@@ -2910,12 +2943,9 @@ class MainView:
         now = clock.now()
         schedule = Schedule(self.project, self.holidays)
         self.trials = {}
+        self.trial_pool = {}
         for task in self.project.all_tasks():
-            if (
-                task.kind is not TaskKind.NORMAL
-                or task.status is Status.DONE
-                or task.id in skip
-            ):
+            if task.kind is not TaskKind.NORMAL or task.status is Status.DONE:
                 continue
             late = is_overdue(task, self.project, self.holidays, now, schedule) or (
                 self.dashboard_late_basis is LateBasis.WARNING
@@ -2931,7 +2961,9 @@ class MainView:
                 )
                 is not None
             ):
-                self.trials[task.id] = trial
+                self.trial_pool[task.id] = trial
+                if task.id not in skip:
+                    self.trials[task.id] = trial
         if self.dashboard_kind is not None:
             self.close_dashboard()
         self.refresh_trials()

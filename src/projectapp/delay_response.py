@@ -1,6 +1,6 @@
 """遅延対応(要望 132)の帯・ダイアログ・CSS。"""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import date
 
 from nicegui import ui
@@ -30,20 +30,44 @@ def delay_band(
     recovered: int,
     on_confirm: Callable[[], object],
     on_clear: Callable[[], object],
+    pool: Sequence[tuple[str, str, bool]] = (),
+    on_pick: Callable[[str], object] | None = None,
+    on_pick_all: Callable[[bool], object] | None = None,
 ) -> None:
-    """試算中に、ガントチャートの上に出す帯。"""
-    with ui.row().classes("delay-band items-center gap-3 w-full").mark("delay-band"):
-        ui.label("遅延対応").classes("text-bold")
-        ui.label(f"試算中: {count} 件の増員 / 取り戻せたタスク {recovered} 件").mark(
-            "delay-band-text"
-        )
-        ui.space()
-        ui.button("確定", on_click=lambda: on_confirm()).props("dense flat").mark(
-            "delay-band-confirm"
-        )
-        ui.button("すべてやめる", on_click=lambda: on_clear()).props("dense flat").mark(
-            "delay-band-clear"
-        )
+    """試算中に、ガントチャートの上に出す帯。pool は(タスク ID・名前・増員を入れているか)の並びで、
+    あれば、押して入れる・外すチップと全選択・全解除を出す(要望 141)。"""
+    with ui.column().classes("delay-band gap-1 w-full").mark("delay-band"):
+        with ui.row().classes("items-center gap-3 w-full"):
+            ui.label("遅延対応").classes("text-bold")
+            ui.label(
+                f"試算中: {count} 件の増員 / 取り戻せたタスク {recovered} 件"
+            ).mark("delay-band-text")
+            ui.space()
+            ui.button("確定", on_click=lambda: on_confirm()).props("dense flat").mark(
+                "delay-band-confirm"
+            )
+            ui.button("すべてやめる", on_click=lambda: on_clear()).props(
+                "dense flat"
+            ).mark("delay-band-clear")
+        if pool and on_pick is not None and on_pick_all is not None:
+            pick, pick_all = on_pick, on_pick_all
+            with ui.row().classes("items-center gap-1 w-full"):
+                ui.label("適用するタスク").classes("text-caption")
+                for text, value, marker in (
+                    ("全選択", True, "all"),
+                    ("全解除", False, "none"),
+                ):
+                    ui.button(text, on_click=lambda v=value: pick_all(v)).props(
+                        "dense flat no-caps size=sm"
+                    ).mark(f"delay-band-{marker}")
+                for task_id, name, picked in pool:
+                    ui.chip(
+                        name,
+                        color="primary" if picked else None,
+                        on_click=lambda i=task_id: pick(i),
+                    ).props(
+                        "dense square clickable" + ("" if picked else " outline")
+                    ).classes("ellipsis").mark(f"delay-band-pick-{task_id}")
 
 
 def trial_dialog(
