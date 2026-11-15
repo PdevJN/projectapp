@@ -25,12 +25,12 @@
 
 ## 補う規則(`省略できる`のとき)
 
-- `fill_actual_time(day, clock, *, is_end, work_start, daily_hours) -> str`(`forms.py`の純粋関数)を足す。`compose_actual`は、この結果を返す。
+- `fill_actual_times(start_day, start_clock, end_day, end_clock, *, optional, work_start, daily_hours) -> tuple[str, str]`(`forms.py`の純粋関数。`compose_actual`を 2 回呼ぶ代わりに、開始と終了を一緒に作る)を足す。戻り値は`build_actuals(start_text, end_text)`に渡す文字列の組。
   - 日付も時刻も空: 空(実績なし)。
-  - 日付だけ(時刻が空): 開始は`日付 work_start`、終了は`日付 work_start + daily_hours`。`work_start + daily_hours`が翌日にかかるとき(始業 22:00・8 時間など)は、日付をまたいだ日時のまま使う。
   - 日付と時刻の両方: そのまま(今までと同じ)。
   - 時刻だけ(日付が空): エラー(`日付を入れてください`)。
-- 検証する側(`validate_actuals`相当。`forms.py`の 591 行付近の、実績の入力を検証する関数)で、補った終了が開始より前になるとき、終了を開始に揃える(`max(end, start)`)。明示した時刻どうしの前後逆は、今までどおりエラー。
+  - 日付だけ(時刻が空)で、`optional`が真: 開始は`日付 work_start`、終了は`日付 work_start + daily_hours`。`work_start + daily_hours`が翌日にかかるとき(始業 22:00・8 時間など)は、日付をまたいだ日時のまま使う。`optional`が偽なら、今までどおりのエラー(`日付と時刻を両方入れてください`)。
+  - 補った終了が、開始より前になるとき(開始に明示した時刻が遅いときなど)は、終了を開始に揃える(CSV の取り込みの`max(end, start)`と同じ)。両方を明示した前後逆は、補っていないので、今までどおり`build_actuals`がエラーにする。
 - 保存するのは、補ったあとの`datetime`。データの形・集計は変えない。開き直すと、補った時刻が入った状態で見える(省いたという情報は持たない)。
 
 ## `必須`のとき
@@ -61,13 +61,13 @@
 ## 影響する文書
 
 - `.claude/spec/gantt.md`: 実績の記録方式の項の隣に、`実績の時刻`の項を足す。設定ダイアログの項と、切り出しで引き継ぐ設定の一覧にも足す。
-- `.claude/spec/project-files.md`と`CLAUDE.md`の`version`(現在 22 → 23)。`docs/development.md`の該当箇所。
+- `CLAUDE.md`の`version`(現在 22 → 23)と、`docs/development.md`の形式のバージョンの箇所。`.claude/spec/project-files.md`に形式の記述があれば、あわせて直す。
 - `docs/requests.md`: 要望 144 の状態を更新する。
 
 ## テスト
 
-- 純粋関数`fill_actual_time`: 日付だけの開始・終了、日付と時刻の両方、時刻だけ(エラー)、両方空、日をまたぐ終了、`必須`のときの拒否。
-- 検証: 補った終了が開始より前のとき、開始に揃える。明示した前後逆はエラー。
+- 純粋関数`fill_actual_times`: 日付だけの開始・終了、日付と時刻の両方、時刻だけ(エラー)、両方空、日をまたぐ終了、`必須`のときの拒否。
+- 補った終了が開始より前のとき、開始に揃える。明示した前後逆は、`build_actuals`がエラーにする。
 - 画面: 簡易の入力欄・区間の行・Shift クリックのダイアログで、時刻を空にして確定できる。`必須`では今までどおり拒否する。案内の文字が、設定の始業・終業に合う。状態の提案が、日付だけでも働く。
 - 設定ダイアログ: トグルの既定、切り替え、保存。
 - ファイル: `version` 23 の読み書き、キーのない古いファイルの読み(`省略できる`)、不正な値の拒否、新しい`version`の拒否。
