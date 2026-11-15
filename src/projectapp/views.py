@@ -3196,6 +3196,12 @@ class MainView:
         )
         self.show_overview(root)
 
+    def open_overview_project(self) -> None:
+        root = build_overview(
+            self.project, self.holidays, clock.now(), whole_project=True
+        )
+        self.show_overview(root)
+
     def open_overview_summary(self, task_id: str) -> None:
         root = build_overview(
             self.project, self.holidays, clock.now(), summary_id=task_id
@@ -3754,6 +3760,12 @@ class MainView:
                         self.open_dashboard,
                         "menu-open-dashboard",
                         "D",
+                    ),
+                    MenuItem(
+                        "系統図…",
+                        "account_tree",
+                        self.open_overview_project,
+                        "menu-open-overview",
                     ),
                 ],
             )

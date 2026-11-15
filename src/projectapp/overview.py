@@ -40,6 +40,10 @@ class OverviewNode:
     first_task_id: str | None = None  # クリックで移る先のタスク
 
 
+PROJECT_NODE_ID = (
+    "__project__"  # プロジェクト全体の根の id(タスク・セクションの id と重ならない)
+)
+
 _KINDS = {
     TaskKind.SUMMARY: NodeKind.SUMMARY,
     TaskKind.CHECKPOINT: NodeKind.CHECKPOINT,
@@ -111,6 +115,28 @@ class _Builder:
             task.id,
         )
 
+    def project_node(self) -> OverviewNode:
+        """プロジェクト全体の根。セクションなしのタスク(まとめの子を除く)が先、続いてセクション。"""
+        tasks = self.project.all_tasks()
+        leaves = [t for t in tasks if t.kind is TaskKind.NORMAL]
+        children = [
+            self.task_node(task)
+            for task in self.project.tasks
+            if task.id not in self.in_summary
+        ] + [self.section_node(section) for section in self.project.sections]
+        return OverviewNode(
+            PROJECT_NODE_ID,
+            self.project.name,
+            NodeKind.SECTION,
+            summary_status(leaves) if leaves else Status.NOT_STARTED,
+            False,
+            _percent(tasks),
+            _hours(tasks),
+            None,
+            children,
+            tasks[0].id if tasks else None,
+        )
+
     def section_node(self, section: Section) -> OverviewNode:
         tasks = section.all_tasks()
         # セクション直下のタスクのうち、まとめの子は、まとめの下だけに出す
@@ -141,13 +167,18 @@ def build_overview(
     *,
     section_path: SectionPath | None = None,
     summary_id: str | None = None,
+    whole_project: bool = False,
 ) -> OverviewNode:
-    """セクション(パスで指す)かまとめ(id で指す)の配下を、ツリーにする。どちらか一方だけを渡す。"""
-    if (section_path is None) == (summary_id is None):
+    """セクション(パスで指す)・まとめ(id で指す)・プロジェクト全体の配下を、ツリーにする。1 つだけを渡す。
+    プロジェクト全体の根は、プロジェクトの名前(ファイル名)で、セクションなしのタスクもその直下に出す。"""
+    chosen = [section_path is not None, summary_id is not None, whole_project]
+    if sum(chosen) != 1:
         raise ValueError(
-            "section_path か summary_id のどちらか一方だけを渡してください"
+            "section_path・summary_id・whole_project のうち、1 つだけを渡してください"
         )
     builder = _Builder(project, holidays, now)
+    if whole_project:
+        return builder.project_node()
     if summary_id is not None:
         task = builder.by_id.get(summary_id)
         if task is None or task.kind is not TaskKind.SUMMARY:

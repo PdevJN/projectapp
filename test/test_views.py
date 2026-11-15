@@ -4306,6 +4306,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         ("設定", "open-settings"),
         ("メンバーとパラメータ", "open-members-parameters"),
         ("ダッシュボード", "menu-open-dashboard"),
+        ("系統図…", "menu-open-overview"),
     ]
     assert menu_icons(user, "menu-file-items") == [
         "folder_open",
@@ -4322,7 +4323,12 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         "table_view",
         "settings_backup_restore",
     ]
-    assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
+    assert menu_icons(user, "menu-project-items") == [
+        "settings",
+        "groups",
+        "dashboard",
+        "account_tree",
+    ]
     assert menu_icons(user, "file-export-items") == [
         "ios_share",
         "download",
@@ -9569,3 +9575,12 @@ async def test_overview_pdf_reports_a_missing_font_and_keeps_the_project(
     await view.export_overview_pdf(overview_layout())
     await user.should_see("日本語のフォントが見つからない")
     assert not target.exists() and view.is_dirty() == dirty
+
+
+async def test_the_project_menu_opens_the_whole_project_overview(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.name = "全体の確認"
+    user.find(marker="menu-open-overview").click()
+    await user.should_see("系統図: 全体の確認")

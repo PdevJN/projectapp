@@ -245,3 +245,44 @@ def test_a_summary_root_with_tasks_hidden_is_a_single_node() -> None:
     summary = mixed().children[1]
     layout = layout_overview(summary, True, True, show_tasks=False)
     assert [p.node.name for p in layout.placed] == ["S"] and layout.edges == []
+
+
+def whole() -> Project:
+    return Project(
+        "全体",
+        tasks=[
+            Task("直下1", id="z1", effort_hours=4.0, status=Status.DONE),
+            Task("まとめ", id="zs", kind=TaskKind.SUMMARY, children=["zc"]),
+            Task("直下の子", id="zc", effort_hours=4.0),
+        ],
+        sections=[Section("開発", [Task("設計", id="a", effort_hours=8.0)])],
+    )
+
+
+def test_whole_project_root_is_named_after_the_project() -> None:
+    root = build_overview(whole(), {}, NOW, whole_project=True)
+    assert (root.name, root.kind) == ("全体", NodeKind.SECTION)
+    # セクションなしのタスクが先、続いてセクション。まとめの子は、まとめの下だけ
+    assert [c.name for c in root.children] == ["直下1", "まとめ", "開発"]
+    assert [c.name for c in root.children[1].children] == ["直下の子"]
+
+
+def test_whole_project_root_aggregates_every_task() -> None:
+    root = build_overview(whole(), {}, NOW, whole_project=True)
+    assert root.effort_hours == 16.0
+    # 直下1(4h・100%)・直下の子(4h・0%)・設計(8h・0%): 400/16 = 25
+    assert root.progress == 25
+    assert root.first_task_id == "z1"
+
+
+def test_whole_project_without_tasks_is_a_single_node() -> None:
+    root = build_overview(Project("空"), {}, NOW, whole_project=True)
+    assert root.children == [] and root.progress is None
+    assert root.first_task_id is None
+
+
+def test_the_three_roots_are_mutually_exclusive() -> None:
+    with pytest.raises(ValueError):
+        build_overview(whole(), {}, NOW, section_path=(0,), whole_project=True)
+    with pytest.raises(ValueError):
+        build_overview(whole(), {}, NOW, summary_id="zs", whole_project=True)
