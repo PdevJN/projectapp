@@ -40,7 +40,7 @@ from projectapp.forms import (
     build_extra_efforts,
     build_task,
     build_urls,
-    compose_actual,
+    ActualTimePolicy,
     compose_datetime,
     default_times,
     extra_effort_progress,
@@ -288,7 +288,11 @@ def add_picker(
 
 
 def moment_column(
-    label: str, mark: str, picker: str, moment: datetime | None
+    label: str,
+    mark: str,
+    picker: str,
+    moment: datetime | None,
+    time_hint: str = "",
 ) -> tuple[ui.input, ui.input]:
     """実績の日付と時刻の入力の組。マーカーは `{mark}-date` と `{mark}-time`。"""
     with ui.column().classes("flex-1 gap-0"):
@@ -303,6 +307,8 @@ def moment_column(
             f"{label}の時刻", value=moment.strftime("%H:%M") if moment else ""
         )
         clock.classes("w-full").mark(f"{mark}-time")
+        if time_hint:
+            clock.props(f'placeholder="{time_hint}"')
         add_picker(
             clock, ui.time, "access_time", f"{picker}-time", "%H:%M", parse_time_input
         )
@@ -564,10 +570,24 @@ def _parses(day: str | None, clock: str | None) -> bool:
     return True
 
 
-class ActualFields:
-    """実績の開始・終了。日付と時刻を両方入れる(補う時刻はない)。2件以上の実績は編集できない。"""
+def _moment_ready(day: str | None, clock: str | None, optional: bool) -> bool:
+    """日付と時刻が、状態の提案に使える形か。`optional`のとき、時刻が空でも、日付が完成していれば使える。"""
+    if optional and not (clock or "").strip():
+        try:
+            datetime.strptime((day or "").strip(), "%Y-%m-%d")
+        except ValueError:
+            return False
+        return True
+    return _parses(day, clock)
 
-    def __init__(self, task: Task) -> None:
+
+class ActualFields:
+    """実績の開始・終了。日付と時刻を入れる(時刻の省略は policy による)。2件以上の実績は編集できない。"""
+
+    def __init__(
+        self, task: Task, policy: ActualTimePolicy = ActualTimePolicy()
+    ) -> None:
+        self.policy = policy
         self.read_only = len(task.actuals) > 1
         ui.label("実績").classes("text-caption text-grey")
         if self.read_only:
@@ -587,7 +607,8 @@ class ActualFields:
     def _column(
         self, label: str, key: str, moment: datetime | None
     ) -> tuple[ui.input, ui.input]:
-        return moment_column(label, f"task-actual-{key}", f"actual-{key}", moment)
+        hint = self.policy.end_hint() if key == "end" else self.policy.start_hint()
+        return moment_column(label, f"task-actual-{key}", f"actual-{key}", moment, hint)
 
     def bind(self, callback: Callable[[object], None]) -> None:
         """入力が変わったときに呼ぶ関数を、すべての入力に付ける。"""
@@ -599,23 +620,31 @@ class ActualFields:
             return []
         return [self.start_day, self.start_time, self.end_day, self.end_time]
 
-    def start_text(self) -> str:
+    def texts(self) -> tuple[str, str]:
+        """`build_actuals`に渡す開始・終了の文字列(補った時刻を含む)。入力に誤りがあれば ValueError。"""
         if self.read_only:
-            return ""
-        return compose_actual(self.start_day.value or "", self.start_time.value or "")
+            return "", ""
+        return self.policy.fill(
+            self.start_day.value or "",
+            self.start_time.value or "",
+            self.end_day.value or "",
+            self.end_time.value or "",
+        )
+
+    def start_text(self) -> str:
+        return self.texts()[0]
 
     def end_text(self) -> str:
-        if self.read_only:
-            return ""
-        return compose_actual(self.end_day.value or "", self.end_time.value or "")
+        return self.texts()[1]
 
     def filled(self) -> tuple[bool, bool]:
         """開始・終了の日付と時刻がそろっているか(状態の提案に使う)。"""
         if self.read_only:
             return False, False
+        optional = self.policy.optional
         return (
-            _parses(self.start_day.value, self.start_time.value),
-            _parses(self.end_day.value, self.end_time.value),
+            _moment_ready(self.start_day.value, self.start_time.value, optional),
+            _moment_ready(self.end_day.value, self.end_time.value, optional),
         )
 
     def state(self) -> tuple[object, ...]:
@@ -639,7 +668,10 @@ class IntervalFields:
 
     read_only = False
 
-    def __init__(self, task: Task) -> None:
+    def __init__(
+        self, task: Task, policy: ActualTimePolicy = ActualTimePolicy()
+    ) -> None:
+        self.policy = policy
         self._rows: list[IntervalRow] = []
         self._counter = 0  # マーカーの番号。行を削除しても詰めない
         self._on_change: Callable[[object], None] | None = None
@@ -662,12 +694,14 @@ class IntervalFields:
                         f"task-interval-{n}-start",
                         f"interval-{n}-start",
                         actual.start if actual else None,
+                        self.policy.start_hint(),
                     )
                     end_day, end_time = moment_column(
                         "終了",
                         f"task-interval-{n}-end",
                         f"interval-{n}-end",
                         actual.end if actual else None,
+                        self.policy.end_hint(),
                     )
                 ui.button(
                     "削除", icon="delete", on_click=lambda c=card: self._remove(c)
@@ -702,10 +736,12 @@ class IntervalFields:
         result: list[ActualRow] = []
         for number, row in enumerate(self._rows, start=1):
             try:
-                start = compose_actual(
-                    row.start_day.value or "", row.start_time.value or ""
+                start, end = self.policy.fill(
+                    row.start_day.value or "",
+                    row.start_time.value or "",
+                    row.end_day.value or "",
+                    row.end_time.value or "",
                 )
-                end = compose_actual(row.end_day.value or "", row.end_time.value or "")
             except ValueError as exc:
                 raise ValueError(f"区間 {number}: {exc}") from None
             result.append((start, end))
@@ -722,9 +758,10 @@ class IntervalFields:
         if not self._rows:
             return False, False
         last = self._rows[-1]
+        optional = self.policy.optional
         return (
-            _parses(last.start_day.value, last.start_time.value),
-            _parses(last.end_day.value, last.end_time.value),
+            _moment_ready(last.start_day.value, last.start_time.value, optional),
+            _moment_ready(last.end_day.value, last.end_time.value, optional),
         )
 
     def state(self) -> tuple[object, ...]:
@@ -1102,7 +1139,10 @@ def open_day_crew_dialog(
 
 
 def open_quick_progress_dialog(
-    task: Task, intervals: bool, on_save: Callable[[Task], object]
+    task: Task,
+    intervals: bool,
+    on_save: Callable[[Task], object],
+    policy: ActualTimePolicy = ActualTimePolicy(),
 ) -> None:
     """ガントチャートの棒の Shift クリックで開く、進捗度と実績(開始・終了)だけを直す小さなダイアログ。
     実績が 2 件以上のタスクは、進捗度だけを直せる。"""
@@ -1124,7 +1164,7 @@ def open_quick_progress_dialog(
             .classes("w-full")
             .mark("quick-actuals-box")
         ):
-            fields = ActualFields(task)
+            fields = ActualFields(task, policy)
             if not fields.read_only:
                 ui.label("実績を変えたときは、状態を実績に合わせます").classes(
                     "text-caption text-grey"
@@ -1133,12 +1173,9 @@ def open_quick_progress_dialog(
 
         def save() -> None:
             try:
+                start, end = fields.texts()
                 saved = apply_quick_progress(
-                    task,
-                    progress.value,
-                    fields.start_text(),
-                    fields.end_text(),
-                    intervals=intervals,
+                    task, progress.value, start, end, intervals=intervals
                 )
             except ValueError as exc:
                 error.set_text(str(exc))
@@ -1291,6 +1328,7 @@ def open_task_dialog(
     holidays: dict[date, str] | None = None,
     members: list[Member] | None = None,
     actual_mode: ActualMode = ActualMode.SIMPLE,
+    actual_time_optional: bool = True,
     link_options: dict[str, str] | None = None,
     finish_of: Callable[[str], datetime | None] | None = None,
     url_templates: list[UrlTemplate] | None = None,
@@ -1688,9 +1726,12 @@ def open_task_dialog(
 
         with section_boxes["actuals"]:
             intervals = actual_mode is ActualMode.INTERVALS
+            policy = ActualTimePolicy(actual_time_optional, work_start, daily_hours)
             with ui.column().classes("w-full") as actual_box:
                 actual_fields: ActualFields | IntervalFields = (
-                    IntervalFields(initial) if intervals else ActualFields(initial)
+                    IntervalFields(initial, policy)
+                    if intervals
+                    else ActualFields(initial, policy)
                 )
             progress_field = TaskProgressField(initial.progress)
 

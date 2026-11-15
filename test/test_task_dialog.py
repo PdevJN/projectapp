@@ -30,6 +30,7 @@ from projectapp.models import (
     UrlTemplate,
     WorkDay,
 )
+from projectapp.forms import ActualTimePolicy
 from projectapp.task_dialog import (
     open_quick_progress_dialog,
     open_task_dialog,
@@ -59,6 +60,7 @@ def mount_dialog(
     reference_choices: list[str] | None = None,
     ratio_limits: RatioLimits | None = None,
     teams: list[Team] | None = None,
+    actual_time_optional: bool = True,
 ) -> None:
     @ui.page("/")
     def index() -> None:
@@ -87,6 +89,7 @@ def mount_dialog(
                 now=now or datetime.now,
                 reference_choices=reference_choices,
                 teams=teams,
+                actual_time_optional=actual_time_optional,
                 open_url=(lambda url: opened.append(url))
                 if opened is not None
                 else default_open_url,
@@ -1125,7 +1128,7 @@ async def test_existing_actual_is_shown_in_the_inputs(user: User) -> None:
 
 async def test_a_date_without_a_time_is_an_error_and_not_saved(user: User) -> None:
     saved: list[Task] = []
-    mount_dialog(None, saved)
+    mount_dialog(None, saved, actual_time_optional=False)
     await open_dialog(user)
     user.find(marker="task-name").type("設計")
     user.find(marker="task-actual-start-date").type("2026-10-05")
@@ -1458,7 +1461,7 @@ async def test_the_error_row_number_follows_the_position_after_a_removal(
 
 
 async def test_a_half_typed_row_names_its_number(user: User) -> None:
-    mount_dialog(None, [], actual_mode=INTERVALS)
+    mount_dialog(None, [], actual_mode=INTERVALS, actual_time_optional=False)
     await open_dialog(user)
     user.find(marker="task-name").type("設計")
     user.find(marker="task-interval-add").click()
@@ -2629,7 +2632,7 @@ async def test_the_summary_follows_edits_made_while_open(user: User) -> None:
 
 
 async def test_an_error_in_a_closed_section_opens_it(user: User) -> None:
-    mount_dialog(None, [], actual_mode=INTERVALS)
+    mount_dialog(None, [], actual_mode=INTERVALS, actual_time_optional=False)
     await open_dialog(user)
     user.find(marker="task-name").type("設計")
     section_of(user, "actuals").set_value(True)
@@ -2642,7 +2645,7 @@ async def test_an_error_in_a_closed_section_opens_it(user: User) -> None:
 
 
 async def test_an_error_in_the_simple_actuals_opens_the_section(user: User) -> None:
-    mount_dialog(None, [])
+    mount_dialog(None, [], actual_time_optional=False)
     await open_dialog(user)
     user.find(marker="task-name").type("設計")
     section_of(user, "actuals").set_value(True)
@@ -3360,12 +3363,19 @@ async def test_the_team_row_follows_the_assignee_fields_when_the_task_is_weekly(
     await user.should_not_see(marker="task-team-add")
 
 
-def mount_quick_dialog(task: Task, saved: list[Task], intervals: bool = False) -> None:
+def mount_quick_dialog(
+    task: Task,
+    saved: list[Task],
+    intervals: bool = False,
+    policy: ActualTimePolicy = ActualTimePolicy(),
+) -> None:
     @ui.page("/")
     def index() -> None:
         ui.button(
             "open",
-            on_click=lambda: open_quick_progress_dialog(task, intervals, saved.append),
+            on_click=lambda: open_quick_progress_dialog(
+                task, intervals, saved.append, policy
+            ),
         ).mark("open")
 
 
@@ -3479,3 +3489,109 @@ async def test_the_history_dialog_rejects_zero_hours_and_stays_open(
     user.find(marker="extra-history-ok").click()
     assert "追加工数" in user.find(marker="extra-history-error").elements.pop().text
     await user.should_see(marker="extra-history-ok")  # 閉じない
+
+
+async def test_a_date_without_a_time_gets_the_start_and_end_of_the_day(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)  # 始業 9:00・稼働 6.5 時間
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-actual-start-date").type("2026-10-05")
+    user.find(marker="task-actual-end-date").type("2026-10-06")
+    user.find(marker="task-save").click()
+    assert saved[0].actuals == [
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 6, 15, 30))
+    ]
+
+
+async def test_a_time_without_a_date_is_still_an_error_when_optional(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-actual-start-time").type("09:00")
+    user.find(marker="task-save").click()
+    assert saved == []
+    await user.should_see("日付を入れてください")
+
+
+async def test_the_empty_time_inputs_show_what_will_be_filled_in(user: User) -> None:
+    mount_dialog(None, [], work_start=time(8, 30), daily_hours=8.0)
+    await open_dialog(user)
+    start = user.find(marker="task-actual-start-time").elements.pop()
+    end = user.find(marker="task-actual-end-time").elements.pop()
+    assert "省略: 始業 08:30" in str(start._props.get("placeholder"))
+    assert "省略: 終業 16:30" in str(end._props.get("placeholder"))
+
+
+async def test_required_shows_no_hint(user: User) -> None:
+    mount_dialog(None, [], actual_time_optional=False)
+    await open_dialog(user)
+    start = user.find(marker="task-actual-start-time").elements.pop()
+    assert not start._props.get("placeholder")
+
+
+async def test_a_half_typed_interval_row_is_filled_and_names_its_number_on_error(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    mount_dialog(None, saved, actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-interval-add").click()
+    user.find(marker="task-interval-0-start-date").type("2026-10-05")
+    user.find(marker="task-interval-0-end-date").type("2026-10-05")
+    user.find(marker="task-save").click()
+    assert saved[0].actuals == [
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 15, 30))
+    ]
+
+
+async def test_an_interval_row_with_only_a_time_names_its_number(user: User) -> None:
+    mount_dialog(None, [], actual_mode=INTERVALS)
+    await open_dialog(user)
+    user.find(marker="task-name").type("設計")
+    user.find(marker="task-interval-add").click()
+    user.find(marker="task-interval-0-start-time").type("09:00")
+    user.find(marker="task-save").click()
+    await user.should_see("区間 1: 日付を入れてください")
+
+
+async def test_the_status_is_suggested_from_a_date_only_actual_when_optional(
+    user: User,
+) -> None:
+    mount_dialog(None, [])
+    await open_dialog(user)
+    user.find(marker="task-actual-start-date").type("2026-10-05")
+    await user.should_see("実績に合わせて状態を変えました")
+
+
+async def test_the_quick_dialog_fills_a_date_only_actual(user: User) -> None:
+    saved: list[Task] = []
+    mount_quick_dialog(Task("作業"), saved)
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="task-actual-start-date").elements.pop().set_value(
+            "2026-10-05"
+        )
+    user.find(marker="quick-save").click()
+    assert saved[0].actuals == [Actual(datetime(2026, 10, 5, 9))]
+
+
+async def test_the_quick_dialog_refuses_a_date_only_actual_when_required(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    mount_quick_dialog(Task("作業"), saved, policy=ActualTimePolicy(False))
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="task-actual-start-date").elements.pop().set_value(
+            "2026-10-05"
+        )
+    user.find(marker="quick-save").click()
+    assert saved == []
+    assert "両方" in user.find(marker="quick-error").elements.pop().text

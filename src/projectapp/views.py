@@ -88,6 +88,7 @@ from projectapp.overview_dialog import open_overview_dialog
 from projectapp.overview_pdf import OverviewPdfError, render_pdf
 from projectapp.forms import (
     MEMBER_TABLE_CSS,
+    ActualTimePolicy,
     can_add_extra_effort,
     open_commit_dialog,
     open_conflict_dialog,
@@ -2746,6 +2747,14 @@ class MainView:
             ),  # プロジェクト参照の参照先(自分を除く)
         }
 
+    def actual_policy(self) -> ActualTimePolicy:
+        """実績の時刻の扱い(プロジェクトの設定)。"""
+        return ActualTimePolicy(
+            self.project.actual_time_optional,
+            self.project.work_start,
+            self.project.daily_hours,
+        )
+
     def add_task(self, path: SectionPath) -> None:
         open_task_dialog(
             None,
@@ -2755,6 +2764,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            actual_time_optional=self.project.actual_time_optional,
             teams=self.project.teams,
             **self.link_args(None),
         )
@@ -2768,6 +2778,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            actual_time_optional=self.project.actual_time_optional,
             teams=self.project.teams,
             **self.link_args(None),
         )
@@ -2782,6 +2793,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            actual_time_optional=self.project.actual_time_optional,
             teams=self.project.teams,
             on_delete=lambda: self.delete_task(path, task_index),
             on_decompose=None  # まとめの子は、入れ子になるので分解できない
@@ -3125,7 +3137,10 @@ class MainView:
             self.save_task(path, index, saved)
 
         open_quick_progress_dialog(
-            task, self.project.actual_mode is ActualMode.INTERVALS, apply
+            task,
+            self.project.actual_mode is ActualMode.INTERVALS,
+            apply,
+            self.actual_policy(),
         )
 
     def add_extra_effort(self, path: SectionPath, index: int) -> None:
