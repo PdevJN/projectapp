@@ -101,6 +101,7 @@ from projectapp.models import (
     Task,
     TaskKind,
     TaskUrl,
+    walk_sections,
 )
 from projectapp.reference import Reference
 from projectapp.scope import read_scope, scope_options, scope_value
@@ -713,6 +714,8 @@ class GanttActions:
     # セクションの見出しの右クリックのメニューの操作(セクションのパス)
     copy_section: Callable[[SectionPath], object] = lambda path: None
     rename_section: Callable[[SectionPath], object] = lambda path: None
+    overview_section: Callable[[SectionPath], object] = lambda path: None
+    overview_summary: Callable[[str], object] = lambda task_id: None
     delete_section: Callable[[SectionPath], object] = lambda path: None
     move_section: Callable[[SectionPath, SectionPath], object] = lambda src, dst: (
         None
@@ -888,6 +891,7 @@ class GanttChart:
             None  # セクションの見出しの右クリックの共有メニュー
         )
         self.section_menu_target: SectionPath | None = None
+        self.overview_item: ui.menu_item | None = None  # まとめの行のときだけ見せる
         self.summary_views: dict[str, SummaryView] = {}  # 描画中のまとめの部品
         self.task_rows: dict[
             str, ui.element
@@ -1967,6 +1971,9 @@ class GanttChart:
                 "この増員をやめる",
                 on_click=act(lambda p, t: self.actions.drop_trial(p, t)),
             ).mark("context-drop-trial")
+            self.overview_item = ui.menu_item(
+                "俯瞰図…", on_click=act(lambda p, t: self.open_overview_of_task(p, t))
+            ).mark("context-overview")
             ui.menu_item(
                 "コピー", on_click=act(lambda p, t: self.actions.copy_task(p, t))
             ).mark("context-copy")
@@ -2000,6 +2007,11 @@ class GanttChart:
                     "section-context-rename",
                     lambda p: self.actions.rename_section(p),
                 ),
+                (
+                    "俯瞰図…",
+                    "section-context-overview",
+                    lambda p: self.actions.overview_section(p),
+                ),
             ):
                 ui.menu_item(
                     label, on_click=lambda action=action: self.act_on_section(action)
@@ -2016,6 +2028,29 @@ class GanttChart:
     def act_on_section(self, action: Callable[[SectionPath], object]) -> None:
         if self.section_menu_target is not None:
             action(self.section_menu_target)
+
+    def open_overview_of_task(self, path: SectionPath, ti: int) -> None:
+        tasks = arrange.tasks_at(self.project, path)
+        if ti < len(tasks) and tasks[ti].kind is TaskKind.SUMMARY:
+            self.actions.overview_summary(tasks[ti].id)
+
+    def reveal_task(self, task_id: str) -> None:
+        """そのタスクの行が見えるよう、折りたたみを開いて、その行へスクロールする。"""
+        for path, section in walk_sections(self.project.sections):
+            if any(t.id == task_id for t in section.tasks):
+                self.expand_section(path)
+                break
+        parents = parent_map(self.project)
+        current = task_id
+        while current in parents:
+            current = parents[current]
+            self.collapsed_summaries.discard(current)
+        self.render.refresh()
+        selector = json.dumps(f'[data-task-id="{task_id}"]')
+        ui.run_javascript(
+            f"setTimeout(() => document.querySelector({selector})"
+            "?.scrollIntoView({block: 'center'}), 150)"
+        )
 
     def open_section_menu(self, path: SectionPath) -> None:
         """右クリックした見出しのセクションを覚える(メニュー自体はブラウザ側で開く)。"""
@@ -2050,6 +2085,15 @@ class GanttChart:
     def open_menu(self, path: SectionPath, ti: int) -> None:
         """右クリックした行を覚え、分解できるかをメニューに反映する(メニュー自体はブラウザ側で開く)。"""
         self.menu_target = (path, ti)
+        if self.overview_item is not None:
+            listed = (
+                arrange.tasks_at(self.project, path)
+                if arrange.has_list(self.project, (path, 0))
+                else []
+            )
+            self.overview_item.set_visibility(
+                ti < len(listed) and listed[ti].kind is TaskKind.SUMMARY
+            )
         if self.decompose_item is None:
             return
         tasks = (
