@@ -1,4 +1,4 @@
-"""俯瞰図を PDF に書き出す。Pillow で画像に描き、PDF に包む。NiceGUI には依存しない。"""
+"""系統図を PDF に書き出す。Pillow で画像に描き、PDF に包む。NiceGUI には依存しない。"""
 
 import os
 from collections.abc import Sequence

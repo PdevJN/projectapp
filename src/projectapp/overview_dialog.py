@@ -1,4 +1,4 @@
-"""俯瞰図のダイアログ。座標は`overview.py`の純粋関数で作り、ここは描くだけ。"""
+"""系統図のダイアログ。座標は`overview.py`の純粋関数で作り、ここは描くだけ。"""
 
 from collections.abc import Awaitable, Callable
 
@@ -20,7 +20,7 @@ def open_overview_dialog(
     on_jump: Callable[[str], object],
     on_pdf: Callable[[Layout], Awaitable[None]],
 ) -> None:
-    """俯瞰図を開く。チェックボックスの状態は、このダイアログの中だけで持つ(保存しない)。"""
+    """系統図を開く。チェックボックスの状態は、このダイアログの中だけで持つ(保存しない)。"""
     state = {"progress": True, "effort": True, "tasks": False}
 
     def current() -> Layout:
@@ -90,7 +90,7 @@ def open_overview_dialog(
             await on_pdf(current())
 
         with ui.row().classes("items-center w-full gap-4"):
-            ui.label(f"俯瞰図: {root.name}").classes("text-h6")
+            ui.label(f"系統図: {root.name}").classes("text-h6")
             ui.space()
             ui.checkbox(
                 "タスクの詳細",

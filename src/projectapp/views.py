@@ -3206,7 +3206,7 @@ class MainView:
         open_overview_dialog(root, self.gantt.reveal_task, self.export_overview_pdf)
 
     async def export_overview_pdf(self, layout: Layout) -> None:
-        """俯瞰図を PDF に書き出す。プロジェクトは変えない(保存も、変更扱いもしない)。"""
+        """系統図を PDF に書き出す。プロジェクトは変えない(保存も、変更扱いもしない)。"""
         if not self.exporter.available:
             ui.notify(HANDOFF_NOT_NATIVE_MESSAGE, type="warning")
             return

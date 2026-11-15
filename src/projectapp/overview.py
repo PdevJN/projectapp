@@ -1,4 +1,4 @@
-"""俯瞰図(系統図)の、階層の変換と座標の計算。NiceGUI には依存しない純粋関数。"""
+"""系統図の、階層の変換と座標の計算。NiceGUI には依存しない純粋関数。"""
 
 import unicodedata
 from dataclasses import dataclass, field, replace

@@ -1972,7 +1972,7 @@ class GanttChart:
                 on_click=act(lambda p, t: self.actions.drop_trial(p, t)),
             ).mark("context-drop-trial")
             self.overview_item = ui.menu_item(
-                "俯瞰図…", on_click=act(lambda p, t: self.open_overview_of_task(p, t))
+                "系統図…", on_click=act(lambda p, t: self.open_overview_of_task(p, t))
             ).mark("context-overview")
             ui.menu_item(
                 "コピー", on_click=act(lambda p, t: self.actions.copy_task(p, t))
@@ -2008,7 +2008,7 @@ class GanttChart:
                     lambda p: self.actions.rename_section(p),
                 ),
                 (
-                    "俯瞰図…",
+                    "系統図…",
                     "section-context-overview",
                     lambda p: self.actions.overview_section(p),
                 ),
