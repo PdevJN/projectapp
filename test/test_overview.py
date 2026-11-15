@@ -3,7 +3,15 @@ from datetime import datetime
 import pytest
 
 from projectapp.models import Project, Section, Status, Task, TaskKind
-from projectapp.overview import NodeKind, build_overview
+from projectapp.overview import (
+    GAP_Y,
+    NODE_WIDTH,
+    NodeKind,
+    OverviewNode,
+    build_overview,
+    layout_overview,
+    node_lines,
+)
 
 NOW = datetime(2026, 10, 1)
 
@@ -89,3 +97,80 @@ def test_exactly_one_of_section_path_and_summary_id_is_required() -> None:
         build_overview(sample(), {}, NOW)
     with pytest.raises(ValueError):
         build_overview(sample(), {}, NOW, section_path=(0,), summary_id="s")
+
+
+def leaf(name: str, **kw: object) -> OverviewNode:
+    return OverviewNode(name, name, NodeKind.TASK, Status.NOT_STARTED, **kw)  # type: ignore[arg-type]
+
+
+def test_node_lines_follow_the_checkboxes() -> None:
+    node = leaf("設計", progress=45, effort_hours=8.0, due=datetime(2026, 11, 20))
+    assert node_lines(node, True, True) == ["設計", "進捗 45%", "工数 8h・完了 11/20"]
+    assert node_lines(node, False, True) == ["設計", "工数 8h・完了 11/20"]
+    assert node_lines(node, True, False) == ["設計", "進捗 45%"]
+    assert node_lines(node, False, False) == ["設計"]
+
+
+def test_node_lines_skip_items_that_do_not_exist() -> None:
+    assert node_lines(leaf("空"), True, True) == ["空"]
+    assert node_lines(leaf("a", effort_hours=0.5), True, True) == ["a", "工数 0.5h"]
+
+
+def tree() -> OverviewNode:
+    root = leaf("R")
+    root.children = [leaf("a"), leaf("b"), leaf("c")]
+    root.children[1].children = [leaf("b1"), leaf("b2")]
+    return root
+
+
+def test_columns_follow_depth_and_siblings_stack_without_overlap() -> None:
+    layout = layout_overview(tree(), True, True)
+    by_name = {p.node.name: p for p in layout.placed}
+    assert by_name["R"].x == 0
+    assert by_name["a"].x == by_name["b"].x == by_name["c"].x > 0
+    assert by_name["b1"].depth == 2 and by_name["b1"].x > by_name["a"].x
+    columns: dict[int, list] = {}
+    for p in layout.placed:
+        columns.setdefault(p.depth, []).append(p)
+    for items in columns.values():
+        items.sort(key=lambda p: p.y)
+        for upper, lower in zip(items, items[1:]):
+            assert upper.y + upper.height + GAP_Y <= lower.y
+
+
+def test_parent_is_centered_on_its_children_and_edges_join_them() -> None:
+    layout = layout_overview(tree(), False, False)
+    by_name = {p.node.name: p for p in layout.placed}
+    kids = [by_name[n] for n in ("a", "b", "c")]
+    top, bottom = kids[0].y, kids[-1].y + kids[-1].height
+    root = by_name["R"]
+    assert root.y + root.height / 2 == pytest.approx((top + bottom) / 2, abs=1)
+    assert len(layout.edges) == len(layout.placed) - 1
+    assert any(e.x1 == root.x + NODE_WIDTH for e in layout.edges)
+
+
+def test_hidden_lines_make_nodes_shorter() -> None:
+    tall = layout_overview(leaf("x", progress=1, effort_hours=1.0), True, True)
+    short = layout_overview(leaf("x", progress=1, effort_hours=1.0), False, False)
+    assert short.placed[0].height < tall.placed[0].height
+
+
+def test_a_thousand_nodes_are_laid_out_without_overlap() -> None:
+    root = leaf("R")
+    root.children = [leaf(f"n{i}") for i in range(1000)]
+    layout = layout_overview(root, True, True)
+    ys = sorted(p.y for p in layout.placed if p.depth == 1)
+    assert len(set(ys)) == 1000
+    for upper, lower in zip(ys, ys[1:]):
+        assert upper < lower
+
+
+def test_a_tall_parent_with_a_short_child_does_not_overlap_its_sibling() -> None:
+    root = leaf("R")
+    tall = leaf("B", progress=1, effort_hours=1.0, due=datetime(2026, 11, 20))
+    tall.children = [leaf("b1")]
+    root.children = [leaf("A"), tall]
+    layout = layout_overview(root, True, True)
+    column = sorted((p for p in layout.placed if p.depth == 1), key=lambda p: p.y)
+    for upper, lower in zip(column, column[1:]):
+        assert upper.y + upper.height + GAP_Y <= lower.y

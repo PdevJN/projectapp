@@ -161,3 +161,97 @@ def build_overview(
     if node is None:
         raise ValueError("セクションのパスが空です")
     return builder.section_node(node)
+
+
+NODE_WIDTH = 200
+GAP_X = 48
+GAP_Y = 12
+LINE_HEIGHT = 18
+PADDING = 8
+
+
+def node_lines(node: OverviewNode, show_progress: bool, show_effort: bool) -> list[str]:
+    """ノードに出す文字(画面と PDF で共通)。1 行目は名前。"""
+    lines = [node.name]
+    if show_progress and node.progress is not None:
+        lines.append(f"進捗 {node.progress}%")
+    if show_effort:
+        parts = []
+        if node.effort_hours:
+            parts.append(f"工数 {node.effort_hours:g}h")
+        if node.due is not None:
+            parts.append(f"完了 {node.due.month}/{node.due.day}")
+        if parts:
+            lines.append("・".join(parts))
+    return lines
+
+
+@dataclass
+class Placed:
+    node: OverviewNode
+    lines: list[str]
+    x: int
+    y: int
+    width: int
+    height: int
+    depth: int
+
+
+@dataclass
+class Edge:
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+
+
+@dataclass
+class Layout:
+    placed: list[Placed]
+    edges: list[Edge]
+    width: int
+    height: int
+
+
+def layout_overview(
+    root: OverviewNode, show_progress: bool, show_effort: bool
+) -> Layout:
+    """左から右へ、深さが列、兄弟が縦に並ぶ座標。親は、子の範囲の中央に置く(同じ列の上と重ならない範囲で)。"""
+    placed: list[Placed] = []
+    edges: list[Edge] = []
+    next_leaf = [0]  # 次の葉を置く y
+    column_floor: dict[int, int] = {}  # 列ごとの、次に置ける最小の y
+
+    def place(node: OverviewNode, depth: int) -> Placed:
+        lines = node_lines(node, show_progress, show_effort)
+        height = PADDING * 2 + LINE_HEIGHT * len(lines)
+        kids = [place(child, depth + 1) for child in node.children]
+        if kids:
+            top = kids[0].y
+            bottom = kids[-1].y + kids[-1].height
+            y = round((top + bottom - height) / 2)
+        else:
+            y = next_leaf[0]
+        y = max(y, column_floor.get(depth, 0))
+        column_floor[depth] = y + height + GAP_Y
+        next_leaf[0] = max(next_leaf[0], y + height + GAP_Y)
+        me = Placed(
+            node, lines, depth * (NODE_WIDTH + GAP_X), y, NODE_WIDTH, height, depth
+        )
+        placed.append(me)
+        for kid in kids:
+            edges.append(
+                Edge(
+                    me.x + NODE_WIDTH,
+                    y + height // 2,
+                    kid.x,
+                    kid.y + kid.height // 2,
+                )
+            )
+        return me
+
+    place(root, 0)
+    placed.sort(key=lambda p: (p.depth, p.y))
+    width = max(p.x + p.width for p in placed)
+    height = max(p.y + p.height for p in placed)
+    return Layout(placed, edges, width, height)
