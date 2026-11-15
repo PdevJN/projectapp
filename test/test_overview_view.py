@@ -87,13 +87,56 @@ async def test_dialog_shows_nodes_and_hides_items_with_the_checkboxes(
     await user.should_not_see("進捗 ")
 
 
+async def test_tasks_are_hidden_until_the_details_checkbox_is_on(user: User) -> None:
+    mount_dialog([], [])
+    await user.open("/")
+    user.find(marker="open").click()
+    await user.should_see(marker="overview-node-s")  # まとめ
+    await user.should_not_see(marker="overview-node-a")  # タスク
+    user.find(marker="overview-tasks").click()
+    await user.should_see(marker="overview-node-a")
+    await user.should_see(marker="overview-node-c")
+
+
 async def test_clicking_a_node_jumps_to_its_task_and_closes(user: User) -> None:
     jumps: list[str] = []
     mount_dialog(jumps, [])
     await user.open("/")
     user.find(marker="open").click()
+    user.find(marker="overview-tasks").click()
+    await user.should_see(marker="overview-node-a")  # 再描画を待つ
     user.find(marker="overview-node-a").click()
     assert jumps == ["a"]
+
+
+async def test_clicking_a_summary_node_jumps_to_the_summary_row(user: User) -> None:
+    jumps: list[str] = []
+    mount_dialog(jumps, [])
+    await user.open("/")
+    user.find(marker="open").click()
+    user.find(marker="overview-node-s").click()
+    assert jumps == ["s"]
+
+
+async def test_a_summary_root_explains_how_to_see_its_children(user: User) -> None:
+    root = build_overview(project(), {}, datetime(2026, 10, 1), summary_id="s")
+
+    @ui.page("/")
+    def index() -> None:
+        async def on_pdf(layout) -> None:
+            return None
+
+        ui.button(
+            "開く", on_click=lambda: open_overview_dialog(root, lambda _: None, on_pdf)
+        ).mark("open")
+
+    await user.open("/")
+    user.find(marker="open").click()
+    await user.should_see("タスクの詳細")
+    await user.should_see(marker="overview-hint")
+    user.find(marker="overview-tasks").click()
+    await user.should_not_see(marker="overview-hint")
+    await user.should_see(marker="overview-node-c")
 
 
 async def test_pdf_button_hands_the_current_layout_to_the_callback(user: User) -> None:
@@ -101,6 +144,7 @@ async def test_pdf_button_hands_the_current_layout_to_the_callback(user: User) -
     mount_dialog([], pdfs)
     await user.open("/")
     user.find(marker="open").click()
+    user.find(marker="overview-tasks").click()
     user.find(marker="overview-effort").click()  # 工数を隠した状態の座標が渡る
     user.find(marker="overview-pdf").click()
     for _ in range(50):  # 非同期のボタンの処理が終わるのを待つ
@@ -109,3 +153,4 @@ async def test_pdf_button_hands_the_current_layout_to_the_callback(user: User) -
         await asyncio.sleep(0.02)
     assert len(pdfs) == 1
     assert all("工数" not in line for p in pdfs[0].placed for line in p.lines)
+    assert any(p.node.id == "a" for p in pdfs[0].placed)  # タスクの詳細はオンのまま

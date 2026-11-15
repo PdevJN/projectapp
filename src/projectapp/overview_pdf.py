@@ -103,7 +103,7 @@ def render_pdf(layout: Layout, path: Path, font_path: Path | None = None) -> Pat
             draw.text(
                 (text_x, top + (PADDING + number * LINE_HEIGHT) * SCALE),
                 _fit(draw, line, font, room),
-                fill="#263238" if number == 0 else "#546e7a",
+                fill="#263238" if number < item.name_lines else "#546e7a",
                 font=font,
             )
     temp = path.with_name(f".{path.name}.tmp")

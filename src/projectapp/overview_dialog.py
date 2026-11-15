@@ -21,10 +21,10 @@ def open_overview_dialog(
     on_pdf: Callable[[Layout], Awaitable[None]],
 ) -> None:
     """俯瞰図を開く。チェックボックスの状態は、このダイアログの中だけで持つ(保存しない)。"""
-    state = {"progress": True, "effort": True}
+    state = {"progress": True, "effort": True, "tasks": False}
 
     def current() -> Layout:
-        return layout_overview(root, state["progress"], state["effort"])
+        return layout_overview(root, state["progress"], state["effort"], state["tasks"])
 
     with (
         disposable(ui.dialog()).props("maximized") as dialog,
@@ -39,6 +39,10 @@ def open_overview_dialog(
         @ui.refreshable
         def diagram() -> None:
             layout = current()
+            if not state["tasks"] and root.children and len(layout.placed) == 1:
+                ui.label(
+                    "「タスクの詳細」をオンにすると、配下のタスクが出ます"
+                ).classes("text-caption text-grey").mark("overview-hint")
             with ui.scroll_area().classes("w-full grow"):
                 with ui.element("div").style(
                     f"position: relative; width: {layout.width + PAGE_MARGIN * 2}px;"
@@ -73,8 +77,7 @@ def open_overview_dialog(
                         with box:
                             for number, text in enumerate(item.lines):
                                 ui.label(text).classes(
-                                    "ellipsis"
-                                    + ("" if number == 0 else " text-caption")
+                                    "" if number < item.name_lines else "text-caption"
                                 ).style(
                                     "line-height: 18px; height: 18px; white-space: nowrap"
                                 )
@@ -89,6 +92,11 @@ def open_overview_dialog(
         with ui.row().classes("items-center w-full gap-4"):
             ui.label(f"俯瞰図: {root.name}").classes("text-h6")
             ui.space()
+            ui.checkbox(
+                "タスクの詳細",
+                value=False,
+                on_change=lambda e: change("tasks", e.value),
+            ).mark("overview-tasks")
             ui.checkbox(
                 "進捗", value=True, on_change=lambda e: change("progress", e.value)
             ).mark("overview-progress")

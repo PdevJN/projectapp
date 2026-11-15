@@ -11,6 +11,7 @@ from projectapp.overview import (
     build_overview,
     layout_overview,
     node_lines,
+    wrap_name,
 )
 
 NOW = datetime(2026, 10, 1)
@@ -174,3 +175,73 @@ def test_a_tall_parent_with_a_short_child_does_not_overlap_its_sibling() -> None
     column = sorted((p for p in layout.placed if p.depth == 1), key=lambda p: p.y)
     for upper, lower in zip(column, column[1:]):
         assert upper.y + upper.height + GAP_Y <= lower.y
+
+
+def test_wrap_name_keeps_a_short_name_on_one_line() -> None:
+    assert wrap_name("設計") == ["設計"]
+    assert wrap_name("") == [""]
+
+
+def test_wrap_name_counts_full_width_as_one_and_half_width_as_half() -> None:
+    assert wrap_name("あ" * 15) == ["あ" * 15]
+    assert wrap_name("あ" * 30) == ["あ" * 15, "あ" * 15]
+    assert wrap_name("a" * 30) == ["a" * 30]  # 半角は 30 文字で 15 文字分
+    assert wrap_name("a" * 31) == ["a" * 30, "a"]
+
+
+def test_wrap_name_cuts_at_three_lines_with_an_ellipsis() -> None:
+    lines = wrap_name("あ" * 100)
+    assert len(lines) == 3
+    assert lines[:2] == ["あ" * 15, "あ" * 15]
+    assert lines[2].endswith("…") and len(lines[2]) <= 15
+
+
+def test_node_lines_put_the_wrapped_name_first() -> None:
+    node = leaf("あ" * 30, progress=10)
+    lines = node_lines(node, True, False)
+    assert lines == ["あ" * 15, "あ" * 15, "進捗 10%"]
+
+
+def test_placed_records_how_many_lines_are_the_name_and_grows_taller() -> None:
+    root = leaf("R")
+    root.children = [leaf("あ" * 30, progress=10), leaf("短い")]
+    layout = layout_overview(root, True, True)
+    by_name = {p.node.name: p for p in layout.placed}
+    long, short = by_name["あ" * 30], by_name["短い"]
+    assert (long.name_lines, short.name_lines) == (2, 1)
+    assert long.height > short.height
+    column = sorted((p for p in layout.placed if p.depth == 1), key=lambda p: p.y)
+    for upper, lower in zip(column, column[1:]):
+        assert upper.y + upper.height + GAP_Y <= lower.y
+
+
+def mixed() -> OverviewNode:
+    root = OverviewNode("r", "R", NodeKind.SECTION, Status.NOT_STARTED, progress=20)
+    summary = OverviewNode("s", "S", NodeKind.SUMMARY, Status.RUNNING, progress=30)
+    summary.children = [leaf("子1"), leaf("子2")]
+    sub = OverviewNode("u", "U", NodeKind.SECTION, Status.NOT_STARTED)
+    sub.children = [leaf("孫")]
+    root.children = [leaf("直下"), summary, sub]
+    return root
+
+
+def test_hiding_tasks_leaves_only_sections_and_summaries() -> None:
+    layout = layout_overview(mixed(), True, True, show_tasks=False)
+    assert sorted(p.node.name for p in layout.placed) == ["R", "S", "U"]
+    assert len(layout.edges) == 2
+
+
+def test_hiding_tasks_keeps_the_aggregated_progress_of_sections_and_summaries() -> None:
+    layout = layout_overview(mixed(), True, True, show_tasks=False)
+    by_name = {p.node.name: p for p in layout.placed}
+    assert "進捗 20%" in by_name["R"].lines and "進捗 30%" in by_name["S"].lines
+
+
+def test_showing_tasks_is_the_default_and_keeps_every_node() -> None:
+    assert len(layout_overview(mixed(), True, True).placed) == 7
+
+
+def test_a_summary_root_with_tasks_hidden_is_a_single_node() -> None:
+    summary = mixed().children[1]
+    layout = layout_overview(summary, True, True, show_tasks=False)
+    assert [p.node.name for p in layout.placed] == ["S"] and layout.edges == []

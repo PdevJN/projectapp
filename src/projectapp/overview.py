@@ -1,6 +1,7 @@
 """俯瞰図(系統図)の、階層の変換と座標の計算。NiceGUI には依存しない純粋関数。"""
 
-from dataclasses import dataclass, field
+import unicodedata
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from enum import StrEnum
 
@@ -170,9 +171,37 @@ LINE_HEIGHT = 18
 PADDING = 8
 
 
+NAME_WIDTH = 15  # 名前の 1 行の幅。全角を 1、半角を 0.5 として数える
+NAME_MAX_LINES = 3
+
+
+def _char_width(char: str) -> float:
+    return 1.0 if unicodedata.east_asian_width(char) in ("W", "F") else 0.5
+
+
+def wrap_name(name: str) -> list[str]:
+    """名前を、幅(全角 15 文字分)で折り返す。3 行を超える分は、3 行目の末尾を…で切る。"""
+    lines: list[str] = []
+    current, used = "", 0.0
+    for char in name:
+        width = _char_width(char)
+        if used + width > NAME_WIDTH:
+            lines.append(current)
+            current, used = "", 0.0
+        current += char
+        used += width
+    lines.append(current)
+    if len(lines) <= NAME_MAX_LINES:
+        return lines
+    last = lines[NAME_MAX_LINES - 1]
+    while last and sum(_char_width(c) for c in last) + 1 > NAME_WIDTH:
+        last = last[:-1]
+    return [*lines[: NAME_MAX_LINES - 1], last + "…"]
+
+
 def node_lines(node: OverviewNode, show_progress: bool, show_effort: bool) -> list[str]:
-    """ノードに出す文字(画面と PDF で共通)。1 行目は名前。"""
-    lines = [node.name]
+    """ノードに出す文字(画面と PDF で共通)。先頭は、折り返した名前(`Placed.name_lines` 行)。"""
+    lines = wrap_name(node.name)
     if show_progress and node.progress is not None:
         lines.append(f"進捗 {node.progress}%")
     if show_effort:
@@ -195,6 +224,7 @@ class Placed:
     width: int
     height: int
     depth: int
+    name_lines: int = 1  # lines のうち、先頭の何行が名前か
 
 
 @dataclass
@@ -213,10 +243,29 @@ class Layout:
     height: int
 
 
+_STRUCTURE = (NodeKind.SECTION, NodeKind.SUMMARY)
+
+
+def _without_tasks(node: OverviewNode) -> OverviewNode:
+    """セクションとまとめだけを残した写し(集計の値は、元のまま)。"""
+    return replace(
+        node,
+        children=[
+            _without_tasks(child) for child in node.children if child.kind in _STRUCTURE
+        ],
+    )
+
+
 def layout_overview(
-    root: OverviewNode, show_progress: bool, show_effort: bool
+    root: OverviewNode,
+    show_progress: bool,
+    show_effort: bool,
+    show_tasks: bool = True,
 ) -> Layout:
-    """左から右へ、深さが列、兄弟が縦に並ぶ座標。親は、子の範囲の中央に置く(同じ列の上と重ならない範囲で)。"""
+    """左から右へ、深さが列、兄弟が縦に並ぶ座標。親は、子の範囲の中央に置く(同じ列の上と重ならない範囲で)。
+    `show_tasks`が偽のときは、セクションとまとめだけにする。"""
+    if not show_tasks:
+        root = _without_tasks(root)
     placed: list[Placed] = []
     edges: list[Edge] = []
     next_leaf = [0]  # 次の葉を置く y
@@ -224,6 +273,7 @@ def layout_overview(
 
     def place(node: OverviewNode, depth: int) -> Placed:
         lines = node_lines(node, show_progress, show_effort)
+        names = len(wrap_name(node.name))
         height = PADDING * 2 + LINE_HEIGHT * len(lines)
         kids = [place(child, depth + 1) for child in node.children]
         if kids:
@@ -236,7 +286,14 @@ def layout_overview(
         column_floor[depth] = y + height + GAP_Y
         next_leaf[0] = max(next_leaf[0], y + height + GAP_Y)
         me = Placed(
-            node, lines, depth * (NODE_WIDTH + GAP_X), y, NODE_WIDTH, height, depth
+            node,
+            lines,
+            depth * (NODE_WIDTH + GAP_X),
+            y,
+            NODE_WIDTH,
+            height,
+            depth,
+            names,
         )
         placed.append(me)
         for kid in kids:
