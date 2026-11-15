@@ -1,8 +1,12 @@
+import json
 from datetime import time
 
 import pytest
 
 from projectapp.forms import ActualTimePolicy, build_actuals, fill_actual_times
+from projectapp.merge import SETTING_LABELS
+from projectapp.models import FORMAT_VERSION, Project
+from projectapp.storage import dumps_project, parse_project
 
 START = time(9, 0)
 
@@ -102,3 +106,42 @@ def test_a_required_policy_has_no_hints() -> None:
     assert policy.start_hint() == "" and policy.end_hint() == ""
     with pytest.raises(ValueError):
         policy.fill("2026-10-05", "", "", "")
+
+
+def test_the_option_defaults_to_optional_and_the_version_is_23() -> None:
+    assert Project("p").actual_time_optional is True
+    assert FORMAT_VERSION == 23
+
+
+def test_the_option_is_saved_and_read_back() -> None:
+    for value in (True, False):
+        project = Project("p", actual_time_optional=value)
+        text = dumps_project(project)
+        assert json.loads(text)["actual_time_optional"] is value
+        assert parse_project(text, "p").actual_time_optional is value
+
+
+def test_a_file_without_the_key_reads_as_optional() -> None:
+    raw = json.loads(dumps_project(Project("p", actual_time_optional=False)))
+    del raw["actual_time_optional"]
+    raw["version"] = 22
+    assert parse_project(json.dumps(raw), "p").actual_time_optional is True
+
+
+@pytest.mark.parametrize("bad", [None, "yes", 1])
+def test_a_non_boolean_value_is_refused(bad) -> None:
+    raw = json.loads(dumps_project(Project("p")))
+    raw["actual_time_optional"] = bad
+    with pytest.raises(ValueError, match="実績の時刻の省略"):
+        parse_project(json.dumps(raw), "p")
+
+
+def test_a_newer_version_is_still_refused() -> None:
+    raw = json.loads(dumps_project(Project("p")))
+    raw["version"] = FORMAT_VERSION + 1
+    with pytest.raises(ValueError):
+        parse_project(json.dumps(raw), "p")
+
+
+def test_the_option_is_one_of_the_three_way_merge_settings() -> None:
+    assert SETTING_LABELS["actual_time_optional"] == "実績の時刻の省略"

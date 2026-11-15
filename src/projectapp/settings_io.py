@@ -34,6 +34,7 @@ PROJECT_KEYS = (
     "actual_mode",
     "reference_mode",
     "plantuml_overload_notice",
+    "actual_time_optional",
     "ratio_limit_upper",
     "ratio_limit_lower",
 )
@@ -171,6 +172,7 @@ def _describe(project: Project) -> dict[str, str]:
         "実績の記録方式": modes[project.actual_mode],
         "プロジェクト参照の方式": refs[project.reference_mode],
         "PlantUML の通知": "出す" if project.plantuml_overload_notice else "出さない",
+        "実績の時刻の省略": "省略できる" if project.actual_time_optional else "必須",
         "相対比率の上限": ratio(project.ratio_limit_upper),
         "相対比率の下限": ratio(project.ratio_limit_lower),
     }
@@ -272,6 +274,7 @@ def _apply_project_settings(
     )
     work.reference_mode = source.reference_mode
     work.plantuml_overload_notice = source.plantuml_overload_notice
+    work.actual_time_optional = source.actual_time_optional
     work.ratio_limit_upper, work.ratio_limit_lower = (
         source.ratio_limit_upper,
         source.ratio_limit_lower,

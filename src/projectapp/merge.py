@@ -240,6 +240,7 @@ SETTING_LABELS = {
     "actual_mode": "実績の記録方式",
     "reference_mode": "参照の方式",
     "plantuml_overload_notice": "PlantUML の通知",
+    "actual_time_optional": "実績の時刻の省略",
     "ratio_limit_upper": "相対比率の上限",
     "ratio_limit_lower": "相対比率の下限",
 }
@@ -762,6 +763,7 @@ def merge_projects(
         actual_mode=settings["actual_mode"],
         reference_mode=settings["reference_mode"],
         plantuml_overload_notice=settings["plantuml_overload_notice"],
+        actual_time_optional=settings["actual_time_optional"],
         ratio_limit_upper=settings["ratio_limit_upper"],
         ratio_limit_lower=settings["ratio_limit_lower"],
         members=built_members,
