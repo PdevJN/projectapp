@@ -25,6 +25,7 @@ from projectapp.shortcuts import SHORTCUTS, Screen, help_entries, resolve
         ("Z", True, True, "redo"),
         ("z", True, True, "redo"),
         ("d", False, False, "dashboard"),
+        ("k", False, False, "overview"),
         ("/", False, False, "search"),
         ("?", False, True, "help"),
         ("?", False, False, "help"),
@@ -50,7 +51,7 @@ def test_main_screen_keys_resolve_to_actions(key, ctrl, shift, action):
         ("x", True, False),
         ("x", False, False),
         ("e", True, True),
-        ("k", False, False),
+        ("j", False, False),
     ],
 )
 def test_unassigned_combinations_resolve_to_nothing(key, ctrl, shift):
@@ -146,6 +147,7 @@ def test_the_key_lists_for_the_browser_guard_come_from_the_table():
         "escape",
         "delete",
         "d",
+        "k",
         "/",
         "?",
         "t",

@@ -4306,6 +4306,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         ("設定", "open-settings"),
         ("メンバーとパラメータ", "open-members-parameters"),
         ("ダッシュボード", "menu-open-dashboard"),
+        ("系統図…", "menu-open-overview"),
     ]
     assert menu_icons(user, "menu-file-items") == [
         "folder_open",
@@ -4322,7 +4323,12 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
         "table_view",
         "settings_backup_restore",
     ]
-    assert menu_icons(user, "menu-project-items") == ["settings", "groups", "dashboard"]
+    assert menu_icons(user, "menu-project-items") == [
+        "settings",
+        "groups",
+        "dashboard",
+        "account_tree",
+    ]
     assert menu_icons(user, "file-export-items") == [
         "ios_share",
         "download",
@@ -4407,6 +4413,19 @@ async def test_the_dashboard_menu_item_shows_the_key_hint(
         if isinstance(c, ui.menu_item) and "menu-open-dashboard" in c._markers
     )
     assert [c.text for c in item.default_slot.children if "side" in c._props] == ["D"]
+
+
+async def test_the_overview_menu_item_shows_the_key_hint(
+    user: User, tmp_path: Path
+) -> None:
+    await open_header_view(user, tmp_path)
+    menu = user.find(marker="menu-project-items").elements.pop()
+    item = next(
+        c
+        for c in menu.default_slot.children
+        if isinstance(c, ui.menu_item) and "menu-open-overview" in c._markers
+    )
+    assert [c.text for c in item.default_slot.children if "side" in c._props] == ["K"]
 
 
 async def test_the_file_menu_opens_the_file_list(user: User, tmp_path: Path) -> None:
@@ -5027,6 +5046,7 @@ SHORTCUT_METHODS = [
         (("k", True, False), "open_git_commit"),
         (("K", True, True), "start_git_push"),
         (("d", False, False), "open_dashboard"),
+        (("k", False, False), "open_overview_project"),
     ]
 ]
 
@@ -9529,3 +9549,52 @@ async def test_plantuml_quarter_is_allowed_when_the_year_starts_in_january(
     user.find(marker="preview-scale").elements.pop().set_value("四半期")
     await asyncio.sleep(0.2)
     assert user.find(marker="preview-plantuml").elements.pop().enabled
+
+
+def overview_layout():
+    from projectapp.overview import NodeKind, OverviewNode, layout_overview
+
+    root = OverviewNode("r", "開発", NodeKind.SECTION, Status.NOT_STARTED)
+    return layout_overview(root, True, True)
+
+
+async def test_overview_pdf_is_refused_outside_the_native_window(
+    user: User, tmp_path: Path
+) -> None:
+    exporter = FakeExporter(path=tmp_path / "x.pdf", available=False)
+    view = await open_for_import(user, tmp_path, exporter)
+    await view.export_overview_pdf(overview_layout())
+    await user.should_see("ネイティブウィンドウでのみ、書き出せます")
+    assert exporter.asked == []
+
+
+async def test_cancelling_the_overview_pdf_dialog_writes_nothing(
+    user: User, tmp_path: Path
+) -> None:
+    exporter = FakeExporter(path=None)
+    view = await open_for_import(user, tmp_path, exporter)
+    await view.export_overview_pdf(overview_layout())
+    assert exporter.asked == ["overview.pdf"]
+    assert not list(tmp_path.glob("*.pdf"))
+
+
+async def test_overview_pdf_reports_a_missing_font_and_keeps_the_project(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("projectapp.overview_pdf.find_font", lambda *a, **k: None)
+    target = tmp_path / "out.pdf"
+    exporter = FakeExporter(path=target)
+    view = await open_for_import(user, tmp_path, exporter)
+    dirty = view.is_dirty()
+    await view.export_overview_pdf(overview_layout())
+    await user.should_see("日本語のフォントが見つからない")
+    assert not target.exists() and view.is_dirty() == dirty
+
+
+async def test_the_project_menu_opens_the_whole_project_overview(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.name = "全体の確認"
+    user.find(marker="menu-open-overview").click()
+    await user.should_see("系統図: 全体の確認")

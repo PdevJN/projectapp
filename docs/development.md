@@ -8,6 +8,9 @@
 | `views.py` | メイン画面(ヘッダー〔メニュー 5 つ(ファイル〔インポート・エクスポートのサブメニューを含む〕・プロジェクト・移動・Git・ヘルプ)・プロジェクトの切り替え・チャートプレビュー・ダッシュボード・テーマのメニュー。プロジェクト名はヘッダーの外の `title_box`。`header` / `header_menu`(項目は `MenuItem`: 文言・アイコン・操作・マーカー・キー。`menu_entry` が左のアイコンと右端のキーを足す)/ `theme_menu`。配色とフォントは `HEADER_CSS`〕・チャート領域・ヘルプのダイアログ・プレビューとダッシュボードの出入り・画像の保存・担当者向けファイルの書き出し) |
 | `calendar.py` | 祝日の取得・キャッシュ(`holidays.json`)と日付種別の判定 |
 | `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出(`Worker`・`crew_of`・`calc_end(crew, weeks)`・`crew_on`・`crew_pieces`・`CrewTrack`〔日ごとの週を 1 日 1 要素に展開した並び。`.step` が 1 日の長さ〕・`crew_track`)、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`・`assignees_rate`・`counted_assignees`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |
+| `overview.py` | 系統図(要望 147)の階層の変換(`build_overview`)・ノードの文言(`node_lines`)・座標(`layout_overview`)。NiceGUI に依存しない純粋関数 |
+| `overview_dialog.py` | 系統図のダイアログ(チェックボックス・PDF ボタン・ノードのクリックでガントへ移る) |
+| `overview_pdf.py` | 系統図の PDF 書き出し(Pillow で描いて包む。OS の日本語フォントを探す) |
 | `linkgraph.py` | タスクの連結(先行 → 後続)のグラフ操作。NiceGUI に依存しない純粋関数 |
 | `links.py` | 矢印の連結の計算(行の並び〔`row_slots`。名前の入力行は種別 `quick-add` の 1 行〕・縦位置・折れ線)。NiceGUI に依存しない純粋関数 |
 | `filtering.py` | 絞り込み条件(`TaskFilter`)とタスクの判定(`matches`)、セクションで描くタスクの決定(`visible_task_indexes`)(純粋関数) |
