@@ -4415,6 +4415,19 @@ async def test_the_dashboard_menu_item_shows_the_key_hint(
     assert [c.text for c in item.default_slot.children if "side" in c._props] == ["D"]
 
 
+async def test_the_overview_menu_item_shows_the_key_hint(
+    user: User, tmp_path: Path
+) -> None:
+    await open_header_view(user, tmp_path)
+    menu = user.find(marker="menu-project-items").elements.pop()
+    item = next(
+        c
+        for c in menu.default_slot.children
+        if isinstance(c, ui.menu_item) and "menu-open-overview" in c._markers
+    )
+    assert [c.text for c in item.default_slot.children if "side" in c._props] == ["K"]
+
+
 async def test_the_file_menu_opens_the_file_list(user: User, tmp_path: Path) -> None:
     await open_header_view(user, tmp_path)
     user.find(marker="file-open").click()
@@ -5033,6 +5046,7 @@ SHORTCUT_METHODS = [
         (("k", True, False), "open_git_commit"),
         (("K", True, True), "start_git_push"),
         (("d", False, False), "open_dashboard"),
+        (("k", False, False), "open_overview_project"),
     ]
 ]
 

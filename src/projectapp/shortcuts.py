@@ -64,6 +64,7 @@ SHORTCUTS: tuple[Shortcut, ...] = (
         aliases=("backspace",),
     ),
     Shortcut("d", "dashboard", "ダッシュボード"),
+    Shortcut("k", "overview", "プロジェクト全体の系統図"),
     Shortcut("/", "search", "タスク名の検索欄へ移る"),
     Shortcut("t", "go_today", "ガントチャートを当日へ移す"),
     Shortcut("b", "go_base", "ガントチャートを基準日へ移す"),

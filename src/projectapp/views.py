@@ -1468,6 +1468,7 @@ class MainView:
         "handoff": "open_handoff",
         "preview": "enter_preview",
         "dashboard": "open_dashboard",
+        "overview": "open_overview_project",
         "git_commit": "open_git_commit",
         "git_push": "start_git_push",
         "git_pull": "start_git_pull",
@@ -3766,6 +3767,7 @@ class MainView:
                         "account_tree",
                         self.open_overview_project,
                         "menu-open-overview",
+                        "K",
                     ),
                 ],
             )
