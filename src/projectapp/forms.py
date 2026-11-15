@@ -3,7 +3,7 @@
 from collections.abc import Awaitable, Callable, Collection, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from math import isfinite
 from typing import Any
@@ -42,8 +42,10 @@ from projectapp.models import (
     MAX_WARNING_LIMIT,
     MIN_WARNING_LIMIT,
     Event,
+    DEFAULT_DAILY_HOURS,
     DEFAULT_RATIO_MAX,
     DEFAULT_RATIO_MIN,
+    DEFAULT_WORK_START,
     MAX_LEVEL_VALUE,
     MAX_PROGRESS,
     MAX_PROJECT_CODE_LENGTH,
@@ -1337,6 +1339,95 @@ def compose_actual(day: str, clock: str) -> str:
     if not day.strip() or not clock.strip():
         raise ValueError("日付と時刻を両方入れてください")
     return compose_datetime(day, clock)
+
+
+ACTUAL_BOTH_MESSAGE = "日付と時刻を両方入れてください"
+
+
+def _fill_one(day: str, clock: str, optional: bool) -> tuple[str, bool]:
+    """1 つの時点の入力から、文字列を作る。戻りの bool は、時刻を補う必要があるか(日付だけ)。"""
+    if not day and not clock:
+        return "", False
+    if clock and not day:
+        raise ValueError("日付を入れてください" if optional else ACTUAL_BOTH_MESSAGE)
+    if day and clock:
+        return compose_datetime(day, clock), False
+    if not optional:
+        raise ValueError(ACTUAL_BOTH_MESSAGE)
+    return day, True
+
+
+def _day_at(day: str, work_start: time, hours: float) -> str:
+    """`日付`の`work_start`から`hours`時間あとの日時を、`YYYY-MM-DDTHH:MM`で返す。日付が読めなければ、そのまま返す
+    (形式の誤りは、build_actuals が報告する)。"""
+    try:
+        base = datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        return day
+    moment = datetime.combine(base.date(), work_start) + timedelta(hours=hours)
+    return moment.strftime("%Y-%m-%dT%H:%M")
+
+
+def fill_actual_times(
+    start_day: str,
+    start_clock: str,
+    end_day: str,
+    end_clock: str,
+    *,
+    optional: bool,
+    work_start: time,
+    daily_hours: float,
+) -> tuple[str, str]:
+    """実績の開始・終了の入力から、`build_actuals`に渡す文字列の組を作る(純粋関数)。
+    `optional`が真のとき、日付だけの開始は`日付 work_start`、終了は`日付 work_start + daily_hours`を補う
+    (CSV の取り込みと同じ規則)。補った終了が開始より前なら、開始に揃える。両方を明示した前後逆は、ここでは直さない
+    (`build_actuals`がエラーにする)。時刻だけで日付がないときはエラー。`optional`が偽なら、日付と時刻の両方が要る。"""
+    start, start_fill = _fill_one(start_day.strip(), start_clock.strip(), optional)
+    end, end_fill = _fill_one(end_day.strip(), end_clock.strip(), optional)
+    if start_fill:
+        start = _day_at(start, work_start, 0.0)
+    if end_fill:
+        end = _day_at(end, work_start, daily_hours)
+        if start:
+            try:
+                if datetime.fromisoformat(end) < datetime.fromisoformat(start):
+                    end = start  # 補った終了が、開始より前になったとき
+            except ValueError:
+                pass  # 形式の誤りは、build_actuals が報告する
+    return start, end
+
+
+@dataclass(frozen=True)
+class ActualTimePolicy:
+    """実績の時刻の扱い(プロジェクトの設定を束ねたもの)。入力口の 3 か所が受け取る。"""
+
+    optional: bool = True
+    work_start: time = DEFAULT_WORK_START
+    daily_hours: float = DEFAULT_DAILY_HOURS
+
+    def fill(
+        self, start_day: str, start_clock: str, end_day: str, end_clock: str
+    ) -> tuple[str, str]:
+        return fill_actual_times(
+            start_day,
+            start_clock,
+            end_day,
+            end_clock,
+            optional=self.optional,
+            work_start=self.work_start,
+            daily_hours=self.daily_hours,
+        )
+
+    def start_hint(self) -> str:
+        return f"省略: 始業 {self.work_start:%H:%M}" if self.optional else ""
+
+    def end_hint(self) -> str:
+        if not self.optional:
+            return ""
+        origin = datetime.combine(date(2000, 1, 1), self.work_start)
+        end = origin + timedelta(hours=self.daily_hours)
+        next_day = "翌 " if end.date() != origin.date() else ""
+        return f"省略: 終業 {next_day}{end:%H:%M}"
 
 
 def suggest_status(
