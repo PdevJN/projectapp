@@ -78,6 +78,17 @@ def test_actual_mode_merges() -> None:
     assert merged.actual_mode is ActualMode.INTERVALS
 
 
+def test_actual_time_optional_merges_a_one_sided_change() -> None:
+    merged = merge_projects(proj(), proj(actual_time_optional=False), proj()).project
+    assert merged.actual_time_optional is False
+    both = merge_projects(
+        proj(actual_time_optional=True),
+        proj(actual_time_optional=False),
+        proj(actual_time_optional=True, daily_hours=5.0),
+    )
+    assert both.project.actual_time_optional is False
+
+
 def test_members_merge_by_id_field_by_field() -> None:
     base = proj(members=[Member("甲", 1.0, id="m1"), Member("乙", 1.0, id="m2")])
     ours = proj(

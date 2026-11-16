@@ -1380,7 +1380,7 @@ def fill_actual_times(
 ) -> tuple[str, str]:
     """実績の開始・終了の入力から、`build_actuals`に渡す文字列の組を作る(純粋関数)。
     `optional`が真のとき、日付だけの開始は`日付 work_start`、終了は`日付 work_start + daily_hours`を補う
-    (CSV の取り込みと同じ規則)。補った終了が開始より前なら、開始に揃える。両方を明示した前後逆は、ここでは直さない
+    (CSV の取り込みと同じ規則)。補った終了が、同じ日の開始より前なら、開始に揃える(日付が前後逆のときは直さない)。両方を明示した前後逆は、ここでは直さない
     (`build_actuals`がエラーにする)。時刻だけで日付がないときはエラー。`optional`が偽なら、日付と時刻の両方が要る。"""
     start, start_fill = _fill_one(start_day.strip(), start_clock.strip(), optional)
     end, end_fill = _fill_one(end_day.strip(), end_clock.strip(), optional)
@@ -1390,8 +1390,12 @@ def fill_actual_times(
         end = _day_at(end, work_start, daily_hours)
         if start:
             try:
-                if datetime.fromisoformat(end) < datetime.fromisoformat(start):
-                    end = start  # 補った終了が、開始より前になったとき
+                end_at, start_at = (
+                    datetime.fromisoformat(end),
+                    datetime.fromisoformat(start),
+                )
+                if end_at < start_at and end_at.date() == start_at.date():
+                    end = start  # 補った終了が、同じ日の開始より前になったとき
             except ValueError:
                 pass  # 形式の誤りは、build_actuals が報告する
     return start, end

@@ -52,7 +52,7 @@
 ## ファイルとほかの機能への波及
 
 - `models.py`: `Project.actual_time_optional: bool = True`、`FORMAT_VERSION`を 23 に上げ、変更履歴の注記に`23: 実績の時刻の省略〔actual_time_optional〕`を足す。
-- `storage.py`: 書き出し・読み込みに`actual_time_optional`を足す。キーがない・`null`は`True`。真偽値でない値は拒否する(既存の真偽値の設定と同じ)。新しい`version`は、これまでどおり拒否する。
+- `storage.py`: 書き出し・読み込みに`actual_time_optional`を足す。キーがないときは`True`。`null`を含む真偽値でない値は拒否する(既存の真偽値の設定と同じ)。新しい`version`は、これまでどおり拒否する。
 - `settings_io.py`: 設定の書き出し・取り込みに含める(`実績の記録方式`の隣。日本語のキーは`実績の時刻の省略`)。取り込みの確認の表示にも出す。
 - `merge.py`: 3 者マージの設定項目に足す(表示名は`実績の時刻の省略`)。
 - `extract.py`: 子プロジェクトへの切り出しで引き継ぐ設定に足す(`gantt.md`の引き継ぐ設定の一覧にも書く)。

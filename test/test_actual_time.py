@@ -58,6 +58,15 @@ def test_a_filled_end_before_an_explicit_start_is_raised_to_the_start() -> None:
     )
 
 
+def test_a_filled_end_on_an_earlier_date_than_the_start_is_left_for_build_actuals_to_refuse() -> (
+    None
+):
+    start, end = fill("2026-10-05", "", "2026-10-04")
+    assert (start, end) == ("2026-10-05T09:00", "2026-10-04T15:30")
+    with pytest.raises(ValueError):
+        build_actuals(start, end)
+
+
 def test_an_explicit_end_before_the_start_is_left_for_build_actuals_to_refuse() -> None:
     start, end = fill("2026-10-05", "18:00", "2026-10-05", "17:00")
     assert (start, end) == ("2026-10-05T18:00", "2026-10-05T17:00")
