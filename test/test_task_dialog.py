@@ -1303,6 +1303,62 @@ async def test_the_task_progress_is_entered_and_saved(user: User) -> None:
     assert saved[0].progress == 40 and saved[0].actuals == []
 
 
+def slider_of(user: User, marker: str):  # noqa: ANN202
+    return user.find(marker=marker).elements.pop()
+
+
+async def test_the_progress_slider_follows_the_number_and_sets_it(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧", progress=70), saved)
+    await open_dialog(user)
+    slider = slider_of(user, "task-progress-slider")
+    assert slider.value == 70
+    with user.client:
+        task_progress_input(user).set_value(30)
+    assert slider.value == 30
+    with user.client:
+        slider.set_value(85)
+    assert task_progress_input(user).value == 85
+    user.find(marker="task-save").click()
+    assert saved[0].progress == 85
+
+
+async def test_the_progress_slider_rests_at_zero_and_leaves_an_empty_progress(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧"), saved)
+    await open_dialog(user)
+    assert slider_of(user, "task-progress-slider").value == 0
+    assert task_progress_input(user).value is None
+    user.find(marker="task-save").click()
+    assert saved[0].progress is None
+
+
+async def test_the_progress_slider_clamps_an_out_of_range_number(user: User) -> None:
+    mount_dialog(Task("旧"), [])
+    await open_dialog(user)
+    with user.client:
+        task_progress_input(user).set_value(150)
+    assert slider_of(user, "task-progress-slider").value == 100
+
+
+async def test_the_quick_dialog_progress_slider_sets_the_progress(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    mount_quick_dialog(Task("作業"), saved)
+    await open_dialog(user)
+    slider = slider_of(user, "quick-progress-slider")
+    assert slider.value == 0
+    assert user.find(marker="quick-progress").elements.pop().value is None
+    with user.client:
+        slider.set_value(45)
+    assert user.find(marker="quick-progress").elements.pop().value == 45
+    user.find(marker="quick-save").click()
+    assert saved[0].progress == 45
+
+
 async def test_the_existing_task_progress_is_shown_and_can_be_cleared(
     user: User,
 ) -> None:

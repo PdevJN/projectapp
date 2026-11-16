@@ -777,22 +777,52 @@ class IntervalFields:
         return tuple(values)
 
 
+def progress_inputs(own: float | None, marker: str) -> tuple[ui.number, ui.slider]:
+    """進捗度の数値欄と、スライダー(`<marker>-slider`)を並べて作る。どちらを動かしてももう一方に反映する。
+    空(進捗度なし)のときのスライダーは 0 の位置に置き、動かすまで空のままにする。範囲外の数値は端に寄せて示す。"""
+    number = (
+        ui.number(
+            "進捗度(%)",
+            value=own,
+            min=MIN_PROGRESS,
+            max=MAX_PROGRESS,
+            precision=0,
+        )
+        .classes("w-full")
+        .mark(marker)
+    )
+
+    def rest_position() -> int:
+        value = number.value
+        if value is None or not isfinite(value):
+            return MIN_PROGRESS
+        return int(min(max(value, MIN_PROGRESS), MAX_PROGRESS))
+
+    slider = (
+        ui.slider(min=MIN_PROGRESS, max=MAX_PROGRESS, step=1, value=rest_position())
+        .classes("w-full")
+        .mark(f"{marker}-slider")
+    )
+
+    def from_number(_event: object = None) -> None:
+        slider.set_value(rest_position())
+
+    def from_slider(event: object) -> None:
+        value = getattr(event, "value", None)
+        if value is not None and value != rest_position():
+            number.set_value(int(value))
+
+    number.on_value_change(from_number)
+    slider.on_value_change(from_slider)
+    return number, slider
+
+
 class TaskProgressField:
-    """タスクの進捗度の欄。進捗度の入力はこの 1 つだけ(実績には持たない)。"""
+    """タスクの進捗度の欄。進捗度の入力はこの 1 つだけ(実績には持たない)。数値欄とスライダーで入れる。"""
 
     def __init__(self, own: int | None) -> None:
         with ui.column().classes("w-full gap-0") as self.container:
-            self.input = (
-                ui.number(
-                    "進捗度(%)",
-                    value=own,
-                    min=MIN_PROGRESS,
-                    max=MAX_PROGRESS,
-                    precision=0,
-                )
-                .classes("w-full")
-                .mark("task-progress")
-            )
+            self.input, self.slider = progress_inputs(own, "task-progress")
 
     @property
     def value(self) -> float | None:
@@ -1148,17 +1178,7 @@ def open_quick_progress_dialog(
     実績が 2 件以上のタスクは、進捗度だけを直せる。"""
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
         ui.label(task.name).classes("text-h6 ellipsis").mark("quick-title")
-        progress = (
-            ui.number(
-                "進捗度(%)",
-                value=task.progress,
-                min=MIN_PROGRESS,
-                max=MAX_PROGRESS,
-                precision=0,
-            )
-            .classes("w-full")
-            .mark("quick-progress")
-        )
+        progress, _slider = progress_inputs(task.progress, "quick-progress")
         with (
             ui.expansion("実績", icon="schedule")
             .classes("w-full")
