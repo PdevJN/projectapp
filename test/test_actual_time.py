@@ -162,3 +162,10 @@ def test_a_newer_version_is_still_refused() -> None:
 
 def test_the_option_is_one_of_the_three_way_merge_settings() -> None:
     assert SETTING_LABELS["actual_time_optional"] == "実績の時刻の省略"
+
+
+def test_the_end_hint_counts_days_when_it_is_two_or_more_days_ahead() -> None:
+    assert ActualTimePolicy(True, time(9, 0), 30.0).end_hint() == "省略: 終業 翌 15:00"
+    assert (
+        ActualTimePolicy(True, time(9, 0), 60.0).end_hint() == "省略: 終業 2日後 21:00"
+    )

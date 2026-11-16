@@ -479,3 +479,23 @@ def test_the_settings_summary_names_the_actual_time_option() -> None:
         _describe(Project("p", actual_time_optional=False))["実績の時刻の省略"]
         == "必須"
     )
+
+
+def test_a_settings_file_without_the_actual_time_option_keeps_the_current_value() -> (
+    None
+):
+    text = json.dumps(
+        {
+            k: v
+            for k, v in build_settings(Project("入")).items()
+            if k != "actual_time_optional"
+        }
+    )
+    incoming = parse_settings(text)
+    current = Project("現", actual_time_optional=False)
+    assert all(
+        c.label != "実績の時刻の省略"
+        for c in plan_import(current, incoming).project_changes
+    )
+    result = apply_import(current, incoming, {"project"}, set())
+    assert result.project.actual_time_optional is False

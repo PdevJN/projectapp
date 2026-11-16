@@ -1431,8 +1431,9 @@ class ActualTimePolicy:
             return ""
         origin = datetime.combine(date(2000, 1, 1), self.work_start)
         end = origin + timedelta(hours=self.daily_hours)
-        next_day = "翌 " if end.date() != origin.date() else ""
-        return f"省略: 終業 {next_day}{end:%H:%M}"
+        days = (end.date() - origin.date()).days
+        ahead = {0: "", 1: "翌 "}.get(days, f"{days}日後 ")
+        return f"省略: 終業 {ahead}{end:%H:%M}"
 
 
 def suggest_status(

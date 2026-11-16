@@ -9619,3 +9619,22 @@ async def test_the_task_dialog_gets_the_projects_actual_time_policy(
     view.project.daily_hours = 7.0
     policy = view.actual_policy()
     assert (policy.optional, policy.daily_hours) == (False, 7.0)
+
+
+async def test_the_settings_dialog_reopens_with_the_changed_actual_time_option(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    user.find(marker="open-settings").click()
+    user.find(marker="settings-actual-time-optional").elements.pop().set_value(
+        "required"
+    )
+    user.find(marker="settings-apply").click()
+    assert view.project.actual_time_optional is False
+    user.find(marker="open-settings").click()
+    toggle = user.find(marker="settings-actual-time-optional").elements.pop()
+    assert toggle.value == "required"
