@@ -36,6 +36,7 @@ from projectapp.settings_io import (
     summary,
     write_settings,
 )
+from projectapp.settings_io import _describe
 
 
 def full_project() -> Project:
@@ -463,3 +464,18 @@ def test_the_settings_file_has_no_teams_and_members_have_no_memberships() -> Non
         json.dumps(data)
     )  # 読める(未知のチームを指す所属が残っていない)
     assert imported.project.members[0].teams == []
+
+
+def test_the_actual_time_option_goes_through_the_settings_file_and_the_import() -> None:
+    source = Project("入", actual_time_optional=False)
+    assert build_settings(source)["actual_time_optional"] is False
+    result = apply_import(Project("現"), incoming_of(source), {"project"}, set())
+    assert result.project.actual_time_optional is False
+
+
+def test_the_settings_summary_names_the_actual_time_option() -> None:
+    assert _describe(Project("p"))["実績の時刻の省略"] == "省略できる"
+    assert (
+        _describe(Project("p", actual_time_optional=False))["実績の時刻の省略"]
+        == "必須"
+    )
