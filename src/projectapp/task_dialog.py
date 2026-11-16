@@ -839,7 +839,7 @@ class RangeSlider(ValueElement):
 
 def progress_inputs(own: float | None, marker: str) -> tuple[ui.number, RangeSlider]:
     """進捗度の数値欄と、スライダー(`<marker>-slider`)を並べて作る。どちらを動かしてももう一方に反映する。
-    空(進捗度なし)のときのスライダーは 0 の位置に置き、動かすまで空のままにする。範囲外の数値は端に寄せて示す。"""
+    空(進捗度なし)のときのスライダーは 0 の位置に置き、動かすまで空のままにする。範囲外の数値は入らない(0〜100 の端に寄せる)。"""
     number = (
         ui.number(
             "進捗度(%)",
@@ -862,6 +862,12 @@ def progress_inputs(own: float | None, marker: str) -> tuple[ui.number, RangeSli
     slider.classes("w-full").mark(f"{marker}-slider")
 
     def from_number(_event: object = None) -> None:
+        value = number.value
+        if value is not None and isfinite(value):
+            inside = min(max(value, MIN_PROGRESS), MAX_PROGRESS)
+            if inside != value:  # 範囲外は入らない(端に寄せる)
+                number.set_value(inside)
+                return
         slider.set_value(rest_position())
 
     def from_slider(event: object) -> None:

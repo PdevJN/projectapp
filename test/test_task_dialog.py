@@ -1422,14 +1422,18 @@ async def test_changing_the_task_progress_counts_as_a_change_when_closing(
     await user.should_see(marker="close-save")
 
 
-async def test_an_out_of_range_task_progress_is_an_error(user: User) -> None:
+@pytest.mark.parametrize(("typed", "kept"), [(101, 100), (150, 100), (-5, 0)])
+async def test_an_out_of_range_task_progress_is_pulled_into_the_range(
+    user: User, typed: int, kept: int
+) -> None:
     saved: list[Task] = []
     mount_dialog(Task("旧"), saved)
     await open_dialog(user)
-    task_progress_input(user).set_value(101)
+    with user.client:
+        task_progress_input(user).set_value(typed)
+    assert task_progress_input(user).value == kept
     user.find(marker="task-save").click()
-    assert saved == []
-    await user.should_see("進捗度")
+    assert saved[0].progress == kept
 
 
 INTERVALS = ActualMode.INTERVALS
@@ -3483,15 +3487,17 @@ async def test_the_quick_dialog_saves_the_progress_and_the_actual(user: User) ->
     assert saved[0].status is Status.RUNNING
 
 
-async def test_the_quick_dialog_shows_the_error_and_does_not_save(user: User) -> None:
+async def test_the_quick_dialog_pulls_an_out_of_range_progress_into_the_range(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_quick_dialog(Task("作業"), saved)
     await open_dialog(user)
     with user.client:
         user.find(marker="quick-progress").elements.pop().set_value(150)
+    assert user.find(marker="quick-progress").elements.pop().value == 100
     user.find(marker="quick-save").click()
-    assert "進捗度" in user.find(marker="quick-error").elements.pop().text
-    assert saved == []
+    assert saved[0].progress == 100
 
 
 async def test_the_quick_dialog_only_edits_the_progress_for_several_intervals(
