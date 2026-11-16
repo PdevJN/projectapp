@@ -34,6 +34,7 @@ PROJECT_KEYS = (
     "actual_mode",
     "reference_mode",
     "plantuml_overload_notice",
+    "actual_time_optional",
     "ratio_limit_upper",
     "ratio_limit_lower",
 )
@@ -52,6 +53,9 @@ SECTION_LABELS = {
 class ImportFile:
     project: Project  # 設定ファイルの中身を載せた、タスクのないプロジェクト
     has_project_settings: bool  # プロジェクト設定のキーが 1 つでもあったか
+    actual_time_given: bool = (
+        True  # `actual_time_optional`のキーがあったか(古い設定ファイルにはない)
+    )
 
 
 def build_settings(project: Project) -> dict[str, Any]:
@@ -115,7 +119,19 @@ def parse_settings(text: str) -> ImportFile:
         project = parse_project(json.dumps(body), IMPORT_NAME)
     except (KeyError, TypeError, AttributeError) as exc:
         raise ValueError("設定ファイルの形式が正しくありません") from exc
-    return ImportFile(project, any(key in raw for key in PROJECT_KEYS))
+    return ImportFile(
+        project,
+        any(key in raw for key in PROJECT_KEYS),
+        "actual_time_optional" in raw,
+    )
+
+
+def _incoming_project(current: Project, incoming: ImportFile) -> Project:
+    """取り込む側のプロジェクト。キーのない`actual_time_optional`は、今の値を保つ(既定で上書きしない)。"""
+    project = deepcopy(incoming.project)
+    if not incoming.actual_time_given:
+        project.actual_time_optional = current.actual_time_optional
+    return project
 
 
 Item = Member | Parameter | Category | UrlTemplate | Event
@@ -171,6 +187,7 @@ def _describe(project: Project) -> dict[str, str]:
         "実績の記録方式": modes[project.actual_mode],
         "プロジェクト参照の方式": refs[project.reference_mode],
         "PlantUML の通知": "出す" if project.plantuml_overload_notice else "出さない",
+        "実績の時刻の省略": "省略できる" if project.actual_time_optional else "必須",
         "相対比率の上限": ratio(project.ratio_limit_upper),
         "相対比率の下限": ratio(project.ratio_limit_lower),
     }
@@ -204,7 +221,7 @@ def plan_import(current: Project, incoming: ImportFile) -> ImportPlan:
                 SectionPlan(key, tuple(new), tuple(duplicates), key != "events")
             )
     changes = (
-        project_changes(current, incoming.project)
+        project_changes(current, _incoming_project(current, incoming))
         if incoming.has_project_settings
         else ()
     )
@@ -272,6 +289,7 @@ def _apply_project_settings(
     )
     work.reference_mode = source.reference_mode
     work.plantuml_overload_notice = source.plantuml_overload_notice
+    work.actual_time_optional = source.actual_time_optional
     work.ratio_limit_upper, work.ratio_limit_lower = (
         source.ratio_limit_upper,
         source.ratio_limit_lower,
@@ -313,7 +331,7 @@ def apply_import(
     overwrite: Collection[tuple[str, str]],
 ) -> ImportResult:
     """選んだ区分を取り込んだ、新しいプロジェクトを返す。current は変えない。結果が読み込みの検証を通らなければ ValueError。"""
-    work, source = deepcopy(current), deepcopy(incoming.project)
+    work, source = deepcopy(current), _incoming_project(current, incoming)
     result = ImportResult(work, dict.fromkeys(SECTION_LABELS, 0), 0, 0, [])
     for key in COLLECTION_KEYS:
         if key in sections:

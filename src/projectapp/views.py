@@ -88,6 +88,7 @@ from projectapp.overview_dialog import open_overview_dialog
 from projectapp.overview_pdf import OverviewPdfError, render_pdf
 from projectapp.forms import (
     MEMBER_TABLE_CSS,
+    ActualTimePolicy,
     can_add_extra_effort,
     open_commit_dialog,
     open_conflict_dialog,
@@ -1409,6 +1410,8 @@ class MainView:
             on_reference_mode=self.apply_reference_mode,
             plantuml_notice=self.project.plantuml_overload_notice,
             on_plantuml_notice=self.apply_plantuml_notice,
+            actual_time_optional=self.project.actual_time_optional,
+            on_actual_time_optional=self.apply_actual_time_optional,
             ratio_limits=self.project.ratio_limits,
             on_ratio_limits=self.apply_ratio_limits,
         )
@@ -2436,6 +2439,13 @@ class MainView:
         self.project.plantuml_overload_notice = enabled
         self.after_edit()
 
+    def apply_actual_time_optional(self, enabled: bool) -> None:
+        """実績の時刻を省略できるかを変える。保存済みの実績は変えない。保存はしない。"""
+        if enabled is self.project.actual_time_optional:
+            return
+        self.project.actual_time_optional = enabled
+        self.after_edit()
+
     def apply_ratio_limits(self, limits: RatioLimits) -> None:
         """相対比率の下限・上限を変える。実績か進捗のあるタスクの完了予定が変わるときは、見直しを選ばせる。"""
         if limits == self.project.ratio_limits:
@@ -2746,6 +2756,14 @@ class MainView:
             ),  # プロジェクト参照の参照先(自分を除く)
         }
 
+    def actual_policy(self) -> ActualTimePolicy:
+        """実績の時刻の扱い(プロジェクトの設定)。"""
+        return ActualTimePolicy(
+            self.project.actual_time_optional,
+            self.project.work_start,
+            self.project.daily_hours,
+        )
+
     def add_task(self, path: SectionPath) -> None:
         open_task_dialog(
             None,
@@ -2755,6 +2773,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            actual_time_optional=self.project.actual_time_optional,
             teams=self.project.teams,
             **self.link_args(None),
         )
@@ -2768,6 +2787,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            actual_time_optional=self.project.actual_time_optional,
             teams=self.project.teams,
             **self.link_args(None),
         )
@@ -2782,6 +2802,7 @@ class MainView:
             holidays=self.holidays,
             members=self.project.members,
             actual_mode=self.project.actual_mode,
+            actual_time_optional=self.project.actual_time_optional,
             teams=self.project.teams,
             on_delete=lambda: self.delete_task(path, task_index),
             on_decompose=None  # まとめの子は、入れ子になるので分解できない
@@ -3125,7 +3146,10 @@ class MainView:
             self.save_task(path, index, saved)
 
         open_quick_progress_dialog(
-            task, self.project.actual_mode is ActualMode.INTERVALS, apply
+            task,
+            self.project.actual_mode is ActualMode.INTERVALS,
+            apply,
+            self.actual_policy(),
         )
 
     def add_extra_effort(self, path: SectionPath, index: int) -> None:

@@ -3,7 +3,7 @@
 from collections.abc import Awaitable, Callable, Collection, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from math import isfinite
 from typing import Any
@@ -42,8 +42,10 @@ from projectapp.models import (
     MAX_WARNING_LIMIT,
     MIN_WARNING_LIMIT,
     Event,
+    DEFAULT_DAILY_HOURS,
     DEFAULT_RATIO_MAX,
     DEFAULT_RATIO_MIN,
+    DEFAULT_WORK_START,
     MAX_LEVEL_VALUE,
     MAX_PROGRESS,
     MAX_PROJECT_CODE_LENGTH,
@@ -588,7 +590,7 @@ def apply_quick_progress(
 
 
 def build_actuals(start_text: str, end_text: str) -> list[Actual]:
-    """実績の入力(compose_actual の結果)を検証して、0件か1件の区間にする。"""
+    """実績の入力(`fill_actual_times`の結果)を検証して、0件か1件の区間にする。"""
     try:
         start_at, end_at = parse_datetime(start_text), parse_datetime(end_text)
     except ValueError:
@@ -1330,13 +1332,108 @@ def compose_datetime(day: str, clock: str) -> str:
     return f"{day}T{clock}"
 
 
-def compose_actual(day: str, clock: str) -> str:
-    """実績の日付と時刻から文字列を作る。両方空は空、片方だけはエラー(実績は時刻を補わない)。"""
-    if not day.strip() and not clock.strip():
-        return ""
-    if not day.strip() or not clock.strip():
-        raise ValueError("日付と時刻を両方入れてください")
-    return compose_datetime(day, clock)
+ACTUAL_BOTH_MESSAGE = "日付と時刻を両方入れてください"
+
+
+def _fill_one(day: str, clock: str, optional: bool) -> tuple[str, bool]:
+    """1 つの時点の入力から、文字列を作る。戻りの bool は、時刻を補う必要があるか(日付だけ)。"""
+    if not day and not clock:
+        return "", False
+    if clock and not day:
+        raise ValueError("日付を入れてください" if optional else ACTUAL_BOTH_MESSAGE)
+    if day and clock:
+        return compose_datetime(day, clock), False
+    if not optional:
+        raise ValueError(ACTUAL_BOTH_MESSAGE)
+    return day, True
+
+
+def _day_at(day: str, work_start: time, hours: float) -> str:
+    """`日付`の`work_start`から`hours`時間あとの日時を、`YYYY-MM-DDTHH:MM`で返す。日付が読めなければ、そのまま返す
+    (形式の誤りは、build_actuals が報告する)。"""
+    try:
+        base = datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        return day
+    moment = datetime.combine(base.date(), work_start) + timedelta(hours=hours)
+    return moment.strftime("%Y-%m-%dT%H:%M")
+
+
+def fill_actual_times(
+    start_day: str,
+    start_clock: str,
+    end_day: str,
+    end_clock: str,
+    *,
+    optional: bool,
+    work_start: time,
+    daily_hours: float,
+) -> tuple[str, str]:
+    """実績の開始・終了の入力から、`build_actuals`に渡す文字列の組を作る(純粋関数)。
+    `optional`が真のとき、日付だけの開始は`日付 work_start`、終了は`日付 work_start + daily_hours`を補う
+    (CSV の取り込みと同じ規則)。補った終了が、同じ日の開始より前なら開始に、補った開始が、同じ日の明示した終了より後なら終了に揃える(日付が前後逆のときは直さない)。両方を明示した前後逆は、ここでは直さない
+    (`build_actuals`がエラーにする)。時刻だけで日付がないときはエラー。`optional`が偽なら、日付と時刻の両方が要る。"""
+    start, start_fill = _fill_one(start_day.strip(), start_clock.strip(), optional)
+    end, end_fill = _fill_one(end_day.strip(), end_clock.strip(), optional)
+    if start_fill:
+        start = _day_at(start, work_start, 0.0)
+    if end_fill:
+        end = _day_at(end, work_start, daily_hours)
+        if start:
+            try:
+                end_at, start_at = (
+                    datetime.fromisoformat(end),
+                    datetime.fromisoformat(start),
+                )
+                if end_at < start_at and end_at.date() == start_at.date():
+                    end = start  # 補った終了が、同じ日の開始より前になったとき
+            except ValueError:
+                pass  # 形式の誤りは、build_actuals が報告する
+    elif start_fill and end:
+        try:
+            end_at, start_at = (
+                datetime.fromisoformat(end),
+                datetime.fromisoformat(start),
+            )
+            if start_at > end_at and start_at.date() == end_at.date():
+                start = end  # 補った開始が、同じ日の明示した終了より後になったとき
+        except ValueError:
+            pass
+    return start, end
+
+
+@dataclass(frozen=True)
+class ActualTimePolicy:
+    """実績の時刻の扱い(プロジェクトの設定を束ねたもの)。入力口の 3 か所が受け取る。"""
+
+    optional: bool = True
+    work_start: time = DEFAULT_WORK_START
+    daily_hours: float = DEFAULT_DAILY_HOURS
+
+    def fill(
+        self, start_day: str, start_clock: str, end_day: str, end_clock: str
+    ) -> tuple[str, str]:
+        return fill_actual_times(
+            start_day,
+            start_clock,
+            end_day,
+            end_clock,
+            optional=self.optional,
+            work_start=self.work_start,
+            daily_hours=self.daily_hours,
+        )
+
+    def start_hint(self) -> str:
+        return f"省略: 始業 {self.work_start:%H:%M}" if self.optional else ""
+
+    def end_hint(self) -> str:
+        if not self.optional:
+            return ""
+        origin = datetime.combine(date(2000, 1, 1), self.work_start)
+        end = origin + timedelta(hours=self.daily_hours)
+        days = (end.date() - origin.date()).days
+        ahead = {0: "", 1: "翌 "}.get(days, f"{days}日後 ")
+        return f"省略: 終業 {ahead}{end:%H:%M}"
 
 
 def suggest_status(
@@ -1770,6 +1867,8 @@ def open_settings_dialog(
     on_reference_mode: Callable[[ReferenceMode], object] | None = None,
     plantuml_notice: bool = True,
     on_plantuml_notice: Callable[[bool], object] | None = None,
+    actual_time_optional: bool = True,
+    on_actual_time_optional: Callable[[bool], object] | None = None,
     ratio_limits: RatioLimits = RatioLimits(),
     on_ratio_limits: Callable[[RatioLimits], object] | None = None,
 ) -> None:
@@ -1846,6 +1945,16 @@ def open_settings_dialog(
                     mode.set_value(ActualMode.INTERVALS.value)
 
             mode.on_value_change(keep_intervals)
+        time_option = None
+        if on_actual_time_optional is not None:
+            ui.label("実績の時刻").classes("text-caption text-grey")
+            time_option = ui.toggle(
+                {"optional": "省略できる", "required": "必須"},
+                value="optional" if actual_time_optional else "required",
+            ).mark("settings-actual-time-optional")
+            ui.label(
+                "省略できるとき、日付だけの実績には、始業・終業(稼働可能時間)の時刻を補います"
+            ).classes("text-caption text-grey")
         reference = None
         if on_reference_mode is not None:
             ui.label("プロジェクト参照の方式").classes("text-caption text-grey")
@@ -2249,6 +2358,12 @@ def open_settings_dialog(
                 and bool(notice.value) is not plantuml_notice
             ):
                 on_plantuml_notice(bool(notice.value))
+            if (
+                time_option is not None
+                and on_actual_time_optional is not None
+                and (time_option.value == "optional") is not actual_time_optional
+            ):
+                on_actual_time_optional(time_option.value == "optional")
             if (
                 limits is not None
                 and on_ratio_limits is not None

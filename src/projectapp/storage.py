@@ -840,6 +840,12 @@ def _plantuml_overload_notice(value: Any) -> bool:
     return value
 
 
+def _actual_time_optional(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"実績の時刻の省略の設定が正しくありません: {value!r}")
+    return value
+
+
 def _ratio_limit(value: Any, name: str) -> float | None:
     """相対比率の上限・下限。null は設定なし(既定の 50〜150%)。数値以外・非有限・範囲外は ValueError。"""
     if value is None:
@@ -1444,6 +1450,11 @@ def parse_project(text: str, name: str) -> Project:
         plantuml_overload_notice=(
             _plantuml_overload_notice(raw.get("plantuml_overload_notice", True))
             if ctx.version >= 12
+            else True
+        ),
+        actual_time_optional=(
+            _actual_time_optional(raw.get("actual_time_optional", True))
+            if ctx.version >= 23
             else True
         ),
         ratio_limit_upper=ratio_limits.upper,

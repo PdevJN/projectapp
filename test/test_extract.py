@@ -225,6 +225,12 @@ def test_settings_and_events_are_carried_but_not_teams() -> None:
     assert [e.id for e in child.events] == ["e1"]
 
 
+def test_the_actual_time_option_is_carried_to_the_child() -> None:
+    project = make()
+    project.actual_time_optional = False
+    assert extract(project, ["a"], "子").child.actual_time_optional is False
+
+
 def test_selecting_a_summary_moves_its_children_too() -> None:
     result = extract(summary_project(), ["S1"], "子")
     assert ids_of(result.child.sections[0].tasks) == ["S1", "k1", "k2"]

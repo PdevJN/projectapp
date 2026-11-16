@@ -147,6 +147,7 @@ def extract(project: Project, ids: Collection[str], name: str) -> Extraction:
         events=deepcopy(project.events),
         reference_mode=project.reference_mode,
         plantuml_overload_notice=project.plantuml_overload_notice,
+        actual_time_optional=project.actual_time_optional,
         ratio_limit_upper=project.ratio_limit_upper,
         ratio_limit_lower=project.ratio_limit_lower,
         history=[deepcopy(e) for e in project.history if e.task in moved],
