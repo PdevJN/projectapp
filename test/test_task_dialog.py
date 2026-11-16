@@ -1335,6 +1335,35 @@ async def test_the_progress_slider_rests_at_zero_and_leaves_an_empty_progress(
     assert saved[0].progress is None
 
 
+async def test_the_progress_slider_is_a_native_range_input(user: User) -> None:
+    # 画面の倍率(body の CSS zoom)の中でも、つまみの位置がずれないように、標準の range 入力を使う
+    mount_dialog(Task("旧"), [])
+    await open_dialog(user)
+    slider = slider_of(user, "task-progress-slider")
+    assert slider.tag == "input" and slider.props["type"] == "range"
+
+
+async def test_clearing_the_number_returns_the_slider_to_zero_without_filling_it(
+    user: User,
+) -> None:
+    mount_dialog(Task("旧", progress=70), [])
+    await open_dialog(user)
+    with user.client:
+        task_progress_input(user).set_value(None)
+    assert slider_of(user, "task-progress-slider").value == 0
+    assert task_progress_input(user).value is None
+
+
+async def test_a_progress_of_zero_is_kept_as_zero(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧", progress=50), saved)
+    await open_dialog(user)
+    with user.client:
+        slider_of(user, "task-progress-slider").set_value(0)
+    user.find(marker="task-save").click()
+    assert saved[0].progress == 0
+
+
 async def test_the_progress_slider_clamps_an_out_of_range_number(user: User) -> None:
     mount_dialog(Task("旧"), [])
     await open_dialog(user)

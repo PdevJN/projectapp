@@ -9,6 +9,7 @@ from typing import Any
 from datetime import date, datetime, time
 
 from nicegui import ui
+from nicegui.elements.mixins.value_element import ValueElement
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp import clock
@@ -777,7 +778,29 @@ class IntervalFields:
         return tuple(values)
 
 
-def progress_inputs(own: float | None, marker: str) -> tuple[ui.number, ui.slider]:
+class RangeSlider(ValueElement):
+    """ブラウザ標準の`<input type="range">`。Quasar のスライダーは、画面の倍率(body の CSS zoom)の中で、
+    つまみの位置がマウスとずれる(WebKit は zoom 中の位置を拡大前の値で返すため)。標準の入力は、ずれない。"""
+
+    VALUE_PROP = "value"
+    LOOPBACK = None
+
+    def __init__(self, minimum: int, maximum: int, value: int) -> None:
+        super().__init__(tag="input", value=value)
+        self.props(f"type=range min={minimum} max={maximum} step=1")
+        self.on(
+            "input", self._from_client, js_handler="(e) => emit(Number(e.target.value))"
+        )
+
+    def _from_client(self, event: Any) -> None:
+        self._send_update_on_value_change = (
+            False  # つまみを動かしている最中に、古い値を送り返さない
+        )
+        self.set_value(int(event.args))
+        self._send_update_on_value_change = True
+
+
+def progress_inputs(own: float | None, marker: str) -> tuple[ui.number, RangeSlider]:
     """進捗度の数値欄と、スライダー(`<marker>-slider`)を並べて作る。どちらを動かしてももう一方に反映する。
     空(進捗度なし)のときのスライダーは 0 の位置に置き、動かすまで空のままにする。範囲外の数値は端に寄せて示す。"""
     number = (
@@ -796,13 +819,10 @@ def progress_inputs(own: float | None, marker: str) -> tuple[ui.number, ui.slide
         value = number.value
         if value is None or not isfinite(value):
             return MIN_PROGRESS
-        return int(min(max(value, MIN_PROGRESS), MAX_PROGRESS))
+        return round(min(max(value, MIN_PROGRESS), MAX_PROGRESS))
 
-    slider = (
-        ui.slider(min=MIN_PROGRESS, max=MAX_PROGRESS, step=1, value=rest_position())
-        .classes("w-full")
-        .mark(f"{marker}-slider")
-    )
+    slider = RangeSlider(MIN_PROGRESS, MAX_PROGRESS, rest_position())
+    slider.classes("w-full").mark(f"{marker}-slider")
 
     def from_number(_event: object = None) -> None:
         slider.set_value(rest_position())
