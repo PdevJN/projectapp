@@ -811,18 +811,30 @@ class RangeSlider(ValueElement):
         self.classes("progress-range").style(
             f"--fill: {value}%"
         )  # 塗りは、つまみの左側
+        self.dragging = False  # つまみを動かしている最中(離すまで)
+        self._release_handlers: list[Callable[[], object]] = []
+        self.on("change", self._on_release, js_handler="(e) => emit(null)")
         self.on(
             "input",
             self._from_client,
             js_handler="(e) => { e.target.style.setProperty('--fill', e.target.value + '%'); emit(Number(e.target.value)); }",
         )
 
+    def on_release(self, handler: Callable[[], object]) -> None:
+        """つまみを離したときに呼ぶ。動かしている最中は呼ばない。"""
+        self._release_handlers.append(handler)
+
     def _from_client(self, event: Any) -> None:
-        self._send_update_on_value_change = (
-            False  # つまみを動かしている最中は、画面へ送り返さない
-        )
+        self.dragging = True
+        # つまみを動かしている最中は、画面へ送り返さない
+        self._send_update_on_value_change = False
         self.set_value(int(event.args))
         self._send_update_on_value_change = True
+
+    def _on_release(self, _event: Any) -> None:
+        self.dragging = False
+        for handler in self._release_handlers:
+            handler()
 
     def _handle_value_change(self, value: Any) -> None:
         super()._handle_value_change(value)
@@ -1819,8 +1831,8 @@ def open_task_dialog(
             progress_field = TaskProgressField(initial.progress)
 
         def on_actual_change(_event: object = None) -> None:
-            if suggest["manual"]:
-                return
+            if suggest["manual"] or progress_field.slider.dragging:
+                return  # つまみを動かしている最中は、離したときにまとめて提案する
             suggested = suggest_status(
                 *actual_fields.filled(), progress_field.value, intervals=intervals
             )
@@ -1836,6 +1848,7 @@ def open_task_dialog(
 
         actual_fields.bind(on_actual_change)
         progress_field.input.on_value_change(on_actual_change)
+        progress_field.slider.on_release(on_actual_change)
         has_normal_data = bool(
             initial.planned_start
             or initial.planned_end

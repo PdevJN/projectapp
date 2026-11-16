@@ -3,6 +3,7 @@ from collections.abc import Callable
 from dataclasses import replace
 
 import pytest
+from types import SimpleNamespace
 from datetime import date, datetime, time
 
 from nicegui import events, ui
@@ -1362,6 +1363,32 @@ async def test_a_progress_of_zero_is_kept_as_zero(user: User) -> None:
         slider_of(user, "task-progress-slider").set_value(0)
     user.find(marker="task-save").click()
     assert saved[0].progress == 0
+
+
+async def test_the_status_is_suggested_when_the_slider_is_released_not_while_dragging(
+    user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import projectapp.task_dialog as dialog_module
+
+    calls: list[int] = []
+    original = dialog_module.suggest_status
+    monkeypatch.setattr(
+        dialog_module,
+        "suggest_status",
+        lambda *a, **k: (calls.append(1), original(*a, **k))[1],
+    )
+    mount_dialog(Task("旧"), [])
+    await open_dialog(user)
+    slider = slider_of(user, "task-progress-slider")
+    before = len(calls)
+    with user.client:
+        for position in (10, 40, 70):  # つまみを動かしている最中(input)
+            slider._from_client(SimpleNamespace(args=position))
+    assert task_progress_input(user).value == 70
+    assert len(calls) == before
+    with user.client:
+        slider._on_release(None)  # つまみを離した(change)
+    assert len(calls) == before + 1
 
 
 async def test_the_progress_slider_clamps_an_out_of_range_number(user: User) -> None:
