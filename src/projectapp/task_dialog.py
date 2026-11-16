@@ -778,6 +778,23 @@ class IntervalFields:
         return tuple(values)
 
 
+RANGE_CSS = """
+input.progress-range {
+  -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px;
+  margin: 12px 0; cursor: pointer; outline: none;
+  background: linear-gradient(to right, var(--q-primary) var(--fill, 0%), rgba(128,128,128,0.35) var(--fill, 0%));
+}
+input.progress-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--q-primary); border: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+}
+input.progress-range::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%; background: var(--q-primary); border: 0;
+}
+input.progress-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 6px rgba(128,128,128,0.25); }
+"""
+
+
 class RangeSlider(ValueElement):
     """ブラウザ標準の`<input type="range">`。Quasar のスライダーは、画面の倍率(body の CSS zoom)の中で、
     つまみの位置がマウスとずれる(WebKit は zoom 中の位置を拡大前の値で返すため)。標準の入力は、ずれない。
@@ -789,9 +806,15 @@ class RangeSlider(ValueElement):
 
     def __init__(self, minimum: int, maximum: int, value: int) -> None:
         super().__init__(tag="input", value=value)
+        ui.add_css(RANGE_CSS)
         self.props(f"type=range min={minimum} max={maximum} step=1")
+        self.classes("progress-range").style(
+            f"--fill: {value}%"
+        )  # 塗りは、つまみの左側
         self.on(
-            "input", self._from_client, js_handler="(e) => emit(Number(e.target.value))"
+            "input",
+            self._from_client,
+            js_handler="(e) => { e.target.style.setProperty('--fill', e.target.value + '%'); emit(Number(e.target.value)); }",
         )
 
     def _from_client(self, event: Any) -> None:
@@ -808,7 +831,7 @@ class RangeSlider(ValueElement):
         ):  # サーバー側からの変更は、画面の入力へ反映する
             try:
                 self.client.run_javascript(
-                    f"getHtmlElement({self.id}).value = {int(value)}"
+                    f"const el = getHtmlElement({self.id}); el.value = {int(value)}; el.style.setProperty('--fill', '{int(value)}%')"
                 )
             except Exception:  # noqa: BLE001 画面がまだつながっていないとき(初期値は属性で足りる)
                 pass
