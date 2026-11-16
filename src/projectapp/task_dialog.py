@@ -9,6 +9,7 @@ from typing import Any
 from datetime import date, datetime, time
 
 from nicegui import ui
+from nicegui.elements.mixins.value_element import ValueElement
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp import clock
@@ -777,22 +778,126 @@ class IntervalFields:
         return tuple(values)
 
 
+RANGE_CSS = """
+input.progress-range {
+  -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px;
+  margin: 12px 0; cursor: pointer; outline: none;
+  background: linear-gradient(to right, var(--q-primary) var(--fill, 0%), rgba(128,128,128,0.35) var(--fill, 0%));
+}
+input.progress-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--q-primary); border: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+}
+input.progress-range::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%; background: var(--q-primary); border: 0;
+}
+input.progress-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 6px rgba(128,128,128,0.25); }
+"""
+
+
+class RangeSlider(ValueElement):
+    """ブラウザ標準の`<input type="range">`。Quasar のスライダーは、画面の倍率(body の CSS zoom)の中で、
+    つまみの位置がマウスとずれる(WebKit は zoom 中の位置を拡大前の値で返すため)。標準の入力は、ずれない。
+    Vue は、再描画のたびに`value`を書き戻す(サーバーの古い値でつまみが戻って点滅する)ので、
+    値は属性(`^value`。初期値だけ)で持ち、サーバー側からの変更だけを JS で画面に反映する。"""
+
+    VALUE_PROP = "^value"
+    LOOPBACK = None
+
+    def __init__(self, minimum: int, maximum: int, value: int) -> None:
+        super().__init__(tag="input", value=value)
+        ui.add_css(RANGE_CSS)
+        self.props(f"type=range min={minimum} max={maximum} step=1")
+        self.classes("progress-range").style(
+            f"--fill: {value}%"
+        )  # 塗りは、つまみの左側
+        self.dragging = False  # つまみを動かしている最中(離すまで)
+        self._release_handlers: list[Callable[[], object]] = []
+        self.on("change", self._on_release, js_handler="(e) => emit(null)")
+        self.on(
+            "input",
+            self._from_client,
+            js_handler="(e) => { e.target.style.setProperty('--fill', e.target.value + '%'); emit(Number(e.target.value)); }",
+        )
+
+    def on_release(self, handler: Callable[[], object]) -> None:
+        """つまみを離したときに呼ぶ。動かしている最中は呼ばない。"""
+        self._release_handlers.append(handler)
+
+    def _from_client(self, event: Any) -> None:
+        self.dragging = True
+        # つまみを動かしている最中は、画面へ送り返さない
+        self._send_update_on_value_change = False
+        self.set_value(int(event.args))
+        self._send_update_on_value_change = True
+
+    def _on_release(self, _event: Any) -> None:
+        self.dragging = False
+        for handler in self._release_handlers:
+            handler()
+
+    def _handle_value_change(self, value: Any) -> None:
+        super()._handle_value_change(value)
+        if (
+            self._send_update_on_value_change
+        ):  # サーバー側からの変更は、画面の入力へ反映する
+            try:
+                self.client.run_javascript(
+                    f"const el = getHtmlElement({self.id}); el.value = {int(value)}; el.style.setProperty('--fill', '{int(value)}%')"
+                )
+            except Exception:  # noqa: BLE001 画面がまだつながっていないとき(初期値は属性で足りる)
+                pass
+
+
+def progress_inputs(own: float | None, marker: str) -> tuple[ui.number, RangeSlider]:
+    """進捗度の数値欄と、スライダー(`<marker>-slider`)を並べて作る。どちらを動かしてももう一方に反映する。
+    空(進捗度なし)のときのスライダーは 0 の位置に置き、動かすまで空のままにする。範囲外の数値は入らない(0〜100 の端に寄せる)。"""
+    number = (
+        ui.number(
+            "進捗度(%)",
+            value=own,
+            min=MIN_PROGRESS,
+            max=MAX_PROGRESS,
+            precision=0,
+        )
+        .classes("w-full")
+        .mark(marker)
+    )
+
+    def rest_position() -> int:
+        value = number.value
+        if value is None or not isfinite(value):
+            return MIN_PROGRESS
+        return round(min(max(value, MIN_PROGRESS), MAX_PROGRESS))
+
+    slider = RangeSlider(MIN_PROGRESS, MAX_PROGRESS, rest_position())
+    slider.classes("w-full").mark(f"{marker}-slider")
+
+    def from_number(_event: object = None) -> None:
+        value = number.value
+        if value is not None and isfinite(value):
+            inside = min(max(value, MIN_PROGRESS), MAX_PROGRESS)
+            if inside != value:  # 範囲外は入らない(端に寄せる)
+                number.set_value(inside)
+                return
+        slider.set_value(rest_position())
+
+    def from_slider(event: object) -> None:
+        value = getattr(event, "value", None)
+        if value is not None and value != rest_position():
+            number.set_value(int(value))
+
+    number.on_value_change(from_number)
+    slider.on_value_change(from_slider)
+    return number, slider
+
+
 class TaskProgressField:
-    """タスクの進捗度の欄。進捗度の入力はこの 1 つだけ(実績には持たない)。"""
+    """タスクの進捗度の欄。進捗度の入力はこの 1 つだけ(実績には持たない)。数値欄とスライダーで入れる。"""
 
     def __init__(self, own: int | None) -> None:
         with ui.column().classes("w-full gap-0") as self.container:
-            self.input = (
-                ui.number(
-                    "進捗度(%)",
-                    value=own,
-                    min=MIN_PROGRESS,
-                    max=MAX_PROGRESS,
-                    precision=0,
-                )
-                .classes("w-full")
-                .mark("task-progress")
-            )
+            self.input, self.slider = progress_inputs(own, "task-progress")
 
     @property
     def value(self) -> float | None:
@@ -1148,17 +1253,7 @@ def open_quick_progress_dialog(
     実績が 2 件以上のタスクは、進捗度だけを直せる。"""
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
         ui.label(task.name).classes("text-h6 ellipsis").mark("quick-title")
-        progress = (
-            ui.number(
-                "進捗度(%)",
-                value=task.progress,
-                min=MIN_PROGRESS,
-                max=MAX_PROGRESS,
-                precision=0,
-            )
-            .classes("w-full")
-            .mark("quick-progress")
-        )
+        progress, _slider = progress_inputs(task.progress, "quick-progress")
         with (
             ui.expansion("実績", icon="schedule")
             .classes("w-full")
@@ -1736,8 +1831,8 @@ def open_task_dialog(
             progress_field = TaskProgressField(initial.progress)
 
         def on_actual_change(_event: object = None) -> None:
-            if suggest["manual"]:
-                return
+            if suggest["manual"] or progress_field.slider.dragging:
+                return  # つまみを動かしている最中は、離したときにまとめて提案する
             suggested = suggest_status(
                 *actual_fields.filled(), progress_field.value, intervals=intervals
             )
@@ -1753,6 +1848,7 @@ def open_task_dialog(
 
         actual_fields.bind(on_actual_change)
         progress_field.input.on_value_change(on_actual_change)
+        progress_field.slider.on_release(on_actual_change)
         has_normal_data = bool(
             initial.planned_start
             or initial.planned_end

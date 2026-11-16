@@ -3,6 +3,7 @@ from collections.abc import Callable
 from dataclasses import replace
 
 import pytest
+from types import SimpleNamespace
 from datetime import date, datetime, time
 
 from nicegui import events, ui
@@ -1303,6 +1304,117 @@ async def test_the_task_progress_is_entered_and_saved(user: User) -> None:
     assert saved[0].progress == 40 and saved[0].actuals == []
 
 
+def slider_of(user: User, marker: str):  # noqa: ANN202
+    return user.find(marker=marker).elements.pop()
+
+
+async def test_the_progress_slider_follows_the_number_and_sets_it(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧", progress=70), saved)
+    await open_dialog(user)
+    slider = slider_of(user, "task-progress-slider")
+    assert slider.value == 70
+    with user.client:
+        task_progress_input(user).set_value(30)
+    assert slider.value == 30
+    with user.client:
+        slider.set_value(85)
+    assert task_progress_input(user).value == 85
+    user.find(marker="task-save").click()
+    assert saved[0].progress == 85
+
+
+async def test_the_progress_slider_rests_at_zero_and_leaves_an_empty_progress(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧"), saved)
+    await open_dialog(user)
+    assert slider_of(user, "task-progress-slider").value == 0
+    assert task_progress_input(user).value is None
+    user.find(marker="task-save").click()
+    assert saved[0].progress is None
+
+
+async def test_the_progress_slider_is_a_native_range_input(user: User) -> None:
+    # 画面の倍率(body の CSS zoom)の中でも、つまみの位置がずれないように、標準の range 入力を使う
+    mount_dialog(Task("旧"), [])
+    await open_dialog(user)
+    slider = slider_of(user, "task-progress-slider")
+    assert slider.tag == "input" and slider.props["type"] == "range"
+
+
+async def test_clearing_the_number_returns_the_slider_to_zero_without_filling_it(
+    user: User,
+) -> None:
+    mount_dialog(Task("旧", progress=70), [])
+    await open_dialog(user)
+    with user.client:
+        task_progress_input(user).set_value(None)
+    assert slider_of(user, "task-progress-slider").value == 0
+    assert task_progress_input(user).value is None
+
+
+async def test_a_progress_of_zero_is_kept_as_zero(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧", progress=50), saved)
+    await open_dialog(user)
+    with user.client:
+        slider_of(user, "task-progress-slider").set_value(0)
+    user.find(marker="task-save").click()
+    assert saved[0].progress == 0
+
+
+async def test_the_status_is_suggested_when_the_slider_is_released_not_while_dragging(
+    user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import projectapp.task_dialog as dialog_module
+
+    calls: list[int] = []
+    original = dialog_module.suggest_status
+    monkeypatch.setattr(
+        dialog_module,
+        "suggest_status",
+        lambda *a, **k: (calls.append(1), original(*a, **k))[1],
+    )
+    mount_dialog(Task("旧"), [])
+    await open_dialog(user)
+    slider = slider_of(user, "task-progress-slider")
+    before = len(calls)
+    with user.client:
+        for position in (10, 40, 70):  # つまみを動かしている最中(input)
+            slider._from_client(SimpleNamespace(args=position))
+    assert task_progress_input(user).value == 70
+    assert len(calls) == before
+    with user.client:
+        slider._on_release(None)  # つまみを離した(change)
+    assert len(calls) == before + 1
+
+
+async def test_the_progress_slider_clamps_an_out_of_range_number(user: User) -> None:
+    mount_dialog(Task("旧"), [])
+    await open_dialog(user)
+    with user.client:
+        task_progress_input(user).set_value(150)
+    assert slider_of(user, "task-progress-slider").value == 100
+
+
+async def test_the_quick_dialog_progress_slider_sets_the_progress(
+    user: User,
+) -> None:
+    saved: list[Task] = []
+    mount_quick_dialog(Task("作業"), saved)
+    await open_dialog(user)
+    slider = slider_of(user, "quick-progress-slider")
+    assert slider.value == 0
+    assert user.find(marker="quick-progress").elements.pop().value is None
+    with user.client:
+        slider.set_value(45)
+    assert user.find(marker="quick-progress").elements.pop().value == 45
+    user.find(marker="quick-save").click()
+    assert saved[0].progress == 45
+
+
 async def test_the_existing_task_progress_is_shown_and_can_be_cleared(
     user: User,
 ) -> None:
@@ -1337,14 +1449,18 @@ async def test_changing_the_task_progress_counts_as_a_change_when_closing(
     await user.should_see(marker="close-save")
 
 
-async def test_an_out_of_range_task_progress_is_an_error(user: User) -> None:
+@pytest.mark.parametrize(("typed", "kept"), [(101, 100), (150, 100), (-5, 0)])
+async def test_an_out_of_range_task_progress_is_pulled_into_the_range(
+    user: User, typed: int, kept: int
+) -> None:
     saved: list[Task] = []
     mount_dialog(Task("旧"), saved)
     await open_dialog(user)
-    task_progress_input(user).set_value(101)
+    with user.client:
+        task_progress_input(user).set_value(typed)
+    assert task_progress_input(user).value == kept
     user.find(marker="task-save").click()
-    assert saved == []
-    await user.should_see("進捗度")
+    assert saved[0].progress == kept
 
 
 INTERVALS = ActualMode.INTERVALS
@@ -3398,15 +3514,17 @@ async def test_the_quick_dialog_saves_the_progress_and_the_actual(user: User) ->
     assert saved[0].status is Status.RUNNING
 
 
-async def test_the_quick_dialog_shows_the_error_and_does_not_save(user: User) -> None:
+async def test_the_quick_dialog_pulls_an_out_of_range_progress_into_the_range(
+    user: User,
+) -> None:
     saved: list[Task] = []
     mount_quick_dialog(Task("作業"), saved)
     await open_dialog(user)
     with user.client:
         user.find(marker="quick-progress").elements.pop().set_value(150)
+    assert user.find(marker="quick-progress").elements.pop().value == 100
     user.find(marker="quick-save").click()
-    assert "進捗度" in user.find(marker="quick-error").elements.pop().text
-    assert saved == []
+    assert saved[0].progress == 100
 
 
 async def test_the_quick_dialog_only_edits_the_progress_for_several_intervals(
