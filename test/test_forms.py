@@ -39,7 +39,6 @@ from projectapp.forms import (
     build_urls,
     build_base_date,
     build_work_settings,
-    compose_actual,
     compose_datetime,
     default_times,
     build_ratio_limits,
@@ -1042,16 +1041,6 @@ def test_suggest_status_with_progress(
     has_start: bool, has_end: bool, progress: float | None, expected: Status | None
 ) -> None:
     assert suggest_status(has_start, has_end, progress) is expected
-
-
-def test_compose_actual() -> None:
-    assert compose_actual("", "") == ""
-    assert compose_actual(" 2026-10-5 ", "09:00") == "2026-10-05T09:00"
-    for day, clock in (("2026-10-05", ""), ("", "09:00")):
-        with pytest.raises(ValueError, match="両方"):
-            compose_actual(day, clock)
-    with pytest.raises(ValueError):
-        compose_actual("2026-10-05", "9時")
 
 
 @pytest.mark.parametrize(

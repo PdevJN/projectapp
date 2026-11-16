@@ -590,7 +590,7 @@ def apply_quick_progress(
 
 
 def build_actuals(start_text: str, end_text: str) -> list[Actual]:
-    """実績の入力(compose_actual の結果)を検証して、0件か1件の区間にする。"""
+    """実績の入力(`fill_actual_times`の結果)を検証して、0件か1件の区間にする。"""
     try:
         start_at, end_at = parse_datetime(start_text), parse_datetime(end_text)
     except ValueError:
@@ -1332,15 +1332,6 @@ def compose_datetime(day: str, clock: str) -> str:
     return f"{day}T{clock}"
 
 
-def compose_actual(day: str, clock: str) -> str:
-    """実績の日付と時刻から文字列を作る。両方空は空、片方だけはエラー(実績は時刻を補わない)。"""
-    if not day.strip() and not clock.strip():
-        return ""
-    if not day.strip() or not clock.strip():
-        raise ValueError("日付と時刻を両方入れてください")
-    return compose_datetime(day, clock)
-
-
 ACTUAL_BOTH_MESSAGE = "日付と時刻を両方入れてください"
 
 
@@ -1380,7 +1371,7 @@ def fill_actual_times(
 ) -> tuple[str, str]:
     """実績の開始・終了の入力から、`build_actuals`に渡す文字列の組を作る(純粋関数)。
     `optional`が真のとき、日付だけの開始は`日付 work_start`、終了は`日付 work_start + daily_hours`を補う
-    (CSV の取り込みと同じ規則)。補った終了が、同じ日の開始より前なら、開始に揃える(日付が前後逆のときは直さない)。両方を明示した前後逆は、ここでは直さない
+    (CSV の取り込みと同じ規則)。補った終了が、同じ日の開始より前なら開始に、補った開始が、同じ日の明示した終了より後なら終了に揃える(日付が前後逆のときは直さない)。両方を明示した前後逆は、ここでは直さない
     (`build_actuals`がエラーにする)。時刻だけで日付がないときはエラー。`optional`が偽なら、日付と時刻の両方が要る。"""
     start, start_fill = _fill_one(start_day.strip(), start_clock.strip(), optional)
     end, end_fill = _fill_one(end_day.strip(), end_clock.strip(), optional)
@@ -1398,6 +1389,16 @@ def fill_actual_times(
                     end = start  # 補った終了が、同じ日の開始より前になったとき
             except ValueError:
                 pass  # 形式の誤りは、build_actuals が報告する
+    elif start_fill and end:
+        try:
+            end_at, start_at = (
+                datetime.fromisoformat(end),
+                datetime.fromisoformat(start),
+            )
+            if start_at > end_at and start_at.date() == end_at.date():
+                start = end  # 補った開始が、同じ日の明示した終了より後になったとき
+        except ValueError:
+            pass
     return start, end
 
 

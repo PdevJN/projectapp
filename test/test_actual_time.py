@@ -74,6 +74,14 @@ def test_an_explicit_end_before_the_start_is_left_for_build_actuals_to_refuse() 
         build_actuals(start, end)
 
 
+def test_a_filled_start_after_an_explicit_end_is_lowered_to_the_end() -> None:
+    # 開始は日付だけ(補うと 09:00)、終了に 08:00 を明示 → 開始を終了に揃える
+    assert fill("2026-10-05", "", "2026-10-05", "08:00") == (
+        "2026-10-05T08:00",
+        "2026-10-05T08:00",
+    )
+
+
 def test_a_time_without_a_date_is_an_error_even_when_optional() -> None:
     with pytest.raises(ValueError, match="日付を入れてください"):
         fill("", "09:00")
