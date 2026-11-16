@@ -780,9 +780,11 @@ class IntervalFields:
 
 class RangeSlider(ValueElement):
     """ブラウザ標準の`<input type="range">`。Quasar のスライダーは、画面の倍率(body の CSS zoom)の中で、
-    つまみの位置がマウスとずれる(WebKit は zoom 中の位置を拡大前の値で返すため)。標準の入力は、ずれない。"""
+    つまみの位置がマウスとずれる(WebKit は zoom 中の位置を拡大前の値で返すため)。標準の入力は、ずれない。
+    Vue は、再描画のたびに`value`を書き戻す(サーバーの古い値でつまみが戻って点滅する)ので、
+    値は属性(`^value`。初期値だけ)で持ち、サーバー側からの変更だけを JS で画面に反映する。"""
 
-    VALUE_PROP = "value"
+    VALUE_PROP = "^value"
     LOOPBACK = None
 
     def __init__(self, minimum: int, maximum: int, value: int) -> None:
@@ -794,10 +796,22 @@ class RangeSlider(ValueElement):
 
     def _from_client(self, event: Any) -> None:
         self._send_update_on_value_change = (
-            False  # つまみを動かしている最中に、古い値を送り返さない
+            False  # つまみを動かしている最中は、画面へ送り返さない
         )
         self.set_value(int(event.args))
         self._send_update_on_value_change = True
+
+    def _handle_value_change(self, value: Any) -> None:
+        super()._handle_value_change(value)
+        if (
+            self._send_update_on_value_change
+        ):  # サーバー側からの変更は、画面の入力へ反映する
+            try:
+                self.client.run_javascript(
+                    f"getHtmlElement({self.id}).value = {int(value)}"
+                )
+            except Exception:  # noqa: BLE001 画面がまだつながっていないとき(初期値は属性で足りる)
+                pass
 
 
 def progress_inputs(own: float | None, marker: str) -> tuple[ui.number, RangeSlider]:
