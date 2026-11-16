@@ -1861,6 +1861,8 @@ def open_settings_dialog(
     on_reference_mode: Callable[[ReferenceMode], object] | None = None,
     plantuml_notice: bool = True,
     on_plantuml_notice: Callable[[bool], object] | None = None,
+    actual_time_optional: bool = True,
+    on_actual_time_optional: Callable[[bool], object] | None = None,
     ratio_limits: RatioLimits = RatioLimits(),
     on_ratio_limits: Callable[[RatioLimits], object] | None = None,
 ) -> None:
@@ -1937,6 +1939,16 @@ def open_settings_dialog(
                     mode.set_value(ActualMode.INTERVALS.value)
 
             mode.on_value_change(keep_intervals)
+        time_option = None
+        if on_actual_time_optional is not None:
+            ui.label("実績の時刻").classes("text-caption text-grey")
+            time_option = ui.toggle(
+                {"optional": "省略できる", "required": "必須"},
+                value="optional" if actual_time_optional else "required",
+            ).mark("settings-actual-time-optional")
+            ui.label(
+                "省略できるとき、日付だけの実績には、始業・終業(稼働可能時間)の時刻を補います"
+            ).classes("text-caption text-grey")
         reference = None
         if on_reference_mode is not None:
             ui.label("プロジェクト参照の方式").classes("text-caption text-grey")
@@ -2340,6 +2352,12 @@ def open_settings_dialog(
                 and bool(notice.value) is not plantuml_notice
             ):
                 on_plantuml_notice(bool(notice.value))
+            if (
+                time_option is not None
+                and on_actual_time_optional is not None
+                and (time_option.value == "optional") is not actual_time_optional
+            ):
+                on_actual_time_optional(time_option.value == "optional")
             if (
                 limits is not None
                 and on_ratio_limits is not None

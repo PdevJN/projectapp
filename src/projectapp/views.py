@@ -1410,6 +1410,8 @@ class MainView:
             on_reference_mode=self.apply_reference_mode,
             plantuml_notice=self.project.plantuml_overload_notice,
             on_plantuml_notice=self.apply_plantuml_notice,
+            actual_time_optional=self.project.actual_time_optional,
+            on_actual_time_optional=self.apply_actual_time_optional,
             ratio_limits=self.project.ratio_limits,
             on_ratio_limits=self.apply_ratio_limits,
         )
@@ -2435,6 +2437,13 @@ class MainView:
         if enabled is self.project.plantuml_overload_notice:
             return
         self.project.plantuml_overload_notice = enabled
+        self.after_edit()
+
+    def apply_actual_time_optional(self, enabled: bool) -> None:
+        """実績の時刻を省略できるかを変える。保存済みの実績は変えない。保存はしない。"""
+        if enabled is self.project.actual_time_optional:
+            return
+        self.project.actual_time_optional = enabled
         self.after_edit()
 
     def apply_ratio_limits(self, limits: RatioLimits) -> None:

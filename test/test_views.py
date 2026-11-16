@@ -9598,3 +9598,24 @@ async def test_the_project_menu_opens_the_whole_project_overview(
     view.project.name = "全体の確認"
     user.find(marker="menu-open-overview").click()
     await user.should_see("系統図: 全体の確認")
+
+
+async def test_the_settings_apply_changes_the_actual_time_option(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_members_view(user, tmp_path)
+    assert view.project.actual_time_optional is True
+    view.apply_actual_time_optional(False)
+    assert view.project.actual_time_optional is False
+    assert view.is_dirty()
+    view.apply_actual_time_optional(False)  # 同じ値では、何も変えない
+
+
+async def test_the_task_dialog_gets_the_projects_actual_time_policy(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_members_view(user, tmp_path)
+    view.project.actual_time_optional = False
+    view.project.daily_hours = 7.0
+    policy = view.actual_policy()
+    assert (policy.optional, policy.daily_hours) == (False, 7.0)

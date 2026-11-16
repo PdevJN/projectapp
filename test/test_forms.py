@@ -2793,6 +2793,59 @@ async def test_the_settings_dialog_does_not_report_an_unchanged_plantuml_notice(
     assert applied == []
 
 
+async def test_the_settings_dialog_reports_a_changed_actual_time_option(
+    user: User,
+) -> None:
+    applied: list[bool] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5,
+                time(9, 0),
+                lambda *a: None,
+                actual_time_optional=True,
+                on_actual_time_optional=applied.append,
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    toggle = user.find(marker="settings-actual-time-optional").elements.pop()
+    assert toggle.value == "optional"
+    toggle.set_value("required")
+    user.find(marker="settings-apply").click()
+    assert applied == [False]
+
+
+async def test_the_settings_dialog_does_not_report_an_unchanged_actual_time_option(
+    user: User,
+) -> None:
+    applied: list[bool] = []
+
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5,
+                time(9, 0),
+                lambda *a: None,
+                actual_time_optional=False,
+                on_actual_time_optional=applied.append,
+            ),
+        )
+
+    await user.open("/")
+    user.find("open").click()
+    toggle = user.find(marker="settings-actual-time-optional").elements.pop()
+    assert toggle.value == "required"
+    user.find(marker="settings-apply").click()
+    assert applied == []
+
+
 def test_effective_ratio_text_reports_a_limited_ratio() -> None:
     params = [Parameter(n, [Level("高", 0.5)]) for n in ("a", "b", "c")]
     row = MemberRow(None, "田中", 100.0, {"a": "高", "b": "高", "c": "高"})
