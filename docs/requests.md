@@ -1983,7 +1983,7 @@ git 管理の対象にならないメモを、タスクに紐づけて持てる�
 - 使うライブラリ: NiceGUI のエディタ(`ui.editor`。Quasar の QEditor。出力は HTML)でよいか。
 
 ### 状態
-実装済み(`feature/task-notes`)。実機確認とマージの指示待ち。設計は`docs/superpowers/specs/2026-11-18-task-notes-design.md`、計画は`docs/superpowers/plans/2026-11-18-task-notes.md`。
+実装済み・実機確認済み・マージ済み(PR #248。2026-11-18)。設計は`docs/superpowers/specs/2026-11-18-task-notes-design.md`、計画は`docs/superpowers/plans/2026-11-18-task-notes.md`。
 
 ## 要望 151: 進捗度を、スライダーでも入力できるようにする(2026-11-16 に受領。実装済み)
 
