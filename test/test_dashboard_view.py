@@ -2725,3 +2725,51 @@ async def test_the_gantt_trial_passes_the_skipped_tasks(user: User) -> None:
     await user.should_see(marker="dashboard-backlog-try-gantt")
     user.find(marker="dashboard-backlog-try-gantt").click()
     assert tried == [(("鈴木",), ("b",))]
+
+
+def mount_rebalance(picked: list[str]) -> list[DashboardView]:
+    views: list[DashboardView] = []
+
+    @ui.page("/")
+    def index() -> None:
+        view = DashboardView(
+            lambda: None, lambda kind: None, on_rebalance=picked.append
+        )
+        views.append(view)
+        view.build()
+
+    return views
+
+
+async def test_the_rebalance_button_is_shown_only_for_an_overloaded_member(
+    user: User,
+) -> None:
+    picked: list[str] = []
+    views = mount_rebalance(picked)
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-rebalance-田中")  # 割り当て超過 2 日
+    await user.should_not_see(marker="dashboard-rebalance-佐藤")  # 超過なし
+    user.find(marker="dashboard-rebalance-田中").click()
+    assert picked == ["田中"]
+
+
+async def test_the_rebalance_button_is_hidden_without_a_handler(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-load-田中")
+    await user.should_not_see(marker="dashboard-rebalance-田中")
+
+
+async def test_the_rebalance_button_is_hidden_while_editing_the_cards(
+    user: User,
+) -> None:
+    views = mount_rebalance([])
+    await user.open("/")
+    views[0].show(sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-rebalance-田中")
+    views[0].edit_mode = True
+    views[0].cards.refresh()
+    await asyncio.sleep(0.3)  # refresh は遅延実行
+    await user.should_not_see(marker="dashboard-rebalance-田中")

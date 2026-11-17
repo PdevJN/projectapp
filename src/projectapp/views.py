@@ -1,7 +1,7 @@
 """メイン画面。"""
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
@@ -151,6 +151,8 @@ from projectapp.dashboard import (
     summarize_cross_loads,
 )
 from projectapp.assign_dialog import open_assign_dialog
+from projectapp.rebalance import Edit, apply_edits
+from projectapp.rebalance_dialog import open_rebalance_dialog
 from projectapp.dashboard_view import DashboardView, ViewActions
 from projectapp.dashboard_views import (
     DEFAULT_ORDER,
@@ -675,6 +677,7 @@ class MainView:
             on_try_on_gantt=self.try_invest_on_gantt,
             on_assign=self.assign_from_dashboard,
             on_add_crew=self.add_crew_from_dashboard,
+            on_rebalance=self.open_rebalance,
             actions=ViewActions(
                 select=self.select_dashboard_view,
                 save=self.save_dashboard_view,
@@ -1765,6 +1768,45 @@ class MainView:
         self.warn_overallocation(done)
         self.refresh_dashboard(sync_field=False)
         self.notify_effect((name,), start)
+        return True
+
+    def open_rebalance(self, owner: str) -> None:
+        """ダッシュボードの`調整…`。その人の担当を調整するダイアログを開く(要望 145)。"""
+        if self.dashboard_kind is None:
+            return
+        now = self.now()
+        period = period_for(
+            self.dashboard_kind,
+            now.date(),
+            self.project,
+            self.holidays,
+            self.dashboard_custom,
+        )
+        open_rebalance_dialog(
+            owner,
+            self.project,
+            period,
+            self.dashboard_kind,
+            now,
+            self.holidays,
+            lambda edits: self.apply_rebalance(owner, edits),
+        )
+
+    def apply_rebalance(self, owner: str, edits: Sequence[Edit]) -> bool:
+        """選んだ調整を、元に戻す 1 ステップで適用する(要望 145)。ダイアログを開いている間にタスクが変わったときは、何も変えず通知して False。"""
+        try:
+            edited = apply_edits(self.project, owner, edits, self.holidays, self.now())
+        except ValueError:
+            ui.notify("タスクが変わったため、調整しませんでした", type="warning")
+            self.refresh_dashboard(sync_field=False)
+            return False
+        changed = [edited.task_map()[edit.task_id] for edit in edits]
+        for task in changed:
+            replace_task(self.project, task)
+        self.after_edit()
+        self.warn_overallocation(*changed)
+        self.refresh_dashboard(sync_field=False)
+        ui.notify(f"{len(changed)} 件のタスクの担当を調整しました")
         return True
 
     def notify_effect(self, names: tuple[str, ...], day: date) -> None:

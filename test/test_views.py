@@ -42,6 +42,7 @@ from projectapp.settings_io import (
 from projectapp.categories import CategoryEdit
 from projectapp.gitstate import GitKind, GitState
 from projectapp.history_log import HistoryKeep, dirty_key
+from projectapp.rebalance import Edit
 from projectapp.models import (
     Assignee,
     Actual,
@@ -9638,3 +9639,67 @@ async def test_the_settings_dialog_reopens_with_the_changed_actual_time_option(
     user.find(marker="open-settings").click()
     toggle = user.find(marker="settings-actual-time-optional").elements.pop()
     assert toggle.value == "required"
+
+
+def rebalance_task(task_id: str) -> Task:
+    return Task(
+        task_id.upper(),
+        planned_start=datetime(2026, 10, 5, 9),
+        effort_hours=13,
+        assignees=[Assignee("田中", 0.6)],
+        id=task_id,
+    )
+
+
+async def open_rebalance_view(user: User, tmp_path: Path) -> MainView:
+    view = await open_members_view(user, tmp_path)
+    view.now = lambda: datetime(2026, 10, 5, 8)
+    view.project.base_date = date(2026, 10, 5)
+    view.project.members = [Member("田中", 1.0), Member("鈴木", 1.0)]
+    view.project.tasks = [rebalance_task("a"), rebalance_task("b")]
+    with view.client:
+        view.after_edit()  # ここまでを確定した状態にする
+    return view
+
+
+async def test_apply_rebalance_changes_the_tasks_as_one_undo_step(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_rebalance_view(user, tmp_path)
+    with view.client:
+        assert view.apply_rebalance("田中", [Edit("b", "move", "鈴木")]) is True
+    assert view.project.task_map()["b"].assignee_names == ["鈴木"]
+    assert view.project.task_map()["a"].assignee_names == ["田中"]
+    assert view.is_dirty()
+    with view.client:
+        view.undo()
+    assert view.project.task_map()["b"].assignee_names == ["田中"]
+
+
+async def test_apply_rebalance_refuses_a_task_that_changed(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_rebalance_view(user, tmp_path)
+    with view.client:
+        done = view.apply_rebalance("田中", [Edit("zz", "rate", rate=0.5)])
+    assert done is False
+    assert view.project.task_map()["b"].assignee_names == ["田中"]
+
+
+async def test_open_rebalance_opens_the_dialog_for_the_member(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_rebalance_view(user, tmp_path)
+    view.dashboard_kind = PeriodKind.WEEK
+    with view.client:
+        view.open_rebalance("田中")
+    await user.should_see(marker="rebalance-title")
+
+
+async def test_open_rebalance_does_nothing_outside_the_dashboard(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_rebalance_view(user, tmp_path)
+    with view.client:
+        view.open_rebalance("田中")
+    await user.should_not_see(marker="rebalance-title")

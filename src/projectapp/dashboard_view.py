@@ -602,8 +602,10 @@ class DashboardView:
         on_add_crew: Callable[[str], object] | None = None,
         on_try_on_gantt: Callable[[tuple[str, ...], tuple[str, ...]], object]
         | None = None,
+        on_rebalance: Callable[[str], object] | None = None,
     ) -> None:
         self.on_try_on_gantt = on_try_on_gantt
+        self.on_rebalance = on_rebalance
         self.actions = actions
         self.on_assign = on_assign
         self.on_add_crew = on_add_crew
@@ -1362,6 +1364,17 @@ class DashboardView:
             ).classes("text-caption" + (" text-negative" if over else "")).style(
                 "flex: none"
             ).mark(f"dashboard-load-{name}")
+            handler = self.on_rebalance
+            if (
+                over
+                and handler is not None
+                and not self.edit_mode
+                and self.data is not None
+                and self.data.cross is None
+            ):
+                ui.button("調整…", on_click=lambda _=None, n=name: handler(n)).props(
+                    "flat dense size=sm"
+                ).style("flex: none").mark(f"dashboard-rebalance-{name}")
 
     def load_summary(self, loads: dict[str, LoadStats]) -> None:
         """カードの見出しの下の 1 行。割り当て超過の人数と、最大の人。"""
