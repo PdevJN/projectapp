@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from projectapp.models import Assignee, Member, Project, Section, Task
-from projectapp.storage import load_project, save_project
+from projectapp.storage import FORMAT_VERSION, load_project, save_project
 
 START = datetime(2026, 11, 2, 9)
 
@@ -85,7 +85,7 @@ def test_bad_daily_crew_is_refused(tmp_path: Path, change) -> None:
 
 def test_a_newer_version_is_refused(tmp_path: Path) -> None:
     def newer(task, raw):
-        raw["version"] = 23
+        raw["version"] = FORMAT_VERSION + 1  # 今の形式より新しいファイル
 
     path = edited(tmp_path, newer)
     with pytest.raises(ValueError, match="新しい"):
