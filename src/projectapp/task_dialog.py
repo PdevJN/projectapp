@@ -1285,39 +1285,58 @@ def open_quick_progress_dialog(
 
 
 def open_extra_effort_dialog(
-    task: Task, day: date, on_save: Callable[[Task], object]
+    task: Task,
+    day: date,
+    on_save: Callable[[Task], object],
+    daily_hours: float = DEFAULT_DAILY_HOURS,
 ) -> None:
-    """右クリックの`追加工数を足す…`で開く、時間と理由だけの小さなダイアログ。進捗度があれば、消化時間を保って直す(変化を見せる)。"""
+    """右クリックの`追加工数を足す…`で開く、工数と理由だけの小さなダイアログ。工数は時間・日・週・月で入れ、時間に換算して足す。進捗度があれば、消化時間を保って直す(変化を見せる)。"""
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
         ui.label(task.name).classes("text-h6 ellipsis").mark("extra-title")
         ui.label(f"今の工数 {task.total_effort:g}h").classes(
             "text-caption text-grey"
         ).mark("extra-current")
-        hours = (
-            ui.number("追加する時間(h)", value=None, min=0, step=0.5)
-            .classes("w-full")
-            .mark("extra-hours")
-        )
+        with ui.row().classes("w-full items-start no-wrap gap-2"):
+            amount = (
+                ui.number("追加する工数", value=None, min=0, step=0.5)
+                .classes("flex-1 min-w-0")
+                .mark("extra-hours")
+            )
+            unit = (
+                ui.select({u: u.value for u in EffortUnit}, value=EffortUnit.HOURS)
+                .classes("w-24")
+                .mark("extra-unit")
+            )
+
+        def hours_value() -> float | None:
+            value = amount.value
+            if value is None or not isfinite(value):
+                return value
+            return to_hours(value, unit.value, daily_hours)
+
         reason = ui.input("理由(任意)").classes("w-full").mark("extra-reason")
         note = ui.label("").classes("text-caption text-grey").mark("extra-note")
         error = ui.label("").classes("text-negative").mark("extra-error")
 
         def refresh(_event: object = None) -> None:
-            value = hours.value
+            value = hours_value()
             if not value or not isfinite(value) or value <= 0:
                 note.set_text("")
                 return
             text = f"合計 {task.total_effort:g}h → {task.total_effort + value:g}h"
+            if unit.value is not EffortUnit.HOURS:
+                text = f"{amount.value:g}{unit.value.value} = {value:g}h・" + text
             after = extra_effort_progress(task, value)
             if after is not None and after != task.progress:
                 text += f"・進捗度 {task.progress}% → {after}%"
             note.set_text(text)
 
-        hours.on_value_change(refresh)
+        amount.on_value_change(refresh)
+        unit.on_value_change(refresh)
 
         def save() -> None:
             try:
-                saved = add_extra_effort(task, hours.value, reason.value or "", day)
+                saved = add_extra_effort(task, hours_value(), reason.value or "", day)
             except ValueError as exc:
                 error.set_text(str(exc))
                 return

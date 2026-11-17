@@ -3205,6 +3205,7 @@ class MainView:
             task,
             self.now().date(),
             lambda saved: self.save_task(path, index, saved),
+            self.project.daily_hours,
         )
 
     def add_named_task(self, path: SectionPath, index: int, name: str) -> None:
