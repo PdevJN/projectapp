@@ -260,7 +260,7 @@ from projectapp.decompose import ParamMode, Part, can_make_section, decompose, s
 from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
-from projectapp.note_pane import NotePane
+from projectapp.note_pane import NOTE_TIP_CSS, NotePane
 from projectapp.daily_crew import crew_spans, merge_week, set_week_days, split_week
 from projectapp.gantt import (
     WEEKDAYS,
@@ -3752,6 +3752,7 @@ class MainView:
         ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
         ui.add_css(HEADER_CSS)
         ui.add_css(ZOOM_FIT_CSS)
+        ui.add_css(NOTE_TIP_CSS)
         ui.add_css(BODY_CSS)
         ui.add_css(MEMBER_TABLE_CSS)
         self.help_dialog = self.build_help_dialog()

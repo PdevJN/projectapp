@@ -936,8 +936,12 @@ class GanttChart:
         with mark:
             tip = ui.tooltip().props('max-width="320px"')
             with tip:
-                body = ui.html("", sanitize=notes.sanitize).style(
-                    "max-width: 320px; max-height: 240px; overflow: auto; text-align: left"
+                body = (
+                    ui.html("", sanitize=notes.sanitize)
+                    .classes("note-tip")
+                    .style(
+                        "max-width: 320px; max-height: 240px; overflow: auto; text-align: left"
+                    )
                 )
         tip.on(
             "before-show",

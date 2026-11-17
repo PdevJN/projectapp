@@ -5,6 +5,11 @@ from collections.abc import Callable
 from nicegui import ui
 
 WIDTH_PX = 360
+# ツールチップの中の見出しを、本文に近い大きさにする(ブラウザの既定のままだと、見出しだけ極端に大きい)
+NOTE_TIP_CSS = """
+.note-tip h1, .note-tip h2, .note-tip h3, .note-tip h4, .note-tip h5, .note-tip h6 { font-size: 1em; font-weight: 700; line-height: 1.4; margin: 0.2em 0; }
+.note-tip p, .note-tip ul, .note-tip ol, .note-tip blockquote, .note-tip pre { margin: 0.2em 0; }
+"""
 SAVE_SECONDS = 1.0
 
 
