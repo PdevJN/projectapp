@@ -704,6 +704,12 @@ class GanttActions:
     add_extra_effort: Callable[[SectionPath, int], object] = lambda path, ti: (
         None
     )  # 追加工数を足す
+    open_note: Callable[[str], object] = lambda task_id: (
+        None
+    )  # タスクのメモを右ペインで開く
+    note_at: Callable[[SectionPath, int], object] = lambda path, ti: (
+        None
+    )  # 右クリックの`メモ…`
     # 選択中の一括操作(見えている選択済みのタスク id。描画順)
     bulk_edit: Callable[[list[str]], object] = lambda ids: None
     bulk_delete: Callable[[list[str]], object] = lambda ids: None
@@ -823,6 +829,7 @@ class GanttChart:
         self.trial_results: dict[
             str, TrialResult
         ] = {}  # 遅延対応の試算の結果(要望 132)
+        self.note_ids: frozenset[str] = frozenset()  # メモのあるタスクの id(要望 150)
         self.trial_pool_ids: frozenset[str] = (
             frozenset()
         )  # 棒のクリックで増員を切り替えられるタスクの id(要望 141)
@@ -1956,6 +1963,9 @@ class GanttChart:
                 "追加工数を足す…",
                 on_click=act(lambda p, t: self.actions.add_extra_effort(p, t)),
             ).mark("context-extra-effort")
+            ui.menu_item(
+                "メモ…", on_click=act(lambda p, t: self.actions.note_at(p, t))
+            ).mark("context-note")
             with ui.menu_item(
                 on_click=act(lambda p, t: self.actions.toggle_weeks(p, t))
             ).mark("context-weeks") as item:
@@ -2938,6 +2948,14 @@ class GanttChart:
                 if finished:  # 終了したタスクは、名前に取り消し線を引く
                     name.style("text-decoration: line-through")
                 name.mark(f"task-name-{key}-{ti}")
+                if task.id in self.note_ids:
+                    ui.label("🗒️").classes("cursor-pointer shrink-0").props(
+                        "data-no-quick-add"
+                    ).on(
+                        "click",
+                        lambda tid=task.id: self.actions.open_note(tid),
+                        js_handler=PLAIN_CLICK_JS,
+                    ).mark(f"task-note-{task.id}")
                 if summary and not self.options.read_only:
                     self.summary_count(key, ti, task)
                     ui.element("div").style(
