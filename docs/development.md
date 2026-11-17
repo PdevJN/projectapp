@@ -71,6 +71,8 @@
 | `daily_crew.py` | 日ごとの担当(要望 135)の純粋関数。`with_added_from`(増員日から足す)・`segments`(表示区間)・`split_week`・`merge_week`・`set_week_days`・`crew_spans`。NiceGUI に依存しない |
 | `crew_trial.py` | 遅延対応(要望 132)の増員の試算。`TrialCrew`・`trial_crews`(増員日を丸めず、週の途中ならその週だけ日ごと)・`effect_day`(効き始め)・`evaluate`(完了見込み)・`confirmed`(`weekly_crew`への変換)・`replace_task`。NiceGUI に依存しない |
 | `forecast.py` | 完了見込み(要望 133)。`Forecast`(`end`・`planned_end`・`days_later`)・`forecast_end`(今日からの残りの工数を今の担当で消化した終了日時。`extra_crew`で増員の試算も同じ計算)・`snap_week`・`with_added`。`timeline.calc_end`の`weeks_start`(週の区切りの起点。既定は開始)を使う。`crew_trial`の試算はこれに共通化 |
+| `rebalance.py` | 負荷の調整(要望 145)。`Edit`(率の変更・移す・追加)・`apply_edits`(複製に当てる。週ごと・日ごとの担当は一括。完了予定の見直しを含む)・`preview`(前後の負荷・完了予定・見込み・余力)・`edit_from_inputs`・`target_options`・文言の関数。NiceGUI に依存しない |
+| `rebalance_dialog.py` | `負荷の調整`ダイアログ(`open_rebalance_dialog`)。ダッシュボードの`調整…`から開く |
 | `delay_response.py` | 遅延対応の帯(`delay_band`)・増員を試すダイアログ・保存時の確認・CSS(紫・太い点線) |
 | `extract.py` | タスクの子プロジェクトへの切り出し(要望 89)。`expand_ids`・`selection_error`・`name_error`・`extract`(子の`Project`と、参照行に置き換えた親の複製を返す。元は変えない)・`check`(保存・読込の検証)。NiceGUI に依存しない。画面は`views.extract_tasks`(名前の入力)・`apply_extract`(子を先に新規保存し、親を置き換える) |
 | `teams_dialog.py` | `チーム`タブ(`teams_panel`)とメンバーの所属ダイアログ(`open_member_teams_dialog`)。`forms.py` から import されるので、`forms` を import しない |
