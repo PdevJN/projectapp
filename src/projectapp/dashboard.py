@@ -1808,14 +1808,19 @@ def _assemble_backlog(
     supply_from: list[tuple[Member, Project]],
     basis: LateBasis = LateBasis.DELAY,
     catch_up: CatchUp = CatchUp(),
+    all_parts: list[_BacklogParts] | None = None,
 ) -> Backlog:
-    """部品を足し合わせて Backlog にする。割る側の稼働時間は base のカレンダー(holidays は base の休み)で数える。"""
+    """部品を足し合わせて Backlog にする。`all_parts`は、絞り込みのない部品(絞り込み中、候補の余力に使う)。割る側の稼働時間は base のカレンダー(holidays は base の休み)で数える。"""
     scoped = _names(member)
     split: dict[str, float] = {}
     for part in parts:
         for key, value in part.split.items():
             split[key] = split.get(key, 0.0) + value
     split.setdefault(UNASSIGNED, 0.0)
+    everyone: dict[str, float] = {}  # 候補の余力に使う、絞り込みのない担当の残り
+    for part in all_parts if all_parts is not None else parts:
+        for key, value in part.split.items():
+            everyone[key] = everyone.get(key, 0.0) + value
     shown = [
         name
         for name in (*(k for k in split if k != UNASSIGNED), UNASSIGNED)
@@ -1875,12 +1880,14 @@ def _assemble_backlog(
     candidates: list[Candidate] = []
     staff: dict[str, Member] = {}
     for m, owner in supply_from:
-        if scoped is not None and m.name not in scoped:
-            continue
+        in_scope = (
+            scoped is None or m.name in scoped
+        )  # 絞り込みは、供給(必要人数)にだけ効かせる
         weight = effective_ratio(
             m, owner.parameters, None, owner.ratio_limits
         ) * _factor(member, m.name)
-        nominal += weight
+        if in_scope:
+            nominal += weight
         # 上書きのあるメンバーは、標準の稼働時間に対するその人の稼働時間の比で数える(標準が 0 のときは数えない)
         scale = 1.0
         if m.work_days and window is not None and standard > 0:
@@ -1888,11 +1895,12 @@ def _assemble_backlog(
                 _window_hours(base, holidays, window, now, work_day_map(m.work_days))
                 / standard
             )
-        supply += weight * scale
+        if in_scope:
+            supply += weight * scale
         if (
             window is not None
-        ):  # 余力 = 稼働できる時間(基準の人の時間)− 担当している残りの工数
-            mine = split.get(m.name, 0.0) * _factor(member, m.name)
+        ):  # 余力 = 稼働できる時間(基準の人の時間)− 担当している残りの工数。候補は、絞り込みの外の人も含める
+            mine = everyone.get(m.name, 0.0) * _factor(member, m.name)
             candidates.append(
                 Candidate(m.name, weight * standard * scale - mine, weight)
             )
@@ -1949,6 +1957,11 @@ def summarize_backlog(
     """残りの工数(未着手の全量と、実行中・一時停止の消化分を除いた分)の合計と、それを期間内に終えるのに要る人数。全期間以外は、期間の終わりまでに予定した分。
     メンバーで絞るときは、共同タスクのその人の分(割り当て率の比)だけを数える。"""
     parts = [_backlog_parts(project, period, kind, now, holidays, member, basis)]
+    all_parts = (
+        None
+        if member is None
+        else [_backlog_parts(project, period, kind, now, holidays, None, basis)]
+    )
     return _assemble_backlog(
         project,
         period,
@@ -1960,6 +1973,7 @@ def summarize_backlog(
         [(m, project) for m in project.members],
         basis,
         catch_up,
+        all_parts,
     )
 
 
@@ -1983,6 +1997,16 @@ def summarize_cross_backlog(
         )
         for p in projects
     ]
+    all_parts = (
+        None
+        if member is None
+        else [
+            _backlog_parts(
+                p, period, kind, now, effective_holidays(p, holidays), None, basis
+            )
+            for p in projects
+        ]
+    )
     owners = {
         m.name: (m, p) for p in reversed(projects) for m in p.members
     }  # 先頭のプロジェクトが勝つ
@@ -1998,6 +2022,7 @@ def summarize_cross_backlog(
         [owners[name] for name in names],
         basis,
         catch_up,
+        all_parts,
     )
 
 

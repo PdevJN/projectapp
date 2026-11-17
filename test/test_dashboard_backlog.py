@@ -1418,9 +1418,29 @@ def test_nothing_late_gives_no_investment() -> None:
     assert invest_of((), late_task()).investment is None
 
 
-def test_a_member_filter_limits_the_candidates() -> None:
+def test_a_member_filter_still_lists_everyone_with_spare_as_candidates() -> None:
+    # 担当を 1 名に絞っても、遅れを取り戻すために足す相手(余裕のある人)は、絞った人の外からも選べる
     backlog = invest_of((), late_task(), member="田中")
-    assert [c.name for c in backlog.candidates] == ["田中"]
+    assert [c.name for c in backlog.candidates] == ["鈴木", "田中"]
+    spares = {c.name: c.spare_hours for c in backlog.candidates}
+    assert spares["鈴木"] == pytest.approx(16.5)
+    assert spares["田中"] == pytest.approx(
+        10.0
+    )  # 担当の残りは、絞り込みに関係なく全体で数える
+
+
+def test_a_member_filter_can_invest_a_person_outside_the_filter() -> None:
+    investment = invest_of(("鈴木",), late_task(), member="田中").investment
+    assert investment is not None and investment.names == ("鈴木",)
+
+
+def test_a_member_filter_still_scopes_the_headcount_and_not_only_the_candidates() -> (
+    None
+):
+    scoped = invest_of((), late_task(), member="田中")
+    everyone = invest_of((), late_task())
+    assert scoped.supply == pytest.approx(1.0)  # 必要人数の供給は、絞った人だけ
+    assert everyone.supply == pytest.approx(2.0)
 
 
 def skip_of(skip: tuple[str, ...], names: tuple[str, ...], *tasks: Task):
@@ -1458,3 +1478,28 @@ def test_skipping_every_late_task_gives_no_trial() -> None:
     task = late_task()
     backlog = skip_of((task.id,), ("鈴木",), task)
     assert backlog.recovery is None and backlog.investment is None
+
+
+def test_a_member_filter_counts_the_outside_candidates_own_remaining_work() -> None:
+    # 鈴木にも 6.5h の担当がある。田中に絞っても、鈴木の余力は担当を引いた 10.0h(16.5h ではない)
+    tasks = [late_task(), late_task(6.5, who="鈴木", name="鈴木の仕事")]
+    spares = {
+        c.name: c.spare_hours for c in invest_of((), *tasks, member="田中").candidates
+    }
+    assert spares["鈴木"] == pytest.approx(10.0)
+    assert spares["田中"] == pytest.approx(10.0)
+    assert spares == {
+        c.name: c.spare_hours for c in invest_of((), *tasks).candidates
+    }  # 絞り込みの有無で、余力は変わらない
+
+
+def test_a_member_filter_in_the_cross_view_also_lists_outside_candidates() -> None:
+    tasks = [late_task(), late_task(6.5, who="鈴木", name="鈴木の仕事")]
+    project = project_of(*tasks, members=TEAM)
+    backlog = summarize_cross_backlog(
+        [project], project, WEEK, PeriodKind.WEEK, NOW, {}, "田中"
+    )
+    spares = {c.name: c.spare_hours for c in backlog.candidates}
+    assert set(spares) == {"田中", "鈴木"}
+    assert spares["鈴木"] == pytest.approx(10.0)
+    assert backlog.supply == pytest.approx(1.0)
