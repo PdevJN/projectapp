@@ -1,9 +1,8 @@
-"""負荷の調整(rebalance)の計算の確認。"""
-
 from datetime import date, datetime
 
 import pytest
 
+from projectapp.dashboard import Candidate, LoadStats, Period, PeriodKind
 from projectapp.models import (
     Assignee,
     Member,
@@ -15,15 +14,24 @@ from projectapp.models import (
 )
 from projectapp.rebalance import (
     Edit,
+    LoadChange,
+    TaskChange,
     adjustable,
     apply_edits,
+    edit_from_inputs,
     has_varying_rate,
+    load_text,
+    preview,
     rate_of,
     rate_text,
+    stats_text,
+    target_options,
+    task_text,
     tasks_of,
 )
 
 NOW = datetime(2026, 10, 5, 8)
+PERIOD = Period(date(2026, 10, 5), date(2026, 10, 11))
 
 
 def task(task_id: str, rate: float = 0.6, **kw: object) -> Task:
@@ -229,3 +237,104 @@ def test_rate_helpers_report_a_single_rate_or_a_range() -> None:
     assert rate_text(weekly, "田中") == "50〜100%"
     assert has_varying_rate(weekly, "田中")
     assert rate_text(simple, "鈴木") == "-"
+
+
+def overloaded() -> Project:
+    """田中が A・B(各 60%)を同時に持ち、4 日間 120%(割り当て超過)になる。"""
+    return project(task("a"), task("b"))
+
+
+def run(edits: list[Edit], p: Project | None = None):  # noqa: ANN201
+    return preview(p or overloaded(), "田中", edits, PERIOD, PeriodKind.WEEK, NOW, {})
+
+
+def test_a_rate_edit_clears_the_overload_and_delays_the_end() -> None:
+    result = run([Edit("b", "rate", rate=0.4)])
+    (change,) = result.loads
+    assert change.name == "田中"
+    assert (change.before.overload_days, change.before.peak) == (4, pytest.approx(1.2))
+    assert (change.after.overload_days, change.after.peak) == (0, pytest.approx(1.0))
+    (moved,) = result.tasks
+    assert moved.end_before is not None and moved.end_after is not None
+    assert moved.end_after > moved.end_before  # 率を下げると、終わりが遅くなる
+
+
+def test_a_move_shifts_the_load_to_the_target_and_keeps_the_end() -> None:
+    result = run([Edit("b", "move", "鈴木")])
+    assert [c.name for c in result.loads] == ["田中", "鈴木"]
+    owner, target = result.loads
+    assert owner.after.overload_days == 0
+    assert target.before.peak == 0.0 and target.after.peak == pytest.approx(0.6)
+    (moved,) = result.tasks
+    assert moved.end_after == moved.end_before  # 率が同じなので、終わりは変わらない
+
+
+def test_an_add_splits_the_load_and_brings_the_end_forward() -> None:
+    result = run([Edit("b", "add", "鈴木")])
+    (moved,) = result.tasks
+    assert moved.end_before is not None and moved.end_after is not None
+    assert moved.end_after < moved.end_before
+    assert [c.name for c in result.loads] == ["田中", "鈴木"]
+
+
+def test_a_preview_changes_nothing_and_counts_reviews() -> None:
+    p = project(task("p", progress=50, status=Status.RUNNING), task("a"))
+    result = run([Edit("p", "rate", rate=0.3)], p)
+    assert result.review_count == 1 and result.tasks[0].reviewed
+    assert crew(p.task_map()["p"]) == [("田中", 0.6)]  # 元は変わらない
+
+
+def test_a_preview_reports_the_candidates_after_the_edit() -> None:
+    result = run([Edit("b", "move", "鈴木")])
+    assert {c.name for c in result.candidates} == {"田中", "鈴木"}
+
+
+def test_a_preview_passes_on_a_bad_edit() -> None:
+    with pytest.raises(ValueError):
+        run([Edit("zz", "rate", rate=0.5)])
+
+
+def test_the_texts_show_before_and_after() -> None:
+    before, after = LoadStats(0.96, 1.2, 4), LoadStats(0.88, 1.0, 0)
+    assert (
+        stats_text("田中", before) == "田中: 平均 96% / 最大 120% / 割り当て超過 4 日"
+    )
+    assert (
+        load_text(LoadChange("田中", before, after))
+        == "田中: 平均 96% → 88% / 最大 120% → 100% / 割り当て超過 4 日 → 0 日"
+    )
+    plain = TaskChange(
+        "b", "B", datetime(2026, 10, 8, 11, 10), datetime(2026, 10, 9, 15, 30),
+        None, None, False,
+    )  # fmt: skip
+    assert task_text(plain) == "B: 完了予定 10/08 11:10 → 10/09 15:30"
+    full = TaskChange(
+        "b", "B", datetime(2026, 10, 8, 11, 10), None,
+        datetime(2026, 10, 9, 9, 0), datetime(2026, 10, 10, 9, 0), True,
+    )  # fmt: skip
+    assert task_text(full) == (
+        "B: 完了予定 10/08 11:10 → - / 完了見込み 10/09 09:00 → 10/10 09:00(完了予定を見直し)"
+    )
+
+
+def test_edit_from_inputs_builds_an_edit_only_for_a_real_change() -> None:
+    assert edit_from_inputs("a", "none", None, None, 0.6) is None
+    assert edit_from_inputs("a", "rate", None, None, 0.6) is None
+    assert edit_from_inputs("a", "rate", None, 60.0, 0.6) is None  # 今と同じ
+    assert edit_from_inputs("a", "rate", None, 40.0, 0.6) == Edit("a", "rate", rate=0.4)
+    assert edit_from_inputs("a", "move", None, None, 0.6) is None  # 移し先がない
+    assert edit_from_inputs("a", "move", "鈴木", None, 0.6) == Edit("a", "move", "鈴木")
+    assert edit_from_inputs("a", "add", "鈴木", 30.0, 0.6) == Edit(
+        "a", "add", "鈴木", 0.3
+    )
+
+
+def test_target_options_rank_by_spare_hours_and_fall_back_to_the_member_order() -> None:
+    p = project(task("a"), others=("鈴木", "佐藤"))
+    ranked = target_options(
+        p, "田中", [Candidate("佐藤", 20.0, 1.0), Candidate("鈴木", 6.5, 1.0)]
+    )
+    assert list(ranked) == ["佐藤", "鈴木"]  # 余力の多い順(田中は除く)
+    assert ranked["佐藤"] == "佐藤(余力 20.0h)"
+    assert list(target_options(p, "田中", [])) == ["鈴木", "佐藤"]  # 候補が空のとき
+    assert target_options(p, "田中", [])["鈴木"] == "鈴木"

@@ -12,6 +12,15 @@ from typing import Literal
 
 from projectapp.crew_trial import replace_task
 from projectapp.daily_crew import WEEK_DAYS, rows_of
+from projectapp.dashboard import (
+    Candidate,
+    LoadStats,
+    Period,
+    PeriodKind,
+    summarize_backlog,
+    summarize_loads,
+)
+from projectapp.forecast import forecast_end
 from projectapp.models import (
     MAX_ALLOCATION,
     MIN_ALLOCATION,
@@ -23,7 +32,7 @@ from projectapp.models import (
     union_assignees,
 )
 from projectapp.reassign import needs_review, reviewed_end
-from projectapp.timeline import conversion_rate, crew_of
+from projectapp.timeline import Schedule, conversion_rate, crew_of, effective_end
 
 ADD_DEFAULT_RATE = 0.5  # 足す人の割り当て率の既定(元の人の率は変えない)
 RATE_EPSILON = 1e-9
@@ -206,3 +215,146 @@ def apply_edits(
         new = _reviewed(old, _edited(old, owner, edit), result, holidays, now)
         replace_task(result, new)
     return result
+
+
+@dataclass(frozen=True)
+class LoadChange:
+    name: str
+    before: LoadStats
+    after: LoadStats
+
+
+@dataclass(frozen=True)
+class TaskChange:
+    task_id: str
+    name: str
+    end_before: datetime | None  # 完了予定
+    end_after: datetime | None
+    forecast_before: datetime | None  # 完了見込み
+    forecast_after: datetime | None
+    reviewed: bool  # 完了予定を見直した
+
+
+@dataclass(frozen=True)
+class Preview:
+    edited: Project
+    loads: list[LoadChange]
+    tasks: list[TaskChange]
+    candidates: list[Candidate]  # 調整後の余力(余力の多い順)
+
+    @property
+    def review_count(self) -> int:
+        return sum(1 for change in self.tasks if change.reviewed)
+
+
+def preview(
+    project: Project,
+    owner: str,
+    edits: Sequence[Edit],
+    period: Period,
+    kind: PeriodKind,
+    now: datetime,
+    holidays: dict[date, str],
+) -> Preview:
+    """調整の前後の負荷(owner と、移し先・追加先)・完了予定・完了見込み・余力。何も変えない。"""
+    edited = apply_edits(project, owner, edits, holidays, now)
+    before = summarize_loads(project, period, holidays)
+    after = summarize_loads(edited, period, holidays)
+    involved = list(
+        dict.fromkeys(
+            [owner, *(e.name for e in edits if e.name is not None and e.kind != "rate")]
+        )
+    )
+    loads = [LoadChange(n, before[n], after[n]) for n in involved if n in before]
+    schedule_before = Schedule(project, holidays)
+    schedule_after = Schedule(edited, holidays)
+    changes: list[TaskChange] = []
+    for edit in edits:
+        old, new = project.task_map()[edit.task_id], edited.task_map()[edit.task_id]
+        found_before = forecast_end(old, project, holidays, now, schedule_before)
+        found_after = forecast_end(new, edited, holidays, now, schedule_after)
+        changes.append(
+            TaskChange(
+                edit.task_id,
+                new.name,
+                effective_end(old, project, holidays, schedule_before),
+                effective_end(new, edited, holidays, schedule_after),
+                None if found_before is None else found_before.end,
+                None if found_after is None else found_after.end,
+                new.planned_end_manual and new.planned_end != old.planned_end,
+            )
+        )
+    return Preview(
+        edited,
+        loads,
+        changes,
+        summarize_backlog(edited, period, kind, now, holidays).candidates,
+    )
+
+
+def _percent(value: float) -> str:
+    return f"{value * 100:.0f}%"
+
+
+def stats_text(name: str, stats: LoadStats) -> str:
+    return (
+        f"{name}: 平均 {_percent(stats.average)} / 最大 {_percent(stats.peak)}"
+        f" / 割り当て超過 {stats.overload_days} 日"
+    )
+
+
+def load_text(change: LoadChange) -> str:
+    before, after = change.before, change.after
+    return (
+        f"{change.name}: 平均 {_percent(before.average)} → {_percent(after.average)}"
+        f" / 最大 {_percent(before.peak)} → {_percent(after.peak)}"
+        f" / 割り当て超過 {before.overload_days} 日 → {after.overload_days} 日"
+    )
+
+
+def _moment(value: datetime | None) -> str:
+    return "-" if value is None else f"{value:%m/%d %H:%M}"
+
+
+def task_text(change: TaskChange) -> str:
+    text = f"{change.name}: 完了予定 {_moment(change.end_before)} → {_moment(change.end_after)}"
+    if change.forecast_before is not None or change.forecast_after is not None:
+        text += (
+            f" / 完了見込み {_moment(change.forecast_before)}"
+            f" → {_moment(change.forecast_after)}"
+        )
+    if change.reviewed:
+        text += "(完了予定を見直し)"
+    return text
+
+
+def edit_from_inputs(
+    task_id: str,
+    mode: Literal["none", "rate", "move", "add"],
+    name: str | None,
+    percent: float | None,
+    current: float | None,
+) -> Edit | None:
+    """1 行の入力(モード・相手・率[%])から調整を作る。変更にならないとき(そのまま・相手がない・今と同じ率)は None。"""
+    rate = None if percent is None else percent / 100
+    if mode == "rate":
+        if rate is None or (current is not None and abs(rate - current) < RATE_EPSILON):
+            return None
+        return Edit(task_id, "rate", rate=rate)
+    if mode == "move" and name is not None:
+        return Edit(task_id, "move", name, rate)
+    if mode == "add" and name is not None:
+        return Edit(task_id, "add", name, rate)
+    return None
+
+
+def target_options(
+    project: Project, owner: str, candidates: Sequence[Candidate]
+) -> dict[str, str]:
+    """移し先・追加先の選択肢(名前 → 表示)。余力の多い順で余力(時間)を添え、候補にいない人は名前だけで後ろに並べる。owner は除く。"""
+    spare = {c.name: c.spare_hours for c in candidates}
+    names = [n for n in spare if n != owner]
+    names += [
+        m.name for m in project.members if m.name != owner and m.name not in spare
+    ]
+    return {n: (f"{n}(余力 {spare[n]:.1f}h)" if n in spare else n) for n in names}
