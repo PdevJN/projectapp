@@ -2012,3 +2012,6 @@ git 管理の対象にならないメモを、タスクに紐づけて持てる�
 - 保存の形: 要望 40 の`custom`(`{"start", "end"}`)を広げる案(`{"relative": …}`)。`ViewSpec`と`config.json`の読込・検証の変更が要る。
 - 入力の画面: `指定`の期間欄に、日付か相対かの切り替えを足すか。
 - 祝日や休みの扱い(暦日か稼働日か)。
+
+### 状態
+実装済み(`feature/task-notes`)。実機確認とマージの指示待ち。設計は`docs/superpowers/specs/2026-11-18-task-notes-design.md`、計画は`docs/superpowers/plans/2026-11-18-task-notes.md`。
