@@ -3540,17 +3540,20 @@ class MainView:
             sorted(self.files), value=self.current_name()
         )  # 開いているプロジェクトの選択は変えない
         self.request_git_refresh()
+        notes.copy_between(
+            self.project.name, saved.stem, [t.id for t in result.child.all_tasks()]
+        )  # 親から消えるメモを、子へ渡す(親では after_edit がごみ箱へ移す)
         self.project = result.parent
         self.gantt.clear_selection()
         self.after_edit()
-        notes = [
+        messages = [
             f"先行 {result.dropped} 件を外しました" if result.dropped else "",
             "親を保存してください",
             "元に戻しても子のファイルは残ります",
         ]
         ui.notify(
             f"「{name.strip()}」に {result.moved} 件を切り出しました。"
-            + "。".join(n for n in notes if n)
+            + "。".join(m for m in messages if m)
         )
         return True
 

@@ -39,6 +39,11 @@ class NotePane:
                 ui.editor(placeholder="メモ").classes("w-full").mark("note-editor")
             )
         self.editor.on_value_change(self._edited)
+        # contenteditable の div は ui.keyboard の ignore(タグ名で判定)をすり抜ける。ESC 以外は、エディタの中で止める
+        self.editor.on(
+            "keydown",
+            js_handler="(e) => { if (e.key !== 'Escape') e.stopPropagation(); }",
+        )
         self.drawer.on("keydown.esc", lambda: self.close())
         ui.timer(SAVE_SECONDS, self.flush)
 

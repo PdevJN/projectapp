@@ -153,3 +153,18 @@ async def test_extract_tells_that_the_child_file_stays_after_undo(
     view = await open_view(user, tmp_path)
     view.apply_extract(["a"], "子")
     await user.should_see("元に戻しても子のファイルは残ります")
+
+
+async def test_extract_hands_the_notes_of_the_moved_tasks_to_the_child(
+    user: User, tmp_path: Path
+) -> None:
+    from projectapp import notes
+
+    view = await open_view(user, tmp_path)
+    parent = view.project.name
+    notes.save(parent, "a", "<p>切り出すメモ</p>")
+    notes.save(parent, "b", "<p>残るメモ</p>")
+    assert view.apply_extract(["a", "c"], "子") is not False
+    assert notes.load("子", "a") == "<p>切り出すメモ</p>"  # 子へ渡る
+    assert notes.load(parent, "a") is None  # 親からは消える(元に戻すで戻る)
+    assert notes.load(parent, "b") == "<p>残るメモ</p>"

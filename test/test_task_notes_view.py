@@ -206,3 +206,48 @@ async def test_save_as_copies_the_notes_to_the_new_name(
         assert view.save_as_new("別名")
     assert notes.load("別名", task.id) == "<p>引き継ぐ</p>"
     assert notes.load(old, task.id) == "<p>引き継ぐ</p>"
+
+
+async def test_typing_in_the_note_editor_does_not_reach_the_app_shortcuts(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    assert view.note_pane is not None
+    listeners = [
+        listener
+        for listener in view.note_pane.editor._event_listeners.values()
+        if listener.type == "keydown"
+    ]
+    # contenteditable の div は ui.keyboard の ignore をすり抜けるので、エディタの中で止める
+    assert any(
+        "stopPropagation" in (listener.js_handler or "") for listener in listeners
+    )
+    assert all(
+        "Escape" in (listener.js_handler or "") for listener in listeners
+    )  # ESC は通す
+
+
+async def test_javascript_in_a_note_file_never_reaches_the_editor(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    task = view.project.all_tasks()[0]
+    folder = notes.NOTES_ROOT / view.project.name
+    folder.mkdir(parents=True)
+    (folder / f"{task.id}.html").write_text(
+        '<p>安全</p><img src=x onerror="alert(1)"><script>alert(1)</script>'
+        '<a href="javascript:alert(1)">リンク</a>',
+        encoding="utf-8",
+    )  # 他の端末から持ち込まれたメモのファイル
+    with user.client:
+        view.open_note(task.id)
+    assert view.note_pane is not None
+    shown = view.note_pane.editor.value.lower()
+    assert "安全" in shown
+    for bad in ("<script", "onerror", "javascript:", "<img"):
+        assert bad not in shown
+    with user.client:
+        view.note_pane.editor.set_value(view.note_pane.editor.value + "<p>追記</p>")
+        view.note_pane.flush()  # 保存し直しても、ファイルに危険なものは戻らない
+    raw = (folder / f"{task.id}.html").read_text(encoding="utf-8").lower()
+    assert "<script" not in raw and "onerror" not in raw and "javascript:" not in raw
