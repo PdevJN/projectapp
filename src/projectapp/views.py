@@ -12,7 +12,7 @@ import httpx2
 from nicegui import app, run, ui
 from nicegui.events import KeyEventArguments
 
-from projectapp import clock, history_log
+from projectapp import clock, history_log, notes
 from projectapp.calendar import load_cache
 from projectapp.events import (
     EffectiveHolidays,
@@ -259,6 +259,7 @@ from projectapp.decompose import ParamMode, Part, can_make_section, decompose, s
 from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
+from projectapp.note_pane import NotePane
 from projectapp.daily_crew import crew_spans, merge_week, set_week_days, split_week
 from projectapp.gantt import (
     WEEKDAYS,
@@ -577,6 +578,10 @@ class MainView:
         self.git_menu_tips: dict[str, ui.tooltip] = {}  # 押せない理由を出すツールチップ
         self.mark_clean()
         self.history = History()  # 元に戻す・やり直しの履歴。保存しても残し、別のプロジェクトに切り替えると捨てる
+        self.note_pane: NotePane | None = None  # タスクのメモの右ペイン(build で作る)
+        self.note_trash: dict[
+            str, str
+        ] = {}  # 削除したタスクのメモ(元に戻すで書き戻す。メモリだけ)
         self.committed = deepcopy(
             self.project
         )  # 最後に確定した状態。これと違えば、編集があったとみなして履歴に積む
@@ -644,6 +649,8 @@ class MainView:
                 pick_trial=self.pick_trial,
                 edit_progress=self.edit_progress,
                 add_extra_effort=self.add_extra_effort,
+                open_note=self.open_note,
+                note_at=self.note_at,
                 open_reference=self.open_reference,
                 refresh_reference=self.refresh_reference,
                 set_main_split=self.set_main_split,
@@ -892,6 +899,27 @@ class MainView:
 
     def is_dirty(self) -> bool:
         return history_log.dirty_key(self.project) != self.snapshot
+
+    def open_note(self, task_id: str) -> None:
+        """タスクのメモを右ペインで開く(いまのメモの入力は先に保存する)。"""
+        task = self.project.task_map().get(task_id)
+        if task is not None and self.note_pane is not None:
+            self.note_pane.open(self.project.name, task_id, task.name)
+
+    def note_at(self, path: SectionPath, index: int) -> None:
+        """右クリックの`メモ…`。"""
+        if arrange.has_task(self.project, (path, index)):
+            self.open_note(self.tasks_in(path)[index].id)
+
+    def save_note(self, name: str, task_id: str, html: str) -> None:
+        """ペインの保存。メモの有無が変わったときだけ、ガントの🗒️を描き直す。"""
+        notes.save(name, task_id, html)
+        if name != self.project.name:
+            return
+        ids = notes.note_ids(name)
+        if ids != self.gantt.note_ids:
+            self.gantt.note_ids = ids
+            self.gantt.set_project(self.project)
 
     def after_edit(self) -> None:
         """編集のあとの共通の処理。直前の確定した状態と違えば履歴に積み、画面を描き直す(Undo の入口はここだけ)。
@@ -3685,6 +3713,8 @@ class MainView:
         self.preview_bar.build()
         self.dashboard_view.build()
         self.trial_band = ui.column().classes("w-full")
+        self.gantt.note_ids = notes.note_ids(self.project.name)
+        self.note_pane = NotePane(save=self.save_note, load=notes.load)
         self.gantt.build()
         self.client = ui.context.client
         self.request_git_refresh()
