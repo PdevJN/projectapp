@@ -2,6 +2,7 @@ import gc
 import io
 import sys
 import weakref
+from pathlib import Path
 
 import pytest
 from nicegui import ui
@@ -136,3 +137,13 @@ def enter_the_page_slot_after_open(monkeypatch: pytest.MonkeyPatch):
         return result
 
     monkeypatch.setattr(User, "open", open_and_enter)
+
+
+@pytest.fixture(autouse=True)
+def isolated_notes(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """メモの保存先(`~/.projectapp/notes`)を、テストごとの一時フォルダへ向ける。本物の設定フォルダを触らない。"""
+    root = tmp_path_factory.mktemp("notes")
+    monkeypatch.setattr("projectapp.notes.NOTES_ROOT", root, raising=False)
+    return root

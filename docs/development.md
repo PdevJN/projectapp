@@ -10,6 +10,8 @@
 | `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出(`Worker`・`crew_of`・`calc_end(crew, weeks)`・`crew_on`・`crew_pieces`・`CrewTrack`〔日ごとの週を 1 日 1 要素に展開した並び。`.step` が 1 日の長さ〕・`crew_track`)、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`・`assignees_rate`・`counted_assignees`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |
 | `overview.py` | 系統図(要望 147)の階層の変換(`build_overview`)・ノードの文言(`node_lines`)・座標(`layout_overview`)。NiceGUI に依存しない純粋関数 |
 | `overview_dialog.py` | 系統図のダイアログ(チェックボックス・PDF ボタン・ノードのクリックでガントへ移る) |
+| `notes.py` | タスクのメモ(要望 150)の保存(`~/.projectapp/notes/<名前>/<id>.html`)・読み込み・一覧・削除・コピー、タスク id の増減との同期(`sync`。ごみ箱は呼び出し側が持つ)。NiceGUI に依存しない |
+| `note_pane.py` | メモの右ペイン(`NotePane`。`right_drawer`+`ui.editor`。約 1 秒で自動保存) |
 | `overview_pdf.py` | 系統図の PDF 書き出し(Pillow で描いて包む。OS の日本語フォントを探す) |
 | `linkgraph.py` | タスクの連結(先行 → 後続)のグラフ操作。NiceGUI に依存しない純粋関数 |
 | `links.py` | 矢印の連結の計算(行の並び〔`row_slots`。名前の入力行は種別 `quick-add` の 1 行〕・縦位置・折れ線)。NiceGUI に依存しない純粋関数 |

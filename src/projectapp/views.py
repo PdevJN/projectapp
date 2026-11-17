@@ -12,7 +12,7 @@ import httpx2
 from nicegui import app, run, ui
 from nicegui.events import KeyEventArguments
 
-from projectapp import clock, history_log
+from projectapp import clock, history_log, notes
 from projectapp.calendar import load_cache
 from projectapp.events import (
     EffectiveHolidays,
@@ -31,6 +31,7 @@ from projectapp.icons import ICON_FILE_TYPES, IconError, load_icon
 from projectapp.categories import apply_edit as apply_category_edit
 from projectapp.categories import count_usage as count_category_usage
 from projectapp.linkgraph import drop_task_links, link_options
+from projectapp.summary import children_of
 from projectapp.calendar import refresh_holidays as download_holidays
 from projectapp.config import (
     DEFAULT_ZOOM_PERCENT,
@@ -259,6 +260,7 @@ from projectapp.decompose import ParamMode, Part, can_make_section, decompose, s
 from projectapp.decompose_dialog import open_decompose_dialog
 from projectapp.history import History
 from projectapp.merge import merge_files
+from projectapp.note_pane import NotePane
 from projectapp.daily_crew import crew_spans, merge_week, set_week_days, split_week
 from projectapp.gantt import (
     WEEKDAYS,
@@ -577,6 +579,10 @@ class MainView:
         self.git_menu_tips: dict[str, ui.tooltip] = {}  # 押せない理由を出すツールチップ
         self.mark_clean()
         self.history = History()  # 元に戻す・やり直しの履歴。保存しても残し、別のプロジェクトに切り替えると捨てる
+        self.note_pane: NotePane | None = None  # タスクのメモの右ペイン(build で作る)
+        self.note_trash: dict[
+            str, str
+        ] = {}  # 削除したタスクのメモ(元に戻すで書き戻す。メモリだけ)
         self.committed = deepcopy(
             self.project
         )  # 最後に確定した状態。これと違えば、編集があったとみなして履歴に積む
@@ -644,6 +650,9 @@ class MainView:
                 pick_trial=self.pick_trial,
                 edit_progress=self.edit_progress,
                 add_extra_effort=self.add_extra_effort,
+                open_note=self.open_note,
+                note_html=self.note_html,
+                note_at=self.note_at,
                 open_reference=self.open_reference,
                 refresh_reference=self.refresh_reference,
                 set_main_split=self.set_main_split,
@@ -893,10 +902,55 @@ class MainView:
     def is_dirty(self) -> bool:
         return history_log.dirty_key(self.project) != self.snapshot
 
+    def open_note(self, task_id: str) -> None:
+        """タスクのメモを右ペインで開く(いまのメモの入力は先に保存する)。"""
+        task = self.project.task_map().get(task_id)
+        if task is not None and self.note_pane is not None:
+            self.note_pane.open(self.project.name, task_id, task.name)
+
+    def note_html(self, task_id: str) -> str:
+        """🗒️のツールチップに出すメモ。そのメモを開いて入力中なら、保存前の入力を出す。"""
+        pane = self.note_pane
+        if (
+            pane is not None
+            and pane.task_id == task_id
+            and pane.name == self.project.name
+        ):
+            return notes.sanitize(pane.editor.value or "")
+        return notes.load(self.project.name, task_id) or ""
+
+    def note_at(self, path: SectionPath, index: int) -> None:
+        """右クリックの`メモ…`。"""
+        if arrange.has_task(self.project, (path, index)):
+            self.open_note(self.tasks_in(path)[index].id)
+
+    def save_note(self, name: str, task_id: str, html: str) -> None:
+        """ペインの保存。メモの有無が変わったときだけ、ガントの🗒️を描き直す。"""
+        notes.save(name, task_id, html)
+        if name != self.project.name:
+            return
+        ids = notes.note_ids(name)
+        if ids != self.gantt.note_ids:
+            self.gantt.note_ids = ids
+            self.gantt.set_project(self.project)
+
+    def sync_notes(self, before: Project, after: Project) -> None:
+        """編集・元に戻す・やり直しのタスク id の増減に、メモを合わせる(外部の変更では呼ばない)。"""
+        before_ids = {t.id for t in before.all_tasks()}
+        after_ids = {t.id for t in after.all_tasks()}
+        if before_ids == after_ids:
+            return
+        if self.note_pane is not None:
+            self.note_pane.flush()  # 消える前に、最後の入力を保存して、ごみ箱に載せる
+        gone = notes.sync(self.project.name, before_ids, after_ids, self.note_trash)
+        if self.note_pane is not None and self.note_pane.task_id in gone:
+            self.note_pane.close(save=False)
+
     def after_edit(self) -> None:
         """編集のあとの共通の処理。直前の確定した状態と違えば履歴に積み、画面を描き直す(Undo の入口はここだけ)。
         変更履歴(要望 128)も、ここで前後の差から作る。元に戻す側の複製には新しいイベントを入れない。"""
         if self.project != self.committed:
+            self.sync_notes(self.committed, self.project)
             self.history.record(self.committed)
             history_log.record_edit(self.committed, self.project, clock.now())
             self.committed = deepcopy(self.project)
@@ -904,11 +958,16 @@ class MainView:
         self.gantt.trial_results = results  # set_project が描き直す
         self.gantt.trial_pool_ids = frozenset(self.trial_pool)
         self.update_trial_band(results)
+        self.gantt.note_ids = notes.note_ids(self.project.name)
         self.gantt.set_project(self.project)
 
     def reset_history(self) -> None:
         """履歴を捨て、いまの内容を確定した状態にする(別のプロジェクトに切り替えたとき・名前をつけて保存したとき)。"""
         self.history.clear()
+        if self.note_pane is not None:
+            self.note_pane.close()  # 開いていた(切り替え前の)メモは、保存して閉じる
+        self.note_trash = {}
+        self.gantt.note_ids = notes.note_ids(self.project.name)
         self.trials = {}
         self.trial_pool = {}
         self.gantt.trial_pool_ids = frozenset()
@@ -919,10 +978,12 @@ class MainView:
 
     def restore(self, project: Project) -> None:
         """Undo・Redo で取り出した状態に差し替えて描き直す。折りたたみはセクションの id で引き継ぎ、絞り込み・スクロールは変えない。"""
+        self.sync_notes(self.project, project)
         folded = arrange.collapsed_ids(self.project, self.gantt.collapsed)
         self.project = project
         self.gantt.collapsed = arrange.collapsed_paths(project, folded)
         self.committed = deepcopy(project)
+        self.gantt.note_ids = notes.note_ids(project.name)
         self.gantt.set_project(self.project)
 
     def undo(self) -> None:
@@ -2669,6 +2730,9 @@ class MainView:
         previous = self.project.name
         self.project.name = name
         if self.write(overwrite=False, after=after):
+            if self.note_pane is not None:
+                self.note_pane.flush()
+            notes.copy_project(previous, name)
             self.reset_history()  # 別のファイルになる。名前の変更を、次の編集の 1 ステップにしない
             return True
         self.project.name = previous
@@ -3251,7 +3315,12 @@ class MainView:
         section = arrange.section_at(self.project, path)
         assert section is not None
         name = section.name
-        arrange.copy_section(self.project, path)
+        original_ids = [t.id for t in section.all_tasks()]
+        copied = arrange.copy_section(self.project, path)
+        notes.copy_many(
+            self.project.name,
+            list(zip(original_ids, [t.id for t in copied.all_tasks()])),
+        )
         self.gantt.remap_collapsed(
             path[:-1], path[-1] + 1, 1
         )  # 後ろの兄弟の番号が 1 つずれる
@@ -3483,17 +3552,20 @@ class MainView:
             sorted(self.files), value=self.current_name()
         )  # 開いているプロジェクトの選択は変えない
         self.request_git_refresh()
+        notes.copy_between(
+            self.project.name, saved.stem, [t.id for t in result.child.all_tasks()]
+        )  # 親から消えるメモを、子へ渡す(親では after_edit がごみ箱へ移す)
         self.project = result.parent
         self.gantt.clear_selection()
         self.after_edit()
-        notes = [
+        messages = [
             f"先行 {result.dropped} 件を外しました" if result.dropped else "",
             "親を保存してください",
             "元に戻しても子のファイルは残ります",
         ]
         ui.notify(
             f"「{name.strip()}」に {result.moved} 件を切り出しました。"
-            + "。".join(n for n in notes if n)
+            + "。".join(m for m in messages if m)
         )
         return True
 
@@ -3524,7 +3596,13 @@ class MainView:
             return
         name = arrange.tasks_at(self.project, src[0])[src[1]].name
         if copy:
-            arrange.copy_task(self.project, src, dst)
+            original = arrange.tasks_at(self.project, src[0])[src[1]]
+            kid_ids = [k.id for k in children_of(original, self.project.task_map())]
+            copied = arrange.copy_task(self.project, src, dst)
+            notes.copy_many(
+                self.project.name,
+                [(original.id, copied.id), *zip(kid_ids, copied.children)],
+            )
             ui.notify(f"「{name}」をコピーしました")
         elif not arrange.move_task(self.project, src, dst):
             return
@@ -3685,6 +3763,8 @@ class MainView:
         self.preview_bar.build()
         self.dashboard_view.build()
         self.trial_band = ui.column().classes("w-full")
+        self.gantt.note_ids = notes.note_ids(self.project.name)
+        self.note_pane = NotePane(save=self.save_note, load=notes.load)
         self.gantt.build()
         self.client = ui.context.client
         self.request_git_refresh()
