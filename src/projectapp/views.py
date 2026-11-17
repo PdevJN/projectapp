@@ -651,6 +651,7 @@ class MainView:
                 edit_progress=self.edit_progress,
                 add_extra_effort=self.add_extra_effort,
                 open_note=self.open_note,
+                note_html=self.note_html,
                 note_at=self.note_at,
                 open_reference=self.open_reference,
                 refresh_reference=self.refresh_reference,
@@ -906,6 +907,17 @@ class MainView:
         task = self.project.task_map().get(task_id)
         if task is not None and self.note_pane is not None:
             self.note_pane.open(self.project.name, task_id, task.name)
+
+    def note_html(self, task_id: str) -> str:
+        """🗒️のツールチップに出すメモ。そのメモを開いて入力中なら、保存前の入力を出す。"""
+        pane = self.note_pane
+        if (
+            pane is not None
+            and pane.task_id == task_id
+            and pane.name == self.project.name
+        ):
+            return notes.sanitize(pane.editor.value or "")
+        return notes.load(self.project.name, task_id) or ""
 
     def note_at(self, path: SectionPath, index: int) -> None:
         """右クリックの`メモ…`。"""

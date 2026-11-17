@@ -10,7 +10,7 @@ from nicegui import Client, context, ui
 from nicegui.events import ValueChangeEventArguments
 
 from projectapp import arrange
-from projectapp import clock
+from projectapp import clock, notes
 from projectapp.crew_trial import TrialResult
 from projectapp.daily_crew import Segment, segments
 from projectapp.delay_response import DELAY_RESPONSE_CSS
@@ -707,6 +707,9 @@ class GanttActions:
     open_note: Callable[[str], object] = lambda task_id: (
         None
     )  # タスクのメモを右ペインで開く
+    note_html: Callable[[str], str] = lambda task_id: (
+        ""
+    )  # 🗒️のツールチップに出すメモ(乗せたときに読む)
     note_at: Callable[[SectionPath, int], object] = lambda path, ti: (
         None
     )  # 右クリックの`メモ…`
@@ -916,6 +919,30 @@ class GanttChart:
         self.trial_results = results
         self.trial_pool_ids = pool
         self.render.refresh()
+
+    def note_mark(self, task_id: str) -> None:
+        """名前の後ろの🗒️。クリックで右ペインを開き、乗せると、メモを(HTML を無害化して)ツールチップに出す。"""
+        mark = (
+            ui.label("🗒️")
+            .classes("cursor-pointer shrink-0")
+            .props("data-no-quick-add")
+            .on(
+                "click",
+                lambda tid=task_id: self.actions.open_note(tid),
+                js_handler=PLAIN_CLICK_JS,
+            )
+            .mark(f"task-note-{task_id}")
+        )
+        with mark:
+            tip = ui.tooltip().props('max-width="320px"')
+            with tip:
+                body = ui.html("", sanitize=notes.sanitize).style(
+                    "max-width: 320px; max-height: 240px; overflow: auto; text-align: left"
+                )
+        tip.on(
+            "before-show",
+            lambda tid=task_id, b=body: b.set_content(self.actions.note_html(tid)),
+        )
 
     def set_project(self, project: Project) -> None:
         """条件は保つ。担当者がメンバーからいなくなったときだけ、担当者の指定を外す。"""
@@ -2949,13 +2976,7 @@ class GanttChart:
                     name.style("text-decoration: line-through")
                 name.mark(f"task-name-{key}-{ti}")
                 if task.id in self.note_ids:
-                    ui.label("🗒️").classes("cursor-pointer shrink-0").props(
-                        "data-no-quick-add"
-                    ).on(
-                        "click",
-                        lambda tid=task.id: self.actions.open_note(tid),
-                        js_handler=PLAIN_CLICK_JS,
-                    ).mark(f"task-note-{task.id}")
+                    self.note_mark(task.id)
                 if summary and not self.options.read_only:
                     self.summary_count(key, ti, task)
                     ui.element("div").style(

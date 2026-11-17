@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from nicegui import ui
 from nicegui.testing import User
 
 from projectapp import notes
@@ -251,3 +252,74 @@ async def test_javascript_in_a_note_file_never_reaches_the_editor(
         view.note_pane.flush()  # 保存し直しても、ファイルに危険なものは戻らない
     raw = (folder / f"{task.id}.html").read_text(encoding="utf-8").lower()
     assert "<script" not in raw and "onerror" not in raw and "javascript:" not in raw
+
+
+def hover(user: User, task_id: str) -> str:
+    """🗒️ にマウスを乗せたとき(ツールチップの before-show)を起こして、出る中身を返す。"""
+    label = user.find(marker=f"task-note-{task_id}").elements.pop()
+    tip = next(c for c in label.descendants() if isinstance(c, ui.tooltip))
+    body = next(c for c in tip.descendants() if isinstance(c, ui.html))
+    listeners = [
+        i
+        for i, listener in tip._event_listeners.items()
+        if listener.type == "beforeShow"
+    ]
+    assert listeners, "ツールチップに before-show がない"
+    for listener_id in listeners:
+        tip._handle_event({"listener_id": listener_id, "args": {}})
+    return str(body._props.get("innerHTML", ""))
+
+
+async def test_hovering_the_note_mark_shows_the_note_in_a_tooltip(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    task = view.project.all_tasks()[0]
+    notes.save(view.project.name, task.id, "<p><b>太字</b>の経緯</p>")
+    with user.client:
+        view.after_edit()
+    await user.should_see(marker=f"task-note-{task.id}")
+    with user.client:
+        assert "<b>太字</b>の経緯" in hover(user, task.id)
+        notes.save(view.project.name, task.id, "<p>書き換えた</p>")
+        shown = hover(user, task.id)  # 乗せ直すと、新しい内容になる
+    assert "書き換えた" in shown and "太字" not in shown
+
+
+async def test_the_tooltip_shows_the_unsaved_text_of_the_open_note(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    task = view.project.all_tasks()[0]
+    notes.save(view.project.name, task.id, "<p>保存済み</p>")
+    with user.client:
+        view.after_edit()
+        view.open_note(task.id)
+        assert view.note_pane is not None
+        view.note_pane.editor.set_value("<p>入力中</p>")
+    await user.should_see(marker=f"task-note-{task.id}")
+    with user.client:
+        shown = hover(user, task.id)
+    assert "入力中" in shown and "保存済み" not in shown
+
+
+async def test_javascript_in_a_note_file_never_reaches_the_tooltip(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    task = view.project.all_tasks()[0]
+    folder = notes.NOTES_ROOT / view.project.name
+    folder.mkdir(parents=True)
+    (folder / f"{task.id}.html").write_text(
+        '<p>安全</p><img src=x onerror="alert(1)"><script>alert(1)</script>'
+        '<a href="javascript:alert(1)">リンク</a>',
+        encoding="utf-8",
+    )
+    with user.client:
+        view.after_edit()
+    await user.should_see(marker=f"task-note-{task.id}")
+    with user.client:
+        shown = hover(user, task.id).lower()
+    assert "安全" in shown
+    for bad in ("<script", "onerror", "javascript:", "<img"):
+        assert bad not in shown
