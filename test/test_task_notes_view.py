@@ -323,3 +323,25 @@ async def test_javascript_in_a_note_file_never_reaches_the_tooltip(
     assert "安全" in shown
     for bad in ("<script", "onerror", "javascript:", "<img"):
         assert bad not in shown
+
+
+def test_the_note_tooltip_css_brings_headings_down_to_body_size() -> None:
+    from projectapp.note_pane import NOTE_TIP_CSS
+
+    for tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
+        assert f".note-tip {tag}" in NOTE_TIP_CSS
+    assert "font-size: 1em" in NOTE_TIP_CSS and "font-weight: 700" in NOTE_TIP_CSS
+
+
+async def test_the_note_tooltip_body_uses_the_note_tip_class(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    task = view.project.all_tasks()[0]
+    notes.save(view.project.name, task.id, "<h2>見出し</h2>")
+    with user.client:
+        view.after_edit()
+    await user.should_see(marker=f"task-note-{task.id}")
+    label = user.find(marker=f"task-note-{task.id}").elements.pop()
+    body = next(c for c in label.descendants() if isinstance(c, ui.html))
+    assert "note-tip" in body.classes
