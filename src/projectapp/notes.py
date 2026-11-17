@@ -102,3 +102,19 @@ def copy_project(src_name: str, dst_name: str) -> None:
         shutil.copytree(src, dst, dirs_exist_ok=True)
     except OSError:
         return
+
+
+def sync(
+    name: str, before: set[str], after: set[str], trash: dict[str, str]
+) -> set[str]:
+    """タスク id の増減に、メモを合わせる。消えた id のメモはごみ箱へ(元に戻すで書き戻す)。消えた id を返す。"""
+    gone = before - after
+    for task_id in gone:
+        html = delete(name, task_id)
+        if html is not None:
+            trash[task_id] = html
+    for task_id in after - before:
+        html = trash.pop(task_id, None)
+        if html is not None:
+            save(name, task_id, html)
+    return gone

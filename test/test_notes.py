@@ -83,3 +83,39 @@ def test_copy_project_copies_the_folder_and_keeps_the_source() -> None:
     assert notes.note_ids("新2") == frozenset()
     notes.copy_project("旧", "旧")  # 同じ名前なら何もしない
     assert notes.load("旧", "aaaa1111") == "<p>1</p>"
+
+
+def test_sync_moves_a_removed_note_to_the_trash_and_restores_it() -> None:
+    notes.save("案件", "aaaa1111", "<p>1</p>")
+    trash: dict[str, str] = {}
+    gone = notes.sync("案件", {"aaaa1111", "bbbb2222"}, {"bbbb2222"}, trash)
+    assert gone == {"aaaa1111"}
+    assert notes.load("案件", "aaaa1111") is None
+    assert trash == {"aaaa1111": "<p>1</p>"}
+    notes.sync("案件", {"bbbb2222"}, {"aaaa1111", "bbbb2222"}, trash)  # 元に戻す
+    assert notes.load("案件", "aaaa1111") == "<p>1</p>"
+    assert trash == {}
+
+
+def test_sync_survives_delete_undo_redo_undo() -> None:
+    notes.save("案件", "aaaa1111", "<p>1</p>")
+    trash: dict[str, str] = {}
+    present, absent = {"aaaa1111"}, set()
+    for before, after in [
+        (present, absent),
+        (absent, present),
+        (present, absent),
+        (absent, present),
+    ]:
+        notes.sync("案件", set(before), set(after), trash)
+    assert notes.load("案件", "aaaa1111") == "<p>1</p>"
+    assert trash == {}
+
+
+def test_sync_ignores_ids_without_a_note_and_unchanged_ids() -> None:
+    trash: dict[str, str] = {}
+    assert notes.sync("案件", {"aaaa1111"}, {"aaaa1111"}, trash) == set()
+    assert notes.sync("案件", {"aaaa1111"}, set(), trash) == {"aaaa1111"}
+    assert trash == {}  # メモがなければ、ごみ箱にも入れない
+    assert notes.sync("案件", set(), {"zzzz9999"}, trash) == set()
+    assert notes.note_ids("案件") == frozenset()
