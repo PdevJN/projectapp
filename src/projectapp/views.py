@@ -1806,6 +1806,7 @@ class MainView:
         self.after_edit()
         self.warn_overallocation(*changed)
         self.refresh_dashboard(sync_field=False)
+        ui.notify(f"{len(changed)} 件のタスクの担当を調整しました")
         return True
 
     def notify_effect(self, names: tuple[str, ...], day: date) -> None:

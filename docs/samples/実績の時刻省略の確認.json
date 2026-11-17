@@ -1,0 +1,225 @@
+{
+  "version": 23,
+  "name": "実績の時刻省略の確認",
+  "base_date": "2026-11-16",
+  "daily_hours": 6.5,
+  "work_start": "09:00:00",
+  "members": [
+    {
+      "name": "田中",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "a61ef117",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [],
+      "warning_limit": null
+    },
+    {
+      "name": "a61ef117",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "7bc01132",
+      "icon": "",
+      "work_days": [],
+      "teams": []
+    }
+  ],
+  "sections": [
+    {
+      "name": "実績の時刻",
+      "tasks": [
+        {
+          "name": "A 実績なし(ここに日付だけで入力)",
+          "id": "f3d75876",
+          "planned_start": "2026-11-16T09:00:00",
+          "effort_hours": 6,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "7bc01132",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "daily_crew": {},
+          "extra_efforts": []
+        },
+        {
+          "name": "B 補った実績(日付だけ→09:00〜15:30)",
+          "id": "7e4583d8",
+          "planned_start": "2026-11-16T09:00:00",
+          "effort_hours": 6,
+          "priority": "中",
+          "status": "終了",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "7bc01132",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [
+            {
+              "start": "2026-11-12T09:00:00",
+              "end": "2026-11-12T15:30:00",
+              "progress": null
+            }
+          ],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "daily_crew": {},
+          "extra_efforts": []
+        },
+        {
+          "name": "C 時刻つきの実績(従来どおり)",
+          "id": "821247c3",
+          "planned_start": "2026-11-17T09:00:00",
+          "effort_hours": 4,
+          "priority": "中",
+          "status": "終了",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "7bc01132",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [
+            {
+              "start": "2026-11-13T10:15:00",
+              "end": "2026-11-13T14:45:00",
+              "progress": null
+            }
+          ],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "daily_crew": {},
+          "extra_efforts": []
+        },
+        {
+          "name": "D 実行中(開始だけ)",
+          "id": "4eb4011f",
+          "planned_start": "2026-11-17T09:00:00",
+          "effort_hours": 8,
+          "priority": "中",
+          "status": "実行中",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "7bc01132",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [
+            {
+              "start": "2026-11-16T09:00:00",
+              "end": null,
+              "progress": null
+            }
+          ],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "daily_crew": {},
+          "extra_efforts": []
+        },
+        {
+          "name": "E 予定のみ",
+          "id": "aa3ab979",
+          "planned_start": "2026-11-18T09:00:00",
+          "effort_hours": 5,
+          "priority": "中",
+          "status": "未着手",
+          "color": "#4c8bf5",
+          "assignees": [
+            {
+              "member": "7bc01132",
+              "allocation": 1.0
+            }
+          ],
+          "predecessors": [],
+          "deadline": null,
+          "planned_end": null,
+          "planned_end_manual": false,
+          "actuals": [],
+          "category_id": null,
+          "kind": "通常",
+          "urls": [],
+          "progress": null,
+          "children": [],
+          "parameters": [],
+          "ref_project": "",
+          "ref_snapshot": null,
+          "weekly_crew": [],
+          "daily_crew": {},
+          "extra_efforts": []
+        }
+      ],
+      "sections": [],
+      "id": "1bf5df5a"
+    }
+  ],
+  "tasks": [],
+  "actual_mode": "simple",
+  "url_templates": [],
+  "parameters": [],
+  "categories": [],
+  "events": [],
+  "teams": [],
+  "reference_mode": "live",
+  "plantuml_overload_notice": true,
+  "actual_time_optional": true,
+  "ratio_limit_upper": null,
+  "ratio_limit_lower": null,
+  "history": [],
+  "history_since": null
+}

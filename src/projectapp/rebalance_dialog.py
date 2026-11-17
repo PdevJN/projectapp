@@ -171,9 +171,10 @@ def open_rebalance_dialog(
                 percent.set_visibility(shown)
                 target.set_visibility(chosen in ("move", "add"))
                 reset.set_visibility(shown)
+                if chosen in ("none", "rate"):
+                    target.set_value(None)  # 表示の相手も外す(内部の状態とそろえる)
                 if chosen == "none":
                     percent.set_value(None)
-                    target.set_value(None)
                     row.percent = None
                 elif chosen == "add":
                     percent.set_value(ADD_DEFAULT_RATE * 100)

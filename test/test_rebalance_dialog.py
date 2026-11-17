@@ -171,3 +171,31 @@ async def test_a_weekly_task_is_marked_as_applying_to_every_week(user: User) -> 
     await open_dialog(user)
     note = element(user, "rebalance-note-w").text
     assert "全週に適用" in note and "50〜100%" in note and "上書き" in note
+
+
+async def test_switching_modes_clears_the_chosen_target(user: User) -> None:
+    mount(sample(), [])
+    await open_dialog(user)
+    with user.client:
+        element(user, "rebalance-mode-b").set_value("move")
+        element(user, "rebalance-target-b").set_value("鈴木")
+        element(user, "rebalance-mode-b").set_value("rate")
+        element(user, "rebalance-mode-b").set_value("move")
+    assert element(user, "rebalance-target-b").value is None  # 表示と内部状態がそろう
+    assert not element(user, "rebalance-apply").enabled
+
+
+async def test_a_rate_that_is_not_a_whole_percent_is_not_changed_by_switching_modes(
+    user: User,
+) -> None:
+    project = Project(
+        "P",
+        base_date=date(2026, 10, 5),
+        members=[Member("田中", 1.0), Member("鈴木", 1.0)],
+        tasks=[make("a", rate=1 / 3)],
+    )
+    mount(project, [])
+    await open_dialog(user)
+    with user.client:
+        element(user, "rebalance-mode-a").set_value("rate")
+    assert not element(user, "rebalance-apply").enabled  # 触っていないので変更なし
