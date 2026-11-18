@@ -18,6 +18,7 @@ from projectapp.csv_export import (
     format_datetime,
     write_table,
 )
+from projectapp import notes
 from projectapp.csv_import import parse_csv
 from projectapp.csv_profile import SMARTSHEET, CsvColumn, CsvField, CsvProfile
 from projectapp.models import (
@@ -586,3 +587,18 @@ def test_the_default_profile_never_writes_notes() -> None:
         note_project(), {}, SMARTSHEET, note_for=lambda _id: "<p>秘密</p>"
     )
     assert "秘密" not in result.text
+
+
+def test_notes_round_trip_through_a_table() -> None:
+    html = {"a1": "<p>一行目</p><p>文字の\\n と &lt;b&gt;</p>", "c1": "<p>節</p>"}
+    profile = CsvProfile(
+        "メモ付き",
+        (*NOTE_PROFILE.columns,),
+        delimiter="\t",
+    )
+    text = build_table(note_project(), {}, profile, note_for=html.get).text
+    result = parse_csv(text, "p", {}, profile=profile, delimiter="\t")
+    by_name = {t.name: t.id for t in result.project.all_tasks()}
+    assert notes.to_cell(result.notes[by_name["あり"]]) == notes.to_cell(html["a1"])
+    assert notes.to_cell(result.notes[by_name["中"]]) == "節"
+    assert by_name["なし"] not in result.notes
