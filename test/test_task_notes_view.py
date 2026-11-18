@@ -6,6 +6,8 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp import notes
+from projectapp.csv_dialog import ImportChoice
+from projectapp.csv_profile import CsvColumn, CsvField, CsvProfile
 from projectapp.models import Section, Task
 from test_views import open_dashboard_view
 
@@ -345,3 +347,56 @@ async def test_the_note_tooltip_body_uses_the_note_tip_class(
     label = user.find(marker=f"task-note-{task.id}").elements.pop()
     body = next(c for c in label.descendants() if isinstance(c, ui.html))
     assert "note-tip" in body.classes
+
+
+NOTE_PROFILE = CsvProfile(
+    "メモ付き",
+    (CsvColumn(CsvField.TITLE, "タスク名"), CsvColumn(CsvField.NOTE, "メモ")),
+    delimiter="\t",
+)
+
+
+async def test_the_csv_export_includes_the_note_when_the_column_is_chosen(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    task = view.project.all_tasks()[0]
+    notes.save(view.project.name, task.id, "<p>経緯</p>")
+    out = tmp_path / "out.tsv"
+    view.exporter.path = out  # type: ignore[attr-defined]
+    with user.client:
+        await view.write_csv_export(NOTE_PROFILE)
+    assert "経緯" in out.read_text(encoding="utf-8")
+
+
+async def test_the_csv_export_includes_a_note_not_yet_saved_in_the_pane(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    task = view.project.all_tasks()[0]
+    with user.client:
+        view.open_note(task.id)
+        assert view.note_pane is not None
+        view.note_pane.editor.set_value("<p>入力中</p>")
+    out = tmp_path / "out2.tsv"
+    view.exporter.path = out  # type: ignore[attr-defined]
+    with user.client:
+        await view.write_csv_export(NOTE_PROFILE)
+    assert "入力中" in out.read_text(encoding="utf-8")
+
+
+async def test_the_csv_import_writes_the_notes_before_showing_the_project(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    profile = CsvProfile(
+        "メモ付き",
+        (*NOTE_PROFILE.columns, CsvColumn(CsvField.PROGRESS, "進捗")),
+        delimiter="\t",
+    )  # 値のある列がないと、行はセクションになる
+    text = "タスク名\tメモ\t進捗\n設計\t経緯\\n詳細\t0\n"
+    with user.client:
+        view.apply_csv_import(ImportChoice(profile, "\t", 0, "utf-8"), text, "取り込み")
+    task = view.project.all_tasks()[0]
+    assert notes.load(view.project.name, task.id) == "<p>経緯</p><p>詳細</p>"
+    assert task.id in view.gantt.note_ids

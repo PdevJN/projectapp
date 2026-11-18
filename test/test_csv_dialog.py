@@ -600,3 +600,10 @@ async def test_summary_and_section_choices_reach_the_exported_profile(
     user.find(marker="csv-export-confirm").click()
     assert exported[0].summary_rows is True
     assert exported[0].section_mode == "breadcrumb"
+
+
+async def test_choosing_the_note_column_shows_the_notice(user: User) -> None:
+    await open_export(user)
+    await user.should_not_see(marker="csv-ex-notice")
+    user.find(marker="csv-ex-cb-pal-note").click()
+    await user.should_see(marker="csv-ex-notice")

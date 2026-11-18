@@ -573,6 +573,14 @@ def open_csv_export_dialog(
                 .mark("csv-ex-section")
             )
         note = ui.label("").classes("text-negative")
+        notice = (
+            ui.label(
+                "メモの列を含みます。メモは git 管理の外の内容で、そのまま書き出されます。"
+            )
+            .classes("text-warning")
+            .mark("csv-ex-notice")
+        )
+        notice.set_visibility(False)
 
         with ui.row().classes("items-end w-full no-wrap"):
             quick_check = ui.checkbox(
@@ -671,6 +679,10 @@ def open_csv_export_dialog(
         message = problem()
         note.set_text(message or "")
         confirm.set_enabled(message is None)
+        notice.set_visibility(
+            not quick["on"]
+            and any(r["use"] and r["field"] is CsvField.NOTE for r in rows)
+        )
 
     def quick_template() -> str:
         text = quick["template"].strip()
