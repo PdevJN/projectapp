@@ -4,11 +4,12 @@ import csv
 import io
 import os
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
+from projectapp import notes
 from projectapp.csv_import import WBS_NUMBER, WBS_SEPARATOR
 from projectapp.models import Project, ReferenceValue, Section, Status, Task, TaskKind
 from projectapp.csv_profile import (
@@ -81,9 +82,11 @@ def build_table(
     holidays: dict[date, str],
     profile: CsvProfile,
     references: Mapping[str, ReferenceValue] | None = None,
+    note_for: Callable[[str], str | None] | None = None,
 ) -> TableExport:
     """通常タスクとプロジェクト参照とセクションを、`Project.all_tasks` と同じ順(セクションなしが先、続いてセクションを深さ優先)で書く。
-    列・区切り・日付の書式・担当の区切りは`profile`が決める。references は参照行(タスクの id)ごとの参照先の値。なければ日付と進捗率を空にする。"""
+    列・区切り・日付の書式・担当の区切りは`profile`が決める。references は参照行(タスクの id)ごとの参照先の値。なければ日付と進捗率を空にする。
+    note_for はタスク id からメモの HTML を返す(なければ`メモ`の列は空)。"""
     schedule = Schedule(project, holidays)
     style = profile.date_format
     category_names = {c.id: c.name for c in project.categories}
@@ -245,6 +248,9 @@ def build_table(
                 if task.actuals and task.actuals[-1].end is not None
                 else "",
                 CsvField.CATEGORY: category_names.get(task.category_id or "", ""),
+                CsvField.NOTE: notes.to_cell(note_for(task.id) or "")
+                if note_for is not None
+                else "",
             }
         )
 

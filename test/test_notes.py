@@ -221,3 +221,51 @@ def test_what_is_saved_never_contains_javascript(isolated_notes: Path) -> None:
     raw = (isolated_notes / "案件" / "aaaa1111.html").read_text(encoding="utf-8")
     assert "<script" not in raw and "onerror" not in raw
     assert "安全" in raw
+
+
+def test_to_cell_turns_blocks_into_escaped_newlines() -> None:
+    assert notes.to_cell("<p>一行目</p><p>二行目</p>") == "一行目\\n二行目"
+    assert notes.to_cell("<p>a<br>b</p>") == "a\\nb"
+    assert notes.to_cell("<ul><li>x</li><li>y</li></ul>") == "- x\\n- y"
+
+
+def test_to_cell_keeps_text_and_escapes_the_backslash() -> None:
+    assert notes.to_cell("<p>a&lt;b&gt; &amp; C:\\temp</p>") == "a<b> & C:\\\\temp"
+    assert notes.to_cell("<p>文字の\\n</p>") == "文字の\\\\n"
+
+
+def test_to_cell_of_a_blank_note_is_empty() -> None:
+    assert notes.to_cell("") == ""
+    assert notes.to_cell("<p><br></p>") == ""
+    assert notes.to_cell("<p>&nbsp;</p>") == ""
+
+
+def test_to_cell_drops_scripts() -> None:
+    assert notes.to_cell("<p>安全</p><script>alert(1)</script>") == "安全"
+
+
+def test_from_cell_makes_a_paragraph_per_line() -> None:
+    assert notes.from_cell("一行目\\n二行目") == "<p>一行目</p><p>二行目</p>"
+    assert notes.from_cell("") == ""
+    assert notes.from_cell("   ") == ""
+
+
+def test_from_cell_never_reads_the_text_as_html() -> None:
+    html = notes.from_cell("<script>alert(1)</script><b>x</b> & y")
+    assert "<script" not in html and "<b>" not in html
+    assert notes.to_cell(html) == "<script>alert(1)</script><b>x</b> & y"
+
+
+def test_from_cell_restores_a_literal_backslash_n() -> None:
+    html = notes.from_cell("文字の\\\\n と C:\\temp")
+    assert notes.to_cell(html) == "文字の\\\\n と C:\\\\temp"
+
+
+def test_from_cell_cuts_a_very_long_note() -> None:
+    html = notes.from_cell("あ" * (notes.MAX_NOTE_TEXT + 500))
+    assert notes.to_cell(html).count("あ") == notes.MAX_NOTE_TEXT
+
+
+def test_the_cell_round_trip_is_stable() -> None:
+    first = notes.to_cell("<p>経緯</p><p>a\\nb &lt;x&gt;</p><ul><li>c</li></ul>")
+    assert notes.to_cell(notes.from_cell(first)) == first

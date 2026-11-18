@@ -824,3 +824,40 @@ def test_export_then_import_restores_the_hierarchy() -> None:
     assert a.name == "A" and [t.name for t in a.tasks] == ["t1"]
     assert [s.name for s in a.sections] == ["B"]
     assert [t.name for t in a.sections[0].tasks] == ["t2"]
+
+
+NOTE_IMPORT = CsvProfile(
+    "メモ付き",
+    (
+        CsvColumn(CsvField.TITLE, "タスク名"),
+        CsvColumn(CsvField.PROGRESS, "進捗"),
+        CsvColumn(CsvField.NOTE, "メモ"),
+    ),
+    delimiter="\t",
+)
+
+
+def parse_notes(text: str) -> CsvImport:
+    return parse_csv(text, "p", {}, profile=NOTE_IMPORT, delimiter="\t")
+
+
+def test_the_note_column_becomes_the_task_note() -> None:
+    result = parse_notes("タスク名\t進捗\tメモ\n設計\t0\t一行目\\n二行目\n実装\t0\t\n")
+    by_name = {t.name: t.id for t in result.project.all_tasks()}
+    assert result.notes == {by_name["設計"]: "<p>一行目</p><p>二行目</p>"}
+
+
+def test_no_note_column_means_no_notes() -> None:
+    assert parse("a\tT\t\t2026-10-13\t2026-10-14\t\t0%").notes == {}
+
+
+def test_a_note_never_runs_as_html() -> None:
+    result = parse_notes("タスク名\t進捗\tメモ\n設計\t0\t<script>alert(1)</script>\n")
+    (html,) = result.notes.values()
+    assert "<script" not in html
+
+
+def test_a_row_with_only_a_note_is_a_section_without_a_note() -> None:
+    result = parse_notes("タスク名\t進捗\tメモ\n節\t\tメモだけ\n設計\t0\t\n")
+    assert result.notes == {}
+    assert [s.name for s in result.project.sections] == ["節"]

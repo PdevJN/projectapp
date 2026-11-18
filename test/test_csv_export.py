@@ -18,6 +18,7 @@ from projectapp.csv_export import (
     format_datetime,
     write_table,
 )
+from projectapp import notes
 from projectapp.csv_import import parse_csv
 from projectapp.csv_profile import SMARTSHEET, CsvColumn, CsvField, CsvProfile
 from projectapp.models import (
@@ -537,3 +538,67 @@ def test_sections_can_become_a_breadcrumb_in_the_title() -> None:
     assert "設計 > 子A" in titles
     assert "設計 > 基本設計 > 画面一覧" in titles
     assert "設計" not in titles and out.section_count == 0
+
+
+NOTE_PROFILE = CsvProfile(
+    "メモ付き",
+    (
+        CsvColumn(CsvField.TITLE, "タスク名"),
+        CsvColumn(CsvField.NOTE, "メモ"),
+        CsvColumn(CsvField.PROGRESS, "進捗"),
+    ),
+    delimiter="\t",
+)
+
+
+def note_project() -> Project:
+    project = Project("p")
+    project.tasks = [Task("あり", id="a1"), Task("なし", id="b1")]
+    project.sections = [Section("節", id="s1", tasks=[Task("中", id="c1")])]
+    return project
+
+
+def test_the_note_column_holds_one_line_per_task() -> None:
+    notes_by_id = {"a1": "<p>一行目</p><p>二行目</p>", "c1": "<p>節の中</p>"}
+    result = build_table(note_project(), {}, NOTE_PROFILE, note_for=notes_by_id.get)
+    table = rows(result.text)
+    assert table[0] == ["タスク名", "メモ", "進捗"]
+    by_title = {r[0]: r[1] for r in table[1:]}
+    assert by_title["あり"] == "一行目\\n二行目"
+    assert by_title["なし"] == ""
+    assert by_title["中"] == "節の中"
+
+
+def test_the_note_column_leaves_section_rows_empty() -> None:
+    result = build_table(
+        note_project(), {}, NOTE_PROFILE, note_for=lambda _id: "<p>x</p>"
+    )
+    section_row = next(r for r in rows(result.text) if r[0] == "節")
+    assert section_row[1] == ""
+
+
+def test_the_note_column_is_empty_without_a_note_source() -> None:
+    result = build_table(note_project(), {}, NOTE_PROFILE)
+    assert all(r[1] == "" for r in rows(result.text)[1:])
+
+
+def test_the_default_profile_never_writes_notes() -> None:
+    result = build_table(
+        note_project(), {}, SMARTSHEET, note_for=lambda _id: "<p>秘密</p>"
+    )
+    assert "秘密" not in result.text
+
+
+def test_notes_round_trip_through_a_table() -> None:
+    html = {"a1": "<p>一行目</p><p>文字の\\n と &lt;b&gt;</p>", "c1": "<p>節</p>"}
+    profile = CsvProfile(
+        "メモ付き",
+        (*NOTE_PROFILE.columns,),
+        delimiter="\t",
+    )
+    text = build_table(note_project(), {}, profile, note_for=html.get).text
+    result = parse_csv(text, "p", {}, profile=profile, delimiter="\t")
+    by_name = {t.name: t.id for t in result.project.all_tasks()}
+    assert notes.to_cell(result.notes[by_name["あり"]]) == notes.to_cell(html["a1"])
+    assert notes.to_cell(result.notes[by_name["中"]]) == "節"
+    assert by_name["なし"] not in result.notes

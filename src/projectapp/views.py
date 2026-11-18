@@ -1182,6 +1182,10 @@ class MainView:
             save_csv_profile_last(choice.profile.name, self.base_dir)
         except OSError:
             pass  # 覚えられなくても、取り込みは続ける
+        for task_id, html in result.notes.items():
+            notes.save(
+                result.project.name, task_id, html
+            )  # 🗒️とペインが読めるように、先に書く
         self.show_project(result.project, None)
         self.snapshot = history_log.dirty_key(
             Project(NEW_PROJECT_NAME)
@@ -1319,8 +1323,15 @@ class MainView:
             await self.write_csv_export(profile)
 
     async def write_csv_export(self, profile: CsvProfile) -> None:
+        if self.note_pane is not None:
+            self.note_pane.flush()  # メモを入力中なら、先に保存してから書き出す
+        name = self.project.name
         result = build_table(
-            self.project, self.holidays, profile, self.csv_references()
+            self.project,
+            self.holidays,
+            profile,
+            self.csv_references(),
+            note_for=lambda task_id: notes.load(name, task_id),
         )
         try:
             data = encode_table(result.text, profile.encoding)
@@ -1339,7 +1350,7 @@ class MainView:
         except OSError as exc:
             ui.notify(f"保存できませんでした: {exc}", type="negative")
             return
-        notes = [
+        messages = [
             f"{result.skipped} 件(まとめ・節目)は書き出していません"
             if result.skipped
             else "",
@@ -1350,7 +1361,7 @@ class MainView:
             if result.unresolved
             else "",
         ]
-        detail = "、".join(note for note in notes if note)
+        detail = "、".join(note for note in messages if note)
         head = f"書き出しました(タスク {result.task_count} 件、参照 {result.references} 件、セクション {result.section_count} 件)"
         ui.notify(head + (f"。{detail}" if detail else ""))
 

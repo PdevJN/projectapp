@@ -124,6 +124,62 @@ def is_blank(html: str) -> bool:
     return not _TAGS.sub("", html).replace("&nbsp;", " ").strip()
 
 
+MAX_NOTE_TEXT = 10000  # 取り込む 1 件のメモの文字数の上限
+_BLOCKS = frozenset(
+    "p div ul ol li h1 h2 h3 h4 h5 h6 blockquote pre hr br".split()
+)  # 前後で改行にするタグ
+_ESCAPED = re.compile(r"\\([\\n])")
+
+
+class _Plain(HTMLParser):
+    """メモの HTML を、タグを落としたテキストにする(ブロックの境目は改行、リストの項目は`- `)。"""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in _BLOCKS:
+            self.parts.append("\n")
+        if tag == "li":
+            self.parts.append("- ")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _BLOCKS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
+def to_cell(html: str) -> str:
+    """CSV のセルに入れる 1 行のテキスト。タグを落とし、`\\`を`\\\\`に、改行を文字の`\\n`にする。空のメモは空文字。"""
+    if is_blank(html):
+        return ""
+    parser = _Plain()
+    parser.feed(sanitize(html))
+    parser.close()
+    text = "".join(parser.parts).replace("\xa0", " ").replace("\r", "")
+    lines = [line.rstrip() for line in text.split("\n") if line.strip()]
+    return "\n".join(lines).replace("\\", "\\\\").replace("\n", "\\n")
+
+
+def from_cell(text: str) -> str:
+    """`to_cell`の逆。`\\n`を改行に、`\\\\`を`\\`に戻し、1 行ごとの段落にする。タグとしては読まない。空なら空文字。"""
+    text = text.strip()
+    if not text:
+        return ""
+    plain = _ESCAPED.sub(lambda m: "\n" if m.group(1) == "n" else "\\", text)
+    lines = plain[:MAX_NOTE_TEXT].split("\n")
+    body = "".join(
+        f"<p>{escape(line)}</p>" if line.strip() else "<p><br></p>" for line in lines
+    )
+    return sanitize(body)
+
+
 def load(name: str, task_id: str) -> str | None:
     path = _file(name, task_id)
     if path is None:
