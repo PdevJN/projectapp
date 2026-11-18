@@ -38,6 +38,7 @@ class CsvField(StrEnum):
     ACTUAL_END = "actual_end"
     CATEGORY = "category"
     SECTION = "section"
+    NOTE = "note"
 
 
 FIELD_LABELS = {
@@ -56,6 +57,7 @@ FIELD_LABELS = {
     CsvField.ACTUAL_END: "終了実績",
     CsvField.CATEGORY: "カテゴリ",
     CsvField.SECTION: "セクション",
+    CsvField.NOTE: "メモ",
 }
 EXPORT_FIELDS = tuple(CsvField)  # ダイアログの表示順
 IMPORT_FIELDS = tuple(
@@ -139,6 +141,7 @@ ALIASES: dict[CsvField, tuple[str, ...]] = {  # 見出しの別名(header_key �
         "projectcode",
     ),
     CsvField.SECTION: ("セクション", "section"),
+    CsvField.NOTE: ("メモ", "ノート", "備考メモ", "note", "notes"),
 }
 
 

@@ -1,6 +1,8 @@
 import pytest
 
 from projectapp.csv_profile import (
+    EXPORT_FIELDS,
+    IMPORT_FIELDS,
     SMARTSHEET,
     CsvColumn,
     CsvField,
@@ -50,7 +52,7 @@ def test_guess_columns_uses_aliases_and_keeps_the_original_header() -> None:
             "Due",
             "% Complete",
             "Hours",
-            "メモ",
+            "備考",
         ]
     )
     assert {c.field: c.header for c in cols} == {
@@ -302,3 +304,19 @@ def test_hierarchy_options_default_to_the_current_behaviour_and_round_trip() -> 
     assert profile_from_config(profile_to_config(custom)) == custom
     raw = profile_to_config(base) | {"section_mode": "bogus"}
     assert profile_from_config(raw) is None
+
+
+def test_the_note_field_is_exported_and_imported_but_not_in_smartsheet() -> None:
+    assert CsvField.NOTE in EXPORT_FIELDS and CsvField.NOTE in IMPORT_FIELDS
+    assert CsvField.NOTE not in {c.field for c in SMARTSHEET.columns}
+
+
+def test_the_guess_finds_a_note_column_by_alias() -> None:
+    for header in ("メモ", "ノート", "Note", "NOTES"):
+        found = guess_columns(["タスク名", header])
+        assert [c.field for c in found] == [CsvField.TITLE, CsvField.NOTE]
+
+
+def test_a_profile_with_the_note_column_survives_the_config() -> None:
+    made = profile((CsvField.TITLE, "タスク名"), (CsvField.NOTE, "メモ"))
+    assert profile_from_config(profile_to_config(made)) == made
