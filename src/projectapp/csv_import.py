@@ -4,11 +4,11 @@ import csv
 import io
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-from projectapp import clock
+from projectapp import clock, notes
 from projectapp.history_log import stamp_creation
 from projectapp.csv_profile import (
     ALIASES,
@@ -78,6 +78,9 @@ class CsvImport:
         int  # セクションにした行で、日付・オーナー・進捗率を取り込まなかった行の数
     )
     invalid_values: int = 0  # 読めない工数・状態・実績と、入れなかった実績の数
+    notes: dict[str, str] = field(
+        default_factory=dict
+    )  # 取り込んだ後のタスク id → メモの HTML
 
 
 def _plain(text: str) -> str:
@@ -215,6 +218,7 @@ class _Row:
     ratio: str = ""
     deadline: str = ""
     section: str = ""  # 親のセクションの階層(` > ` 区切り)
+    note: str = ""  # メモ(blank_fields には含めない。メモだけの行はセクション扱い)
 
     @property
     def section_path(self) -> list[str]:
@@ -323,6 +327,7 @@ def _rows(
             cell(CsvField.RATIO),
             cell(CsvField.DEADLINE),
             section,
+            cell(CsvField.NOTE),
         )
         rows.append(row if tidy_task_name(row.title) else None)
     return rows
@@ -339,6 +344,7 @@ class _Builder:
         self.profile = profile
         self.categories: dict[str, Category] = {}
         self.invalid_values = 0
+        self.notes: dict[str, str] = {}
         self.project = Project(name)
         self.holidays = holidays
         self.today = today
@@ -421,6 +427,9 @@ class _Builder:
             holder = self.chain(row.section_path)[-1].tasks
         else:
             holder = self.stack[-1].tasks if self.stack else self.project.tasks
+        html = notes.from_cell(row.note)
+        if html:
+            self.notes[task.id] = html
         holder.append(task)
 
     def owners(self, text: str) -> list[tuple[str, int]]:
@@ -596,6 +605,8 @@ def parse_csv(
     except (ValueError, KeyError, TypeError) as exc:
         raise CsvImportError(f"取り込んだ結果が正しくありません: {exc}") from exc
     stamp_creation(project, clock.now())  # 取り込んだタスクの作成を、履歴の最初にする
+    kept = {t.id for t in project.all_tasks()}
+    saved_notes = {i: h for i, h in builder.notes.items() if i in kept}
     return CsvImport(
         project,
         len(project.all_tasks()),
@@ -606,6 +617,7 @@ def parse_csv(
         builder.invalid_progress,
         builder.dropped,
         builder.invalid_values,
+        saved_notes,
     )
 
 
