@@ -607,3 +607,17 @@ async def test_choosing_the_note_column_shows_the_notice(user: User) -> None:
     await user.should_not_see(marker="csv-ex-notice")
     user.find(marker="csv-ex-cb-pal-note").click()
     await user.should_see(marker="csv-ex-notice")
+
+
+async def test_note_without_other_value_columns_shows_the_section_warning(
+    user: User,
+) -> None:
+    last = CsvProfile(
+        name="タスク名だけ", columns=(CsvColumn(CsvField.TITLE, "タスク名"),)
+    )
+    await open_export(user, profiles=[last], last=last.name)
+    await user.should_not_see(marker="csv-ex-note-only")
+    user.find(marker="csv-ex-cb-pal-note").click()
+    await user.should_see(marker="csv-ex-note-only")
+    user.find(marker="csv-ex-cb-pal-progress").click()
+    await user.should_not_see(marker="csv-ex-note-only")
