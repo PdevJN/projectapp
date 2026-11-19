@@ -861,3 +861,9 @@ def test_a_row_with_only_a_note_is_a_section_without_a_note() -> None:
     result = parse_notes("タスク名\t進捗\tメモ\n節\t\tメモだけ\n設計\t0\t\n")
     assert result.notes == {}
     assert [s.name for s in result.project.sections] == ["節"]
+
+
+def test_a_huge_cell_is_reported_not_raised() -> None:
+    huge = "あ" * 200000
+    with pytest.raises(CsvImportError):
+        parse_notes(f"タスク名\t進捗\tメモ\n設計\t0\t{huge}\n")
