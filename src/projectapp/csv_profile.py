@@ -141,7 +141,7 @@ ALIASES: dict[CsvField, tuple[str, ...]] = {  # 見出しの別名(header_key �
         "projectcode",
     ),
     CsvField.SECTION: ("セクション", "section"),
-    CsvField.NOTE: ("メモ", "ノート", "備考メモ", "note", "notes"),
+    CsvField.NOTE: ("メモ", "ノート", "note", "notes"),
 }
 
 

@@ -269,3 +269,13 @@ def test_from_cell_cuts_a_very_long_note() -> None:
 def test_the_cell_round_trip_is_stable() -> None:
     first = notes.to_cell("<p>経緯</p><p>a\\nb &lt;x&gt;</p><ul><li>c</li></ul>")
     assert notes.to_cell(notes.from_cell(first)) == first
+
+
+def test_from_cell_keeps_exactly_the_limit() -> None:
+    html = notes.from_cell("あ" * notes.MAX_NOTE_TEXT)
+    assert notes.to_cell(html).count("あ") == notes.MAX_NOTE_TEXT
+
+
+def test_the_cell_round_trip_keeps_backslashes_next_to_newlines() -> None:
+    cell = "a\\\\\\nb\\\\n"  # a, \\, 改行, b, \\n(文字)
+    assert notes.to_cell(notes.from_cell(cell)) == cell

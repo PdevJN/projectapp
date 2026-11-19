@@ -581,6 +581,14 @@ def open_csv_export_dialog(
             .mark("csv-ex-notice")
         )
         notice.set_visibility(False)
+        note_only = (
+            ui.label(
+                "メモのほかに値のある列がないと、取り込み直したときにタスクがセクションになり、メモは付きません。"
+            )
+            .classes("text-warning")
+            .mark("csv-ex-note-only")
+        )
+        note_only.set_visibility(False)
 
         with ui.row().classes("items-end w-full no-wrap"):
             quick_check = ui.checkbox(
@@ -682,6 +690,12 @@ def open_csv_export_dialog(
         notice.set_visibility(
             not quick["on"]
             and any(r["use"] and r["field"] is CsvField.NOTE for r in rows)
+        )
+        used = {r["field"] for r in rows if r["use"]}
+        note_only.set_visibility(
+            not quick["on"]
+            and CsvField.NOTE in used
+            and not used - {CsvField.TITLE, CsvField.NOTE}
         )
 
     def quick_template() -> str:

@@ -592,7 +592,11 @@ def parse_csv(
     `holidays` は稼働日数の数え方に使う。`today` は、日付がまったくないときの基準日(省略は今日)。"""
     builder = _Builder(name, holidays, today or clock.today(), profile)
     skipped = 0
-    for row in _rows(text, profile, delimiter, header_row):
+    try:
+        rows = _rows(text, profile, delimiter, header_row)
+    except csv.Error as exc:  # 1 つのセルが長すぎる(131072 文字超)など
+        raise CsvImportError(f"CSV を読めません: {exc}") from exc
+    for row in rows:
         if row is None:
             skipped += 1
         else:
@@ -700,6 +704,9 @@ def sniff_table(
         raise CsvImportError("取り込める行がありません")
     sep = delimiter or detect_delimiter(lines[header_row])
     table = csv.reader(io.StringIO("\n".join(lines[header_row:])), delimiter=sep)
-    header = [c.strip() for c in next(table, [])]
-    rows = [r for r in table if any(c.strip() for c in r)][:PREVIEW_ROWS]
+    try:
+        header = [c.strip() for c in next(table, [])]
+        rows = [r for r in table if any(c.strip() for c in r)][:PREVIEW_ROWS]
+    except csv.Error as exc:
+        raise CsvImportError(f"CSV を読めません: {exc}") from exc
     return TableSniff(text, used, sep, header_row, header, rows)
