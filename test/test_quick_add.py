@@ -382,3 +382,64 @@ async def test_the_child_input_is_refused_while_filtering(user: User) -> None:
     charts[0].double_clicked_task((2,), 1, {})
     await user.should_see("絞り込みを解除してください")
     assert recorder.events == []
+
+
+def shift_enter(text: str) -> dict:
+    return {"text": text, "shift": True}
+
+
+async def test_shift_enter_asks_for_the_details_of_a_task_below_the_clicked_one(
+    user: User,
+) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "task-0-0")
+    user.find(marker=INPUT).trigger("keydown.enter", args=shift_enter("新規"))
+    assert recorder.events == [("add_detailed_task", ((0,), 1, "新規", None))]
+    await user.should_not_see(marker=INPUT)
+
+
+async def test_shift_enter_on_a_child_row_keeps_the_summary(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "task-2-1")
+    user.find(marker=INPUT).trigger("keydown.enter", args=shift_enter("新規"))
+    assert recorder.events == [("add_detailed_task", ((2,), 2, "新規", "s"))]
+
+
+async def test_plain_enter_in_the_dict_form_still_creates_a_name_only_task(
+    user: User,
+) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "task-0-0")
+    user.find(marker=INPUT).trigger(
+        "keydown.enter", args={"text": "新規", "shift": False}
+    )
+    assert recorder.events == [("add_named_task", ((0,), 1, "新規"))]
+
+
+async def test_shift_enter_with_an_invalid_name_shows_the_error(user: User) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "task-0-0")
+    user.find(marker=INPUT).trigger("keydown.enter", args=shift_enter("   "))
+    assert recorder.events == []
+    await user.should_see(marker=INPUT)
+    await user.should_see(marker="quick-add-error")
+
+
+async def test_shift_enter_makes_a_summary_and_a_section_the_usual_way(
+    user: User,
+) -> None:
+    _, recorder = mount_chart(quick_project())
+    await user.open("/")
+    await ctrl_double_click(user, "task-0-0")
+    user.find(marker=INPUT).trigger("keydown.enter", args=shift_enter("束"))
+    user.find(marker="task-0-0").trigger("dblclick", args={"shift": True})
+    await user.should_see(marker=INPUT)
+    user.find(marker=INPUT).trigger("keydown.enter", args=shift_enter("節"))
+    assert recorder.events == [
+        ("add_named_summary", ((0,), 1, "束")),
+        ("add_named_section", ((0,), "節")),
+    ]

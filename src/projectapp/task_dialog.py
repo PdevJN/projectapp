@@ -38,6 +38,7 @@ from projectapp.forms import (
     apply_quick_progress,
     bind_picker,
     build_actuals,
+    build_detailed_task,
     build_extra_efforts,
     build_task,
     build_urls,
@@ -1281,6 +1282,76 @@ def open_quick_progress_dialog(
         with ui.row():
             ui.button("キャンセル", on_click=dialog.close).props("flat")
             ui.button("保存", on_click=save).mark("quick-save")
+    dialog.open()
+
+
+def open_detailed_task_dialog(
+    name: str,
+    today: date,
+    daily_hours: float,
+    work_start: time,
+    on_create: Callable[[Task], object],
+) -> None:
+    """名前の入力行の Shift + Enter で開く、名前・工数・開始日・締切日だけの小さなダイアログ。空の欄は、名前だけのタスクと同じ既定値のまま。
+    開始日は始業時刻、締切日は終業時刻を補う。Enter でも作成する。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
+        ui.label("タスクを作成").classes("text-h6")
+        title = ui.input("タスク名", value=name).classes("w-full").mark("detail-name")
+        with ui.row().classes("w-full items-start no-wrap gap-2"):
+            effort = (
+                ui.number("工数", value=None, min=0, step=0.5)
+                .classes("flex-1 min-w-0")
+                .mark("detail-effort")
+            )
+            unit = (
+                ui.select({u: u.value for u in EffortUnit}, value=EffortUnit.HOURS)
+                .classes("w-24")
+                .mark("detail-unit")
+            )
+        start = (
+            ui.input("開始日", placeholder="2026-11-24 または 11/24")
+            .classes("w-full")
+            .mark("detail-start")
+        )
+        deadline = (
+            ui.input("締切日", placeholder="2026-11-30 または 11/30")
+            .classes("w-full")
+            .mark("detail-deadline")
+        )
+        ui.label("完了予定・担当などは、あとで`編集`で入れます").classes(
+            "text-caption text-grey"
+        )
+        error = ui.label("").classes("text-negative").mark("detail-error")
+
+        def create() -> None:
+            try:
+                task = build_detailed_task(
+                    title.value or "",
+                    effort.value,
+                    unit.value,
+                    start.value or "",
+                    deadline.value or "",
+                    today=today,
+                    daily_hours=daily_hours,
+                    work_start=work_start,
+                )
+            except ValueError as exc:
+                error.set_text(str(exc))
+                return
+            dialog.close()
+            on_create(task)
+
+        for field in (title, effort, start, deadline):
+            field.on(
+                "keydown.enter",
+                create,
+                js_handler="(e) => { if (!e.isComposing && e.keyCode !== 229) emit(); }",
+            )
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark(
+                "detail-cancel"
+            )
+            ui.button("作成", on_click=create).mark("detail-save")
     dialog.open()
 
 

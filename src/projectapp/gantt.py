@@ -387,6 +387,11 @@ QUICK_ADD_JS = (
     "(e) => { if (!e.target.closest('button, a, input, [data-no-quick-add]'))"
     " emit({shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey}); }"
 )
+# 名前の入力行の Enter。入力した文字と、Shift を押していたか(工数・日付も入れる小さなダイアログを開く)を渡す。変換確定の Enter は同じく無視する
+QUICK_ENTER_JS = (
+    "(e) => { if (!e.isComposing && e.keyCode !== 229)"
+    " emit({text: e.target.value, shift: e.shiftKey}); }"
+)
 # Cmd/Ctrl クリックと Shift クリックだけを選択として送る。ボタン・リンク・入力欄と、印の付いた要素の上は除く
 SELECT_CLICK_JS = (
     "(e) => { if (!(e.shiftKey || e.ctrlKey || e.metaKey)) return;"
@@ -732,6 +737,10 @@ class GanttActions:
     # 名前の入力行で確定した、名前だけのタスクの追加(セクションのパス, 挿入位置, 名前)
     add_named_task: Callable[[SectionPath, int, str], object] = (
         lambda path, index, name: None
+    )
+    # 同じく Shift + Enter で、工数・開始日・締切日を入れる小さなダイアログを開いてから作る(まとめの子なら親の id、なければ None)
+    add_detailed_task: Callable[[SectionPath, int, str, str | None], object] = (
+        lambda path, index, name, parent: None
     )
     # 同じく、まとめの子として作る追加(セクションのパス, 挿入位置, 名前, まとめのタスク id)
     add_named_child: Callable[[SectionPath, int, str, str], object] = (
@@ -2323,7 +2332,13 @@ class GanttChart:
             row.delete()
         self.update_links()
 
-    def submit_quick_add(self, text: object, error: ui.label) -> None:
+    def submit_quick_add(self, payload: object, error: ui.label) -> None:
+        """Enter の確定。payload は入力した文字、または {text, shift}(Shift + Enter は、タスクと子のときだけ詳細のダイアログを開く)。"""
+        text, shift = (
+            (payload.get("text"), bool(payload.get("shift")))
+            if isinstance(payload, dict)
+            else (payload, False)
+        )
         name = str(text or "").strip()
         if message := (
             section_name_error if self.quick_section is not None else task_name_error
@@ -2345,6 +2360,8 @@ class GanttChart:
         )
         if summary:
             self.actions.add_named_summary(path, index, name)
+        elif shift:
+            self.actions.add_detailed_task(path, index, name, parent)
         elif parent is not None:
             self.actions.add_named_child(path, index, name, parent)
         else:
@@ -2392,7 +2409,7 @@ class GanttChart:
         field.on(
             "keydown.enter",
             lambda e: self.submit_quick_add(e.args, error),
-            js_handler=SEARCH_ENTER_JS,
+            js_handler=QUICK_ENTER_JS,
         )
         field.on("keydown.escape", self.close_quick_add)
         field.on("blur", self.close_quick_add)

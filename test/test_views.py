@@ -9727,3 +9727,36 @@ async def test_open_rebalance_does_nothing_outside_the_dashboard(
     with view.client:
         view.open_rebalance("田中")
     await user.should_not_see(marker="rebalance-title")
+
+
+async def test_the_detailed_quick_add_creates_the_task_with_the_details_in_one_undo_step(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path, with_task=False)
+    before = len(view.project.tasks)
+    with user.client:
+        view.add_detailed_task((), before, "詳細つき", None)
+    await user.should_see(marker="detail-name")
+    with user.client:
+        user.find(marker="detail-effort").elements.pop().set_value(4)
+        user.find(marker="detail-start").elements.pop().set_value("2026-10-08")
+    user.find(marker="detail-save").click()
+    created = view.project.tasks[before]
+    assert (created.name, created.effort_hours) == ("詳細つき", 4)
+    assert created.planned_start == datetime(2026, 10, 8, 9, 0)
+    assert view.is_dirty()
+    with user.client:
+        view.undo()
+    assert len(view.project.tasks) == before
+
+
+async def test_the_detailed_quick_add_cancel_creates_nothing(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path, with_task=False)
+    before = len(view.project.tasks)
+    with user.client:
+        view.add_detailed_task((), before, "詳細つき", None)
+    await user.should_see(marker="detail-name")
+    user.find(marker="detail-cancel").click()
+    assert len(view.project.tasks) == before

@@ -319,6 +319,7 @@ from projectapp.storage import (
 from projectapp.summary import parent_map
 from projectapp.task_dialog import (
     open_extra_effort_dialog,
+    open_detailed_task_dialog,
     open_quick_progress_dialog,
     open_day_crew_dialog,
     open_task_dialog,
@@ -640,6 +641,7 @@ class MainView:
                 delete_section=self.confirm_delete_section,
                 move_section=self.move_section,
                 add_named_task=self.add_named_task,
+                add_detailed_task=self.add_detailed_task,
                 add_named_child=self.add_named_child,
                 add_named_summary=self.add_named_summary,
                 add_named_section=self.add_named_section,
@@ -3287,6 +3289,32 @@ class MainView:
         """名前だけの通常タスクを、セクション(root は ())の index 番目に作る(名前の入力行の確定)。"""
         arrange.insert_named_task(self.project, (path, index), name)
         self.after_edit()
+
+    def add_detailed_task(
+        self, path: SectionPath, index: int, name: str, parent_id: str | None
+    ) -> None:
+        """Shift + Enter。名前・工数・開始日・締切日の小さなダイアログを開き、作成を押したら、通常タスクを index 番目(parent_id があればそのまとめの子として)に作る(元に戻す 1 ステップ)。"""
+
+        def create(details: Task) -> None:
+            if parent_id is None:
+                task = arrange.insert_named_task(
+                    self.project, (path, index), details.name
+                )
+            else:
+                task = arrange.insert_named_child(
+                    self.project, (path, index), details.name, parent_id
+                )
+            task.effort_hours = details.effort_hours
+            task.planned_start, task.deadline = details.planned_start, details.deadline
+            self.after_edit()
+
+        open_detailed_task_dialog(
+            name,
+            self.now().date(),
+            self.project.daily_hours,
+            self.project.work_start,
+            create,
+        )
 
     def add_named_child(
         self, path: SectionPath, index: int, name: str, parent_id: str
