@@ -2223,3 +2223,22 @@ CSV の取り込みで読んだメモは、すぐ`notes/<ファイル名の stem
 
 ### 状態
 未着手(要望 161 の実装後に着手する)。
+
+## 要望 163: `timeline.py` を、責務ごとのモジュールに分ける(2026-11-22 に受領。要望 161 の計画で気づいた)
+
+### 要望
+`timeline.py`が大きくなっているので、責務ごとにモジュールを分けて整理したい。
+
+### 今の仕組み
+- `timeline.py`は約 1100 行で、列とスケール(`build_columns`・`bar_span`・`interval_span`)、割り当て超過(`overallocations`)、稼働日と窓(`is_workday`・`day_window`)、完了予定の算出(`calc_end`・`Schedule`・`effective_start`)、予定超過・進捗の判定(`is_overdue`・`progress_state`)などが同居している。
+- 要望 161(着工遅れ)は、判定を新しいモジュール(`start_delay.py`)に置き、`timeline.py`から`is_workday`・`effective_start`・`Schedule`を使う形にした。
+
+### 決めたい点
+- 分け方の案: 列・スケール・帯(描画の位置)/ 稼働日・窓 / 完了予定の算出と`Schedule` / 予定超過・進捗の判定 / 割り当て超過。
+- 循環参照を避ける依存の向き。
+- 公開名の維持(`from projectapp.timeline import ...`が各所・テストにある)。互換の再エクスポートを残すか、一括で書き換えるか。
+- `gantt.py`・`forms.py`・`views.py`など、ほかの大きなファイルも同時に見直すか(別の要望にするか)。
+- 挙動を変えない変更として、既存のテストだけで確かめる(テストは書き換えない)。
+
+### 状態
+未着手。
