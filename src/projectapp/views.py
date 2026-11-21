@@ -95,6 +95,7 @@ from projectapp.forms import (
     open_conflict_dialog,
     open_merge_conflict_dialog,
     open_file_dialog,
+    open_inherit_dialog,
     open_handoff_dialog,
     open_members_parameters_dialog,
     open_confirm_dialog,
@@ -270,6 +271,7 @@ from projectapp.gantt import (
     short_date,
 )
 from projectapp.history_log import HistoryKeep
+from projectapp.inherit import InheritScope, inherit_project
 from projectapp.models import (
     MAX_SECTION_DEPTH,
     MAX_WEEKS,
@@ -1106,6 +1108,47 @@ class MainView:
             on_discard=self.new_project,
             purpose="作成",
         )
+
+    def request_inherit_new(self) -> None:
+        """既存のプロジェクトから引き継いで、新しいプロジェクトを作る(要望 77)。編集中なら、確認してから元を選ばせる。"""
+        if not self.is_dirty():
+            self.pick_inherit_source()
+            return
+        open_unsaved_dialog(
+            on_save=lambda: self.save_then(self.pick_inherit_source),
+            on_discard=self.pick_inherit_source,
+            purpose="作成",
+        )
+
+    def pick_inherit_source(self) -> None:
+        """格納先のファイルの一覧から、引き継ぎ元を選ばせる。"""
+        self.files = {p.stem: p for p in list_project_files(self.project_dir)}
+        with self.client:  # 確認ダイアログの中で作ると、確認が閉じるときに一緒に消える
+            open_file_dialog(
+                sorted(self.files), self.ask_inherit_scope, "引き継ぎ元のプロジェクト"
+            )
+
+    def ask_inherit_scope(self, name: str) -> None:
+        """引き継ぎ元を読み、引き継ぐ範囲を選ばせる。読めなければ通知だけして何も変えない。"""
+        try:
+            source = load_project(self.files[name])
+        except (OSError, ValueError, KeyError) as exc:
+            ui.notify(f"開けませんでした: {exc}", type="negative")
+            return
+        with self.client:
+            open_inherit_dialog(
+                name, lambda scope, reset: self.create_inherited(source, scope, reset)
+            )
+
+    def create_inherited(
+        self, source: Project, scope: InheritScope, reset: bool
+    ) -> None:
+        """引き継いだ、保存前の新規プロジェクトにする(元のファイルは変えない)。"""
+        self.show_project(inherit_project(source, NEW_PROJECT_NAME, scope, reset), None)
+        self.snapshot = history_log.dirty_key(
+            Project(NEW_PROJECT_NAME)
+        )  # 空の新規とは別物なので、未保存の扱いにする
+        ui.notify(f"「{source.name}」から引き継ぎました(保存するとファイルになります)")
 
     def request_import_plantuml(self) -> None:
         """PlantUML の取り込みを始める(ネイティブのみ)。編集中は、確認してからファイルを選ばせる。"""
@@ -3849,6 +3892,12 @@ class MainView:
                     MenuItem("開く", "folder_open", self.show_file_list, "file-open"),
                     MenuItem(
                         "新規プロジェクト作成", "note_add", self.request_new, "file-new"
+                    ),
+                    MenuItem(
+                        "引き継いで作成",
+                        "content_copy",
+                        self.request_inherit_new,
+                        "file-inherit",
                     ),
                     None,
                     Submenu(
