@@ -14,6 +14,7 @@ from nicegui.events import ValueChangeEventArguments
 from projectapp import clock
 from projectapp.dateinput import parse_date_input, parse_time_input
 from projectapp.effortunits import EffortUnit, to_hours
+from projectapp.inherit import InheritScope
 from projectapp.avatar import avatar
 from projectapp.events import color_hex, normalize_color, sort_events, validate_events
 from projectapp.icons import is_valid_icon
@@ -1592,9 +1593,13 @@ def open_confirm_dialog(
     dialog.open()
 
 
-def open_file_dialog(names: list[str], on_select: Callable[[str], object]) -> None:
+def open_file_dialog(
+    names: list[str],
+    on_select: Callable[[str], object],
+    title: str = "プロジェクトを開く",
+) -> None:
     with disposable(ui.dialog()) as dialog, ui.card().classes("w-80"):
-        ui.label("プロジェクトを開く").classes("text-h6")
+        ui.label(title).classes("text-h6")
         if not names:
             ui.label("プロジェクトファイルがありません")
 
@@ -1608,6 +1613,35 @@ def open_file_dialog(names: list[str], on_select: Callable[[str], object]) -> No
                     "flat align=left"
                 ).classes("w-full").mark(f"file-{index}")
         ui.button("キャンセル", on_click=dialog.close).props("flat")
+    dialog.open()
+
+
+def open_inherit_dialog(
+    source: str, on_create: Callable[[InheritScope, bool], object]
+) -> None:
+    """既存のプロジェクト(source)から引き継ぐ範囲を選ぶ。`実績・進捗度・状態を初期化する`は、タスクを引き継ぐ範囲のときだけ出す。"""
+    with disposable(ui.dialog()) as dialog, ui.card().classes("w-96"):
+        ui.label(f"「{source}」から引き継いで作成").classes("text-h6")
+        scope = ui.radio(
+            {s: s.value for s in InheritScope}, value=InheritScope.SETTINGS_AND_TASKS
+        ).mark("inherit-scope")
+        reset = ui.checkbox("実績・進捗度・状態を初期化する", value=True).mark(
+            "inherit-reset"
+        )
+        reset.bind_visibility_from(scope, "value", backward=lambda s: s.with_tasks)
+        ui.label(
+            "設定は、稼働・参照の方式・比率の上限と下限・メンバー・パラメータ・カテゴリ・URL テンプレート・イベント・チーム。保存するまでファイルは作りません"
+        ).classes("text-caption text-grey")
+
+        def create() -> None:
+            dialog.close()
+            on_create(scope.value, bool(reset.value))
+
+        with ui.row():
+            ui.button("キャンセル", on_click=dialog.close).props("flat").mark(
+                "inherit-cancel"
+            )
+            ui.button("作成", on_click=create).mark("inherit-create")
     dialog.open()
 
 

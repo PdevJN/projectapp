@@ -77,6 +77,7 @@
 | `rebalance_dialog.py` | `負荷の調整`ダイアログ(`open_rebalance_dialog`)。ダッシュボードの`調整…`から開く |
 | `delay_response.py` | 遅延対応の帯(`delay_band`)・増員を試すダイアログ・保存時の確認・CSS(紫・太い点線) |
 | `extract.py` | タスクの子プロジェクトへの切り出し(要望 89)。`expand_ids`・`selection_error`・`name_error`・`extract`(子の`Project`と、参照行に置き換えた親の複製を返す。元は変えない)・`check`(保存・読込の検証)。NiceGUI に依存しない。画面は`views.extract_tasks`(名前の入力)・`apply_extract`(子を先に新規保存し、親を置き換える) |
+| `inherit.py` | 既存のプロジェクトからの引き継ぎ(要望 77)。`InheritScope`(`設定のみ`・`設定とタスク`。ダイアログの選択肢はこの列挙型から作る)・`inherit_project`(複製して名前を替える。元は変えない・`id`と日付はそのまま・履歴は持ち越さない・リセットは状態、実績、進捗度だけ)。NiceGUI に依存しない。画面は`views.request_inherit_new`・`pick_inherit_source`・`ask_inherit_scope`・`create_inherited`、`forms.open_inherit_dialog` |
 | `teams_dialog.py` | `チーム`タブ(`teams_panel`)とメンバーの所属ダイアログ(`open_member_teams_dialog`)。`forms.py` から import されるので、`forms` を import しない |
 | `settings_io.py` | 設定値のエクスポート・インポート(要望 78)。`build_settings`・`write_settings`・`parse_settings`(`ImportFile`。設定ファイルを「タスクのないプロジェクト」に組み直して `storage.parse_project` で検証する)、`plan_import`(`ImportPlan`: 区分ごとの追加・重複とプロジェクト設定の違い)、`apply_import`(`ImportResult`。選んだ区分と上書きを、コピーに適用して検証する。元は変えない)、`summary`、`copy_into`(`MainView` の `Project` の参照を保つ)。鍵は名前(イベントは期間と文字列)。NiceGUI に依存しない |
 | `settings_dialog.py` | 取り込みのダイアログ(`open_import_dialog`)。区分のチェック `import-section-<key>`、重複の上書き `import-overwrite-<key>-<index>`、`import-apply`・`import-cancel`。`MainView.apply_settings_import` が `apply_import` と、上限・下限の見直し確認(`ask_limit_review`。`apply_ratio_limits` と共有)、スナップショットの取り直し(`refresh_all_snapshots`。`apply_reference_mode` と共有)につなぐ |
@@ -119,7 +120,7 @@ uvx ruff format src test        # 整形。確認だけなら --check
 
 全テスト(約 4,700 件。直列で約 5 分、`-n auto` で約 1 分)の前に、コア機能が壊れていないことを素早く確かめるためのタグ。`pyproject.toml` の `markers` に登録し、`--strict-markers` でつづりミスはエラーになる。実装のたびに `-m smoke` を実行し(`.claude/RULE.md`)、失敗したときに限り全体(`-n auto`)を実行して詳細を確かめる。smoke が通っていれば、PR の前でも全体は流さない(CI はない)。
 
-- 付け方: 純粋関数のファイルは、ファイルの先頭に `pytestmark = pytest.mark.smoke`(`test_timeline`・`test_schedule`・`test_ratios`・`test_workdays`・`test_history`・`test_merge`・`test_models`・`test_filemanager`・`test_main`)。件数が多く重い画面系と保存・読込のファイルは、代表だけに `@pytest.mark.smoke`(`test_storage`・`test_views`・`test_task_dialog`・`test_gantt`)。
+- 付け方: 純粋関数のファイルは、ファイルの先頭に `pytestmark = pytest.mark.smoke`(`test_timeline`・`test_schedule`・`test_ratios`・`test_workdays`・`test_history`・`test_merge`・`test_inherit`・`test_models`・`test_filemanager`・`test_main`)。件数が多く重い画面系と保存・読込のファイルは、代表だけに `@pytest.mark.smoke`(`test_storage`・`test_views`・`test_task_dialog`・`test_gantt`)。
 - 範囲: 保存・読込(往復・version・不正値)、日程の計算、元に戻す・やり直し、3 者マージ、起動の引数、プロジェクトの新規・開く・保存・未保存の確認、タスクの追加・編集・削除・分解、ガントチャートの描画。ダッシュボード・プレビュー・PlantUML・CSV・git・テーマなどの周辺は含めない。
 - 新しいコア機能のテストを足すときは、上の範囲に入るなら付ける。画面系は代表だけにして、`-m smoke` が 1 分を超えないようにする(2026-10-31 時点は 453 件・約 7 秒)。
 

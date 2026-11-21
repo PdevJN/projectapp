@@ -70,6 +70,7 @@ from projectapp.models import (
     WorkDay,
     union_assignees,
 )
+from projectapp.inherit import InheritScope
 from projectapp.storage import load_project, save_project
 from nicegui.events import (
     KeyboardAction,
@@ -4315,6 +4316,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     assert menu_items(user, "menu-file-items") == [
         ("開く", "file-open"),
         ("新規プロジェクト作成", "file-new"),
+        ("引き継いで作成", "file-inherit"),
         ("インポート", "file-import"),
         ("エクスポート", "file-export"),
         ("上書き保存", "save-project"),
@@ -4336,6 +4338,7 @@ async def test_the_menus_list_their_items_in_order(user: User, tmp_path: Path) -
     assert menu_icons(user, "menu-file-items") == [
         "folder_open",
         "note_add",
+        "content_copy",
         "file_download",
         "file_upload",
         "save",
@@ -4398,6 +4401,7 @@ async def test_the_file_menu_separates_open_save_and_update(
         for c in menu.default_slot.children
     ]
     assert kinds == [
+        "item",
         "item",
         "item",
         "sep",
@@ -4988,13 +4992,13 @@ async def test_the_file_menu_separators_are_marked_and_the_holiday_update_is_las
     menu = user.find(marker="menu-file-items").elements.pop()
     children = menu.default_slot.children
     assert (
-        "menu-file-separator" in children[2]._markers
-        and "menu-file-separator" in children[5]._markers
-        and "menu-file-separator" in children[8]._markers
+        "menu-file-separator" in children[3]._markers
+        and "menu-file-separator" in children[6]._markers
+        and "menu-file-separator" in children[9]._markers
     )
     assert (
-        "file-change-dir" in children[9]._markers
-        and "refresh-holidays" in children[10]._markers
+        "file-change-dir" in children[10]._markers
+        and "refresh-holidays" in children[11]._markers
     )
 
 
@@ -9811,3 +9815,151 @@ async def test_the_detailed_quick_add_notifies_when_the_summary_has_gone(
     user.find(marker="detail-save").click()
     await user.should_see("作成できませんでした")
     assert len(view.project.tasks) == before
+
+
+async def open_inherit_view(user: User, tmp_path: Path) -> MainView:
+    """「甲」を開いた状態で、引き継ぎ元の「乙」(メンバー 1 人・終了済みのタスク)がある格納先。"""
+    save_cache({}, tmp_path)
+    save_project(
+        Project(
+            "乙",
+            daily_hours=6.0,
+            members=[Member("田中", 1.0)],
+            sections=[
+                Section("乙の中身", [Task("済", status=Status.DONE, progress=100)])
+            ],
+        ),
+        tmp_path,
+    )
+    view = await open_saved_view(user, tmp_path)
+    return view
+
+
+async def choose_inherit_source(user: User, name: str) -> None:
+    user.find(marker="file-inherit").click()
+    await user.should_see(marker="file-0")
+    index = sorted(["乙", "甲"]).index(name)  # 格納先の一覧は名前順(乙・甲の 2 件)
+    user.find(marker=f"file-{index}").click()
+    await user.should_see(marker="inherit-create")
+
+
+async def test_inherit_creates_an_unsaved_project_with_settings_and_tasks(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_inherit_view(user, tmp_path)
+    await choose_inherit_source(user, "乙")
+    user.find(marker="inherit-create").click()
+    assert view.path is None and view.project.name == "新規プロジェクト"
+    assert [m.name for m in view.project.members] == ["田中"]
+    task = view.project.sections[0].tasks[0]
+    assert (task.name, task.status, task.progress) == ("済", Status.NOT_STARTED, None)
+    assert view.is_dirty()  # 空の新規とは別物なので、未保存の扱い
+    assert view.file_select.value is None
+    assert load_project(tmp_path / "乙.json").sections[0].tasks[0].progress == 100
+
+
+async def test_inherit_can_take_the_settings_only_and_keep_the_records(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_inherit_view(user, tmp_path)
+    await choose_inherit_source(user, "乙")
+    with user.client:
+        user.find(marker="inherit-scope").elements.pop().set_value(
+            InheritScope.SETTINGS
+        )
+    user.find(marker="inherit-create").click()
+    assert [m.name for m in view.project.members] == ["田中"]
+    assert view.project.sections == [] and view.project.tasks == []
+
+
+async def test_inherit_keeps_the_records_when_the_reset_is_off(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_inherit_view(user, tmp_path)
+    await choose_inherit_source(user, "乙")
+    with user.client:
+        user.find(marker="inherit-reset").elements.pop().set_value(False)
+    user.find(marker="inherit-create").click()
+    task = view.project.sections[0].tasks[0]
+    assert (task.status, task.progress) == (Status.DONE, 100)
+
+
+async def test_inherit_cancel_changes_nothing(user: User, tmp_path: Path) -> None:
+    view = await open_inherit_view(user, tmp_path)
+    await choose_inherit_source(user, "乙")
+    user.find(marker="inherit-cancel").click()
+    assert view.path == tmp_path / "甲.json" and not view.is_dirty()
+
+
+async def test_inherit_asks_before_dropping_unsaved_changes(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_inherit_view(user, tmp_path)
+    view.save_section("追加")
+    user.find(marker="file-inherit").click()
+    await user.should_see("保存されていない変更があります")
+    await user.should_see("作成前に")
+    user.find(marker="unsaved-cancel").click()
+    assert view.path == tmp_path / "甲.json"
+
+
+async def test_inherit_with_unsaved_changes_continues_after_discarding(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_inherit_view(user, tmp_path)
+    view.save_section("追加")
+    user.find(marker="file-inherit").click()
+    user.find(marker="unsaved-discard").click()
+    await user.should_see(marker="file-0")
+    assert view.path == tmp_path / "甲.json"  # 元を選ぶまでは、何も変わらない
+
+
+async def test_inherit_with_no_files_says_so(user: User, tmp_path: Path) -> None:
+    save_cache({}, tmp_path)
+    mount(tmp_path, make_transport(200, []))
+    await user.open("/")
+    user.find(marker="file-inherit").click()
+    await user.should_see("プロジェクトファイルがありません")
+
+
+async def test_inherited_project_is_unsaved_even_when_it_looks_like_an_empty_new_one(
+    user: User, tmp_path: Path
+) -> None:
+    """設定が既定値で中身のない引き継ぎでも、保存の確認の対象になる。"""
+    save_cache({}, tmp_path)
+    save_project(Project("乙"), tmp_path)
+    view = await open_saved_view(user, tmp_path)
+    await choose_inherit_source(user, "乙")
+    with user.client:
+        user.find(marker="inherit-scope").elements.pop().set_value(
+            InheritScope.SETTINGS
+        )
+    user.find(marker="inherit-create").click()
+    assert view.path is None and view.is_dirty()
+
+
+async def test_inherit_save_and_continue_saves_the_current_project_first(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_inherit_view(user, tmp_path)
+    view.save_section("追加")
+    user.find(marker="file-inherit").click()
+    user.find(marker="unsaved-save").click()
+    await user.should_see(marker="file-0")
+    assert [s.name for s in load_project(tmp_path / "甲.json").sections] == [
+        "甲の中身",
+        "追加",
+    ]
+    assert view.path == tmp_path / "甲.json"  # 元を選ぶまでは、何も変わらない
+
+
+async def test_inherit_with_an_unreadable_source_only_notifies(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_inherit_view(user, tmp_path)
+    (tmp_path / "乙.json").write_text("{壊れた", encoding="utf-8")
+    user.find(marker="file-inherit").click()
+    await user.should_see(marker="file-0")
+    user.find(marker="file-0").click()  # 並びは「乙」「甲」
+    await user.should_see("開けませんでした")
+    assert view.path == tmp_path / "甲.json" and not view.is_dirty()
