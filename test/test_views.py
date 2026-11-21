@@ -9777,3 +9777,37 @@ async def test_shift_enter_in_the_real_input_row_opens_the_detail_dialog(
         "keydown.enter", args={"text": "新規", "shift": True}
     )
     await user.should_see(marker="detail-name")
+
+
+async def test_the_detailed_quick_add_makes_a_child_of_the_summary(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    view = views[0]
+    summary = Task("まとめ", id="s", kind=TaskKind.SUMMARY, children=["c0"])
+    view.project.tasks = [summary, Task("子", id="c0")]
+    with user.client:
+        view.add_detailed_task((), 2, "新しい子", "s")
+    await user.should_see(marker="detail-name")
+    with user.client:
+        user.find(marker="detail-effort").elements.pop().set_value(2)
+    user.find(marker="detail-save").click()
+    created = view.project.tasks[2]
+    assert (created.name, created.effort_hours) == ("新しい子", 2)
+    assert view.project.tasks[0].children == ["c0", created.id]
+
+
+async def test_the_detailed_quick_add_notifies_when_the_summary_has_gone(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path, with_task=False)
+    before = len(view.project.tasks)
+    with user.client:
+        view.add_detailed_task((), before, "孤児", "none")
+    await user.should_see(marker="detail-name")
+    user.find(marker="detail-save").click()
+    await user.should_see("作成できませんでした")
+    assert len(view.project.tasks) == before

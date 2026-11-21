@@ -2398,8 +2398,11 @@ class GanttChart:
                     if self.quick_summary
                     else "タスク名"
                 )
+                detail = (
+                    "" if section or self.quick_summary else "・Shift + Enter で詳細"
+                )
                 field = ui.input(
-                    placeholder=f"{label}(Enter で作成・Esc で取り消し)"
+                    placeholder=f"{label}(Enter で作成{detail}・Esc で取り消し)"
                 ).classes("grow")
                 field.props("dense outlined autofocus").mark("quick-add-input")
             error = (

@@ -3296,14 +3296,18 @@ class MainView:
         """Shift + Enter。名前・工数・開始日・締切日の小さなダイアログを開き、作成を押したら、通常タスクを index 番目(parent_id があればそのまとめの子として)に作る(元に戻す 1 ステップ)。"""
 
         def create(details: Task) -> None:
-            if parent_id is None:
-                task = arrange.insert_named_task(
-                    self.project, (path, index), details.name
-                )
-            else:
-                task = arrange.insert_named_child(
-                    self.project, (path, index), details.name, parent_id
-                )
+            try:
+                if parent_id is None:
+                    task = arrange.insert_named_task(
+                        self.project, (path, index), details.name
+                    )
+                else:
+                    task = arrange.insert_named_child(
+                        self.project, (path, index), details.name, parent_id
+                    )
+            except (ValueError, IndexError):  # 開いている間にプロジェクトが変わった
+                ui.notify("作成できませんでした(プロジェクトが変わりました)")
+                return
             task.effort_hours = details.effort_hours
             task.planned_start, task.deadline = details.planned_start, details.deadline
             self.after_edit()

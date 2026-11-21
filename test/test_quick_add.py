@@ -443,3 +443,14 @@ async def test_shift_enter_makes_a_summary_and_a_section_the_usual_way(
         ("add_named_summary", ((0,), 1, "束")),
         ("add_named_section", ((0,), "節")),
     ]
+
+
+async def test_the_placeholder_mentions_shift_enter_for_tasks_only(user: User) -> None:
+    mount_chart(quick_project())
+    await user.open("/")
+    await double_click(user, "task-0-0")
+    task_hint = user.find(marker=INPUT).elements.pop().props["placeholder"]
+    assert "Shift + Enter で詳細" in task_hint
+    user.find(marker=INPUT).trigger("keydown.escape")
+    await ctrl_double_click(user, "task-0-0")
+    assert "Shift" not in user.find(marker=INPUT).elements.pop().props["placeholder"]

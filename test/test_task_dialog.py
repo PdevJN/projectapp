@@ -3779,3 +3779,22 @@ async def test_the_detail_dialog_cancel_creates_nothing(user: User) -> None:
     with user.client:
         dialogs = [e for e in user.client.elements.values() if isinstance(e, ui.dialog)]
     assert dialogs and not any(d.value for d in dialogs)
+
+
+async def test_enter_in_a_detail_field_creates_the_task(user: User) -> None:
+    created: list[Task] = []
+    mount_detail_dialog("新規", created)
+    await open_dialog(user)
+    user.find(marker="detail-start").trigger("keydown.enter")
+    assert [t.name for t in created] == ["新規"]
+
+
+async def test_the_detail_dialog_converts_the_chosen_unit(user: User) -> None:
+    created: list[Task] = []
+    mount_detail_dialog("新規", created)
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="detail-effort").elements.pop().set_value(2)
+        user.find(marker="detail-unit").elements.pop().set_value(EffortUnit.DAYS)
+    user.find(marker="detail-save").click()
+    assert created[0].effort_hours == 12  # 1 日 = 6 時間

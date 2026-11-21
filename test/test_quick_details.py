@@ -6,26 +6,25 @@ import pytest
 
 from projectapp.effortunits import EffortUnit
 from projectapp.forms import build_detailed_task
+from projectapp.models import Task
 
 TODAY = date(2026, 11, 20)
 WORK_START = time(9, 0)
 
 
-def build(**kwargs: object):
-    values: dict[str, object] = {
-        "name": "新規",
-        "effort": None,
-        "unit": EffortUnit.HOURS,
-        "start": "",
-        "deadline": "",
-    }
-    values.update(kwargs)
+def build(
+    name: str = "新規",
+    effort: float | None = None,
+    unit: EffortUnit = EffortUnit.HOURS,
+    start: str = "",
+    deadline: str = "",
+) -> Task:
     return build_detailed_task(
-        values["name"],  # ty: ignore[invalid-argument-type]
-        values["effort"],  # ty: ignore[invalid-argument-type]
-        values["unit"],  # ty: ignore[invalid-argument-type]
-        values["start"],  # ty: ignore[invalid-argument-type]
-        values["deadline"],  # ty: ignore[invalid-argument-type]
+        name,
+        effort,
+        unit,
+        start,
+        deadline,
         today=TODAY,
         daily_hours=6.0,
         work_start=WORK_START,
@@ -49,24 +48,44 @@ def test_effort_start_and_deadline_are_set() -> None:
     assert task.deadline is not None and task.deadline.date() == date(2026, 11, 30)
 
 
-def test_effort_is_converted_from_days_to_hours() -> None:
-    assert build(effort=2, unit=EffortUnit.DAYS).effort_hours == 12
+@pytest.mark.parametrize(
+    ("unit", "hours"),
+    [
+        (EffortUnit.HOURS, 2),
+        (EffortUnit.DAYS, 12),
+        (EffortUnit.WEEKS, 60),
+        (EffortUnit.MONTHS, 240),
+    ],
+)
+def test_effort_is_converted_to_hours_by_the_unit(
+    unit: EffortUnit, hours: float
+) -> None:
+    assert build(effort=2, unit=unit).effort_hours == hours
 
 
 def test_short_dates_are_read_like_the_other_date_fields() -> None:
     assert build(start="11/24").planned_start == datetime(2026, 11, 24, 9, 0)
 
 
+def test_the_same_day_is_allowed_for_start_and_deadline() -> None:
+    task = build(start="2026-11-24", deadline="2026-11-24")
+    assert task.planned_start is not None and task.deadline is not None
+    assert task.planned_start < task.deadline
+
+
 @pytest.mark.parametrize(
-    "kwargs",
+    ("kwargs", "message"),
     [
-        {"name": ""},
-        {"start": "あした"},
-        {"deadline": "2026-02-30"},
-        {"effort": -1},
-        {"start": "2026-12-01", "deadline": "2026-11-30"},
+        ({"name": ""}, "名前"),
+        ({"start": "あした"}, "開始日"),
+        ({"deadline": "2026-02-30"}, "締切日"),
+        ({"effort": -1}, "工数"),
+        ({"effort": float("nan")}, "工数"),
+        ({"start": "2026-12-01", "deadline": "2026-11-30"}, "締切日は開始日以降"),
     ],
 )
-def test_invalid_details_are_rejected_with_a_message(kwargs: dict) -> None:
-    with pytest.raises(ValueError):
+def test_invalid_details_are_rejected_with_a_message(
+    kwargs: dict, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
         build(**kwargs)
