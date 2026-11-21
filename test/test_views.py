@@ -9760,3 +9760,20 @@ async def test_the_detailed_quick_add_cancel_creates_nothing(
     await user.should_see(marker="detail-name")
     user.find(marker="detail-cancel").click()
     assert len(view.project.tasks) == before
+
+
+async def test_shift_enter_in_the_real_input_row_opens_the_detail_dialog(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    make_view(tmp_path, views)
+    await user.open("/")
+    views[0].save_task((), None, Task("a"))
+    await user.should_see(marker="task-top-0")
+    user.find(marker="task-top-0").trigger("dblclick")
+    await user.should_see(marker="quick-add-input")
+    user.find(marker="quick-add-input").trigger(
+        "keydown.enter", args={"text": "新規", "shift": True}
+    )
+    await user.should_see(marker="detail-name")

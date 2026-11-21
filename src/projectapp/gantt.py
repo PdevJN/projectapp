@@ -2352,16 +2352,19 @@ class GanttChart:
             return
         if self.quick_add is None:
             return
-        (path, index), parent, summary, _ = (
+        (path, index), parent, summary = (
             self.quick_add,
             self.quick_parent,
             self.quick_summary,
-            self.close_quick_add(),
         )
+        layout = context.client.layout
+        self.close_quick_add()
+        if shift and not summary:
+            with layout:  # 消した入力行の中で作ると、ダイアログも一緒に消える
+                self.actions.add_detailed_task(path, index, name, parent)
+            return
         if summary:
             self.actions.add_named_summary(path, index, name)
-        elif shift:
-            self.actions.add_detailed_task(path, index, name, parent)
         elif parent is not None:
             self.actions.add_named_child(path, index, name, parent)
         else:
