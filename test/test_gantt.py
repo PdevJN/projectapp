@@ -166,6 +166,9 @@ class Recorder:
             add_named_task=lambda path, index, name: self.events.append(
                 ("add_named_task", (path, index, name))
             ),
+            add_detailed_task=lambda path, index, name, parent: self.events.append(
+                ("add_detailed_task", (path, index, name, parent))
+            ),
             add_named_child=lambda path, index, name, parent: self.events.append(
                 ("add_named_child", (path, index, name, parent))
             ),

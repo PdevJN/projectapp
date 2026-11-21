@@ -33,6 +33,7 @@ from projectapp.models import (
 )
 from projectapp.forms import ActualTimePolicy
 from projectapp.task_dialog import (
+    open_detailed_task_dialog,
     open_quick_progress_dialog,
     open_task_dialog,
     open_week_crew_dialog,
@@ -3713,3 +3714,87 @@ async def test_the_quick_dialog_refuses_a_date_only_actual_when_required(
     user.find(marker="quick-save").click()
     assert saved == []
     assert "両方" in user.find(marker="quick-error").elements.pop().text
+
+
+def mount_detail_dialog(name: str, created: list[Task]) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_detailed_task_dialog(
+                name, date(2026, 11, 20), 6.0, time(9, 0), created.append
+            ),
+        ).mark("open")
+
+
+async def test_the_detail_dialog_creates_a_task_with_effort_and_dates(
+    user: User,
+) -> None:
+    created: list[Task] = []
+    mount_detail_dialog("新規", created)
+    await open_dialog(user)
+    assert user.find(marker="detail-name").elements.pop().value == "新規"
+    with user.client:
+        user.find(marker="detail-effort").elements.pop().set_value(8)
+        user.find(marker="detail-start").elements.pop().set_value("2026-11-24")
+        user.find(marker="detail-deadline").elements.pop().set_value("11/30")
+    user.find(marker="detail-save").click()
+    assert len(created) == 1
+    task = created[0]
+    assert (task.name, task.effort_hours) == ("新規", 8)
+    assert task.planned_start == datetime(2026, 11, 24, 9, 0)
+    assert task.deadline is not None and task.deadline.date() == date(2026, 11, 30)
+
+
+async def test_the_detail_dialog_keeps_blank_fields_at_their_defaults(
+    user: User,
+) -> None:
+    created: list[Task] = []
+    mount_detail_dialog("新規", created)
+    await open_dialog(user)
+    user.find(marker="detail-save").click()
+    assert [(t.name, t.effort_hours, t.planned_start, t.deadline) for t in created] == [
+        ("新規", 0.0, None, None)
+    ]
+
+
+async def test_the_detail_dialog_shows_an_error_and_stays_open(user: User) -> None:
+    created: list[Task] = []
+    mount_detail_dialog("新規", created)
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="detail-start").elements.pop().set_value("2026-12-01")
+        user.find(marker="detail-deadline").elements.pop().set_value("2026-11-30")
+    user.find(marker="detail-save").click()
+    assert created == []
+    await user.should_see("締切日は開始日以降にしてください")
+
+
+async def test_the_detail_dialog_cancel_creates_nothing(user: User) -> None:
+    created: list[Task] = []
+    mount_detail_dialog("新規", created)
+    await open_dialog(user)
+    user.find(marker="detail-cancel").click()
+    assert created == []
+    with user.client:
+        dialogs = [e for e in user.client.elements.values() if isinstance(e, ui.dialog)]
+    assert dialogs and not any(d.value for d in dialogs)
+
+
+async def test_enter_in_a_detail_field_creates_the_task(user: User) -> None:
+    created: list[Task] = []
+    mount_detail_dialog("新規", created)
+    await open_dialog(user)
+    user.find(marker="detail-start").trigger("keydown.enter")
+    assert [t.name for t in created] == ["新規"]
+
+
+async def test_the_detail_dialog_converts_the_chosen_unit(user: User) -> None:
+    created: list[Task] = []
+    mount_detail_dialog("新規", created)
+    await open_dialog(user)
+    with user.client:
+        user.find(marker="detail-effort").elements.pop().set_value(2)
+        user.find(marker="detail-unit").elements.pop().set_value(EffortUnit.DAYS)
+    user.find(marker="detail-save").click()
+    assert created[0].effort_hours == 12  # 1 日 = 6 時間

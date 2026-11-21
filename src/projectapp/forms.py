@@ -13,6 +13,7 @@ from nicegui.events import ValueChangeEventArguments
 
 from projectapp import clock
 from projectapp.dateinput import parse_date_input, parse_time_input
+from projectapp.effortunits import EffortUnit, to_hours
 from projectapp.avatar import avatar
 from projectapp.events import color_hex, normalize_color, sort_events, validate_events
 from projectapp.icons import is_valid_icon
@@ -478,6 +479,49 @@ def build_task(
         extra_efforts=[]
         if hours <= 0
         else (base.extra_efforts if extra_efforts is None else extra_efforts),
+    )
+
+
+def _detail_day(text: str, today: date, clock_text: str, label: str) -> str:
+    """Shift + Enter のダイアログの日付(省略形可)に時刻を足して、日時の文字列にする。空は空。"""
+    if not text.strip():
+        return ""
+    day = parse_date_input(text, today, roll_forward=True)
+    if day is None:
+        raise ValueError(f"{label}は`2026-11-24`や`11/24`の形で入力してください")
+    return f"{day}T{clock_text}"
+
+
+def build_detailed_task(
+    name: str,
+    effort: float | None,
+    unit: EffortUnit,
+    start: str,
+    deadline: str,
+    *,
+    today: date,
+    daily_hours: float,
+    work_start: time,
+) -> Task:
+    """名前の入力行の Shift + Enter で開く小さなダイアログの入力から、通常タスクを作る(名前以外の既定値は名前だけのタスクと同じ)。
+    開始は始業時刻、締切は終業時刻を補う。工数は時間に換算する。"""
+    default = Task(name.strip())
+    begin, finish = default_times(work_start)
+    start_text = _detail_day(start, today, begin.strftime("%H:%M"), "開始日")
+    deadline_text = _detail_day(deadline, today, finish.strftime("%H:%M"), "締切日")
+    if start_text and deadline_text and deadline_text < start_text:
+        raise ValueError("締切日は開始日以降にしてください")
+    hours = None if effort is None else to_hours(effort, unit, daily_hours)
+    return build_task(
+        None,
+        name=name,
+        planned_start=start_text,
+        planned_end="",
+        deadline=deadline_text,
+        effort_hours=hours,
+        priority=default.priority,
+        status=default.status,
+        color=default.color,
     )
 
 
