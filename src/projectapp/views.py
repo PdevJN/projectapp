@@ -1145,9 +1145,7 @@ class MainView:
     ) -> None:
         """引き継いだ、保存前の新規プロジェクトにする(元のファイルは変えない)。"""
         self.show_project(inherit_project(source, NEW_PROJECT_NAME, scope, reset), None)
-        self.snapshot = history_log.dirty_key(
-            Project(NEW_PROJECT_NAME)
-        )  # 空の新規とは別物なので、未保存の扱いにする
+        self.snapshot = None  # どんな中身でも、保存前なので未保存の扱いにする(空の新規と同じ値にならない)
         ui.notify(f"「{source.name}」から引き継ぎました(保存するとファイルになります)")
 
     def request_import_plantuml(self) -> None:

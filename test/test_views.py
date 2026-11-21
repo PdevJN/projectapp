@@ -9838,7 +9838,7 @@ async def open_inherit_view(user: User, tmp_path: Path) -> MainView:
 async def choose_inherit_source(user: User, name: str) -> None:
     user.find(marker="file-inherit").click()
     await user.should_see(marker="file-0")
-    index = sorted(["乙", "甲"]).index(name)
+    index = sorted(["乙", "甲"]).index(name)  # 格納先の一覧は名前順(乙・甲の 2 件)
     user.find(marker=f"file-{index}").click()
     await user.should_see(marker="inherit-create")
 
@@ -9920,3 +9920,46 @@ async def test_inherit_with_no_files_says_so(user: User, tmp_path: Path) -> None
     await user.open("/")
     user.find(marker="file-inherit").click()
     await user.should_see("プロジェクトファイルがありません")
+
+
+async def test_inherited_project_is_unsaved_even_when_it_looks_like_an_empty_new_one(
+    user: User, tmp_path: Path
+) -> None:
+    """設定が既定値で中身のない引き継ぎでも、保存の確認の対象になる。"""
+    save_cache({}, tmp_path)
+    save_project(Project("乙"), tmp_path)
+    view = await open_saved_view(user, tmp_path)
+    await choose_inherit_source(user, "乙")
+    with user.client:
+        user.find(marker="inherit-scope").elements.pop().set_value(
+            InheritScope.SETTINGS
+        )
+    user.find(marker="inherit-create").click()
+    assert view.path is None and view.is_dirty()
+
+
+async def test_inherit_save_and_continue_saves_the_current_project_first(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_inherit_view(user, tmp_path)
+    view.save_section("追加")
+    user.find(marker="file-inherit").click()
+    user.find(marker="unsaved-save").click()
+    await user.should_see(marker="file-0")
+    assert [s.name for s in load_project(tmp_path / "甲.json").sections] == [
+        "甲の中身",
+        "追加",
+    ]
+    assert view.path == tmp_path / "甲.json"  # 元を選ぶまでは、何も変わらない
+
+
+async def test_inherit_with_an_unreadable_source_only_notifies(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_inherit_view(user, tmp_path)
+    (tmp_path / "乙.json").write_text("{壊れた", encoding="utf-8")
+    user.find(marker="file-inherit").click()
+    await user.should_see(marker="file-0")
+    user.find(marker="file-0").click()  # 並びは「乙」「甲」
+    await user.should_see("開けませんでした")
+    assert view.path == tmp_path / "甲.json" and not view.is_dirty()

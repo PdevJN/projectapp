@@ -1,6 +1,7 @@
 """既存のプロジェクトから、設定(とタスク)を引き継いだ新規プロジェクトを作る(要望 77)。NiceGUI に依存しない。"""
 
 from copy import deepcopy
+from dataclasses import replace
 from enum import StrEnum
 
 from projectapp.models import Project, Status
@@ -22,9 +23,10 @@ def inherit_project(
 ) -> Project:
     """source を複製して、name の新規プロジェクトにする(source は変えない。`id` と日付はそのまま)。
     変更履歴は持ち越さない。reset_progress なら、タスクの状態・実績・進捗度だけを初期に戻す(追加工数は残す)。"""
-    result = deepcopy(source)
+    result = deepcopy(
+        replace(source, history=[], history_since=None)
+    )  # 履歴は持ち越さない
     result.name = name
-    result.history, result.history_since = [], None
     if not scope.with_tasks:
         result.tasks, result.sections = [], []
     elif reset_progress:

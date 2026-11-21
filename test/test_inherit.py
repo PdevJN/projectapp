@@ -2,15 +2,19 @@
 
 from datetime import date, datetime, time
 
+import pytest
+
 from projectapp.inherit import InheritScope, inherit_project
 from projectapp.models import (
     Actual,
+    Assignee,
     Category,
     Event,
     ExtraEffort,
     Member,
     Project,
     ReferenceMode,
+    ReferenceValue,
     Section,
     Status,
     Task,
@@ -18,6 +22,8 @@ from projectapp.models import (
     Team,
     UrlTemplate,
 )
+
+pytestmark = pytest.mark.smoke
 
 START = datetime(2026, 11, 24, 9)
 
@@ -132,6 +138,49 @@ def test_the_source_project_is_not_changed() -> None:
     assert source.task_map()["a"].name == "終わった"
     assert source.members[0].name == "田中"
     assert source.task_map()["a"].status is Status.DONE
+
+
+def test_reference_rows_and_crews_are_carried_and_not_shared_with_the_source() -> None:
+    source = source_project()
+    row = source.task_map()["b"]
+    row.ref_project = "別"
+    row.ref_snapshot = ReferenceValue(progress=30)
+    row.weekly_crew = [[Assignee("田中", 0.5)]]
+    row.daily_crew = {0: [[Assignee("田中", 0.5)]]}
+    for scope, reset in [
+        (InheritScope.SETTINGS_AND_TASKS, True),
+        (InheritScope.SETTINGS_AND_TASKS, False),
+    ]:
+        copy = inherit_project(source, "新規", scope, reset).task_map()["b"]
+        assert copy.ref_project == "別" and copy.ref_snapshot == ReferenceValue(
+            progress=30
+        )
+        assert copy.weekly_crew == [[Assignee("田中", 0.5)]]
+        assert copy.daily_crew == {0: [[Assignee("田中", 0.5)]]}
+        assert copy.weekly_crew is not row.weekly_crew
+
+
+def test_settings_only_ignores_the_reset_option() -> None:
+    source = source_project()
+    with_reset = inherit_project(source, "新規", InheritScope.SETTINGS, True)
+    without = inherit_project(source, "新規", InheritScope.SETTINGS, False)
+    assert with_reset == without
+
+
+def test_changing_the_copy_never_touches_the_source() -> None:
+    source = source_project()
+    result = inherit_project(
+        source, "新規", InheritScope.SETTINGS_AND_TASKS, reset_progress=False
+    )
+    copy = result.task_map()["a"]
+    copy.actuals.clear()
+    copy.extra_efforts.clear()
+    result.task_map()["b"].predecessors.append("zzz")
+    result.events.clear()
+    assert len(source.task_map()["a"].actuals) == 1
+    assert len(source.task_map()["a"].extra_efforts) == 1
+    assert source.task_map()["b"].predecessors == ["a"]
+    assert len(source.events) == 1
 
 
 def test_the_scopes_have_labels_for_the_dialog() -> None:
