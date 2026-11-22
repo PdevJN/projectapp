@@ -465,7 +465,7 @@ class AssignScreen:
         ):
             with ui.element("div").style("flex: 1 1 0; min-width: 0; overflow-x: auto"):
                 ui.html(
-                    overlay_svg(shown, OVERLAY_BAR_PX, OVERLAY_HEIGHT_PX),
+                    overlay_svg(shown, OVERLAY_BAR_PX, OVERLAY_HEIGHT_PX, labels=True),
                     sanitize=False,
                 )
             ui.label(overlay_summary(shown)).classes("text-caption text-grey").style(

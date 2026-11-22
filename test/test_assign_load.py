@@ -3,6 +3,7 @@ from datetime import date
 from projectapp.assign_load import (
     BAR_GAP_PX,
     BAR_PX,
+    AXIS_HEIGHT_PX,
     CHART_HEIGHT_PX,
     MEMBER_COLORS,
     MEMBER_CSS,
@@ -131,3 +132,25 @@ def test_overlay_can_be_drawn_larger() -> None:
     large = overlay_svg(members(("田中", "red", [0.5, 0.5])), 8, 96)
     assert 'width="10" height="48"' in small
     assert 'width="18" height="96"' in large
+
+
+def test_overlay_labels_every_day_and_the_month_on_the_first_day_and_changes() -> None:
+    rows = [
+        (
+            "田中",
+            "red",
+            [
+                (date(2026, 11, 30), 0.5),
+                (date(2026, 12, 1), 0.5),
+                (date(2026, 12, 2), 0.5),
+            ],
+        )
+    ]
+    svg = overlay_svg(rows, 20, 96, labels=True)
+    assert svg.count("<text") == 3
+    assert ">11/30</text>" in svg and ">12/1</text>" in svg and ">2</text>" in svg
+    assert f'height="{96 + AXIS_HEIGHT_PX}"' in svg
+
+
+def test_overlay_has_no_date_labels_by_default() -> None:
+    assert "<text" not in overlay_svg(members(("田中", "red", [0.5])))

@@ -90,7 +90,8 @@ def load_summary(days: list[tuple[date, float]]) -> str:
     return f"最大 {peak * 100:.0f}%・100% 超 {over} 日"
 
 
-OVERLAY_BAR_PX = 8
+OVERLAY_BAR_PX = 20  # 日付を毎日書けるだけの幅
+AXIS_HEIGHT_PX = 14
 OVERLAY_HEIGHT_PX = 96
 OVERLAY_OPACITY = 0.45
 
@@ -110,17 +111,20 @@ def overlay_svg(
     members: Overlay,
     bar_px: int = BAR_PX,
     height_px: int = CHART_HEIGHT_PX,
+    labels: bool = False,
 ) -> str:
     """表示中のメンバー(名前・色・稼働日ごとの負荷)の棒を、同じ位置に半透明で重ねる。
 
     縦は個人ごとの行と同じ 0〜200%(100% に点線)。負荷の大きい棒を奥に描き、小さい棒が隠れないようにする。
-    100% を超えた分は超過の色。ホバーには、その日の全員の値を出す。"""
+    100% を超えた分は超過の色。ホバーには、その日の全員の値を出す。
+    `labels`なら、棒の下に毎日の日付(`16`。最初の日と月が変わる日は`11/16`)を書く。"""
     dates = _overlay_days(members)
     step = bar_px + BAR_GAP_PX
     width = max(len(dates) * step, 1)
+    total_height = height_px + (AXIS_HEIGHT_PX if labels else 0)
     parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height_px}"'
-        f' viewBox="0 0 {width} {height_px}" role="img" style="display: block">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{total_height}"'
+        f' viewBox="0 0 {width} {total_height}" role="img" style="display: block">'
     ]
     for index, day in enumerate(dates):
         today = [
@@ -153,6 +157,15 @@ def overlay_svg(
         f'<line x1="0" x2="{width}" y1="{reference:.1f}" y2="{reference:.1f}"'
         ' stroke="currentColor" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 3"/>'
     )
+    if labels:
+        for index, day in enumerate(dates):
+            new_month = index == 0 or day.month != dates[index - 1].month
+            text = f"{day.month}/{day.day}" if new_month else str(day.day)
+            parts.append(
+                f'<text x="{index * step + bar_px / 2:.1f}" y="{height_px + 11}"'
+                ' text-anchor="middle" font-size="10" fill="currentColor"'
+                f' fill-opacity="0.75">{text}</text>'
+            )
     parts.append("</svg>")
     return "".join(parts)
 
