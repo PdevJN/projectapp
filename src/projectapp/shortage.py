@@ -81,8 +81,10 @@ def task_shortage(
         return "残りの工数がありません"
     origin = max(now, start)
     due_at, basis = due
-    if due_at <= origin:
+    if due_at <= now:
         return "基準日を過ぎています"
+    if due_at <= start:
+        return "基準日が開始より前です"
     capacity = work_capacity(
         origin,
         due_at,
@@ -112,7 +114,7 @@ def shortage_text(value: Shortage) -> str:
         return "ちょうど"
     hours = abs(value.gap)
     people = value.people
-    tail = "" if people is None else f"(約 {people:.1f} 人)"
+    tail = "" if people is None or round(people, 1) == 0 else f"(約 {people:.1f} 人)"
     if kind == "不足":
         return f"あと {hours:.1f}h 足りません{tail}"
     return f"余裕 {hours:.1f}h{tail}"

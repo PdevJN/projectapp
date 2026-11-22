@@ -144,3 +144,25 @@ def test_the_text_and_the_hint() -> None:
     margin = judged(task_of(assignees=[Assignee("田中"), Assignee("鈴木")]))
     assert isinstance(margin, Shortage)
     assert shortage_text(margin) == "余裕 25.0h(約 0.8 人)"
+
+
+def test_a_due_before_the_start_has_its_own_reason() -> None:
+    value = judged(task_of(planned_start=datetime(2026, 10, 12, 9)), now=MON)
+    assert isinstance(value, str) and "開始より前" in value
+
+
+def test_a_tiny_gap_does_not_show_zero_people() -> None:
+    value = judged(task_of(effort_hours=32.6))
+    assert isinstance(value, Shortage)
+    assert shortage_text(value) == "あと 0.1h 足りません"
+
+
+def test_remaining_and_capacity_match_the_warning_pace() -> None:
+    from projectapp.pace import pace
+
+    task = task_of(deadline=None, planned_end=FRI, planned_end_manual=True)
+    value = judged(task)
+    expected = pace(task, project_of(task), {}, MON)
+    assert isinstance(value, Shortage) and expected is not None
+    assert value.remaining == pytest.approx(expected.remaining)
+    assert value.capacity == pytest.approx(expected.capacity)

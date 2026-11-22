@@ -917,3 +917,20 @@ async def test_the_shortage_row_does_not_make_the_screen_dirty(user: User) -> No
     screen.trial.task.deadline = None
     screen.refresh()
     assert not is_dirty(screen.trial)
+
+
+async def test_switching_from_a_shortage_to_a_reason_clears_the_warning_look(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.trial.task.deadline = datetime(2026, 11, 20, 17)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_see("あと 7.5h 足りません")
+    label = user.find(marker="assign-shortage").elements.pop()
+    assert "--warning" in str(label._style)
+    screen.now = lambda: datetime(2026, 11, 25, 9)  # 締切を過ぎた
+    screen.refresh()
+    await user.should_see("基準日を過ぎています")
+    assert "--warning" not in str(label._style)
+    assert "title" not in label.props
