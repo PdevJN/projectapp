@@ -587,7 +587,10 @@ class ActualFields:
     """実績の開始・終了。日付と時刻を入れる(時刻の省略は policy による)。2件以上の実績は編集できない。"""
 
     def __init__(
-        self, task: Task, policy: ActualTimePolicy = ActualTimePolicy()
+        self,
+        task: Task,
+        policy: ActualTimePolicy = ActualTimePolicy(),
+        on_switch: Callable[[], object] | None = None,
     ) -> None:
         self.policy = policy
         self.read_only = len(task.actuals) > 1
@@ -596,6 +599,12 @@ class ActualFields:
             ui.label("複数の区間があるため、このバージョンでは編集できません").classes(
                 "text-caption"
             ).mark("task-actuals-readonly")
+            if (
+                on_switch is not None
+            ):  # 区間の編集に、このダイアログの中だけで切り替える(要望 165)
+                ui.button(
+                    "区間の編集に切り替える", icon="edit", on_click=lambda: on_switch()
+                ).props("flat dense").mark("task-actuals-switch")
             return
         actual = task.actuals[0] if task.actuals else None
         with ui.row().classes("w-full no-wrap gap-4"):
@@ -1916,7 +1925,7 @@ def open_task_dialog(
                 actual_fields: ActualFields | IntervalFields = (
                     IntervalFields(initial, policy)
                     if intervals
-                    else ActualFields(initial, policy)
+                    else ActualFields(initial, policy, lambda: switch_to_intervals())
                 )
             progress_field = TaskProgressField(initial.progress)
 
@@ -1937,6 +1946,21 @@ def open_task_dialog(
             hint.set_visibility(True)
 
         actual_fields.bind(on_actual_change)
+
+        def switch_to_intervals() -> None:
+            """簡易で 2 区間以上の実績を、このダイアログの中だけ区間の編集に切り替える(要望 165)。
+            記録方式の設定は変えない。切り替えただけでは、変更として数えない。"""
+            nonlocal actual_fields, intervals, opened
+            untouched = current() == opened
+            intervals = True
+            actual_box.clear()
+            with actual_box:
+                actual_fields = IntervalFields(initial, policy)
+            actual_fields.bind(on_actual_change)
+            refresh_captions()
+            if untouched:
+                opened = current()  # 切り替えただけなら、基準値を取り直す
+
         progress_field.input.on_value_change(on_actual_change)
         progress_field.slider.on_release(on_actual_change)
         has_normal_data = bool(
