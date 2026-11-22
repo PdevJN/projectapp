@@ -7,6 +7,7 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.dashboard import (
+    StartDelayRow,
     Backlog,
     CrossLoad,
     CrossSummary,
@@ -51,6 +52,7 @@ from projectapp.dashboard_view import (
     percent_width,
 )
 from projectapp.models import Status
+from projectapp.start_delay import DelayKind
 
 
 def sample() -> Dashboard:
@@ -2773,3 +2775,85 @@ async def test_the_rebalance_button_is_hidden_while_editing_the_cards(
     views[0].cards.refresh()
     await asyncio.sleep(0.3)  # refresh は遅延実行
     await user.should_not_see(marker="dashboard-rebalance-田中")
+
+
+# --- 着工遅れ(要望 161 段階 2) ---
+
+
+def start_delay_sample(*rows: StartDelayRow, enabled: bool = True) -> Dashboard:
+    data = sample()
+    data.progress.start_delays = list(rows)
+    data.progress.start_delay_enabled = enabled
+    return data
+
+
+async def test_the_start_delay_count_and_list_appear(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(
+        start_delay_sample(
+            StartDelayRow("設計", DelayKind.UNSTARTED, 5, ("田中",)),
+            StartDelayRow("実装", DelayKind.STOP, 2, ()),
+        ),
+        PeriodKind.WEEK,
+    )
+    await user.should_see(marker="dashboard-count-start-delay")
+    assert text(user, "dashboard-count-start-delay") == "着工遅れ 2"
+    assert text(user, "dashboard-start-delay-kind-0") == "未着手 +5日"
+    assert text(user, "dashboard-start-delay-name-0") == "設計"
+    assert text(user, "dashboard-start-delay-kind-1") == "停止 +2日"
+    assert text(user, "dashboard-start-delay-name-1") == "実装"
+
+
+async def test_the_start_delay_count_shows_zero_but_the_list_is_hidden(
+    user: User,
+) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(start_delay_sample(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-count-start-delay")
+    assert text(user, "dashboard-count-start-delay") == "着工遅れ 0"
+    await user.should_not_see(marker="dashboard-start-delay-name-0")
+    await user.should_not_see(marker="dashboard-start-delay-title")
+
+
+async def test_nothing_about_the_start_delay_shows_when_it_is_off(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(
+        start_delay_sample(
+            StartDelayRow("設計", DelayKind.UNSTARTED, 5, ()), enabled=False
+        ),
+        PeriodKind.WEEK,
+    )
+    await user.should_see(marker="dashboard-count-warning")
+    await user.should_not_see(marker="dashboard-count-start-delay")
+    await user.should_not_see(marker="dashboard-start-delay-name-0")
+
+
+async def test_the_start_delay_count_has_a_breakdown_tooltip(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(
+        start_delay_sample(
+            StartDelayRow("設計", DelayKind.UNSTARTED, 5, ()),
+            StartDelayRow("実装", DelayKind.STOP, 2, ()),
+            StartDelayRow("試験", DelayKind.STOP, 1, ()),
+        ),
+        PeriodKind.WEEK,
+    )
+    await user.should_see(marker="dashboard-count-start-delay")
+    assert text(user, "dashboard-count-start-delay") == "着工遅れ 3"
+    await user.should_see("未着手 1・停止 2")
+
+
+async def test_the_start_delay_list_uses_the_band_color(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = start_delay_sample(StartDelayRow("実装", DelayKind.STOP, 2, ("田中",)))
+    data.progress.start_delay_color = "#112233"
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-start-delay-kind-0")
+    kind = user.find(marker="dashboard-start-delay-kind-0").elements.pop()
+    assert "#112233" in kind._style["color"]
+    assert text(user, "dashboard-start-delay-kind-0") == "停止 +2日"
