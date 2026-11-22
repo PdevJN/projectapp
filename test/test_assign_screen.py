@@ -5,6 +5,7 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.assign_drag import ASSIGN_DRAG_CSS
+from projectapp.assign_load import member_color
 from projectapp.assign_screen import (
     ROW_HEIGHT_PX,
     AssignScreen,
@@ -772,4 +773,106 @@ async def test_the_select_event_is_routed_to_the_active_screen(user: User) -> No
 async def test_a_range_selection_does_not_make_the_screen_dirty(user: User) -> None:
     screen, _ = await open_team_screen(user)
     screen.select_range((0, None), (1, None))
+    assert not is_dirty(screen.trial)
+
+
+async def test_the_load_panel_shows_a_toggle_and_a_row_for_each_assignee(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    await user.should_see(marker="assign-load")
+    await user.should_see(marker="assign-load-toggle-田中")
+    await user.should_see(marker="assign-load-row-田中")
+    summary = user.find(marker="assign-load-summary-田中").elements.pop()
+    assert summary.text.startswith("最大 ")
+
+
+async def test_each_member_has_a_stable_color_by_project_member_order(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    names = [m.name for m in screen.project.members]
+    assert [screen.load_color(n) for n in names] == [
+        member_color(i) for i in range(len(names))
+    ]
+    assert screen.load_color("いない人") == member_color(0)
+
+
+async def test_the_load_can_be_switched_to_one_overlaid_histogram(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    await user.should_see(marker="assign-load-row-田中")
+    screen.set_load_overlay(True)
+    await user.should_see(marker="assign-load-overlay")
+    await user.should_not_see(marker="assign-load-row-田中")
+    await user.should_see(marker="assign-load-toggle-田中")  # トグルは両方で使う
+    summary = user.find(marker="assign-load-overlay-summary").elements.pop()
+    assert "最大" in summary.text
+    screen.set_load_overlay(False)
+    await user.should_see(marker="assign-load-row-田中")
+    await user.should_not_see(marker="assign-load-overlay")
+
+
+async def test_tapping_a_toggle_hides_and_shows_the_row(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.toggle_load("田中")
+    assert screen.load_hidden == {"田中"}
+    await user.should_not_see(marker="assign-load-row-田中")
+    await user.should_see(marker="assign-load-toggle-田中")  # トグルは残る
+    screen.toggle_load("田中")
+    assert screen.load_hidden == set()
+    await user.should_see(marker="assign-load-row-田中")
+
+
+async def test_dropping_a_member_adds_a_row_for_that_member(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    await user.should_not_see(marker="assign-load-row-鈴木")
+    screen.drop_member("鈴木", 1, None)
+    await user.should_see(marker="assign-load-row-鈴木")
+    await user.should_see(marker="assign-load-toggle-鈴木")
+
+
+async def test_the_load_uses_the_trial_task_without_touching_the_original(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    loaded = screen.load_project()
+    names = {a.name for task in loaded.all_tasks() for a in task.assignees}
+    assert "鈴木" in names
+    original = {a.name for task in screen.project.all_tasks() for a in task.assignees}
+    assert "鈴木" not in original
+
+
+async def test_a_removed_assignee_loses_the_toggle_and_the_hidden_mark(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.toggle_load("鈴木")
+    assert "鈴木" in screen.load_hidden
+    screen.remove_member_at("鈴木", 1, None)
+    screen.render_load()
+    assert "鈴木" not in screen.load_hidden
+
+
+async def test_no_start_date_says_the_load_cannot_be_shown(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.plan = None
+    screen.render_load()
+    await user.should_see(marker="assign-load-none")
+
+
+async def test_a_closed_panel_is_not_drawn_until_it_is_opened(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.on_load_toggle(False)
+    screen.drop_member("鈴木", 1, None)
+    await user.should_not_see(marker="assign-load-row-鈴木")
+    screen.on_load_toggle(True)
+    await user.should_see(marker="assign-load-row-鈴木")
+
+
+async def test_the_load_display_does_not_make_the_screen_dirty(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.toggle_load("田中")
+    screen.on_load_toggle(False)
     assert not is_dirty(screen.trial)

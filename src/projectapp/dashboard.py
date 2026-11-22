@@ -1008,6 +1008,29 @@ def summarize_loads(
     }
 
 
+def daily_loads(
+    project: Project,
+    holidays: dict[date, str],
+    period: Period,
+    member: Scope = None,
+) -> dict[str, list[tuple[date, float]]]:
+    """アサイン専用画面(要望 168 段階 5): メンバーごと・稼働日ごとの負荷(同時刻の割り当て率の合計の最大。1.0 = 100%)。
+
+    数え方は`summarize_loads`と同じ(終了したタスクは数えない・メンバーごとの稼働日の上書きを反映)。
+    稼働日がなければ空のリスト。`member`で対象のメンバーを絞る。"""
+    spans = _member_spans(project, holidays, member)
+    scoped = _names(member)
+    result: dict[str, list[tuple[date, float]]] = {}
+    for entry in project.members:
+        if scoped is not None and entry.name not in scoped:
+            continue
+        days = _workdays(period, holidays, work_day_map(entry.work_days))
+        result[entry.name] = list(
+            zip(days, _day_totals(spans.get(entry.name, []), days))
+        )
+    return result
+
+
 def summarize_cross_loads(
     projects: list[Project],
     period: Period,
