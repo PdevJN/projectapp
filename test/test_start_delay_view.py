@@ -1,11 +1,13 @@
 """着工遅れ・停止の描画(要望 161): ガントチャートの帯と名前の欄のチップ。"""
 
-from datetime import date, datetime
+from datetime import date, datetime, time
+from pathlib import Path
 
 import pytest
 from nicegui import ui
 from nicegui.testing import User
 
+from projectapp.forms import build_start_delay, open_settings_dialog
 from projectapp.gantt import (
     ACTUAL_HEIGHT_PX,
     ACTUAL_TOP_PX,
@@ -19,10 +21,14 @@ from projectapp.models import (
     Actual,
     Project,
     Section,
+    StartDelaySettings,
     StartDelayStyle,
     Task,
 )
+from projectapp.views import MainView
 from test_gantt import Recorder
+from test_views import mount_capturing, open_members_view
+from projectapp.calendar import save_cache
 
 BASE = date(2026, 10, 5)  # 月曜
 
@@ -160,3 +166,106 @@ async def test_the_read_only_chart_does_not_draw_it(user: User) -> None:
     await user.should_see("設計")
     await user.should_not_see(marker="start-delay-0-0-0")
     await user.should_not_see(marker="task-start-delay-0-0-0")
+
+
+def test_build_start_delay_reads_the_inputs() -> None:
+    assert build_start_delay(True, "band", 3, "#ABCDEF") == StartDelaySettings(
+        True, StartDelayStyle.BAND, 3, "#abcdef"
+    )
+
+
+@pytest.mark.parametrize(
+    ("grace", "color", "message"),
+    [
+        (-1, "#7e57c2", "猶予日数"),
+        (31, "#7e57c2", "猶予日数"),
+        (1.5, "#7e57c2", "猶予日数"),
+        (None, "#7e57c2", "猶予日数"),
+        (0, "purple", "色"),
+        (0, "", "色"),
+    ],
+)
+def test_build_start_delay_rejects_bad_inputs(
+    grace: object, color: str, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        build_start_delay(True, "both", grace, color)
+
+
+def open_dialog_page(start_delay: StartDelaySettings, applied: list) -> None:
+    @ui.page("/")
+    def index() -> None:
+        ui.button(
+            "open",
+            on_click=lambda: open_settings_dialog(
+                6.5,
+                time(9, 0),
+                lambda *a: None,
+                start_delay=start_delay,
+                on_start_delay=applied.append,
+            ),
+        )
+
+
+async def test_the_settings_dialog_reports_a_changed_start_delay(user: User) -> None:
+    applied: list[StartDelaySettings] = []
+    open_dialog_page(StartDelaySettings(), applied)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-start-delay-style").elements.pop().set_value("chip")
+    user.find(marker="settings-start-delay-grace").elements.pop().set_value(2)
+    user.find(marker="settings-apply").click()
+    assert applied == [StartDelaySettings(True, StartDelayStyle.CHIP, 2, "#7e57c2")]
+
+
+async def test_an_unchanged_start_delay_is_not_reported(user: User) -> None:
+    applied: list[StartDelaySettings] = []
+    open_dialog_page(StartDelaySettings(grace=1), applied)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-apply").click()
+    assert applied == []
+
+
+async def test_a_bad_grace_keeps_the_dialog_open_and_reports_nothing(
+    user: User,
+) -> None:
+    applied: list[StartDelaySettings] = []
+    open_dialog_page(StartDelaySettings(), applied)
+    await user.open("/")
+    user.find("open").click()
+    user.find(marker="settings-start-delay-grace").elements.pop().set_value(1.5)
+    user.find(marker="settings-apply").click()
+    assert applied == []
+    await user.should_see("猶予日数は")
+
+
+async def test_the_main_view_applies_the_start_delay(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_members_view(user, tmp_path)
+    assert view.project.start_delay == StartDelaySettings()
+    view.apply_start_delay(
+        StartDelaySettings(False, StartDelayStyle.BAND, 2, "#010203")
+    )
+    assert view.project.start_delay == StartDelaySettings(
+        False, StartDelayStyle.BAND, 2, "#010203"
+    )
+    assert view.is_dirty()
+
+
+async def test_the_settings_dialog_in_the_app_changes_the_project(
+    user: User, tmp_path: Path
+) -> None:
+    save_cache({}, tmp_path)
+    views: list[MainView] = []
+    mount_capturing(tmp_path, views)
+    await user.open("/")
+    user.find(marker="open-settings").click()
+    user.find(marker="settings-start-delay-enabled").elements.pop().set_value(False)
+    user.find(marker="settings-apply").click()
+    assert views[0].project.start_delay_enabled is False
+    user.find(marker="open-settings").click()
+    assert (
+        user.find(marker="settings-start-delay-enabled").elements.pop().value is False
+    )
