@@ -153,3 +153,60 @@ console.log(JSON.stringify({ emitted, marked, afterUp }));
             {"first": {"week": 2, "day": None}, "last": {"week": 1, "day": 1}},
         ],
     ]
+
+
+def test_the_select_css_also_has_the_webkit_prefix() -> None:
+    assert "-webkit-user-select: none" in ASSIGN_DRAG_CSS  # WKWebView(ネイティブ表示)用
+
+
+def test_a_swipe_ends_when_the_mouse_up_was_missed(tmp_path) -> None:
+    import json
+    import shutil
+    import subprocess
+
+    import pytest
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node がないので動きを確かめない")
+    script = tmp_path / "sim_cancel.js"
+    script.write_text(
+        """
+const listeners = {};
+const emitted = [];
+global.window = {};
+const mkCell = (week) => {
+  const set = new Set();
+  return { dataset: { week: String(week) },
+           classList: { add: (c) => set.add(c), remove: (c) => set.delete(c) }, set };
+};
+const cells = [mkCell(0), mkCell(1), mkCell(2)];
+global.document = {
+  addEventListener: (type, fn) => { listeners[type] = fn; },
+  querySelectorAll: (selector) =>
+    selector === "[data-assign-cell]" ? cells : cells.filter((c) => c.set.has("assign-select-over")),
+};
+global.emitEvent = (name, msg) => emitted.push([name, msg]);
+%s
+const at = (cell) => ({ closest: (s) => (s.includes("data-assign-cell") ? cell : null) });
+// ボタンを押していない mouseover(mouseup を取り逃がした)で、なぞりが終わる
+listeners.mousedown({ button: 0, target: at(cells[0]) });
+listeners.mouseover({ buttons: 1, target: at(cells[1]) });
+listeners.mouseover({ buttons: 0, target: at(cells[2]) });
+const marked = cells.filter((c) => c.set.has("assign-select-over")).length;
+listeners.mouseup({ target: at(cells[2]) });
+// contextmenu(Ctrl+クリック)でも終わる
+listeners.mousedown({ button: 0, target: at(cells[0]) });
+listeners.mouseover({ buttons: 1, target: at(cells[1]) });
+listeners.contextmenu({});
+listeners.mouseup({ target: at(cells[2]) });
+console.log(JSON.stringify({ emitted, marked }));
+"""
+        % ASSIGN_DRAG_JS,
+        encoding="utf-8",
+    )
+    result = subprocess.run([node, str(script)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["emitted"] == []
+    assert out["marked"] == 0

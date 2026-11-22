@@ -15,7 +15,7 @@ ASSIGN_DRAG_CSS = """
 .assign-chip:hover .assign-remove { opacity: 1; }
 .assign-rate-badge { position: absolute; right: -3px; bottom: -4px; font-size: 8px; line-height: 9px; padding: 0 2px; border-radius: 3px; background: rgba(0,0,0,0.65); color: #fff; pointer-events: none; }
 .assign-drop-over { outline: 2px solid #1976d2; outline-offset: -2px; background: rgba(25, 118, 210, 0.12); }
-[data-assign-cell] { user-select: none; }
+[data-assign-cell] { -webkit-user-select: none; user-select: none; }
 .assign-select-over, .assign-selected { outline: 2px solid #ff9800; outline-offset: -2px; background: rgba(255, 152, 0, 0.18); }
 """
 
@@ -94,8 +94,16 @@ ASSIGN_DRAG_JS = """
     swiping = false;
   });
 
+  const cancelSwipe = () => {
+    swipeFrom = null;
+    swiping = false;
+    clearSwipe();
+  };
+
   document.addEventListener("mouseover", (event) => {
     if (swipeFrom === null) return;
+    // ボタンを押していないのに動いたら、mouseup を取り逃がしている(Ctrl+クリック・ウィンドウの外で離したとき)
+    if (event.buttons === 0) { cancelSwipe(); return; }
     const cell = cellOf(event);
     if (!cell) return;
     if (cell !== swipeFrom) swiping = true;
@@ -107,6 +115,8 @@ ASSIGN_DRAG_JS = """
     if (a > b) [a, b] = [b, a];
     cells.slice(a, b + 1).forEach((el) => el.classList.add("assign-select-over"));
   });
+
+  document.addEventListener("contextmenu", cancelSwipe);
 
   document.addEventListener("mouseup", (event) => {
     if (swipeFrom === null) return;
