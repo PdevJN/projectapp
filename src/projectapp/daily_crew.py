@@ -7,7 +7,15 @@
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
-from projectapp.models import MAX_WEEKS, Assignee, Task, TaskKind, union_assignees
+from projectapp.models import (
+    MAX_ALLOCATION,
+    MAX_WEEKS,
+    MIN_ALLOCATION,
+    Assignee,
+    Task,
+    TaskKind,
+    union_assignees,
+)
 
 WEEK_DAYS = 7
 DailyCrew = dict[int, list[list[Assignee]]]
@@ -259,3 +267,122 @@ def remove_member(
     return replace(
         task, weekly_crew=weekly, daily_crew=daily, assignees=union_assignees(weekly)
     )
+
+
+def _padded(
+    task: Task, week: int, weeks: int
+) -> tuple[list[list[Assignee]], DailyCrew] | None:
+    """週ごとの担当(複製)を、`week`の週まで直前の担当で埋めて返す。担当者のいない週ごとでないタスク・範囲外の週は None。"""
+    if not 0 <= week < MAX_WEEKS:
+        return None
+    crews = _crews(task, min(weeks, MAX_WEEKS))
+    if crews is None:
+        return None
+    weekly, daily = crews
+    while len(weekly) <= week:
+        weekly.append(copy_crew(_tail(weekly, daily)))
+    return weekly, daily
+
+
+def _cell_crews(
+    weekly: list[list[Assignee]], daily: DailyCrew, week: int, day: int | None
+) -> list[list[Assignee]] | None:
+    """`week`(と`day`)のセルの担当の並び。日ごとの週で`day`がなければ 7 日ぶん。日の指定が合わなければ None。"""
+    if _is_daily(daily, week):
+        targets = range(WEEK_DAYS) if day is None else [day]
+        if any(not 0 <= j < WEEK_DAYS for j in targets):
+            return None
+        return [daily[week][j] for j in targets]
+    return None if day is not None else [weekly[week]]
+
+
+def _in_range(value: float) -> bool:
+    """割り当て率の範囲(`nan`・無限大は範囲外)。"""
+    return MIN_ALLOCATION <= value <= MAX_ALLOCATION
+
+
+def current_allocation(
+    task: Task, name: str, week: int, day: int | None = None
+) -> float | None:
+    """アサイン専用画面(要望 168 段階 3a): セルにいるメンバーの割り当て率。いない・セルが合わないときは None。
+    週ごとでないタスクは全体の担当の率、定義済みの週より先は直前の担当の率。"""
+    padded = _padded(task, week, week + 1)
+    if padded is None:
+        return None
+    weekly, daily = padded
+    crews = _cell_crews(weekly, daily, week, day)
+    if crews is None or len(crews) != 1:
+        return None
+    return next((a.allocation for a in crews[0] if a.name == name), None)
+
+
+def _rebuilt(task: Task, weekly: list[list[Assignee]], daily: DailyCrew) -> Task:
+    """日ごとの週の担当から週の担当を作り直し、全体の担当(和集合)も合わせたタスク。"""
+    for week, days in daily.items():
+        if week < len(weekly) and len(days) == WEEK_DAYS:
+            weekly[week] = union_assignees(days)
+    return replace(
+        task, weekly_crew=weekly, daily_crew=daily, assignees=union_assignees(weekly)
+    )
+
+
+def set_allocation(
+    task: Task,
+    name: str,
+    value: float,
+    week: int,
+    day: int | None = None,
+    *,
+    weeks: int = 1,
+) -> Task | None:
+    """アサイン専用画面: 週(日)のセルのメンバーの割り当て率を`value`にする。そのセルだけが変わる。
+
+    週ごとでないタスクは、`add_member`と同じく`weeks`週ぶんに写して週ごとにしてから変える(定義済みの週より先は直前の担当で埋める)。
+    日ごとの週で`day`がなければ 7 日すべて。`None`(何も変えない): 範囲外の率・`nan`・通常でないタスク・範囲外の週・
+    日の指定が合わない・そのセルにメンバーがいない・値が今と同じ・担当者のいない週ごとでないタスク。"""
+    if task.kind is not TaskKind.NORMAL or not _in_range(value):
+        return None
+    padded = _padded(task, week, weeks)
+    if padded is None:
+        return None
+    weekly, daily = padded
+    crews = _cell_crews(weekly, daily, week, day)
+    if crews is None:
+        return None
+    found = [a for crew in crews for a in crew if a.name == name]
+    if len(found) != len(crews) or all(a.allocation == value for a in found):
+        return None
+    for assignee in found:
+        assignee.allocation = value
+    return _rebuilt(task, weekly, daily)
+
+
+def set_allocation_all(task: Task, name: str, value: float) -> Task | None:
+    """アサイン専用画面: そのメンバーがいるすべての週(日ごとの週はすべての日)の割り当て率を`value`にする。
+    いない週には足さない。週ごとでないタスクは、全体の担当の率だけを変える(週ごとにしない)。
+    1 つも変わらないとき・範囲外の率・通常でないタスクは None。"""
+    if task.kind is not TaskKind.NORMAL or not _in_range(value):
+        return None
+    if not task.weekly_crew:
+        found = [a for a in task.assignees if a.name == name]
+        if not found or all(a.allocation == value for a in found):
+            return None
+        return replace(
+            task,
+            assignees=[
+                replace(a, allocation=value) if a.name == name else replace(a)
+                for a in task.assignees
+            ],
+        )
+    weekly, daily = copy_weekly(task.weekly_crew), copy_daily(task.daily_crew)
+    crews = [
+        crew
+        for number, week in enumerate(weekly)
+        for crew in (daily[number] if _is_daily(daily, number) else [week])
+    ]
+    found = [a for crew in crews for a in crew if a.name == name]
+    if not found or all(a.allocation == value for a in found):
+        return None
+    for assignee in found:
+        assignee.allocation = value
+    return _rebuilt(task, weekly, daily)
