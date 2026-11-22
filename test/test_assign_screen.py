@@ -5,6 +5,7 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.assign_drag import ASSIGN_DRAG_CSS
+from projectapp.assign_load import member_color
 from projectapp.assign_screen import (
     ROW_HEIGHT_PX,
     AssignScreen,
@@ -784,6 +785,17 @@ async def test_the_load_panel_shows_a_toggle_and_a_row_for_each_assignee(
     await user.should_see(marker="assign-load-row-田中")
     summary = user.find(marker="assign-load-summary-田中").elements.pop()
     assert summary.text.startswith("最大 ")
+
+
+async def test_each_member_has_a_stable_color_by_project_member_order(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    names = [m.name for m in screen.project.members]
+    assert [screen.load_color(n) for n in names] == [
+        member_color(i) for i in range(len(names))
+    ]
+    assert screen.load_color("いない人") == member_color(0)
 
 
 async def test_tapping_a_toggle_hides_and_shows_the_row(user: User) -> None:

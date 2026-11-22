@@ -21,7 +21,7 @@ from projectapp.assign_drag import (
     ASSIGN_DROP_EVENT,
     ASSIGN_SELECT_EVENT,
 )
-from projectapp.assign_load import load_summary, load_svg
+from projectapp.assign_load import MEMBER_CSS, load_summary, load_svg, member_color
 from projectapp.assign_trial import (
     AssignTrial,
     CellPlan,
@@ -133,6 +133,7 @@ class AssignScreen:
         """`parent`は、更新(refreshable)で消されない外側の要素。なければ呼び出しの文脈の下に作る。"""
         with parent if parent is not None else nullcontext():
             ui.add_css(ASSIGN_DRAG_CSS)
+            ui.add_css(MEMBER_CSS)
             # 画面を開いたあとの`add_head_html`は、`<script>`が実行されない。直接実行する(重複は JS が防ぐ)
             ui.run_javascript(ASSIGN_DRAG_JS)
             self.client_id = context.client.id
@@ -427,11 +428,17 @@ class AssignScreen:
                 if name not in self.load_hidden:
                     self.load_row(name, loads.get(name, []))
 
+    def load_color(self, name: str) -> str:
+        """メンバーの色。プロジェクトのメンバー一覧の並びで決まる(担当の出入りで変わらない)。"""
+        names = [m.name for m in self.project.members]
+        return member_color(names.index(name) if name in names else 0)
+
     def load_toggle(self, name: str) -> None:
         icon = next((m.icon for m in self.project.members if m.name == name), "")
         hidden = name in self.load_hidden
         avatar(name, icon, 22).tooltip(name).style(
-            "cursor: pointer" + ("; opacity: 0.35" if hidden else "")
+            f"cursor: pointer; box-shadow: 0 0 0 2px {self.load_color(name)}"
+            + ("; opacity: 0.35" if hidden else "")
         ).on("click", lambda n=name: self.toggle_load(n)).mark(
             f"assign-load-toggle-{name}"
         )
@@ -443,10 +450,12 @@ class AssignScreen:
             .classes("items-center no-wrap gap-2 w-full")
             .mark(f"assign-load-row-{name}")
         ):
-            avatar(name, icon, 20)
+            avatar(name, icon, 20).style(
+                f"box-shadow: 0 0 0 2px {self.load_color(name)}"
+            )
             ui.label(name).classes("text-body2").style("width: 6rem; flex: none")
             with ui.element("div").style("flex: 1 1 0; min-width: 0; overflow-x: auto"):
-                ui.html(load_svg(days), sanitize=False)
+                ui.html(load_svg(days, self.load_color(name)), sanitize=False)
             ui.label(load_summary(days)).classes("text-caption text-grey").style(
                 "flex: none"
             ).mark(f"assign-load-summary-{name}")
