@@ -90,14 +90,15 @@ def load_summary(days: list[tuple[date, float]]) -> str:
     return f"最大 {peak * 100:.0f}%・100% 超 {over} 日"
 
 
-STACKED_BAR_PX = 8
-STACKED_HEIGHT_PX = 96
+OVERLAY_BAR_PX = 8
+OVERLAY_HEIGHT_PX = 96
+OVERLAY_OPACITY = 0.45
 
-Stack = list[tuple[str, str, list[tuple[date, float]]]]
+Overlay = list[tuple[str, str, list[tuple[date, float]]]]
 
 
-def _stack_days(members: Stack) -> list[date]:
-    """積み上げの日付。人ごとの日リストの長さが違う(負荷のない人は空)ので、いちばん長いものを使う。"""
+def _overlay_days(members: Overlay) -> list[date]:
+    """重ねる日付。人ごとの日リストの長さが違う(負荷のない人は空)ので、いちばん長いものを使う。"""
     return [d for d, _ in max((days for _, _, days in members), key=len, default=[])]
 
 
@@ -105,66 +106,62 @@ def _value(days: list[tuple[date, float]], index: int) -> float:
     return days[index][1] if index < len(days) else 0.0
 
 
-def stacked_svg(
-    members: Stack,
+def overlay_svg(
+    members: Overlay,
     bar_px: int = BAR_PX,
     height_px: int = CHART_HEIGHT_PX,
 ) -> str:
-    """表示中のメンバー(名前・色・稼働日ごとの負荷)を、1 本の棒に下から積み上げる。
+    """表示中のメンバー(名前・色・稼働日ごとの負荷)の棒を、同じ位置に半透明で重ねる。
 
-    縦は 0〜max(人数, 日ごとの合計の最大)。100% の点線は人数ぶん(1 人あたりの 100% の合計)に引く。
-    100% を超えた人の区間には、超過の色の輪郭を付ける。"""
-    count = len(members)
-    dates = _stack_days(members)
-    length = len(dates)
+    縦は個人ごとの行と同じ 0〜200%(100% に点線)。負荷の大きい棒を奥に描き、小さい棒が隠れないようにする。
+    100% を超えた分は超過の色。ホバーには、その日の全員の値を出す。"""
+    dates = _overlay_days(members)
     step = bar_px + BAR_GAP_PX
-    width = max(length * step, 1)
-    totals = [sum(_value(days, i) for _, _, days in members) for i in range(length)]
-    scale = max([float(count), *totals, 1.0])
+    width = max(len(dates) * step, 1)
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height_px}"'
         f' viewBox="0 0 {width} {height_px}" role="img" style="display: block">'
     ]
     for index, day in enumerate(dates):
-        cursor = 0.0
-        for name, color, days in members:
-            value = _value(days, index)
-            if value <= 0:
-                continue
-            top = height_px * (cursor + value) / scale
-            height = height_px * value / scale
-            outline = (
-                f' stroke="{OVER_COLOR}" stroke-width="1"'
-                if value > 1.0 + OVERLOAD_EPSILON
-                else ""
-            )
-            parts.append(
-                f'<rect x="{index * step}" y="{height_px - top:.1f}" width="{bar_px}"'
-                f' height="{height:.1f}" fill="{color}"{outline}>'
-                f"<title>{day.month}/{day.day} {name} {value * 100:.0f}%"
-                f"(合計 {totals[index] * 100:.0f}%)</title></rect>"
-            )
-            cursor += value
-    if count:
-        reference = height_px - height_px * count / scale
-        parts.append(
-            f'<line x1="0" x2="{width}" y1="{reference:.1f}" y2="{reference:.1f}"'
-            ' stroke="currentColor" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 3"/>'
+        today = [
+            (name, color, _value(days, index))
+            for name, color, days in members
+            if _value(days, index) > 0
+        ]
+        title = (
+            f"<title>{day.month}/{day.day} "
+            + "・".join(f"{name} {value * 100:.0f}%" for name, _, value in today)
+            + "</title>"
         )
+        for _, color, value in sorted(today, key=lambda row: -row[2]):
+            over = value > 1.0 + OVERLOAD_EPSILON
+            segments = [
+                (0.0, min(value, 1.0) if over else min(value, LOAD_SCALE), color)
+            ]
+            if over:
+                segments.append((1.0, min(value, LOAD_SCALE), OVER_COLOR))
+            for low, high, fill in segments:
+                top = height_px * high / LOAD_SCALE
+                height = height_px * (high - low) / LOAD_SCALE
+                parts.append(
+                    f'<rect x="{index * step}" y="{height_px - top:.1f}" width="{bar_px}"'
+                    f' height="{height:.1f}" fill="{fill}" fill-opacity="{OVERLAY_OPACITY}"'
+                    f' stroke="{fill}" stroke-width="1">{title}</rect>'
+                )
+    reference = height_px / LOAD_SCALE
+    parts.append(
+        f'<line x1="0" x2="{width}" y1="{reference:.1f}" y2="{reference:.1f}"'
+        ' stroke="currentColor" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 3"/>'
+    )
     parts.append("</svg>")
     return "".join(parts)
 
 
-def stacked_summary(members: Stack) -> str:
-    """`合計の最大 230%・個人の 100% 超 2 人日`。稼働日がなければ`稼働日がありません`。"""
-    length = len(_stack_days(members))
-    if not length:
+def overlay_summary(members: Overlay) -> str:
+    """`最大 130%・100% 超 3 人日`(個人の最大と、100% を超えた人×日の数)。稼働日がなければ`稼働日がありません`。"""
+    if not _overlay_days(members):
         return "稼働日がありません"
-    peak = max(sum(_value(days, i) for _, _, days in members) for i in range(length))
-    over = sum(
-        1
-        for _, _, days in members
-        for _, value in days
-        if value > 1.0 + OVERLOAD_EPSILON
-    )
-    return f"合計の最大 {peak * 100:.0f}%・個人の 100% 超 {over} 人日"
+    values = [value for _, _, days in members for _, value in days]
+    peak = max(values, default=0.0)
+    over = sum(1 for value in values if value > 1.0 + OVERLOAD_EPSILON)
+    return f"最大 {peak * 100:.0f}%・100% 超 {over} 人日"

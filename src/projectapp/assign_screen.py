@@ -25,11 +25,11 @@ from projectapp.assign_load import (
     MEMBER_CSS,
     load_summary,
     load_svg,
-    STACKED_BAR_PX,
-    STACKED_HEIGHT_PX,
+    OVERLAY_BAR_PX,
+    OVERLAY_HEIGHT_PX,
     member_color,
-    stacked_summary,
-    stacked_svg,
+    overlay_summary,
+    overlay_svg,
 )
 from projectapp.assign_trial import (
     AssignTrial,
@@ -133,7 +133,7 @@ class AssignScreen:
         self.load_box: ui.element | None = None
         self.load_hidden: set[str] = set()
         self.load_open = True
-        self.load_stacked = False  # 1 本に積み上げて見る(保存しない)
+        self.load_overlay = False  # 1 つのヒストグラムに重ねて見る(保存しない)
         self.rate_dialog: ui.dialog | None = None
         self.rate_slider: RangeSlider | None = None
         self.rate_number: ui.number | None = None
@@ -389,8 +389,8 @@ class AssignScreen:
         if self.load_open:
             self.render_load()
 
-    def set_load_stacked(self, value: bool) -> None:
-        self.load_stacked = bool(value)
+    def set_load_overlay(self, value: bool) -> None:
+        self.load_overlay = bool(value)
         self.render_load()
 
     def toggle_load(self, name: str) -> None:
@@ -439,38 +439,38 @@ class AssignScreen:
                 for name in names:
                     self.load_toggle(name)
                 ui.toggle(
-                    {False: "個人ごと", True: "まとめて"},
-                    value=self.load_stacked,
-                    on_change=lambda e: self.set_load_stacked(e.value),
+                    {False: "個人ごと", True: "重ねる"},
+                    value=self.load_overlay,
+                    on_change=lambda e: self.set_load_overlay(e.value),
                 ).props("dense no-caps").mark("assign-load-mode")
-            if self.load_stacked:
+            if self.load_overlay:
                 shown = [
                     (n, self.load_color(n), loads.get(n, []))
                     for n in names
                     if n not in self.load_hidden
                 ]
-                self.load_stacked_row(shown)
+                self.load_overlay_row(shown)
                 return
             for name in names:
                 if name not in self.load_hidden:
                     self.load_row(name, loads.get(name, []))
 
-    def load_stacked_row(
+    def load_overlay_row(
         self, shown: list[tuple[str, str, list[tuple[date, float]]]]
     ) -> None:
         with (
             ui.row()
             .classes("items-center no-wrap gap-2 w-full")
-            .mark("assign-load-stacked")
+            .mark("assign-load-overlay")
         ):
             with ui.element("div").style("flex: 1 1 0; min-width: 0; overflow-x: auto"):
                 ui.html(
-                    stacked_svg(shown, STACKED_BAR_PX, STACKED_HEIGHT_PX),
+                    overlay_svg(shown, OVERLAY_BAR_PX, OVERLAY_HEIGHT_PX),
                     sanitize=False,
                 )
-            ui.label(stacked_summary(shown)).classes("text-caption text-grey").style(
+            ui.label(overlay_summary(shown)).classes("text-caption text-grey").style(
                 "flex: none"
-            ).mark("assign-load-stacked-summary")
+            ).mark("assign-load-overlay-summary")
 
     def load_color(self, name: str) -> str:
         """メンバーの色。プロジェクトのメンバー一覧の並びで決まる(担当の出入りで変わらない)。"""

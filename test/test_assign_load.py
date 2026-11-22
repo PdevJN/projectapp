@@ -9,8 +9,8 @@ from projectapp.assign_load import (
     load_summary,
     load_svg,
     member_color,
-    stacked_summary,
-    stacked_svg,
+    overlay_summary,
+    overlay_svg,
 )
 from projectapp.dashboard_view import LOAD_COLOR, OVER_COLOR
 
@@ -80,51 +80,54 @@ def members(*rows: tuple[str, str, list[float]]):
     return [(n, c, days(*t)) for n, c, t in rows]
 
 
-def test_stacked_bars_pile_the_members_from_the_bottom() -> None:
-    svg = stacked_svg(members(("田中", "red", [0.5]), ("佐藤", "blue", [0.5])))
+def test_overlay_draws_every_member_from_the_baseline() -> None:
+    svg = overlay_svg(members(("田中", "red", [0.8]), ("佐藤", "blue", [0.5])))
     assert svg.count("<rect") == 2
-    assert 'fill="red"' in svg and 'fill="blue"' in svg
-    assert "<title>11/16 田中 50%(合計 100%)</title>" in svg
-    # 2 人なので 100% の点線は 200% の位置(上端)
-    assert 'y1="0.0" y2="0.0"' in svg
+    half = CHART_HEIGHT_PX / 2
+    # 100% の点線は個人の上限として 1 本(0〜200% 固定)
+    assert f'y1="{half:.1f}" y2="{half:.1f}"' in svg
+    assert 'fill="red" fill-opacity="0.45"' in svg and 'fill="blue"' in svg
+    # どの棒も下端(y + height = 48)に届く
+    assert 'y="28.8" width="4" height="19.2"' in svg  # 80%
+    assert 'y="36.0" width="4" height="12.0"' in svg  # 50%
 
 
-def test_stacked_member_over_100_percent_gets_an_overload_outline() -> None:
-    svg = stacked_svg(members(("田中", "red", [1.2]), ("佐藤", "blue", [0.5])))
-    assert svg.count(f'stroke="{OVER_COLOR}"') == 1
+def test_overlay_draws_the_larger_bar_first_so_the_smaller_stays_visible() -> None:
+    svg = overlay_svg(members(("小", "blue", [0.3]), ("大", "red", [0.9])))
+    assert svg.index('fill="red"') < svg.index('fill="blue"')
 
 
-def test_stacked_scale_grows_when_the_total_exceeds_the_member_count() -> None:
-    svg = stacked_svg(members(("田中", "red", [1.5]), ("佐藤", "blue", [1.5])))
-    assert 'y="0.0"' in svg  # 合計 300% が上端
-    assert 'y1="16.0" y2="16.0"' in svg  # 点線は 200%/300%
+def test_overlay_over_100_percent_shows_only_the_excess_in_the_overload_color() -> None:
+    svg = overlay_svg(members(("田中", "red", [1.2])))
+    assert svg.count("<rect") == 2
+    assert svg.count(f'fill="{OVER_COLOR}"') == 1 and svg.count('fill="red"') == 1
 
 
-def test_stacked_without_members_or_days_is_an_empty_svg() -> None:
-    assert "<rect" not in stacked_svg([])
-    assert "<rect" not in stacked_svg(members(("田中", "red", [0.0])))
+def test_overlay_hover_lists_everyone_that_day() -> None:
+    svg = overlay_svg(members(("田中", "red", [0.8]), ("佐藤", "blue", [0.5])))
+    assert svg.count("<title>11/16 田中 80%・佐藤 50%</title>") == 2
 
 
-def test_stacked_summary_counts_member_days_over_100_percent() -> None:
-    rows = members(("田中", "red", [1.2, 0.5]), ("佐藤", "blue", [1.1, 0.5]))
-    assert stacked_summary(rows) == "合計の最大 230%・個人の 100% 超 2 人日"
-    assert stacked_summary(members(("田中", "red", []))) == "稼働日がありません"
+def test_overlay_height_is_clamped_at_200_percent() -> None:
+    svg = overlay_svg(members(("田中", "red", [2.5])))
+    assert 'y="0.0" width="4" height="24.0"' in svg
 
 
-def test_stacked_tolerates_members_with_no_or_short_load_lists() -> None:
+def test_overlay_tolerates_members_with_no_or_short_load_lists() -> None:
     rows = [
         ("田中", "red", days(0.5, 1.2)),
         ("佐藤", "blue", []),
         ("鈴木", "g", days(0.3)),
     ]
-    svg = stacked_svg(rows)
-    assert svg.count("<rect") == 3
-    assert stacked_summary(rows) == "合計の最大 120%・個人の 100% 超 1 人日"
-    assert "<rect" not in stacked_svg([("田中", "red", []), ("佐藤", "blue", [])])
+    assert overlay_svg(rows).count("<rect") == 4  # 0.5, 1.2(2 本), 0.3
+    assert overlay_summary(rows) == "最大 120%・100% 超 1 人日"
+    assert "<rect" not in overlay_svg([("田中", "red", []), ("佐藤", "blue", [])])
+    assert overlay_summary([]) == "稼働日がありません"
+    assert "<rect" not in overlay_svg([])
 
 
-def test_stacked_can_be_drawn_larger() -> None:
-    small = stacked_svg(members(("田中", "red", [0.5, 0.5])))
-    large = stacked_svg(members(("田中", "red", [0.5, 0.5])), 8, 96)
+def test_overlay_can_be_drawn_larger() -> None:
+    small = overlay_svg(members(("田中", "red", [0.5, 0.5])))
+    large = overlay_svg(members(("田中", "red", [0.5, 0.5])), 8, 96)
     assert 'width="10" height="48"' in small
     assert 'width="18" height="96"' in large
