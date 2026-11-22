@@ -18,6 +18,7 @@ from projectapp.assign_drag import (
     ASSIGN_DRAG_CSS,
     ASSIGN_DRAG_JS,
     ASSIGN_DROP_EVENT,
+    ASSIGN_SELECT_EVENT,
 )
 from projectapp.assign_trial import (
     AssignTrial,
@@ -34,10 +35,14 @@ from projectapp.avatar import avatar
 from projectapp.config import DEFAULT_NAME_WIDTH_PX
 from projectapp.daily_crew import (
     WEEK_DAYS,
+    Cell,
     Segment,
     add_member,
+    add_member_range,
+    cell_in_range,
     current_allocation,
     merge_week,
+    ordered_cells,
     remove_member,
     segments,
     set_allocation,
@@ -47,7 +52,14 @@ from projectapp.daily_crew import (
 )
 from projectapp.forms import disposable
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, from_name
-from projectapp.models import MAX_ALLOCATION, MIN_ALLOCATION, Assignee, Project, Task
+from projectapp.models import (
+    MAX_ALLOCATION,
+    MAX_WEEKS,
+    MIN_ALLOCATION,
+    Assignee,
+    Project,
+    Task,
+)
 from projectapp.task_dialog import RangeSlider
 from projectapp.timeline import (
     DEFAULT_FISCAL_START_MONTH,
@@ -104,6 +116,7 @@ class AssignScreen:
         self.client_id = ""
         self.members_box: ui.element | None = None
         self.rate_target: tuple[str, int, int | None] | None = None
+        self.selection: tuple[Cell, Cell] | None = None
         self.rate_dialog: ui.dialog | None = None
         self.rate_slider: RangeSlider | None = None
         self.rate_number: ui.number | None = None
@@ -123,6 +136,10 @@ class AssignScreen:
                 REGISTERED.add(self.client_id)
                 client_id = self.client_id
                 ui.on(ASSIGN_DROP_EVENT, lambda e: drop_on_active(client_id, e.args))
+                ui.on(
+                    ASSIGN_SELECT_EVENT,
+                    lambda e: select_on_active(client_id, e.args),
+                )
             self.build()
 
     def build(self) -> None:
@@ -246,6 +263,13 @@ class AssignScreen:
             .mark("assign-row")
         )
         with row:
+            if self.selection is not None:
+                ui.button("選択を解除", on_click=self.clear_selection).props(
+                    "flat dense size=xs"
+                ).style(
+                    "position: absolute; left: 4px; top: -2px; z-index: 2;"
+                    " min-height: 16px; padding: 0 4px"
+                ).mark("assign-selection-clear")
             for seg in segs:
                 self.cell(
                     seg.week,
@@ -300,13 +324,16 @@ class AssignScreen:
         lines: int = 1,
     ) -> None:
         left, span = self.edges(first, last, columns, width)
+        selected = self.selection is not None and cell_in_range(
+            *self.selection, week, day
+        )
         marker = f"assign-cell-{week}" if day is None else f"assign-cell-{week}-{day}"
         props = f'data-assign-cell data-week="{week}"'
         if day is not None:
             props += f' data-day="{day}"'
         with (
             ui.row()
-            .classes("items-start")
+            .classes("items-start assign-selected" if selected else "items-start")
             .props(props)
             .style(
                 f"position: absolute; left: {from_name(left)};"
@@ -475,12 +502,41 @@ class AssignScreen:
             with self.members_box:
                 self.members_content(team_groups(self.project))
 
+    def select_range(self, first: Cell, last: Cell) -> None:
+        """割り当ての行で選んだ範囲(両端を含む)を、日付の順にして持つ。開始日がない・範囲外の週なら無視する。"""
+        if self.plan is None:
+            return
+        for week, day in (first, last):
+            if not 0 <= week < MAX_WEEKS or (
+                day is not None and not 0 <= day < WEEK_DAYS
+            ):
+                return
+        self.selection = ordered_cells(first, last)
+        self.refresh()
+
+    def clear_selection(self) -> None:
+        if self.selection is not None:
+            self.selection = None
+            self.refresh()
+
     def drop_member(self, name: str, week: int, day: int | None) -> None:
         if self.plan is None:
             ui.notify("開始日がないため週に分けられません", type="warning")
             return
         if name not in {m.name for m in self.project.members}:
             ui.notify("このメンバーは名簿にいません", type="warning")
+            return
+        selection = self.selection
+        if selection is not None and cell_in_range(*selection, week, day):
+            ranged = add_member_range(
+                self.trial.task, name, *selection, weeks=self.plan.weeks
+            )
+            if ranged is None:
+                ui.notify("すでに割り当てています", type="warning")
+                return
+            self.trial.task = ranged
+            self.selection = None
+            self.refresh()
             return
         result = add_member(self.trial.task, name, week, day, weeks=self.plan.weeks)
         if result is None:
@@ -534,6 +590,7 @@ class AssignScreen:
         if result is None:
             ui.notify("この週は日ごとに変えられません", type="warning")
             return
+        self.selection = None  # セルの並びが変わるので外す
         self.trial.task = result
         self.refresh()
 
@@ -579,6 +636,19 @@ def whole_percent(value: object) -> int | None:
     if not round(MIN_ALLOCATION * 100) <= whole <= round(MAX_ALLOCATION * 100):
         return None
     return whole
+
+
+def cell_of(item: dict) -> Cell:
+    """JS から来た`{week, day}`を`(週, 日 or None)`にする。"""
+    day = item["day"]
+    return int(item["week"]), None if day is None else int(day)
+
+
+def select_on_active(client_id: str, args: dict) -> None:
+    """範囲の選択のイベントを、そのクライアントで今開いている画面に渡す。"""
+    screen = ACTIVE.get(client_id)
+    if screen is not None:
+        screen.select_range(cell_of(args["first"]), cell_of(args["last"]))
 
 
 def lines_for(count: int, span_px: float) -> int:

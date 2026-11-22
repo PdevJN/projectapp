@@ -2,6 +2,11 @@ from datetime import datetime
 
 from projectapp.daily_crew import (
     add_member,
+    add_member_range,
+    cell_in_range,
+    ordered_cells,
+    range_cells,
+    to_weekly,
     current_allocation,
     remove_member,
     set_allocation,
@@ -299,3 +304,112 @@ def test_lowering_the_rate_moves_the_forecast_end_later() -> None:
     fast = effective_end(full, project, {})
     slow = effective_end(half, Project("p", members=project.members, tasks=[half]), {})
     assert fast is not None and slow is not None and slow > fast
+
+
+def test_a_range_adds_the_member_to_every_week_in_it() -> None:
+    result = add_member_range(task("田中"), "鈴木", (1, None), (2, None), weeks=4)
+    assert result is not None
+    assert [names(w) for w in result.weekly_crew] == [
+        ["田中"],
+        ["田中", "鈴木"],
+        ["田中", "鈴木"],
+        ["田中"],
+    ]
+    assert names(result.assignees) == ["田中", "鈴木"]
+
+
+def test_a_range_is_the_same_when_first_and_last_are_swapped() -> None:
+    forward = add_member_range(task("田中"), "鈴木", (1, None), (2, None), weeks=4)
+    backward = add_member_range(task("田中"), "鈴木", (2, None), (1, None), weeks=4)
+    assert forward is not None and forward == backward
+
+
+def test_a_range_skips_cells_that_already_have_the_member() -> None:
+    base = add_member(task("田中"), "鈴木", 1, weeks=4)
+    assert base is not None
+    result = add_member_range(base, "鈴木", (0, None), (2, None))
+    assert result is not None
+    assert [names(w) for w in result.weekly_crew] == [
+        ["田中", "鈴木"],
+        ["田中", "鈴木"],  # 重複しない
+        ["田中", "鈴木"],
+        ["田中"],
+    ]
+
+
+def test_a_range_returns_none_when_every_cell_already_has_the_member() -> None:
+    base = add_member_range(task("田中"), "鈴木", (0, None), (2, None), weeks=3)
+    assert base is not None
+    assert add_member_range(base, "鈴木", (0, None), (2, None)) is None
+
+
+def test_a_range_across_a_daily_week_adds_only_the_days_in_it() -> None:
+    weekly = to_weekly(task("田中"), 3)
+    assert weekly is not None
+    base = split_week(weekly, 1)
+    assert base is not None
+    result = add_member_range(base, "鈴木", (0, None), (1, 2))
+    assert result is not None
+    assert "鈴木" in names(result.weekly_crew[0])
+    days = result.daily_crew[1]
+    assert ["鈴木" in names(d) for d in days] == [True, True, True] + [False] * 4
+    assert "鈴木" in names(result.weekly_crew[1])  # 日の和集合
+    assert "鈴木" not in names(result.weekly_crew[2])
+
+
+def test_a_range_can_start_in_the_middle_of_a_daily_week() -> None:
+    weekly = to_weekly(task("田中"), 3)
+    assert weekly is not None
+    base = split_week(weekly, 1)
+    assert base is not None
+    result = add_member_range(base, "鈴木", (1, 4), (2, None))
+    assert result is not None
+    assert ["鈴木" in names(d) for d in result.daily_crew[1]] == [False] * 4 + [
+        True
+    ] * 3
+    assert "鈴木" in names(result.weekly_crew[2])
+
+
+def test_a_range_beyond_the_defined_weeks_fills_with_the_tail() -> None:
+    result = add_member_range(task("田中"), "鈴木", (2, None), (4, None), weeks=1)
+    assert result is not None
+    # 定義済みの週より先は直前の担当で埋める。最後の週(2)の担当は以降も続くので、週 3・4 は増やさなくても鈴木が入る
+    assert [names(w) for w in result.weekly_crew] == [
+        ["田中"],
+        ["田中"],
+        ["田中", "鈴木"],
+    ]
+
+
+def test_a_range_on_an_unassigned_task_makes_the_whole_task_assigned() -> None:
+    result = add_member_range(task(), "鈴木", (0, None), (2, None), weeks=3)
+    assert result is not None
+    assert result.weekly_crew == [] and names(result.assignees) == ["鈴木"]
+
+
+def test_a_range_refuses_what_it_cannot_do() -> None:
+    assert add_member_range(task("田中"), "鈴木", (0, None), (52, None)) is None
+    assert add_member_range(task("田中"), "鈴木", (-1, None), (1, None)) is None
+    summary = Task("s", id="s", kind=TaskKind.SUMMARY, assignees=[Assignee("田中")])
+    assert add_member_range(summary, "鈴木", (0, None), (1, None)) is None
+
+
+def test_cell_in_range_follows_week_and_day_boundaries() -> None:
+    assert cell_in_range((1, None), (2, None), 1, None)
+    assert cell_in_range((1, None), (2, None), 2, 5)  # 日ごとの週の日も週の範囲に入る
+    assert not cell_in_range((1, None), (2, None), 0, None)
+    assert not cell_in_range((1, None), (2, None), 3, None)
+    assert cell_in_range((1, 2), (3, 4), 1, 2) and not cell_in_range(
+        (1, 2), (3, 4), 1, 1
+    )
+    assert cell_in_range((1, 2), (3, 4), 3, 4) and not cell_in_range(
+        (1, 2), (3, 4), 3, 5
+    )
+    assert cell_in_range((3, 4), (1, 2), 2, None)  # 逆順でも同じ
+
+
+def test_ordered_cells_and_range_cells() -> None:
+    assert ordered_cells((3, 4), (1, None)) == ((1, None), (3, 4))
+    daily = {1: [[] for _ in range(7)]}
+    assert range_cells(daily, (0, None), (1, 2)) == [(0, None), (1, 0), (1, 1), (1, 2)]
+    assert range_cells(daily, (1, 5), (2, None)) == [(1, 5), (1, 6), (2, None)]

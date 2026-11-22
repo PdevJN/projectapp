@@ -5,7 +5,12 @@ from nicegui import ui
 from nicegui.testing import User
 
 from projectapp.assign_drag import ASSIGN_DRAG_CSS
-from projectapp.assign_screen import ROW_HEIGHT_PX, AssignScreen, row_height
+from projectapp.assign_screen import (
+    ROW_HEIGHT_PX,
+    AssignScreen,
+    row_height,
+    select_on_active,
+)
 from projectapp.assign_trial import AssignTrial, is_dirty
 from projectapp.gantt import GanttActions, GanttChart
 from projectapp.models import Project, Task
@@ -672,3 +677,99 @@ async def test_a_confirmed_rate_is_written_back_and_cancel_discards_it(
 
 def test_the_badge_css_exists() -> None:
     assert ".assign-rate-badge" in ASSIGN_DRAG_CSS
+
+
+async def test_selecting_a_range_marks_its_cells_and_shows_the_clear_button(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.select_range((0, None), (0, None))
+    assert screen.selection == ((0, None), (0, None))
+    await user.should_see(marker="assign-selection-clear")
+    assert any(
+        "assign-selected" in e.classes
+        for e in user.find(marker="assign-cell-0").elements
+    )
+
+
+async def test_the_selection_is_ordered_whatever_the_swipe_direction(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.select_range((2, None), (1, None))
+    assert screen.selection == ((1, None), (2, None))
+
+
+async def test_dropping_inside_the_selection_adds_to_every_cell_in_it(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.select_range((1, None), (2, None))
+    screen.drop_member("鈴木", 2, None)
+    crews = [[a.name for a in w] for w in screen.trial.task.weekly_crew]
+    assert crews[0] == ["田中"]
+    # 最後の週(1)の担当は以降も続くので、週 2 は増やさなくても鈴木が入る
+    assert crews == [["田中"], ["田中", "鈴木"]]
+    assert screen.selection is None  # 足したら選択を外す
+
+
+async def test_dropping_outside_the_selection_adds_only_that_cell(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.select_range((1, None), (2, None))
+    screen.drop_member("鈴木", 0, None)
+    crews = [[a.name for a in w] for w in screen.trial.task.weekly_crew]
+    assert crews[0] == ["田中", "鈴木"]
+    assert all("鈴木" not in c for c in crews[1:])
+    assert screen.selection == ((1, None), (2, None))  # 範囲の外なので選択は残る
+
+
+async def test_dropping_when_everyone_is_already_in_the_range_changes_nothing(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.drop_member("鈴木", 2, None)
+    before = screen.trial.task
+    screen.select_range((1, None), (2, None))
+    screen.drop_member("鈴木", 1, None)
+    assert screen.trial.task == before
+    assert screen.selection == ((1, None), (2, None))
+
+
+async def test_the_clear_button_and_daily_toggle_remove_the_selection(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.select_range((0, None), (1, None))
+    await user.should_see(marker="assign-selection-clear")
+    user.find(marker="assign-selection-clear").click()
+    assert screen.selection is None
+    screen.select_range((0, None), (1, None))
+    screen.toggle_daily(0)  # セルの並びが変わるので外す
+    assert screen.selection is None
+
+
+async def test_a_selection_without_a_start_date_is_ignored(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.plan = None
+    screen.select_range((0, None), (1, None))
+    assert screen.selection is None
+
+
+async def test_the_select_event_is_routed_to_the_active_screen(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    select_on_active(
+        screen.client_id,
+        {"first": {"week": 0, "day": None}, "last": {"week": 1, "day": None}},
+    )
+    assert screen.selection == ((0, None), (1, None))
+    select_on_active(
+        "other", {"first": {"week": 0, "day": None}, "last": {"week": 2, "day": None}}
+    )
+    assert screen.selection == ((0, None), (1, None))  # 知らないクライアントは無視
+
+
+async def test_a_range_selection_does_not_make_the_screen_dirty(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.select_range((0, None), (1, None))
+    assert not is_dirty(screen.trial)
