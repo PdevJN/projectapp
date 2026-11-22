@@ -154,7 +154,7 @@ from projectapp.dashboard import (
 )
 from projectapp.assign_dialog import open_assign_dialog
 from projectapp.assign_screen import AssignScreen
-from projectapp.assign_trial import AssignTrial, apply_trial, is_assignable
+from projectapp.assign_trial import AssignTrial, apply_trial, is_assignable, is_dirty
 from projectapp.rebalance import Edit, apply_edits
 from projectapp.rebalance_dialog import open_rebalance_dialog
 from projectapp.dashboard_view import DashboardView, ViewActions
@@ -586,6 +586,9 @@ class MainView:
         self.git_menu_button: ui.button | None = None  # 作業ツリーでないときは隠す
         self.git_menu_tips: dict[str, ui.tooltip] = {}  # 押せない理由を出すツールチップ
         self.mark_clean()
+        self.assign_host: ui.element | None = (
+            None  # アサイン専用画面を作る、更新されない外側の要素(build で作る)
+        )
         self.assign_screen: AssignScreen | None = (
             None  # 開いているアサイン専用画面(要望 168)
         )
@@ -663,6 +666,7 @@ class MainView:
                 drop_trial=self.drop_trial_at,
                 pick_trial=self.pick_trial,
                 edit_progress=self.edit_progress,
+                open_assign=self.open_assign_at,
                 add_extra_effort=self.add_extra_effort,
                 open_note=self.open_note,
                 note_html=self.note_html,
@@ -1832,6 +1836,12 @@ class MainView:
         self.dashboard_cross = on
         self.refresh_dashboard()
 
+    def open_assign_at(self, path: SectionPath, task_index: int) -> None:
+        """ガントチャートの右クリック`アサイン...`(要望 168)。"""
+        tasks = self.tasks_in(path)
+        if task_index < len(tasks):
+            self.open_assign_screen(tasks[task_index].id)
+
     def is_assignable_task(self, task_id: str) -> bool:
         task = self.project.task_map().get(task_id)
         return task is not None and is_assignable(task)
@@ -1844,6 +1854,8 @@ class MainView:
             return
 
         def confirm(trial: AssignTrial) -> None:
+            if not is_dirty(trial):
+                return  # 変更がなければ書き戻さない(開いている間の編集を古いコピーで戻さない)
             # 画面を開いている間に、削除・Undo などで差し替わることがあるので、書き戻せなければ通知する
             if not apply_trial(self.project, trial):
                 ui.notify("タスクが変わったため、反映しませんでした", type="warning")
@@ -1861,7 +1873,7 @@ class MainView:
             name_width=self.gantt.name_width,
             fiscal_start_month=self.fiscal_start_month,
         )
-        self.assign_screen.open()
+        self.assign_screen.open(self.assign_host)
 
     def assign_from_dashboard(self, task_id: str) -> None:
         """ダッシュボードの`担当なし`のタスクに、選んだメンバーを割り当て率 100% で入れる(要望 39)。Undo の履歴に積む。"""
@@ -3903,6 +3915,7 @@ class MainView:
         self.preview_bar.build()
         self.dashboard_view.build()
         self.trial_band = ui.column().classes("w-full")
+        self.assign_host = ui.element("div")  # 更新で消されないよう、画面はここに作る
         self.gantt.note_ids = notes.note_ids(self.project.name)
         self.note_pane = NotePane(save=self.save_note, load=notes.load)
         self.gantt.build()

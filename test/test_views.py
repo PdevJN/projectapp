@@ -10034,3 +10034,40 @@ async def test_open_assign_screen_ignores_done_tasks(
     view.project.tasks[0].status = Status.DONE
     view.open_assign_screen(view.project.tasks[0].id)
     assert view.assign_screen is None
+
+
+async def test_assign_screen_survives_a_dashboard_refresh(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    user.find(marker="dashboard-due-assign-0").click()
+    await user.should_see(marker="assign-screen")
+    assert view.assign_screen is not None and view.assign_screen.dialog is not None
+    view.dashboard_view.cards.refresh()  # tick などの更新で、開いている画面が消えない
+    assert view.assign_screen.dialog.is_deleted is False
+    assert view.assign_screen.dialog.value is True
+
+
+async def test_confirm_without_changes_does_not_overwrite_edits_made_meanwhile(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    task_id = view.project.tasks[0].id
+    user.find(marker="dashboard-due-assign-0").click()
+    await user.should_see(marker="assign-confirm")
+    view.project.tasks[0].name = "開いている間に変えた"
+    user.find(marker="assign-confirm").click()
+    assert view.project.task_map()[task_id].name == "開いている間に変えた"
+
+
+async def test_gantt_right_click_assign_opens_the_screen(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    view.gantt.open_menu((), 0)
+    user.find(marker="context-assign").click()
+    await user.should_see(marker="assign-screen")
+    assert view.assign_screen is not None
+    assert view.assign_screen.trial.task.id == view.project.tasks[0].id

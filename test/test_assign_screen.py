@@ -152,3 +152,27 @@ async def test_escape_key_cancels_like_the_cancel_button(user: User) -> None:
     listener.handler(None)  # 変更がないので、確認なしで閉じる
     assert dialog.value is False
     assert confirmed == []
+
+
+async def test_embedded_scroll_box_is_separate_from_the_main_chart(user: User) -> None:
+    charts: list[GanttChart] = []
+
+    @ui.page("/")
+    def index() -> None:
+        main = GanttChart(one_task_project(), {}, noop_actions())
+        main.build()
+        embedded = GanttChart(one_task_project(), {}, noop_actions())
+        embedded.build_embedded()
+        charts.extend([main, embedded])
+
+    await user.open("/")
+    main, embedded = charts
+    assert embedded.scroll_selector != main.scroll_selector
+    assert embedded.scroll_box is not None
+    assert "data-assign-scroll" in embedded.scroll_box.props
+    sent: list[str] = []
+    assert embedded.client is not None
+    embedded.client.run_javascript = lambda js, **kw: sent.append(js)  # type: ignore[method-assign]
+    embedded.scroll_to_left()
+    assert sent and all("data-assign-scroll" in js for js in sent)
+    assert not any("data-chart-scroll" in js for js in sent)

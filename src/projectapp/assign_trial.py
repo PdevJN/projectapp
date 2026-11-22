@@ -30,10 +30,30 @@ def is_assignable(task: Task) -> bool:
     return task.kind is TaskKind.NORMAL and task.status is not Status.DONE
 
 
+def hidden_ids(project: Project, trial: AssignTrial) -> frozenset[str]:
+    """日程の計算のために複製へ入れる先行タスクの id(たどれる限り)。描かない。"""
+    tasks = project.task_map()
+    found: set[str] = set()
+    stack = list(trial.task.predecessors)
+    while stack:
+        pid = stack.pop()
+        pred = tasks.get(pid)
+        if pid in found or pid == trial.task.id or pred is None:
+            continue
+        found.add(pid)
+        stack.extend(pred.predecessors)
+    return frozenset(found)
+
+
 def trial_project(project: Project, trial: AssignTrial) -> Project:
-    """試算のタスク 1 件だけを持つプロジェクトのコピー(ガントチャートの描画用)。元は変えない。"""
+    """試算のタスクと、その日程を決める先行タスクだけを持つプロジェクトの複製(ガントチャートの描画用)。
+
+    先行タスクがないと、後続の開始・完了が求まらず、メインと違う描画になる。先行は`hidden_ids`で描かない。
+    元は変えない。"""
     copy = deepcopy(project)
-    return replace(copy, tasks=[deepcopy(trial.task)], sections=[])
+    keep = hidden_ids(project, trial)
+    others = [task for task in copy.all_tasks() if task.id in keep]
+    return replace(copy, tasks=[deepcopy(trial.task), *others], sections=[])
 
 
 def apply_trial(project: Project, trial: AssignTrial) -> bool:

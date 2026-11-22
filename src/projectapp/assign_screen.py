@@ -6,15 +6,22 @@
 """
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import date, datetime
 
 from nicegui import ui
 
 from projectapp import clock
-from projectapp.assign_trial import AssignTrial, is_dirty, start_trial, trial_project
+from projectapp.assign_trial import (
+    AssignTrial,
+    hidden_ids,
+    is_dirty,
+    start_trial,
+    trial_project,
+)
 from projectapp.config import DEFAULT_NAME_WIDTH_PX
 from projectapp.forms import disposable
-from projectapp.gantt import GanttActions, GanttChart
+from projectapp.gantt import GanttActions, GanttChart, ViewOptions
 from projectapp.models import Project, Task
 from projectapp.timeline import DEFAULT_FISCAL_START_MONTH, Scale
 
@@ -56,7 +63,12 @@ class AssignScreen:
         self.chart: GanttChart | None = None
         self.dialog: ui.dialog | None = None
 
-    def open(self) -> None:
+    def open(self, parent: ui.element | None = None) -> None:
+        """`parent`は、更新(refreshable)で消されない外側の要素。なければ呼び出しの文脈の下に作る。"""
+        with parent if parent is not None else nullcontext():
+            self.build()
+
+    def build(self) -> None:
         with (
             disposable(ui.dialog()).props("persistent maximized") as dialog,
             ui.card().classes("w-full h-full no-wrap").mark("assign-screen"),
@@ -89,7 +101,13 @@ class AssignScreen:
                     name_width=self.name_width,
                     fiscal_start_month=self.fiscal_start_month,
                 )
-                self.chart.build_embedded()
+                self.chart.build_embedded(
+                    ViewOptions(
+                        read_only=True,
+                        excluded=hidden_ids(self.project, self.trial),
+                        hide_excluded=True,
+                    )
+                )
         dialog.open()
 
     def set_scale(self, scale: Scale) -> None:

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from projectapp.assign_trial import (
     apply_trial,
@@ -72,3 +72,27 @@ def test_apply_trial_returns_false_when_the_task_is_gone() -> None:
     trial = start_trial(base.task_map()["a"])
     base.sections[0].tasks.clear()
     assert apply_trial(base, trial) is False
+
+
+def test_trial_project_keeps_predecessors_so_the_schedule_matches_the_main_chart() -> (
+    None
+):
+    from projectapp.assign_trial import hidden_ids
+    from projectapp.timeline import Schedule
+
+    first = Task(
+        "先行", id="a", planned_start=datetime(2026, 11, 16, 9), effort_hours=16
+    )
+    second = Task("後続", id="b", effort_hours=8, predecessors=["a"])
+    base = Project(
+        "p", base_date=date(2026, 11, 16), sections=[Section("s", [first, second])]
+    )
+    trial = start_trial(base.task_map()["b"])
+    copy = trial_project(base, trial)
+    full = Schedule(base, {})
+    part = Schedule(copy, {})
+    mine = copy.task_map()["b"]
+    assert (part.start(mine), part.end(mine)) == (full.start(second), full.end(second))
+    assert hidden_ids(base, trial) == frozenset(
+        {"a"}
+    )  # 先行は日程のために持つだけで、描かない
