@@ -307,6 +307,89 @@ def save_project(
     return path
 
 
+def replace_text(path: Path, text: str) -> None:
+    """一時ファイル経由で、`path`の中身を置き換える(途中で止まっても、元のファイルを壊さない)。"""
+    tmp = _create_temp(path.parent)
+    try:
+        with open(tmp.fd, "w", encoding="utf-8") as file:
+            file.write(text)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(tmp.path, path)
+    finally:
+        tmp.path.unlink(missing_ok=True)
+
+
+def _reference_dicts(raw: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    for task in _task_dicts(raw.get("tasks", []), raw.get("sections", [])):
+        if task.get("kind") == TaskKind.REFERENCE.value:
+            yield task
+
+
+def _rewrite_references(text: str, old: str, new: str) -> str | None:
+    """`ref_project`が`old`の参照を`new`へ書き換えた JSON 文字列。該当がなければ None(読めないファイルも None)。"""
+    try:
+        raw = json.loads(text)
+        found = [t for t in _reference_dicts(raw) if t.get("ref_project") == old]
+    except (ValueError, AttributeError, TypeError, KeyError):
+        return None
+    if not found:
+        return None
+    for task in found:
+        task["ref_project"] = new
+    return json.dumps(raw, ensure_ascii=False, indent=2, default=_encode)
+
+
+def referrers_of(base_dir: Path, name: str) -> list[str]:
+    """`name`のプロジェクトを参照している、ほかのプロジェクトの名前。読めないファイルは数えない。"""
+    names: list[str] = []
+    for path in list_project_files(base_dir):
+        if path.stem == name:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if _rewrite_references(text, name, name + "\0") is not None:
+            names.append(path.stem)
+    return names
+
+
+def rename_project_files(base_dir: Path, old: str, new: str) -> list[str]:
+    """プロジェクトのファイルを`old`から`new`へ移し、参照元の`ref_project`も書き換える。書き換えた参照元の名前を返す。
+
+    途中で失敗したら、移したファイルと書き換えた参照元を元へ戻して例外を投げる。
+    """
+    if (base_dir / f"{new}.json").exists():
+        raise FileExistsError(new)
+    if error := validate_name(new, base_dir, new=False):
+        raise ValueError(error)
+    src, dst = base_dir / f"{old}.json", base_dir / f"{new}.json"
+    if not src.is_file():
+        raise FileNotFoundError(old)
+    plans: list[tuple[Path, str, str]] = []  # (参照元, 元の文章, 書き換えた文章)
+    for name in referrers_of(base_dir, old):
+        path = base_dir / f"{name}.json"
+        text = path.read_text(encoding="utf-8")
+        if (rewritten := _rewrite_references(text, old, new)) is not None:
+            plans.append((path, text, rewritten))
+    src.rename(dst)
+    done: list[tuple[Path, str]] = []
+    try:
+        for path, text, rewritten in plans:
+            replace_text(path, rewritten)
+            done.append((path, text))
+    except OSError:
+        for path, text in done:
+            try:
+                replace_text(path, text)
+            except OSError:
+                pass  # 戻せないものがあっても、残りは戻す
+        dst.rename(src)
+        raise
+    return [path.stem for path, _, _ in plans]
+
+
 def _datetime(text: str | None) -> datetime | None:
     """日時を読む。年が範囲外(手編集の誤り)なら、描画が止まるのを防ぐためにValueError。"""
     if not text:

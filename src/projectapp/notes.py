@@ -260,6 +260,16 @@ def copy_project(src_name: str, dst_name: str) -> None:
         return
 
 
+def rename_project(src_name: str, dst_name: str) -> None:
+    """プロジェクト名の変更のとき、メモのフォルダを新しい名前へ移す。先に同名のフォルダがあれば`FileExistsError`。"""
+    src, dst = _folder(src_name), _folder(dst_name)
+    if src is None or dst is None or src == dst or not src.is_dir():
+        return
+    if dst.exists():
+        raise FileExistsError(dst_name)
+    src.rename(dst)
+
+
 def sync(
     name: str, before: set[str], after: set[str], trash: dict[str, str]
 ) -> set[str]:
