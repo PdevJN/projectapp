@@ -35,8 +35,18 @@ PROJECT_KEYS = (
     "reference_mode",
     "plantuml_overload_notice",
     "actual_time_optional",
+    "start_delay_enabled",
+    "start_delay_style",
+    "start_delay_grace",
+    "start_delay_color",
     "ratio_limit_upper",
     "ratio_limit_lower",
+)
+START_DELAY_KEYS = (
+    "start_delay_enabled",
+    "start_delay_style",
+    "start_delay_grace",
+    "start_delay_color",
 )
 COLLECTION_KEYS = ("members", "parameters", "categories", "url_templates", "events")
 SECTION_LABELS = {
@@ -55,6 +65,9 @@ class ImportFile:
     has_project_settings: bool  # プロジェクト設定のキーが 1 つでもあったか
     actual_time_given: bool = (
         True  # `actual_time_optional`のキーがあったか(古い設定ファイルにはない)
+    )
+    start_delay_given: bool = (
+        True  # 着工遅れの 4 項目のキーがそろっていたか(古い設定ファイルにはない)
     )
 
 
@@ -123,6 +136,7 @@ def parse_settings(text: str) -> ImportFile:
         project,
         any(key in raw for key in PROJECT_KEYS),
         "actual_time_optional" in raw,
+        all(key in raw for key in START_DELAY_KEYS),
     )
 
 
@@ -131,6 +145,11 @@ def _incoming_project(current: Project, incoming: ImportFile) -> Project:
     project = deepcopy(incoming.project)
     if not incoming.actual_time_given:
         project.actual_time_optional = current.actual_time_optional
+    if not incoming.start_delay_given:
+        project.start_delay_enabled = current.start_delay_enabled
+        project.start_delay_style = current.start_delay_style
+        project.start_delay_grace = current.start_delay_grace
+        project.start_delay_color = current.start_delay_color
     return project
 
 
@@ -188,6 +207,14 @@ def _describe(project: Project) -> dict[str, str]:
         "プロジェクト参照の方式": refs[project.reference_mode],
         "PlantUML の通知": "出す" if project.plantuml_overload_notice else "出さない",
         "実績の時刻の省略": "省略できる" if project.actual_time_optional else "必須",
+        "着工遅れの表示": "出す" if project.start_delay_enabled else "出さない",
+        "着工遅れの表し方": {
+            "both": "帯とチップ",
+            "band": "帯だけ",
+            "chip": "チップだけ",
+        }[project.start_delay_style.value],
+        "着工遅れの猶予日数": f"{project.start_delay_grace}日",
+        "着工遅れの帯の色": project.start_delay_color,
         "相対比率の上限": ratio(project.ratio_limit_upper),
         "相対比率の下限": ratio(project.ratio_limit_lower),
     }
@@ -290,6 +317,10 @@ def _apply_project_settings(
     work.reference_mode = source.reference_mode
     work.plantuml_overload_notice = source.plantuml_overload_notice
     work.actual_time_optional = source.actual_time_optional
+    work.start_delay_enabled = source.start_delay_enabled
+    work.start_delay_style = source.start_delay_style
+    work.start_delay_grace = source.start_delay_grace
+    work.start_delay_color = source.start_delay_color
     work.ratio_limit_upper, work.ratio_limit_lower = (
         source.ratio_limit_upper,
         source.ratio_limit_lower,

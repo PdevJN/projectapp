@@ -9,8 +9,19 @@ from projectapp.models import (
     FORMAT_VERSION,
     MAX_START_DELAY_GRACE,
     Project,
+    Section,
     StartDelaySettings,
     StartDelayStyle,
+    Task,
+)
+from projectapp.extract import extract
+from projectapp.merge import SETTING_LABELS, merge_projects
+from projectapp.settings_io import (
+    PROJECT_KEYS,
+    apply_import,
+    build_settings,
+    parse_settings,
+    plan_import,
 )
 from projectapp.storage import dumps_project, parse_project
 
@@ -88,3 +99,86 @@ def test_a_bad_value_is_rejected(key: str, bad: object) -> None:
     raw[key] = bad
     with pytest.raises(ValueError, match="着工遅れ"):
         parse_project(json.dumps(raw), "p")
+
+
+KEYS = (
+    "start_delay_enabled",
+    "start_delay_style",
+    "start_delay_grace",
+    "start_delay_color",
+)
+
+
+def test_the_settings_file_carries_the_four_keys() -> None:
+    assert all(key in PROJECT_KEYS for key in KEYS)
+    source = Project("入", start_delay_grace=2, start_delay_style=StartDelayStyle.BAND)
+    data = build_settings(source)
+    assert data["start_delay_grace"] == 2
+    assert data["start_delay_style"] == "band"
+
+
+def test_the_import_applies_the_four_items() -> None:
+    source = Project(
+        "入",
+        start_delay_enabled=False,
+        start_delay_style=StartDelayStyle.CHIP,
+        start_delay_grace=3,
+        start_delay_color="#0a0b0c",
+    )
+    incoming = parse_settings(json.dumps(build_settings(source)))
+    assert incoming.start_delay_given is True
+    result = apply_import(Project("現"), incoming, {"project"}, set())
+    assert result.project.start_delay == source.start_delay
+
+
+def test_the_settings_labels_name_the_four_items() -> None:
+    assert SETTING_LABELS["start_delay_enabled"] == "着工遅れの表示"
+    assert SETTING_LABELS["start_delay_style"] == "着工遅れの表し方"
+    assert SETTING_LABELS["start_delay_grace"] == "着工遅れの猶予日数"
+    assert SETTING_LABELS["start_delay_color"] == "着工遅れの帯の色"
+
+
+def test_the_merge_takes_a_one_sided_change() -> None:
+    base = Project("p")
+    ours = Project("p", start_delay_grace=2)
+    merged = merge_projects(base, ours, Project("p")).project
+    assert merged.start_delay_grace == 2
+    theirs = Project("p", start_delay_enabled=False)
+    both = merge_projects(base, ours, theirs).project
+    assert (both.start_delay_grace, both.start_delay_enabled) == (2, False)
+
+
+def test_extract_keeps_the_four_items() -> None:
+    project = Project(
+        "p",
+        sections=[Section("開発", [Task("a", id="a")])],
+        start_delay_enabled=False,
+        start_delay_style=StartDelayStyle.CHIP,
+        start_delay_grace=4,
+        start_delay_color="#010203",
+    )
+    child = extract(project, ["a"], "子").child
+    assert child.start_delay == project.start_delay
+
+
+def test_an_old_settings_file_without_the_keys_keeps_the_current_values() -> None:
+    text = json.dumps(
+        {k: v for k, v in build_settings(Project("入")).items() if k not in KEYS}
+    )
+    incoming = parse_settings(text)
+    assert incoming.start_delay_given is False
+    current = Project(
+        "現",
+        start_delay_grace=5,
+        start_delay_color="#0a0b0c",
+        start_delay_enabled=False,
+    )
+    labels = {c.label for c in plan_import(current, incoming).project_changes}
+    assert not labels & {
+        "着工遅れの表示",
+        "着工遅れの表し方",
+        "着工遅れの猶予日数",
+        "着工遅れの帯の色",
+    }
+    result = apply_import(current, incoming, {"project"}, set())
+    assert result.project.start_delay == current.start_delay
