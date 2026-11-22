@@ -31,6 +31,7 @@ from projectapp.assign_load import (
     overlay_summary,
     overlay_svg,
 )
+from projectapp.shortage import shortage_hint, shortage_text, task_shortage
 from projectapp.assign_trial import (
     AssignTrial,
     CellPlan,
@@ -130,6 +131,7 @@ class AssignScreen:
         self.members_box: ui.element | None = None
         self.rate_target: tuple[str, int, int | None] | None = None
         self.selection: tuple[Cell, Cell] | None = None
+        self.shortage_label: ui.label | None = None
         self.load_box: ui.element | None = None
         self.load_hidden: set[str] = set()
         self.load_open = True
@@ -171,6 +173,9 @@ class AssignScreen:
                 ui.label(self.trial.task.name).classes("text-h6 col ellipsis").mark(
                     "assign-task-title"
                 )
+                self.shortage_label = (
+                    ui.label("").classes("text-body2").mark("assign-shortage")
+                )
                 ui.toggle(
                     {scale: scale.value for scale in ASSIGN_SCALES},
                     value=Scale.DAY,
@@ -209,6 +214,7 @@ class AssignScreen:
                     )
             self.build_load_panel()
             self.build_rate_popup()
+        self.render_shortage()
         dialog.open()
 
     # --- 左のメンバー一覧 ---
@@ -650,6 +656,30 @@ class AssignScreen:
 
     # --- 操作 ---
 
+    def render_shortage(self) -> None:
+        """基準日までの不足・余裕を、ヘッダーの 1 行に出す。出せないときは理由を薄く出す。"""
+        label = self.shortage_label
+        if label is None:
+            return
+        value = task_shortage(
+            self.trial.task,
+            trial_project(self.project, self.trial),
+            self.holidays,
+            self.now(),
+        )
+        if isinstance(value, str):
+            label.set_text(f"不足は出せません: {value}")
+            label.classes(replace="text-body2 text-grey")
+            label.props(remove="title")
+            return
+        label.set_text(shortage_text(value))
+        color = "text-body2" + (" text-bold" if value.kind == "不足" else "")
+        label.classes(replace=color)
+        label.style(
+            "color: var(--warning)" if value.kind == "不足" else "color: inherit"
+        )
+        label.props(f'title="{shortage_hint(value)}"')
+
     def refresh(self) -> None:
         """試算のタスクから複製を作り直し、チャート(棒・完了予定・警告)と割り当ての行を描き直す。"""
         # 率を下げると完了予定が後ろへ伸びるので、セルの週の数は試算の終了に合わせて取り直す(開始日がなければそのまま)
@@ -661,6 +691,7 @@ class AssignScreen:
             with self.members_box:
                 self.members_content(team_groups(self.project))
         self.render_load()
+        self.render_shortage()
 
     def select_range(self, first: Cell, last: Cell) -> None:
         """割り当ての行で選んだ範囲(両端を含む)を、日付の順にして持つ。開始日がない・範囲外の週なら無視する。"""
