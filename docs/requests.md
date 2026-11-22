@@ -2390,7 +2390,7 @@ CSV の取り込みで読んだメモは、すぐ`notes/<ファイル名の stem
 - 視点の中身: 残工数・余裕の状態のほかに出す指標。要望 158 の「不足」の定義と合わせる。【段階 4】
 
 ### 状態
-段階 1 は実装済み・マージ済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage1-design.md`)。段階 2 は実装済み・マージ済み(PR #270・#271。設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage2-design.md`)。段階 3a(割り当て率のスライダー)は実装済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage3a-design.md`・計画: `docs/superpowers/plans/2026-11-22-assign-screen-stage3a.md`。PR #272。実機確認待ち)。3b(集中増員)・4・5 は未着手。
+段階 1 は実装済み・マージ済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage1-design.md`)。段階 2 は実装済み・マージ済み(PR #270・#271。設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage2-design.md`)。段階 3a(割り当て率のスライダー)は実装済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage3a-design.md`・計画: `docs/superpowers/plans/2026-11-22-assign-screen-stage3a.md`。PR #272。実機確認待ち)。段階 3b(範囲を選んでの集中増員)は実装済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage3b-design.md`・計画: `docs/superpowers/plans/2026-11-22-assign-screen-stage3b.md`。PR は作成後に記す。実機確認待ち)。4・5 は未着手。
 
 ## 要望 169: アサイン専用の画面で、複数のタスクを並べて調整する(2026-11-22 に受領。関連: 要望 168)
 
