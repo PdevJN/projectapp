@@ -1,5 +1,5 @@
+import inspect
 from datetime import date, datetime
-from types import SimpleNamespace
 
 from nicegui import ui
 from nicegui.testing import User
@@ -479,6 +479,16 @@ async def test_a_daily_cell_wraps_its_icons_and_the_row_grows_with_the_crew(
     )
 
 
+def fire(number: ui.number, kind: str) -> None:
+    """数値欄の`kind`のイベントを、登録順にすべて呼ぶ(`ui.number`自身のリスナーも含めて、実際と同じにする)。"""
+    for listener in [e for e in number._event_listeners.values() if e.type == kind]:
+        handler = listener.handler
+        if inspect.signature(handler).parameters:
+            handler(None)
+        else:
+            handler()
+
+
 def rate_of(screen: AssignScreen, week: int, name: str) -> float:
     crew = screen.trial.task.weekly_crew[week]
     return next(a.allocation for a in crew if a.name == name)
@@ -573,22 +583,55 @@ async def test_the_slider_and_the_number_field_apply_through_their_events(
     screen.drop_member("鈴木", 1, None)
     screen.open_rate("鈴木", 1, None)
     assert screen.rate_slider is not None and screen.rate_number is not None
-    [change] = [
-        ev for ev in screen.rate_slider._event_listeners.values() if ev.type == "change"
-    ]
-    change.handler(SimpleNamespace(args=75))
+    screen.rate_slider.set_value(75)  # ドラッグ中: 数値欄だけ合わせ、試算は変えない
+    assert screen.rate_number.value == 75 and rate_of(screen, 1, "鈴木") == 1.0
+    screen.rate_slider._on_release(None)  # 離したとき
     assert rate_of(screen, 1, "鈴木") == 0.75
     for kind in ("blur", "keydown.enter"):
         screen.rate_number.value = 30
-        # ui.number 自身も blur を持つので、あとから足した(自分の)リスナーを使う
-        listener = [
-            ev for ev in screen.rate_number._event_listeners.values() if ev.type == kind
-        ][-1]
-        listener.handler(None)
+        fire(screen.rate_number, kind)
         assert rate_of(screen, 1, "鈴木") == 0.3
         screen.rate_number.value = 100
-        listener.handler(None)
+        fire(screen.rate_number, kind)
         assert rate_of(screen, 1, "鈴木") == 1.0
+
+
+async def test_blurring_an_out_of_range_number_is_refused_not_clamped(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.open_rate("鈴木", 1, None)
+    screen.apply_rate(50)
+    assert screen.rate_number is not None
+    for bad in (150, 0, -5):
+        screen.rate_number.value = bad
+        fire(screen.rate_number, "blur")
+        assert rate_of(screen, 1, "鈴木") == 0.5  # 100% や 1% に丸めて反映しない
+        assert screen.rate_number.value == 50  # 直前の値に戻る
+
+
+async def test_a_fractional_rate_is_rounded_to_a_whole_percent(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.open_rate("鈴木", 1, None)
+    screen.apply_rate(33.4)
+    assert rate_of(screen, 1, "鈴木") == 0.33
+    screen.apply_rate(99.6)  # 100% に丸まる
+    assert rate_of(screen, 1, "鈴木") == 1.0
+    screen.apply_rate(0.4)  # 0% に丸まるので範囲外
+    assert rate_of(screen, 1, "鈴木") == 1.0
+
+
+async def test_lowering_the_last_week_adds_cells_for_the_weeks_it_stretches_into(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    assert screen.plan is not None
+    before = screen.plan.weeks
+    screen.open_rate("田中", before - 1, None)
+    screen.apply_rate(20)  # 率を下げると完了予定が後ろへ伸びる
+    assert screen.plan is not None and screen.plan.weeks > before
 
 
 async def test_the_remove_button_does_not_open_the_popup(user: User) -> None:

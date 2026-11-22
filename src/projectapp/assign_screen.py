@@ -48,6 +48,7 @@ from projectapp.daily_crew import (
 from projectapp.forms import disposable
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, from_name
 from projectapp.models import MAX_ALLOCATION, MIN_ALLOCATION, Assignee, Project, Task
+from projectapp.task_dialog import RangeSlider
 from projectapp.timeline import (
     DEFAULT_FISCAL_START_MONTH,
     Column,
@@ -57,8 +58,6 @@ from projectapp.timeline import (
 
 ASSIGN_SCALES = (Scale.DAY, Scale.WEEK, Scale.MONTH)
 ROW_HEIGHT_PX = 40
-RATE_SLIDER_MIN = 5  # スライダーは 5〜100 の 5% 刻み(それより細かい値は数値欄で)
-RATE_STEP = 5
 CHIP_STEP_PX = 20  # アイコン 18px + すき間 2px
 LINE_STEP_PX = 22  # セルの 1 段の高さ
 ACTIVE: dict[
@@ -106,7 +105,7 @@ class AssignScreen:
         self.members_box: ui.element | None = None
         self.rate_target: tuple[str, int, int | None] | None = None
         self.rate_dialog: ui.dialog | None = None
-        self.rate_slider: ui.slider | None = None
+        self.rate_slider: RangeSlider | None = None
         self.rate_number: ui.number | None = None
         self.rate_title: ui.label | None = None
 
@@ -336,17 +335,17 @@ class AssignScreen:
             self.rate_title = (
                 ui.label("").classes("text-subtitle2").mark("assign-rate-title")
             )
+            # 画面の倍率(CSS zoom)の中でも、つまみがずれない標準の入力(要望 144 の学び)
             self.rate_slider = (
-                ui.slider(min=RATE_SLIDER_MIN, max=100, step=RATE_STEP, value=100)
-                .props("label")
+                RangeSlider(
+                    round(MIN_ALLOCATION * 100), round(MAX_ALLOCATION * 100), 100
+                )
+                .classes("w-full")
                 .mark("assign-rate-slider")
             )
+            # min・max は付けない(付けると blur で範囲に丸めてから受け取り、範囲外を通知できない)。整数に整える
             self.rate_number = ui.number(
-                "割り当て率(%)",
-                value=100,
-                min=MIN_ALLOCATION * 100,
-                max=MAX_ALLOCATION * 100,
-                step=1,
+                "割り当て率(%)", value=100, step=1, precision=0
             ).mark("assign-rate-number")
             with ui.row().classes("w-full justify-between"):
                 ui.button(
@@ -357,9 +356,9 @@ class AssignScreen:
                 )
         self.rate_dialog = popup
         slider, number = self.rate_slider, self.rate_number
-        # ドラッグ中は数値欄の表示だけ合わせ、離したとき(change)に試算へ反映する
+        # ドラッグ中は数値欄の表示だけ合わせ、離したときに試算へ反映する
         slider.on_value_change(lambda e: number.set_value(e.value))
-        slider.on("change", lambda e: self.apply_rate(e.args))
+        slider.on_release(lambda: self.apply_rate(slider.value))
         number.on("blur", lambda _e: self.apply_rate(number.value))
         number.on("keydown.enter", lambda _e: self.apply_rate(number.value))
 
@@ -388,24 +387,20 @@ class AssignScreen:
         percent = round(current * 100, 2)
         title = f"{name} 第 {week + 1} 週"
         self.rate_title.set_text(title if day is None else f"{title} {day + 1} 日目")
-        self.rate_slider.set_value(min(max(percent, RATE_SLIDER_MIN), 100))
+        self.rate_slider.set_value(round(percent))
         self.rate_number.set_value(percent)
 
     def apply_rate(self, percent: object) -> None:
         if self.rate_target is None or self.plan is None:
             return
-        if (
-            isinstance(percent, bool)
-            or not isinstance(percent, (int, float))
-            or not isfinite(percent)
-            or not MIN_ALLOCATION * 100 <= percent <= MAX_ALLOCATION * 100
-        ):
+        whole = whole_percent(percent)
+        if whole is None:
             ui.notify("割り当て率は 1〜100% で入れてください", type="warning")
             self.show_rate()  # 表示は直前の値に戻す
             return
         name, week, day = self.rate_target
         result = set_allocation(
-            self.trial.task, name, percent / 100, week, day, weeks=self.plan.weeks
+            self.trial.task, name, whole / 100, week, day, weeks=self.plan.weeks
         )
         if result is None:  # 今と同じ値・そのセルにいない
             self.show_rate()
@@ -417,17 +412,12 @@ class AssignScreen:
     def apply_rate_all(self) -> None:
         if self.rate_target is None or self.rate_number is None:
             return
-        value = self.rate_number.value
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not isfinite(value)
-            or not MIN_ALLOCATION * 100 <= value <= MAX_ALLOCATION * 100
-        ):
+        whole = whole_percent(self.rate_number.value)
+        if whole is None:
             ui.notify("割り当て率は 1〜100% で入れてください", type="warning")
             self.show_rate()
             return
-        result = set_allocation_all(self.trial.task, self.rate_target[0], value / 100)
+        result = set_allocation_all(self.trial.task, self.rate_target[0], whole / 100)
         if result is None:
             ui.notify("変わる週がありません", type="info")
             return
@@ -476,6 +466,8 @@ class AssignScreen:
 
     def refresh(self) -> None:
         """試算のタスクから複製を作り直し、チャート(棒・完了予定・警告)と割り当ての行を描き直す。"""
+        # 率を下げると完了予定が後ろへ伸びるので、セルの週の数は試算の終了に合わせて取り直す(開始日がなければそのまま)
+        self.plan = cell_plan(self.project, self.trial.task, self.holidays) or self.plan
         if self.chart is not None:
             self.chart.set_project(trial_project(self.project, self.trial))
         if self.members_box is not None:
@@ -575,6 +567,18 @@ class AssignScreen:
             self.rate_dialog.close()
         if self.dialog is not None:
             self.dialog.close()
+
+
+def whole_percent(value: object) -> int | None:
+    """入力された割り当て率(%)を整数に丸める。数でない・`nan`・丸めて 1〜100 の外なら None。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not isfinite(value):
+        return None
+    whole = round(value)
+    if not round(MIN_ALLOCATION * 100) <= whole <= round(MAX_ALLOCATION * 100):
+        return None
+    return whole
 
 
 def lines_for(count: int, span_px: float) -> int:
