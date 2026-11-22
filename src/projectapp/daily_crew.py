@@ -7,7 +7,7 @@
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
-from projectapp.models import MAX_WEEKS, Assignee, Task, union_assignees
+from projectapp.models import MAX_WEEKS, Assignee, Task, TaskKind, union_assignees
 
 WEEK_DAYS = 7
 DailyCrew = dict[int, list[list[Assignee]]]
@@ -168,6 +168,80 @@ def set_week_days(task: Task, week: int, days: list[list[Assignee]]) -> Task | N
     weekly, daily = copy_weekly(task.weekly_crew), copy_daily(task.daily_crew)
     daily[week] = [copy_crew(day) for day in days]
     weekly[week] = union_assignees(daily[week])
+    return replace(
+        task, weekly_crew=weekly, daily_crew=daily, assignees=union_assignees(weekly)
+    )
+
+
+def _crews(task: Task, weeks: int) -> tuple[list[list[Assignee]], DailyCrew] | None:
+    """週ごとの担当を返す。週ごとでないタスクは、現在の担当を`weeks`週ぶんに写す。担当者がなければ None。"""
+    if task.weekly_crew:
+        return copy_weekly(task.weekly_crew), copy_daily(task.daily_crew)
+    if not task.assignees:
+        return None
+    return [copy_crew(task.assignees) for _ in range(max(weeks, 1))], {}
+
+
+def add_member(
+    task: Task, name: str, week: int, day: int | None = None, *, weeks: int = 1
+) -> Task | None:
+    """アサイン専用画面(要望 168 段階 2): メンバーを週(日)のセルに、割り当て率 100% で足す。
+
+    週ごとでないタスクは、現在の担当を`weeks`週ぶんに写して週ごとにし、落とした週だけに足す。担当者のいないタスクは
+    週ごとにできない(担当のいない週を作らない)ので、全体の担当にする。定義済みの週より先は、直前の担当で間を埋める。
+    重複・範囲外(`week`が 0 未満か`MAX_WEEKS`以上、`day`が日ごとの週の 0〜6 の外)は None(何も変えない)。
+    """
+    if not 0 <= week < MAX_WEEKS or task.kind is not TaskKind.NORMAL:
+        return None
+    if not task.weekly_crew and not task.assignees:
+        return replace(task, assignees=[Assignee(name)])
+    crews = _crews(task, min(weeks, MAX_WEEKS))
+    assert crews is not None
+    weekly, daily = crews
+    while len(weekly) <= week:
+        weekly.append(copy_crew(_tail(weekly, daily)))
+    if _is_daily(daily, week):
+        targets = range(WEEK_DAYS) if day is None else [day]
+        if any(not 0 <= j < WEEK_DAYS for j in targets):
+            return None
+        if all(name in {a.name for a in daily[week][j]} for j in targets):
+            return None
+        for j in targets:
+            if name not in {a.name for a in daily[week][j]}:
+                daily[week][j].append(Assignee(name))
+        weekly[week] = union_assignees(daily[week])
+    else:
+        if day is not None or name in {a.name for a in weekly[week]}:
+            return None
+        weekly[week].append(Assignee(name))
+    return replace(
+        task, weekly_crew=weekly, daily_crew=daily, assignees=union_assignees(weekly)
+    )
+
+
+def remove_member(
+    task: Task, name: str, week: int, day: int | None = None
+) -> Task | None:
+    """アサイン専用画面: メンバーを週(日)のセルから外す。そのセルの最後の 1 人・いない人・週ごとでないタスクは None。
+    日ごとの週で`day`がなければ 7 日すべてから外す(どれかの日で最後の 1 人なら None)。"""
+    if not task.weekly_crew or not 0 <= week < len(task.weekly_crew):
+        return None
+    weekly, daily = copy_weekly(task.weekly_crew), copy_daily(task.daily_crew)
+    if _is_daily(daily, week):
+        targets = range(WEEK_DAYS) if day is None else [day]
+        if any(not 0 <= j < WEEK_DAYS for j in targets):
+            return None
+        for j in targets:
+            crew = [a for a in daily[week][j] if a.name != name]
+            if len(crew) == len(daily[week][j]) or not crew:
+                return None
+            daily[week][j] = crew
+        weekly[week] = union_assignees(daily[week])
+    else:
+        crew = [a for a in weekly[week] if a.name != name]
+        if day is not None or len(crew) == len(weekly[week]) or not crew:
+            return None
+        weekly[week] = crew
     return replace(
         task, weekly_crew=weekly, daily_crew=daily, assignees=union_assignees(weekly)
     )
