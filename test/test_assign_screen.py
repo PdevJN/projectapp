@@ -773,3 +773,80 @@ async def test_a_range_selection_does_not_make_the_screen_dirty(user: User) -> N
     screen, _ = await open_team_screen(user)
     screen.select_range((0, None), (1, None))
     assert not is_dirty(screen.trial)
+
+
+async def test_the_load_panel_shows_a_toggle_and_a_row_for_each_assignee(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    await user.should_see(marker="assign-load")
+    await user.should_see(marker="assign-load-toggle-田中")
+    await user.should_see(marker="assign-load-row-田中")
+    summary = user.find(marker="assign-load-summary-田中").elements.pop()
+    assert summary.text.startswith("最大 ")
+
+
+async def test_tapping_a_toggle_hides_and_shows_the_row(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.toggle_load("田中")
+    assert screen.load_hidden == {"田中"}
+    await user.should_not_see(marker="assign-load-row-田中")
+    await user.should_see(marker="assign-load-toggle-田中")  # トグルは残る
+    screen.toggle_load("田中")
+    assert screen.load_hidden == set()
+    await user.should_see(marker="assign-load-row-田中")
+
+
+async def test_dropping_a_member_adds_a_row_for_that_member(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    await user.should_not_see(marker="assign-load-row-鈴木")
+    screen.drop_member("鈴木", 1, None)
+    await user.should_see(marker="assign-load-row-鈴木")
+    await user.should_see(marker="assign-load-toggle-鈴木")
+
+
+async def test_the_load_uses_the_trial_task_without_touching_the_original(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    loaded = screen.load_project()
+    names = {a.name for task in loaded.all_tasks() for a in task.assignees}
+    assert "鈴木" in names
+    original = {a.name for task in screen.project.all_tasks() for a in task.assignees}
+    assert "鈴木" not in original
+
+
+async def test_a_removed_assignee_loses_the_toggle_and_the_hidden_mark(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.toggle_load("鈴木")
+    assert "鈴木" in screen.load_hidden
+    screen.remove_member_at("鈴木", 1, None)
+    screen.render_load()
+    assert "鈴木" not in screen.load_hidden
+
+
+async def test_no_start_date_says_the_load_cannot_be_shown(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.plan = None
+    screen.render_load()
+    await user.should_see(marker="assign-load-none")
+
+
+async def test_a_closed_panel_is_not_drawn_until_it_is_opened(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.on_load_toggle(False)
+    screen.drop_member("鈴木", 1, None)
+    await user.should_not_see(marker="assign-load-row-鈴木")
+    screen.on_load_toggle(True)
+    await user.should_see(marker="assign-load-row-鈴木")
+
+
+async def test_the_load_display_does_not_make_the_screen_dirty(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.toggle_load("田中")
+    screen.on_load_toggle(False)
+    assert not is_dirty(screen.trial)

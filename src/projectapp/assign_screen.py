@@ -7,6 +7,7 @@
 """
 
 from collections.abc import Callable
+from copy import deepcopy
 from contextlib import nullcontext
 from datetime import date, datetime, time, timedelta
 from math import isfinite
@@ -20,10 +21,12 @@ from projectapp.assign_drag import (
     ASSIGN_DROP_EVENT,
     ASSIGN_SELECT_EVENT,
 )
+from projectapp.assign_load import load_summary, load_svg
 from projectapp.assign_trial import (
     AssignTrial,
     CellPlan,
     TeamGroup,
+    apply_trial,
     cell_plan,
     hidden_ids,
     is_dirty,
@@ -50,6 +53,7 @@ from projectapp.daily_crew import (
     split_week,
     to_weekly,
 )
+from projectapp.dashboard import Period, daily_loads
 from projectapp.forms import disposable
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, from_name
 from projectapp.models import (
@@ -117,6 +121,9 @@ class AssignScreen:
         self.members_box: ui.element | None = None
         self.rate_target: tuple[str, int, int | None] | None = None
         self.selection: tuple[Cell, Cell] | None = None
+        self.load_box: ui.element | None = None
+        self.load_hidden: set[str] = set()
+        self.load_open = True
         self.rate_dialog: ui.dialog | None = None
         self.rate_slider: RangeSlider | None = None
         self.rate_number: ui.number | None = None
@@ -189,6 +196,7 @@ class AssignScreen:
                             hide_excluded=True,
                         )
                     )
+            self.build_load_panel()
             self.build_rate_popup()
         dialog.open()
 
@@ -348,6 +356,101 @@ class AssignScreen:
             for assignee in crew:
                 self.chip(assignee, week, day)
 
+    # --- 負荷のヒストグラム(要望 168 段階 5) ---
+
+    def build_load_panel(self) -> None:
+        """チャートの下の`負荷`エクスパンダー。再描画される要素の外に置く。"""
+        with (
+            ui.expansion("負荷", value=True)
+            .classes("w-full")
+            .mark("assign-load") as panel
+        ):
+            panel.on_value_change(lambda e: self.on_load_toggle(e.value))
+            self.load_box = (
+                ui.column()
+                .classes("w-full gap-1")
+                .style("max-height: 14rem; overflow-y: auto")
+            )
+            self.render_load()
+
+    def on_load_toggle(self, value: bool) -> None:
+        self.load_open = bool(value)
+        if self.load_open:
+            self.render_load()
+
+    def toggle_load(self, name: str) -> None:
+        self.load_hidden ^= {name}
+        self.render_load()
+
+    def load_project(self) -> Project:
+        """負荷の計算に使う、試算のタスクを差し戻したプロジェクトの複製。元のプロジェクトは変えない。"""
+        loaded = deepcopy(self.project)
+        apply_trial(loaded, self.trial)
+        return loaded
+
+    def load_period(self) -> Period | None:
+        """割り当ての行のセルが覆う日付(原点から週数ぶん)。開始日がなければ None。"""
+        if self.plan is None:
+            return None
+        weeks = max(self.plan.weeks, len(self.trial.task.weekly_crew))
+        return Period(
+            self.plan.origin,
+            self.plan.origin + timedelta(days=WEEK_DAYS * weeks - 1),
+        )
+
+    def render_load(self) -> None:
+        """担当メンバーのトグルと、メンバーごとの日ごとの負荷の棒を描き直す。閉じている間は描かない。"""
+        if self.load_box is None or not self.load_open:
+            return
+        self.load_box.clear()
+        names = [a.name for a in self.trial.task.assignees]
+        self.load_hidden &= set(names)
+        period = self.load_period()
+        with self.load_box:
+            if period is None:
+                ui.label("開始日がないため負荷を出せません").classes("text-grey").mark(
+                    "assign-load-none"
+                )
+                return
+            if not names:
+                ui.label("担当者がいません").classes("text-grey").mark(
+                    "assign-load-empty"
+                )
+                return
+            loads = daily_loads(
+                self.load_project(), self.holidays, period, frozenset(names)
+            )
+            with ui.row().classes("items-center gap-1"):
+                for name in names:
+                    self.load_toggle(name)
+            for name in names:
+                if name not in self.load_hidden:
+                    self.load_row(name, loads.get(name, []))
+
+    def load_toggle(self, name: str) -> None:
+        icon = next((m.icon for m in self.project.members if m.name == name), "")
+        hidden = name in self.load_hidden
+        avatar(name, icon, 22).tooltip(name).style(
+            "cursor: pointer" + ("; opacity: 0.35" if hidden else "")
+        ).on("click", lambda n=name: self.toggle_load(n)).mark(
+            f"assign-load-toggle-{name}"
+        )
+
+    def load_row(self, name: str, days: list[tuple[date, float]]) -> None:
+        icon = next((m.icon for m in self.project.members if m.name == name), "")
+        with (
+            ui.row()
+            .classes("items-center no-wrap gap-2 w-full")
+            .mark(f"assign-load-row-{name}")
+        ):
+            avatar(name, icon, 20)
+            ui.label(name).classes("text-body2").style("width: 6rem; flex: none")
+            with ui.element("div").style("flex: 1 1 0; min-width: 0; overflow-x: auto"):
+                ui.html(load_svg(days), sanitize=False)
+            ui.label(load_summary(days)).classes("text-caption text-grey").style(
+                "flex: none"
+            ).mark(f"assign-load-summary-{name}")
+
     # --- 割り当て率のポップアップ(要望 168 段階 3a) ---
 
     def build_rate_popup(self) -> None:
@@ -501,6 +604,7 @@ class AssignScreen:
             self.members_box.clear()
             with self.members_box:
                 self.members_content(team_groups(self.project))
+        self.render_load()
 
     def select_range(self, first: Cell, last: Cell) -> None:
         """割り当ての行で選んだ範囲(両端を含む)を、日付の順にして持つ。開始日がない・範囲外の週なら無視する。"""
