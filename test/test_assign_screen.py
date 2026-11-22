@@ -3,7 +3,7 @@ from datetime import date, datetime
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.assign_screen import AssignScreen
+from projectapp.assign_screen import ROW_HEIGHT_PX, AssignScreen, row_height
 from projectapp.assign_trial import AssignTrial
 from projectapp.gantt import GanttActions, GanttChart
 from projectapp.models import Project, Task
@@ -176,3 +176,302 @@ async def test_embedded_scroll_box_is_separate_from_the_main_chart(user: User) -
     embedded.scroll_to_left()
     assert sent and all("data-assign-scroll" in js for js in sent)
     assert not any("data-chart-scroll" in js for js in sent)
+
+
+def team_project() -> Project:
+    from projectapp.models import Assignee, Member, Membership, Team
+
+    task = Task(
+        "設計",
+        id="a",
+        planned_start=datetime(2026, 11, 16, 9),
+        planned_end=datetime(2026, 11, 30, 17),
+        effort_hours=40,
+        assignees=[Assignee("田中")],
+    )
+    return Project(
+        "p",
+        base_date=date(2026, 11, 16),
+        members=[
+            Member("田中", 1.0, teams=[Membership("t1")]),
+            Member("鈴木", 1.0, teams=[Membership("t1")]),
+            Member("佐藤", 1.0),
+        ],
+        teams=[Team("開発", id="t1")],
+        tasks=[task],
+    )
+
+
+def mount_team_screen(
+    confirmed: list[AssignTrial], screens: list[AssignScreen]
+) -> None:
+    @ui.page("/")
+    def index() -> None:
+        main = GanttChart(team_project(), {}, noop_actions())
+        main.build()
+        project = team_project()
+        screen = AssignScreen(
+            project, project.tasks[0], {}, on_confirm=confirmed.append
+        )
+        screens.append(screen)
+        ui.button("open", on_click=screen.open).mark("open-screen")
+
+
+async def open_team_screen(user: User) -> tuple[AssignScreen, list[AssignTrial]]:
+    confirmed: list[AssignTrial] = []
+    screens: list[AssignScreen] = []
+    mount_team_screen(confirmed, screens)
+    await user.open("/")
+    user.find(marker="open-screen").click()
+    await user.should_see(marker="assign-members")
+    return screens[0], confirmed
+
+
+async def test_member_list_shows_teams_and_marks_the_tasks_assignees(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    await user.should_see(marker="assign-team-開発")
+    await user.should_see(marker="assign-team-チームなし")
+    for name in ("田中", "鈴木", "佐藤"):
+        await user.should_see(marker=f"assign-member-{name}")
+    await user.should_see(marker="assign-member-assigned-田中")
+    await user.should_not_see(marker="assign-member-assigned-鈴木")
+
+
+async def test_dropping_a_member_on_a_week_cell_adds_only_that_week(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    crews = [[a.name for a in w] for w in screen.trial.task.weekly_crew]
+    assert crews[1] == ["田中", "鈴木"] and crews[0] == ["田中"]
+    await user.should_see(marker="assign-chip-1-鈴木")
+    await user.should_not_see(marker="assign-chip-0-鈴木")
+
+
+async def test_dropping_a_duplicate_is_rejected_with_a_notice(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    before = [list(w) for w in screen.trial.task.weekly_crew]
+    screen.drop_member("鈴木", 1, None)
+    assert screen.trial.task.weekly_crew == before
+    await user.should_see("すでに割り当てています")
+
+
+async def test_the_remove_button_removes_but_not_the_last_member(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.remove_member_at("鈴木", 1, None)
+    assert [a.name for a in screen.trial.task.weekly_crew[1]] == ["田中"]
+    screen.remove_member_at("田中", 1, None)  # 最後の 1 人
+    assert [a.name for a in screen.trial.task.weekly_crew[1]] == ["田中"]
+    await user.should_see("最後の 1 人は外せません")
+
+
+async def test_a_week_can_be_split_into_days_and_back(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 0, None)
+    screen.toggle_daily(0)
+    assert 0 in screen.trial.task.daily_crew
+    await user.should_see(marker="assign-cell-0-3")
+    screen.drop_member("佐藤", 0, 3)
+    assert [a.name for a in screen.trial.task.daily_crew[0][3]] == [
+        "田中",
+        "鈴木",
+        "佐藤",
+    ]
+    screen.toggle_daily(0)
+    assert 0 not in screen.trial.task.daily_crew
+
+
+async def test_a_task_without_a_start_date_shows_no_cells(user: User) -> None:
+    confirmed: list[AssignTrial] = []
+    screens: list[AssignScreen] = []
+
+    @ui.page("/")
+    def index() -> None:
+        main = GanttChart(team_project(), {}, noop_actions())
+        main.build()
+        project = team_project()
+        project.tasks[0].planned_start = None
+        project.tasks[0].planned_end = None
+        screen = AssignScreen(
+            project, project.tasks[0], {}, on_confirm=confirmed.append
+        )
+        screens.append(screen)
+        ui.button("open", on_click=screen.open).mark("open-screen")
+
+    await user.open("/")
+    user.find(marker="open-screen").click()
+    await user.should_see(marker="assign-no-start")
+    await user.should_see(marker="assign-members")  # 一覧は出す
+    assert screens[0].plan is None
+
+
+async def test_the_chart_updates_after_a_drop(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    assert screen.chart is not None
+    before = screen.chart.project.tasks[0].weekly_crew
+    screen.drop_member("鈴木", 1, None)
+    assert screen.chart.project.tasks[0].weekly_crew != before  # 複製が作り直されている
+
+
+async def test_confirm_returns_the_changed_trial(user: User) -> None:
+    screen, confirmed = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    user.find(marker="assign-confirm").click()
+    assert [a.name for a in confirmed[0].task.weekly_crew[1]] == ["田中", "鈴木"]
+
+
+async def test_the_screen_without_members_says_so(user: User) -> None:
+    confirmed: list[AssignTrial] = []
+    screens: list[AssignScreen] = []
+    mount_screen(confirmed, screens)  # one_task_project はメンバーがいない
+    await user.open("/")
+    user.find(marker="open-screen").click()
+    await user.should_see(marker="assign-no-members")
+
+
+async def test_the_assignment_row_draws_at_every_scale(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    for scale in (Scale.WEEK, Scale.MONTH, Scale.DAY):
+        screen.set_scale(scale)
+        await user.should_see(marker="assign-cell-0")
+        await user.should_see(marker="assign-chip-1-鈴木")
+
+
+async def test_the_drag_script_is_run_not_inserted_as_html(
+    user: User, monkeypatch
+) -> None:
+    from projectapp import assign_screen
+
+    ran: list[str] = []
+    monkeypatch.setattr(
+        assign_screen.ui, "run_javascript", lambda js, **kw: ran.append(js)
+    )
+    confirmed: list[AssignTrial] = []
+    screens: list[AssignScreen] = []
+    mount_team_screen(confirmed, screens)
+    await user.open("/")
+    user.find(marker="open-screen").click()
+    await user.should_see(marker="assign-members")
+    from projectapp.assign_drag import ASSIGN_DRAG_JS
+
+    assert (
+        ASSIGN_DRAG_JS in ran
+    )  # 画面を開いたあとの add_head_html は実行されないので、直接実行する
+
+
+async def test_reopening_screens_registers_the_drop_handler_once_and_targets_the_latest(
+    user: User,
+) -> None:
+    from nicegui import context
+
+    from projectapp.assign_drag import ASSIGN_DROP_EVENT
+
+    screens: list[AssignScreen] = []
+    clients: list = []
+
+    @ui.page("/")
+    def index() -> None:
+        clients.append(context.client)
+        main = GanttChart(team_project(), {}, noop_actions())
+        main.build()
+
+        def open_new() -> None:
+            project = team_project()
+            screen = AssignScreen(
+                project, project.tasks[0], {}, on_confirm=lambda t: None
+            )
+            screens.append(screen)
+            screen.open()
+
+        ui.button("open", on_click=open_new).mark("open-screen")
+
+    await user.open("/")
+    user.find(marker="open-screen").click()
+    user.find(marker="open-screen").click()
+    await user.should_see(marker="assign-members")
+    listeners = [
+        ev
+        for ev in clients[0].layout._event_listeners.values()
+        if ev.type == ASSIGN_DROP_EVENT
+    ]
+    assert len(listeners) == 1
+    listeners[0].handler(
+        type("E", (), {"args": {"name": "鈴木", "week": 1, "day": None}})()
+    )
+    assert screens[-1].trial.task.weekly_crew  # 最新の画面だけが受ける
+    assert not screens[0].trial.task.weekly_crew
+
+
+async def test_daily_toggle_works_on_a_plain_task_and_is_hidden_without_assignees(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    assert not screen.trial.task.weekly_crew
+    screen.toggle_daily(0)  # 週ごとでない最初の状態から、週ごと+日ごとにできる
+    assert (
+        0 in screen.trial.task.daily_crew
+        and len(screen.trial.task.weekly_crew) == screen.plan.weeks
+    )
+
+
+async def test_the_remove_button_works_in_a_week_beyond_the_defined_ones(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 0, None)  # 週 0 だけに足した週ごとのタスク
+    screen.remove_member_at("田中", 0, None)  # 先に田中を外す(鈴木が残る)
+    assert [a.name for a in screen.trial.task.weekly_crew[0]] == ["鈴木"]
+
+
+async def test_the_member_frames_follow_the_trial_after_a_drop_and_a_remove(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    await user.should_not_see(marker="assign-member-assigned-鈴木")
+    screen.drop_member("鈴木", 1, None)
+    await user.should_see(marker="assign-member-assigned-鈴木")
+    screen.remove_member_at("鈴木", 1, None)
+    await user.should_not_see(marker="assign-member-assigned-鈴木")
+
+
+async def test_chips_are_icon_only_and_the_remove_button_shows_on_hover(
+    user: User,
+) -> None:
+    from projectapp.assign_drag import ASSIGN_DRAG_CSS
+
+    screen, _ = await open_team_screen(user)
+    chip = user.find(marker="assign-chip-0-田中").elements.pop()
+    labels = [e for e in chip.descendants() if isinstance(e, ui.label)]
+    assert all(
+        label.text != "田中" for label in labels
+    )  # 名前の文字は出さない(頭文字のアイコンだけ。名前はツールチップ)
+    assert ".assign-chip:hover .assign-remove" in ASSIGN_DRAG_CSS
+    assert (
+        "assign-remove"
+        in user.find(marker="assign-remove-0-田中").elements.pop().classes
+    )
+
+
+async def test_a_daily_cell_wraps_its_icons_and_the_row_grows_with_the_crew(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 0, None)
+    screen.toggle_daily(0)
+    screen.drop_member(
+        "佐藤", 0, 3
+    )  # 3 日目だけ 3 人(1 日 40px のセルには 1 段に 1 つしか入らない)
+    await user.should_see(marker="assign-cell-0-3")  # 再描画を待つ
+    # シミュレーションでは古い行も残ることがあるので、いちばん高い行(=最新)を見る
+    heights = [
+        int(str(row._style["height"]).removesuffix("px"))
+        for row in user.find(marker="assign-row").elements
+    ]
+    assert max(heights) == row_height(3) > row_height(2) > ROW_HEIGHT_PX
+    cell = user.find(marker="assign-cell-0-3").elements.pop()
+    assert "wrap" in str(cell._style.get("flex-wrap", "")) or "flex-wrap: wrap" in str(
+        cell._style
+    )

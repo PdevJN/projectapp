@@ -5301,3 +5301,36 @@ def test_the_plain_click_script_ignores_modified_clicks_and_lets_them_bubble(
     }  # ふつうのクリックは送り、棒へ伝えない
     for key in ("shift", "ctrl", "meta"):
         assert out[key] == {"sent": 0, "stopped": False}  # 修飾キーつきは送らず、伝える
+
+
+async def test_task_extra_is_called_after_each_root_task_row_with_columns_and_width(
+    user: User,
+) -> None:
+    calls: list[tuple[str, int, int]] = []
+    project = Project(
+        "demo",
+        base_date=date(2026, 10, 5),
+        tasks=[Task("甲", id="a"), Task("乙", id="b")],
+    )
+
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(project, {}, Recorder().actions)
+
+        def extra(task: Task, columns: list[Column], width: int) -> None:
+            calls.append((task.id, len(columns), width))
+            ui.label("extra").mark(f"extra-{task.id}")
+
+        chart.task_extra = extra
+        chart.build()
+
+    await user.open("/")
+    assert [c[0] for c in calls] == ["a", "b"]
+    assert all(c[1] > 0 and c[2] > 0 for c in calls)
+    await user.should_see(marker="extra-a")
+
+
+async def test_the_chart_draws_nothing_extra_by_default(user: User) -> None:
+    mount_chart(sample_project())
+    await user.open("/")
+    await user.should_not_see(marker="extra-a")

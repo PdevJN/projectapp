@@ -10071,3 +10071,26 @@ async def test_gantt_right_click_assign_opens_the_screen(
     await user.should_see(marker="assign-screen")
     assert view.assign_screen is not None
     assert view.assign_screen.trial.task.id == view.project.tasks[0].id
+
+
+@pytest.mark.smoke
+async def test_assign_screen_drop_then_confirm_writes_weekly_crew_and_undo_restores(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    view.project.members = [Member("田中", 1.0), Member("鈴木", 1.0)]
+    view.mark_clean()
+    await open_dashboard(user, view)
+    task_id = view.project.tasks[0].id
+    steps = len(view.history.undo_stack)
+    user.find(marker="dashboard-due-assign-0").click()
+    await user.should_see(marker="assign-screen")
+    assert view.assign_screen is not None
+    view.assign_screen.drop_member("鈴木", 0, None)
+    user.find(marker="assign-confirm").click()
+    saved = view.project.task_map()[task_id]
+    assert saved.weekly_crew
+    assert [a.name for a in saved.weekly_crew[0]] == ["田中", "鈴木"]
+    assert len(view.history.undo_stack) == steps + 1
+    view.undo()
+    assert not view.project.task_map()[task_id].weekly_crew

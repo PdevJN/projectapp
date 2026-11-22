@@ -13,7 +13,12 @@
       "icon": "",
       "work_days": [],
       "ratio_unclamped": false,
-      "teams": [],
+      "teams": [
+        {
+          "team_id": "t1",
+          "percent": 100
+        }
+      ],
       "warning_limit": null
     },
     {
@@ -24,7 +29,12 @@
       "icon": "",
       "work_days": [],
       "ratio_unclamped": false,
-      "teams": [],
+      "teams": [
+        {
+          "team_id": "t1",
+          "percent": 100
+        }
+      ],
       "warning_limit": null
     },
     {
@@ -32,6 +42,22 @@
       "ratio": 1.0,
       "levels": {},
       "id": "m2",
+      "icon": "",
+      "work_days": [],
+      "ratio_unclamped": false,
+      "teams": [
+        {
+          "team_id": "t2",
+          "percent": 100
+        }
+      ],
+      "warning_limit": null
+    },
+    {
+      "name": "高橋",
+      "ratio": 1.0,
+      "levels": {},
+      "id": "m3",
       "icon": "",
       "work_days": [],
       "ratio_unclamped": false,
@@ -270,7 +296,7 @@
         }
       ],
       "sections": [],
-      "id": "18b385ca"
+      "id": "8de9cac1"
     }
   ],
   "tasks": [],
@@ -279,7 +305,16 @@
   "parameters": [],
   "categories": [],
   "events": [],
-  "teams": [],
+  "teams": [
+    {
+      "name": "開発",
+      "id": "t1"
+    },
+    {
+      "name": "運用",
+      "id": "t2"
+    }
+  ],
   "reference_mode": "live",
   "plantuml_overload_notice": true,
   "actual_time_optional": true,

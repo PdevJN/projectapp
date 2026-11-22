@@ -901,6 +901,9 @@ class GanttChart:
         )
         self.menu_target: tuple[SectionPath, int] | None = None  # メニューを開いた行
         self.assign_item: ui.menu_item | None = None  # 先頭の`アサイン...`
+        self.task_extra: Callable[[Task, list[Column], int], object] | None = (
+            None  # 各ルートのタスク行の直後に呼ぶ(アサイン専用画面の割り当ての行。要望 168)
+        )
         self.scroll_selector = (
             "[data-chart-scroll]"  # スクロールの JS が探す枠。埋め込みは別の枠を使う
         )
@@ -2557,6 +2560,8 @@ class GanttChart:
                     self.task_row((), ti, task, columns, width).set_visibility(
                         task.id not in folded
                     )
+                    if self.task_extra is not None and task.id not in folded:
+                        self.task_extra(task, columns, width)
                     self.quick_add_here((), ti + 1)
             self.top_add_row()
             for index, section in enumerate(self.project.sections):
