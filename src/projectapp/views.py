@@ -153,6 +153,8 @@ from projectapp.dashboard import (
     summarize_cross_loads,
 )
 from projectapp.assign_dialog import open_assign_dialog
+from projectapp.assign_screen import AssignScreen
+from projectapp.assign_trial import AssignTrial, apply_trial, is_assignable
 from projectapp.rebalance import Edit, apply_edits
 from projectapp.rebalance_dialog import open_rebalance_dialog
 from projectapp.dashboard_view import DashboardView, ViewActions
@@ -584,6 +586,9 @@ class MainView:
         self.git_menu_button: ui.button | None = None  # 作業ツリーでないときは隠す
         self.git_menu_tips: dict[str, ui.tooltip] = {}  # 押せない理由を出すツールチップ
         self.mark_clean()
+        self.assign_screen: AssignScreen | None = (
+            None  # 開いているアサイン専用画面(要望 168)
+        )
         self.history = History()  # 元に戻す・やり直しの履歴。保存しても残し、別のプロジェクトに切り替えると捨てる
         self.note_pane: NotePane | None = None  # タスクのメモの右ペイン(build で作る)
         self.note_trash: dict[
@@ -694,6 +699,8 @@ class MainView:
             on_catch_up_change=self.change_dashboard_catch_up,
             on_try_on_gantt=self.try_invest_on_gantt,
             on_assign=self.assign_from_dashboard,
+            on_assign_screen=self.open_assign_screen,
+            assignable=self.is_assignable_task,
             on_add_crew=self.add_crew_from_dashboard,
             on_rebalance=self.open_rebalance,
             actions=ViewActions(
@@ -1824,6 +1831,37 @@ class MainView:
             return
         self.dashboard_cross = on
         self.refresh_dashboard()
+
+    def is_assignable_task(self, task_id: str) -> bool:
+        task = self.project.task_map().get(task_id)
+        return task is not None and is_assignable(task)
+
+    def open_assign_screen(self, task_id: str) -> None:
+        """ダッシュボードの右クリック`アサイン...`(要望 168 段階 1)。確定するまでメインは変えない。"""
+        task = self.project.task_map().get(task_id)
+        if task is None or not is_assignable(task):
+            ui.notify("このタスクはアサインできません", type="warning")
+            return
+
+        def confirm(trial: AssignTrial) -> None:
+            # 画面を開いている間に、削除・Undo などで差し替わることがあるので、書き戻せなければ通知する
+            if not apply_trial(self.project, trial):
+                ui.notify("タスクが変わったため、反映しませんでした", type="warning")
+                self.refresh_dashboard(sync_field=False)
+                return
+            self.after_edit()  # 変更があるときだけ履歴に 1 ステップ積む
+            self.refresh_dashboard(sync_field=False)
+
+        self.assign_screen = AssignScreen(
+            self.project,
+            task,
+            self.holidays,
+            confirm,
+            now=self.now,
+            name_width=self.gantt.name_width,
+            fiscal_start_month=self.fiscal_start_month,
+        )
+        self.assign_screen.open()
 
     def assign_from_dashboard(self, task_id: str) -> None:
         """ダッシュボードの`担当なし`のタスクに、選んだメンバーを割り当て率 100% で入れる(要望 39)。Undo の履歴に積む。"""
