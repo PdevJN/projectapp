@@ -74,7 +74,8 @@
 | `daily_crew.py` | 日ごとの担当(要望 135)の純粋関数。`with_added_from`(増員日から足す)・`segments`(表示区間)・`split_week`・`merge_week`・`set_week_days`・`crew_spans`。NiceGUI に依存しない |
 | `crew_trial.py` | 遅延対応(要望 132)の増員の試算。`TrialCrew`・`trial_crews`(増員日を丸めず、週の途中ならその週だけ日ごと)・`effect_day`(効き始め)・`evaluate`(完了見込み)・`confirmed`(`weekly_crew`への変換)・`replace_task`。NiceGUI に依存しない |
 | `assign_trial.py` | アサイン専用画面(要望 168 段階 1)の試算の状態。`AssignTrial`・`start_trial`・`is_dirty`・`is_assignable`・`trial_project`(対象 1 件のプロジェクトの複製)・`apply_trial`(書き戻し)。NiceGUI に依存しない |
-| `assign_screen.py` | アサイン専用の全画面ダイアログ`AssignScreen`(日次・週次・月次・確定・キャンセル・捨てる確認)。`GanttChart.build_embedded`で読み取り専用に描く |
+| `assign_screen.py` | アサイン専用の全画面ダイアログ`AssignScreen`(日次・週次・月次・確定・キャンセル・捨てる確認)。`GanttChart.build_embedded`で読み取り専用に描く。段階 2: メンバー一覧・割り当ての行(`GanttChart.task_extra`)・ドロップの処理 |
+| `assign_drag.py` | アサイン専用画面のメンバーのドラッグの JS・CSS(要望 168 段階 2。`application/x-assign-member`)。定数のみ |
 | `forecast.py` | 完了見込み(要望 133)。`Forecast`(`end`・`planned_end`・`days_later`)・`forecast_end`(今日からの残りの工数を今の担当で消化した終了日時。`extra_crew`で増員の試算も同じ計算)・`snap_week`・`with_added`。`timeline.calc_end`の`weeks_start`(週の区切りの起点。既定は開始)を使う。`crew_trial`の試算はこれに共通化 |
 | `rebalance.py` | 負荷の調整(要望 145)。`Edit`(率の変更・移す・追加)・`apply_edits`(複製に当てる。週ごと・日ごとの担当は一括。完了予定の見直しを含む)・`preview`(前後の負荷・完了予定・見込み・余力)・`edit_from_inputs`・`target_options`・文言の関数。NiceGUI に依存しない |
 | `rebalance_dialog.py` | `負荷の調整`ダイアログ(`open_rebalance_dialog`)。ダッシュボードの`調整…`から開く |
