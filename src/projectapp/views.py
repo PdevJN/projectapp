@@ -273,6 +273,7 @@ from projectapp.gantt import (
 from projectapp.history_log import HistoryKeep
 from projectapp.inherit import InheritScope, inherit_project
 from projectapp.models import (
+    StartDelaySettings,
     MAX_SECTION_DEPTH,
     MAX_WEEKS,
     ActualMode,
@@ -1532,6 +1533,8 @@ class MainView:
             on_actual_time_optional=self.apply_actual_time_optional,
             ratio_limits=self.project.ratio_limits,
             on_ratio_limits=self.apply_ratio_limits,
+            start_delay=self.project.start_delay,
+            on_start_delay=self.apply_start_delay,
         )
 
     def multi_interval_count(self) -> int:
@@ -2601,6 +2604,16 @@ class MainView:
         if enabled is self.project.actual_time_optional:
             return
         self.project.actual_time_optional = enabled
+        self.after_edit()
+
+    def apply_start_delay(self, settings: StartDelaySettings) -> None:
+        """着工遅れ・停止の表示の設定を変える(要望 161)。保存はしない。"""
+        if settings == self.project.start_delay:
+            return
+        self.project.start_delay_enabled = settings.enabled
+        self.project.start_delay_style = settings.style
+        self.project.start_delay_grace = settings.grace
+        self.project.start_delay_color = settings.color
         self.after_edit()
 
     def apply_ratio_limits(self, limits: RatioLimits) -> None:

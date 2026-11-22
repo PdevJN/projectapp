@@ -125,9 +125,9 @@ def test_a_required_policy_has_no_hints() -> None:
         policy.fill("2026-10-05", "", "", "")
 
 
-def test_the_option_defaults_to_optional_and_the_version_is_23() -> None:
+def test_the_option_defaults_to_optional_and_the_version_is_24() -> None:
     assert Project("p").actual_time_optional is True
-    assert FORMAT_VERSION == 23
+    assert FORMAT_VERSION == 24
 
 
 def test_the_option_is_saved_and_read_back() -> None:

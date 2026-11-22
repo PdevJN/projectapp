@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+import re
 from math import isfinite
 from typing import Any
 
@@ -31,6 +32,9 @@ from projectapp.categories import (
 from projectapp.gitops import FileChange
 from projectapp.merge import DELETED, OURS, THEIRS, Choices, Conflict, format_value
 from projectapp.models import (
+    MAX_START_DELAY_GRACE,
+    StartDelaySettings,
+    StartDelayStyle,
     EXTRA_EFFORT_DECIMALS,
     MAX_EXTRA_EFFORTS,
     MAX_EXTRA_REASON,
@@ -734,6 +738,26 @@ def ratio_range_text(limits: RatioLimits | None) -> str:
         DEFAULT_RATIO_MAX if limits is None or limits.upper is None else limits.upper
     )
     return f"{lower * 100:g}〜{upper * 100:g}%"
+
+
+def build_start_delay(
+    enabled: bool, style: str, grace: object, color: str
+) -> StartDelaySettings:
+    """着工遅れの入力を検証する。猶予日数は 0〜30 の整数、色は #rrggbb(小文字にそろえる)。"""
+    message = f"着工遅れの猶予日数は 0〜{MAX_START_DELAY_GRACE} の整数にしてください"
+    if (
+        isinstance(grace, bool)
+        or not isinstance(grace, (int, float))
+        or grace != int(grace)
+    ):
+        raise ValueError(message)
+    days = int(grace)
+    if not 0 <= days <= MAX_START_DELAY_GRACE:
+        raise ValueError(message)
+    text = color.strip()
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", text) is None:
+        raise ValueError("着工遅れの帯の色は #rrggbb の形で入力してください")
+    return StartDelaySettings(enabled, StartDelayStyle(style), days, text.lower())
 
 
 def build_ratio_limits(upper_text: str, lower_text: str) -> RatioLimits:
@@ -1949,6 +1973,8 @@ def open_settings_dialog(
     on_actual_time_optional: Callable[[bool], object] | None = None,
     ratio_limits: RatioLimits = RatioLimits(),
     on_ratio_limits: Callable[[RatioLimits], object] | None = None,
+    start_delay: StartDelaySettings = StartDelaySettings(),
+    on_start_delay: Callable[[StartDelaySettings], object] | None = None,
 ) -> None:
     card_width = (
         "w-[30rem] max-w-full"
@@ -2089,6 +2115,39 @@ def open_settings_dialog(
                 ui.button("50% 〜 150%", on_click=fill_preset).props("flat dense").mark(
                     "settings-limit-preset"
                 )
+        delay_enabled = delay_style = delay_grace = delay_color = None
+        if on_start_delay is not None:
+            ui.label("着工遅れ").classes("text-caption text-grey")
+            ui.label(
+                "予定の開始より遅れて着手したタスク・開始予定を過ぎても未着手のタスク・再開できていない停止を、ガントチャートに帯とチップで出します"
+            ).classes("text-caption text-grey")
+            delay_enabled = ui.switch(
+                "着工遅れを表示する", value=start_delay.enabled
+            ).mark("settings-start-delay-enabled")
+            delay_style = ui.toggle(
+                {"both": "帯とチップ", "band": "帯だけ", "chip": "チップだけ"},
+                value=start_delay.style.value,
+            ).mark("settings-start-delay-style")
+            with ui.row().classes("items-center"):
+                delay_grace = (
+                    ui.number(
+                        "猶予日数(稼働日)",
+                        value=start_delay.grace,
+                        min=0,
+                        max=MAX_START_DELAY_GRACE,
+                        step=1,
+                        precision=0,
+                    )
+                    .props("dense")
+                    .classes("w-40")
+                    .mark("settings-start-delay-grace")
+                )
+                delay_color = (
+                    ui.color_input("帯の色(#RRGGBB)", value=start_delay.color)
+                    .classes("w-48")
+                    .mark("settings-start-delay-color")
+                )
+                delay_color.picker.q_color.props("no-header no-footer format-model=hex")
         rows = [TemplateRow(t.name, t.name, t.pattern) for t in templates or []]
         if templates is not None:
             ui.label("URL テンプレート").classes("text-caption text-grey")
@@ -2449,6 +2508,21 @@ def open_settings_dialog(
             ):
                 on_ratio_limits(limits)
             if (
+                delay_enabled is not None
+                and delay_style is not None
+                and delay_grace is not None
+                and delay_color is not None
+                and on_start_delay is not None
+            ):
+                chosen = build_start_delay(
+                    bool(delay_enabled.value),
+                    delay_style.value,
+                    delay_grace.value,
+                    delay_color.value or "",
+                )
+                if chosen != start_delay:
+                    on_start_delay(chosen)
+            if (
                 edit is not None
                 and on_templates is not None
                 and edit.templates != templates
@@ -2496,6 +2570,18 @@ def open_settings_dialog(
                     if limit_upper is not None and limit_lower is not None
                     else None
                 )
+                if (
+                    delay_enabled is not None
+                    and delay_style is not None
+                    and delay_grace is not None
+                    and delay_color is not None
+                ):
+                    build_start_delay(
+                        bool(delay_enabled.value),
+                        delay_style.value,
+                        delay_grace.value,
+                        delay_color.value or "",
+                    )
             except ValueError as exc:
                 error.set_text(str(exc))
                 return

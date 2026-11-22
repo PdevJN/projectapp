@@ -8,6 +8,7 @@
 | `views.py` | メイン画面(ヘッダー〔メニュー 5 つ(ファイル〔インポート・エクスポートのサブメニューを含む〕・プロジェクト・移動・Git・ヘルプ)・プロジェクトの切り替え・チャートプレビュー・ダッシュボード・テーマのメニュー。プロジェクト名はヘッダーの外の `title_box`。`header` / `header_menu`(項目は `MenuItem`: 文言・アイコン・操作・マーカー・キー。`menu_entry` が左のアイコンと右端のキーを足す)/ `theme_menu`。配色とフォントは `HEADER_CSS`〕・チャート領域・ヘルプのダイアログ・プレビューとダッシュボードの出入り・画像の保存・担当者向けファイルの書き出し) |
 | `calendar.py` | 祝日の取得・キャッシュ(`holidays.json`)と日付種別の判定 |
 | `timeline.py` | スケールごとの列生成、日時から位置・幅への変換、稼働日ベースの終了日時算出(`Worker`・`crew_of`・`calc_end(crew, weeks)`・`crew_on`・`crew_pieces`・`CrewTrack`〔日ごとの週を 1 日 1 要素に展開した並び。`.step` が 1 日の長さ〕・`crew_track`)、完了予定の決め方(`effective_end`)、予定超過の判定、締切の位置、換算率(`conversion_rate`・`assignees_rate`・`counted_assignees`)、日工数(`effort_days`)、割り当て合計の超過(`overallocations`)(純粋関数) |
+| `start_delay.py` | 着工遅れ・停止(要望 161)の判定(`start_delays`・`missed_workdays`。稼働日で数え、`timeline.py`の`is_workday`・`effective_start`を使う)とチップの文言(`chip_texts`)(純粋関数)。設定は`models.StartDelaySettings`(`Project.start_delay`)、描画は`gantt.py`の`start_delay_bands`・`start_delay_chips`、設定ダイアログは`forms.build_start_delay`。テストは`test_start_delay`(判定)・`test_start_delay_settings`(設定)・`test_start_delay_view`(描画・ダイアログ) |
 | `overview.py` | 系統図(要望 147)の階層の変換(`build_overview`)・ノードの文言(`node_lines`)・座標(`layout_overview`)。NiceGUI に依存しない純粋関数 |
 | `overview_dialog.py` | 系統図のダイアログ(チェックボックス・PDF ボタン・ノードのクリックでガントへ移る) |
 | `notes.py` | タスクのメモ(要望 150)の保存(`~/.projectapp/notes/<名前>/<id>.html`)・読み込み・一覧・削除・コピー、タスク id の増減との同期(`sync`。ごみ箱は呼び出し側が持つ)。NiceGUI に依存しない |
@@ -142,7 +143,7 @@ uvx ruff format src test        # 整形。確認だけなら --check
 
 ## ファイル形式の注意
 
-- 形式のバージョンは先頭の `version`(整数。`models.FORMAT_VERSION`、現在 23)。キーのない古いファイルは 1 として読む。整数でない値(`true`・小数・文字列・`null`)と 1 未満は読込を拒否し、このアプリより新しい値は「アプリを更新してください」で拒否する(`storage._check_version`)。形式を変える(キーの意味を変える・消す)ときは `FORMAT_VERSION` を上げ、旧形式の読み替えはバージョンで分ける。
+- 形式のバージョンは先頭の `version`(整数。`models.FORMAT_VERSION`、現在 24)。キーのない古いファイルは 1 として読む。整数でない値(`true`・小数・文字列・`null`)と 1 未満は読込を拒否し、このアプリより新しい値は「アプリを更新してください」で拒否する(`storage._check_version`)。形式を変える(キーの意味を変える・消す)ときは `FORMAT_VERSION` を上げ、旧形式の読み替えはバージョンで分ける。
 - version 2(2026-10-10): `members[].id` と `sections[].id`(`new_id()` の 8 桁の 16 進。入れ子のセクションも)を保存し、担当者は `tasks[].assignees[]` の `{"member": <メンバーid>, "allocation": …}` で指す(`name` は書かない。`_dump`)。実行時の `Assignee` は名前のまま(読込が id から名前へ戻す。`_member_assignees`)。読込は、`id` の欠落・`null`・空・文字列以外・重複(メンバー同士・セクション同士)、存在しない/文字列でない `member`、担当者の旧キー `name` を拒否する。名前が空・重複のメンバーは最初の 1 件を残して捨てるが、捨てた同名のメンバーの id を指す担当者は、残ったメンバーへ読む(名前が空のメンバーの id を指すものは拒否)。version 1(キーなしを含む)は、メンバー・セクションと id のないタスクに読込の最後に新しい id を振る(`_assign_ids`。ファイルの他の id と重ならない)。保存し直すと version 2 になる。
 - 保存(`save_project`)は、タスク同士・メンバー同士・セクション同士の id の重複を `ValueError` にして、ファイルを書かない(読めないファイルを作らない)。担当者の名前がメンバーにいなければ、保存するファイルにだけメンバー(比率 100%)を補う(読込の補完と同じ。実行時のプロジェクトは変えない)。新しい id は `new_id(project.used_ids())` で振る(セクションの追加・新規タスク・行のコピー・メンバーのダイアログの新しい行)。メンバーのダイアログは `MemberRow.id` で行の id を引き継ぐ(改名・並べ替えでは変わらない。行を消して足し直すと新しくなる)。
 - 画像の書き出し(`export.CAPTURE_JS`)は、`htmlToImage.toPng` に **`skipFonts: true`** を渡す。渡さないと、フォントの埋め込みが `@import` 先の CSS(Quasar の約 2,000 ルール)を画面のスタイルシートへ `insertRule` し、`@layer` の外に出て、書き出しのあと、見出しの行の高さ・日付のラベルの位置が変わったままになる(拡大とは無関係。2026-10-09)。画像は、フォントなしでも見た目が変わらない(システムフォントを使うため)。
