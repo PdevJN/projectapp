@@ -19,6 +19,7 @@ from projectapp.models import (
 
 WEEK_DAYS = 7
 DailyCrew = dict[int, list[list[Assignee]]]
+Cell = tuple[int, int | None]  # (週, 日)。日は日ごとの週のセルだけ
 
 
 def copy_crew(crew: list[Assignee]) -> list[Assignee]:
@@ -203,28 +204,18 @@ def add_member(
         return None
     if not task.weekly_crew and not task.assignees:
         return replace(task, assignees=[Assignee(name)])
-    crews = _crews(task, min(weeks, MAX_WEEKS))
-    assert crews is not None
-    weekly, daily = crews
-    while len(weekly) <= week:
-        weekly.append(copy_crew(_tail(weekly, daily)))
-    if _is_daily(daily, week):
-        targets = range(WEEK_DAYS) if day is None else [day]
-        if any(not 0 <= j < WEEK_DAYS for j in targets):
-            return None
-        if all(name in {a.name for a in daily[week][j]} for j in targets):
-            return None
-        for j in targets:
-            if name not in {a.name for a in daily[week][j]}:
-                daily[week][j].append(Assignee(name))
-        weekly[week] = union_assignees(daily[week])
-    else:
-        if day is not None or name in {a.name for a in weekly[week]}:
-            return None
-        weekly[week].append(Assignee(name))
-    return replace(
-        task, weekly_crew=weekly, daily_crew=daily, assignees=union_assignees(weekly)
-    )
+    padded = _padded(task, week, weeks)
+    assert padded is not None
+    weekly, daily = padded
+    crews = _cell_crews(weekly, daily, week, day)
+    if crews is None:
+        return None
+    missing = [crew for crew in crews if name not in {a.name for a in crew}]
+    if not missing:
+        return None
+    for crew in missing:
+        crew.append(Assignee(name))
+    return _rebuilt(task, weekly, daily)
 
 
 def to_weekly(task: Task, weeks: int) -> Task | None:
@@ -241,32 +232,18 @@ def remove_member(
     """アサイン専用画面: メンバーを週(日)のセルから外す。そのセルの最後の 1 人・いない人は None。
     週ごとでないタスクは`weeks`週ぶんに写して週ごとにしてから、定義済みの週より先は直前の担当で埋めてから外す。
     日ごとの週で`day`がなければ 7 日すべてから外す(どれかの日で最後の 1 人なら None)。"""
-    if not 0 <= week < MAX_WEEKS:
+    padded = _padded(task, week, weeks)
+    if padded is None:
         return None
-    crews = _crews(task, min(weeks, MAX_WEEKS))
+    weekly, daily = padded
+    crews = _cell_crews(weekly, daily, week, day)
     if crews is None:
         return None
-    weekly, daily = crews
-    while len(weekly) <= week:
-        weekly.append(copy_crew(_tail(weekly, daily)))
-    if _is_daily(daily, week):
-        targets = range(WEEK_DAYS) if day is None else [day]
-        if any(not 0 <= j < WEEK_DAYS for j in targets):
-            return None
-        for j in targets:
-            crew = [a for a in daily[week][j] if a.name != name]
-            if len(crew) == len(daily[week][j]) or not crew:
-                return None
-            daily[week][j] = crew
-        weekly[week] = union_assignees(daily[week])
-    else:
-        crew = [a for a in weekly[week] if a.name != name]
-        if day is not None or len(crew) == len(weekly[week]) or not crew:
-            return None
-        weekly[week] = crew
-    return replace(
-        task, weekly_crew=weekly, daily_crew=daily, assignees=union_assignees(weekly)
-    )
+    if any(name not in {a.name for a in crew} or len(crew) <= 1 for crew in crews):
+        return None  # いない・最後の 1 人は外せない
+    for crew in crews:
+        crew[:] = [a for a in crew if a.name != name]
+    return _rebuilt(task, weekly, daily)
 
 
 def _padded(
@@ -386,3 +363,58 @@ def set_allocation_all(task: Task, name: str, value: float) -> Task | None:
     for assignee in found:
         assignee.allocation = value
     return _rebuilt(task, weekly, daily)
+
+
+def ordered_cells(first: Cell, last: Cell) -> tuple[Cell, Cell]:
+    """2 つのセルを日付の順(週、日。日がなければ 0)に並べる。"""
+
+    def key(cell: Cell) -> tuple[int, int]:
+        return cell[0], cell[1] or 0
+
+    return (first, last) if key(first) <= key(last) else (last, first)
+
+
+def cell_in_range(first: Cell, last: Cell, week: int, day: int | None) -> bool:
+    """アサイン専用画面: `first`〜`last`(両端を含む。逆順でもよい)の範囲に、セル`(week, day)`が入るか。
+    日ごとでない週(`day`が None)は、その週が範囲の週にかかれば入る。"""
+    low, high = ordered_cells(first, last)
+    if not low[0] <= week <= high[0]:
+        return False
+    if day is None:
+        return True
+    if week == low[0] and low[1] is not None and day < low[1]:
+        return False
+    return not (week == high[0] and high[1] is not None and day > high[1])
+
+
+def range_cells(daily: DailyCrew, first: Cell, last: Cell) -> list[Cell]:
+    """範囲のセルの並び。日ごとの週は日のセル(範囲の端の週は範囲の日だけ)、そうでない週は週のセル。"""
+    low, high = ordered_cells(first, last)
+    cells: list[Cell] = []
+    for week in range(low[0], high[0] + 1):
+        if not _is_daily(daily, week):
+            cells.append((week, None))
+            continue
+        start = low[1] if week == low[0] and low[1] is not None else 0
+        end = high[1] if week == high[0] and high[1] is not None else WEEK_DAYS - 1
+        cells.extend((week, day) for day in range(start, end + 1))
+    return cells
+
+
+def add_member_range(
+    task: Task, name: str, first: Cell, last: Cell, *, weeks: int = 1
+) -> Task | None:
+    """アサイン専用画面(要望 168 段階 3b): `first`〜`last`の範囲のすべてのセルに、メンバーを 100% で足す。
+    すでにいるセルは飛ばす。週ごとでないタスク・担当者のいないタスク・定義済みの週より先は`add_member`と同じ。
+    `None`(何も変えない): すべてのセルにすでにいる・範囲が 0 未満か`MAX_WEEKS`以上の週にかかる・通常でないタスク。"""
+    low, high = ordered_cells(first, last)
+    if low[0] < 0 or high[0] >= MAX_WEEKS or task.kind is not TaskKind.NORMAL:
+        return None
+    result = task
+    changed = False
+    for week, day in range_cells(task.daily_crew, low, high):
+        step = add_member(result, name, week, day, weeks=weeks)
+        if step is not None:
+            result = step
+            changed = True
+    return result if changed else None
