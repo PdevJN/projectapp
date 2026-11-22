@@ -876,3 +876,61 @@ async def test_the_load_display_does_not_make_the_screen_dirty(user: User) -> No
     screen.toggle_load("田中")
     screen.on_load_toggle(False)
     assert not is_dirty(screen.trial)
+
+
+def label_text(user: User, marker: str) -> str:
+    return user.find(marker=marker).elements.pop().text
+
+
+async def test_without_a_deadline_the_shortage_row_says_why(user: User) -> None:
+    await open_team_screen(user)
+    await user.should_see(marker="assign-shortage")
+    assert "基準日" in label_text(user, "assign-shortage")
+
+
+async def test_the_shortage_row_follows_the_assignment(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.trial.task.deadline = datetime(
+        2026, 11, 20, 17
+    )  # 11/16 月〜20 金: 5 日 × 6.5h
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_see("あと 7.5h 足りません")
+    screen.drop_member("鈴木", 0, None)  # 週 0 に 鈴木 を足す(100%)
+    await user.should_see("余裕")
+    text = label_text(user, "assign-shortage")
+    assert text.startswith("余裕 25.0h")
+
+
+async def test_the_shortage_row_hint_names_the_due(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.trial.task.deadline = datetime(2026, 11, 20, 17)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_see("あと 7.5h 足りません")
+    label = user.find(marker="assign-shortage").elements.pop()
+    assert "11/20 17:00 まで。締切" in str(label.props.get("title", ""))
+
+
+async def test_the_shortage_row_does_not_make_the_screen_dirty(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.trial.task.deadline = None
+    screen.refresh()
+    assert not is_dirty(screen.trial)
+
+
+async def test_switching_from_a_shortage_to_a_reason_clears_the_warning_look(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.trial.task.deadline = datetime(2026, 11, 20, 17)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_see("あと 7.5h 足りません")
+    label = user.find(marker="assign-shortage").elements.pop()
+    assert "--warning" in str(label._style)
+    screen.now = lambda: datetime(2026, 11, 25, 9)  # 締切を過ぎた
+    screen.refresh()
+    await user.should_see("基準日を過ぎています")
+    assert "--warning" not in str(label._style)
+    assert "title" not in label.props
