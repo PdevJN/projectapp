@@ -1,5 +1,15 @@
-from projectapp.daily_crew import add_member, remove_member, split_week
-from projectapp.models import Assignee, Task
+from datetime import datetime
+
+from projectapp.daily_crew import (
+    add_member,
+    current_allocation,
+    remove_member,
+    set_allocation,
+    set_allocation_all,
+    split_week,
+)
+from projectapp.models import Assignee, Member, Project, Task, TaskKind
+from projectapp.timeline import effective_end
 
 
 def task(*names: str) -> Task:
@@ -149,3 +159,143 @@ def test_to_weekly_copies_the_crew_to_every_week() -> None:
     assert [names(w) for w in result.weekly_crew] == [["田中"]] * 3
     assert to_weekly(result, 3) is None  # すでに週ごと
     assert to_weekly(task(), 3) is None  # 担当者がいない
+
+
+def rates(crew: list[Assignee]) -> dict[str, float]:
+    return {a.name: a.allocation for a in crew}
+
+
+def test_setting_a_rate_on_a_plain_task_splits_it_and_changes_only_that_week() -> None:
+    result = set_allocation(task("田中", "鈴木"), "鈴木", 0.6, 1, weeks=3)
+    assert result is not None
+    assert [rates(w) for w in result.weekly_crew] == [
+        {"田中": 1.0, "鈴木": 1.0},
+        {"田中": 1.0, "鈴木": 0.6},
+        {"田中": 1.0, "鈴木": 1.0},
+    ]
+    assert rates(result.assignees) == {"田中": 1.0, "鈴木": 1.0}  # 和集合は大きいほう
+
+
+def test_setting_a_rate_does_not_change_the_input() -> None:
+    original = task("田中")
+    set_allocation(original, "田中", 0.5, 0, weeks=2)
+    assert original.weekly_crew == [] and original.assignees[0].allocation == 1.0
+
+
+def test_setting_a_rate_in_a_weekly_task() -> None:
+    base = add_member(task("田中"), "鈴木", 1, weeks=2)
+    assert base is not None
+    result = set_allocation(base, "鈴木", 0.25, 1)
+    assert result is not None
+    assert rates(result.weekly_crew[1]) == {"田中": 1.0, "鈴木": 0.25}
+    assert rates(result.weekly_crew[0]) == {"田中": 1.0}
+
+
+def test_setting_a_rate_in_a_daily_week_changes_that_day_or_all_days() -> None:
+    weekly = set_allocation(task("田中"), "田中", 1.0, 0, weeks=1)  # 同じ値は None
+    assert weekly is None
+    base = add_member(task("田中"), "鈴木", 0, weeks=2)
+    assert base is not None
+    split = split_week(base, 0)
+    assert split is not None
+    one_day = set_allocation(split, "鈴木", 0.5, 0, 3)
+    assert one_day is not None
+    assert rates(one_day.daily_crew[0][3]) == {"田中": 1.0, "鈴木": 0.5}
+    assert rates(one_day.daily_crew[0][2]) == {"田中": 1.0, "鈴木": 1.0}
+    assert rates(one_day.weekly_crew[0]) == {"田中": 1.0, "鈴木": 1.0}  # 大きいほう
+    all_days = set_allocation(split, "鈴木", 0.5, 0)
+    assert all_days is not None
+    assert all(rates(d)["鈴木"] == 0.5 for d in all_days.daily_crew[0])
+    assert rates(all_days.weekly_crew[0]) == {"田中": 1.0, "鈴木": 0.5}
+
+
+def test_setting_a_rate_beyond_the_defined_weeks_fills_with_the_tail() -> None:
+    base = add_member(task("田中"), "鈴木", 0, weeks=1)
+    assert base is not None
+    result = set_allocation(base, "田中", 0.5, 3)
+    assert result is not None
+    assert len(result.weekly_crew) == 4
+    assert rates(result.weekly_crew[3]) == {"田中": 0.5, "鈴木": 1.0}
+    assert rates(result.weekly_crew[2]) == {"田中": 1.0, "鈴木": 1.0}
+
+
+def test_setting_a_rate_refuses_what_it_cannot_do() -> None:
+    plain = task("田中")
+    assert set_allocation(plain, "鈴木", 0.5, 0) is None  # そのセルにいない
+    assert set_allocation(plain, "田中", 0.5, 0, 2) is None  # 日ごとでない週に day
+    assert set_allocation(plain, "田中", 0.5, 52) is None  # MAX_WEEKS 以上
+    assert set_allocation(plain, "田中", 0.5, -1) is None
+    assert set_allocation(task(), "田中", 0.5, 0) is None  # 担当者がいない
+    summary = Task("s", id="s", kind=TaskKind.SUMMARY, assignees=[Assignee("田中")])
+    assert set_allocation(summary, "田中", 0.5, 0) is None
+
+
+def test_setting_a_rate_refuses_values_outside_the_range() -> None:
+    for value in (0.0, 0.009, 1.01, -0.5, float("nan"), float("inf")):
+        assert set_allocation(task("田中"), "田中", value, 0) is None
+    assert set_allocation(task("田中"), "田中", 0.01, 0, weeks=1) is not None
+    assert set_allocation(task("田中"), "田中", 0.5, 0, weeks=1) is not None
+
+
+def test_current_allocation_reads_the_cell() -> None:
+    base = add_member(task("田中"), "鈴木", 1, weeks=3)
+    assert base is not None
+    base = set_allocation(base, "鈴木", 0.4, 1)
+    assert base is not None
+    assert current_allocation(base, "鈴木", 1) == 0.4
+    assert current_allocation(base, "鈴木", 0) is None  # その週にいない
+    assert current_allocation(base, "田中", 5) == 1.0  # 先の週は直前の担当
+    assert current_allocation(task("田中"), "田中", 2) == 1.0  # 週ごとでない
+    assert current_allocation(base, "田中", 1, 2) is None  # 日ごとでない週に day
+    assert current_allocation(base, "田中", 99) is None
+
+
+def test_set_allocation_all_changes_every_week_and_day_of_that_member() -> None:
+    base = add_member(task("田中"), "鈴木", 0, weeks=3)
+    assert base is not None
+    base = add_member(base, "鈴木", 2)
+    assert base is not None
+    base = split_week(base, 0)
+    assert base is not None
+    result = set_allocation_all(base, "鈴木", 0.5)
+    assert result is not None
+    assert all(rates(d)["鈴木"] == 0.5 for d in result.daily_crew[0])
+    assert rates(result.weekly_crew[0]) == {"田中": 1.0, "鈴木": 0.5}
+    assert "鈴木" not in rates(result.weekly_crew[1])  # いない週には足さない
+    assert rates(result.weekly_crew[2]) == {"田中": 1.0, "鈴木": 0.5}
+    assert rates(result.assignees) == {"田中": 1.0, "鈴木": 0.5}
+
+
+def test_set_allocation_all_on_a_plain_task_keeps_it_plain() -> None:
+    result = set_allocation_all(task("田中", "鈴木"), "鈴木", 0.5)
+    assert result is not None
+    assert result.weekly_crew == [] and rates(result.assignees) == {
+        "田中": 1.0,
+        "鈴木": 0.5,
+    }
+
+
+def test_set_allocation_all_returns_none_when_nothing_changes() -> None:
+    assert set_allocation_all(task("田中"), "田中", 1.0) is None  # 同じ値
+    assert set_allocation_all(task("田中"), "鈴木", 0.5) is None  # いない
+    assert set_allocation_all(task("田中"), "田中", 0.0) is None  # 範囲外
+    assert set_allocation_all(task("田中"), "田中", float("nan")) is None
+
+
+def test_lowering_the_rate_moves_the_forecast_end_later() -> None:
+    def build(rate: float) -> tuple[Project, Task]:
+        item = Task(
+            "t",
+            id="a",
+            planned_start=datetime(2026, 11, 16, 9),
+            effort_hours=40,
+            assignees=[Assignee("田中", rate)],
+        )
+        return Project("p", members=[Member("田中", 1.0)], tasks=[item]), item
+
+    project, full = build(1.0)
+    half = set_allocation(full, "田中", 0.5, 0, weeks=1)
+    assert half is not None
+    fast = effective_end(full, project, {})
+    slow = effective_end(half, Project("p", members=project.members, tasks=[half]), {})
+    assert fast is not None and slow is not None and slow > fast
