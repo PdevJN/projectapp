@@ -96,3 +96,56 @@ def test_trial_project_keeps_predecessors_so_the_schedule_matches_the_main_chart
     assert hidden_ids(base, trial) == frozenset(
         {"a"}
     )  # 先行は日程のために持つだけで、描かない
+
+
+def test_team_groups_list_teams_in_order_then_no_team() -> None:
+    from projectapp.assign_trial import NO_TEAM, team_groups
+    from projectapp.models import Membership, Team
+
+    dev, ops = Team("開発", id="t1"), Team("運用", id="t2")
+    members = [
+        Member("田中", 1.0, teams=[Membership("t1")]),
+        Member("佐藤", 1.0, teams=[Membership("t1", 50), Membership("t2", 50)]),
+        Member("鈴木", 1.0),
+    ]
+    project = Project(
+        "p", base_date=date(2026, 11, 16), members=members, teams=[dev, ops]
+    )
+    groups = team_groups(project)
+    assert [(g.name, [m.name for m in g.members]) for g in groups] == [
+        ("開発", ["田中", "佐藤"]),
+        ("運用", ["佐藤"]),
+        (NO_TEAM, ["鈴木"]),
+    ]
+
+
+def test_team_groups_skip_empty_teams_and_handle_no_members() -> None:
+    from projectapp.assign_trial import team_groups
+    from projectapp.models import Team
+
+    assert team_groups(Project("p", base_date=date(2026, 11, 16))) == []
+    empty = Project("p", base_date=date(2026, 11, 16), teams=[Team("空", id="t1")])
+    assert team_groups(empty) == []
+
+
+def test_cell_plan_covers_the_task_span_and_the_defined_weeks() -> None:
+    from projectapp.assign_trial import cell_plan
+
+    task = Task(
+        "t",
+        id="a",
+        planned_start=datetime(2026, 11, 16, 9),
+        planned_end=datetime(2026, 11, 30, 17),
+        effort_hours=40,
+    )
+    project = Project("p", base_date=date(2026, 11, 16), tasks=[task])
+    plan = cell_plan(project, task, {})
+    assert plan is not None
+    assert plan.origin == date(2026, 11, 16) and plan.weeks >= 2
+    no_start = Task("n", id="b")
+    assert (
+        cell_plan(
+            Project("p", base_date=date(2026, 11, 16), tasks=[no_start]), no_start, {}
+        )
+        is None
+    )
