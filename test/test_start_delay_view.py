@@ -7,6 +7,7 @@ import pytest
 from nicegui import ui
 from nicegui.testing import User
 
+from projectapp import arrange
 from projectapp.forms import build_start_delay, open_settings_dialog
 from projectapp.gantt import (
     ACTUAL_HEIGHT_PX,
@@ -269,3 +270,28 @@ async def test_the_settings_dialog_in_the_app_changes_the_project(
     assert (
         user.find(marker="settings-start-delay-enabled").elements.pop().value is False
     )
+
+
+async def test_moving_the_bar_updates_the_delay(user: User) -> None:
+    """棒のドラッグ移動(arrange.shift_task + 描き直し)で、予定の開始が動くと、帯とチップも変わる。"""
+    project = late_start_project()  # 予定 10/5、着手 10/7: 2 稼働日の遅れ
+    charts: list[GanttChart] = []
+
+    @ui.page("/")
+    def index() -> None:
+        chart = GanttChart(
+            project, {}, Recorder().actions, now=lambda: datetime(2026, 10, 9, 10)
+        )
+        charts.append(chart)
+        chart.build()
+
+    await user.open("/")
+    await user.should_see("着工 +2日")
+    task = project.sections[0].tasks[0]
+    assert arrange.shift_task(task, 1)  # 1 日後ろへ
+    charts[0].set_project(project)
+    await user.should_see("着工 +1日")
+    assert arrange.shift_task(task, 1)  # 着手の日と同じになる
+    charts[0].set_project(project)
+    await user.should_not_see(marker="task-start-delay-0-0-0")
+    await user.should_not_see(marker="start-delay-0-0-0")
