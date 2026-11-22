@@ -3,7 +3,7 @@ from datetime import date, datetime
 from nicegui import ui
 from nicegui.testing import User
 
-from projectapp.assign_screen import AssignScreen
+from projectapp.assign_screen import ROW_HEIGHT_PX, AssignScreen, row_height
 from projectapp.assign_trial import AssignTrial
 from projectapp.gantt import GanttActions, GanttChart
 from projectapp.models import Project, Task
@@ -435,3 +435,43 @@ async def test_the_member_frames_follow_the_trial_after_a_drop_and_a_remove(
     await user.should_see(marker="assign-member-assigned-鈴木")
     screen.remove_member_at("鈴木", 1, None)
     await user.should_not_see(marker="assign-member-assigned-鈴木")
+
+
+async def test_chips_are_icon_only_and_the_remove_button_shows_on_hover(
+    user: User,
+) -> None:
+    from projectapp.assign_drag import ASSIGN_DRAG_CSS
+
+    screen, _ = await open_team_screen(user)
+    chip = user.find(marker="assign-chip-0-田中").elements.pop()
+    labels = [e for e in chip.descendants() if isinstance(e, ui.label)]
+    assert all(
+        label.text != "田中" for label in labels
+    )  # 名前の文字は出さない(頭文字のアイコンだけ。名前はツールチップ)
+    assert ".assign-chip:hover .assign-remove" in ASSIGN_DRAG_CSS
+    assert (
+        "assign-remove"
+        in user.find(marker="assign-remove-0-田中").elements.pop().classes
+    )
+
+
+async def test_a_daily_cell_wraps_its_icons_and_the_row_grows_with_the_crew(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 0, None)
+    screen.toggle_daily(0)
+    screen.drop_member(
+        "佐藤", 0, 3
+    )  # 3 日目だけ 3 人(1 日 40px のセルには 1 段に 1 つしか入らない)
+    await user.should_see(marker="assign-cell-0-3")  # 再描画を待つ
+    # シミュレーションでは古い行も残ることがあるので、いちばん高い行(=最新)を見る
+    heights = [
+        int(str(row._style["height"]).removesuffix("px"))
+        for row in user.find(marker="assign-row").elements
+    ]
+    assert max(heights) == row_height(3) > row_height(2) > ROW_HEIGHT_PX
+    cell = user.find(marker="assign-cell-0-3").elements.pop()
+    assert "wrap" in str(cell._style.get("flex-wrap", "")) or "flex-wrap: wrap" in str(
+        cell._style
+    )

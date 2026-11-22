@@ -33,6 +33,7 @@ from projectapp.avatar import avatar
 from projectapp.config import DEFAULT_NAME_WIDTH_PX
 from projectapp.daily_crew import (
     WEEK_DAYS,
+    Segment,
     add_member,
     merge_week,
     remove_member,
@@ -52,6 +53,8 @@ from projectapp.timeline import (
 
 ASSIGN_SCALES = (Scale.DAY, Scale.WEEK, Scale.MONTH)
 ROW_HEIGHT_PX = 40
+CHIP_STEP_PX = 20  # アイコン 18px + すき間 2px
+LINE_STEP_PX = 22  # セルの 1 段の高さ
 ACTIVE: dict[
     str, "AssignScreen"
 ] = {}  # クライアント id → 今開いている画面(ドロップを受ける)
@@ -215,31 +218,53 @@ class AssignScreen:
     def assign_row(self, task: Task, columns: list[Column], width: int) -> None:
         if task.id != self.trial.task.id:
             return
+        if self.plan is None:
+            self.no_start_row()
+            return
+        weeks = max(self.plan.weeks, len(task.weekly_crew))
+        last_day = self.plan.origin + timedelta(days=WEEK_DAYS * weeks - 1)
+        crews: list[list[Assignee]] = task.weekly_crew or [
+            list(task.assignees) for _ in range(weeks)
+        ]
+        segs = segments(crews, task.daily_crew, self.plan.origin, last_day)
+        # 狭いセル(日ごとの週)は、アイコンを折り返す。行の高さは、いちばん段の多いセルに合わせる
+        lines = max((self.lines_needed(seg, columns, width) for seg in segs), default=1)
         row = (
             ui.element("div")
-            .style(f"height: {ROW_HEIGHT_PX}px; position: relative; width: 100%")
+            .style(f"height: {row_height(lines)}px; position: relative; width: 100%")
             .mark("assign-row")
         )
         with row:
-            if self.plan is None:
-                ui.label("開始日がないため週に分けられません").classes(
-                    "text-caption text-grey"
-                ).style(f"position: absolute; left: {from_name(8)}; top: 10px").mark(
-                    "assign-no-start"
-                )
-                return
-            weeks = max(self.plan.weeks, len(task.weekly_crew))
-            last_day = self.plan.origin + timedelta(days=WEEK_DAYS * weeks - 1)
-            crews: list[list[Assignee]] = task.weekly_crew or [
-                list(task.assignees) for _ in range(weeks)
-            ]
-            for seg in segments(crews, task.daily_crew, self.plan.origin, last_day):
+            for seg in segs:
                 self.cell(
-                    seg.week, seg.day, seg.first, seg.last, seg.crew, columns, width
+                    seg.week,
+                    seg.day,
+                    seg.first,
+                    seg.last,
+                    seg.crew,
+                    columns,
+                    width,
+                    lines,
                 )
             if task.weekly_crew or task.assignees:  # 担当者がいなければ日ごとにできない
                 for week in range(weeks):
                     self.daily_toggle(week, columns, width)
+
+    def no_start_row(self) -> None:
+        with (
+            ui.element("div")
+            .style(f"height: {ROW_HEIGHT_PX}px; position: relative; width: 100%")
+            .mark("assign-row")
+        ):
+            ui.label("開始日がないため週に分けられません").classes(
+                "text-caption text-grey"
+            ).style(f"position: absolute; left: {from_name(8)}; top: 10px").mark(
+                "assign-no-start"
+            )
+
+    def lines_needed(self, seg: Segment, columns: list[Column], width: int) -> int:
+        _, span = self.edges(seg.first, seg.last, columns, width)
+        return lines_for(len(seg.crew), span)
 
     def edges(
         self, first: date, last: date, columns: list[Column], width: int
@@ -261,6 +286,7 @@ class AssignScreen:
         crew: list[Assignee],
         columns: list[Column],
         width: int,
+        lines: int = 1,
     ) -> None:
         left, span = self.edges(first, last, columns, width)
         marker = f"assign-cell-{week}" if day is None else f"assign-cell-{week}-{day}"
@@ -269,13 +295,15 @@ class AssignScreen:
             props += f' data-day="{day}"'
         with (
             ui.row()
-            .classes("items-center no-wrap gap-1")
+            .classes("items-start")
             .props(props)
             .style(
                 f"position: absolute; left: {from_name(left)};"
-                f" width: {max(span - 2, 0):.0f}px; top: 14px; height: 24px;"
+                f" width: {max(span - 2, 0):.0f}px; top: 14px;"
+                f" height: {lines * LINE_STEP_PX}px; display: flex; flex-wrap: wrap;"
+                " align-content: flex-start; gap: 2px;"
                 " border: 1px dashed rgba(128,128,128,0.6); border-radius: 4px;"
-                " overflow: hidden; padding: 0 2px"
+                " padding: 3px 2px"
             )
             .mark(marker)
         ):
@@ -283,16 +311,17 @@ class AssignScreen:
                 self.chip(assignee.name, week, day)
 
     def chip(self, name: str, week: int, day: int | None) -> None:
+        """アイコンだけのチップ(名前はツールチップ)。`×`は、マウスを乗せたときにアイコンの角に出す。"""
         icon = next((m.icon for m in self.project.members if m.name == name), "")
         suffix = f"{week}-{name}" if day is None else f"{week}-{day}-{name}"
-        with (
-            ui.row().classes("items-center no-wrap gap-0").mark(f"assign-chip-{suffix}")
-        ):
+        with ui.element("div").classes("assign-chip").mark(f"assign-chip-{suffix}"):
             avatar(name, icon, 18).tooltip(name)
             ui.button(
                 icon="close",
                 on_click=lambda n=name, w=week, d=day: self.remove_member_at(n, w, d),
-            ).props("flat dense round size=xs").mark(f"assign-remove-{suffix}")
+            ).props("flat dense round size=6px").classes("assign-remove").mark(
+                f"assign-remove-{suffix}"
+            )
 
     def daily_toggle(self, week: int, columns: list[Column], width: int) -> None:
         assert self.plan is not None
@@ -408,6 +437,17 @@ class AssignScreen:
             del ACTIVE[self.client_id]
         if self.dialog is not None:
             self.dialog.close()
+
+
+def lines_for(count: int, span_px: float) -> int:
+    """幅`span_px`のセルに、アイコン`count`個を並べるときの段の数(1 段に最低 1 個は入れる)。"""
+    per_line = max(int((span_px - 6) // CHIP_STEP_PX), 1)
+    return max(-(-count // per_line), 1)
+
+
+def row_height(lines: int) -> int:
+    """割り当ての行の高さ。段の数に合わせて広げる(ヘッダーのボタンの分を含む)。"""
+    return max(ROW_HEIGHT_PX, 18 + lines * LINE_STEP_PX)
 
 
 def drop_on_active(client_id: str, args: dict) -> None:

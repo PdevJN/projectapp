@@ -9,6 +9,9 @@ ASSIGN_DROP_EVENT = "assign_drop_member"
 
 ASSIGN_DRAG_CSS = """
 [data-assign-member] { cursor: grab; }
+.assign-chip { position: relative; width: 18px; height: 18px; flex: none; }
+.assign-chip .assign-remove { position: absolute; top: -5px; right: -5px; opacity: 0; min-width: 0; min-height: 0; width: 12px; height: 12px; padding: 0; background: rgba(0,0,0,0.65); color: #fff; }
+.assign-chip:hover .assign-remove { opacity: 1; }
 .assign-drop-over { outline: 2px solid #1976d2; outline-offset: -2px; background: rgba(25, 118, 210, 0.12); }
 """
 
