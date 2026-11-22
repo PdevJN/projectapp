@@ -176,3 +176,165 @@ async def test_embedded_scroll_box_is_separate_from_the_main_chart(user: User) -
     embedded.scroll_to_left()
     assert sent and all("data-assign-scroll" in js for js in sent)
     assert not any("data-chart-scroll" in js for js in sent)
+
+
+def team_project() -> Project:
+    from projectapp.models import Assignee, Member, Membership, Team
+
+    task = Task(
+        "設計",
+        id="a",
+        planned_start=datetime(2026, 11, 16, 9),
+        planned_end=datetime(2026, 11, 30, 17),
+        effort_hours=40,
+        assignees=[Assignee("田中")],
+    )
+    return Project(
+        "p",
+        base_date=date(2026, 11, 16),
+        members=[
+            Member("田中", 1.0, teams=[Membership("t1")]),
+            Member("鈴木", 1.0, teams=[Membership("t1")]),
+            Member("佐藤", 1.0),
+        ],
+        teams=[Team("開発", id="t1")],
+        tasks=[task],
+    )
+
+
+def mount_team_screen(
+    confirmed: list[AssignTrial], screens: list[AssignScreen]
+) -> None:
+    @ui.page("/")
+    def index() -> None:
+        main = GanttChart(team_project(), {}, noop_actions())
+        main.build()
+        project = team_project()
+        screen = AssignScreen(
+            project, project.tasks[0], {}, on_confirm=confirmed.append
+        )
+        screens.append(screen)
+        ui.button("open", on_click=screen.open).mark("open-screen")
+
+
+async def open_team_screen(user: User) -> tuple[AssignScreen, list[AssignTrial]]:
+    confirmed: list[AssignTrial] = []
+    screens: list[AssignScreen] = []
+    mount_team_screen(confirmed, screens)
+    await user.open("/")
+    user.find(marker="open-screen").click()
+    await user.should_see(marker="assign-members")
+    return screens[0], confirmed
+
+
+async def test_member_list_shows_teams_and_marks_the_tasks_assignees(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    await user.should_see(marker="assign-team-開発")
+    await user.should_see(marker="assign-team-チームなし")
+    for name in ("田中", "鈴木", "佐藤"):
+        await user.should_see(marker=f"assign-member-{name}")
+    await user.should_see(marker="assign-member-assigned-田中")
+    await user.should_not_see(marker="assign-member-assigned-鈴木")
+
+
+async def test_dropping_a_member_on_a_week_cell_adds_only_that_week(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    crews = [[a.name for a in w] for w in screen.trial.task.weekly_crew]
+    assert crews[1] == ["田中", "鈴木"] and crews[0] == ["田中"]
+    await user.should_see(marker="assign-chip-1-鈴木")
+    await user.should_not_see(marker="assign-chip-0-鈴木")
+
+
+async def test_dropping_a_duplicate_is_rejected_with_a_notice(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    before = [list(w) for w in screen.trial.task.weekly_crew]
+    screen.drop_member("鈴木", 1, None)
+    assert screen.trial.task.weekly_crew == before
+    await user.should_see("すでに割り当てています")
+
+
+async def test_the_remove_button_removes_but_not_the_last_member(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.remove_member_at("鈴木", 1, None)
+    assert [a.name for a in screen.trial.task.weekly_crew[1]] == ["田中"]
+    screen.remove_member_at("田中", 1, None)  # 最後の 1 人
+    assert [a.name for a in screen.trial.task.weekly_crew[1]] == ["田中"]
+    await user.should_see("最後の 1 人は外せません")
+
+
+async def test_a_week_can_be_split_into_days_and_back(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 0, None)
+    screen.toggle_daily(0)
+    assert 0 in screen.trial.task.daily_crew
+    await user.should_see(marker="assign-cell-0-3")
+    screen.drop_member("佐藤", 0, 3)
+    assert [a.name for a in screen.trial.task.daily_crew[0][3]] == [
+        "田中",
+        "鈴木",
+        "佐藤",
+    ]
+    screen.toggle_daily(0)
+    assert 0 not in screen.trial.task.daily_crew
+
+
+async def test_a_task_without_a_start_date_shows_no_cells(user: User) -> None:
+    confirmed: list[AssignTrial] = []
+    screens: list[AssignScreen] = []
+
+    @ui.page("/")
+    def index() -> None:
+        main = GanttChart(team_project(), {}, noop_actions())
+        main.build()
+        project = team_project()
+        project.tasks[0].planned_start = None
+        project.tasks[0].planned_end = None
+        screen = AssignScreen(
+            project, project.tasks[0], {}, on_confirm=confirmed.append
+        )
+        screens.append(screen)
+        ui.button("open", on_click=screen.open).mark("open-screen")
+
+    await user.open("/")
+    user.find(marker="open-screen").click()
+    await user.should_see(marker="assign-no-start")
+    await user.should_see(marker="assign-members")  # 一覧は出す
+    assert screens[0].plan is None
+
+
+async def test_the_chart_updates_after_a_drop(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    assert screen.chart is not None
+    before = screen.chart.project.tasks[0].weekly_crew
+    screen.drop_member("鈴木", 1, None)
+    assert screen.chart.project.tasks[0].weekly_crew != before  # 複製が作り直されている
+
+
+async def test_confirm_returns_the_changed_trial(user: User) -> None:
+    screen, confirmed = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    user.find(marker="assign-confirm").click()
+    assert [a.name for a in confirmed[0].task.weekly_crew[1]] == ["田中", "鈴木"]
+
+
+async def test_the_screen_without_members_says_so(user: User) -> None:
+    confirmed: list[AssignTrial] = []
+    screens: list[AssignScreen] = []
+    mount_screen(confirmed, screens)  # one_task_project はメンバーがいない
+    await user.open("/")
+    user.find(marker="open-screen").click()
+    await user.should_see(marker="assign-no-members")
+
+
+async def test_the_assignment_row_draws_at_every_scale(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    for scale in (Scale.WEEK, Scale.MONTH, Scale.DAY):
+        screen.set_scale(scale)
+        await user.should_see(marker="assign-cell-0")
+        await user.should_see(marker="assign-chip-1-鈴木")
