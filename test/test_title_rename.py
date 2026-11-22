@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from nicegui.testing import User
 
 from projectapp import notes
@@ -130,3 +132,42 @@ async def test_cancelling_the_confirmation_changes_nothing(
     user.find(marker="confirm-cancel").click()
     assert view.project.name == "旧" and (tmp_path / "旧.json").exists()
     assert load_project(tmp_path / "参照元.json").tasks[0].ref_project == "旧"
+
+
+async def test_saving_right_after_a_rename_raises_no_external_change_warning(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_saved(user, tmp_path)
+    view.begin_title_edit()
+    view.commit_title("新")
+    view.save_task((), None, Task("追加"))
+    assert view.write(overwrite=True) is True
+    saved = load_project(tmp_path / "新.json")
+    assert sorted(t.name for t in saved.all_tasks()) == ["t", "追加"]
+
+
+async def test_notes_return_when_the_file_cannot_be_moved(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    view = await open_saved(user, tmp_path)
+    notes.save("旧", "t1", "<p>メモ</p>")
+
+    def boom(*args: object, **kwargs: object) -> list[str]:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("projectapp.views.rename_project_files", boom)
+    assert view.rename_project("新") is False
+    assert view.project.name == "旧" and (tmp_path / "旧.json").exists()
+    assert notes.load("旧", "t1") == "<p>メモ</p>"
+    assert notes.load("新", "t1") is None
+
+
+async def test_a_leftover_notes_folder_is_explained(user: User, tmp_path: Path) -> None:
+    view = await open_saved(user, tmp_path)
+    notes.save("旧", "t1", "<p>メモ</p>")
+    notes.save(
+        "新", "zzzz9999", "<p>残り</p>"
+    )  # 削除したプロジェクトのメモが残った想定
+    assert view.rename_project("新") is False
+    assert user.notify.contains("メモのフォルダが残っています")
+    assert (tmp_path / "旧.json").exists()

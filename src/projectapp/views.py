@@ -4617,6 +4617,12 @@ class MainView:
                 self.note_pane.flush()
             try:
                 notes.rename_project(old, new)
+            except FileExistsError:
+                ui.notify(
+                    "同じ名前のメモのフォルダが残っています。名前を変えませんでした",
+                    type="negative",
+                )
+                return False
             except OSError as exc:
                 ui.notify(
                     f"メモを移せなかったため、名前を変えませんでした: {exc}",

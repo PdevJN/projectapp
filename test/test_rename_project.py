@@ -124,3 +124,10 @@ def test_a_failed_rewrite_restores_everything(
     assert not (tmp_path / "新.json").exists()
     for path, text in originals.items():
         assert path.read_text(encoding="utf-8") == text
+
+
+def test_referrers_ignores_a_file_that_is_not_utf8(tmp_path: Path) -> None:
+    make(tmp_path, "旧")
+    make(tmp_path, "参照元", "旧")
+    (tmp_path / "壊れ.json").write_bytes(b"\xff\xfe\x00")
+    assert referrers_of(tmp_path, "旧") == ["参照元"]

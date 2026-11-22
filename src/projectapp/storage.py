@@ -348,7 +348,7 @@ def referrers_of(base_dir: Path, name: str) -> list[str]:
             continue
         try:
             text = path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, ValueError):  # UTF-8 でないファイルは数えない
             continue
         if _rewrite_references(text, name, name + "\0") is not None:
             names.append(path.stem)
