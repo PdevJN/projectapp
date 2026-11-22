@@ -38,6 +38,9 @@ from projectapp.models import (
     ReferenceMode,
     ReferenceValue,
     FORMAT_VERSION,
+    DEFAULT_START_DELAY_COLOR,
+    MAX_START_DELAY_GRACE,
+    StartDelayStyle,
     MAX_WARNING_LIMIT,
     MIN_WARNING_LIMIT,
     MAX_WEEKS,
@@ -846,6 +849,39 @@ def _actual_time_optional(value: Any) -> bool:
     return value
 
 
+def _start_delay_enabled(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"着工遅れの表示の設定が正しくありません: {value!r}")
+    return value
+
+
+def _start_delay_style(value: Any) -> StartDelayStyle:
+    try:
+        return StartDelayStyle(value)
+    except ValueError:
+        raise ValueError(
+            f"着工遅れの表し方の設定が正しくありません: {value!r}"
+        ) from None
+
+
+def _start_delay_grace(value: Any) -> int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 0 <= value <= MAX_START_DELAY_GRACE
+    ):
+        raise ValueError(
+            f"着工遅れの猶予日数は 0〜{MAX_START_DELAY_GRACE} の整数にしてください: {value!r}"
+        )
+    return value
+
+
+def _start_delay_color(value: Any) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"#[0-9a-fA-F]{6}", value) is None:
+        raise ValueError(f"着工遅れの帯の色は #rrggbb の形にしてください: {value!r}")
+    return value.lower()
+
+
 def _ratio_limit(value: Any, name: str) -> float | None:
     """相対比率の上限・下限。null は設定なし(既定の 50〜150%)。数値以外・非有限・範囲外は ValueError。"""
     if value is None:
@@ -1456,6 +1492,26 @@ def parse_project(text: str, name: str) -> Project:
             _actual_time_optional(raw.get("actual_time_optional", True))
             if ctx.version >= 23
             else True
+        ),
+        start_delay_enabled=(
+            _start_delay_enabled(raw.get("start_delay_enabled", True))
+            if ctx.version >= 24
+            else True
+        ),
+        start_delay_style=(
+            _start_delay_style(raw.get("start_delay_style", "both"))
+            if ctx.version >= 24
+            else StartDelayStyle.BOTH
+        ),
+        start_delay_grace=(
+            _start_delay_grace(raw.get("start_delay_grace", 0))
+            if ctx.version >= 24
+            else 0
+        ),
+        start_delay_color=(
+            _start_delay_color(raw.get("start_delay_color", DEFAULT_START_DELAY_COLOR))
+            if ctx.version >= 24
+            else DEFAULT_START_DELAY_COLOR
         ),
         ratio_limit_upper=ratio_limits.upper,
         ratio_limit_lower=ratio_limits.lower,

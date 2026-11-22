@@ -10,7 +10,7 @@ from enum import StrEnum
 
 from projectapp import clock
 
-FORMAT_VERSION = 23  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕。16: メンバーの丸め対象外〔members[].ratio_unclamped〕。17: チーム〔teams・members[].teams〕。18: イベントの色に #rrggbb を許す)。19: メンバーの警告の件数の閾値 warning_limit、20: タスクの追加工数 extra_efforts、21: 変更履歴 history・history_since、22: 日ごとの担当 daily_crew、23: 実績の時刻の省略 actual_time_optional
+FORMAT_VERSION = 24  # プロジェクトファイルの形式のバージョン。キーのない古いファイルは 1 として読む(2: メンバーとセクションの id、担当者はメンバー id で指す。3: カテゴリ、タスクは category_id で指す。4: イベント。5: タスクの進捗度。6: まとめ〔種別と子の id〕。7: メンバーのアイコン。8: 稼働日の上書き。9: タスクのパラメータ。10: タスクの週ごとの担当〔weekly_crew〕。11: プロジェクト参照〔reference_mode・ref_project・ref_snapshot〕。12: PlantUML の通知の設定〔plantuml_overload_notice〕。13: 相対比率の上限・下限〔ratio_limit_upper・ratio_limit_lower〕。14: 稼働日のメモ〔work_days[].note〕。15: イベントの休み〔events[].closed〕。16: メンバーの丸め対象外〔members[].ratio_unclamped〕。17: チーム〔teams・members[].teams〕。18: イベントの色に #rrggbb を許す)。19: メンバーの警告の件数の閾値 warning_limit、20: タスクの追加工数 extra_efforts、21: 変更履歴 history・history_since、22: 日ごとの担当 daily_crew、23: 実績の時刻の省略 actual_time_optional、24: 着工遅れの設定 start_delay_enabled・start_delay_style・start_delay_grace・start_delay_color
 DEFAULT_DAILY_HOURS = 6.5
 DEFAULT_WORK_START = time(9, 0)
 DEFAULT_COLOR = "#4c8bf5"
@@ -415,6 +415,28 @@ class RatioLimits:
     lower: float | None = None
 
 
+MAX_START_DELAY_GRACE = 30  # 着工遅れの猶予日数の上限
+DEFAULT_START_DELAY_COLOR = (
+    "#7e57c2"  # 着工遅れの帯の既定の色(赤・黄・状態の色と区別できる紫)
+)
+
+
+class StartDelayStyle(StrEnum):
+    BOTH = "both"  # 帯とチップ
+    BAND = "band"  # 帯だけ
+    CHIP = "chip"  # チップだけ
+
+
+@dataclass(frozen=True)
+class StartDelaySettings:
+    """着工遅れ・停止の表示の設定(要望 161)。"""
+
+    enabled: bool = True
+    style: StartDelayStyle = StartDelayStyle.BOTH
+    grace: int = 0  # 遅れの稼働日数がこの値を超えたときだけ、遅れとする
+    color: str = DEFAULT_START_DELAY_COLOR  # 帯の色(#rrggbb)
+
+
 @dataclass
 class Project:
     name: str
@@ -443,6 +465,12 @@ class Project:
         True  # PlantUML の保存後に、100% 超に見える担当者を通知するか
     )
     actual_time_optional: bool = True  # 実績の時刻を省略できるか(省くと始業・終業を補う。False は日付と時刻の両方が要る)
+    start_delay_enabled: bool = True  # 着工遅れ・停止を出すか(要望 161)
+    start_delay_style: StartDelayStyle = (
+        StartDelayStyle.BOTH
+    )  # 帯とチップ・帯だけ・チップだけ
+    start_delay_grace: int = 0  # 猶予日数(0〜30)
+    start_delay_color: str = DEFAULT_START_DELAY_COLOR  # 帯の色(#rrggbb)
     ratio_limit_upper: float | None = (
         None  # 相対比率の上限(150% は 1.5)。None は設定なし(50〜150%)
     )
@@ -455,6 +483,15 @@ class Project:
     @property
     def ratio_limits(self) -> RatioLimits:
         return RatioLimits(self.ratio_limit_upper, self.ratio_limit_lower)
+
+    @property
+    def start_delay(self) -> StartDelaySettings:
+        return StartDelaySettings(
+            self.start_delay_enabled,
+            self.start_delay_style,
+            self.start_delay_grace,
+            self.start_delay_color,
+        )
 
     def all_tasks(self) -> list[Task]:
         """セクションなしのタスク、続いて各セクションを深さ優先で(そのタスク → そのサブセクション)。"""
