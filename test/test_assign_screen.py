@@ -1,10 +1,12 @@
 from datetime import date, datetime
+from types import SimpleNamespace
 
 from nicegui import ui
 from nicegui.testing import User
 
+from projectapp.assign_drag import ASSIGN_DRAG_CSS
 from projectapp.assign_screen import ROW_HEIGHT_PX, AssignScreen, row_height
-from projectapp.assign_trial import AssignTrial
+from projectapp.assign_trial import AssignTrial, is_dirty
 from projectapp.gantt import GanttActions, GanttChart
 from projectapp.models import Project, Task
 from projectapp.timeline import Scale
@@ -475,3 +477,155 @@ async def test_a_daily_cell_wraps_its_icons_and_the_row_grows_with_the_crew(
     assert "wrap" in str(cell._style.get("flex-wrap", "")) or "flex-wrap: wrap" in str(
         cell._style
     )
+
+
+def rate_of(screen: AssignScreen, week: int, name: str) -> float:
+    crew = screen.trial.task.weekly_crew[week]
+    return next(a.allocation for a in crew if a.name == name)
+
+
+async def test_clicking_a_chip_icon_opens_the_rate_popup_for_that_cell(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    await user.should_see(marker="assign-open-rate-1-鈴木")
+    user.find(marker="assign-open-rate-1-鈴木").click()
+    assert screen.rate_target == ("鈴木", 1, None)
+    assert screen.rate_dialog is not None and screen.rate_dialog.value is True
+    assert screen.rate_slider is not None and screen.rate_slider.value == 100
+    assert screen.rate_number is not None and screen.rate_number.value == 100
+    assert screen.rate_title is not None and screen.rate_title.text == "鈴木 第 2 週"
+
+
+async def test_the_popup_title_names_the_day_of_a_daily_week(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 0, None)
+    screen.toggle_daily(0)
+    screen.open_rate("鈴木", 0, 3)
+    assert screen.rate_title is not None
+    assert screen.rate_title.text == "鈴木 第 1 週 4 日目"
+
+
+async def test_applying_a_rate_changes_only_that_cell_and_shows_a_badge(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    await user.should_not_see(marker="assign-rate-badge-1-鈴木")  # 100% は出さない
+    screen.open_rate("鈴木", 1, None)
+    screen.apply_rate(60)
+    assert rate_of(screen, 1, "鈴木") == 0.6
+    assert rate_of(screen, 1, "田中") == 1.0
+    assert rate_of(screen, 0, "田中") == 1.0
+    assert screen.rate_slider is not None and screen.rate_slider.value == 60
+    assert screen.rate_number is not None and screen.rate_number.value == 60
+    await user.should_see(marker="assign-rate-badge-1-鈴木")
+
+
+async def test_the_popup_stays_open_after_the_chart_is_redrawn(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.open_rate("鈴木", 1, None)
+    dialog = screen.rate_dialog
+    screen.apply_rate(70)
+    assert screen.rate_dialog is dialog and dialog is not None and dialog.value is True
+
+
+async def test_a_rate_outside_the_range_changes_nothing(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.open_rate("鈴木", 1, None)
+    before = screen.trial.task
+    for bad in (0, 150, -5, float("nan"), None, "x"):
+        screen.apply_rate(bad)
+        assert screen.trial.task == before
+    assert screen.rate_number is not None and screen.rate_number.value == 100
+
+
+async def test_setting_the_rate_back_to_100_removes_the_badge(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.open_rate("鈴木", 1, None)
+    screen.apply_rate(50)
+    await user.should_see(marker="assign-rate-badge-1-鈴木")
+    screen.apply_rate(100)
+    assert rate_of(screen, 1, "鈴木") == 1.0
+    assert screen.rate_number is not None and screen.rate_number.value == 100
+
+
+async def test_apply_to_all_weeks_changes_that_member_everywhere(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 0, None)
+    screen.drop_member("鈴木", 2, None)
+    screen.open_rate("鈴木", 0, None)
+    assert screen.rate_number is not None
+    screen.rate_number.value = 40
+    screen.apply_rate_all()
+    assert rate_of(screen, 0, "鈴木") == 0.4 and rate_of(screen, 2, "鈴木") == 0.4
+    assert rate_of(screen, 0, "田中") == 1.0
+
+
+async def test_the_slider_and_the_number_field_apply_through_their_events(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.open_rate("鈴木", 1, None)
+    assert screen.rate_slider is not None and screen.rate_number is not None
+    [change] = [
+        ev for ev in screen.rate_slider._event_listeners.values() if ev.type == "change"
+    ]
+    change.handler(SimpleNamespace(args=75))
+    assert rate_of(screen, 1, "鈴木") == 0.75
+    for kind in ("blur", "keydown.enter"):
+        screen.rate_number.value = 30
+        # ui.number 自身も blur を持つので、あとから足した(自分の)リスナーを使う
+        listener = [
+            ev for ev in screen.rate_number._event_listeners.values() if ev.type == kind
+        ][-1]
+        listener.handler(None)
+        assert rate_of(screen, 1, "鈴木") == 0.3
+        screen.rate_number.value = 100
+        listener.handler(None)
+        assert rate_of(screen, 1, "鈴木") == 1.0
+
+
+async def test_the_remove_button_does_not_open_the_popup(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    await user.should_see(marker="assign-remove-1-鈴木")
+    user.find(marker="assign-remove-1-鈴木").click()
+    assert screen.rate_dialog is not None and screen.rate_dialog.value is False
+    assert screen.rate_target is None
+
+
+async def test_the_popup_closes_when_its_member_is_gone(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.open_rate("鈴木", 1, None)
+    screen.remove_member_at("鈴木", 1, None)
+    screen.show_rate()
+    assert screen.rate_dialog is not None and screen.rate_dialog.value is False
+
+
+async def test_a_confirmed_rate_is_written_back_and_cancel_discards_it(
+    user: User,
+) -> None:
+    screen, confirmed = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.open_rate("鈴木", 1, None)
+    screen.apply_rate(60)
+    assert is_dirty(screen.trial)
+    user.find(marker="assign-confirm").click()
+    assert (
+        confirmed
+        and next(
+            a.allocation for a in confirmed[0].task.weekly_crew[1] if a.name == "鈴木"
+        )
+        == 0.6
+    )
+
+
+def test_the_badge_css_exists() -> None:
+    assert ".assign-rate-badge" in ASSIGN_DRAG_CSS

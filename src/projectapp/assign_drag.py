@@ -12,6 +12,7 @@ ASSIGN_DRAG_CSS = """
 .assign-chip { position: relative; width: 18px; height: 18px; flex: none; }
 .assign-chip .assign-remove { position: absolute; top: -5px; right: -5px; opacity: 0; min-width: 0; min-height: 0; width: 12px; height: 12px; padding: 0; background: rgba(0,0,0,0.65); color: #fff; }
 .assign-chip:hover .assign-remove { opacity: 1; }
+.assign-rate-badge { position: absolute; right: -3px; bottom: -4px; font-size: 8px; line-height: 9px; padding: 0 2px; border-radius: 3px; background: rgba(0,0,0,0.65); color: #fff; pointer-events: none; }
 .assign-drop-over { outline: 2px solid #1976d2; outline-offset: -2px; background: rgba(25, 118, 210, 0.12); }
 """
 

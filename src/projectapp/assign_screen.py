@@ -9,6 +9,7 @@
 from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import date, datetime, time, timedelta
+from math import isfinite
 
 from nicegui import context, ui
 
@@ -35,15 +36,18 @@ from projectapp.daily_crew import (
     WEEK_DAYS,
     Segment,
     add_member,
+    current_allocation,
     merge_week,
     remove_member,
     segments,
+    set_allocation,
+    set_allocation_all,
     split_week,
     to_weekly,
 )
 from projectapp.forms import disposable
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, from_name
-from projectapp.models import Assignee, Project, Task
+from projectapp.models import MAX_ALLOCATION, MIN_ALLOCATION, Assignee, Project, Task
 from projectapp.timeline import (
     DEFAULT_FISCAL_START_MONTH,
     Column,
@@ -53,6 +57,8 @@ from projectapp.timeline import (
 
 ASSIGN_SCALES = (Scale.DAY, Scale.WEEK, Scale.MONTH)
 ROW_HEIGHT_PX = 40
+RATE_SLIDER_MIN = 5  # スライダーは 5〜100 の 5% 刻み(それより細かい値は数値欄で)
+RATE_STEP = 5
 CHIP_STEP_PX = 20  # アイコン 18px + すき間 2px
 LINE_STEP_PX = 22  # セルの 1 段の高さ
 ACTIVE: dict[
@@ -98,6 +104,11 @@ class AssignScreen:
         self.dialog: ui.dialog | None = None
         self.client_id = ""
         self.members_box: ui.element | None = None
+        self.rate_target: tuple[str, int, int | None] | None = None
+        self.rate_dialog: ui.dialog | None = None
+        self.rate_slider: ui.slider | None = None
+        self.rate_number: ui.number | None = None
+        self.rate_title: ui.label | None = None
 
     def open(self, parent: ui.element | None = None) -> None:
         """`parent`は、更新(refreshable)で消されない外側の要素。なければ呼び出しの文脈の下に作る。"""
@@ -162,6 +173,7 @@ class AssignScreen:
                             hide_excluded=True,
                         )
                     )
+            self.build_rate_popup()
         dialog.open()
 
     # --- 左のメンバー一覧 ---
@@ -308,14 +320,138 @@ class AssignScreen:
             .mark(marker)
         ):
             for assignee in crew:
-                self.chip(assignee.name, week, day)
+                self.chip(assignee, week, day)
 
-    def chip(self, name: str, week: int, day: int | None) -> None:
-        """アイコンだけのチップ(名前はツールチップ)。`×`は、マウスを乗せたときにアイコンの角に出す。"""
+    # --- 割り当て率のポップアップ(要望 168 段階 3a) ---
+
+    def build_rate_popup(self) -> None:
+        """率のポップアップを 1 つだけ作る。チャートの再描画で消えない場所(`refreshable`の外)に置く。"""
+        with (
+            ui.dialog() as popup,
+            ui.card()
+            .classes("gap-2")
+            .style("min-width: 18rem")
+            .mark("assign-rate-popup"),
+        ):
+            self.rate_title = (
+                ui.label("").classes("text-subtitle2").mark("assign-rate-title")
+            )
+            self.rate_slider = (
+                ui.slider(min=RATE_SLIDER_MIN, max=100, step=RATE_STEP, value=100)
+                .props("label")
+                .mark("assign-rate-slider")
+            )
+            self.rate_number = ui.number(
+                "割り当て率(%)",
+                value=100,
+                min=MIN_ALLOCATION * 100,
+                max=MAX_ALLOCATION * 100,
+                step=1,
+            ).mark("assign-rate-number")
+            with ui.row().classes("w-full justify-between"):
+                ui.button(
+                    "このメンバーの全週に適用", on_click=self.apply_rate_all
+                ).props("flat").mark("assign-rate-all")
+                ui.button("閉じる", on_click=popup.close).props("flat").mark(
+                    "assign-rate-close"
+                )
+        self.rate_dialog = popup
+        slider, number = self.rate_slider, self.rate_number
+        # ドラッグ中は数値欄の表示だけ合わせ、離したとき(change)に試算へ反映する
+        slider.on_value_change(lambda e: number.set_value(e.value))
+        slider.on("change", lambda e: self.apply_rate(e.args))
+        number.on("blur", lambda _e: self.apply_rate(number.value))
+        number.on("keydown.enter", lambda _e: self.apply_rate(number.value))
+
+    def open_rate(self, name: str, week: int, day: int | None) -> None:
+        self.rate_target = (name, week, day)
+        self.show_rate()
+        if self.rate_dialog is not None and self.rate_target is not None:
+            self.rate_dialog.open()
+
+    def show_rate(self) -> None:
+        """試算の今の率を、ポップアップの見出し・スライダー・数値欄に出す。そのセルにいなければ閉じる。"""
+        if self.rate_target is None:
+            return
+        name, week, day = self.rate_target
+        current = current_allocation(self.trial.task, name, week, day)
+        if (
+            current is None
+            or self.rate_slider is None
+            or self.rate_number is None
+            or self.rate_title is None
+        ):
+            self.rate_target = None
+            if self.rate_dialog is not None:
+                self.rate_dialog.close()
+            return
+        percent = round(current * 100, 2)
+        title = f"{name} 第 {week + 1} 週"
+        self.rate_title.set_text(title if day is None else f"{title} {day + 1} 日目")
+        self.rate_slider.set_value(min(max(percent, RATE_SLIDER_MIN), 100))
+        self.rate_number.set_value(percent)
+
+    def apply_rate(self, percent: object) -> None:
+        if self.rate_target is None or self.plan is None:
+            return
+        if (
+            isinstance(percent, bool)
+            or not isinstance(percent, (int, float))
+            or not isfinite(percent)
+            or not MIN_ALLOCATION * 100 <= percent <= MAX_ALLOCATION * 100
+        ):
+            ui.notify("割り当て率は 1〜100% で入れてください", type="warning")
+            self.show_rate()  # 表示は直前の値に戻す
+            return
+        name, week, day = self.rate_target
+        result = set_allocation(
+            self.trial.task, name, percent / 100, week, day, weeks=self.plan.weeks
+        )
+        if result is None:  # 今と同じ値・そのセルにいない
+            self.show_rate()
+            return
+        self.trial.task = result
+        self.refresh()
+        self.show_rate()
+
+    def apply_rate_all(self) -> None:
+        if self.rate_target is None or self.rate_number is None:
+            return
+        value = self.rate_number.value
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not isfinite(value)
+            or not MIN_ALLOCATION * 100 <= value <= MAX_ALLOCATION * 100
+        ):
+            ui.notify("割り当て率は 1〜100% で入れてください", type="warning")
+            self.show_rate()
+            return
+        result = set_allocation_all(self.trial.task, self.rate_target[0], value / 100)
+        if result is None:
+            ui.notify("変わる週がありません", type="info")
+            return
+        self.trial.task = result
+        self.refresh()
+        self.show_rate()
+
+    def chip(self, assignee: Assignee, week: int, day: int | None) -> None:
+        """アイコンだけのチップ(名前と率はツールチップ)。アイコンのクリックで率のポップアップ。
+        `×`は、マウスを乗せたときにアイコンの角に出す。率が 100% でなければ、角に数字を重ねる。"""
+        name = assignee.name
         icon = next((m.icon for m in self.project.members if m.name == name), "")
         suffix = f"{week}-{name}" if day is None else f"{week}-{day}-{name}"
+        percent = round(assignee.allocation * 100)
         with ui.element("div").classes("assign-chip").mark(f"assign-chip-{suffix}"):
-            avatar(name, icon, 18).tooltip(name)
+            avatar(name, icon, 18).tooltip(
+                name if percent == 100 else f"{name} {percent}%"
+            ).style("cursor: pointer").on(
+                "click", lambda n=name, w=week, d=day: self.open_rate(n, w, d)
+            ).mark(f"assign-open-rate-{suffix}")
+            if percent != 100:
+                ui.label(str(percent)).classes("assign-rate-badge").mark(
+                    f"assign-rate-badge-{suffix}"
+                )
             ui.button(
                 icon="close",
                 on_click=lambda n=name, w=week, d=day: self.remove_member_at(n, w, d),
@@ -435,6 +571,8 @@ class AssignScreen:
     def close(self) -> None:
         if ACTIVE.get(self.client_id) is self:
             del ACTIVE[self.client_id]
+        if self.rate_dialog is not None:
+            self.rate_dialog.close()
         if self.dialog is not None:
             self.dialog.close()
 
