@@ -400,9 +400,7 @@ async def test_the_load_uses_the_trial_task_without_touching_the_original(
     screen, _ = await open_team_screen(user)
     screen.drop_member("鈴木", 1, None)
     loaded = screen.load_project()
-    names = {a.name for a in loaded.all_tasks().__next__().assignees} if False else {
-        a.name for task in loaded.all_tasks() for a in task.assignees
-    }
+    names = {a.name for task in loaded.all_tasks() for a in task.assignees}
     assert "鈴木" in names
     original = {a.name for task in screen.project.all_tasks() for a in task.assignees}
     assert "鈴木" not in original
@@ -442,8 +440,6 @@ async def test_the_load_display_does_not_make_the_screen_dirty(user: User) -> No
     screen.on_load_toggle(False)
     assert not is_dirty(screen.trial)
 ```
-
-`test_the_load_uses_the_trial_task…`の`names`の行は読みにくいので、Step 3 の前に`names = {a.name for task in loaded.all_tasks() for a in task.assignees}`だけにそろえる(`if False else`の分岐は書かない)。
 
 - [ ] **Step 2: Run tests to verify they fail**
 
