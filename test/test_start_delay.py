@@ -239,3 +239,11 @@ def test_the_unstarted_chip() -> None:
     )
     assert (kind, text) == (DelayKind.UNSTARTED, "未着手 +2日")
     assert "10/05" in tip
+
+
+def test_reversed_intervals_use_the_earliest_start_for_the_start_delay() -> None:
+    """手で編集したファイルで実績が逆順でも、最初の着手は一番早い開始(予定どおりなら遅れなし)。"""
+    reversed_ = task(day(0), Actual(day(4), day(4, 12)), Actual(day(0), day(0, 12)))
+    assert [
+        d.kind for d in delays(reversed_, day(6)) if d.kind is DelayKind.START
+    ] == []

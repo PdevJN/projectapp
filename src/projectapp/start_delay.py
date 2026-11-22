@@ -68,7 +68,9 @@ def start_delays(
     found: list[StartDelay] = []
     actuals = task.actuals
     if actuals:
-        began = actuals[0].start
+        began = min(
+            a.start for a in actuals
+        )  # 手で編集したファイルは逆順もありうるので、一番早い開始
         days = missed_workdays(
             planned.date(),
             began.date(),
