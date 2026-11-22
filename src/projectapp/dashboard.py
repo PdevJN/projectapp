@@ -776,7 +776,9 @@ def summarize_progress(
                 )
             )
     overdue.sort(key=lambda row: row.limit)
-    delays = _start_delay_rows(entries, now)
+    delays = (
+        _start_delay_rows(entries, now) if project.start_delay_enabled else []
+    )  # 開いているプロジェクトが表示オフなら、参照先がオンでも、件数も一覧も出さない
     by_member = (
         summarize_member_progress(project, children, warned) if member is None else []
     )

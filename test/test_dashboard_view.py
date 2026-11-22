@@ -2829,3 +2829,31 @@ async def test_nothing_about_the_start_delay_shows_when_it_is_off(user: User) ->
     await user.should_see(marker="dashboard-count-warning")
     await user.should_not_see(marker="dashboard-count-start-delay")
     await user.should_not_see(marker="dashboard-start-delay-name-0")
+
+
+async def test_the_start_delay_count_has_a_breakdown_tooltip(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    views[0].show(
+        start_delay_sample(
+            StartDelayRow("設計", DelayKind.UNSTARTED, 5, ()),
+            StartDelayRow("実装", DelayKind.STOP, 2, ()),
+            StartDelayRow("試験", DelayKind.STOP, 1, ()),
+        ),
+        PeriodKind.WEEK,
+    )
+    await user.should_see(marker="dashboard-count-start-delay")
+    assert text(user, "dashboard-count-start-delay") == "着工遅れ 3"
+    await user.should_see("未着手 1・停止 2")
+
+
+async def test_the_start_delay_list_uses_the_band_color(user: User) -> None:
+    views, _, _ = mount()
+    await user.open("/")
+    data = start_delay_sample(StartDelayRow("実装", DelayKind.STOP, 2, ("田中",)))
+    data.progress.start_delay_color = "#112233"
+    views[0].show(data, PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-start-delay-kind-0")
+    kind = user.find(marker="dashboard-start-delay-kind-0").elements.pop()
+    assert "#112233" in kind._style["color"]
+    assert text(user, "dashboard-start-delay-kind-0") == "停止 +2日"
