@@ -37,6 +37,8 @@ MEMBER_CSS = (
 )
 
 BAR_PX = 4
+DATED_BAR_PX = 28  # 日付を毎日書くときの棒の幅(個人ごと・重ねる共通)
+AXIS_HEIGHT_PX = 14
 BAR_GAP_PX = 1
 CHART_HEIGHT_PX = 48
 
@@ -46,15 +48,36 @@ def member_color(index: int) -> str:
     return f"var(--assign-member-{index % len(MEMBER_COLORS)})"
 
 
-def load_svg(days: list[tuple[date, float]], color: str = LOAD_COLOR) -> str:
+def _axis_labels(dates: list[date], bar_px: int, height_px: int) -> list[str]:
+    """棒の下の日付。毎日`16`、最初の日と月が変わる日は`11/16`。"""
+    step = bar_px + BAR_GAP_PX
+    out = []
+    for index, day in enumerate(dates):
+        new_month = index == 0 or day.month != dates[index - 1].month
+        text = f"{day.month}/{day.day}" if new_month else str(day.day)
+        out.append(
+            f'<text x="{index * step + bar_px / 2:.1f}" y="{height_px + 11}"'
+            ' text-anchor="middle" font-size="10" fill="currentColor"'
+            f' fill-opacity="0.75">{text}</text>'
+        )
+    return out
+
+
+def load_svg(
+    days: list[tuple[date, float]],
+    color: str = LOAD_COLOR,
+    bar_px: int = BAR_PX,
+    labels: bool = False,
+) -> str:
     """稼働日ごとの負荷の棒。負荷が 0 の日は棒を出さない。棒にマウスを重ねると`m/d 120%`。
 
-    100% までは`color`、超えた分は超過の色で、同じ棒に重ねる。"""
-    step = BAR_PX + BAR_GAP_PX
+    100% までは`color`、超えた分は超過の色で、同じ棒に重ねる。`labels`なら、棒の下に毎日の日付を書く。"""
+    step = bar_px + BAR_GAP_PX
     width = max(len(days) * step, 1)
+    total_height = CHART_HEIGHT_PX + (AXIS_HEIGHT_PX if labels else 0)
     parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{CHART_HEIGHT_PX}"'
-        f' viewBox="0 0 {width} {CHART_HEIGHT_PX}" role="img" style="display: block">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{total_height}"'
+        f' viewBox="0 0 {width} {total_height}" role="img" style="display: block">'
     ]
     for index, (day, total) in enumerate(days):
         if total <= 0:
@@ -69,7 +92,7 @@ def load_svg(days: list[tuple[date, float]], color: str = LOAD_COLOR) -> str:
             top = CHART_HEIGHT_PX * high / LOAD_SCALE
             height = CHART_HEIGHT_PX * (high - low) / LOAD_SCALE
             parts.append(
-                f'<rect x="{index * step}" y="{CHART_HEIGHT_PX - top:.1f}" width="{BAR_PX}"'
+                f'<rect x="{index * step}" y="{CHART_HEIGHT_PX - top:.1f}" width="{bar_px}"'
                 f' height="{height:.1f}" fill="{fill}">{title}</rect>'
             )
     reference = CHART_HEIGHT_PX / LOAD_SCALE
@@ -77,6 +100,8 @@ def load_svg(days: list[tuple[date, float]], color: str = LOAD_COLOR) -> str:
         f'<line x1="0" x2="{width}" y1="{reference:.1f}" y2="{reference:.1f}"'
         ' stroke="currentColor" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 3"/>'
     )
+    if labels:
+        parts.extend(_axis_labels([d for d, _ in days], bar_px, CHART_HEIGHT_PX))
     parts.append("</svg>")
     return "".join(parts)
 
@@ -90,8 +115,6 @@ def load_summary(days: list[tuple[date, float]]) -> str:
     return f"最大 {peak * 100:.0f}%・100% 超 {over} 日"
 
 
-OVERLAY_BAR_PX = 20  # 日付を毎日書けるだけの幅
-AXIS_HEIGHT_PX = 14
 OVERLAY_HEIGHT_PX = 96
 OVERLAY_OPACITY = 0.45
 
@@ -158,14 +181,7 @@ def overlay_svg(
         ' stroke="currentColor" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 3"/>'
     )
     if labels:
-        for index, day in enumerate(dates):
-            new_month = index == 0 or day.month != dates[index - 1].month
-            text = f"{day.month}/{day.day}" if new_month else str(day.day)
-            parts.append(
-                f'<text x="{index * step + bar_px / 2:.1f}" y="{height_px + 11}"'
-                ' text-anchor="middle" font-size="10" fill="currentColor"'
-                f' fill-opacity="0.75">{text}</text>'
-            )
+        parts.extend(_axis_labels(dates, bar_px, height_px))
     parts.append("</svg>")
     return "".join(parts)
 

@@ -25,7 +25,7 @@ from projectapp.assign_load import (
     MEMBER_CSS,
     load_summary,
     load_svg,
-    OVERLAY_BAR_PX,
+    DATED_BAR_PX,
     OVERLAY_HEIGHT_PX,
     member_color,
     overlay_summary,
@@ -465,7 +465,7 @@ class AssignScreen:
         ):
             with ui.element("div").style("flex: 1 1 0; min-width: 0; overflow-x: auto"):
                 ui.html(
-                    overlay_svg(shown, OVERLAY_BAR_PX, OVERLAY_HEIGHT_PX, labels=True),
+                    overlay_svg(shown, DATED_BAR_PX, OVERLAY_HEIGHT_PX, labels=True),
                     sanitize=False,
                 )
             ui.label(overlay_summary(shown)).classes("text-caption text-grey").style(
@@ -499,7 +499,10 @@ class AssignScreen:
             )
             ui.label(name).classes("text-body2").style("width: 6rem; flex: none")
             with ui.element("div").style("flex: 1 1 0; min-width: 0; overflow-x: auto"):
-                ui.html(load_svg(days, self.load_color(name)), sanitize=False)
+                ui.html(
+                    load_svg(days, self.load_color(name), DATED_BAR_PX, labels=True),
+                    sanitize=False,
+                )
             ui.label(load_summary(days)).classes("text-caption text-grey").style(
                 "flex: none"
             ).mark(f"assign-load-summary-{name}")

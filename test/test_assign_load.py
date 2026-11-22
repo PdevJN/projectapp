@@ -154,3 +154,14 @@ def test_overlay_labels_every_day_and_the_month_on_the_first_day_and_changes() -
 
 def test_overlay_has_no_date_labels_by_default() -> None:
     assert "<text" not in overlay_svg(members(("田中", "red", [0.5])))
+
+
+def test_individual_bars_can_be_wider_and_dated() -> None:
+    plain = load_svg(days(0.5, 0.5))
+    dated = load_svg(days(0.5, 0.5), "red", 28, labels=True)
+    assert "<text" not in plain and 'width="10" height="48"' in plain
+    assert (
+        dated.count("<text") == 2 and ">11/16</text>" in dated and ">17</text>" in dated
+    )
+    assert f'width="58" height="{CHART_HEIGHT_PX + AXIS_HEIGHT_PX}"' in dated
+    assert 'rect x="29" y="36.0" width="28"' in dated
