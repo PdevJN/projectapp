@@ -316,6 +316,8 @@ from projectapp.storage import (
     file_version,
     list_project_files,
     load_project,
+    referrers_of,
+    rename_project_files,
     save_project,
     validate_name,
 )
@@ -599,6 +601,8 @@ class MainView:
         self.main_split = load_main_split(base_dir)  # 分割の位置(ガントチャートの割合)
         self.open_ratio = load_open_ratio(base_dir)  # 下部パネルを開くときの割合
         self.fiscal_start_month = load_fiscal_start_month(base_dir)  # 四半期の区切り
+        self.title_editing = False  # タイトルをその場で編集しているか(要望 142)
+        self.title_error: ui.label | None = None
         self.dropped_notice: tuple[str, datetime] | None = (
             None  # 履歴を捨てた通知を出した、(プロジェクト名, 記録の開始)。同じ内容は繰り返さない
         )
@@ -4532,7 +4536,31 @@ class MainView:
 
     @ui.refreshable_method
     def title(self) -> None:
-        ui.label(self.project.name).classes("app-title")
+        if self.title_editing:
+            with ui.row().classes("items-center gap-2 no-wrap"):
+                field = (
+                    ui.input(value=self.project.name)
+                    .props("dense outlined autofocus")
+                    .classes("app-title")
+                    .style("min-width: 12rem")
+                    .mark("title-input")
+                )
+                field.on("keydown.enter", lambda _: self.commit_title(field.value))
+                field.on("keydown.escape", self.end_title_edit)
+                field.on("blur", lambda _: self.commit_title(field.value))
+                self.title_error = (
+                    ui.label("")
+                    .classes("text-negative text-caption")
+                    .mark("title-error")
+                )
+        else:
+            (
+                ui.label(self.project.name)
+                .classes("app-title")
+                .tooltip("ダブルクリックで名前を変える")
+                .mark("project-title")
+                .on("dblclick", self.begin_title_edit)
+            )
         if (
             self.origin is not None and self.origin in self.files
         ):  # 参照行から開いたときだけ
@@ -4543,6 +4571,91 @@ class MainView:
             ).props("flat dense no-caps size=sm").tooltip(
                 "参照した元のプロジェクトに戻る"
             ).mark("back-to-origin")
+
+    def begin_title_edit(self) -> None:
+        self.title_editing = True
+        self.title.refresh()
+
+    def end_title_edit(self) -> None:
+        self.title_editing = False
+        self.title_error = None
+        self.title.refresh()
+
+    def commit_title(self, value: object) -> None:
+        """タイトルの編集を確定する。名前が同じなら何もせず閉じ、不正なら入力を残してエラーを出す。"""
+        if not self.title_editing:
+            return  # Enter で閉じたあとの blur など
+        new = str(value if value is not None else "").strip()
+        if new == self.project.name:
+            self.end_title_edit()
+            return
+        if message := validate_name(new, self.project_dir, new=True):
+            if self.title_error is not None:
+                self.title_error.set_text(message)
+            return
+        self.end_title_edit()
+        count = (
+            len(referrers_of(self.project_dir, self.project.name)) if self.path else 0
+        )
+        if count == 0:
+            self.rename_project(new)
+            return
+        with self.client:
+            open_confirm_dialog(
+                f"「{self.project.name}」を「{new}」に変えますか?",
+                lambda: self.rename_project(new),
+                detail=f"{count} 件のプロジェクトの参照も、新しい名前へ書き換えます",
+                confirm_label="名前を変える",
+            )
+
+    def rename_project(self, new: str) -> bool:
+        """保存済みならファイル・メモ・参照元を新しい名前へ移し、保存前なら名前だけ変える。未保存の編集は未保存のまま残す。"""
+        old = self.project.name
+        was_dirty = self.is_dirty()
+        if self.path is not None:
+            if self.note_pane is not None:
+                self.note_pane.flush()
+            try:
+                notes.rename_project(old, new)
+            except FileExistsError:
+                ui.notify(
+                    "同じ名前のメモのフォルダが残っています。名前を変えませんでした",
+                    type="negative",
+                )
+                return False
+            except OSError as exc:
+                ui.notify(
+                    f"メモを移せなかったため、名前を変えませんでした: {exc}",
+                    type="negative",
+                )
+                return False
+            try:
+                rename_project_files(self.project_dir, old, new)
+            except FileExistsError:
+                ui.notify("同じ名前のファイルがすでにあります", type="negative")
+            except (ValueError, OSError) as exc:
+                ui.notify(f"名前を変えられませんでした: {exc}", type="negative")
+            else:
+                self.path = self.project_dir / f"{new}.json"
+                self.files.pop(old, None)
+                self.files[new] = self.path
+                self.file_select.set_options(sorted(self.files), value=new)
+                self.project.name = new
+                if not was_dirty:
+                    self.mark_clean()
+                self.reset_history()
+                self.title.refresh()
+                self.request_git_refresh()
+                ui.notify("名前を変えました")
+                return True
+            try:
+                notes.rename_project(new, old)  # ファイルが動かなかったので、メモも戻す
+            except OSError:
+                pass
+            return False
+        self.project.name = new
+        self.title.refresh()
+        return True
 
     @ui.refreshable_method
     def theme_menu(self) -> None:

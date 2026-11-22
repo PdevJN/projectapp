@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from projectapp import notes
 
 
@@ -279,3 +281,23 @@ def test_from_cell_keeps_exactly_the_limit() -> None:
 def test_the_cell_round_trip_keeps_backslashes_next_to_newlines() -> None:
     cell = "a\\\\\\nb\\\\n"  # a, \\, 改行, b, \\n(文字)
     assert notes.to_cell(notes.from_cell(cell)) == cell
+
+
+def test_rename_project_moves_the_folder() -> None:
+    notes.save("旧", "aaaa1111", "<p>1</p>")
+    notes.rename_project("旧", "新")
+    assert notes.load("新", "aaaa1111") == "<p>1</p>"
+    assert notes.note_ids("旧") == frozenset()  # 元は残らない
+    notes.rename_project("ない", "新2")  # 元がなければ何もしない
+    assert notes.note_ids("新2") == frozenset()
+    notes.rename_project("新", "新")  # 同じ名前なら何もしない
+    assert notes.load("新", "aaaa1111") == "<p>1</p>"
+
+
+def test_rename_project_refuses_to_overwrite_an_existing_folder() -> None:
+    notes.save("旧", "aaaa1111", "<p>旧</p>")
+    notes.save("新", "bbbb2222", "<p>新</p>")
+    with pytest.raises(FileExistsError):
+        notes.rename_project("旧", "新")
+    assert notes.load("旧", "aaaa1111") == "<p>旧</p>"
+    assert notes.load("新", "bbbb2222") == "<p>新</p>"
