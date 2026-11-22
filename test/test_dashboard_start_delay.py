@@ -203,3 +203,14 @@ def test_only_normal_tasks_are_counted() -> None:
     )
     result = rows(project_of(checkpoint, summary, kid))
     assert [r.name for r in result] == ["子"]  # 子だけ(まとめ・節目は数えない)
+
+
+def test_start_delay_rows_carry_the_task_id_only_for_the_open_project() -> None:
+    own = task("own")
+    own.id = "own-id"
+    [row] = rows(project_of(own))
+    assert row.task_id == "own-id"
+    child_task = task("c")
+    child_task.id = "child-id"
+    [referenced] = with_child(parent_of(), child_of(child_task))
+    assert referenced.task_id == ""  # 参照先のタスクはアサイン画面の対象外(要望 168)

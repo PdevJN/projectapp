@@ -2250,3 +2250,25 @@ def test_warning_tasks_exclude_done_and_filtered_out_members() -> None:
     other = warning_task(assignees=[Assignee("鈴木")])
     project = project_of(other, members=[Member("田中", 1.0), Member("鈴木", 1.0)])
     assert summarize_progress(project, {}, NOW, "田中").warning_tasks == []
+
+
+def test_overdue_and_due_rows_carry_the_task_id() -> None:
+    late = Task(
+        "late",
+        id="late-id",
+        status=Status.RUNNING,
+        deadline=datetime(2026, 10, 6, 17),
+        assignees=[Assignee("田中")],
+    )
+    project = project_of(late)
+    assert [r.task_id for r in summarize_due(project, WEEK, NOW, {})] == ["late-id"]
+    assert [r.task_id for r in summarize_progress(project, {}, NOW).overdue] == [
+        "late-id"
+    ]
+
+
+def test_task_id_does_not_change_row_equality() -> None:
+    """既存のテストは`DueRow(...)`と`==`で比べる。`task_id`は比較に入れない。"""
+    a = DueRow(datetime(2026, 10, 5), "締切", "x", None, False, task_id="a")
+    b = DueRow(datetime(2026, 10, 5), "締切", "x", None, False, task_id="b")
+    assert a == b
