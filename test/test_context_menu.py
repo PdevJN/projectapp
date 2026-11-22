@@ -28,6 +28,7 @@ def menu_project() -> Project:
 @pytest.mark.parametrize(
     ("marker", "event"),
     [
+        ("context-assign", "open_assign"),
         ("context-edit", "edit_task"),
         ("context-decompose", "decompose_task"),
         ("context-extra-effort", "add_extra_effort"),
@@ -128,3 +129,24 @@ async def test_extra_effort_is_enabled_only_for_a_task_that_can_take_it(
     assert item.props.get("disable") is True
     charts[0].open_menu((0,), 0)  # 工数 4h の通常タスク
     assert not item.props.get("disable")
+
+
+async def test_assign_is_the_first_item_and_disabled_for_tasks_that_cannot_be_assigned(
+    user: User,
+) -> None:
+    charts, _ = mount_chart(menu_project())
+    await user.open("/")
+    chart = charts[0]
+    assert chart.menu is not None
+    first = chart.menu.default_slot.children[0]
+    assert first._markers == ["context-assign"]
+    item = user.find(marker="context-assign").elements.pop()
+    chart.open_menu((0,), 0)  # 通常
+    assert not item.props.get("disable")
+    chart.open_menu((0,), 1)  # 実行中も対象
+    assert not item.props.get("disable")
+    project = menu_project()
+    project.sections[0].tasks[0].status = Status.DONE
+    chart.set_project(project)
+    chart.open_menu((0,), 0)  # 終了済みは押せない
+    assert item.props.get("disable") is True

@@ -213,6 +213,9 @@ class OverdueRow:
         str, ...
     ] = ()  # 担当者の名前(アイコンを人ごとに並べる表示用。assignee と同じ並び)
     forecast: datetime | None = None  # 完了見込み(要望 133)。出せないときは None
+    task_id: str = field(
+        default="", compare=False
+    )  # 開いているプロジェクトのタスクの id。参照先のタスクは空(アサイン画面の対象外。要望 168)。行を`==`で比べるテストがあるので、比較には入れない
 
 
 @dataclass(frozen=True)
@@ -258,6 +261,9 @@ class StartDelayRow:
     kind: DelayKind  # UNSTARTED か STOP
     days: int  # 稼働日数
     assignee_names: tuple[str, ...] = ()
+    task_id: str = field(
+        default="", compare=False
+    )  # 開いているプロジェクトのタスクの id。参照先のタスクは空(アサイン画面の対象外。要望 168)。行を`==`で比べるテストがあるので、比較には入れない
 
 
 @dataclass
@@ -773,6 +779,7 @@ def summarize_progress(
                     limit,
                     tuple(task.assignee_names),
                     predicted.end if predicted else None,
+                    task_id="" if entry.origin else task.id,
                 )
             )
     overdue.sort(key=lambda row: row.limit)
@@ -827,6 +834,7 @@ def _start_delay_rows(entries: Sequence[Entry], now: datetime) -> list[StartDela
                         delay.kind,
                         delay.days,
                         tuple(task.assignee_names),
+                        task_id="" if entry.origin else task.id,
                     )
                 )
     found.sort(key=lambda row: -row.days)
@@ -902,6 +910,9 @@ class DueRow:
     overdue: bool
     warning: bool = False  # 警告(完了予定を過ぎる見込み)。予定超過の行は警告にしない
     assignee_names: tuple[str, ...] = ()  # 担当者の名前(アイコンを人ごとに並べる表示用)
+    task_id: str = field(
+        default="", compare=False
+    )  # 開いているプロジェクトのタスクの id。参照先のタスクは空(アサイン画面の対象外。要望 168)。行を`==`で比べるテストがあるので、比較には入れない
 
 
 def _workdays(
@@ -1196,6 +1207,7 @@ def summarize_due(
                         late,
                         warning,
                         tuple(task.assignee_names),
+                        task_id=task.id,
                     )
                 )
     rows.sort(key=lambda row: (row.moment, row.kind))

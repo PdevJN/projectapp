@@ -9963,3 +9963,111 @@ async def test_inherit_with_an_unreadable_source_only_notifies(
     user.find(marker="file-0").click()  # 並びは「乙」「甲」
     await user.should_see("開けませんでした")
     assert view.path == tmp_path / "甲.json" and not view.is_dirty()
+
+
+@pytest.mark.smoke
+async def test_assign_screen_confirm_writes_back_and_undo_restores_in_one_step(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    task_id = view.project.tasks[0].id
+    steps = len(view.history.undo_stack)
+    user.find(marker="dashboard-due-assign-0").click()
+    await user.should_see(marker="assign-screen")
+    assert view.assign_screen is not None
+    view.assign_screen.trial.task.name = "詳細設計"
+    user.find(marker="assign-confirm").click()
+    assert view.project.task_map()[task_id].name == "詳細設計"
+    assert len(view.history.undo_stack) == steps + 1  # 1 ステップだけ積む
+    view.undo()
+    assert view.project.task_map()[task_id].name == "設計"
+
+
+async def test_assign_screen_cancel_leaves_the_project_untouched(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    task_id = view.project.tasks[0].id
+    steps = len(view.history.undo_stack)
+    user.find(marker="dashboard-due-assign-0").click()
+    await user.should_see(marker="assign-cancel")
+    assert view.assign_screen is not None
+    view.assign_screen.trial.task.name = "変更"
+    user.find(marker="assign-cancel").click()
+    user.find(marker="assign-discard-yes").click()
+    assert view.project.task_map()[task_id].name == "設計"
+    assert len(view.history.undo_stack) == steps
+
+
+async def test_confirm_without_changes_leaves_no_undo_step(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    steps = len(view.history.undo_stack)
+    user.find(marker="dashboard-due-assign-0").click()
+    await user.should_see(marker="assign-confirm")
+    user.find(marker="assign-confirm").click()
+    assert len(view.history.undo_stack) == steps
+
+
+async def test_confirm_notifies_when_the_task_was_deleted_meanwhile(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    user.find(marker="dashboard-due-assign-0").click()
+    await user.should_see(marker="assign-confirm")
+    assert view.assign_screen is not None
+    view.assign_screen.trial.task.name = "変更"
+    view.project.tasks.clear()
+    user.find(marker="assign-confirm").click()
+    await user.should_see("タスクが変わったため")
+
+
+async def test_open_assign_screen_ignores_done_tasks(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    view.project.tasks[0].status = Status.DONE
+    view.open_assign_screen(view.project.tasks[0].id)
+    assert view.assign_screen is None
+
+
+async def test_assign_screen_survives_a_dashboard_refresh(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    user.find(marker="dashboard-due-assign-0").click()
+    await user.should_see(marker="assign-screen")
+    assert view.assign_screen is not None and view.assign_screen.dialog is not None
+    view.dashboard_view.cards.refresh()  # tick などの更新で、開いている画面が消えない
+    assert view.assign_screen.dialog.is_deleted is False
+    assert view.assign_screen.dialog.value is True
+
+
+async def test_confirm_without_changes_does_not_overwrite_edits_made_meanwhile(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    await open_dashboard(user, view)
+    task_id = view.project.tasks[0].id
+    user.find(marker="dashboard-due-assign-0").click()
+    await user.should_see(marker="assign-confirm")
+    view.project.tasks[0].name = "開いている間に変えた"
+    user.find(marker="assign-confirm").click()
+    assert view.project.task_map()[task_id].name == "開いている間に変えた"
+
+
+async def test_gantt_right_click_assign_opens_the_screen(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    view.gantt.open_menu((), 0)
+    user.find(marker="context-assign").click()
+    await user.should_see(marker="assign-screen")
+    assert view.assign_screen is not None
+    assert view.assign_screen.trial.task.id == view.project.tasks[0].id

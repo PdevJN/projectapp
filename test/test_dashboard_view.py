@@ -1,5 +1,6 @@
 import asyncio
 import re
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 
@@ -138,6 +139,8 @@ def mount(
     late_basis_changes: list[LateBasis] | None = None,
     catch_up_changes: list[CatchUp] | None = None,
     try_changes: list[tuple[tuple[str, ...], tuple[str, ...]]] | None = None,
+    assign_screens: list[str] | None = None,
+    assignable: Callable[[str], bool] | None = None,
 ) -> tuple[list[DashboardView], list[int], list[PeriodKind]]:
     views: list[DashboardView] = []
     backs: list[int] = []
@@ -159,6 +162,10 @@ def mount(
             on_try_on_gantt=(lambda names, skip: try_changes.append((names, skip)))
             if try_changes is not None
             else None,
+            on_assign_screen=assign_screens.append
+            if assign_screens is not None
+            else None,
+            assignable=assignable,
         )
         views.append(view)
         view.build()
@@ -2857,3 +2864,42 @@ async def test_the_start_delay_list_uses_the_band_color(user: User) -> None:
     kind = user.find(marker="dashboard-start-delay-kind-0").elements.pop()
     assert "#112233" in kind._style["color"]
     assert text(user, "dashboard-start-delay-kind-0") == "停止 +2日"
+
+
+def sample_with_task_ids() -> Dashboard:
+    data = sample()
+    data.progress.overdue[0] = replace(data.progress.overdue[0], task_id="o1")
+    data.due[0] = replace(data.due[0], task_id="d1")
+    return data
+
+
+async def test_due_and_overdue_rows_get_an_assign_item_that_opens_the_screen(
+    user: User,
+) -> None:
+    opened: list[str] = []
+    views, _, _ = mount(assign_screens=opened)
+    await user.open("/")
+    views[0].show(sample_with_task_ids(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-due-0")
+    user.find(marker="dashboard-due-assign-0").click()
+    user.find(marker="dashboard-overdue-assign-0").click()
+    assert opened == ["d1", "o1"]
+
+
+async def test_no_assign_item_for_tasks_that_are_not_assignable(user: User) -> None:
+    opened: list[str] = []
+    views, _, _ = mount(assign_screens=opened, assignable=lambda task_id: False)
+    await user.open("/")
+    views[0].show(sample_with_task_ids(), PeriodKind.WEEK)
+    await user.should_see(marker="dashboard-due-0")
+    await user.should_not_see(marker="dashboard-due-assign-0")
+    await user.should_not_see(marker="dashboard-overdue-assign-0")
+
+
+async def test_assign_menu_skips_an_empty_task_id(user: User) -> None:
+    opened: list[str] = []
+    views, _, _ = mount(assign_screens=opened)
+    await user.open("/")
+    with ui.column() as box:
+        views[0].assign_menu(box, "", "x-assign")  # 参照先のタスクは task_id が空
+    await user.should_not_see(marker="x-assign")

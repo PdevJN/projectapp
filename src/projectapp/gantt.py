@@ -11,6 +11,7 @@ from nicegui.events import ValueChangeEventArguments
 
 from projectapp import arrange
 from projectapp import clock, notes
+from projectapp.assign_trial import is_assignable
 from projectapp.crew_trial import TrialResult
 from projectapp.daily_crew import Segment, segments
 from projectapp.delay_response import DELAY_RESPONSE_CSS
@@ -713,6 +714,9 @@ class GanttActions:
     )  # サブセクションの追加(親のセクションのパス)
     # 右クリックのメニューの操作(セクションのパス, タスク番号)
     decompose_task: Callable[[SectionPath, int], object] = lambda path, ti: None
+    open_assign: Callable[[SectionPath, int], object] = lambda path, ti: (
+        None
+    )  # アサイン専用画面を開く(要望 168)
     add_extra_effort: Callable[[SectionPath, int], object] = lambda path, ti: (
         None
     )  # 追加工数を足す
@@ -896,6 +900,10 @@ class GanttChart:
             None  # 右クリックの共有メニュー(1 つだけ。行ごとには作らない)
         )
         self.menu_target: tuple[SectionPath, int] | None = None  # メニューを開いた行
+        self.assign_item: ui.menu_item | None = None  # 先頭の`アサイン...`
+        self.scroll_selector = (
+            "[data-chart-scroll]"  # スクロールの JS が探す枠。埋め込みは別の枠を使う
+        )
         self.decompose_item: ui.menu_item | None = None
         self.extra_effort_item: ui.menu_item | None = None
         self.bulk = BulkSelection()  # 一括操作の選択。保存しない・元に戻す対象にしない
@@ -1394,15 +1402,22 @@ class GanttChart:
     def refresh_scrollbars(self) -> None:
         """テーマの切り替え後に、枠のスクロールバーを新しい配色で描き直させる。"""
         if self.client is not None:
-            self.client.run_javascript(REFRESH_SCROLLBARS_JS)
+            self.run_js(REFRESH_SCROLLBARS_JS)
+
+    def run_js(self, js: str) -> None:
+        """スクロール枠を探す JS を、このチャートの枠(`scroll_selector`)に向けて送る。"""
+        if self.client is not None:
+            self.client.run_javascript(
+                js.replace("[data-chart-scroll]", self.scroll_selector)
+            )
 
     def scroll_to_left(self) -> None:
         if self.client is not None:
-            self.client.run_javascript(SCROLL_TO_LEFT_JS)
+            self.run_js(SCROLL_TO_LEFT_JS)
 
     def reset_scroll(self) -> None:
         if self.client is not None:
-            self.client.run_javascript(SCROLL_RESET_JS)
+            self.run_js(SCROLL_RESET_JS)
 
     def today_x(self, columns: list[Column] | None = None) -> float | None:
         """今日の線のチャート内の横位置(px)。表示範囲の外なら None。"""
@@ -1421,7 +1436,7 @@ class GanttChart:
     def scroll_to_today(self) -> None:
         x = self.today_x()
         if self.client is not None and x is not None:
-            self.client.run_javascript(today_scroll_js(x, self.name_width))
+            self.run_js(today_scroll_js(x, self.name_width))
 
     def date_x(self, day: date, columns: list[Column] | None = None) -> float | None:
         """ある日のチャート内の横位置(px)。表示範囲の外なら None。"""
@@ -1449,7 +1464,7 @@ class GanttChart:
 
     def scroll_to_x(self, x: float | None) -> None:
         if self.client is not None and x is not None:
-            self.client.run_javascript(today_scroll_js(x, self.name_width))
+            self.run_js(today_scroll_js(x, self.name_width))
 
     def go_to_base(self) -> None:
         self.scroll_to_x(self.date_x(self.project.base_date))
@@ -1462,7 +1477,7 @@ class GanttChart:
     def shift_weeks(self, weeks: int) -> None:
         """今の位置から 7 日 × weeks だけ横にずらす(負は前)。"""
         if self.client is not None:
-            self.client.run_javascript(week_scroll_js(WEEK_PX[self.view_scale] * weeks))
+            self.run_js(week_scroll_js(WEEK_PX[self.view_scale] * weeks))
 
     def go_to_date(self, text: str) -> str | None:
         """入力(`10/15`・`1015`・`2026-10-15`)の日へ移る。移れないときは、理由を返す(移らない)。"""
@@ -1541,7 +1556,7 @@ class GanttChart:
 
     def scroll_to_top(self) -> None:
         if self.client is not None:
-            self.client.run_javascript(SCROLL_TO_TOP_JS)
+            self.run_js(SCROLL_TO_TOP_JS)
 
     @property
     def holidays(self) -> dict[date, str]:
@@ -1803,6 +1818,33 @@ class GanttChart:
         if self.links_html is not None and self.link_layout is not None:
             self.links_html.content = self.links_markup(*self.link_layout)
 
+    def build_embedded(self, options: ViewOptions | None = None) -> None:
+        """読み取り専用の埋め込み(アサイン専用画面。要望 168)。描画だけを作る。
+
+        ページ全体の CSS・JS・`ui.on`の登録は、メインの`build()`が済ませている前提で重ねない。ツールバー・
+        絞り込み・下部パネル・右クリックメニューは作らない(`toolbar`・`splitter`・`menu`は`None`のまま)。
+        スクロール枠は`data-assign-scroll`で、メインの`data-chart-scroll`と取り違えない。
+        """
+        self.client = context.client
+        self.options = replace(options or self.options, read_only=True)
+        self.task_filter = replace(
+            self.task_filter,
+            exclude=self.options.excluded
+            if self.options.hide_excluded
+            else frozenset(),
+        )
+        self.scroll_selector = "[data-assign-scroll]"
+        scroll = (
+            ui.element("div")
+            .classes("w-full")
+            .style(
+                f"overflow: auto; height: 100%; padding-bottom: {SCROLLBAR_ROOM_PX}px"
+            )
+        )
+        self.scroll_box = scroll
+        with scroll.props("data-assign-scroll").mark("assign-chart-scroll"):
+            self.render()
+
     def build(self) -> None:
         self.client = context.client
         ui.add_css(CHART_DRAG_CSS)
@@ -1966,6 +2008,9 @@ class GanttChart:
             .props("no-parent-event")
             .classes("app-context-menu") as self.menu
         ):  # 親の右クリックでは開かない(行の右クリックだけ)
+            self.assign_item = ui.menu_item(
+                "アサイン...", on_click=act(lambda p, t: self.actions.open_assign(p, t))
+            ).mark("context-assign")  # メニューの先頭の項目(要望 168)
             with ui.menu_item(
                 on_click=lambda: self.actions.bulk_edit(self.selected_ids())
             ).mark("context-bulk-edit") as item:
@@ -2184,6 +2229,7 @@ class GanttChart:
             )
         target = tasks[ti] if ti < len(tasks) else None
         for item, enabled in (
+            (self.assign_item, target is not None and is_assignable(target)),
             (
                 self.try_crew_item,
                 target is not None

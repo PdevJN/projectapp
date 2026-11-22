@@ -604,7 +604,11 @@ class DashboardView:
         on_try_on_gantt: Callable[[tuple[str, ...], tuple[str, ...]], object]
         | None = None,
         on_rebalance: Callable[[str], object] | None = None,
+        on_assign_screen: Callable[[str], object] | None = None,
+        assignable: Callable[[str], bool] | None = None,
     ) -> None:
+        self.on_assign_screen = on_assign_screen  # 右クリック`アサイン...`(要望 168)
+        self.assignable = assignable  # アサインの対象にできるタスクか(なければすべて)
         self.on_try_on_gantt = on_try_on_gantt
         self.on_rebalance = on_rebalance
         self.actions = actions
@@ -1164,7 +1168,10 @@ class DashboardView:
             if not progress.overdue:
                 ui.label("なし").classes("text-grey").mark("dashboard-overdue-none")
             for index, row in enumerate(progress.overdue):
-                with ui.row().classes("w-full items-center no-wrap gap-2"):
+                with ui.row().classes("w-full items-center no-wrap gap-2") as line:
+                    self.assign_menu(
+                        line, row.task_id, f"dashboard-overdue-assign-{index}"
+                    )
                     ui.label(moment_text(row.limit)).classes("text-negative")
                     ui.label(row.name).classes("col ellipsis").mark(
                         f"dashboard-overdue-name-{index}"
@@ -1194,7 +1201,10 @@ class DashboardView:
             "dashboard-start-delay-title"
         )
         for index, row in enumerate(progress.start_delays):
-            with ui.row().classes("w-full items-center no-wrap gap-2"):
+            with ui.row().classes("w-full items-center no-wrap gap-2") as line:
+                self.assign_menu(
+                    line, row.task_id, f"dashboard-start-delay-assign-{index}"
+                )
                 kind = "未着手" if row.kind is DelayKind.UNSTARTED else "停止"
                 ui.label(f"{kind} +{row.days}日").style(
                     f"color: {progress.start_delay_color}; flex: 0 0 auto"
@@ -1205,6 +1215,19 @@ class DashboardView:
                 self.assignee_chips(
                     row.assignee_names, f"dashboard-start-delay-assignee-{index}"
                 )
+
+    def assign_menu(self, element: ui.element, task_id: str, marker: str) -> None:
+        """タスク名の行・チップの右クリックに`アサイン...`を付ける(要望 168)。対象外のタスクには付けない。"""
+        if not task_id or self.on_assign_screen is None:
+            return
+        if self.assignable is not None and not self.assignable(task_id):
+            return
+        handler = self.on_assign_screen
+        # `アサイン...`はメニューの先頭の項目にする(あとから項目が増えても、先頭を保つ)
+        with element, ui.context_menu():
+            ui.menu_item("アサイン...", on_click=lambda t=task_id: handler(t)).mark(
+                marker
+            )
 
     def edit_toggle(self) -> None:
         ui.checkbox(
@@ -1243,6 +1266,9 @@ class DashboardView:
                         on_click=lambda t=task.id: self.assign(t),
                     ).props("dense square outline clickable")
                     chip.classes("ellipsis").mark(f"dashboard-unassigned-pick-{index}")
+                    self.assign_menu(
+                        chip, task.id, f"dashboard-unassigned-assign-{index}"
+                    )
         if self.assign_mode and progress.warning_tasks:
             with ui.row().classes("w-full items-center gap-1"):
                 warning_icon("dashboard-warning-pick-icon")
@@ -1254,6 +1280,9 @@ class DashboardView:
                         on_click=lambda t=warned.id: self.add_crew(t),
                     ).props("dense square outline clickable")
                     chip.classes("ellipsis").mark(f"dashboard-warning-pick-{index}")
+                    self.assign_menu(
+                        chip, warned.id, f"dashboard-warning-assign-{index}"
+                    )
 
     def set_assign_mode(self, on: bool) -> None:
         if on != self.assign_mode:
@@ -1981,6 +2010,7 @@ class DashboardView:
                 if row.warning:
                     line.style(f"background: {WARNING_BACKGROUND}")
                 with line:
+                    self.assign_menu(line, row.task_id, f"dashboard-due-assign-{index}")
                     ui.label(moment_text(row.moment)).classes(color.strip())
                     ui.label(row.kind).classes("text-caption" + color).mark(
                         f"dashboard-due-kind-{index}"

@@ -139,6 +139,9 @@ class Recorder:
             decompose_task=lambda path, ti: self.events.append(
                 ("decompose_task", (path, ti))
             ),
+            open_assign=lambda path, ti: self.events.append(
+                ("open_assign", (path, ti))
+            ),
             add_extra_effort=lambda path, ti: self.events.append(
                 ("add_extra_effort", (path, ti))
             ),
