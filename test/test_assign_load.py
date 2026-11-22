@@ -1,0 +1,57 @@
+from datetime import date
+
+from projectapp.assign_load import (
+    BAR_GAP_PX,
+    BAR_PX,
+    CHART_HEIGHT_PX,
+    load_summary,
+    load_svg,
+)
+from projectapp.dashboard_view import LOAD_COLOR, OVER_COLOR
+
+
+def days(*totals: float) -> list[tuple[date, float]]:
+    return [(date(2026, 11, 16 + i), total) for i, total in enumerate(totals)]
+
+
+def test_each_day_with_a_load_is_a_bar_with_a_tooltip() -> None:
+    svg = load_svg(days(0.5, 1.0))
+    assert svg.count("<rect") == 2
+    assert "<title>11/16 50%</title>" in svg and "<title>11/17 100%</title>" in svg
+    assert f'width="{2 * (BAR_PX + BAR_GAP_PX)}"' in svg
+
+
+def test_a_day_without_a_load_has_no_bar() -> None:
+    assert load_svg(days(0.0, 0.0)).count("<rect") == 0
+
+
+def test_bars_over_100_percent_use_the_overload_color() -> None:
+    svg = load_svg(days(1.0, 1.2))
+    assert svg.count(f'fill="{OVER_COLOR}"') == 1
+    assert svg.count(f'fill="{LOAD_COLOR}"') == 1
+
+
+def test_the_bar_height_is_clamped_at_200_percent() -> None:
+    svg = load_svg(days(1.0, 2.5))
+    half = CHART_HEIGHT_PX / 2
+    assert f'y="{half:.1f}" width="{BAR_PX}" height="{half:.1f}"' in svg  # 100%
+    assert (
+        f'y="0.0" width="{BAR_PX}" height="{CHART_HEIGHT_PX:.1f}"' in svg
+    )  # 250% は端で止まる
+
+
+def test_the_100_percent_reference_line_is_dotted() -> None:
+    svg = load_svg(days(0.5))
+    half = CHART_HEIGHT_PX / 2
+    assert f'y1="{half:.1f}" y2="{half:.1f}"' in svg and "stroke-dasharray" in svg
+
+
+def test_an_empty_list_still_draws_a_valid_svg() -> None:
+    svg = load_svg([])
+    assert svg.startswith("<svg") and svg.endswith("</svg>") and "<rect" not in svg
+
+
+def test_the_summary_names_the_peak_and_the_overloaded_days() -> None:
+    assert load_summary(days(0.5, 1.3, 1.1, 1.0)) == "最大 130%・100% 超 2 日"
+    assert load_summary(days(0.5, 1.0)) == "最大 100%・100% 超 0 日"
+    assert load_summary([]) == "稼働日がありません"
