@@ -109,3 +109,22 @@ def test_stacked_summary_counts_member_days_over_100_percent() -> None:
     rows = members(("田中", "red", [1.2, 0.5]), ("佐藤", "blue", [1.1, 0.5]))
     assert stacked_summary(rows) == "合計の最大 230%・個人の 100% 超 2 人日"
     assert stacked_summary(members(("田中", "red", []))) == "稼働日がありません"
+
+
+def test_stacked_tolerates_members_with_no_or_short_load_lists() -> None:
+    rows = [
+        ("田中", "red", days(0.5, 1.2)),
+        ("佐藤", "blue", []),
+        ("鈴木", "g", days(0.3)),
+    ]
+    svg = stacked_svg(rows)
+    assert svg.count("<rect") == 3
+    assert stacked_summary(rows) == "合計の最大 120%・個人の 100% 超 1 人日"
+    assert "<rect" not in stacked_svg([("田中", "red", []), ("佐藤", "blue", [])])
+
+
+def test_stacked_can_be_drawn_larger() -> None:
+    small = stacked_svg(members(("田中", "red", [0.5, 0.5])))
+    large = stacked_svg(members(("田中", "red", [0.5, 0.5])), 8, 96)
+    assert 'width="10" height="48"' in small
+    assert 'width="18" height="96"' in large

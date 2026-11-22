@@ -90,43 +90,63 @@ def load_summary(days: list[tuple[date, float]]) -> str:
     return f"最大 {peak * 100:.0f}%・100% 超 {over} 日"
 
 
-def stacked_svg(members: list[tuple[str, str, list[tuple[date, float]]]]) -> str:
+STACKED_BAR_PX = 8
+STACKED_HEIGHT_PX = 96
+
+Stack = list[tuple[str, str, list[tuple[date, float]]]]
+
+
+def _stack_days(members: Stack) -> list[date]:
+    """積み上げの日付。人ごとの日リストの長さが違う(負荷のない人は空)ので、いちばん長いものを使う。"""
+    return [d for d, _ in max((days for _, _, days in members), key=len, default=[])]
+
+
+def _value(days: list[tuple[date, float]], index: int) -> float:
+    return days[index][1] if index < len(days) else 0.0
+
+
+def stacked_svg(
+    members: Stack,
+    bar_px: int = BAR_PX,
+    height_px: int = CHART_HEIGHT_PX,
+) -> str:
     """表示中のメンバー(名前・色・稼働日ごとの負荷)を、1 本の棒に下から積み上げる。
 
     縦は 0〜max(人数, 日ごとの合計の最大)。100% の点線は人数ぶん(1 人あたりの 100% の合計)に引く。
     100% を超えた人の区間には、超過の色の輪郭を付ける。"""
     count = len(members)
-    length = len(members[0][2]) if members else 0
-    step = BAR_PX + BAR_GAP_PX
+    dates = _stack_days(members)
+    length = len(dates)
+    step = bar_px + BAR_GAP_PX
     width = max(length * step, 1)
-    totals = [sum(days[i][1] for _, _, days in members) for i in range(length)]
+    totals = [sum(_value(days, i) for _, _, days in members) for i in range(length)]
     scale = max([float(count), *totals, 1.0])
     parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{CHART_HEIGHT_PX}"'
-        f' viewBox="0 0 {width} {CHART_HEIGHT_PX}" role="img" style="display: block">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height_px}"'
+        f' viewBox="0 0 {width} {height_px}" role="img" style="display: block">'
     ]
-    for index in range(length):
+    for index, day in enumerate(dates):
         cursor = 0.0
         for name, color, days in members:
-            day, value = days[index]
+            value = _value(days, index)
             if value <= 0:
                 continue
-            top = CHART_HEIGHT_PX * (cursor + value) / scale
-            height = CHART_HEIGHT_PX * value / scale
+            top = height_px * (cursor + value) / scale
+            height = height_px * value / scale
             outline = (
                 f' stroke="{OVER_COLOR}" stroke-width="1"'
                 if value > 1.0 + OVERLOAD_EPSILON
                 else ""
             )
             parts.append(
-                f'<rect x="{index * step}" y="{CHART_HEIGHT_PX - top:.1f}" width="{BAR_PX}"'
+                f'<rect x="{index * step}" y="{height_px - top:.1f}" width="{bar_px}"'
                 f' height="{height:.1f}" fill="{color}"{outline}>'
                 f"<title>{day.month}/{day.day} {name} {value * 100:.0f}%"
                 f"(合計 {totals[index] * 100:.0f}%)</title></rect>"
             )
             cursor += value
     if count:
-        reference = CHART_HEIGHT_PX - CHART_HEIGHT_PX * count / scale
+        reference = height_px - height_px * count / scale
         parts.append(
             f'<line x1="0" x2="{width}" y1="{reference:.1f}" y2="{reference:.1f}"'
             ' stroke="currentColor" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 3"/>'
@@ -135,12 +155,12 @@ def stacked_svg(members: list[tuple[str, str, list[tuple[date, float]]]]) -> str
     return "".join(parts)
 
 
-def stacked_summary(members: list[tuple[str, str, list[tuple[date, float]]]]) -> str:
+def stacked_summary(members: Stack) -> str:
     """`合計の最大 230%・個人の 100% 超 2 人日`。稼働日がなければ`稼働日がありません`。"""
-    length = len(members[0][2]) if members else 0
+    length = len(_stack_days(members))
     if not length:
         return "稼働日がありません"
-    peak = max(sum(days[i][1] for _, _, days in members) for i in range(length))
+    peak = max(sum(_value(days, i) for _, _, days in members) for i in range(length))
     over = sum(
         1
         for _, _, days in members

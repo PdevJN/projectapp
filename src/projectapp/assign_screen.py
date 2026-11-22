@@ -25,6 +25,8 @@ from projectapp.assign_load import (
     MEMBER_CSS,
     load_summary,
     load_svg,
+    STACKED_BAR_PX,
+    STACKED_HEIGHT_PX,
     member_color,
     stacked_summary,
     stacked_svg,
@@ -462,7 +464,10 @@ class AssignScreen:
             .mark("assign-load-stacked")
         ):
             with ui.element("div").style("flex: 1 1 0; min-width: 0; overflow-x: auto"):
-                ui.html(stacked_svg(shown), sanitize=False)
+                ui.html(
+                    stacked_svg(shown, STACKED_BAR_PX, STACKED_HEIGHT_PX),
+                    sanitize=False,
+                )
             ui.label(stacked_summary(shown)).classes("text-caption text-grey").style(
                 "flex: none"
             ).mark("assign-load-stacked-summary")
