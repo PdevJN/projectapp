@@ -85,6 +85,7 @@ from projectapp.periodfield import (
 )
 from projectapp.pace import warning_pace
 from projectapp.models import (
+    StartDelayStyle,
     ID_KEY,
     MAX_SECTION_DEPTH,
     URL_KEY,
@@ -108,6 +109,7 @@ from projectapp.scope import read_scope, scope_options, scope_value
 from projectapp.teams import team_scope, teams_with_members
 from projectapp.selection import CheckState, check_state, task_ids_of, toggled
 from projectapp.urls import resolve
+from projectapp.start_delay import DelayKind, StartDelay, chip_texts, start_delays
 from projectapp.summary import children_of, parent_map, summary_progress, summary_status
 from projectapp.workdays import work_day_map
 from projectapp.timeline import (
@@ -200,6 +202,11 @@ BAR_TOP_PX = 6
 BAR_HEIGHT_PX = ROW_HEIGHT_PX - 12
 ACTUAL_HEIGHT_PX = BAR_HEIGHT_PX // 2  # 実績の棒は、予定の棒の下半分
 ACTUAL_TOP_PX = BAR_TOP_PX + BAR_HEIGHT_PX - ACTUAL_HEIGHT_PX
+START_DELAY_FILL_PERCENT = 35  # 着工遅れの帯の塗りの濃さ(色の何%を、透明に混ぜるか)
+START_DELAY_CHIP_STYLE = (
+    "color: #fff; border-radius: 8px; padding: 0 6px; font-size: 11px;"
+    " white-space: nowrap; flex: 0 0 auto"
+)
 SUMMARY_BAND_HEIGHT_PX = 9  # まとめの細い帯(通常の棒は BAR_HEIGHT_PX)
 SUMMARY_BAND_TOP_PX = (ROW_HEIGHT_PX - SUMMARY_BAND_HEIGHT_PX) // 2 - 1
 SUMMARY_TIP_PX = 6  # 帯の両端の三角の半幅
@@ -3153,6 +3160,7 @@ class GanttChart:
                         key, ti, task, state, mark_left, end
                     )  # 期間の右端の外へは出さない
             self.actual_bars(path, ti, task, columns, width)
+            self.start_delay_bands(section_key(path), ti, task, columns, width)
             self.deadline_marker(path, ti, task, columns, width)
         return row
 
@@ -3202,6 +3210,7 @@ class GanttChart:
             ui.label(f"{percent}%").style(PROGRESS_TEXT_STYLE).mark(
                 f"task-progress-{key}-{ti}"
             )
+        self.start_delay_chips(key, ti, task)
         if task.urls and not self.options.read_only:
             self.link_icon(key, ti, task)
 
@@ -3380,6 +3389,58 @@ class GanttChart:
         ).classes(PROGRESS_STATE_CLASSES[state]).tooltip(tip).mark(
             f"progress-state-{key}-{ti}"
         )
+
+    def delays_of(self, task: Task) -> list[StartDelay]:
+        """着工遅れ・停止(要望 161)。設定がオフ・プレビュー(読み取り専用)・対象外のタスクは空。"""
+        if (
+            not self.project.start_delay_enabled
+            or self.options.read_only
+            or task.kind is not TaskKind.NORMAL
+        ):
+            return []
+        return start_delays(
+            task, self.project, self.holidays, self.schedule, self.now()
+        )
+
+    def start_delay_bands(
+        self,
+        key: int | str,
+        ti: int,
+        task: Task,
+        columns: list[Column],
+        width: int,
+    ) -> None:
+        """着工遅れ・停止の帯。色の半透明の塗りと点線の枠で、斜線は使わない(割り当て超過の縞と区別する)。
+        着工・未着手は予定の棒の左の外側、停止は実績の行(棒の下半分)の隙間の上。"""
+        if self.project.start_delay_style is StartDelayStyle.CHIP:
+            return
+        color = self.project.start_delay_color
+        for n, delay in enumerate(self.delays_of(task)):
+            if not self.bar_visible(delay.since, delay.until, columns):
+                continue
+            left, length = interval_span(delay.since, delay.until, columns)
+            top, height = (
+                (ACTUAL_TOP_PX, ACTUAL_HEIGHT_PX)
+                if delay.kind is DelayKind.STOP
+                else (BAR_TOP_PX, BAR_HEIGHT_PX)
+            )
+            ui.element("div").style(
+                f"position: absolute; left: {from_name(left * width)};"
+                f" width: {max(length * width, MIN_BAR_PX):.1f}px;"
+                f" top: {top}px; height: {height}px;"
+                f" background: color-mix(in srgb, {color} {START_DELAY_FILL_PERCENT}%, transparent);"
+                f" border: 1.5px dashed {color}; box-sizing: border-box;"
+                " border-radius: 3px; pointer-events: none; user-select: none"
+            ).mark(f"start-delay-{key}-{ti}-{n}")
+
+    def start_delay_chips(self, key: int | str, ti: int, task: Task) -> None:
+        """名前の欄の着工遅れ・停止のチップ。名前の欄の枠の中で呼ぶ。"""
+        if self.project.start_delay_style is StartDelayStyle.BAND:
+            return
+        for n, (_, text, tip) in enumerate(chip_texts(self.delays_of(task))):
+            ui.label(text).style(
+                f"{START_DELAY_CHIP_STYLE}; background: {self.project.start_delay_color}"
+            ).tooltip(tip).mark(f"task-start-delay-{key}-{ti}-{n}")
 
     def actual_bars(
         self,
