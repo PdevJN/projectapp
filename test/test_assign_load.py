@@ -9,6 +9,8 @@ from projectapp.assign_load import (
     load_summary,
     load_svg,
     member_color,
+    stacked_summary,
+    stacked_svg,
 )
 from projectapp.dashboard_view import LOAD_COLOR, OVER_COLOR
 
@@ -72,3 +74,38 @@ def test_the_summary_names_the_peak_and_the_overloaded_days() -> None:
     assert load_summary(days(0.5, 1.3, 1.1, 1.0)) == "最大 130%・100% 超 2 日"
     assert load_summary(days(0.5, 1.0)) == "最大 100%・100% 超 0 日"
     assert load_summary([]) == "稼働日がありません"
+
+
+def members(*rows: tuple[str, str, list[float]]):
+    return [(n, c, days(*t)) for n, c, t in rows]
+
+
+def test_stacked_bars_pile_the_members_from_the_bottom() -> None:
+    svg = stacked_svg(members(("田中", "red", [0.5]), ("佐藤", "blue", [0.5])))
+    assert svg.count("<rect") == 2
+    assert 'fill="red"' in svg and 'fill="blue"' in svg
+    assert "<title>11/16 田中 50%(合計 100%)</title>" in svg
+    # 2 人なので 100% の点線は 200% の位置(上端)
+    assert 'y1="0.0" y2="0.0"' in svg
+
+
+def test_stacked_member_over_100_percent_gets_an_overload_outline() -> None:
+    svg = stacked_svg(members(("田中", "red", [1.2]), ("佐藤", "blue", [0.5])))
+    assert svg.count(f'stroke="{OVER_COLOR}"') == 1
+
+
+def test_stacked_scale_grows_when_the_total_exceeds_the_member_count() -> None:
+    svg = stacked_svg(members(("田中", "red", [1.5]), ("佐藤", "blue", [1.5])))
+    assert 'y="0.0"' in svg  # 合計 300% が上端
+    assert 'y1="16.0" y2="16.0"' in svg  # 点線は 200%/300%
+
+
+def test_stacked_without_members_or_days_is_an_empty_svg() -> None:
+    assert "<rect" not in stacked_svg([])
+    assert "<rect" not in stacked_svg(members(("田中", "red", [0.0])))
+
+
+def test_stacked_summary_counts_member_days_over_100_percent() -> None:
+    rows = members(("田中", "red", [1.2, 0.5]), ("佐藤", "blue", [1.1, 0.5]))
+    assert stacked_summary(rows) == "合計の最大 230%・個人の 100% 超 2 人日"
+    assert stacked_summary(members(("田中", "red", []))) == "稼働日がありません"

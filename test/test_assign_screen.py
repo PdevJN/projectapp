@@ -798,6 +798,20 @@ async def test_each_member_has_a_stable_color_by_project_member_order(
     assert screen.load_color("いない人") == member_color(0)
 
 
+async def test_the_load_can_be_switched_to_one_stacked_histogram(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    await user.should_see(marker="assign-load-row-田中")
+    screen.set_load_stacked(True)
+    await user.should_see(marker="assign-load-stacked")
+    await user.should_not_see(marker="assign-load-row-田中")
+    await user.should_see(marker="assign-load-toggle-田中")  # トグルは両方で使う
+    summary = user.find(marker="assign-load-stacked-summary").elements.pop()
+    assert "合計の最大" in summary.text
+    screen.set_load_stacked(False)
+    await user.should_see(marker="assign-load-row-田中")
+    await user.should_not_see(marker="assign-load-stacked")
+
+
 async def test_tapping_a_toggle_hides_and_shows_the_row(user: User) -> None:
     screen, _ = await open_team_screen(user)
     screen.toggle_load("田中")
