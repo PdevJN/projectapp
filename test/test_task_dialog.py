@@ -3798,3 +3798,125 @@ async def test_the_detail_dialog_converts_the_chosen_unit(user: User) -> None:
         user.find(marker="detail-unit").elements.pop().set_value(EffortUnit.DAYS)
     user.find(marker="detail-save").click()
     assert created[0].effort_hours == 12  # 1 日 = 6 時間
+
+
+# --- 簡易で 2 区間以上のタスクを、区間の編集に切り替える(要望 165) ---
+
+
+def two_actuals() -> list[Actual]:
+    return [
+        Actual(datetime(2026, 10, 5, 9, 0), datetime(2026, 10, 5, 12, 0)),
+        Actual(datetime(2026, 10, 7, 9, 0), datetime(2026, 10, 7, 12, 0)),
+    ]
+
+
+async def test_the_switch_button_is_only_for_simple_mode_with_two_or_more_actuals(
+    user: User,
+) -> None:
+    mount_dialog(Task("旧", actuals=two_actuals()), [])
+    await open_dialog(user)
+    await user.should_see(marker="task-actuals-switch")
+
+
+@pytest.mark.parametrize("count", [0, 1])
+async def test_no_switch_button_with_fewer_than_two_actuals(
+    user: User, count: int
+) -> None:
+    mount_dialog(Task("旧", actuals=two_actuals()[:count]), [])
+    await open_dialog(user)
+    await user.should_not_see(marker="task-actuals-switch")
+
+
+async def test_no_switch_button_in_interval_mode(user: User) -> None:
+    mount_dialog(Task("旧", actuals=two_actuals()), [], actual_mode=INTERVALS)
+    await open_dialog(user)
+    await user.should_not_see(marker="task-actuals-switch")
+    await user.should_see(marker="task-interval-add")
+
+
+async def test_switching_shows_one_row_per_actual(user: User) -> None:
+    mount_dialog(Task("旧", actuals=two_actuals()), [])
+    await open_dialog(user)
+    user.find(marker="task-actuals-switch").click()
+    await user.should_not_see(marker="task-actuals-readonly")
+    await user.should_not_see(marker="task-actuals-switch")
+    assert value_of(user, "task-interval-0-start-date") == "2026-10-05"
+    assert value_of(user, "task-interval-1-start-date") == "2026-10-07"
+    await user.should_see(marker="task-interval-add")
+
+
+async def test_switching_without_editing_keeps_the_actuals(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧", actuals=two_actuals()), saved)
+    await open_dialog(user)
+    user.find(marker="task-actuals-switch").click()
+    user.find(marker="task-save").click()
+    assert saved[0].actuals == two_actuals()
+
+
+async def test_an_edited_row_is_saved(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧", actuals=two_actuals()), saved)
+    await open_dialog(user)
+    user.find(marker="task-actuals-switch").click()
+    interval_inputs(user, 1, "2026-10-08 10:00", "2026-10-08 13:00")
+    user.find(marker="task-save").click()
+    assert saved[0].actuals == [
+        two_actuals()[0],
+        Actual(datetime(2026, 10, 8, 10, 0), datetime(2026, 10, 8, 13, 0)),
+    ]
+
+
+async def test_an_invalid_row_is_reported_and_nothing_is_saved(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧", actuals=two_actuals()), saved)
+    await open_dialog(user)
+    user.find(marker="task-actuals-switch").click()
+    interval_inputs(user, 1, "2026-10-05 10:00", "2026-10-05 13:00")  # 1 行目と重なる
+    user.find(marker="task-save").click()
+    assert saved == []
+    assert "区間" in user.find(marker="form-error").elements.pop().text
+
+
+async def test_switching_alone_does_not_ask_to_discard(user: User) -> None:
+    saved: list[Task] = []
+    mount_dialog(Task("旧", actuals=two_actuals()), saved)
+    await open_dialog(user)
+    user.find(marker="task-actuals-switch").click()
+    user.find(marker="task-cancel").click()
+    assert confirm_dialog_of(user).value is False  # 確認は出ない
+
+
+async def test_switching_after_another_edit_still_asks_to_discard(
+    user: User,
+) -> None:
+    mount_dialog(Task("旧", actuals=two_actuals()), [])
+    await open_dialog(user)
+    user.find(marker="task-name").clear().type("新")
+    user.find(marker="task-actuals-switch").click()
+    user.find(marker="task-cancel").click()
+    assert confirm_dialog_of(user).value is True
+
+
+async def test_editing_a_row_after_switching_counts_as_a_change(user: User) -> None:
+    mount_dialog(Task("旧", actuals=two_actuals()), [])
+    await open_dialog(user)
+    user.find(marker="task-actuals-switch").click()
+    interval_inputs(user, 1, "2026-10-08 10:00", "2026-10-08 13:00")
+    user.find(marker="task-cancel").click()
+    assert confirm_dialog_of(user).value is True
+
+
+async def test_editing_the_last_row_after_switching_suggests_the_status(
+    user: User,
+) -> None:
+    mount_dialog(Task("旧", actuals=two_actuals()), [])
+    await open_dialog(user)
+    assert value_of(user, "task-status") == Status.NOT_STARTED
+    user.find(marker="task-actuals-switch").click()
+    assert (
+        value_of(user, "task-status") == Status.NOT_STARTED
+    )  # 切り替えただけでは提案しない
+    user.find(marker="task-interval-1-end-date").clear()
+    user.find(marker="task-interval-1-end-time").clear()  # 終了のない区間になる
+    assert value_of(user, "task-status") == Status.RUNNING
