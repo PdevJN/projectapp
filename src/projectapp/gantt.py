@@ -1803,6 +1803,25 @@ class GanttChart:
         if self.links_html is not None and self.link_layout is not None:
             self.links_html.content = self.links_markup(*self.link_layout)
 
+    def build_embedded(self) -> None:
+        """読み取り専用の埋め込み(アサイン専用画面。要望 168)。描画だけを作る。
+
+        ページ全体の CSS・JS・`ui.on`の登録は、メインの`build()`が済ませている前提で重ねない。ツールバー・
+        絞り込み・下部パネル・右クリックメニューは作らない(`toolbar`・`splitter`・`menu`は`None`のまま)。
+        """
+        self.client = context.client
+        self.options = replace(self.options, read_only=True)
+        scroll = (
+            ui.element("div")
+            .classes("w-full")
+            .style(
+                f"overflow: auto; height: 100%; padding-bottom: {SCROLLBAR_ROOM_PX}px"
+            )
+        )
+        self.scroll_box = scroll
+        with scroll.mark("assign-chart-scroll"):
+            self.render()
+
     def build(self) -> None:
         self.client = context.client
         ui.add_css(CHART_DRAG_CSS)
