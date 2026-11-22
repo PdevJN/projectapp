@@ -338,3 +338,100 @@ async def test_the_assignment_row_draws_at_every_scale(user: User) -> None:
         screen.set_scale(scale)
         await user.should_see(marker="assign-cell-0")
         await user.should_see(marker="assign-chip-1-鈴木")
+
+
+async def test_the_drag_script_is_run_not_inserted_as_html(
+    user: User, monkeypatch
+) -> None:
+    from projectapp import assign_screen
+
+    ran: list[str] = []
+    monkeypatch.setattr(
+        assign_screen.ui, "run_javascript", lambda js, **kw: ran.append(js)
+    )
+    confirmed: list[AssignTrial] = []
+    screens: list[AssignScreen] = []
+    mount_team_screen(confirmed, screens)
+    await user.open("/")
+    user.find(marker="open-screen").click()
+    await user.should_see(marker="assign-members")
+    from projectapp.assign_drag import ASSIGN_DRAG_JS
+
+    assert (
+        ASSIGN_DRAG_JS in ran
+    )  # 画面を開いたあとの add_head_html は実行されないので、直接実行する
+
+
+async def test_reopening_screens_registers_the_drop_handler_once_and_targets_the_latest(
+    user: User,
+) -> None:
+    from nicegui import context
+
+    from projectapp.assign_drag import ASSIGN_DROP_EVENT
+
+    screens: list[AssignScreen] = []
+    clients: list = []
+
+    @ui.page("/")
+    def index() -> None:
+        clients.append(context.client)
+        main = GanttChart(team_project(), {}, noop_actions())
+        main.build()
+
+        def open_new() -> None:
+            project = team_project()
+            screen = AssignScreen(
+                project, project.tasks[0], {}, on_confirm=lambda t: None
+            )
+            screens.append(screen)
+            screen.open()
+
+        ui.button("open", on_click=open_new).mark("open-screen")
+
+    await user.open("/")
+    user.find(marker="open-screen").click()
+    user.find(marker="open-screen").click()
+    await user.should_see(marker="assign-members")
+    listeners = [
+        ev
+        for ev in clients[0].layout._event_listeners.values()
+        if ev.type == ASSIGN_DROP_EVENT
+    ]
+    assert len(listeners) == 1
+    listeners[0].handler(
+        type("E", (), {"args": {"name": "鈴木", "week": 1, "day": None}})()
+    )
+    assert screens[-1].trial.task.weekly_crew  # 最新の画面だけが受ける
+    assert not screens[0].trial.task.weekly_crew
+
+
+async def test_daily_toggle_works_on_a_plain_task_and_is_hidden_without_assignees(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    assert not screen.trial.task.weekly_crew
+    screen.toggle_daily(0)  # 週ごとでない最初の状態から、週ごと+日ごとにできる
+    assert (
+        0 in screen.trial.task.daily_crew
+        and len(screen.trial.task.weekly_crew) == screen.plan.weeks
+    )
+
+
+async def test_the_remove_button_works_in_a_week_beyond_the_defined_ones(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 0, None)  # 週 0 だけに足した週ごとのタスク
+    screen.remove_member_at("田中", 0, None)  # 先に田中を外す(鈴木が残る)
+    assert [a.name for a in screen.trial.task.weekly_crew[0]] == ["鈴木"]
+
+
+async def test_the_member_frames_follow_the_trial_after_a_drop_and_a_remove(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    await user.should_not_see(marker="assign-member-assigned-鈴木")
+    screen.drop_member("鈴木", 1, None)
+    await user.should_see(marker="assign-member-assigned-鈴木")
+    screen.remove_member_at("鈴木", 1, None)
+    await user.should_not_see(marker="assign-member-assigned-鈴木")

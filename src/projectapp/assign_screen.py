@@ -10,7 +10,7 @@ from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import date, datetime, time, timedelta
 
-from nicegui import ui
+from nicegui import context, ui
 
 from projectapp import clock
 from projectapp.assign_drag import (
@@ -38,6 +38,7 @@ from projectapp.daily_crew import (
     remove_member,
     segments,
     split_week,
+    to_weekly,
 )
 from projectapp.forms import disposable
 from projectapp.gantt import GanttActions, GanttChart, ViewOptions, from_name
@@ -51,6 +52,10 @@ from projectapp.timeline import (
 
 ASSIGN_SCALES = (Scale.DAY, Scale.WEEK, Scale.MONTH)
 ROW_HEIGHT_PX = 40
+ACTIVE: dict[
+    str, "AssignScreen"
+] = {}  # クライアント id → 今開いている画面(ドロップを受ける)
+REGISTERED: set[str] = set()  # ドロップのイベントを登録済みのクライアント id
 
 
 def read_only_actions() -> GanttActions:
@@ -88,20 +93,23 @@ class AssignScreen:
         self.plan: CellPlan | None = cell_plan(project, self.trial.task, holidays)
         self.chart: GanttChart | None = None
         self.dialog: ui.dialog | None = None
+        self.client_id = ""
+        self.members_box: ui.element | None = None
 
     def open(self, parent: ui.element | None = None) -> None:
         """`parent`は、更新(refreshable)で消されない外側の要素。なければ呼び出しの文脈の下に作る。"""
         with parent if parent is not None else nullcontext():
             ui.add_css(ASSIGN_DRAG_CSS)
-            ui.add_head_html(f"<script>{ASSIGN_DRAG_JS}</script>")
-            ui.on(
-                ASSIGN_DROP_EVENT,
-                lambda e: self.drop_member(
-                    str(e.args["name"]),
-                    int(e.args["week"]),
-                    None if e.args["day"] is None else int(e.args["day"]),
-                ),
-            )
+            # 画面を開いたあとの`add_head_html`は、`<script>`が実行されない。直接実行する(重複は JS が防ぐ)
+            ui.run_javascript(ASSIGN_DRAG_JS)
+            self.client_id = context.client.id
+            ACTIVE[self.client_id] = self
+            if (
+                self.client_id not in REGISTERED
+            ):  # クライアントごとに 1 回だけ。受けるのは今の画面
+                REGISTERED.add(self.client_id)
+                client_id = self.client_id
+                ui.on(ASSIGN_DROP_EVENT, lambda e: drop_on_active(client_id, e.args))
             self.build()
 
     def build(self) -> None:
@@ -156,13 +164,18 @@ class AssignScreen:
     # --- 左のメンバー一覧 ---
 
     def members_panel(self, groups: list[TeamGroup]) -> None:
-        assigned = {a.name for a in self.trial.task.assignees}
-        with (
+        self.members_box = (
             ui.column()
             .classes("gap-2")
             .style("width: 14rem; flex: none; overflow: auto")
             .mark("assign-members")
-        ):
+        )
+        with self.members_box:
+            self.members_content(groups)
+
+    def members_content(self, groups: list[TeamGroup]) -> None:
+        assigned = {a.name for a in self.trial.task.assignees}
+        if True:
             ui.label("メンバー").classes("text-subtitle2")
             if not groups:
                 ui.label("メンバーがいません").classes("text-grey").mark(
@@ -177,13 +190,16 @@ class AssignScreen:
                         chip = (
                             ui.row()
                             .classes("items-center no-wrap gap-1 q-px-xs")
-                            .props(f'draggable=true data-assign-member="{member.name}"')
+                            .props("draggable=true")
                             .style(
                                 "border: 1px solid rgba(128,128,128,0.5);"
                                 " border-radius: 12px"
                             )
                             .mark(f"assign-member-{member.name}")
                         )
+                        chip._props["data-assign-member"] = (
+                            member.name
+                        )  # 名前に引用符があっても壊れない
                         with chip:
                             avatar(member.name, member.icon, 24)
                             ui.label(member.name).classes("text-body2")
@@ -221,8 +237,9 @@ class AssignScreen:
                 self.cell(
                     seg.week, seg.day, seg.first, seg.last, seg.crew, columns, width
                 )
-            for week in range(weeks):
-                self.daily_toggle(week, columns, width)
+            if task.weekly_crew or task.assignees:  # 担当者がいなければ日ごとにできない
+                for week in range(weeks):
+                    self.daily_toggle(week, columns, width)
 
     def edges(
         self, first: date, last: date, columns: list[Column], width: int
@@ -296,6 +313,10 @@ class AssignScreen:
         """試算のタスクから複製を作り直し、チャート(棒・完了予定・警告)と割り当ての行を描き直す。"""
         if self.chart is not None:
             self.chart.set_project(trial_project(self.project, self.trial))
+        if self.members_box is not None:
+            self.members_box.clear()
+            with self.members_box:
+                self.members_content(team_groups(self.project))
 
     def drop_member(self, name: str, week: int, day: int | None) -> None:
         if self.plan is None:
@@ -332,7 +353,8 @@ class AssignScreen:
         return name in {a.name for a in task.weekly_crew[week]}
 
     def remove_member_at(self, name: str, week: int, day: int | None) -> None:
-        result = remove_member(self.trial.task, name, week, day)
+        weeks = self.plan.weeks if self.plan is not None else 1
+        result = remove_member(self.trial.task, name, week, day, weeks=weeks)
         if result is None:
             ui.notify("最後の 1 人は外せません", type="warning")
             return
@@ -341,6 +363,12 @@ class AssignScreen:
 
     def toggle_daily(self, week: int) -> None:
         task = self.trial.task
+        if not task.weekly_crew:  # 週ごとでなければ、先に週ごとにする
+            weekly = to_weekly(task, self.plan.weeks if self.plan is not None else 1)
+            if weekly is None:
+                ui.notify("担当者がいないため、日ごとにできません", type="warning")
+                return
+            task = weekly
         result = (
             merge_week(task, week)
             if week in task.daily_crew
@@ -376,5 +404,17 @@ class AssignScreen:
         ask.open()
 
     def close(self) -> None:
+        if ACTIVE.get(self.client_id) is self:
+            del ACTIVE[self.client_id]
         if self.dialog is not None:
             self.dialog.close()
+
+
+def drop_on_active(client_id: str, args: dict) -> None:
+    """ドロップのイベントを、そのクライアントで今開いている画面に渡す。"""
+    screen = ACTIVE.get(client_id)
+    if screen is not None:
+        day = args["day"]
+        screen.drop_member(
+            str(args["name"]), int(args["week"]), None if day is None else int(day)
+        )

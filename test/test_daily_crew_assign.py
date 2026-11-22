@@ -116,3 +116,36 @@ def test_removing_from_all_days_changes_nothing_when_one_day_would_be_empty() ->
         result, "田中", 1
     )  # 3 日目は田中・佐藤だが、ほかの日は田中だけなので外せない
     assert only is None
+
+
+def test_removing_from_a_plain_task_splits_it_into_weeks_first() -> None:
+    result = remove_member(task("田中", "鈴木"), "鈴木", 1, weeks=3)
+    assert result is not None
+    assert [names(w) for w in result.weekly_crew] == [
+        ["田中", "鈴木"],
+        ["田中"],
+        ["田中", "鈴木"],
+    ]
+
+
+def test_removing_from_a_week_beyond_the_defined_ones_fills_the_gap_first() -> None:
+    weekly = add_member(task("田中", "鈴木"), "佐藤", 0, weeks=2)
+    assert weekly is not None
+    result = remove_member(weekly, "鈴木", 3)
+    assert result is not None
+    assert [names(w) for w in result.weekly_crew] == [
+        ["田中", "鈴木", "佐藤"],
+        ["田中", "鈴木"],
+        ["田中", "鈴木"],
+        ["田中"],
+    ]
+
+
+def test_to_weekly_copies_the_crew_to_every_week() -> None:
+    from projectapp.daily_crew import to_weekly
+
+    result = to_weekly(task("田中"), 3)
+    assert result is not None
+    assert [names(w) for w in result.weekly_crew] == [["田中"]] * 3
+    assert to_weekly(result, 3) is None  # すでに週ごと
+    assert to_weekly(task(), 3) is None  # 担当者がいない

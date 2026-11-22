@@ -219,14 +219,28 @@ def add_member(
     )
 
 
-def remove_member(
-    task: Task, name: str, week: int, day: int | None = None
-) -> Task | None:
-    """アサイン専用画面: メンバーを週(日)のセルから外す。そのセルの最後の 1 人・いない人・週ごとでないタスクは None。
-    日ごとの週で`day`がなければ 7 日すべてから外す(どれかの日で最後の 1 人なら None)。"""
-    if not task.weekly_crew or not 0 <= week < len(task.weekly_crew):
+def to_weekly(task: Task, weeks: int) -> Task | None:
+    """週ごとでないタスクを、現在の担当を`weeks`週ぶんに写して週ごとにする。すでに週ごと・担当者がなければ None。"""
+    if task.weekly_crew or not task.assignees:
         return None
-    weekly, daily = copy_weekly(task.weekly_crew), copy_daily(task.daily_crew)
+    weekly = [copy_crew(task.assignees) for _ in range(max(min(weeks, MAX_WEEKS), 1))]
+    return replace(task, weekly_crew=weekly, daily_crew={})
+
+
+def remove_member(
+    task: Task, name: str, week: int, day: int | None = None, *, weeks: int = 1
+) -> Task | None:
+    """アサイン専用画面: メンバーを週(日)のセルから外す。そのセルの最後の 1 人・いない人は None。
+    週ごとでないタスクは`weeks`週ぶんに写して週ごとにしてから、定義済みの週より先は直前の担当で埋めてから外す。
+    日ごとの週で`day`がなければ 7 日すべてから外す(どれかの日で最後の 1 人なら None)。"""
+    if not 0 <= week < MAX_WEEKS:
+        return None
+    crews = _crews(task, min(weeks, MAX_WEEKS))
+    if crews is None:
+        return None
+    weekly, daily = crews
+    while len(weekly) <= week:
+        weekly.append(copy_crew(_tail(weekly, daily)))
     if _is_daily(daily, week):
         targets = range(WEEK_DAYS) if day is None else [day]
         if any(not 0 <= j < WEEK_DAYS for j in targets):
