@@ -33,6 +33,7 @@ from projectapp.models import (
 from projectapp.pace import warning_pace
 from projectapp.ratios import effective_ratio
 from projectapp.remaining import overlap_hours, remaining_hours, total_effort
+from projectapp.start_delay import DelayKind, start_delays
 from projectapp.timeline import (
     OVERLOAD_EPSILON,
     Schedule,
@@ -249,6 +250,16 @@ class WarningTask:
     name: str
 
 
+@dataclass(frozen=True)
+class StartDelayRow:
+    """今も続いている着工遅れ(未着手のまま開始予定を過ぎた・一時停止のまま)。要望 161 段階 2。"""
+
+    name: str  # 参照先のタスクは`タスク名(参照先名)`
+    kind: DelayKind  # UNSTARTED か STOP
+    days: int  # 稼働日数
+    assignee_names: tuple[str, ...] = ()
+
+
 @dataclass
 class Progress:
     percent: float | None  # 工数で重みづけした進捗率(0〜100)。タスクがなければ None
@@ -267,6 +278,11 @@ class Progress:
     warning_tasks: list[WarningTask] = field(
         default_factory=list
     )  # 警告の、開いているプロジェクト自身の終わっていない通常タスク(参照先は除く。絞り込みに従う)
+    start_delays: list[StartDelayRow] = field(
+        default_factory=list
+    )  # 今も続いている着工遅れ(日数の多い順。要望 161 段階 2)
+    start_delay_enabled: bool = True  # 開いているプロジェクトの設定の`着工遅れ`の表示
+    start_delay_color: str = "#7e57c2"  # 同じく帯の色(一覧の文字の色)
 
 
 Scope = (
@@ -760,6 +776,7 @@ def summarize_progress(
                 )
             )
     overdue.sort(key=lambda row: row.limit)
+    delays = _start_delay_rows(entries, now)
     by_member = (
         summarize_member_progress(project, children, warned) if member is None else []
     )
@@ -780,7 +797,38 @@ def summarize_progress(
             and e.task.kind is TaskKind.NORMAL
             and e.task.status is not Status.DONE
         ],
+        delays,
+        project.start_delay_enabled,
+        project.start_delay_color,
     )
+
+
+def _start_delay_rows(entries: Sequence[Entry], now: datetime) -> list[StartDelayRow]:
+    """今も続いている着工遅れ(`ongoing`)だけ。着手済みの過去の着工遅れ・過去の停止・終了したタスクは数えない。
+    各タスクは、属するプロジェクト(参照先なら参照先自身)の設定・稼働日で判定する。日数の多い順。"""
+    found: list[StartDelayRow] = []
+    for entry in entries:
+        task = entry.task
+        if (
+            task.kind is not TaskKind.NORMAL
+            or task.status is Status.DONE
+            or not entry.project.start_delay_enabled
+        ):
+            continue
+        for delay in start_delays(
+            task, entry.project, entry.schedule.holidays, entry.schedule, now
+        ):
+            if delay.ongoing:
+                found.append(
+                    StartDelayRow(
+                        entry.label,
+                        delay.kind,
+                        delay.days,
+                        tuple(task.assignee_names),
+                    )
+                )
+    found.sort(key=lambda row: -row.days)
+    return found
 
 
 UNASSIGNED = "未割り当て"

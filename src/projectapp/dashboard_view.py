@@ -12,6 +12,7 @@ from nicegui.events import ValueChangeEventArguments
 from projectapp import clock
 from projectapp.avatar import avatar, avatar_html
 from projectapp.burndown_chart import chart_svg
+from projectapp.start_delay import DelayKind
 from projectapp.dashboard import (
     UNASSIGNED,
     Backlog,
@@ -1148,6 +1149,8 @@ class DashboardView:
                     ui.label(f"警告 {progress.warnings}").mark(
                         "dashboard-count-warning"
                     )
+                if progress.start_delay_enabled:
+                    self.start_delay_count(progress)
             self.unassigned_row(progress)
             if progress.by_member:
                 ui.label("メンバー別").classes("text-subtitle2")
@@ -1173,6 +1176,35 @@ class DashboardView:
                     self.assignee_chips(
                         row.assignee_names, f"dashboard-overdue-assignee-{index}"
                     )
+            self.start_delay_list(progress)
+
+    def start_delay_count(self, progress: Progress) -> None:
+        """`着工遅れ n`(要望 161 段階 2)。ホバーに未着手と停止の内訳。設定が表示オフのプロジェクトでは出さない。"""
+        rows = progress.start_delays
+        label = ui.label(f"着工遅れ {len(rows)}").mark("dashboard-count-start-delay")
+        if rows:
+            unstarted = sum(1 for row in rows if row.kind is DelayKind.UNSTARTED)
+            label.tooltip(f"未着手 {unstarted}・停止 {len(rows) - unstarted}")
+
+    def start_delay_list(self, progress: Progress) -> None:
+        """今も続いている着工遅れの一覧(日数の多い順)。なければ見出しごと出さない。文字の色は設定の帯の色。"""
+        if not progress.start_delay_enabled or not progress.start_delays:
+            return
+        ui.label("着工遅れ").classes("text-subtitle2").mark(
+            "dashboard-start-delay-title"
+        )
+        for index, row in enumerate(progress.start_delays):
+            with ui.row().classes("w-full items-center no-wrap gap-2"):
+                kind = "未着手" if row.kind is DelayKind.UNSTARTED else "停止"
+                ui.label(f"{kind} +{row.days}日").style(
+                    f"color: {progress.start_delay_color}; flex: 0 0 auto"
+                ).mark(f"dashboard-start-delay-kind-{index}")
+                ui.label(row.name).classes("col ellipsis").mark(
+                    f"dashboard-start-delay-name-{index}"
+                )
+                self.assignee_chips(
+                    row.assignee_names, f"dashboard-start-delay-assignee-{index}"
+                )
 
     def edit_toggle(self) -> None:
         ui.checkbox(
