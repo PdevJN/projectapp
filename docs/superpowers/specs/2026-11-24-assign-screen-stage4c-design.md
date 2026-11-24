@@ -24,6 +24,7 @@
   - `members: list[tuple[str, float, float]]` 人ごとの (名前, 今の率, 必要な率)。週ごと・日ごとの担当は、その人の最大の率を使う。必要な率は 100% で頭打ち
   - `short_hours: float` 全員を 100% にしても足りないときの、足りない時間(届くときは 0)
   - `short_people: float | None` 同じく、100% の人に換算した人数(`Shortage.people`と同じ分母)
+  - `shortage: Shortage` 4a の不足(ヒントの元)
 - `required_rate(task, project, holidays, now, schedule=None) -> RequiredRate | str`
   - 出せないときは、その理由の文字列を返す
   - 余裕・ちょうど(`Shortage.kind`が`不足`でない)ときは、`不足していません`という理由の文字列を返す(逆算は不足のときだけ意味を持つ)
@@ -45,6 +46,8 @@
 - 割り当て率を k 倍した複製のタスクで`work_capacity`を求められるか。既存の`assign_trial`の関数(`set_allocation_all`など)を使えるか、複製を作る小さな関数が要るか
 - 週ごと・日ごとの担当(`weekly_crews`)も同じ k で動かせるか。日ごとの担当で率が違う週で、人ごとの最大の率が妥当か
 - 二分法の回数と、`work_capacity`の速度(数百タスクではなく 1 タスクなので、問題ないか)
+
+結果(実装で確かめた): 複製は`dataclasses.replace`で`assignees`・`weekly_crew`・`daily_crew`を作り直せば足りる(`assign_trial`の関数は使わない)。週ごと・日ごとの担当にも同じ k が効き、日ごとの率が違う週は人ごとの最大の率を使う。二分法は 50 回で、52 週・率 1% でも 2 秒未満(テストで確認)。
 
 足りないときは、この設計書を直して利用者に確認する。
 
