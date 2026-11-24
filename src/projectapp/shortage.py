@@ -316,7 +316,12 @@ def required_rate(
             _scaled(task, factor), project, holidays, origin, value.due, start
         )
 
-    allocations = [a.allocation for crew in _crews(task) for a in crew]
+    known = {
+        member.name for member in project.members
+    }  # メンバー表にいない担当者は、稼働に寄与しない
+    allocations = [
+        a.allocation for crew in _crews(task) for a in crew if a.name in known
+    ]
     upper = 1.0 / min(allocations) if allocations else 1.0  # これ以上は全員 100% で同じ
     best = capacity(upper)
     if best < value.remaining - 1e-9:
@@ -333,6 +338,8 @@ def required_rate(
     peaks: dict[str, float] = {}
     for crew in _crews(task):
         for a in crew:
+            if a.name not in known:
+                continue
             peaks[a.name] = max(peaks.get(a.name, 0.0), a.allocation)
     members = tuple(
         (name, peak, min(MAX_ALLOCATION, peak * high)) for name, peak in peaks.items()
@@ -374,4 +381,4 @@ def required_rate_hint(value: RequiredRate) -> str:
     base = shortage_hint(value.shortage)
     if value.factor is None:
         return f"{base}。全員の率を 100% にしても、残りの工数に届きません"
-    return f"{base}。全員の率を ×{value.factor:.2f}(上限 100%)にすると、稼働が残りの工数に届きます"
+    return f"{base}。全員の率を ×{value.factor:.2f}(上限 100%)にすると、稼働が残りの工数に届きます。人ごとの率は、週ごと・日ごとに違う人は最大の率から"
