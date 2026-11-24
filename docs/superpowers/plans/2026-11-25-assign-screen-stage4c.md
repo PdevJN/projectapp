@@ -30,7 +30,7 @@
 - 人ごとの「今の率」は、その人がいるすべての担当(全体・週・日)の最大の率。「必要な率」は`min(1.0, 今の率 × k)`
 - 文言の丸めは切り上げ(`ceil`)。表示が足りない側にずれないようにする(倍率は小数 1 桁、率は整数%)
 - `task_shortage`の稼働量の部分を`_capacity_of`として取り出し、`required_rate`と共有する(挙動は変えない。Task 1 の Step 1 で既存テストが通ることを確かめる)
-- 設計書に、`RequiredRate.shortage`(4a の`Shortage`。ヒストの元)を持たせると書いていないので、Task 3 で設計書を直す
+- 設計書に、`RequiredRate.shortage`(4a の`Shortage`。ヒントの元)を持たせると書いていないので、Task 3 で設計書を直す
 
 ## Review Focus
 
@@ -496,13 +496,15 @@ Expected: FAIL(`assign-required-rate`が見つからない)
             return
         label.set_text(required_rate_text(value))
         label.style(
-            "color: var(--warning)" if value.factor is None else "color: inherit"
+            replace="color: var(--warning)"
+            if value.factor is None
+            else "color: inherit"
         )
         label.props(f'title="{required_rate_hint(value)}"')
         label.set_visibility(True)
 ```
 
-注: `render_shortage`と同じく、`label.style(...)`は足し算なので、切り替えのときに前の色が残らないよう`label.style(replace="color: ...")`にする。ヒントの`title`が`"`を含まないことは文言で保証する(`required_rate_hint`は`"`を使わない)。
+注: `label.style(...)`は足し算なので、切り替えで前の色が残らないよう`replace=`を使う。ヒントの`title`が`"`を含まないことは文言で保証する(`required_rate_hint`は`"`を使わない)。
 
 呼び出しは、`open`の`self.render_shortage()`(約 226 行)の次と、`refresh`の`self.render_shortage(trial)`(約 748 行)の次に`render_required_rate`を足す。
 
