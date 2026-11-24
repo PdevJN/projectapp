@@ -848,6 +848,9 @@ class RangeSlider(ValueElement):
 
     def _handle_value_change(self, value: Any) -> None:
         super()._handle_value_change(value)
+        # 塗りの style も、サーバー側の値を今の値にしておく(画面が作り直されたとき、初期値の塗りに戻らない)
+        with self._style.suspend_updates():
+            self._style["--fill"] = f"{int(value)}%"
         if (
             self._send_update_on_value_change
         ):  # サーバー側からの変更は、画面の入力へ反映する

@@ -531,6 +531,9 @@ async def test_reopening_the_popup_resends_the_slider_value_after_a_drag(
     slider.update = lambda: (sent.append(slider.props["^value"]), original())[1]  # type: ignore[method-assign]
     screen.open_rate("鈴木", 1, None)
     assert sent and sent[-1] == 50
+    assert (
+        slider.style.get("--fill") == "50%"
+    )  # 塗りも、開き直した画面へ送る style を今の値にする
 
 
 async def test_the_popup_title_names_the_day_of_a_daily_week(user: User) -> None:
