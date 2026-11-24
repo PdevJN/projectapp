@@ -447,3 +447,20 @@ def test_a_52_week_task_with_the_lowest_rate_is_fast() -> None:
     began = time.perf_counter()
     needed(task)
     assert time.perf_counter() - began < 2.0
+
+
+def test_a_name_missing_from_the_member_table_is_not_listed() -> None:
+    task = task_of(
+        effort_hours=30.0, assignees=[Assignee("田中", 0.5), Assignee("外", 0.01)]
+    )  # 「外」はメンバー表にいない(稼働に寄与しない)
+    value = needed(task)
+    assert isinstance(value, RequiredRate)
+    assert [name for name, _, _ in value.members] == ["田中"]
+    assert "外" not in required_rate_text(value)
+    assert value.factor == pytest.approx(30 / 16.25, rel=1e-4)
+
+
+def test_the_hint_says_the_member_rate_is_the_peak() -> None:
+    value = needed(task_of(assignees=[Assignee("田中", 0.5), Assignee("鈴木", 0.5)]))
+    assert isinstance(value, RequiredRate)
+    assert "最大の率" in required_rate_hint(value)
