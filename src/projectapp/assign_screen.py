@@ -103,6 +103,7 @@ CHIP_STEP_PX = 20  # アイコン 18px + すき間 2px
 LINE_STEP_PX = 22  # セルの 1 段の高さ
 BURN_ROW_PX = 18  # 消化の行の高さ
 BURN_NARROW_PX = 120  # 週の幅がこれ未満なら、短い表記にする
+MAX_START_DELAY = 365  # 開始の遅れの仮定の上限[日](要望 160)
 ACTIVE: dict[
     str, "AssignScreen"
 ] = {}  # クライアント id → 今開いている画面(ドロップを受ける)
@@ -150,6 +151,8 @@ class AssignScreen:
         self.selection: tuple[Cell, Cell] | None = None
         self.shortage_label: ui.label | None = None
         self.required_label: ui.label | None = None
+        self.delay_days = 0  # 開始が遅れたと仮定する日数(試算の仮定。保存しない)
+        self.delay_input: ui.number | None = None
         self.compare_label: ui.label | None = None
         self.untouched_project: Project | None = (
             None  # 前の比較用の複製(開いている間は変わらない)
@@ -207,6 +210,20 @@ class AssignScreen:
                         ui.label("").classes("text-body2").mark("assign-compare")
                     )
                     self.compare_label.set_visibility(False)
+                self.delay_input = (
+                    ui.number(
+                        "開始が遅れたら(日)",
+                        value=0,
+                        min=0,
+                        max=MAX_START_DELAY,
+                        step=1,
+                        precision=0,
+                        on_change=lambda e: self.set_delay(e.value),
+                    )
+                    .props("dense outlined")
+                    .style("width: 9rem")
+                    .mark("assign-start-delay")
+                )
                 ui.toggle(
                     {scale: scale.value for scale in ASSIGN_SCALES},
                     value=Scale.DAY,
@@ -357,6 +374,7 @@ class AssignScreen:
             self.now(),
             weeks,
             self.plan.origin,
+            delay_days=self.delay_days,
         )
         if isinstance(value, str):
             return
@@ -732,6 +750,33 @@ class AssignScreen:
 
     # --- 操作 ---
 
+    def delay_prefix(self) -> str:
+        """遅れを仮定しているときの、行の先頭の断り書き。"""
+        return f"開始が {self.delay_days} 日遅れると: " if self.delay_days else ""
+
+    def set_delay(self, value: object) -> None:
+        """開始が遅れたと仮定する日数(要望 160)。整数で 0〜`MAX_START_DELAY`に丸める。空・不正な値は 0。
+        試算には含めず、保存しない。変わったときだけ、チャートと各行を描き直す。"""
+        try:
+            number = float(str(value))
+        except (TypeError, ValueError):
+            number = 0.0
+        if number != number:  # nan
+            number = 0.0
+        days = int(
+            min(max(number, 0.0), MAX_START_DELAY)
+        )  # inf・巨大な数は上限に丸める
+        if (
+            self.delay_input is not None
+            and value is not None
+            and self.delay_input.value != days
+        ):
+            self.delay_input.set_value(days)  # 範囲外・小数は、丸めた値を欄へ戻す
+        if days == self.delay_days:
+            return
+        self.delay_days = days
+        self.refresh()
+
     def render_shortage(self, project: Project | None = None) -> None:
         """基準日までの不足・余裕を、ヘッダーの 1 行に出す。出せないときは理由を薄く出す。"""
         label = self.shortage_label
@@ -742,14 +787,15 @@ class AssignScreen:
             project or trial_project(self.project, self.trial),
             self.holidays,
             self.now(),
+            delay_days=self.delay_days,
         )
         if isinstance(value, str):
-            label.set_text(f"不足は出せません: {value}")
+            label.set_text(f"{self.delay_prefix()}不足は出せません: {value}")
             label.classes(replace="text-body2 text-grey")
             label.style(replace="")
             label.props(remove="title")
             return
-        label.set_text(shortage_text(value))
+        label.set_text(self.delay_prefix() + shortage_text(value))
         color = "text-body2" + (" text-bold" if value.kind == "不足" else "")
         label.classes(replace=color)
         label.style(
@@ -767,11 +813,12 @@ class AssignScreen:
             project or trial_project(self.project, self.trial),
             self.holidays,
             self.now(),
+            delay_days=self.delay_days,
         )
         if isinstance(value, str):
             label.set_visibility(False)
             return
-        label.set_text(required_rate_text(value))
+        label.set_text(self.delay_prefix() + required_rate_text(value))
         label.style(
             replace="color: var(--warning)"
             if value.factor is None

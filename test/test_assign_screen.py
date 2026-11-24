@@ -1195,3 +1195,79 @@ def test_a_summary_predecessor_does_not_make_an_untouched_trial_look_changed() -
         project, target, {}, on_confirm=lambda _t: None, now=lambda: mon
     )
     assert not compare_changed(screen.compare_value())
+
+
+async def open_late_screen(user: User) -> AssignScreen:
+    """締切 11/20(金)・今 11/16(月)・田中 100%・40h(稼働 32.5h なので 7.5h 不足)。"""
+    screen, _ = await open_team_screen(user)
+    set_due(screen, datetime(2026, 11, 20, 17))
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_see("あと 7.5h 足りません")
+    return screen
+
+
+async def test_a_start_delay_cuts_the_capacity_in_the_shortage_and_required_rows(
+    user: User,
+) -> None:
+    screen = await open_late_screen(user)
+    screen.set_delay(3)  # 木 9:00 から。稼働は木・金の 13h
+    await user.should_see("開始が 3 日遅れると: あと 27.0h 足りません")
+    await user.should_see("開始が 3 日遅れると: 全員 100% でもあと 27.0h 足りません")
+
+
+async def test_setting_the_delay_back_to_zero_restores_the_rows(user: User) -> None:
+    screen = await open_late_screen(user)
+    screen.set_delay(3)
+    await user.should_see("開始が 3 日遅れると")
+    screen.set_delay(0)
+    await user.should_see("あと 7.5h 足りません")
+    assert "開始が" not in label_text(user, "assign-shortage")
+    assert "開始が" not in label_text(user, "assign-required-rate")
+
+
+async def test_a_start_delay_moves_the_weekly_burn_row(user: User) -> None:
+    screen = await open_late_screen(user)
+    await user.should_see("消化 32.5h / 残り 7.5h")  # 遅れなし: 第 1 週で 32.5h
+    screen.set_delay(7)  # 次の月曜から数える
+    await user.should_see("消化 0.0h / 残り 40.0h")  # 第 1 週は消化なし
+    assert "消化 32.5h / 残り 7.5h" in label_text(user, "assign-burn-1")
+
+
+async def test_the_delay_is_clamped_and_bad_values_mean_no_delay(user: User) -> None:
+    screen = await open_late_screen(user)
+    for value, expected in [
+        ("3", 3),
+        (2.7, 2),
+        (-4, 0),
+        ("abc", 0),
+        (None, 0),
+        (1000, 365),
+        (float("inf"), 365),
+        (float("-inf"), 0),
+        (float("nan"), 0),
+        (10**400, 365),
+    ]:
+        screen.set_delay(value)
+        assert screen.delay_days == expected, value
+
+
+async def test_the_delay_does_not_make_the_screen_dirty_or_the_compare_row_appear(
+    user: User,
+) -> None:
+    screen = await open_late_screen(user)
+    dirty = is_dirty(screen.trial)
+    screen.set_delay(3)
+    await user.should_see("開始が 3 日遅れると")
+    assert is_dirty(screen.trial) == dirty
+    await user.should_not_see(marker="assign-compare")
+
+
+async def test_the_delay_input_is_in_the_header_and_drives_the_rows(
+    user: User,
+) -> None:
+    screen = await open_late_screen(user)
+    await user.should_see(marker="assign-start-delay")
+    user.find(marker="assign-start-delay").type("3")
+    await user.should_see("開始が 3 日遅れると")
+    assert screen.delay_days == 3
