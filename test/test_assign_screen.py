@@ -982,3 +982,36 @@ async def test_the_burn_row_does_not_make_the_screen_dirty(user: User) -> None:
     screen.now = lambda: datetime(2026, 11, 16, 9)
     screen.refresh()
     assert not is_dirty(screen.trial)
+
+
+async def test_the_last_week_says_when_work_remains_beyond_the_cells(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    task = screen.trial.task
+    task.effort_hours = 100.0
+    task.planned_end = datetime(2026, 11, 20, 17)
+    task.planned_end_manual = True
+    screen.refresh()
+    await user.should_see("消化 32.5h / 残り 67.5h ›")
+    assert "この先も残りがあります" in str(
+        user.find(marker="assign-burn-0").elements.pop().props.get("title", "")
+    )
+
+
+async def test_the_burn_row_reuses_the_charts_trial_project(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    calls: list[int] = []
+    import projectapp.assign_screen as module
+
+    original = module.trial_project
+    module.trial_project = lambda *a, **k: (calls.append(1), original(*a, **k))[1]
+    try:
+        screen.refresh()
+        await user.should_see(marker="assign-burn-0")
+    finally:
+        module.trial_project = original
+    assert (
+        len(calls) == 1
+    )  # refresh の 1 回だけ(チャートと不足の行と消化の行で使い回す)

@@ -326,7 +326,9 @@ class AssignScreen:
             return
         value = weekly_burn(
             self.trial.task,
-            trial_project(self.project, self.trial),
+            self.chart.project
+            if self.chart is not None
+            else trial_project(self.project, self.trial),
             self.holidays,
             self.now(),
             weeks,
@@ -345,12 +347,17 @@ class AssignScreen:
                     first, first + timedelta(days=WEEK_DAYS - 1), columns, width
                 )
                 narrow = span < BURN_NARROW_PX
-                ui.label(burn_text(item, narrow)).classes("text-caption").style(
+                more = item is value[-1] and item.left > 0  # セルの先にも残りがある
+                ui.label(burn_text(item, narrow) + (" ›" if more else "")).classes(
+                    "text-caption"
+                ).style(
                     f"position: absolute; left: {from_name(left)};"
                     f" width: {max(span - 2, 0):.0f}px; top: 0; text-align: center;"
                     " overflow: hidden; white-space: nowrap; text-overflow: ellipsis;"
                     f" opacity: {0.5 if item.before <= 0 else 1}"
-                ).props(f'title="{burn_hint(item)}"').mark(f"assign-burn-{item.week}")
+                ).props(
+                    f'title="{burn_hint(item)}{"。この先も残りがあります" if more else ""}"'
+                ).mark(f"assign-burn-{item.week}")
 
     def no_start_row(self) -> None:
         with (
