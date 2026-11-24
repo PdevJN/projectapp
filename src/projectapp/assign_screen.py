@@ -607,6 +607,9 @@ class AssignScreen:
         self.rate_target = (name, week, day)
         self.show_rate()
         if self.rate_dialog is not None and self.rate_target is not None:
+            if self.rate_slider is not None:
+                # 動かした値は画面へ送り返していないので、開く前に画面の属性を今の値へ合わせる(100 のまま出るのを防ぐ)
+                self.rate_slider.update()
             self.rate_dialog.open()
 
     def show_rate(self) -> None:

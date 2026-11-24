@@ -514,6 +514,25 @@ async def test_clicking_a_chip_icon_opens_the_rate_popup_for_that_cell(
     assert screen.rate_title is not None and screen.rate_title.text == "鈴木 第 2 週"
 
 
+async def test_reopening_the_popup_resends_the_slider_value_after_a_drag(
+    user: User,
+) -> None:
+    """つまみを動かした値は画面へ送り返さないので、開き直す前に画面の属性を今の値へ合わせる(100 に戻って見える不具合)。"""
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.open_rate("鈴木", 1, None)
+    slider = screen.rate_slider
+    assert slider is not None
+    slider._from_client(type("E", (), {"args": 50})())  # ドラッグ
+    screen.apply_rate(50)
+    screen.rate_dialog.close()  # type: ignore[union-attr]
+    sent: list[object] = []
+    original = slider.update
+    slider.update = lambda: (sent.append(slider.props["^value"]), original())[1]  # type: ignore[method-assign]
+    screen.open_rate("鈴木", 1, None)
+    assert sent and sent[-1] == 50
+
+
 async def test_the_popup_title_names_the_day_of_a_daily_week(user: User) -> None:
     screen, _ = await open_team_screen(user)
     screen.drop_member("鈴木", 0, None)
