@@ -514,6 +514,28 @@ async def test_clicking_a_chip_icon_opens_the_rate_popup_for_that_cell(
     assert screen.rate_title is not None and screen.rate_title.text == "鈴木 第 2 週"
 
 
+async def test_reopening_the_popup_resends_the_slider_value_after_a_drag(
+    user: User,
+) -> None:
+    """つまみを動かした値は画面へ送り返さないので、開き直す前に画面の属性を今の値へ合わせる(100 に戻って見える不具合)。"""
+    screen, _ = await open_team_screen(user)
+    screen.drop_member("鈴木", 1, None)
+    screen.open_rate("鈴木", 1, None)
+    slider = screen.rate_slider
+    assert slider is not None
+    slider._from_client(type("E", (), {"args": 50})())  # ドラッグ
+    screen.apply_rate(50)
+    screen.rate_dialog.close()  # type: ignore[union-attr]
+    sent: list[object] = []
+    original = slider.update
+    slider.update = lambda: (sent.append(slider.props["^value"]), original())[1]  # type: ignore[method-assign]
+    screen.open_rate("鈴木", 1, None)
+    assert sent and sent[-1] == 50
+    assert (
+        slider.style.get("--fill") == "50%"
+    )  # 塗りも、開き直した画面へ送る style を今の値にする
+
+
 async def test_the_popup_title_names_the_day_of_a_daily_week(user: User) -> None:
     screen, _ = await open_team_screen(user)
     screen.drop_member("鈴木", 0, None)
@@ -934,3 +956,84 @@ async def test_switching_from_a_shortage_to_a_reason_clears_the_warning_look(
     await user.should_see("基準日を過ぎています")
     assert "--warning" not in str(label._style)
     assert "title" not in label.props
+
+
+async def test_the_burn_row_shows_each_weeks_burn(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_see("消化 32.5h / 残り 7.5h")
+    assert label_text(user, "assign-burn-0") == "消化 32.5h / 残り 7.5h"
+    assert label_text(user, "assign-burn-1") == "消化 7.5h / 完了"
+    await user.should_not_see(marker="assign-burn-2")  # セルは 2 週ぶんだけ
+
+
+async def test_the_burn_row_follows_the_assignment(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.drop_member("鈴木", 0, None)  # 週 0 だけ 2 人(65h)
+    await user.should_see("消化 40.0h / 完了")
+    assert label_text(user, "assign-burn-0") == "消化 40.0h / 完了"
+    assert label_text(user, "assign-burn-1") == "—"
+
+
+async def test_the_burn_row_needs_no_deadline(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    assert screen.trial.task.deadline is None
+    await user.should_see(marker="assign-burn-0")
+
+
+async def test_the_burn_hint_names_the_week(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_see("消化 32.5h / 残り 7.5h")
+    label = user.find(marker="assign-burn-0").elements.pop()
+    assert "11/16〜11/22 の稼働 32.5h" in str(label.props.get("title", ""))
+
+
+async def test_the_burn_row_is_not_drawn_without_a_start_date(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.trial.task.planned_start = None
+    screen.refresh()
+    await user.should_not_see(marker="assign-burn-row")
+
+
+async def test_the_burn_row_does_not_make_the_screen_dirty(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    assert not is_dirty(screen.trial)
+
+
+async def test_the_last_week_says_when_work_remains_beyond_the_cells(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    task = screen.trial.task
+    task.effort_hours = 100.0
+    task.planned_end = datetime(2026, 11, 20, 17)
+    task.planned_end_manual = True
+    screen.refresh()
+    await user.should_see("消化 32.5h / 残り 67.5h ›")
+    assert "この先も残りがあります" in str(
+        user.find(marker="assign-burn-0").elements.pop().props.get("title", "")
+    )
+
+
+async def test_the_burn_row_reuses_the_charts_trial_project(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    calls: list[int] = []
+    import projectapp.assign_screen as module
+
+    original = module.trial_project
+    module.trial_project = lambda *a, **k: (calls.append(1), original(*a, **k))[1]
+    try:
+        screen.refresh()
+        await user.should_see(marker="assign-burn-0")
+    finally:
+        module.trial_project = original
+    assert (
+        len(calls) == 1
+    )  # refresh の 1 回だけ(チャートと不足の行と消化の行で使い回す)
