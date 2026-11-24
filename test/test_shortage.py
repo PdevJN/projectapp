@@ -4,11 +4,15 @@ import pytest
 
 from projectapp.models import Assignee, Member, Project, Section, Status, Task, TaskKind
 from projectapp.shortage import (
+    RequiredRate,
     Shortage,
     WeekBurn,
     burn_hint,
     burn_text,
     due_of,
+    required_rate,
+    required_rate_hint,
+    required_rate_text,
     shortage_hint,
     shortage_text,
     task_shortage,
@@ -318,3 +322,128 @@ def test_burn_text_shapes() -> None:
 def test_burn_hint_names_the_week_and_the_change() -> None:
     first = WeekBurn(0, MON, datetime(2026, 10, 12), 40.0, 32.5, 7.5)
     assert burn_hint(first) == "10/05〜10/11 の稼働 32.5h。残り 40.0h → 7.5h"
+
+
+def needed(task: Task, now: datetime = MON) -> RequiredRate | str:
+    return required_rate(task, project_of(task), {}, now)
+
+
+def rates(value: RequiredRate) -> dict[str, tuple[float, float]]:
+    return {name: (now_rate, need) for name, now_rate, need in value.members}
+
+
+def test_a_shortage_that_reaches_scales_everyone_by_the_same_factor() -> None:
+    task = task_of(assignees=[Assignee("田中", 0.5), Assignee("鈴木", 0.5)])
+    value = needed(task)  # 残り 40h・稼働 32.5h
+    assert isinstance(value, RequiredRate)
+    assert value.factor == pytest.approx(40 / 32.5, rel=1e-4)
+    assert rates(value)["田中"][1] == pytest.approx(0.5 * 40 / 32.5, rel=1e-4)
+    assert rates(value)["鈴木"] == pytest.approx((0.5, 0.5 * 40 / 32.5), rel=1e-4)
+    assert value.short_hours == 0.0 and value.short_people is None
+
+
+def test_a_member_already_at_100_percent_stays_and_the_others_make_up_the_rest() -> (
+    None
+):
+    task = task_of(
+        effort_hours=60.0, assignees=[Assignee("田中"), Assignee("鈴木", 0.5)]
+    )  # 稼働 32.5 + 16.25 = 48.75h。田中は 100% のまま、鈴木が 0.846 まで
+    value = needed(task)
+    assert isinstance(value, RequiredRate)
+    assert value.factor == pytest.approx(1.6923, rel=1e-3)
+    assert rates(value)["田中"] == pytest.approx((1.0, 1.0))
+    assert rates(value)["鈴木"] == pytest.approx((0.5, 0.8462), rel=1e-3)
+
+
+def test_when_even_everyone_at_100_percent_falls_short_there_is_no_factor() -> None:
+    value = needed(task_of())  # 田中 100%・残り 40h・稼働 32.5h
+    assert isinstance(value, RequiredRate)
+    assert value.factor is None and value.members == ()
+    assert value.short_hours == pytest.approx(7.5)
+    assert value.short_people == pytest.approx(7.5 / 32.5)
+
+
+def test_weekly_crews_are_scaled_in_every_week() -> None:
+    task = task_of(
+        effort_hours=30.0,
+        assignees=[Assignee("田中", 0.5)],
+        weekly_crew=[[Assignee("田中", 0.5)]],
+    )  # 稼働 16.25h
+    value = needed(task)
+    assert isinstance(value, RequiredRate)
+    assert value.factor == pytest.approx(30 / 16.25, rel=1e-4)
+
+
+def test_daily_crews_use_the_peak_rate_for_the_member() -> None:
+    days = [[Assignee("田中", 0.5)] for _ in range(3)] + [
+        [Assignee("田中")] for _ in range(4)
+    ]  # 月〜水 50%・木〜日 100%。稼働 9.75 + 13 = 22.75h
+    task = task_of(
+        effort_hours=30.0,
+        assignees=[Assignee("田中")],
+        weekly_crew=[[Assignee("田中")]],
+        daily_crew={0: days},
+    )
+    value = needed(task)
+    assert isinstance(value, RequiredRate)
+    assert value.factor == pytest.approx(1.7436, rel=1e-3)
+    assert rates(value)["田中"] == pytest.approx((1.0, 1.0))
+
+
+def test_the_original_task_is_not_changed() -> None:
+    task = task_of(assignees=[Assignee("田中", 0.5), Assignee("鈴木", 0.5)])
+    needed(task)
+    assert [a.allocation for a in task.assignees] == [0.5, 0.5]
+
+
+def test_no_shortage_or_no_due_gives_a_reason_string() -> None:
+    assert needed(task_of(effort_hours=20.0)) == "不足していません"
+    reason = needed(task_of(deadline=None))
+    assert isinstance(reason, str) and "基準日" in reason
+    assert needed(task_of(), now=datetime(2026, 10, 12, 9)) == "基準日を過ぎています"
+
+
+def test_the_text_names_the_factor_and_each_members_rate() -> None:
+    task = task_of(
+        effort_hours=60.0, assignees=[Assignee("田中"), Assignee("鈴木", 0.5)]
+    )
+    value = needed(task)
+    assert isinstance(value, RequiredRate)
+    assert required_rate_text(value) == "必要な率: 今の ×1.7(田中 100%・鈴木 50→85%)"
+
+
+def test_the_text_lists_three_members_and_counts_the_rest() -> None:
+    members = tuple((f"m{i}", 0.5, 0.6) for i in range(5))
+    shortage = Shortage(40.0, 32.5, 32.5, FRI, "締切")
+    value = RequiredRate(1.2, members, 0.0, None, shortage)
+    assert (
+        required_rate_text(value)
+        == "必要な率: 今の ×1.2(m0 50→60%・m1 50→60%・m2 50→60%・ほか 2 人)"
+    )
+
+
+def test_the_text_when_even_everyone_at_100_percent_falls_short() -> None:
+    value = needed(task_of())
+    assert isinstance(value, RequiredRate)
+    assert required_rate_text(value) == "全員 100% でもあと 7.5h 足りません(約 0.2 人)"
+
+
+def test_the_hint_gives_the_remaining_the_capacity_and_the_due() -> None:
+    value = needed(task_of(assignees=[Assignee("田中", 0.5), Assignee("鈴木", 0.5)]))
+    assert isinstance(value, RequiredRate)
+    hint = required_rate_hint(value)
+    assert "残り 40.0h / 稼働 32.5h" in hint and "10/09 17:00 まで。締切" in hint
+    assert "×1.23" in hint
+
+
+def test_a_52_week_task_with_the_lowest_rate_is_fast() -> None:
+    import time
+
+    task = task_of(
+        effort_hours=400.0,
+        deadline=datetime(2027, 10, 1, 17),
+        assignees=[Assignee("田中", 0.01)],
+    )
+    began = time.perf_counter()
+    needed(task)
+    assert time.perf_counter() - began < 2.0
