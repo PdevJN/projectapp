@@ -3,11 +3,18 @@
 基準日(締切、なければ手で決めた完了予定)までに、このタスクの担当で積める稼働量が、残りの工数に足りているかを見る。
 算出された完了予定は基準にしない(割り当てから決まるので、常に足りてしまう)。稼働量の数え方は警告の判定(`pace.py`)と同じ。"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
-from math import isfinite
+from math import ceil, isfinite
 
-from projectapp.models import Project, Status, Task, TaskKind
+from projectapp.models import (
+    MAX_ALLOCATION,
+    Assignee,
+    Project,
+    Status,
+    Task,
+    TaskKind,
+)
 from projectapp.remaining import remaining_hours, total_effort
 from projectapp.timeline import (
     Schedule,
@@ -66,6 +73,33 @@ def due_of(task: Task) -> tuple[datetime, str] | None:
     return None
 
 
+def _capacity_of(
+    task: Task,
+    project: Project,
+    holidays: dict[date, str],
+    origin: datetime,
+    due_at: datetime,
+    start: datetime,
+) -> float:
+    """今から基準日までに、このタスクの担当で積める稼働量[h](換算率つき)。`task_shortage`と`required_rate`で共有する。"""
+    return work_capacity(
+        origin,
+        due_at,
+        project.daily_hours,
+        project.work_start,
+        holidays,
+        crew=crew_of(
+            task.assignees,
+            project.members,
+            project.parameters,
+            task.parameters,
+            project.ratio_limits,
+        ),
+        weeks=weekly_crews(task, project) or None,
+        weeks_start=start.date(),
+    )
+
+
 def task_shortage(
     task: Task,
     project: Project,
@@ -93,22 +127,7 @@ def task_shortage(
         return "基準日を過ぎています"
     if due_at <= start:
         return "基準日が開始より前です"
-    capacity = work_capacity(
-        origin,
-        due_at,
-        project.daily_hours,
-        project.work_start,
-        holidays,
-        crew=crew_of(
-            task.assignees,
-            project.members,
-            project.parameters,
-            task.parameters,
-            project.ratio_limits,
-        ),
-        weeks=weekly_crews(task, project) or None,
-        weeks_start=start.date(),
-    )
+    capacity = _capacity_of(task, project, holidays, origin, due_at, start)
     unit = work_capacity(
         origin, due_at, project.daily_hours, project.work_start, holidays
     )
@@ -227,3 +246,132 @@ def shortage_hint(value: Shortage) -> str:
         f"残り {value.remaining:.1f}h / 稼働 {value.capacity:.1f}h"
         f"({value.due:%m/%d %H:%M} まで。{value.basis})"
     )
+
+
+@dataclass(frozen=True)
+class RequiredRate:
+    factor: float | None  # 倍率 k。全員 100% でも届かないときは None
+    members: tuple[
+        tuple[str, float, float], ...
+    ]  # (名前, 今の率, 必要な率)。届かないときは空
+    short_hours: float  # 届かないときの、足りない時間[h]
+    short_people: float | None  # 同じく、100% の人に換算した人数
+    shortage: Shortage  # 4a の不足(ヒントに使う)
+
+
+BISECT_STEPS = 50  # 倍率の二分法の回数(k の上限は最大 100 なので、十分に細かい)
+
+
+def _crews(task: Task) -> list[list[Assignee]]:
+    """全体・週ごと・日ごとのすべての担当。"""
+    return [
+        task.assignees,
+        *task.weekly_crew,
+        *(crew for days in task.daily_crew.values() for crew in days),
+    ]
+
+
+def _scaled(task: Task, factor: float) -> Task:
+    """担当の率を factor 倍(各人 100% で頭打ち)にした複製。元は変えない。"""
+
+    def scale(crew: list[Assignee]) -> list[Assignee]:
+        return [
+            replace(a, allocation=min(MAX_ALLOCATION, a.allocation * factor))
+            for a in crew
+        ]
+
+    return replace(
+        task,
+        assignees=scale(task.assignees),
+        weekly_crew=[scale(crew) for crew in task.weekly_crew],
+        daily_crew={
+            week: [scale(crew) for crew in days]
+            for week, days in task.daily_crew.items()
+        },
+    )
+
+
+def required_rate(
+    task: Task,
+    project: Project,
+    holidays: dict[date, str],
+    now: datetime,
+    schedule: Schedule | None = None,
+) -> RequiredRate | str:
+    """基準日に間に合う、担当の率の倍率(要望 168 段階 4c)。不足のときだけ出す。出せないときは理由の文字列。
+    担当の全員の率(全体・週ごと・日ごと)を k 倍して各人 100% で頭打ちにし、稼働量が残りの工数に届く最小の k を求める。"""
+    schedule = schedule or Schedule(project, holidays)
+    value = task_shortage(task, project, holidays, now, schedule)
+    if isinstance(value, str):
+        return value
+    if value.kind != "不足":
+        return "不足していません"
+    start = effective_start(task, project, holidays, schedule)
+    if start is None:  # task_shortage が通っているので起きないが、型のために
+        return "開始日がありません"
+    origin = max(now, start)
+
+    def capacity(factor: float) -> float:
+        return _capacity_of(
+            _scaled(task, factor), project, holidays, origin, value.due, start
+        )
+
+    allocations = [a.allocation for crew in _crews(task) for a in crew]
+    upper = 1.0 / min(allocations) if allocations else 1.0  # これ以上は全員 100% で同じ
+    best = capacity(upper)
+    if best < value.remaining - 1e-9:
+        short = value.remaining - best
+        people = None if value.unit <= 0 else short / value.unit
+        return RequiredRate(None, (), short, people, value)
+    low, high = 1.0, upper
+    for _ in range(BISECT_STEPS):
+        mid = (low + high) / 2
+        if capacity(mid) >= value.remaining:
+            high = mid
+        else:
+            low = mid
+    peaks: dict[str, float] = {}
+    for crew in _crews(task):
+        for a in crew:
+            peaks[a.name] = max(peaks.get(a.name, 0.0), a.allocation)
+    members = tuple(
+        (name, peak, min(MAX_ALLOCATION, peak * high)) for name, peak in peaks.items()
+    )
+    return RequiredRate(high, members, 0.0, None, value)
+
+
+def _up(value: float, digits: int = 0) -> float:
+    """表示の桁で、足りない側にずれないよう切り上げる(浮動小数点の誤差は除く)。"""
+    scale = 10**digits
+    return ceil(value * scale - 1e-6) / scale
+
+
+MEMBERS_SHOWN = 3  # 文言に出す人数(これを超える分は`ほか n 人`)
+
+
+def required_rate_text(value: RequiredRate) -> str:
+    """`必要な率: 今の ×1.7(田中 100%・鈴木 50→85%)`・`全員 100% でもあと 7.5h 足りません(約 0.2 人)`。"""
+    if value.factor is None:
+        people = value.short_people
+        tail = (
+            "" if people is None or round(people, 1) == 0 else f"(約 {people:.1f} 人)"
+        )
+        return f"全員 100% でもあと {value.short_hours:.1f}h 足りません{tail}"
+    parts = []
+    for name, now_rate, need in value.members[:MEMBERS_SHOWN]:
+        before, after = round(now_rate * 100), int(_up(need * 100))
+        parts.append(
+            f"{name} {before}→{after}%" if after != before else f"{name} {before}%"
+        )
+    rest = len(value.members) - MEMBERS_SHOWN
+    if rest > 0:
+        parts.append(f"ほか {rest} 人")
+    return f"必要な率: 今の ×{_up(value.factor, 1):.1f}({'・'.join(parts)})"
+
+
+def required_rate_hint(value: RequiredRate) -> str:
+    """ホバーの文字。4a の不足のヒントに、倍率の前提を足す。"""
+    base = shortage_hint(value.shortage)
+    if value.factor is None:
+        return f"{base}。全員の率を 100% にしても、残りの工数に届きません"
+    return f"{base}。全員の率を ×{value.factor:.2f}(上限 100%)にすると、稼働が残りの工数に届きます"

@@ -2189,7 +2189,7 @@ CSV の取り込みで読んだメモは、すぐ`notes/<ファイル名の stem
 - 要望 158(割り当ての不足の表示)・要望 159(割り当ての微調整)と同じ値・同じ画面で出せるか。
 
 ### 状態
-未着手。
+一部実装済み: 率の逆算(必要な割り当て率)は要望 168 段階 4c で実装した。着工遅れの入力欄(開始を動かした逆算)は未着手。
 要望 168(アサイン専用の画面)の段階 4 と、値・計算を共有する(共通の計算を先に決める)。
 
 ## 要望 161: 着工の遅れを、ガントチャートで表現できるようにする(2026-11-22 に受領)
@@ -2389,7 +2389,7 @@ CSV の取り込みで読んだメモは、すぐ`notes/<ファイル名の stem
 - 視点の中身: 残工数・余裕の状態のほかに出す指標。要望 158 の「不足」の定義と合わせる。【段階 4】
 
 ### 状態
-段階 1 は実装済み・マージ済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage1-design.md`)。段階 2 は実装済み・マージ済み(PR #270・#271。設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage2-design.md`)。段階 3a(割り当て率のスライダー)は実装済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage3a-design.md`・計画: `docs/superpowers/plans/2026-11-22-assign-screen-stage3a.md`。PR #272。実機確認待ち)。段階 3b(範囲を選んでの集中増員)は実装済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage3b-design.md`・計画: `docs/superpowers/plans/2026-11-22-assign-screen-stage3b.md`。PR #273。実機確認待ち)。段階 5(負荷のヒストグラム)は実装済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage5-design.md`・計画: `docs/superpowers/plans/2026-11-22-assign-screen-stage5.md`。PR #275。実機確認待ち)。段階 4a(不足と余裕)は実装済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage4a-design.md`・計画: `docs/superpowers/plans/2026-11-22-assign-screen-stage4a.md`。実機確認待ち)。段階 4b(週ごとの消化の見通し)は実装済み(設計書: `docs/superpowers/specs/2026-11-24-assign-screen-stage4b-design.md`・計画: `docs/superpowers/plans/2026-11-24-assign-screen-stage4b.md`。実機確認待ち)。段階 4c(逆算)・4d(試算の前後の比較)は未着手。
+段階 1 は実装済み・マージ済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage1-design.md`)。段階 2 は実装済み・マージ済み(PR #270・#271。設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage2-design.md`)。段階 3a(割り当て率のスライダー)は実装済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage3a-design.md`・計画: `docs/superpowers/plans/2026-11-22-assign-screen-stage3a.md`。PR #272。実機確認待ち)。段階 3b(範囲を選んでの集中増員)は実装済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage3b-design.md`・計画: `docs/superpowers/plans/2026-11-22-assign-screen-stage3b.md`。PR #273。実機確認待ち)。段階 5(負荷のヒストグラム)は実装済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage5-design.md`・計画: `docs/superpowers/plans/2026-11-22-assign-screen-stage5.md`。PR #275。実機確認待ち)。段階 4a(不足と余裕)は実装済み(設計書: `docs/superpowers/specs/2026-11-22-assign-screen-stage4a-design.md`・計画: `docs/superpowers/plans/2026-11-22-assign-screen-stage4a.md`。実機確認待ち)。段階 4b(週ごとの消化の見通し)は実装済み(設計書: `docs/superpowers/specs/2026-11-24-assign-screen-stage4b-design.md`・計画: `docs/superpowers/plans/2026-11-24-assign-screen-stage4b.md`。実機確認待ち)。段階 4c(必要な割り当て率の逆算)は実装済み(設計書: `docs/superpowers/specs/2026-11-24-assign-screen-stage4c-design.md`・計画: `docs/superpowers/plans/2026-11-25-assign-screen-stage4c.md`。実機確認待ち)。段階 4d(試算の前後の比較)は未着手。
 
 ## 要望 169: アサイン専用の画面で、複数のタスクを並べて調整する(2026-11-22 に受領。関連: 要望 168)
 

@@ -1037,3 +1037,66 @@ async def test_the_burn_row_reuses_the_charts_trial_project(user: User) -> None:
     assert (
         len(calls) == 1
     )  # refresh の 1 回だけ(チャートと不足の行と消化の行で使い回す)
+
+
+async def test_the_required_rate_row_shows_when_everyone_at_100_percent_falls_short(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.trial.task.deadline = datetime(2026, 11, 20, 17)  # 稼働 32.5h・残り 40h
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_see("全員 100% でもあと 7.5h 足りません")
+    label = user.find(marker="assign-required-rate").elements.pop()
+    assert "--warning" in str(label._style)
+
+
+async def test_the_required_rate_row_gives_the_factor_when_it_can_reach(
+    user: User,
+) -> None:
+    from projectapp.daily_crew import set_allocation_all
+
+    screen, _ = await open_team_screen(user)
+    screen.trial.task.effort_hours = 20.0
+    screen.trial.task.deadline = datetime(2026, 11, 20, 17)
+    changed = set_allocation_all(screen.trial.task, "田中", 0.5)  # 稼働 16.25h
+    assert changed is not None
+    screen.trial.task = changed
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_see("必要な率: 今の ×1.3(田中 50→62%)")
+    label = user.find(marker="assign-required-rate").elements.pop()
+    assert "--warning" not in str(label._style)
+    assert "title" in label.props
+
+
+async def test_the_required_rate_row_hides_when_there_is_no_shortage(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.trial.task.deadline = datetime(2026, 11, 20, 17)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_see(marker="assign-required-rate")
+    screen.drop_member("鈴木", 0, None)  # 余裕になる
+    await user.should_see("余裕")
+    await user.should_not_see(marker="assign-required-rate")
+
+
+async def test_the_required_rate_row_is_hidden_without_a_due(user: User) -> None:
+    await open_team_screen(user)
+    await user.should_see(marker="assign-shortage")
+    await user.should_not_see(marker="assign-required-rate")
+
+
+async def test_the_required_rate_row_does_not_make_the_screen_dirty(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.trial.task.deadline = datetime(2026, 11, 20, 17)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    before = is_dirty(screen.trial)  # 締切を書き換えた分は、試算の変更
+    screen.refresh()
+    await user.should_see("全員 100% でもあと 7.5h 足りません")
+    assert is_dirty(screen.trial) == before
+    assert screen.trial.task.assignees[0].allocation == 1.0
