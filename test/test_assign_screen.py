@@ -934,3 +934,51 @@ async def test_switching_from_a_shortage_to_a_reason_clears_the_warning_look(
     await user.should_see("基準日を過ぎています")
     assert "--warning" not in str(label._style)
     assert "title" not in label.props
+
+
+async def test_the_burn_row_shows_each_weeks_burn(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_see("消化 32.5h / 残り 7.5h")
+    assert label_text(user, "assign-burn-0") == "消化 32.5h / 残り 7.5h"
+    assert label_text(user, "assign-burn-1") == "消化 7.5h / 完了"
+    await user.should_not_see(marker="assign-burn-2")  # セルは 2 週ぶんだけ
+
+
+async def test_the_burn_row_follows_the_assignment(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.drop_member("鈴木", 0, None)  # 週 0 だけ 2 人(65h)
+    await user.should_see("消化 40.0h / 完了")
+    assert label_text(user, "assign-burn-0") == "消化 40.0h / 完了"
+    assert label_text(user, "assign-burn-1") == "—"
+
+
+async def test_the_burn_row_needs_no_deadline(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    assert screen.trial.task.deadline is None
+    await user.should_see(marker="assign-burn-0")
+
+
+async def test_the_burn_hint_names_the_week(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_see("消化 32.5h / 残り 7.5h")
+    label = user.find(marker="assign-burn-0").elements.pop()
+    assert "11/16〜11/22 の稼働 32.5h" in str(label.props.get("title", ""))
+
+
+async def test_the_burn_row_is_not_drawn_without_a_start_date(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.trial.task.planned_start = None
+    screen.refresh()
+    await user.should_not_see(marker="assign-burn-row")
+
+
+async def test_the_burn_row_does_not_make_the_screen_dirty(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    assert not is_dirty(screen.trial)

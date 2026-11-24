@@ -31,7 +31,14 @@ from projectapp.assign_load import (
     overlay_summary,
     overlay_svg,
 )
-from projectapp.shortage import shortage_hint, shortage_text, task_shortage
+from projectapp.shortage import (
+    burn_hint,
+    burn_text,
+    shortage_hint,
+    shortage_text,
+    task_shortage,
+    weekly_burn,
+)
 from projectapp.assign_trial import (
     AssignTrial,
     CellPlan,
@@ -86,6 +93,8 @@ ASSIGN_SCALES = (Scale.DAY, Scale.WEEK, Scale.MONTH)
 ROW_HEIGHT_PX = 40
 CHIP_STEP_PX = 20  # アイコン 18px + すき間 2px
 LINE_STEP_PX = 22  # セルの 1 段の高さ
+BURN_ROW_PX = 18  # 消化の行の高さ
+BURN_NARROW_PX = 120  # 週の幅がこれ未満なら、短い表記にする
 ACTIVE: dict[
     str, "AssignScreen"
 ] = {}  # クライアント id → 今開いている画面(ドロップを受ける)
@@ -309,6 +318,39 @@ class AssignScreen:
             if task.weekly_crew or task.assignees:  # 担当者がいなければ日ごとにできない
                 for week in range(weeks):
                     self.daily_toggle(week, columns, width)
+        self.burn_row(weeks, columns, width)
+
+    def burn_row(self, weeks: int, columns: list[Column], width: int) -> None:
+        """割り当ての行の下に、週ごとの消化と残りを並べる(要望 168 段階 4b)。出せないときは何も出さない(理由は不足の行が言う)。"""
+        if self.plan is None:
+            return
+        value = weekly_burn(
+            self.trial.task,
+            trial_project(self.project, self.trial),
+            self.holidays,
+            self.now(),
+            weeks,
+            self.plan.origin,
+        )
+        if isinstance(value, str):
+            return
+        with (
+            ui.element("div")
+            .style(f"height: {BURN_ROW_PX}px; position: relative; width: 100%")
+            .mark("assign-burn-row")
+        ):
+            for item in value:
+                first = self.plan.origin + timedelta(days=WEEK_DAYS * item.week)
+                left, span = self.edges(
+                    first, first + timedelta(days=WEEK_DAYS - 1), columns, width
+                )
+                narrow = span < BURN_NARROW_PX
+                ui.label(burn_text(item, narrow)).classes("text-caption").style(
+                    f"position: absolute; left: {from_name(left)};"
+                    f" width: {max(span - 2, 0):.0f}px; top: 0; text-align: center;"
+                    " overflow: hidden; white-space: nowrap; text-overflow: ellipsis;"
+                    f" opacity: {0.5 if item.before <= 0 else 1}"
+                ).props(f'title="{burn_hint(item)}"').mark(f"assign-burn-{item.week}")
 
     def no_start_row(self) -> None:
         with (
