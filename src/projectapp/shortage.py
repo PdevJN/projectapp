@@ -107,8 +107,10 @@ def task_shortage(
     holidays: dict[date, str],
     now: datetime,
     schedule: Schedule | None = None,
+    delay_days: int = 0,
 ) -> Shortage | str:
-    """不足と余裕。出せないときは、その理由の文字列を返す。"""
+    """不足と余裕。出せないときは、その理由の文字列を返す。
+    `delay_days`(要望 160): 開始が何日遅れたと仮定するか。稼働量を数え始める時刻だけを後ろへずらす(週ごとの担当の週の割り付けは元の開始のまま)。"""
     reason = _unfit(task)
     if reason is not None:
         return reason
@@ -122,11 +124,12 @@ def task_shortage(
     rest = remaining_hours(task, project, holidays, now)
     if not rest > 0:
         return "残りの工数がありません"
-    origin = max(now, start)
+    late_start = start + timedelta(days=max(0, delay_days))
+    origin = max(now, late_start)
     due_at, basis = due
     if due_at <= now:
         return "基準日を過ぎています"
-    if due_at <= start:
+    if due_at <= late_start:
         return "基準日が開始より前です"
     capacity = _capacity_of(task, project, holidays, origin, due_at, start)
     unit = work_capacity(
@@ -158,9 +161,11 @@ def weekly_burn(
     weeks: int,
     origin: date,
     schedule: Schedule | None = None,
+    delay_days: int = 0,
 ) -> list[WeekBurn] | str:
     """週ごとの消化の見通し(要望 168 段階 4b)。週 w は [origin + 7w 日, origin + 7(w+1) 日)。
-    出せないときは、その理由の文字列を返す。基準日は要らない。"""
+    出せないときは、その理由の文字列を返す。基準日は要らない。
+    `delay_days`(要望 160): 開始が何日遅れたと仮定するか。数え始める時刻だけをずらす。"""
     reason = _unfit(task)
     if reason is not None:
         return reason
@@ -171,7 +176,7 @@ def weekly_burn(
     rest = remaining_hours(task, project, holidays, now)
     if not rest > 0:
         return "残りの工数がありません"
-    counted_from = max(now, start)
+    counted_from = max(now, start + timedelta(days=max(0, delay_days)))
     crew = crew_of(
         task.assignees,
         project.members,
@@ -298,11 +303,12 @@ def required_rate(
     holidays: dict[date, str],
     now: datetime,
     schedule: Schedule | None = None,
+    delay_days: int = 0,
 ) -> RequiredRate | str:
     """基準日に間に合う、担当の率の倍率(要望 168 段階 4c)。不足のときだけ出す。出せないときは理由の文字列。
     担当の全員の率(全体・週ごと・日ごと)を k 倍して各人 100% で頭打ちにし、稼働量が残りの工数に届く最小の k を求める。"""
     schedule = schedule or Schedule(project, holidays)
-    value = task_shortage(task, project, holidays, now, schedule)
+    value = task_shortage(task, project, holidays, now, schedule, delay_days)
     if isinstance(value, str):
         return value
     if value.kind != "不足":
@@ -310,7 +316,7 @@ def required_rate(
     start = effective_start(task, project, holidays, schedule)
     if start is None:  # task_shortage が通っているので起きないが、型のために
         return "開始日がありません"
-    origin = max(now, start)
+    origin = max(now, start + timedelta(days=max(0, delay_days)))
 
     def capacity(factor: float) -> float:
         return _capacity_of(

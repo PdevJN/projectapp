@@ -558,3 +558,67 @@ def test_comparing_does_not_change_the_tasks() -> None:
     compared(before, after)
     assert [a.name for a in before.assignees] == ["田中"]
     assert [a.name for a in after.assignees] == ["田中", "鈴木"]
+
+
+def test_a_late_start_cuts_the_capacity_and_the_room() -> None:
+    task = task_of()  # 月 9:00 開始・締切 金 17:00・田中 100%・40h
+    value = task_shortage(task, project_of(task), {}, MON, delay_days=3)
+    assert isinstance(value, Shortage)  # 木 9:00 から数える: 木・金の 13h
+    assert value.capacity == pytest.approx(13.0)
+    assert value.gap == pytest.approx(27.0)
+
+
+def test_no_delay_gives_the_same_result_as_before() -> None:
+    task = task_of()
+    assert task_shortage(task, project_of(task), {}, MON) == task_shortage(
+        task, project_of(task), {}, MON, delay_days=0
+    )
+    assert task_shortage(task, project_of(task), {}, MON, delay_days=-2) == (
+        task_shortage(task, project_of(task), {}, MON)
+    )
+
+
+def test_a_start_pushed_past_the_due_is_explained() -> None:
+    task = task_of()
+    value = task_shortage(task, project_of(task), {}, MON, delay_days=5)  # 土曜 10/10
+    assert value == "基準日が開始より前です"
+
+
+def test_a_delay_keeps_the_weekly_crews_anchored_to_the_original_start() -> None:
+    task = task_of(
+        effort_hours=40.0,
+        deadline=datetime(2026, 10, 16, 17),
+        assignees=[Assignee("田中")],
+        weekly_crew=[[Assignee("田中", 0.5)], [Assignee("田中")]],
+    )
+    value = task_shortage(task, project_of(task), {}, MON, delay_days=7)
+    assert isinstance(value, Shortage)  # 数えるのは 10/12 から。第 2 週(100%)の 32.5h
+    assert value.capacity == pytest.approx(32.5)
+
+
+def test_a_late_start_raises_the_required_rate() -> None:
+    task = task_of(
+        effort_hours=20.0, assignees=[Assignee("田中", 0.5), Assignee("鈴木", 0.5)]
+    )  # 遅れなしなら稼働 32.5h で足りる
+    assert required_rate(task, project_of(task), {}, MON) == "不足していません"
+    value = required_rate(task, project_of(task), {}, MON, delay_days=3)
+    assert isinstance(value, RequiredRate)  # 稼働 13h → 20/13 倍
+    assert value.factor == pytest.approx(20 / 13, rel=1e-3)
+
+
+def test_a_late_start_moves_the_first_week_of_the_burn() -> None:
+    task = task_of(deadline=None)
+    value = weekly_burn(task, project_of(task), {}, MON, 3, ORIGIN, delay_days=3)
+    assert isinstance(value, list)
+    assert value[0].first == datetime(2026, 10, 8, 9)
+    assert value[0].burn == pytest.approx(13.0) and value[0].left == pytest.approx(27.0)
+
+
+def test_a_week_long_delay_burns_nothing_in_the_first_week() -> None:
+    task = task_of(
+        deadline=None, weekly_crew=[[Assignee("田中", 0.5)], [Assignee("田中")]]
+    )
+    value = weekly_burn(task, project_of(task), {}, MON, 3, ORIGIN, delay_days=7)
+    assert isinstance(value, list)
+    assert value[0].burn == 0.0 and value[0].first == value[0].last
+    assert value[1].burn == pytest.approx(32.5)  # 第 2 週の担当(100%)で数える
