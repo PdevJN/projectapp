@@ -75,7 +75,7 @@
 | `crew_trial.py` | 遅延対応(要望 132)の増員の試算。`TrialCrew`・`trial_crews`(増員日を丸めず、週の途中ならその週だけ日ごと)・`effect_day`(効き始め)・`evaluate`(完了見込み)・`confirmed`(`weekly_crew`への変換)・`replace_task`。NiceGUI に依存しない |
 | `assign_trial.py` | アサイン専用画面(要望 168 段階 1)の試算の状態。`AssignTrial`・`start_trial`・`is_dirty`・`is_assignable`・`trial_project`(対象 1 件のプロジェクトの複製)・`apply_trial`(書き戻し)。NiceGUI に依存しない |
 | `assign_load.py` | アサイン専用画面の負荷のヒストグラムの SVG・要約(`load_svg`・`load_summary`。要望 168 段階 5。NiceGUI に依存しない) |
-| `shortage.py` | アサイン専用画面の不足と余裕(`Shortage`・`task_shortage`・`shortage_text`・`WeekBurn`・`weekly_burn`(週ごとの消化)・`RequiredRate`・`required_rate`(必要な割り当て率)。要望 168 段階 4a・4b・4c・要望 158 の不足の定義。NiceGUI に依存しない) |
+| `shortage.py` | アサイン専用画面の不足と余裕(`Shortage`・`task_shortage`・`shortage_text`・`WeekBurn`・`weekly_burn`(週ごとの消化)・`RequiredRate`・`required_rate`(必要な割り当て率)・`TrialCompare`・`compare_trial`(試算の前後の比較)。要望 168 段階 4a・4b・4c・4d・要望 158 の不足の定義。NiceGUI に依存しない) |
 | `assign_screen.py` | アサイン専用の全画面ダイアログ`AssignScreen`(負荷のエクスパンダー`build_load_panel`・`render_load`を含む。日次・週次・月次・確定・キャンセル・捨てる確認)。`GanttChart.build_embedded`で読み取り専用に描く。段階 2: メンバー一覧・割り当ての行(`GanttChart.task_extra`)・ドロップの処理。段階 3a: アイコンのクリックで開く範囲の選択(`selection`・`select_range`・`select_on_active`。段階 3b)と、率のポップアップ(`build_rate_popup`・`open_rate`・`apply_rate`・`apply_rate_all`)と、100% でないアイコンの角の数字 |
 | `assign_drag.py` | アサイン専用画面のメンバーのドラッグ・範囲の選択(段階 3b。`assign_select_range`)の JS・CSS(要望 168 段階 2。`application/x-assign-member`)。定数のみ |
 | `forecast.py` | 完了見込み(要望 133)。`Forecast`(`end`・`planned_end`・`days_later`)・`forecast_end`(今日からの残りの工数を今の担当で消化した終了日時。`extra_crew`で増員の試算も同じ計算)・`snap_week`・`with_added`。`timeline.calc_end`の`weeks_start`(週の区切りの起点。既定は開始)を使う。`crew_trial`の試算はこれに共通化 |

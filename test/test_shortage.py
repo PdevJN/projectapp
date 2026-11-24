@@ -6,13 +6,19 @@ from projectapp.models import Assignee, Member, Project, Section, Status, Task, 
 from projectapp.shortage import (
     RequiredRate,
     Shortage,
+    TrialCompare,
     WeekBurn,
     burn_hint,
+    compare_changed,
+    compare_hint,
+    compare_text,
+    compare_trial,
     burn_text,
     due_of,
     required_rate,
     required_rate_hint,
     required_rate_text,
+    shortage_gap_text,
     shortage_hint,
     shortage_text,
     task_shortage,
@@ -464,3 +470,91 @@ def test_the_hint_says_the_member_rate_is_the_peak() -> None:
     value = needed(task_of(assignees=[Assignee("田中", 0.5), Assignee("鈴木", 0.5)]))
     assert isinstance(value, RequiredRate)
     assert "最大の率" in required_rate_hint(value)
+
+
+def compared(before: Task, after: Task, now: datetime = MON) -> TrialCompare:
+    return compare_trial(before, project_of(before), after, project_of(after), {}, now)
+
+
+def test_the_gap_text_is_short_and_has_no_head_count() -> None:
+    assert (
+        shortage_gap_text(Shortage(40.0, 32.5, 32.5, FRI, "締切")) == "あと 7.5h 不足"
+    )
+    assert shortage_gap_text(Shortage(30.0, 32.5, 32.5, FRI, "締切")) == "余裕 2.5h"
+    assert shortage_gap_text(Shortage(32.5, 32.5, 32.5, FRI, "締切")) == "ちょうど"
+
+
+def test_adding_a_member_moves_the_end_earlier_and_turns_a_shortage_into_room() -> None:
+    value = compared(task_of(), task_of(assignees=[Assignee("田中"), Assignee("鈴木")]))
+    assert compare_changed(value)
+    assert compare_text(value) == (
+        "前→後: 完了予定 10/13 → 10/08(5 日早まる)・あと 7.5h 不足 → 余裕 25.0h"
+    )
+
+
+def test_removing_a_member_moves_the_end_later() -> None:
+    value = compared(task_of(assignees=[Assignee("田中"), Assignee("鈴木")]), task_of())
+    assert compare_text(value) == (
+        "前→後: 完了予定 10/08 → 10/13(5 日遅れる)・余裕 25.0h → あと 7.5h 不足"
+    )
+
+
+def test_a_smaller_change_shows_the_days_and_the_new_room() -> None:
+    value = compared(
+        task_of(), task_of(assignees=[Assignee("田中"), Assignee("鈴木", 0.5)])
+    )
+    assert compare_text(value) == (
+        "前→後: 完了予定 10/13 → 10/09(4 日早まる)・あと 7.5h 不足 → 余裕 8.8h"
+    )
+
+
+def test_identical_tasks_show_nothing() -> None:
+    value = compared(task_of(), task_of())
+    assert not compare_changed(value) and compare_text(value) == ""
+
+
+def test_a_manual_end_stays_and_only_the_shortage_changes() -> None:
+    manual = datetime(2026, 10, 12, 17)
+    value = compared(
+        task_of(planned_end=manual, planned_end_manual=True),
+        task_of(
+            planned_end=manual,
+            planned_end_manual=True,
+            assignees=[Assignee("田中"), Assignee("鈴木")],
+        ),
+    )
+    assert compare_text(value) == "前→後: あと 7.5h 不足 → 余裕 25.0h"
+
+
+def test_without_a_due_only_the_end_is_compared() -> None:
+    value = compared(
+        task_of(deadline=None),
+        task_of(deadline=None, assignees=[Assignee("田中"), Assignee("鈴木")]),
+    )
+    assert value.before is None and value.after is None
+    assert compare_text(value) == "前→後: 完了予定 10/13 → 10/08(5 日早まる)"
+
+
+def test_the_same_date_with_a_different_time_is_not_a_change() -> None:
+    before = task_of(deadline=None)
+    after = task_of(deadline=None, assignees=[Assignee("田中"), Assignee("鈴木", 0.01)])
+    value = compared(before, after)
+    assert value.before_end is not None and value.after_end is not None
+    assert value.before_end != value.after_end
+    assert value.before_end.date() == value.after_end.date()
+    assert not compare_changed(value) and compare_text(value) == ""
+
+
+def test_the_hint_gives_the_before_and_after_basis() -> None:
+    value = compared(task_of(), task_of(assignees=[Assignee("田中"), Assignee("鈴木")]))
+    hint = compare_hint(value)
+    assert "前: 残り 40.0h / 稼働 32.5h" in hint
+    assert "後: 残り 40.0h / 稼働 65.0h" in hint
+
+
+def test_comparing_does_not_change_the_tasks() -> None:
+    before = task_of()
+    after = task_of(assignees=[Assignee("田中"), Assignee("鈴木")])
+    compared(before, after)
+    assert [a.name for a in before.assignees] == ["田中"]
+    assert [a.name for a in after.assignees] == ["田中", "鈴木"]
