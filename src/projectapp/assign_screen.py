@@ -32,6 +32,9 @@ from projectapp.assign_load import (
     overlay_svg,
 )
 from projectapp.shortage import (
+    required_rate,
+    required_rate_hint,
+    required_rate_text,
     burn_hint,
     burn_text,
     shortage_hint,
@@ -141,6 +144,7 @@ class AssignScreen:
         self.rate_target: tuple[str, int, int | None] | None = None
         self.selection: tuple[Cell, Cell] | None = None
         self.shortage_label: ui.label | None = None
+        self.required_label: ui.label | None = None
         self.load_box: ui.element | None = None
         self.load_hidden: set[str] = set()
         self.load_open = True
@@ -182,9 +186,14 @@ class AssignScreen:
                 ui.label(self.trial.task.name).classes("text-h6 col ellipsis").mark(
                     "assign-task-title"
                 )
-                self.shortage_label = (
-                    ui.label("").classes("text-body2").mark("assign-shortage")
-                )
+                with ui.column().classes("gap-0"):
+                    self.shortage_label = (
+                        ui.label("").classes("text-body2").mark("assign-shortage")
+                    )
+                    self.required_label = (
+                        ui.label("").classes("text-body2").mark("assign-required-rate")
+                    )
+                    self.required_label.set_visibility(False)
                 ui.toggle(
                     {scale: scale.value for scale in ASSIGN_SCALES},
                     value=Scale.DAY,
@@ -224,6 +233,7 @@ class AssignScreen:
             self.build_load_panel()
             self.build_rate_popup()
         self.render_shortage()
+        self.render_required_rate()
         dialog.open()
 
     # --- 左のメンバー一覧 ---
@@ -733,6 +743,29 @@ class AssignScreen:
         )
         label.props(f'title="{shortage_hint(value)}"')
 
+    def render_required_rate(self, project: Project | None = None) -> None:
+        """基準日に間に合う率の倍率を、不足の行の下に出す。不足でないとき・出せないときは行ごと隠す。"""
+        label = self.required_label
+        if label is None:
+            return
+        value = required_rate(
+            self.trial.task,
+            project or trial_project(self.project, self.trial),
+            self.holidays,
+            self.now(),
+        )
+        if isinstance(value, str):
+            label.set_visibility(False)
+            return
+        label.set_text(required_rate_text(value))
+        label.style(
+            replace="color: var(--warning)"
+            if value.factor is None
+            else "color: inherit"
+        )
+        label.props(f'title="{required_rate_hint(value)}"')
+        label.set_visibility(True)
+
     def refresh(self) -> None:
         """試算のタスクから複製を作り直し、チャート(棒・完了予定・警告)と割り当ての行を描き直す。"""
         # 率を下げると完了予定が後ろへ伸びるので、セルの週の数は試算の終了に合わせて取り直す(開始日がなければそのまま)
@@ -746,6 +779,7 @@ class AssignScreen:
                 self.members_content(team_groups(self.project))
         self.render_load()
         self.render_shortage(trial)
+        self.render_required_rate(trial)
 
     def select_range(self, first: Cell, last: Cell) -> None:
         """割り当ての行で選んだ範囲(両端を含む)を、日付の順にして持つ。開始日がない・範囲外の週なら無視する。"""
