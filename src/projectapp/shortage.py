@@ -19,6 +19,7 @@ from projectapp.remaining import remaining_hours, total_effort
 from projectapp.timeline import (
     Schedule,
     crew_of,
+    effective_end,
     effective_start,
     weekly_crews,
     work_capacity,
@@ -382,3 +383,79 @@ def required_rate_hint(value: RequiredRate) -> str:
     if value.factor is None:
         return f"{base}。全員の率を 100% にしても、残りの工数に届きません"
     return f"{base}。全員の率を ×{value.factor:.2f}(上限 100%)にすると、稼働が残りの工数に届きます。人ごとの率は、週ごと・日ごとに違う人は最大の率から"
+
+
+@dataclass(frozen=True)
+class TrialCompare:
+    before_end: datetime | None  # 前(画面を開いた時点)の完了予定
+    after_end: datetime | None  # 後(今の試算)の完了予定
+    before: Shortage | None  # 前の不足。基準日がないなど出せないときは None
+    after: Shortage | None
+
+
+def shortage_gap_text(value: Shortage) -> str:
+    """比較用の短い形。`あと 7.5h 不足`・`余裕 25.0h`・`ちょうど`(人数は省く)。"""
+    kind = value.kind
+    if kind == "ちょうど":
+        return "ちょうど"
+    hours = abs(value.gap)
+    return f"あと {hours:.1f}h 不足" if kind == "不足" else f"余裕 {hours:.1f}h"
+
+
+def compare_trial(
+    before_task: Task,
+    before_project: Project,
+    after_task: Task,
+    after_project: Project,
+    holidays: dict[date, str],
+    now: datetime,
+) -> TrialCompare:
+    """試算の前後の、完了予定と不足(要望 168 段階 4d)。求まらない項目は None。元は変えない。"""
+
+    def side(task: Task, project: Project) -> tuple[datetime | None, Shortage | None]:
+        schedule = Schedule(project, holidays)
+        end = effective_end(task, project, holidays, schedule)
+        value = task_shortage(task, project, holidays, now, schedule)
+        return end, None if isinstance(value, str) else value
+
+    before_end, before = side(before_task, before_project)
+    after_end, after = side(after_task, after_project)
+    return TrialCompare(before_end, after_end, before, after)
+
+
+def _compare_parts(value: TrialCompare) -> list[str]:
+    parts: list[str] = []
+    if value.before_end is not None and value.after_end is not None:
+        days = (value.after_end.date() - value.before_end.date()).days
+        if days != 0:
+            word = "遅れる" if days > 0 else "早まる"
+            parts.append(
+                f"完了予定 {value.before_end:%m/%d} → {value.after_end:%m/%d}"
+                f"({abs(days)} 日{word})"
+            )
+    if value.before is not None and value.after is not None:
+        before, after = shortage_gap_text(value.before), shortage_gap_text(value.after)
+        if before != after:
+            parts.append(f"{before} → {after}")
+    return parts
+
+
+def compare_changed(value: TrialCompare) -> bool:
+    """前後で、完了予定の日付か、不足の文言が変わったか。"""
+    return bool(_compare_parts(value))
+
+
+def compare_text(value: TrialCompare) -> str:
+    """`前→後: 完了予定 10/13 → 10/08(5 日早まる)・あと 7.5h 不足 → 余裕 25.0h`。変化がなければ空。"""
+    parts = _compare_parts(value)
+    return f"前→後: {'・'.join(parts)}" if parts else ""
+
+
+def compare_hint(value: TrialCompare) -> str:
+    """ホバーの文字。前後それぞれの`残り / 稼働(基準日)`。出せない側は書かない。"""
+    parts = []
+    if value.before is not None:
+        parts.append(f"前: {shortage_hint(value.before)}")
+    if value.after is not None:
+        parts.append(f"後: {shortage_hint(value.after)}")
+    return "。".join(parts)
