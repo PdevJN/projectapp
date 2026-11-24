@@ -5,10 +5,14 @@ import pytest
 from projectapp.models import Assignee, Member, Project, Section, Status, Task, TaskKind
 from projectapp.shortage import (
     Shortage,
+    WeekBurn,
+    burn_hint,
+    burn_text,
     due_of,
     shortage_hint,
     shortage_text,
     task_shortage,
+    weekly_burn,
 )
 
 MON = datetime(2026, 10, 5, 9)  # 稼働の枠は 9:00〜15:30(6.5h)
@@ -166,3 +170,151 @@ def test_remaining_and_capacity_match_the_warning_pace() -> None:
     assert isinstance(value, Shortage) and expected is not None
     assert value.remaining == pytest.approx(expected.remaining)
     assert value.capacity == pytest.approx(expected.capacity)
+
+
+ORIGIN = date(2026, 10, 5)
+
+
+def burns(task: Task, now: datetime = MON, weeks: int = 3, holidays=None):
+    return weekly_burn(task, project_of(task), holidays or {}, now, weeks, ORIGIN)
+
+
+def test_the_burn_runs_out_in_the_second_week() -> None:
+    value = burns(task_of(deadline=None))
+    assert isinstance(value, list) and len(value) == 3
+    first, second, third = value
+    assert (first.before, first.burn, first.left) == pytest.approx((40.0, 32.5, 7.5))
+    assert (second.before, second.burn, second.left) == pytest.approx((7.5, 7.5, 0.0))
+    assert second.done and not first.done
+    assert (third.before, third.burn, third.left) == (0.0, 0.0, 0.0)
+    assert not third.done
+
+
+def test_the_ranges_are_whole_weeks_from_the_origin() -> None:
+    value = burns(task_of(deadline=None))
+    assert isinstance(value, list)
+    assert value[0].first == MON and value[0].last == datetime(2026, 10, 12)
+    assert value[1].first == datetime(2026, 10, 12) and value[1].last == datetime(
+        2026, 10, 19
+    )
+
+
+def test_a_lower_rate_stretches_the_burn_over_three_weeks() -> None:
+    value = burns(task_of(deadline=None, assignees=[Assignee("田中", 0.5)]))
+    assert isinstance(value, list)
+    assert [round(w.burn, 2) for w in value] == [16.25, 16.25, 7.5]
+    assert [w.done for w in value] == [False, False, True]
+
+
+def test_the_first_week_counts_from_now_when_now_is_mid_week() -> None:
+    value = burns(task_of(deadline=None), now=datetime(2026, 10, 7, 9))  # 水〜金の 3 日
+    assert isinstance(value, list)
+    assert value[0].first == datetime(2026, 10, 7, 9)
+    assert value[0].burn == pytest.approx(19.5) and value[0].left == pytest.approx(20.5)
+
+
+def test_a_week_already_past_burns_nothing() -> None:
+    value = burns(task_of(deadline=None), now=datetime(2026, 10, 14, 9))  # 第 2 週の水
+    assert isinstance(value, list)
+    assert value[0].burn == 0.0 and value[0].left == pytest.approx(40.0)
+    assert value[0].first == value[0].last
+    assert value[1].burn == pytest.approx(19.5)
+
+
+def test_a_start_in_the_future_starts_the_count_there() -> None:
+    task = task_of(deadline=None, planned_start=datetime(2026, 10, 7, 9))
+    value = weekly_burn(task, project_of(task), {}, MON, 3, date(2026, 10, 7))
+    assert isinstance(value, list)
+    assert value[0].first == datetime(2026, 10, 7, 9)  # 今ではなく開始から
+
+
+def test_a_holiday_lowers_that_weeks_burn() -> None:
+    value = burns(task_of(deadline=None), holidays={date(2026, 10, 7): "祝"})
+    assert isinstance(value, list)
+    assert value[0].burn == pytest.approx(26.0)
+
+
+def test_weekly_crews_change_the_burn_week_by_week() -> None:
+    task = task_of(
+        deadline=None,
+        weekly_crew=[[Assignee("田中", 0.5)], [Assignee("田中")]],
+    )
+    value = burns(task)
+    assert isinstance(value, list)
+    assert [round(w.burn, 2) for w in value] == [16.25, 23.75, 0.0]
+    assert value[1].done
+
+
+def test_a_daily_week_counts_each_day_with_its_own_crew() -> None:
+    half = [Assignee("田中", 0.5)]
+    task = task_of(
+        deadline=None,
+        weekly_crew=[[Assignee("田中")], [Assignee("田中")]],
+        daily_crew={0: [half] * 7},
+    )
+    value = burns(task)
+    assert isinstance(value, list)
+    assert value[0].burn == pytest.approx(16.25)
+
+
+def test_a_crew_without_anyone_counts_as_one_person() -> None:
+    value = burns(task_of(deadline=None, assignees=[]))
+    assert isinstance(value, list)
+    assert value[0].burn == pytest.approx(32.5)
+
+
+def test_progress_lowers_the_remaining_before_the_first_week() -> None:
+    value = burns(task_of(deadline=None, progress=50))
+    assert isinstance(value, list)
+    assert value[0].before == pytest.approx(20.0)
+    assert value[0].done  # 20h は第 1 週の稼働量 32.5h に収まる
+
+
+def test_no_deadline_is_needed() -> None:
+    assert isinstance(burns(task_of(deadline=None, planned_end=None)), list)
+
+
+def test_the_total_burn_equals_the_capacity_to_the_due() -> None:
+    task = task_of(effort_hours=100.0, deadline=datetime(2026, 10, 23, 17))  # 3 週
+    short = judged(task)
+    value = burns(task)
+    assert isinstance(short, Shortage) and isinstance(value, list)
+    assert sum(w.burn for w in value) == pytest.approx(short.capacity, abs=6.5 * 2)
+    # 最終週の金曜 17:00 は枠の外(15:30 まで)なので、枠の終わりまでの 3 週の稼働量と一致する
+    assert sum(w.burn for w in value) == pytest.approx(97.5)
+
+
+@pytest.mark.parametrize(
+    ("task", "reason"),
+    [
+        (task_of(kind=TaskKind.CHECKPOINT), "通常のタスクではありません"),
+        (task_of(status=Status.DONE), "終了したタスクです"),
+        (task_of(effort_hours=0.0), "工数がありません"),
+        (task_of(planned_start=None), "開始日がありません"),
+        (task_of(progress=100), "残りの工数がありません"),
+    ],
+)
+def test_burn_reasons(task: Task, reason: str) -> None:
+    assert burns(task) == reason
+
+
+def test_many_weeks_are_cheap() -> None:
+    value = burns(task_of(deadline=None, effort_hours=4000.0), weeks=52)
+    assert isinstance(value, list) and len(value) == 52
+
+
+def test_burn_text_shapes() -> None:
+    first = WeekBurn(0, MON, datetime(2026, 10, 12), 40.0, 32.5, 7.5)
+    last = WeekBurn(1, datetime(2026, 10, 12), datetime(2026, 10, 19), 7.5, 7.5, 0.0)
+    after = WeekBurn(2, datetime(2026, 10, 19), datetime(2026, 10, 26), 0.0, 0.0, 0.0)
+    assert burn_text(first) == "消化 32.5h / 残り 7.5h"
+    assert burn_text(last) == "消化 7.5h / 完了"
+    assert burn_text(after) == "—"
+    assert burn_text(first, narrow=True) == "32.5h→7.5h"
+    assert burn_text(last, narrow=True) == "7.5h 完了"
+    assert burn_text(after, narrow=True) == "—"
+
+
+def test_burn_hint_names_the_week_and_the_change() -> None:
+    first = WeekBurn(0, MON, datetime(2026, 10, 12), 40.0, 32.5, 7.5)
+    assert burn_hint(first) == "10/05〜10/11 の稼働 32.5h。残り 40.0h → 7.5h"
