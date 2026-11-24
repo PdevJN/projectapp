@@ -1243,6 +1243,10 @@ async def test_the_delay_is_clamped_and_bad_values_mean_no_delay(user: User) -> 
         ("abc", 0),
         (None, 0),
         (1000, 365),
+        (float("inf"), 365),
+        (float("-inf"), 0),
+        (float("nan"), 0),
+        (10**400, 365),
     ]:
         screen.set_delay(value)
         assert screen.delay_days == expected, value

@@ -578,10 +578,23 @@ def test_no_delay_gives_the_same_result_as_before() -> None:
     )
 
 
-def test_a_start_pushed_past_the_due_is_explained() -> None:
+def test_a_delay_that_pushes_the_start_past_the_due_leaves_no_capacity() -> None:
     task = task_of()
     value = task_shortage(task, project_of(task), {}, MON, delay_days=5)  # 土曜 10/10
-    assert value == "基準日が開始より前です"
+    assert isinstance(value, Shortage)  # 間に合わない: 稼働 0h・残り 40h がそのまま不足
+    assert value.capacity == 0.0 and value.gap == pytest.approx(40.0)
+    assert value.people == pytest.approx(
+        40.0 / 32.5
+    )  # 人数は、遅れなしの範囲で換算する
+    assert shortage_text(value) == "あと 40.0h 足りません(約 1.2 人)"
+    needed_value = required_rate(task, project_of(task), {}, MON, delay_days=5)
+    assert isinstance(needed_value, RequiredRate) and needed_value.factor is None
+    assert needed_value.short_hours == pytest.approx(40.0)
+
+
+def test_a_due_before_the_start_without_a_delay_is_still_explained() -> None:
+    task = task_of(planned_start=datetime(2026, 10, 12, 9))  # 開始が締切(10/9)より後
+    assert judged(task) == "基準日が開始より前です"
 
 
 def test_a_delay_keeps_the_weekly_crews_anchored_to_the_original_start() -> None:

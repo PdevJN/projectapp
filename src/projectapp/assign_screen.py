@@ -758,10 +758,14 @@ class AssignScreen:
         """開始が遅れたと仮定する日数(要望 160)。整数で 0〜`MAX_START_DELAY`に丸める。空・不正な値は 0。
         試算には含めず、保存しない。変わったときだけ、チャートと各行を描き直す。"""
         try:
-            days = int(float(str(value)))
+            number = float(str(value))
         except (TypeError, ValueError):
-            days = 0
-        days = min(max(days, 0), MAX_START_DELAY)
+            number = 0.0
+        if number != number:  # nan
+            number = 0.0
+        days = int(
+            min(max(number, 0.0), MAX_START_DELAY)
+        )  # inf・巨大な数は上限に丸める
         if (
             self.delay_input is not None
             and value is not None

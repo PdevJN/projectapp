@@ -129,8 +129,19 @@ def task_shortage(
     due_at, basis = due
     if due_at <= now:
         return "基準日を過ぎています"
-    if due_at <= late_start:
+    if due_at <= start:
         return "基準日が開始より前です"
+    if (
+        due_at <= late_start
+    ):  # 遅れで開始が基準日を越える: 稼働 0h で、残りの工数がそのまま不足(人数は遅れなしの範囲で換算)
+        unit = work_capacity(
+            max(now, start),
+            due_at,
+            project.daily_hours,
+            project.work_start,
+            holidays,
+        )
+        return Shortage(rest, 0.0, unit, due_at, basis)
     capacity = _capacity_of(task, project, holidays, origin, due_at, start)
     unit = work_capacity(
         origin, due_at, project.daily_hours, project.work_start, holidays
