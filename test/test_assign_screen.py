@@ -1100,3 +1100,67 @@ async def test_the_required_rate_row_does_not_make_the_screen_dirty(
     await user.should_see("全員 100% でもあと 7.5h 足りません")
     assert is_dirty(screen.trial) == before
     assert screen.trial.task.assignees[0].allocation == 1.0
+
+
+def set_due(screen: AssignScreen, when: datetime | None) -> None:
+    """前後で基準日をそろえる(元のプロジェクト・開いた時点・試算の 3 か所)。"""
+    for task in (screen.project.tasks[0], screen.trial.original, screen.trial.task):
+        task.deadline = when
+
+
+async def test_the_compare_row_is_hidden_right_after_opening(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    set_due(screen, datetime(2026, 11, 20, 17))
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_see("あと 7.5h 足りません")  # 不足の行は出ている
+    await user.should_not_see(marker="assign-compare")
+
+
+async def test_the_compare_row_shows_the_end_and_the_shortage_after_adding_a_member(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    set_due(screen, datetime(2026, 11, 20, 17))
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    screen.drop_member("鈴木", 0, None)
+    await user.should_see(
+        "前→後: 完了予定 11/24 → 11/19(5 日早まる)・あと 7.5h 不足 → 余裕 25.0h"
+    )
+    label = user.find(marker="assign-compare").elements.pop()
+    assert "前: 残り 40.0h" in str(label.props.get("title", ""))
+
+
+async def test_the_compare_row_hides_again_when_the_member_is_removed(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    set_due(screen, datetime(2026, 11, 20, 17))
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    screen.drop_member("鈴木", 0, None)
+    await user.should_see(marker="assign-compare")
+    screen.remove_member_at("鈴木", 0, None)
+    await user.should_see("あと 7.5h 足りません")
+    await user.should_not_see(marker="assign-compare")
+
+
+async def test_without_a_due_the_compare_row_shows_only_the_end(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    screen.drop_member("鈴木", 0, None)
+    await user.should_see("前→後: 完了予定 11/24 → 11/19(5 日早まる)")
+    assert "不足" not in label_text(user, "assign-compare")
+
+
+async def test_the_compare_row_does_not_change_the_dirty_flag(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.drop_member("鈴木", 0, None)
+    await user.should_see(marker="assign-compare")
+    dirty = is_dirty(screen.trial)
+    screen.refresh()
+    assert is_dirty(screen.trial) == dirty
+    assert screen.trial.original.assignees[0].allocation == 1.0

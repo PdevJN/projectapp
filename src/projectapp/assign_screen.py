@@ -32,6 +32,10 @@ from projectapp.assign_load import (
     overlay_svg,
 )
 from projectapp.shortage import (
+    compare_changed,
+    compare_hint,
+    compare_text,
+    compare_trial,
     required_rate,
     required_rate_hint,
     required_rate_text,
@@ -145,6 +149,7 @@ class AssignScreen:
         self.selection: tuple[Cell, Cell] | None = None
         self.shortage_label: ui.label | None = None
         self.required_label: ui.label | None = None
+        self.compare_label: ui.label | None = None
         self.load_box: ui.element | None = None
         self.load_hidden: set[str] = set()
         self.load_open = True
@@ -194,6 +199,10 @@ class AssignScreen:
                         ui.label("").classes("text-body2").mark("assign-required-rate")
                     )
                     self.required_label.set_visibility(False)
+                    self.compare_label = (
+                        ui.label("").classes("text-body2").mark("assign-compare")
+                    )
+                    self.compare_label.set_visibility(False)
                 ui.toggle(
                     {scale: scale.value for scale in ASSIGN_SCALES},
                     value=Scale.DAY,
@@ -234,6 +243,7 @@ class AssignScreen:
             self.build_rate_popup()
         self.render_shortage()
         self.render_required_rate()
+        self.render_compare()
         dialog.open()
 
     # --- 左のメンバー一覧 ---
@@ -766,6 +776,26 @@ class AssignScreen:
         label.props(f'title="{required_rate_hint(value)}"')
         label.set_visibility(True)
 
+    def render_compare(self, project: Project | None = None) -> None:
+        """画面を開いた時点(前)と今の試算(後)の、完了予定と不足の変化を出す。変化がないときは行ごと隠す。"""
+        label = self.compare_label
+        if label is None:
+            return
+        value = compare_trial(
+            self.trial.original,
+            self.project,
+            self.trial.task,
+            project or trial_project(self.project, self.trial),
+            self.holidays,
+            self.now(),
+        )
+        if not compare_changed(value):
+            label.set_visibility(False)
+            return
+        label.set_text(compare_text(value))
+        label.props(f'title="{compare_hint(value)}"')
+        label.set_visibility(True)
+
     def refresh(self) -> None:
         """試算のタスクから複製を作り直し、チャート(棒・完了予定・警告)と割り当ての行を描き直す。"""
         # 率を下げると完了予定が後ろへ伸びるので、セルの週の数は試算の終了に合わせて取り直す(開始日がなければそのまま)
@@ -780,6 +810,7 @@ class AssignScreen:
         self.render_load()
         self.render_shortage(trial)
         self.render_required_rate(trial)
+        self.render_compare(trial)
 
     def select_range(self, first: Cell, last: Cell) -> None:
         """割り当ての行で選んだ範囲(両端を含む)を、日付の順にして持つ。開始日がない・範囲外の週なら無視する。"""
