@@ -1164,3 +1164,34 @@ async def test_the_compare_row_does_not_change_the_dirty_flag(user: User) -> Non
     screen.refresh()
     assert is_dirty(screen.trial) == dirty
     assert screen.trial.original.assignees[0].allocation == 1.0
+
+
+def test_a_summary_predecessor_does_not_make_an_untouched_trial_look_changed() -> None:
+    """先行がまとめのとき、試算の複製にはまとめの子が入らない。前も同じ複製で数え、何も変えていなければ変化なし。"""
+    from projectapp.models import Assignee, Member, Section, TaskKind
+    from projectapp.shortage import compare_changed
+
+    mon = datetime(2026, 10, 5, 9)
+    big = Task("c1", planned_start=mon, effort_hours=65, assignees=[Assignee("田中")])
+    small = Task(
+        "c2", planned_start=mon, effort_hours=6.5, assignees=[Assignee("田中")]
+    )
+    summary = Task("sum", kind=TaskKind.SUMMARY, children=[big.id, small.id])
+    target = Task(
+        "t",
+        planned_start=mon,
+        effort_hours=13,
+        assignees=[Assignee("田中")],
+        predecessors=[summary.id],
+        deadline=datetime(2026, 12, 25, 17),
+    )
+    project = Project(
+        "P",
+        base_date=date(2026, 10, 5),
+        members=[Member("田中", 1.0)],
+        sections=[Section("s", [big, small, summary, target])],
+    )
+    screen = AssignScreen(
+        project, target, {}, on_confirm=lambda _t: None, now=lambda: mon
+    )
+    assert not compare_changed(screen.compare_value())

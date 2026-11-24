@@ -35,6 +35,7 @@ from projectapp.shortage import (
     compare_changed,
     compare_hint,
     compare_text,
+    TrialCompare,
     compare_trial,
     required_rate,
     required_rate_hint,
@@ -150,6 +151,9 @@ class AssignScreen:
         self.shortage_label: ui.label | None = None
         self.required_label: ui.label | None = None
         self.compare_label: ui.label | None = None
+        self.untouched_project: Project | None = (
+            None  # 前の比較用の複製(開いている間は変わらない)
+        )
         self.load_box: ui.element | None = None
         self.load_hidden: set[str] = set()
         self.load_open = True
@@ -776,19 +780,29 @@ class AssignScreen:
         label.props(f'title="{required_rate_hint(value)}"')
         label.set_visibility(True)
 
-    def render_compare(self, project: Project | None = None) -> None:
-        """画面を開いた時点(前)と今の試算(後)の、完了予定と不足の変化を出す。変化がないときは行ごと隠す。"""
-        label = self.compare_label
-        if label is None:
-            return
-        value = compare_trial(
+    def compare_value(self, project: Project | None = None) -> TrialCompare:
+        """前(開いた時点のタスク)と後(今の試算)の比較の値。前も後と同じ作りの複製(`trial_project`)で数える。
+        複製には、先行がまとめのときの子が入らないので、元のプロジェクトのまま数えると、何も変えていなくても差が出る。"""
+        if (
+            self.untouched_project is None
+        ):  # 開いている間は変わらないので、最初の 1 回だけ作る
+            untouched = AssignTrial(self.trial.original, self.trial.original)
+            self.untouched_project = trial_project(self.project, untouched)
+        return compare_trial(
             self.trial.original,
-            self.project,
+            self.untouched_project,
             self.trial.task,
             project or trial_project(self.project, self.trial),
             self.holidays,
             self.now(),
         )
+
+    def render_compare(self, project: Project | None = None) -> None:
+        """画面を開いた時点(前)と今の試算(後)の、完了予定と不足の変化を出す。変化がないときは行ごと隠す。"""
+        label = self.compare_label
+        if label is None:
+            return
+        value = self.compare_value(project)
         if not compare_changed(value):
             label.set_visibility(False)
             return
