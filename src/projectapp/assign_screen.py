@@ -279,7 +279,9 @@ class AssignScreen:
         self.members_box = (
             ui.column()
             .classes("gap-2 assign-scroll-box")
-            .style("width: 14rem; flex: none; min-height: 0; overflow: auto")
+            .style(
+                "width: 14rem; flex: none; align-self: stretch; min-height: 0; overflow: auto"
+            )
             .mark("assign-members")
         )
         with self.members_box:
