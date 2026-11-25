@@ -31,6 +31,7 @@ from projectapp.assign_load import (
     overlay_summary,
     overlay_svg,
 )
+
 from projectapp.shortage import (
     compare_changed,
     compare_hint,
@@ -123,6 +124,10 @@ def read_only_actions() -> GanttActions:
     )
 
 
+# 人数が多いとき、スクロールする箱の子が縮んで重ならないようにする(要望 172)
+SCROLL_BOX_CSS = ".assign-scroll-box > * { flex-shrink: 0 }"
+
+
 class AssignScreen:
     def __init__(
         self,
@@ -171,6 +176,7 @@ class AssignScreen:
         with parent if parent is not None else nullcontext():
             ui.add_css(ASSIGN_DRAG_CSS)
             ui.add_css(MEMBER_CSS)
+            ui.add_css(SCROLL_BOX_CSS)
             # 画面を開いたあとの`add_head_html`は、`<script>`が実行されない。直接実行する(重複は JS が防ぐ)
             ui.run_javascript(ASSIGN_DRAG_JS)
             self.client_id = context.client.id
@@ -190,15 +196,20 @@ class AssignScreen:
     def build(self) -> None:
         with (
             disposable(ui.dialog()).props("persistent maximized") as dialog,
-            ui.card().classes("w-full h-full no-wrap").mark("assign-screen"),
+            ui.card()
+            .classes("w-full h-full no-wrap")
+            .style("overflow-y: auto")
+            .mark("assign-screen"),
         ):
             self.dialog = dialog
             dialog.on("escape-key", lambda _e: self.cancel())
-            with ui.row().classes("w-full items-center no-wrap gap-4"):
-                ui.label(self.trial.task.name).classes("text-h6 col ellipsis").mark(
-                    "assign-task-title"
-                )
-                with ui.column().classes("gap-0"):
+            with ui.row().classes("w-full items-center gap-4").style("flex: none"):
+                ui.label(self.trial.task.name).classes("text-h6 ellipsis").style(
+                    "flex: 1 1 12rem; min-width: 8rem"
+                ).mark("assign-task-title")
+                with (
+                    ui.column().classes("gap-0").style("flex: 1 1 14rem; min-width: 0")
+                ):
                     self.shortage_label = (
                         ui.label("").classes("text-body2").mark("assign-shortage")
                     )
@@ -221,7 +232,7 @@ class AssignScreen:
                         on_change=lambda e: self.set_delay(e.value),
                     )
                     .props("dense outlined")
-                    .style("width: 9rem")
+                    .style("width: 6.5rem")
                     .mark("assign-start-delay")
                 )
                 ui.toggle(
@@ -238,7 +249,7 @@ class AssignScreen:
             with (
                 ui.row()
                 .classes("w-full no-wrap gap-2")
-                .style("flex: 1 1 0; min-height: 0")
+                .style("flex: 1 1 0; min-height: 16rem")
             ):
                 self.members_panel(team_groups(self.project))
                 with (
@@ -272,8 +283,10 @@ class AssignScreen:
     def members_panel(self, groups: list[TeamGroup]) -> None:
         self.members_box = (
             ui.column()
-            .classes("gap-2")
-            .style("width: 14rem; flex: none; overflow: auto")
+            .classes("gap-2 assign-scroll-box")
+            .style(
+                "width: 14rem; flex: none; align-self: stretch; min-height: 0; overflow: auto"
+            )
             .mark("assign-members")
         )
         with self.members_box:
@@ -476,8 +489,8 @@ class AssignScreen:
             panel.on_value_change(lambda e: self.on_load_toggle(e.value))
             self.load_box = (
                 ui.column()
-                .classes("w-full gap-1")
-                .style("max-height: 14rem; overflow-y: auto")
+                .classes("w-full gap-1 assign-scroll-box")
+                .style("max-height: min(14rem, 30vh); overflow-y: auto")
             )
             self.render_load()
 

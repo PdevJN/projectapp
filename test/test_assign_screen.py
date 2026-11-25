@@ -7,6 +7,7 @@ from nicegui.testing import User
 from projectapp.assign_drag import ASSIGN_DRAG_CSS
 from projectapp.assign_load import member_color
 from projectapp.assign_screen import (
+    SCROLL_BOX_CSS,
     ROW_HEIGHT_PX,
     AssignScreen,
     row_height,
@@ -1271,3 +1272,13 @@ async def test_the_delay_input_is_in_the_header_and_drives_the_rows(
     user.find(marker="assign-start-delay").type("3")
     await user.should_see("開始が 3 日遅れると")
     assert screen.delay_days == 3
+
+
+async def test_scroll_boxes_keep_their_children_from_shrinking(user: User) -> None:
+    """人数が多くても、メンバー一覧と負荷パネルの子が縮んで重ならない(要望 172)。"""
+    screen, _ = await open_team_screen(user)
+    assert screen.members_box is not None
+    assert "assign-scroll-box" in screen.members_box.classes
+    assert screen.load_box is not None
+    assert "assign-scroll-box" in screen.load_box.classes
+    assert "flex-shrink: 0" in SCROLL_BOX_CSS
