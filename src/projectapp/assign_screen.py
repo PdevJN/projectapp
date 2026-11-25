@@ -232,7 +232,7 @@ class AssignScreen:
                         on_change=lambda e: self.set_delay(e.value),
                     )
                     .props("dense outlined")
-                    .style("width: 9rem")
+                    .style("width: 6.5rem")
                     .mark("assign-start-delay")
                 )
                 ui.toggle(
