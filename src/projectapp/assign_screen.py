@@ -196,15 +196,20 @@ class AssignScreen:
     def build(self) -> None:
         with (
             disposable(ui.dialog()).props("persistent maximized") as dialog,
-            ui.card().classes("w-full h-full no-wrap").mark("assign-screen"),
+            ui.card()
+            .classes("w-full h-full no-wrap")
+            .style("overflow-y: auto")
+            .mark("assign-screen"),
         ):
             self.dialog = dialog
             dialog.on("escape-key", lambda _e: self.cancel())
-            with ui.row().classes("w-full items-center gap-4"):
+            with ui.row().classes("w-full items-center gap-4").style("flex: none"):
                 ui.label(self.trial.task.name).classes("text-h6 ellipsis").style(
                     "flex: 1 1 12rem; min-width: 8rem"
                 ).mark("assign-task-title")
-                with ui.column().classes("gap-0"):
+                with (
+                    ui.column().classes("gap-0").style("flex: 1 1 14rem; min-width: 0")
+                ):
                     self.shortage_label = (
                         ui.label("").classes("text-body2").mark("assign-shortage")
                     )
@@ -244,7 +249,7 @@ class AssignScreen:
             with (
                 ui.row()
                 .classes("w-full no-wrap gap-2")
-                .style("flex: 1 1 0; min-height: 0")
+                .style("flex: 1 1 0; min-height: 16rem")
             ):
                 self.members_panel(team_groups(self.project))
                 with (
