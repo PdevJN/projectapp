@@ -875,12 +875,24 @@ class AssignScreen:
             self.now(),
         )
 
-    def render_compare(self, project: Project | None = None) -> None:
+    def set_compare_mark(self, value: TrialCompare) -> None:
+        """棒に重ねる、試算前の完了予定。日付が変わったときだけ(同じ日の中の時刻の違いは出さない)。"""
+        if self.chart is None:
+            return
+        marks: dict[str, datetime] = {}
+        before, after = value.before_end, value.after_end
+        if before is not None and after is not None and before.date() != after.date():
+            marks[self.trial.task.id] = before
+        self.chart.compare_marks = marks
+
+    def render_compare(
+        self, project: Project | None = None, value: TrialCompare | None = None
+    ) -> None:
         """画面を開いた時点(前)と今の試算(後)の、完了予定と不足の変化を出す。変化がないときは行ごと隠す。"""
         label = self.compare_label
         if label is None:
             return
-        value = self.compare_value(project)
+        value = value or self.compare_value(project)
         if not compare_changed(value):
             label.set_visibility(False)
             return
@@ -893,6 +905,8 @@ class AssignScreen:
         # 率を下げると完了予定が後ろへ伸びるので、セルの週の数は試算の終了に合わせて取り直す(開始日がなければそのまま)
         self.plan = cell_plan(self.project, self.trial.task, self.holidays) or self.plan
         trial = trial_project(self.project, self.trial)
+        compare = self.compare_value(trial)
+        self.set_compare_mark(compare)  # 描き直しの前に渡す
         if self.chart is not None:
             self.chart.set_project(trial)
         if self.members_box is not None:
@@ -902,7 +916,7 @@ class AssignScreen:
         self.render_load()
         self.render_shortage(trial)
         self.render_required_rate(trial)
-        self.render_compare(trial)
+        self.render_compare(trial, compare)
 
     def select_range(self, first: Cell, last: Cell) -> None:
         """割り当ての行で選んだ範囲(両端を含む)を、日付の順にして持つ。開始日がない・範囲外の週なら無視する。"""
