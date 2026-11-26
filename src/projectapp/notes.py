@@ -190,15 +190,15 @@ def load(name: str, task_id: str) -> str | None:
         return None  # 読めないメモは、メモなしとして扱う
 
 
-def save(name: str, task_id: str, html: str) -> None:
-    """保存する。中身が空なら、ファイルを消す。書けないとき(OSError)は、何もしない。"""
+def save(name: str, task_id: str, html: str) -> bool:
+    """保存する。中身が空なら、ファイルを消す。書けなかったら False(例外は出さない)。"""
     path = _file(name, task_id)
     if path is None:
-        return
+        return False
     html = sanitize(html)
     if is_blank(html):
         delete(name, task_id)
-        return
+        return True
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
@@ -207,7 +207,21 @@ def save(name: str, task_id: str, html: str) -> None:
             tmp.write(html)
         os.replace(tmp.name, path)
     except OSError:
-        return
+        return False
+    return True
+
+
+def exists(name: str) -> bool:
+    """そのプロジェクトのメモのフォルダがあるか。"""
+    folder = _folder(name)
+    return folder is not None and folder.exists()
+
+
+def remove_project(name: str) -> None:
+    """プロジェクトのメモのフォルダを、中身ごと消す。使えない名前・消せないときは何もしない。"""
+    folder = _folder(name)
+    if folder is not None and folder.is_dir():
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def delete(name: str, task_id: str) -> str | None:

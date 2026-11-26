@@ -301,3 +301,21 @@ def test_rename_project_refuses_to_overwrite_an_existing_folder() -> None:
         notes.rename_project("旧", "新")
     assert notes.load("旧", "aaaa1111") == "<p>旧</p>"
     assert notes.load("新", "bbbb2222") == "<p>新</p>"
+
+
+def test_save_reports_whether_it_wrote(isolated_notes: Path) -> None:
+    assert notes.save("案件", "a1b2c3d4", "<p>x</p>") is True
+    assert notes.save("案件", "a1b2c3d4", "") is True  # 空は消すだけで、失敗ではない
+    assert notes.save("a/b", "a1b2c3d4", "<p>x</p>") is False  # 使えない名前
+    (isolated_notes / "塞ぐ").write_text("file")  # フォルダにできない
+    assert notes.save("塞ぐ", "a1b2c3d4", "<p>x</p>") is False
+
+
+def test_remove_project_deletes_only_that_folder(isolated_notes: Path) -> None:
+    notes.save("甲", "a1b2c3d4", "<p>x</p>")
+    notes.save("乙", "a1b2c3d4", "<p>y</p>")
+    assert notes.exists("甲")
+    notes.remove_project("甲")
+    assert not notes.exists("甲")
+    assert notes.load("乙", "a1b2c3d4") == "<p>y</p>"
+    notes.remove_project("a/b")  # 使えない名前は何もしない
