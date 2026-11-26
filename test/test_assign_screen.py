@@ -6,6 +6,7 @@ from nicegui.testing import User
 
 from projectapp.assign_drag import ASSIGN_DRAG_CSS
 from projectapp.assign_load import member_color
+from projectapp.gantt import COLUMN_WIDTH_PX
 from projectapp.assign_screen import (
     SCROLL_BOX_CSS,
     ROW_HEIGHT_PX,
@@ -1282,3 +1283,27 @@ async def test_scroll_boxes_keep_their_children_from_shrinking(user: User) -> No
     assert screen.load_box is not None
     assert "assign-scroll-box" in screen.load_box.classes
     assert "flex-shrink: 0" in SCROLL_BOX_CSS
+
+
+async def test_width_factor_scales_the_column_width_and_resets_per_scale(
+    user: User,
+) -> None:
+    """幅の倍率で列の幅が変わり、スケールを切り替えると、そのスケールの初期値に戻る(要望 170)。"""
+    confirmed: list[AssignTrial] = []
+    screens: list[AssignScreen] = []
+    mount_screen(confirmed, screens)
+    await user.open("/")
+    user.find(marker="open-screen").click()
+    await user.should_see(marker="assign-width")
+    screen = screens[0]
+    chart = screen.chart
+    assert chart is not None and screen.width_toggle is not None
+    assert chart.column_px == COLUMN_WIDTH_PX[Scale.DAY]  # 日次は ×1
+    screen.width_toggle.set_value(3)
+    assert chart.column_px == COLUMN_WIDTH_PX[Scale.DAY] * 3
+    screen.set_scale(Scale.WEEK)  # 週次の初期値は ×3
+    assert chart.column_px == COLUMN_WIDTH_PX[Scale.WEEK] * 3
+    assert screen.width_toggle.value == 3
+    screen.set_scale(Scale.DAY)  # 日次に戻ると ×1
+    assert chart.column_px == COLUMN_WIDTH_PX[Scale.DAY]
+    assert screen.width_toggle.value == 1

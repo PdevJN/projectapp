@@ -294,6 +294,9 @@ class ViewOptions:
     on_select: Callable[[list[str], bool], object] | None = (
         None  # チェックの変更(対象のタスク id, 出力するか)
     )
+    width_factor: int = (
+        1  # 列の幅の倍率(アサイン画面の`幅`。要望 170)。通常のチャートは 1
+    )
 
 
 # 名前の右のチップ。名前だけが縮み、チップは縮めない
@@ -1321,7 +1324,7 @@ class GanttChart:
         assignment = None
         layout = None
         if self.bottom.view == "assignment":
-            layout = AssignmentLayout(self.name_width, COLUMN_WIDTH_PX[self.view_scale])
+            layout = AssignmentLayout(self.name_width, self.column_px)
             columns = build_columns(
                 self.project,
                 self.view_scale,
@@ -1434,7 +1437,7 @@ class GanttChart:
                 fiscal_start_month=self.fiscal_start_month,
             )
         position = today_position(self.now(), columns, self.view_scale)
-        return None if position is None else position * COLUMN_WIDTH_PX[self.view_scale]
+        return None if position is None else position * self.column_px
 
     def scroll_to_today(self) -> None:
         x = self.today_x()
@@ -1453,7 +1456,7 @@ class GanttChart:
                 fiscal_start_month=self.fiscal_start_month,
             )
         position = date_position(day, columns, self.view_scale)
-        return None if position is None else position * COLUMN_WIDTH_PX[self.view_scale]
+        return None if position is None else position * self.column_px
 
     def first_task_day(self) -> date | None:
         """開始予定が最も早い通常タスクの開始の日(先行による押し出しを反映)。日程のあるタスクがなければ None。"""
@@ -1480,7 +1483,11 @@ class GanttChart:
     def shift_weeks(self, weeks: int) -> None:
         """今の位置から 7 日 × weeks だけ横にずらす(負は前)。"""
         if self.client is not None:
-            self.run_js(week_scroll_js(WEEK_PX[self.view_scale] * weeks))
+            self.run_js(
+                week_scroll_js(
+                    WEEK_PX[self.view_scale] * self.options.width_factor * weeks
+                )
+            )
 
     def go_to_date(self, text: str) -> str | None:
         """入力(`10/15`・`1015`・`2026-10-15`)の日へ移る。移れないときは、理由を返す(移らない)。"""
@@ -1663,6 +1670,17 @@ class GanttChart:
             self.scroll_to_left()
 
     @property
+    def column_px(self) -> int:
+        """日付の列 1 つの幅(px)。スケールの幅に、アサイン画面の倍率を掛ける。"""
+        return COLUMN_WIDTH_PX[self.view_scale] * self.options.width_factor
+
+    def set_width_factor(self, factor: int) -> None:
+        """列の幅の倍率を変えて描き直す(アサイン画面。要望 170)。"""
+        self.options = replace(self.options, width_factor=factor)
+        self.render.refresh()
+        self.scroll_to_left()
+
+    @property
     def view_scale(self) -> Scale:
         """描画に使うスケール。プレビューで指定されていればそれ、なければツールバーのスケール。"""
         return self.options.scale or self.scale
@@ -1719,7 +1737,7 @@ class GanttChart:
             self.reference_values(),
             fiscal_start_month=self.fiscal_start_month,
         )
-        return self.name_width + COLUMN_WIDTH_PX[self.view_scale] * len(columns)
+        return self.name_width + self.column_px * len(columns)
 
     def bar_visible(
         self, start: datetime | None, end: datetime | None, columns: list[Column]
@@ -2538,7 +2556,7 @@ class GanttChart:
         self.overloads = overallocations(self.project, self.holidays)
         self.category_lookup = by_id(self.project.categories)
         self.icon_lookup = {m.name: m.icon for m in self.project.members if m.icon}
-        width = COLUMN_WIDTH_PX[self.view_scale]
+        width = self.column_px
         content = ui.element("div").style(
             f"position: relative; width: {from_name(width * len(columns))};"
             f" --name-w: {self.name_width}px"

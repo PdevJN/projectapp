@@ -9,6 +9,7 @@
 from collections.abc import Callable
 from copy import deepcopy
 from contextlib import nullcontext
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from math import isfinite
 
@@ -99,6 +100,12 @@ from projectapp.timeline import (
 )
 
 ASSIGN_SCALES = (Scale.DAY, Scale.WEEK, Scale.MONTH)
+WIDTH_FACTORS = (1, 2, 3, 4)  # 列の幅の倍率(要望 170)
+DEFAULT_WIDTH_FACTOR = {
+    Scale.DAY: 1,
+    Scale.WEEK: 3,
+    Scale.MONTH: 3,
+}  # スケールごとの初期値
 ROW_HEIGHT_PX = 40
 CHIP_STEP_PX = 20  # アイコン 18px + すき間 2px
 LINE_STEP_PX = 22  # セルの 1 段の高さ
@@ -149,6 +156,7 @@ class AssignScreen:
         self.trial = start_trial(task)
         self.plan: CellPlan | None = cell_plan(project, self.trial.task, holidays)
         self.chart: GanttChart | None = None
+        self.width_toggle: ui.toggle | None = None
         self.dialog: ui.dialog | None = None
         self.client_id = ""
         self.members_box: ui.element | None = None
@@ -240,6 +248,16 @@ class AssignScreen:
                     value=Scale.DAY,
                     on_change=lambda e: self.set_scale(Scale(e.value)),
                 ).mark("assign-scale")
+                self.width_toggle = (
+                    ui.toggle(
+                        {f: f"×{f}" for f in WIDTH_FACTORS},
+                        value=DEFAULT_WIDTH_FACTOR[Scale.DAY],
+                        on_change=lambda e: self.set_width_factor(e.value),
+                    )
+                    .props("dense")
+                    .tooltip("チャートの列の幅")
+                    .mark("assign-width")
+                )
                 ui.button("キャンセル", on_click=self.cancel).props("flat").mark(
                     "assign-cancel"
                 )
@@ -979,8 +997,20 @@ class AssignScreen:
         self.refresh()
 
     def set_scale(self, scale: Scale) -> None:
+        """スケールを切り替える。幅の倍率は、そのスケールの初期値に戻る(要望 170)。"""
+        factor = DEFAULT_WIDTH_FACTOR[scale]
+        if self.chart is not None:
+            self.chart.options = replace(self.chart.options, width_factor=factor)
+        if self.width_toggle is not None:
+            self.width_toggle.set_value(
+                factor
+            )  # 倍率は上で適用済み(on_change は何もしない)
         if self.chart is not None:
             self.chart.set_scale(scale)
+
+    def set_width_factor(self, factor: int) -> None:
+        if self.chart is not None and factor != self.chart.options.width_factor:
+            self.chart.set_width_factor(factor)
 
     def confirm(self) -> None:
         self.close()
