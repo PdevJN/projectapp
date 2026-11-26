@@ -50,6 +50,7 @@ from projectapp.config import (
     load_dashboard_views,
     load_project_dir,
     load_name_width,
+    load_width_factor,
     load_task_sections,
     load_theme,
     load_zoom,
@@ -67,6 +68,7 @@ from projectapp.config import (
     save_dashboard_view_last,
     save_dashboard_views,
     save_name_width,
+    save_width_factor,
     save_project_dir,
     save_task_sections,
     save_theme,
@@ -641,6 +643,7 @@ class MainView:
                 move_task=self.move_task,
                 shift_task=self.shift_task,
                 set_name_width=self.set_name_width,
+                set_width_factor=self.set_width_factor,
                 add_subsection=self.add_subsection,
                 decompose_task=self.decompose_task,
                 bulk_edit=self.bulk_edit,
@@ -676,6 +679,7 @@ class MainView:
                 set_main_split=self.set_main_split,
             ),
             name_width=load_name_width(base_dir),
+            width_factor=load_width_factor(base_dir),
             main_split=self.main_split,
             open_ratio=self.open_ratio,
             fiscal_start_month=self.fiscal_start_month,
@@ -914,6 +918,13 @@ class MainView:
             save_name_width(width, self.base_dir)
         except OSError:
             ui.notify("名前の欄の幅を保存できませんでした", type="warning")
+
+    def set_width_factor(self, factor: int) -> None:
+        """列の幅の倍率を、アプリ全体の設定として保存する。プロジェクトのデータには入れない。"""
+        try:
+            save_width_factor(factor, self.base_dir)
+        except OSError:
+            ui.notify("列の幅の倍率を保存できませんでした", type="warning")
 
     def mark_clean(self) -> None:
         """いまの内容を、保存済み(または開いた直後)の状態として覚える。"""

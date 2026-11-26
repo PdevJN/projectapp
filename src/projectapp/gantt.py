@@ -50,6 +50,8 @@ from projectapp.config import (
     MAX_NAME_WIDTH_PX,
     MIN_MAIN_SPLIT,
     MIN_NAME_WIDTH_PX,
+    MAX_WIDTH_FACTOR,
+    MIN_WIDTH_FACTOR,
     parse_name_width,
 )
 from projectapp.decompose import decompose_block_reason
@@ -712,6 +714,9 @@ class GanttActions:
     set_name_width: Callable[
         [int], object
     ]  # 名前の欄の幅(px)。範囲に収めた整数。保存は受け取り側
+    set_width_factor: Callable[[int], object] = lambda factor: (
+        None
+    )  # 列の幅の倍率(1〜4。要望 170)。保存は受け取り側
     add_subsection: Callable[[SectionPath], object] = lambda path: (
         None
     )  # サブセクションの追加(親のセクションのパス)
@@ -823,8 +828,12 @@ class GanttChart:
         main_split: int = DEFAULT_MAIN_SPLIT,
         open_ratio: int = DEFAULT_OPEN_RATIO,
         fiscal_start_month: int = DEFAULT_FISCAL_START_MONTH,
+        width_factor: int = 1,
     ) -> None:
         self.project = project
+        self.main_width_factor = (
+            width_factor  # メインのチャートの列の幅の倍率(要望 170)
+        )
         self.main_split = main_split  # 畳んでいないときの、ガントチャートの割合(%)
         self.open_ratio = open_ratio  # 畳まれているとき、選択で開く割合(%)
         self.splitter: ui.splitter | None = None
@@ -1484,9 +1493,7 @@ class GanttChart:
         """今の位置から 7 日 × weeks だけ横にずらす(負は前)。"""
         if self.client is not None:
             self.run_js(
-                week_scroll_js(
-                    WEEK_PX[self.view_scale] * self.options.width_factor * weeks
-                )
+                week_scroll_js(WEEK_PX[self.view_scale] * self.width_factor * weeks)
             )
 
     def go_to_date(self, text: str) -> str | None:
@@ -1672,13 +1679,32 @@ class GanttChart:
     @property
     def column_px(self) -> int:
         """日付の列 1 つの幅(px)。スケールの幅に、アサイン画面の倍率を掛ける。"""
-        return COLUMN_WIDTH_PX[self.view_scale] * self.options.width_factor
+        return COLUMN_WIDTH_PX[self.view_scale] * self.width_factor
+
+    @property
+    def width_factor(self) -> int:
+        """今の描画の倍率。読み取り専用(アサイン画面の埋め込み・プレビュー)は`options`の値、通常はメインの設定。
+        プレビューと画像は、メインの設定にかかわらず ×1(`options`の既定)。"""
+        return (
+            self.options.width_factor
+            if self.options.read_only
+            else self.main_width_factor
+        )
 
     def set_width_factor(self, factor: int) -> None:
         """列の幅の倍率を変えて描き直す(アサイン画面。要望 170)。"""
         self.options = replace(self.options, width_factor=factor)
         self.render.refresh()
         self.scroll_to_left()
+
+    def set_main_width_factor(self, factor: int) -> None:
+        """メインのチャートの列の幅の倍率を変えて描き直し、保存を頼む(要望 170)。"""
+        if factor == self.main_width_factor:
+            return
+        self.main_width_factor = factor
+        self.actions.set_width_factor(factor)
+        self.render.refresh()
+        self.scroll_to_left()  # 列の幅が変わるので、横の位置は意味を持たない(縦は保つ)
 
     @property
     def view_scale(self) -> Scale:
@@ -1901,6 +1927,11 @@ class GanttChart:
                 value=self.scale,
                 on_change=lambda e: self.set_scale(Scale(e.value)),
             ).classes("shrink-0").mark("scale-toggle")
+            ui.toggle(
+                {f: f"×{f}" for f in range(MIN_WIDTH_FACTOR, MAX_WIDTH_FACTOR + 1)},
+                value=self.main_width_factor,
+                on_change=lambda e: self.set_main_width_factor(e.value),
+            ).props("dense").classes("shrink-0").tooltip("列の幅").mark("width-toggle")
             self.build_goto_dialog()
             with ui.column().classes(
                 "gap-0 shrink-0"

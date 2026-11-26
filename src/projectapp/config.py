@@ -168,6 +168,26 @@ def save_name_width(width: int, base_dir: Path = BASE_DIR) -> None:
     update_config({"name_width": width}, base_dir)
 
 
+MIN_WIDTH_FACTOR = 1
+MAX_WIDTH_FACTOR = 4
+
+
+def parse_width_factor(value: object) -> int | None:
+    """列の幅の倍率(要望 170)の検証。整数 1〜4(真偽値・小数・範囲外は None)。"""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if MIN_WIDTH_FACTOR <= value <= MAX_WIDTH_FACTOR else None
+
+
+def load_width_factor(base_dir: Path = BASE_DIR) -> int:
+    factor = parse_width_factor(read_config(base_dir).get("width_factor"))
+    return MIN_WIDTH_FACTOR if factor is None else factor
+
+
+def save_width_factor(factor: int, base_dir: Path = BASE_DIR) -> None:
+    update_config({"width_factor": factor}, base_dir)
+
+
 def parse_zoom(value: object) -> int | None:
     """画面の倍率(%)の検証。有限の数(真偽値でない)を、丸めて、範囲に収める。それ以外は None。"""
     if isinstance(value, bool) or not isinstance(value, int | float):
