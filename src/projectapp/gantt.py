@@ -182,6 +182,10 @@ FORECAST_CSS = """
 body.body--dark { --forecast: #90a4ae; }
 .forecast-line { border-top: 2px dotted var(--forecast); pointer-events: none; }
 .forecast-label { color: var(--forecast); font-size: 11px; white-space: nowrap; }
+/* アサイン画面の、試算前の完了予定(要望 171)。青。赤・黄・灰青・紫とは別系統 */
+:root { --compare-before: #1e88e5; }
+body.body--dark { --compare-before: #64b5f6; }
+.compare-before { border-left: 2px dashed var(--compare-before); pointer-events: auto; z-index: 2; }
 """
 
 
@@ -865,6 +869,8 @@ class GanttChart:
             str, TrialResult
         ] = {}  # 遅延対応の試算の結果(要望 132)
         self.note_ids: frozenset[str] = frozenset()  # メモのあるタスクの id(要望 150)
+        # アサイン画面だけが入れる、タスク id → 試算前の完了予定(要望 171)。空なら何も描かない
+        self.compare_marks: dict[str, datetime] = {}
         self.trial_pool_ids: frozenset[str] = (
             frozenset()
         )  # 棒のクリックで増員を切り替えられるタスクの id(要望 141)
@@ -3251,6 +3257,7 @@ class GanttChart:
                     )
                 elif self.options.show_alerts:
                     self.forecast_overlay(key, ti, task, columns, width, not extended)
+                self.compare_mark(key, ti, task.id, columns, width)
                 mark_left = self.marker_left(
                     task, columns, width, left * width + bar_width
                 )
@@ -3662,6 +3669,23 @@ class GanttChart:
             f"position: absolute; left: {from_name((span[0] + span[1]) * width + 4)};"
             f" top: {BAR_TOP_PX + 2}px"
         ).mark(f"forecast-label-{key}-{ti}")
+
+    def compare_mark(
+        self, key: int | str, ti: int, task_id: str, columns: list[Column], width: int
+    ) -> None:
+        """試算前の完了予定の位置に、棒を貫く青い縦の破線を引く(アサイン画面)。表示範囲の外なら描かない。"""
+        before = self.compare_marks.get(task_id)
+        if before is None:
+            return
+        span = bar_span(before, before, columns)
+        if span is None or not 0 <= span[0] <= len(columns):
+            return
+        ui.element("div").classes("compare-before").style(
+            f"position: absolute; left: {from_name(span[0] * width)};"
+            f" top: {BAR_TOP_PX - 4}px; height: {BAR_HEIGHT_PX + 8}px"
+        ).props(f'title="試算前の完了予定 {before:%m/%d}"').mark(
+            f"compare-before-{key}-{ti}"
+        )
 
     def trial_overlay(
         self,

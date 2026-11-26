@@ -1307,3 +1307,42 @@ async def test_width_factor_scales_the_column_width_and_resets_per_scale(
     screen.set_scale(Scale.DAY)  # 日次に戻ると ×1
     assert chart.column_px == COLUMN_WIDTH_PX[Scale.DAY]
     assert screen.width_toggle.value == 1
+
+
+async def test_the_compare_mark_is_hidden_right_after_opening(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.refresh()
+    await user.should_not_see(marker="compare-before-top-0")
+    assert screen.chart is not None and screen.chart.compare_marks == {}
+
+
+async def test_the_compare_mark_sits_on_the_end_before_the_trial(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.drop_member("鈴木", 0, None)
+    await user.should_see(marker="compare-before-top-0")
+    assert screen.chart is not None
+    task_id = screen.trial.task.id
+    assert screen.chart.compare_marks[task_id].date() == date(2026, 11, 24)
+    mark = user.find(marker="compare-before-top-0").elements.pop()
+    assert "11/24" in str(mark.props.get("title", ""))
+
+
+async def test_the_compare_mark_goes_away_when_the_member_is_removed(
+    user: User,
+) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.drop_member("鈴木", 0, None)
+    await user.should_see(marker="compare-before-top-0")
+    screen.remove_member_at("鈴木", 0, None)
+    await user.should_not_see(marker="compare-before-top-0")
+
+
+async def test_the_compare_mark_survives_a_scale_change(user: User) -> None:
+    screen, _ = await open_team_screen(user)
+    screen.now = lambda: datetime(2026, 11, 16, 9)
+    screen.drop_member("鈴木", 0, None)
+    screen.set_scale(Scale.WEEK)
+    await user.should_see(marker="compare-before-top-0")
