@@ -17,6 +17,9 @@ from projectapp.config import (
     load_dashboard_views,
     load_custom_theme,
     load_name_width,
+    load_width_factor,
+    parse_width_factor,
+    save_width_factor,
     load_project_dir,
     load_theme,
     parse_name_width,
@@ -694,3 +697,21 @@ def test_fiscal_start_month_defaults_to_october_and_round_trips(tmp_path: Path) 
     assert config.load_fiscal_start_month(tmp_path) == 4
     config.update_config({"fiscal_start_month": 99}, tmp_path)
     assert config.load_fiscal_start_month(tmp_path) == 10  # 壊れた値は既定
+
+
+@pytest.mark.parametrize("value", [1, 2, 3, 4])
+def test_parse_width_factor_accepts_1_to_4(value: int) -> None:
+    assert parse_width_factor(value) == value
+
+
+@pytest.mark.parametrize("value", [0, 5, -1, 1.5, 2.0, True, "2", None])
+def test_parse_width_factor_rejects_other_values(value: object) -> None:
+    assert parse_width_factor(value) is None
+
+
+def test_width_factor_defaults_saves_and_ignores_bad_values(tmp_path: Path) -> None:
+    assert load_width_factor(tmp_path) == 1
+    save_width_factor(3, tmp_path)
+    assert load_width_factor(tmp_path) == 3
+    (tmp_path / "config.json").write_text('{"width_factor": 9}')
+    assert load_width_factor(tmp_path) == 1

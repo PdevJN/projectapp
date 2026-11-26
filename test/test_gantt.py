@@ -135,6 +135,9 @@ class Recorder:
             set_name_width=lambda width: self.events.append(
                 ("set_name_width", (width,))
             ),
+            set_width_factor=lambda factor: self.events.append(
+                ("set_width_factor", (factor,))
+            ),
             add_subsection=lambda path: self.events.append(("add_subsection", (path,))),
             decompose_task=lambda path, ti: self.events.append(
                 ("decompose_task", (path, ti))
@@ -334,7 +337,7 @@ def test_today_line_colors_are_red_in_both_themes() -> None:
 async def test_week_scale_has_no_stripes_and_scales_bars(user: User) -> None:
     mount(sample_project())
     await user.open("/")
-    user.find(kind=ui.toggle).elements.pop().set_value(Scale.WEEK)
+    user.find(marker="scale-toggle").elements.pop().set_value(Scale.WEEK)
     await user.should_not_see(marker="stripes")
     await user.should_see("5~")
     assert header_cells(user)["2026-10-05"][0] == "5~"
@@ -346,7 +349,7 @@ async def test_week_scale_has_no_stripes_and_scales_bars(user: User) -> None:
 async def test_month_scale_labels(user: User) -> None:
     mount(sample_project())
     await user.open("/")
-    user.find(kind=ui.toggle).elements.pop().set_value(Scale.MONTH)
+    user.find(marker="scale-toggle").elements.pop().set_value(Scale.MONTH)
     await should_see_column(user, "2026-10-01")
     assert header_cells(user)["2026-10-01"][0] == "10月"
 
@@ -425,7 +428,7 @@ async def test_the_header_dates_are_one_html_element(user: User) -> None:
 async def test_header_cells_have_the_column_width_in_every_scale(user: User) -> None:
     mount(sample_project())
     await user.open("/")
-    toggle = user.find(kind=ui.toggle).elements.pop()
+    toggle = user.find(marker="scale-toggle").elements.pop()
     for scale in (Scale.DAY, Scale.WEEK, Scale.MONTH):
         toggle.set_value(scale)
         width = COLUMN_WIDTH_PX[scale]
@@ -450,7 +453,7 @@ def test_header_cell_escapes_the_text_and_has_no_weekday_line_unless_asked() -> 
 async def test_week_and_month_headers_have_no_weekday(user: User) -> None:
     mount(sample_project())
     await user.open("/")
-    toggle = user.find(kind=ui.toggle).elements.pop()
+    toggle = user.find(marker="scale-toggle").elements.pop()
     toggle.set_value(Scale.WEEK)
     await settles(
         user, lambda cells: "2026-10-05" in cells and cells["2026-10-05"][1] is None
@@ -509,7 +512,7 @@ async def test_top_level_tasks_come_before_sections(user: User) -> None:
 async def test_vertical_grid_lines_in_every_scale(user: User) -> None:
     mount(sample_project())
     await user.open("/")
-    toggle = user.find(kind=ui.toggle).elements.pop()
+    toggle = user.find(marker="scale-toggle").elements.pop()
     for scale, columns in ((Scale.DAY, 42), (Scale.WEEK, 26), (Scale.MONTH, 12)):
         toggle.set_value(scale)
         for _ in range(60):  # 再描画を待つ
@@ -570,7 +573,7 @@ async def test_day_scale_has_year_and_month_bands_merging_cells(user: User) -> N
 async def test_week_scale_has_month_band_and_month_scale_does_not(user: User) -> None:
     mount(sample_project())
     await user.open("/")
-    toggle = user.find(kind=ui.toggle).elements.pop()
+    toggle = user.find(marker="scale-toggle").elements.pop()
     toggle.set_value(Scale.WEEK)
     await user.should_see("5~")
     assert user.find(marker="month-band").elements
@@ -585,7 +588,7 @@ async def test_grid_layers_start_below_the_bands(user: User) -> None:
     await user.open("/")
     assert user.find(marker="gridlines").elements.pop()._style["top"] == "44px"
     assert user.find(marker="stripes").elements.pop()._style["top"] == "44px"
-    user.find(kind=ui.toggle).elements.pop().set_value(Scale.MONTH)
+    user.find(marker="scale-toggle").elements.pop().set_value(Scale.MONTH)
     await should_see_column(user, "2026-10-01")
     assert user.find(marker="gridlines").elements.pop()._style["top"] == "22px"
 
@@ -1309,7 +1312,7 @@ async def test_the_filter_survives_a_scale_change(user: User) -> None:
     charts, _ = mount_chart(filter_project())
     await user.open("/")
     charts[0].set_filter(TaskFilter(query="実"))
-    user.find(kind=ui.toggle).elements.pop().set_value(Scale.WEEK)
+    user.find(marker="scale-toggle").elements.pop().set_value(Scale.WEEK)
     await user.should_see(marker="task-0-1")
     await user.should_not_see(marker="task-0-0")
 
@@ -1953,7 +1956,7 @@ async def test_progress_css_is_added_to_the_page(user: User) -> None:
 async def test_actual_bar_follows_the_week_scale(user: User) -> None:
     mount(actual_project(Actual(datetime(2026, 10, 5, 0), datetime(2026, 10, 12, 0))))
     await user.open("/")
-    user.find(kind=ui.toggle).elements.pop().set_value(Scale.WEEK)
+    user.find(marker="scale-toggle").elements.pop().set_value(Scale.WEEK)
     await user.should_not_see(
         marker="stripes"
     )  # 週次に切り替わった(再描画の完了を待つ)
@@ -2838,7 +2841,7 @@ async def test_preview_scale_is_separate_from_the_toolbar_scale(user: User) -> N
     mount_with(sample_project(), ViewOptions(scale=Scale.WEEK))
     await user.open("/")
     assert (
-        user.find(kind=ui.toggle).elements.pop().value == Scale.DAY
+        user.find(marker="scale-toggle").elements.pop().value == Scale.DAY
     )  # ツールバーは変わらない
     bar = user.find(marker="bar-0-0").elements.pop()
     assert (
@@ -4215,7 +4218,7 @@ async def test_day_header_and_background_ignore_member_overrides(user: User) -> 
 async def test_no_work_day_mark_in_the_week_scale(user: User) -> None:
     mount(member_project())
     await user.open("/")
-    user.find(kind=ui.toggle).elements.pop().set_value(Scale.WEEK)
+    user.find(marker="scale-toggle").elements.pop().set_value(Scale.WEEK)
     for _ in range(10):  # 描き直しを待つ
         content = user.find(marker="label-row-cells").elements.pop().content
         if f"width:{COLUMN_WIDTH_PX[Scale.WEEK]}px" in content:
@@ -5334,3 +5337,20 @@ async def test_the_chart_draws_nothing_extra_by_default(user: User) -> None:
     mount_chart(sample_project())
     await user.open("/")
     await user.should_not_see(marker="extra-a")
+
+
+async def test_main_width_factor_scales_columns_and_reports_it(user: User) -> None:
+    """メインの幅の倍率は列の幅に掛かり、スケールを変えても保たれ、保存を頼む(要望 170)。"""
+    charts, recorder = mount_chart(sample_project())
+    await user.open("/")
+    chart = charts[0]
+    base = COLUMN_WIDTH_PX[chart.view_scale]
+    assert chart.column_px == base
+    chart.set_main_width_factor(3)
+    assert chart.column_px == base * 3
+    assert chart.width_factor == 3
+    assert recorder.events == [("set_width_factor", (3,))]
+    chart.set_scale(Scale.WEEK)
+    assert chart.column_px == COLUMN_WIDTH_PX[Scale.WEEK] * 3  # 倍率は保たれる
+    chart.options = ViewOptions(read_only=True)  # プレビュー・画像は ×1
+    assert chart.column_px == COLUMN_WIDTH_PX[chart.view_scale]
