@@ -596,6 +596,9 @@ class MainView:
         )
         self.history = History()  # 元に戻す・やり直しの履歴。保存しても残し、別のプロジェクトに切り替えると捨てる
         self.note_pane: NotePane | None = None  # タスクのメモの右ペイン(build で作る)
+        self.staged_notes: str | None = (
+            None  # CSV 取り込みで、保存前に書いたメモのフォルダ名(破棄するときに消す)
+        )
         self.note_trash: dict[
             str, str
         ] = {}  # 削除したタスクのメモ(元に戻すで書き戻す。メモリだけ)
@@ -1093,6 +1096,7 @@ class MainView:
         self, project: Project, path: Path | None, digest: str | None = None
     ) -> None:
         """別のプロジェクトに切り替える(開いたとき・新規作成のとき)。保存済みの状態から始める。"""
+        self.drop_staged_notes()  # 保存しなかった取り込みのメモは、ここで捨てる
         pending, self.pending_origin = self.pending_origin, None
         self.origin = (
             pending[0]
@@ -1252,15 +1256,39 @@ class MainView:
             save_csv_profile_last(choice.profile.name, self.base_dir)
         except OSError:
             pass  # 覚えられなくても、取り込みは続ける
-        for task_id, html in result.notes.items():
-            notes.save(
-                result.project.name, task_id, html
-            )  # 🗒️とペインが読めるように、先に書く
+        self.drop_staged_notes()  # 前の取り込みのメモと、名前を取り合わない
+        result.project.name = self.free_notes_name(stem)
+        failed = sum(  # 🗒️とペインが読めるように、先に書く
+            not notes.save(result.project.name, task_id, html)
+            for task_id, html in result.notes.items()
+        )
         self.show_project(result.project, None)
+        self.staged_notes = result.project.name if result.notes else None
         self.snapshot = history_log.dirty_key(
             Project(NEW_PROJECT_NAME)
         )  # 空の新規とは別物なので、未保存の扱いにする
         ui.notify(csv_import_summary(result))
+        if failed:
+            ui.notify(f"メモ {failed} 件を書けませんでした", type="warning")
+
+    def free_notes_name(self, stem: str) -> str:
+        """取り込み結果の仮の名前。ファイル名として使え、既存のプロジェクトにもメモのフォルダにも当たらない名前にする。"""
+        stem = stem.strip()
+        base = (
+            stem
+            if validate_name(stem, self.project_dir, new=True) is None
+            else NEW_PROJECT_NAME
+        )
+        name, count = base, 2
+        while notes.exists(name) or (self.project_dir / f"{name}.json").exists():
+            name, count = f"{base} ({count})", count + 1
+        return name
+
+    def drop_staged_notes(self) -> None:
+        """保存しなかった取り込みのメモのフォルダを消す。"""
+        staged, self.staged_notes = self.staged_notes, None
+        if staged is not None:
+            notes.remove_project(staged)
 
     def request_import_settings(self) -> None:
         """設定の取り込みを始める(ネイティブのみ)。プロジェクトは置き換えず、今のプロジェクトへ足すので、編集中でも確認しない。"""
@@ -2865,6 +2893,9 @@ class MainView:
             if self.note_pane is not None:
                 self.note_pane.flush()
             notes.copy_project(previous, name)
+            if self.staged_notes == previous and previous != name:
+                notes.remove_project(previous)  # 仮の名前のメモは、本来の名前へ移した
+            self.staged_notes = None  # 保存したので、もう破棄の対象ではない
             self.reset_history()  # 別のファイルになる。名前の変更を、次の編集の 1 ステップにしない
             return True
         self.project.name = previous
@@ -3911,6 +3942,7 @@ class MainView:
 
     def build(self) -> None:
         app.on_shutdown(self.flush_main_split)
+        app.on_shutdown(self.drop_staged_notes)
         ui.add_head_html(f'<script src="{HTML_TO_IMAGE_URL}"></script>')
         ui.add_css(HEADER_CSS)
         ui.add_css(ZOOM_FIT_CSS)
@@ -4715,6 +4747,22 @@ class MainView:
             except OSError:
                 pass
             return False
+        try:
+            notes.rename_project(old, new)  # 保存前でも、書いたメモは名前に付いてくる
+        except FileExistsError:
+            ui.notify(
+                "同じ名前のメモのフォルダが残っています。名前を変えませんでした",
+                type="negative",
+            )
+            return False
+        except OSError as exc:
+            ui.notify(
+                f"メモを移せなかったため、名前を変えませんでした: {exc}",
+                type="negative",
+            )
+            return False
+        if self.staged_notes == old:
+            self.staged_notes = new
         self.project.name = new
         self.title.refresh()
         return True

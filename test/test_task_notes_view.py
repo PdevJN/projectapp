@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from nicegui import ui
 from nicegui.testing import User
 
@@ -9,6 +10,7 @@ from projectapp import notes
 from projectapp.csv_dialog import ImportChoice
 from projectapp.csv_profile import CsvColumn, CsvField, CsvProfile
 from projectapp.models import Section, Task
+from projectapp.views import MainView
 from test_views import open_dashboard_view
 
 
@@ -400,3 +402,115 @@ async def test_the_csv_import_writes_the_notes_before_showing_the_project(
     task = view.project.all_tasks()[0]
     assert notes.load(view.project.name, task.id) == "<p>経緯</p><p>詳細</p>"
     assert task.id in view.gantt.note_ids
+
+
+CSV_PROFILE = CsvProfile(
+    "メモ付き",
+    (*NOTE_PROFILE.columns, CsvColumn(CsvField.PROGRESS, "進捗")),
+    delimiter="\t",
+)
+CSV_TEXT = "タスク名\tメモ\t進捗\n設計\t経緯\t0\n"
+
+
+def import_csv(view: MainView, stem: str) -> None:
+    view.apply_csv_import(ImportChoice(CSV_PROFILE, "\t", 0, "utf-8"), CSV_TEXT, stem)
+
+
+async def test_the_csv_import_does_not_mix_into_an_existing_projects_notes(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    (tmp_path / "既存.json").write_text("{}", encoding="utf-8")
+    notes.save("既存", "a1b2c3d4", "<p>元のメモ</p>")
+    with user.client:
+        import_csv(view, "既存")
+    assert view.project.name != "既存"
+    task = view.project.all_tasks()[0]
+    assert notes.load(view.project.name, task.id) == "<p>経緯</p>"
+    assert notes.note_ids("既存") == frozenset({"a1b2c3d4"})
+
+
+async def test_the_csv_import_keeps_the_notes_when_the_stem_is_not_a_valid_name(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    with user.client:
+        import_csv(view, "a/b")
+    task = view.project.all_tasks()[0]
+    assert notes.load(view.project.name, task.id) == "<p>経緯</p>"
+    assert task.id in view.gantt.note_ids
+
+
+async def test_discarding_the_imported_project_removes_its_notes(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    with user.client:
+        import_csv(view, "取り込み")
+    assert notes.exists("取り込み")
+    with user.client:
+        view.new_project()
+    assert not notes.exists("取り込み")
+
+
+async def test_importing_again_removes_the_previous_staged_notes(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    with user.client:
+        import_csv(view, "一回目")
+        import_csv(view, "二回目")
+    assert not notes.exists("一回目")
+    assert notes.exists("二回目")
+
+
+async def test_saving_the_imported_project_under_another_name_moves_the_notes(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    with user.client:
+        import_csv(view, "取り込み")
+    task = view.project.all_tasks()[0]
+    with user.client:
+        assert view.save_as_new("正式名")
+    assert notes.load("正式名", task.id) == "<p>経緯</p>"
+    assert not notes.exists("取り込み")
+
+
+async def test_saving_the_imported_project_under_the_same_name_keeps_the_notes(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    with user.client:
+        import_csv(view, "取り込み")
+    task = view.project.all_tasks()[0]
+    with user.client:
+        assert view.save_as_new("取り込み")
+        view.new_project()  # 保存したあとは、破棄の対象にならない
+    assert notes.load("取り込み", task.id) == "<p>経緯</p>"
+
+
+async def test_renaming_the_unsaved_imported_project_moves_the_notes(
+    user: User, tmp_path: Path
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    with user.client:
+        import_csv(view, "取り込み")
+    task = view.project.all_tasks()[0]
+    with user.client:
+        assert view.rename_project("改名")
+    assert notes.load("改名", task.id) == "<p>経緯</p>"
+    assert not notes.exists("取り込み")
+    with user.client:
+        view.new_project()
+    assert not notes.exists("改名")  # 改名しても、破棄の対象のまま
+
+
+async def test_the_csv_import_tells_how_many_notes_could_not_be_written(
+    user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    view = await open_dashboard_view(user, tmp_path)
+    monkeypatch.setattr(notes, "save", lambda *args: False)
+    with user.client:
+        import_csv(view, "取り込み")
+    await user.should_see("メモ 1 件を書けませんでした")
